@@ -1,0 +1,4 @@
+# requirements.txt
+pandas>=1.3.0
+yfinance>=0.2.0
+requests>=2.25.0

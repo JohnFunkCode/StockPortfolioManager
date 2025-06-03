@@ -45,4 +45,24 @@ class Money:
             raise ConnectionError("Failed to fetch exchange rates.")
 
     def __repr__(self):
-        return f"{self.currency} {self.amount:.2f}"
+        symbol = self._get_currency_symbol()
+        if symbol == self.currency:  # If no special symbol was found
+            return f"{self.currency} {self.amount:,.2f}"
+        else:
+            return f"{symbol}{self.amount:,.2f}"
+
+    def _get_currency_symbol(self) -> str:
+        """Get the currency symbol for the current currency."""
+        symbols = {
+            "USD": "$",
+            "EUR": "€",
+            "GBP": "£",
+            "JPY": "¥",
+            "CAD": "CA$",
+            "AUD": "A$",
+            "CHF": "CHF",
+            "CNY": "¥",
+            "INR": "₹",
+            "BRL": "R$"
+        }
+        return symbols.get(self.currency, self.currency)

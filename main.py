@@ -207,6 +207,88 @@ if __name__ == "__main__":
     # plt.tight_layout()
     # plt.show()
 
+    # # Overlay pie chart with proportional radii
+    # labels = []
+    # purchase_values = []
+    # current_values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     purchase_value = (stock.purchase_price * stock.quantity).amount
+    #     purchase_values.append(float(purchase_value))
+    #     current_value = stock.get_current_value()
+    #     current_values.append(float(current_value.amount) if current_value else 0)
+    #
+    # # Calculate totals and proportional radii
+    # total_purchase = sum(purchase_values)
+    # total_current = sum(current_values)
+    # max_total = max(total_purchase, total_current)
+    # radius_current = 1.0  # background (full size)
+    # radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1  # foreground
+    #
+    # fig, ax = plt.subplots(figsize=(8, 8))
+    #
+    # # Plot current value (background)
+    # wedges_current, _ = ax.pie(
+    #     current_values,
+    #     labels=None,
+    #     autopct=None,
+    #     startangle=140,
+    #     radius=radius_current,
+    #     colors=plt.cm.Blues(np.linspace(0.5, 1, len(current_values))),
+    #     wedgeprops=dict(width=radius_current, alpha=0.5)
+    # )
+    #
+    # # Plot purchase value (foreground)
+    # wedges_purchase, texts, autotexts = ax.pie(
+    #     purchase_values,
+    #     labels=labels,
+    #     autopct='%1.1f%%',
+    #     startangle=140,
+    #     radius=radius_purchase,
+    #     colors=plt.cm.Oranges(np.linspace(0.5, 1, len(purchase_values))),
+    #     wedgeprops=dict(width=radius_purchase, edgecolor='w')
+    # )
+    #
+    # ax.set_title(
+    #     f"Overlay: Initial Purchase (front, orange, total ${total_purchase:,.2f})\n"
+    #     f"Current Value (back, blue, total ${total_current:,.2f})"
+    # )
+    # ax.axis('equal')
+    # plt.tight_layout()
+    # plt.show()
+    #
+    # # Stacked bar chart of purchase vs current value
+    # import matplotlib.pyplot as plt
+    # import numpy as np
+    #
+    # labels = []
+    # purchase_values = []
+    # current_values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     purchase_value = (stock.purchase_price * stock.quantity).amount
+    #     purchase_values.append(float(purchase_value))
+    #     current_value = stock.get_current_value()
+    #     current_values.append(float(current_value.amount) if current_value else 0)
+    #
+    # # Calculate gain/loss for stacking
+    # gain_loss = [curr - purch for curr, purch in zip(current_values, purchase_values)]
+    #
+    # x = np.arange(len(labels))
+    #
+    # fig, ax = plt.subplots(figsize=(10, 6))
+    # ax.bar(x, purchase_values, label="Purchase Value")
+    # ax.bar(x, gain_loss, bottom=purchase_values, label="Gain/Loss (Current - Purchase)")
+    #
+    # ax.set_xticks(x)
+    # ax.set_xticklabels(labels, rotation=45, ha="right")
+    # ax.set_ylabel("Value ($)")
+    # ax.set_title("Stock Purchase vs Current Value (Stacked Bar)")
+    # ax.legend()
+    # plt.tight_layout()
+    # plt.show()
+    import matplotlib.pyplot as plt
+    import numpy as np
 
     labels = []
     purchase_values = []
@@ -218,17 +300,35 @@ if __name__ == "__main__":
         current_value = stock.get_current_value()
         current_values.append(float(current_value.amount) if current_value else 0)
 
-    # Calculate totals and proportional radii
+    # Pie chart data
     total_purchase = sum(purchase_values)
     total_current = sum(current_values)
     max_total = max(total_purchase, total_current)
-    radius_current = 1.0  # background (full size)
-    radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1  # foreground
+    radius_current = 1.0
+    radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1
 
-    fig, ax = plt.subplots(figsize=(8, 8))
+    # Bar chart data
+    gain_loss = [curr - purch for curr, purch in zip(current_values, purchase_values)]
+    x = np.arange(len(labels))
 
-    # Plot current value (background)
-    wedges_current, _ = ax.pie(
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
+
+    # Stacked bar chart (left)
+    bars_purchase = ax1.bar(x, purchase_values, label="Purchase Value")
+    bars_gain_loss = ax1.bar(x, gain_loss, bottom=purchase_values, label="Gain/Loss (Current - Purchase)")
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, rotation=45, ha="right")
+    ax1.set_ylabel("Value ($)")
+    ax1.set_title("Stock Purchase vs Current Value (Stacked Bar)")
+    ax1.legend()
+
+    # Add value labels inside the bars
+    ax1.bar_label(bars_purchase, labels=[f"${v:,.2f}" for v in purchase_values], label_type="center", fontsize=10)
+    ax1.bar_label(bars_gain_loss, labels=[f"${v:,.2f}" for v in gain_loss], label_type="center", fontsize=10)
+
+    # Overlayed pie chart (right)
+    wedges_current, _ = ax2.pie(
         current_values,
         labels=None,
         autopct=None,
@@ -237,9 +337,7 @@ if __name__ == "__main__":
         colors=plt.cm.Blues(np.linspace(0.5, 1, len(current_values))),
         wedgeprops=dict(width=radius_current, alpha=0.5)
     )
-
-    # Plot purchase value (foreground)
-    wedges_purchase, texts, autotexts = ax.pie(
+    wedges_purchase, texts, autotexts = ax2.pie(
         purchase_values,
         labels=labels,
         autopct='%1.1f%%',
@@ -248,11 +346,11 @@ if __name__ == "__main__":
         colors=plt.cm.Oranges(np.linspace(0.5, 1, len(purchase_values))),
         wedgeprops=dict(width=radius_purchase, edgecolor='w')
     )
-
-    ax.set_title(
-        f"Overlay: Purchase (front, orange, total ${total_purchase:,.2f})\n"
-        f"Current (back, blue, total ${total_current:,.2f})"
+    ax2.set_title(
+        f"Overlay: Initial Purchase (front, orange, total ${total_purchase:,.2f})\n"
+        f"Current Value (back, blue, total ${total_current:,.2f})"
     )
-    ax.axis('equal')
+    ax2.axis('equal')
+
     plt.tight_layout()
     plt.show()

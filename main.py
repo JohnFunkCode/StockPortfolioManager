@@ -314,8 +314,8 @@ if __name__ == "__main__":
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
 
     # Stacked bar chart (left)
-    bars_purchase = ax1.bar(x, purchase_values, label="Purchase Value")
-    bars_gain_loss = ax1.bar(x, gain_loss, bottom=purchase_values, label="Gain/Loss (Current - Purchase)")
+    bars_purchase = ax1.bar(x, purchase_values, label="Purchase Value", color="orange")
+    bars_gain_loss = ax1.bar(x, gain_loss, bottom=purchase_values, label="Gain/Loss (Current - Purchase)", color="green")
 
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels, rotation=45, ha="right")
@@ -334,7 +334,7 @@ if __name__ == "__main__":
         autopct=None,
         startangle=140,
         radius=radius_current,
-        colors=plt.cm.Blues(np.linspace(0.5, 1, len(current_values))),
+        colors=plt.cm.Greens(np.linspace(0.5, 1, len(current_values))),
         wedgeprops=dict(width=radius_current, alpha=0.5)
     )
     wedges_purchase, texts, autotexts = ax2.pie(

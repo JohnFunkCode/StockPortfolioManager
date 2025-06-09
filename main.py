@@ -4,6 +4,9 @@ import csv
 from datetime import datetime
 import stock_portfolio_manager as spm
 from pathlib import Path
+import matplotlib.pyplot as plt
+import numpy as np
+
 
 def read_stocks_from_csv(file_path):
     """
@@ -108,3 +111,148 @@ if __name__ == "__main__":
 
     # Example of converting total values to another currency
     # print(f"\nPortfolio value in EUR: {portfolio.get_total_current_value('EUR')}")
+
+    # # Plot portfolio starting value
+    # labels = []
+    # values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     total_value = (stock.purchase_price * stock.quantity).amount
+    #     values.append(float(total_value))
+    #
+    # # Create pie chart
+    # plt.figure(figsize=(8, 8))
+    # plt.pie(values, labels=labels, autopct='%1.1f%%', startangle=140)
+    # plt.title("Portfolio Distribution by Purchase Value")
+    # plt.axis('equal')
+    # plt.show()
+    #
+    # # Plot the current value of each stock
+    # # Pie chart: Portfolio distribution by current value
+    # labels = []
+    # current_values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     current_value = stock.get_current_value()
+    #     current_values.append(float(current_value.amount) if current_value else 0)
+    #
+    # plt.figure(figsize=(8, 8))
+    # plt.pie(current_values, labels=labels, autopct='%1.1f%%', startangle=140)
+    # plt.title("Portfolio Distribution by Current Value")
+    # plt.axis('equal')
+    # plt.show()
+
+    # # Prepare data for both pie charts
+    # labels = []
+    # purchase_values = []
+    # current_values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     purchase_value = (stock.purchase_price * stock.quantity).amount
+    #     purchase_values.append(float(purchase_value))
+    #     current_value = stock.get_current_value()
+    #     current_values.append(float(current_value.amount) if current_value else 0)
+    #
+    # plt.figure(figsize=(16, 6))
+    #
+    # # Pie chart for purchase value
+    # plt.subplot(1, 2, 1)
+    # plt.pie(purchase_values, labels=labels, autopct='%1.1f%%', startangle=140)
+    # plt.title("Portfolio Distribution by Purchase Value")
+    # plt.axis('equal')
+    #
+    # # Pie chart for current value
+    # plt.subplot(1, 2, 2)
+    # plt.pie(current_values, labels=labels, autopct='%1.1f%%', startangle=140)
+    # plt.title("Portfolio Distribution by Current Value")
+    # plt.axis('equal')
+    #
+    # plt.tight_layout()
+    # plt.show()
+
+    # two pie charts with proportional radii
+    # import numpy as np
+    #
+    # labels = []
+    # purchase_values = []
+    # current_values = []
+    # for stock in portfolio.list_stocks():
+    #     labels.append(f"{stock.name} ({stock.symbol})")
+    #     purchase_value = (stock.purchase_price * stock.quantity).amount
+    #     purchase_values.append(float(purchase_value))
+    #     current_value = stock.get_current_value()
+    #     current_values.append(float(current_value.amount) if current_value else 0)
+    #
+    # # Calculate totals and proportional radii
+    # total_purchase = sum(purchase_values)
+    # total_current = sum(current_values)
+    # max_total = max(total_purchase, total_current)
+    # radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1
+    # radius_current = np.sqrt(total_current / max_total) if max_total > 0 else 1
+    #
+    # plt.figure(figsize=(16, 6))
+    #
+    # # Pie chart for purchase value
+    # plt.subplot(1, 2, 1)
+    # plt.pie(purchase_values, labels=labels, autopct='%1.1f%%', startangle=140, radius=radius_purchase)
+    # plt.title(f"Portfolio Distribution by Purchase Value\nTotal: ${total_purchase:,.2f}")
+    # plt.axis('equal')
+    #
+    # # Pie chart for current value
+    # plt.subplot(1, 2, 2)
+    # plt.pie(current_values, labels=labels, autopct='%1.1f%%', startangle=140, radius=radius_current)
+    # plt.title(f"Portfolio Distribution by Current Value\nTotal: ${total_current:,.2f}")
+    # plt.axis('equal')
+    #
+    # plt.tight_layout()
+    # plt.show()
+
+
+    labels = []
+    purchase_values = []
+    current_values = []
+    for stock in portfolio.list_stocks():
+        labels.append(f"{stock.name} ({stock.symbol})")
+        purchase_value = (stock.purchase_price * stock.quantity).amount
+        purchase_values.append(float(purchase_value))
+        current_value = stock.get_current_value()
+        current_values.append(float(current_value.amount) if current_value else 0)
+
+    # Calculate totals and proportional radii
+    total_purchase = sum(purchase_values)
+    total_current = sum(current_values)
+    max_total = max(total_purchase, total_current)
+    radius_current = 1.0  # background (full size)
+    radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1  # foreground
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+
+    # Plot current value (background)
+    wedges_current, _ = ax.pie(
+        current_values,
+        labels=None,
+        autopct=None,
+        startangle=140,
+        radius=radius_current,
+        colors=plt.cm.Blues(np.linspace(0.5, 1, len(current_values))),
+        wedgeprops=dict(width=radius_current, alpha=0.5)
+    )
+
+    # Plot purchase value (foreground)
+    wedges_purchase, texts, autotexts = ax.pie(
+        purchase_values,
+        labels=labels,
+        autopct='%1.1f%%',
+        startangle=140,
+        radius=radius_purchase,
+        colors=plt.cm.Oranges(np.linspace(0.5, 1, len(purchase_values))),
+        wedgeprops=dict(width=radius_purchase, edgecolor='w')
+    )
+
+    ax.set_title(
+        f"Overlay: Purchase (front, orange, total ${total_purchase:,.2f})\n"
+        f"Current (back, blue, total ${total_current:,.2f})"
+    )
+    ax.axis('equal')
+    plt.tight_layout()
+    plt.show()

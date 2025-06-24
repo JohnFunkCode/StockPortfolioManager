@@ -82,11 +82,11 @@ def fig_to_base64(fig):
 def create_portfolio_html(portfolio):
     """Create HTML content for the portfolio"""
     # Get current date and time
-    current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_datetime = datetime.now().strftime("%Y-%m-%d at %-I:%M%p").lower()
 
     # Portfolio summary data
     total_investment = portfolio.get_total_investment()
-    total_current = portfolio.get_total_current_value()
+    total_current_value = portfolio.get_total_current_value()
     total_gain_loss = portfolio.get_total_gain_loss()
     total_gain_loss_pct = portfolio.get_total_gain_loss_percentage()
 
@@ -202,7 +202,7 @@ def create_portfolio_html(portfolio):
         <div class="summary">
             <h2>Portfolio Summary</h2>
             <p><strong>Total Investment:</strong> {total_investment}</p>
-            <p><strong>Total Current Value:</strong> {total_current}</p>
+            <p><strong>Total Current Value:</strong> {total_current_value}</p>
             <p><strong>Total Gain/Loss:</strong> <span class="{'gain' if float(total_gain_loss.amount) >= 0 else 'loss'}">{total_gain_loss}</span></p>
             <p><strong>Total Gain/Loss %:</strong> <span class="{'gain' if total_gain_loss_pct >= 0 else 'loss'}">{total_gain_loss_pct:.2f}%</span></p>
         </div>

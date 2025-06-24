@@ -173,11 +173,11 @@ def create_portfolio_html(portfolio):
     template = env.get_template("portfolio_template.html")
 
     # Get current date and time
-    current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_datetime = datetime.now().strftime("%Y-%m-%d at %-I:%M%p").lower()
 
     # Portfolio summary data
     total_investment = portfolio.get_total_investment()
-    total_current = portfolio.get_total_current_value()
+    total_current_value = portfolio.get_total_current_value()
     total_gain_loss = portfolio.get_total_gain_loss()
     total_gain_loss_pct = portfolio.get_total_gain_loss_percentage()
 
@@ -204,7 +204,7 @@ def create_portfolio_html(portfolio):
     return template.render(
         current_datetime=current_datetime,
         total_investment=total_investment,
-        total_current=total_current,
+        total_current=total_current_value,
         total_gain_loss=total_gain_loss,
         total_gain_loss_pct=total_gain_loss_pct,
         stock_details=stock_details,
@@ -236,7 +236,7 @@ def create_template_file(template_path):
      </style>
  </head>
  <body>
-     <h1>Stock Portfolio Report Created on {{ current_datetime }}<span class="datetime"></span></h1>
+     <h1>Stock Portfolio Report created on {{ current_datetime }}<span class="datetime"></span></h1>
  
      <div class="summary">
          <h2>Portfolio Summary</h2>

@@ -35,24 +35,20 @@ Alphabet Inc Class C,GOOG,125.23,5,2023-07-21,USD,,,
 ### Example Output
 
 ```
-Stock: Apple Inc (AAPL)
-Purchase Price: USD 150.82
-Current Price: USD 182.74
-Quantity: 10
-Gain/Loss: USD 319.20
-Gain/Loss %: 21.16%
+Stock Portfolio Report created on 2025-06-27 at 8:33pm
 
-Stock: Alphabet Inc Class C (GOOG)
-Purchase Price: USD 125.23
-Current Price: USD 178.05
-Quantity: 5
-Gain/Loss: USD 264.10
-Gain/Loss %: 42.18%
+Portfolio Summary
+Total Investment: $49,236.00
+Total Current Value: $60,269.00
+Total Gain/Loss: $11,033.00
+Total Gain/Loss %: 22.41%
 
-Total Invested: USD 2134.35
-Total Portfolio Current Value: USD 2717.65
-Total Portfolio Gain/Loss: USD 583.30
-Total Portfolio Gain/Loss %: 27.33%
+Individual Stock Details
+Name	             Symbol	Purchase Price	 Current Price	Quantity	Gain/Loss	Gain/Loss %
+Apple Inc	         AAPL	$169.82	         $201.10	    100	        $3128.00	18.42%
+Alphabet Inc Class C GOOG	$153.57	         $178.38	    100	        $2481.00	16.16%
+Amazon.com Inc	     AMZN	$168.97	         $223.21	    100	        $5424.00	32.10%
+
 ```
 
 ## Installation
@@ -75,16 +71,11 @@ Total Portfolio Gain/Loss %: 27.33%
 ### Basic Portfolio Analysis
 
 Run the main application:
-```
-python main.py
-```
-
-### Generating HTML Reports
-
 The application can generate detailed HTML reports with portfolio performance metrics and timestamps in 12-hour format:
 
 ```
-python generate_report.py
+python main.py
+
 ```
 
 ## Project Structure

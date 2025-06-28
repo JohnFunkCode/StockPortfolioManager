@@ -263,7 +263,7 @@ if __name__ == "__main__":
     script_dir = Path(__file__).parent
 
     # Read stocks from CSV file
-    csv_file = script_dir / "stocks.csv"
+    csv_file = script_dir / "sample_stocks.csv"
     stocks = read_stocks_from_csv(csv_file)
 
     if not stocks:

@@ -1,10 +1,10 @@
 import unittest
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pandas as pd
-from money import Money
-import stock_portfolio_manager as spm
+from portfolio.money import Money
+from portfolio import stock_portfolio_manager as spm
 
 
 class TestStockPortfolioManager(unittest.TestCase):

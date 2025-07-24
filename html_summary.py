@@ -2,7 +2,7 @@
 
 import csv
 from datetime import datetime
-import stock_portfolio_manager as spm
+from portfolio import stock_portfolio_manager as spm
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np

@@ -4,6 +4,9 @@ from typing import Optional, Dict, List
 import yfinance as yf
 import pandas as pd
 from money import Money
+from datetime import datetime
+import csv
+
 
 
 def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Optional[Money]]:
@@ -63,7 +66,11 @@ class Stock:
         currency: str = "USD",
         sale_price: Optional[float] = None,
         sale_date: Optional[date] = None,
-        current_price: Optional[float] = None
+        current_price: Optional[float] = None,
+        five_day_moving_average: Optional[float] = None,
+        five_day_return: Optional[float] = None,
+        thirty_day_moving_average: Optional[float] = None,
+        thirty_day_return: Optional[float] = None
     ):
         self.name = name
         self.symbol = symbol
@@ -180,3 +187,62 @@ class Portfolio:
     def list_stocks(self) -> List[Stock]:
         """Return a list of all stocks in the portfolio"""
         return list(self.stocks.values())
+
+    def read_stocks_from_csv(self, file_path) -> List[Stock]:
+        """
+        Read stock data from a CSV file and return a list of Stock objects.
+
+        Expected CSV format:
+        name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price
+        """
+        try:
+            with open(file_path, 'r', newline='') as csvfile:
+                reader = csv.DictReader(csvfile)
+
+                for row in reader:
+                    # Parse required fields
+                    name = row['name']
+                    symbol = row['symbol']
+                    purchase_price = float(row['purchase_price'])
+                    quantity = int(row['quantity'])
+                    purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d').date()
+
+                    # Parse optional fields
+                    currency = row.get('currency', 'USD')
+
+                    sale_price = None
+                    if row.get('sale_price') and row['sale_price'].strip():
+                        sale_price = float(row['sale_price'])
+
+                    sale_date = None
+                    if row.get('sale_date') and row['sale_date'].strip():
+                        sale_date = datetime.strptime(row['sale_date'], '%Y-%m-%d').date()
+
+                    current_price = None
+                    if row.get('current_price') and row['current_price'].strip():
+                        current_price = float(row['current_price'])
+
+                    # Create Stock object
+                    stock = Stock(
+                        name=name,
+                        symbol=symbol,
+                        purchase_price=purchase_price,
+                        quantity=quantity,
+                        purchase_date=purchase_date,
+                        currency=currency,
+                        sale_price=sale_price,
+                        sale_date=sale_date,
+                        current_price=current_price
+                    )
+                    self.add_stock(stock)
+                return self.stocks
+
+        except FileNotFoundError:
+            print(f"Error: File '{file_path}' not found.")
+            return []
+        except (KeyError, ValueError) as e:
+            print(f"Error parsing CSV data: {e}")
+            return []
+
+    def foo(self):
+        return "foo"

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
+import csv
 from datetime import datetime
-from portfolio import stock_portfolio_manager as spm
+import stock_portfolio_manager as spm
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -310,6 +311,31 @@ def create_template_file(template_path):
     with open(template_path, 'w') as f:
         f.write(template_content)
 
+
+def save_html_to_s3(html_content):
+    """Save HTML content directly to S3 without writing to file system"""
+    import boto3
+
+    # Initialize S3 client
+    s3 = boto3.client('s3')
+
+    # Get bucket and key for the HTML file from the environment variables
+    load_dotenv()
+    bucket_name = os.environ.get("BUCKET_NAME")
+    key = os.environ.get("BUCKET_KEY")
+
+    # Upload HTML content directly to S3
+    s3.put_object(
+        Bucket=bucket_name,
+        Key=key,
+        Body=html_content,
+        ContentType='text/html',
+        CacheControl='no-store,no-cache,private,max-age=60'
+    )
+
+    print(f"Portfolio report uploaded to S3: s3://{bucket_name}/{key}")
+    return f"https://www.{bucket_name}/{key}"
+
 if __name__ == "__main__":
     # Create a portfolio
     portfolio = spm.Portfolio()
@@ -333,20 +359,23 @@ if __name__ == "__main__":
 
     # Update current prices
     portfolio.update_all_prices()
-    portfolio.update_metrics()
 
     # Create HTML report
     html_content = create_portfolio_html(portfolio)
+
+    # Save HTML to S3
+    s3_url = save_html_to_s3(html_content)
 
     # Write HTML to file
     html_file = script_dir / "portfolio_report.html"
     with open(html_file, 'w') as f:
         f.write(html_content)
 
+
+
     # Open HTML in default browser
-    webbrowser.open('file://' + os.path.abspath(html_file))
+    # webbrowser.open('file://' + os.path.abspath(html_file))
+    webbrowser.open(s3_url)
+
 
     print(f"Portfolio report generated and opened in your browser: {html_file}")
-
-    notifier = Notifier(portfolio)
-    notifier.calculate_and_send_notifications()

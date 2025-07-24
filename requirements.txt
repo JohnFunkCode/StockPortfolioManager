@@ -4,3 +4,4 @@ yfinance>=0.2.0
 requests>=2.25.0
 matplotlib>=3.10.3
 python-dotenv>=1.1.1
+boto3>=1.39.13

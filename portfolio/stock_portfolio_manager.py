@@ -1,12 +1,13 @@
-from dataclasses import dataclass
-from datetime import date
 from typing import Optional, Dict, List
+
+import pandas
 import yfinance as yf
 import pandas as pd
-from money import Money
 from datetime import datetime
 import csv
-
+from portfolio.stock import Stock
+from portfolio.money import Money
+from portfolio.metrics import Metrics, get_historical_metrics
 
 
 def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Optional[Money]]:
@@ -31,6 +32,13 @@ def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Op
             for sym in symbols:
                 try:
                     price_value = float(data["Close"][sym].iloc[-1])
+                    if( pd.isna(price_value) ):
+                        # If the last price is NaN, loop through previous prices to find a valid price
+                        index = len(data["Close"][sym]) - 1
+                        while( pd.isna(price_value) and index > 0):
+                            index -= 1
+                            price_value= float(data["Close"][sym].iloc[index])
+                    assert not pd.isna(price_value), f"yFinance returned all prices as NaN for the symbol {sym}!"
                     prices[sym] = Money(price_value, currency)
                 except KeyError:
                     pass
@@ -43,72 +51,6 @@ def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Op
                 pass
 
     return prices
-
-
-@dataclass
-class Stock:
-    name: str
-    symbol: str
-    quantity: int
-    purchase_price: Money
-    purchase_date: date
-    sale_price: Optional[Money] = None
-    sale_date: Optional[date] = None
-    current_price: Optional[Money] = None
-
-    def __init__(
-        self,
-        name: str,
-        symbol: str,
-        quantity: int,
-        purchase_price: float,
-        purchase_date: date,
-        currency: str = "USD",
-        sale_price: Optional[float] = None,
-        sale_date: Optional[date] = None,
-        current_price: Optional[float] = None,
-        five_day_moving_average: Optional[float] = None,
-        five_day_return: Optional[float] = None,
-        thirty_day_moving_average: Optional[float] = None,
-        thirty_day_return: Optional[float] = None
-    ):
-        self.name = name
-        self.symbol = symbol
-        self.quantity = quantity
-        self.purchase_price = Money(purchase_price, currency)
-        self.purchase_date = purchase_date
-        self.sale_price = Money(sale_price, currency) if sale_price is not None else None
-        self.sale_date = sale_date
-        self.current_price = Money(current_price, currency) if current_price is not None else None
-
-    def update_current_price(self) -> None:
-        """Update the current price using yfinance"""
-        prices = get_latest_prices([self.symbol], self.purchase_price.currency)
-        self.current_price = prices[self.symbol]
-
-    def calculate_gain_loss(self) -> Optional[Money]:
-        """Calculate the gain/loss based on purchase and current/sale price"""
-        if self.sale_price is not None:
-            return (self.sale_price - self.purchase_price) * self.quantity
-        elif self.current_price is not None:
-            return (self.current_price - self.purchase_price) * self.quantity
-        return None
-
-    def calculate_gain_loss_percentage(self) -> Optional[float]:
-        """Calculate the gain/loss percentage"""
-        gain_loss = self.calculate_gain_loss()
-        if gain_loss is not None:
-            total_cost = self.purchase_price * self.quantity
-            return (gain_loss.amount / total_cost.amount) * 100
-        return None
-
-    def get_current_value(self) -> Optional[Money]:
-        """Calculate the current total value of the stock holding"""
-        if self.sale_price is not None:
-            return self.sale_price * self.quantity
-        elif self.current_price is not None:
-            return self.current_price * self.quantity
-        return None
 
 
 class Portfolio:
@@ -131,8 +73,13 @@ class Portfolio:
 
     def update_all_prices(self) -> None:
         """Update current prices for all stocks in the portfolio"""
+        symbols = list()
         for stock in self.stocks.values():
-            stock.update_current_price()
+            symbols.append(stock.symbol)
+
+        prices = get_latest_prices(symbols, self.default_currency)
+        for stock in self.stocks.values():
+            stock.current_price = prices[stock.symbol] if stock.symbol in prices else None
 
     def get_total_investment(self, currency: str = None) -> Money:
         """Calculate the total investment (sum of purchase prices) in the portfolio"""
@@ -187,6 +134,12 @@ class Portfolio:
     def list_stocks(self) -> List[Stock]:
         """Return a list of all stocks in the portfolio"""
         return list(self.stocks.values())
+
+    def update_metrics(self):
+        symbols = [stock.symbol for stock in self.stocks.values()]
+        metrics = get_historical_metrics(symbols)
+        for stock in self.stocks.values():
+            stock.metrics = metrics.get(stock.symbol, Metrics())
 
     def read_stocks_from_csv(self, file_path) -> List[Stock]:
         """

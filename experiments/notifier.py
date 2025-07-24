@@ -3,8 +3,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
-import stock_portfolio_manager as spm
-
+from portfolio import stock_portfolio_manager as spm
 
 embed = {
     "content": "This is a test message for Discord notification.",

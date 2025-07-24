@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-import csv
 from datetime import datetime
-import stock_portfolio_manager as spm
+from portfolio import stock_portfolio_manager as spm
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,6 +10,7 @@ import base64
 import webbrowser
 import os
 from jinja2 import Environment, FileSystemLoader
+from notifier import Notifier
 
 # def read_stocks_from_csv(file_path):
 #     """
@@ -333,6 +333,7 @@ if __name__ == "__main__":
 
     # Update current prices
     portfolio.update_all_prices()
+    portfolio.update_metrics()
 
     # Create HTML report
     html_content = create_portfolio_html(portfolio)
@@ -346,3 +347,6 @@ if __name__ == "__main__":
     webbrowser.open('file://' + os.path.abspath(html_file))
 
     print(f"Portfolio report generated and opened in your browser: {html_file}")
+
+    notifier = Notifier(portfolio)
+    notifier.calculate_and_send_notifications()

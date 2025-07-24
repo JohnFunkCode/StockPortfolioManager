@@ -1,6 +1,6 @@
 import unittest
 from decimal import Decimal
-from money import Money
+from portfolio.money import Money
 from unittest.mock import patch
 
 class TestMoney(unittest.TestCase):

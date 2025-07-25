@@ -377,7 +377,7 @@ if __name__ == "__main__":
 
     # Open HTML in default browser
     # webbrowser.open('file://' + os.path.abspath(html_file))
-    webbrowser.open(s3_url)
+    # webbrowser.open(s3_url)
 
 
     print(f"Portfolio report generated and opened in your browser: {html_file}")

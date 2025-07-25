@@ -46,7 +46,6 @@ class Metrics:
         self.one_year_return = one_year_return
         self.one_year_average_volume = one_year_average_volume
 
-@staticmethod
 def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     data = yf.download(
         tickers=" ".join(symbols),
@@ -91,6 +90,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
             one_year_return=one_year_return,
             one_year_average_volume=one_year_average_volume
         )
+    return metrics
 
     #     stock_info = f"\nMetrics for {symbol}:\n"
     #     stock_info += f"{symbol} 5d Avg: ${five_day_moving_average:.2f}\n"
@@ -108,7 +108,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     #
     # print("Metrics calculated successfully.")
 
-    return metrics
+
 
 
 if __name__ == "__main__":

@@ -1,9 +1,10 @@
 # money.py
 from decimal import Decimal, ROUND_HALF_UP
 import requests
+from typing import Union
 
 class Money:
-    def __init__(self, amount: float | Decimal, currency: str):
+    def __init__(self, amount: Union[float, Decimal], currency: str):
         self.amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         self.currency = currency.upper()
 
@@ -17,10 +18,10 @@ class Money:
             raise ValueError("Cannot subtract amounts with different currencies")
         return Money(self.amount - other.amount, self.currency)
 
-    def __mul__(self, factor: float | Decimal):
+    def __mul__(self, factor: Union[float, Decimal]):
         return Money(self.amount * Decimal(str(factor)), self.currency)
 
-    def __truediv__(self, divisor: float | Decimal):
+    def __truediv__(self, divisor: Union[float, Decimal]):
         return Money(self.amount / Decimal(str(divisor)), self.currency)
 
     def convert_to(self, target_currency: str) -> "Money":

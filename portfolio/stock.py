@@ -67,3 +67,11 @@ class Stock:
         elif self.current_price is not None:
             return self.current_price * self.quantity
         return None
+
+    def get_dollars_per_day(self) -> Optional[float]:
+        """Calculate the average dollars per day based on purchase price and quantity"""
+        if self.purchase_date and self.current_price:
+            days_held = (date.today() - self.purchase_date).days
+            if days_held > 0:
+                return float((self.purchase_price.amount * self.quantity) / days_held)
+        return None

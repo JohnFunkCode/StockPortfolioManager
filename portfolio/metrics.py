@@ -9,12 +9,12 @@ import pandas as pd
 
 
 class Metrics:
-    five_day_moving_average: Optional[float] = None,
+    ten_day_moving_average: Optional[float] = None,
     thirty_day_moving_average: Optional[float] = None,
     fifty_day_moving_average: Optional[float] = None,
     one_hundred_day_moving_average: Optional[float] = None,
     two_hundred_day_moving_average: Optional[float] = None,
-    five_day_return: Optional[float] = None
+    ten_day_return: Optional[float] = None
     thirty_day_return: Optional[float] = None,
     ninety_day_return: Optional[float] = None,
     ytd_return: Optional[float] = None,
@@ -22,24 +22,24 @@ class Metrics:
 
     def __init__(
         self,
-        five_day_moving_average: Optional[float] = None,
+        ten_day_moving_average: Optional[float] = None,
         thirty_day_moving_average: Optional[float] = None,
         fifty_day_moving_average: Optional[float] = None,
         one_hundred_day_moving_average: Optional[float] = None,
         two_hundred_day_moving_average: Optional[float] = None,
-        five_day_return: Optional[float] = None,
+        ten_day_return: Optional[float] = None,
         thirty_day_return: Optional[float] = None,
         ninety_day_return: Optional[float] = None,
         ytd_return: Optional[float] = None,
         one_year_return: Optional[float] = None,
         one_year_average_volume: Optional[float] = None
     ):
-        self.five_day_moving_average = five_day_moving_average
+        self.ten_day_moving_average = ten_day_moving_average
         self.thirty_day_moving_average = thirty_day_moving_average
         self.fifty_day_moving_average = fifty_day_moving_average
         self.one_hundred_day_moving_average = one_hundred_day_moving_average
         self.two_hundred_day_moving_average = two_hundred_day_moving_average
-        self.five_day_return = five_day_return
+        self.ten_day_return = ten_day_return
         self.thirty_day_return = thirty_day_return
         self.ninety_day_return = ninety_day_return
         self.ytd_return = ytd_return
@@ -61,7 +61,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     # Calculate the average price for each stock in the data
     metrics = {}
     for symbol in data.columns.levels[0]:
-        five_day_moving_average = data[symbol]['Close'].tail(5).mean()
+        ten_day_moving_average = data[symbol]['Close'].tail(10).mean()
         thirty_day_moving_average = data[symbol]['Close'].tail(30).mean()
         fifty_day_moving_average = data[symbol]['Close'].tail(50).mean()
         one_hundred_day_moving_average = data[symbol]['Close'].tail(100).mean()
@@ -77,8 +77,9 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
 
         one_year_average_volume = data[symbol]['Volume'].mean()
 
+
         metrics[symbol] = Metrics(
-            five_day_moving_average=five_day_moving_average,
+            ten_day_moving_average=ten_day_moving_average,
             thirty_day_moving_average=thirty_day_moving_average,
             fifty_day_moving_average=fifty_day_moving_average,
             one_hundred_day_moving_average=one_hundred_day_moving_average,
@@ -93,7 +94,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     return metrics
 
     #     stock_info = f"\nMetrics for {symbol}:\n"
-    #     stock_info += f"{symbol} 5d Avg: ${five_day_moving_average:.2f}\n"
+    #     stock_info += f"{symbol} 5d Avg: ${ten_day_moving_average:.2f}\n"
     #     stock_info += f"{symbol} 30d Avg: ${thirty_day_moving_average:.2f}\n"
     #     stock_info += f"{symbol} 50d Avg: ${fifty_day_moving_average:.2f}\n"
     #     stock_info += f"{symbol} 100d Avg: ${one_hundred_day_moving_average:.2f}\n"

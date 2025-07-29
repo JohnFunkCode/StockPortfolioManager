@@ -182,12 +182,15 @@ def create_portfolio_html(portfolio):
     total_current_value = portfolio.get_total_current_value()
     total_gain_loss = portfolio.get_total_gain_loss()
     total_gain_loss_pct = portfolio.get_total_gain_loss_percentage()
+    total_dollars_per_day = portfolio.get_total_dollars_per_day()
 
     # Generate stock details
     stock_details = []
     for stock in portfolio.list_stocks():
         gain_loss = stock.calculate_gain_loss()
         gain_loss_pct = stock.calculate_gain_loss_percentage()
+        dollars_per_day = stock.get_dollars_per_day()
+
 
         stock_details.append({
             'name': stock.name,
@@ -197,12 +200,13 @@ def create_portfolio_html(portfolio):
             'quantity': stock.quantity,
             'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
             'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
-            'five_day_moving_average' : stock.metrics.five_day_moving_average if stock.metrics else "N/A",
+            'dollars_per_day': dollars_per_day if dollars_per_day else "N/A",
+            'ten_day_moving_average' : stock.metrics.ten_day_moving_average if stock.metrics else "N/A",
             'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics else "N/A",
             'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
             'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics else "N/A",
             'two_hundred_day_moving_average' : stock.metrics.two_hundred_day_moving_average if stock.metrics else "N/A",
-            'five_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
+            'ten_day_return': stock.metrics.ten_day_return if stock.metrics else "N/A",
             'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics else "N/A",
             'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics else "N/A",
             'ytd_return': stock.metrics.ytd_return if stock.metrics else "N/A",
@@ -219,6 +223,7 @@ def create_portfolio_html(portfolio):
         total_current=total_current_value,
         total_gain_loss=total_gain_loss,
         total_gain_loss_pct=total_gain_loss_pct,
+        total_dollars_per_day=total_dollars_per_day,
         stock_details=stock_details,
         chart_img=chart_img,
         total_purchase=total_purchase

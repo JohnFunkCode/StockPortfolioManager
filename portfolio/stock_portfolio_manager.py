@@ -131,15 +131,15 @@ class Portfolio:
             return (total_gain_loss.amount / total_cost.amount) * 100
         return 0.0
 
-    def get_total_dollars_per_day(self) -> float:
+    def get_total_dollars_per_day(self) -> Money:
         """Calculate the total dollars per day for the portfolio"""
-        total_dollars_per_day = float(0.0)
+        total_dollars_per_day_amount = float(0.0)
 
         for stock in self.stocks.values():
-            dollars_per_day = stock.get_dollars_per_day()
-            if dollars_per_day is not None:
-                total_dollars_per_day += dollars_per_day
-
+            dollars_per_day_amount = float(stock.get_dollars_per_day().amount)
+            if dollars_per_day_amount is not None:
+                total_dollars_per_day_amount += dollars_per_day_amount
+        total_dollars_per_day = Money(total_dollars_per_day_amount, "USD")
         return total_dollars_per_day
 
     def list_stocks(self) -> List[Stock]:

@@ -73,5 +73,7 @@ class Stock:
         if self.purchase_date and self.current_price:
             days_held = (date.today() - self.purchase_date).days
             if days_held > 0:
-                return float((self.purchase_price.amount * self.quantity) / days_held)
+                gain_loss_amount = self.calculate_gain_loss().amount
+                dollars_per_day = gain_loss_amount / days_held
+                return Money(dollars_per_day, self.purchase_price.currency)
         return None

@@ -200,7 +200,8 @@ def create_portfolio_html(portfolio):
             'quantity': stock.quantity,
             'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
             'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
-            'dollars_per_day': dollars_per_day if dollars_per_day else "N/A",
+            'days_held': (datetime.now().date() - stock.purchase_date).days,
+            'dollars_per_day': float(dollars_per_day.amount) if dollars_per_day else "N/A",
             'ten_day_moving_average' : stock.metrics.ten_day_moving_average if stock.metrics else "N/A",
             'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics else "N/A",
             'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
@@ -223,7 +224,7 @@ def create_portfolio_html(portfolio):
         total_current=total_current_value,
         total_gain_loss=total_gain_loss,
         total_gain_loss_pct=total_gain_loss_pct,
-        total_dollars_per_day=total_dollars_per_day,
+        total_dollars_per_day=total_dollars_per_day.amount,
         stock_details=stock_details,
         chart_img=chart_img,
         total_purchase=total_purchase

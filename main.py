@@ -206,7 +206,7 @@ def create_portfolio_html(portfolio):
             'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
             'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics else "N/A",
             'two_hundred_day_moving_average' : stock.metrics.two_hundred_day_moving_average if stock.metrics else "N/A",
-            'ten_day_return': stock.metrics.ten_day_return if stock.metrics else "N/A",
+            'ten_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
             'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics else "N/A",
             'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics else "N/A",
             'ytd_return': stock.metrics.ytd_return if stock.metrics else "N/A",

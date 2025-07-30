@@ -22,6 +22,7 @@ def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Op
         threads=False,
         group_by="column",
         auto_adjust=False,
+        prepost=True,  # Include pre-market and post-market data
     )
 
     prices: dict[str, Optional[Money]] = {s: None for s in symbols}

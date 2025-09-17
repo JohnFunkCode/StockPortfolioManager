@@ -71,8 +71,13 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
         thirty_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-31]) / data[symbol]['Close'].iloc[-31] * 100
         ninety_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-91]) / data[symbol]['Close'].iloc[-91] * 100
 
-        days_since_start_of_year = (pd.Timestamp.now() - pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)).days
-        ytd_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-days_since_start_of_year]) / data[symbol]['Close'].iloc[-days_since_start_of_year] * 100
+        # days_since_start_of_year = (pd.Timestamp.now() - pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)).days
+        # ytd_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-days_since_start_of_year]) / data[symbol]['Close'].iloc[-days_since_start_of_year] * 100
+
+        start_of_year = pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)
+        today = pd.Timestamp.now().normalize()
+        working_days = len(pd.bdate_range(start=start_of_year, end=today)) - 1  # exclude today if needed
+        ytd_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-working_days]) / data[symbol]['Close'].iloc[-working_days] * 100
         one_year_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[0]) / data[symbol]['Close'].iloc[0] * 100
 
         one_year_average_volume = data[symbol]['Volume'].mean()

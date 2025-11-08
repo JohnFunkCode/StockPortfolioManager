@@ -196,6 +196,87 @@ def design_harvest_plan(prices, H, tax_rate, n_iterations, max_s0=1000):
     # No feasible plan within [1, max_s0]
     return None
 
+def design_forward_ladder_from_history(prices, H, n_iterations, max_s0=1000):
+    """
+    Use the last N days of prices to infer an average daily growth rate, then build a
+    forward-looking price target ladder starting from the most recent price.
+
+    prices      : list of daily prices (e.g., 360 values)
+    H           : threshold fraction of original investment for each harvest
+                  (e.g. 0.2 for +20%)
+    n_iterations: desired number of harvests going forward
+    max_s0      : upper bound to search for initial share count
+
+    Returns:
+        dict with:
+          - "s0": minimal initial shares required (if found)
+          - "P_current": most recent price used as the starting point
+          - "r_daily": inferred average daily growth rate
+          - "ladder": list of ladder rungs with expected days to each target
+        or None if no feasible s0 <= max_s0 can achieve n_iterations.
+    """
+    if len(prices) < 2:
+        return None
+
+    P_start = prices[0]
+    P_current = prices[-1]
+    N = len(prices) - 1
+
+    if P_start <= 0 or P_current <= 0:
+        return None
+
+    # Infer average daily growth rate from the last N days
+    r_daily = (P_current / P_start) ** (1.0 / N) - 1.0
+
+    # Search for minimal s0 such that the theoretical ladder can achieve n_iterations
+    for s0 in range(1, max_s0 + 1):
+        ladder = compute_price_targets(P_current, H, s0, n_iterations)
+        if len(ladder) == n_iterations:
+            # Original principal for the forward plan
+            V0 = s0 * P_current
+
+            # Enrich each rung with an estimated time and projected cash/gains
+            enriched = []
+            cumulative_harvest = 0.0
+            for rung in ladder:
+                P_target = rung["price_target"]
+                shares_before = rung["shares_before"]
+                shares_sold = rung["shares_sold"]
+                shares_after = rung["shares_after"]
+
+                # Time to target based on inferred daily growth
+                if r_daily > 0 and P_target > P_current:
+                    days_to_target = math.log(P_target / P_current) / math.log(1.0 + r_daily)
+                else:
+                    days_to_target = None
+
+                # Projected cash flows and gains at this rung
+                gross_harvest = shares_sold * P_target
+                cumulative_harvest += gross_harvest
+                remaining_value = shares_after * P_target
+                total_wealth = cumulative_harvest + remaining_value
+                total_return = total_wealth / V0 - 1.0
+
+                rung_with_time = dict(rung)
+                rung_with_time["expected_days_from_now"] = days_to_target
+                rung_with_time["gross_harvest"] = gross_harvest
+                rung_with_time["cumulative_harvest"] = cumulative_harvest
+                rung_with_time["remaining_value"] = remaining_value
+                rung_with_time["total_wealth"] = total_wealth
+                rung_with_time["total_return_vs_initial"] = total_return
+                enriched.append(rung_with_time)
+
+            return {
+                "s0": s0,
+                "P_current": P_current,
+                "r_daily": r_daily,
+                "V0": V0,
+                "ladder": enriched,
+            }
+
+    # No feasible ladder within [1, max_s0]
+    return None
+
 import yfinance as yf
 
 def fetch_prices(symbol, days=360):
@@ -236,26 +317,38 @@ def fetch_prices(symbol, days=360):
         return None
 
 if __name__ == "__main__":
-    symbol = "AVGO"
+    symbol = "msft"
     prices = fetch_prices(symbol, days=360)
     if prices:
-        plan = design_harvest_plan(prices, H=0.2, tax_rate=0.25, n_iterations=3, max_s0=1000)
-        if plan:
-            print(f"\nHarvest Plan for {symbol}")
-            print(f"Initial shares required: {plan['s0']}\n")
+        forward_plan = design_forward_ladder_from_history(prices, H=0.1, n_iterations=5, max_s0=1000)
+        if forward_plan:
+            print(f"\nForward Price Target Ladder for {symbol}")
+            print(f"Current price: {forward_plan['P_current']:.2f}")
+            print(f"Inferred daily growth rate: {forward_plan['r_daily']:.6f}")
+            print(f"Harvest threshold (H): {0.1:.2f} — each harvest triggers when the position grows by 10% above the original investment.")
+            print(f"Number of planned harvests (n_iterations): {5} — total number of times gains will be harvested in this forward plan.\n")
+            print(f"Initial shares required: {forward_plan['s0']}\n")
 
-            print("Price Target Ladder:")
-            for rung in plan["ladder"]:
+            V0 = forward_plan["V0"]
+            print("Starting Position Summary:")
+            print(f"  Initial investment value (V0): ${V0:.2f}")
+            print(f"  Shares held initially:         {forward_plan['s0']}")
+            print(f"  Starting price per share:      ${forward_plan['P_current']:.2f}")
+            print(f"  Total capital at risk:         ${V0:.2f}\n")
+
+            print("Price Target Ladder (forward-looking):")
+            for rung in forward_plan["ladder"]:
+                days = rung["expected_days_from_now"]
+                days_str = f"{days:.1f} days" if days is not None else "N/A"
                 print(f"  Harvest {rung['harvest']}: "
                       f"Target ${rung['price_target']:.2f}, "
                       f"Sell {rung['shares_sold']} shares "
-                      f"(→ {rung['shares_after']} remain)")
-
-            print("\nFinal Performance:")
-            for k, v in plan["final_state"].items():
-                if isinstance(v, (int, float)):
-                    print(f"  {k}: {v:.4f}")
-                else:
-                    print(f"  {k}: {v}")
+                      f"(→ {rung['shares_after']} remain), "
+                      f"Expected in ~{days_str}")
+                print(f"    Projected harvest this stage: ${rung['gross_harvest']:.2f}")
+                print(f"    Cumulative harvested:         ${rung['cumulative_harvest']:.2f}")
+                print(f"    Remaining position value:     ${rung['remaining_value']:.2f}")
+                print(f"    Total wealth vs initial:      ${rung['total_wealth']:.2f} "
+                      f"({rung['total_return_vs_initial'] * 100:.2f}% gain)")
         else:
-            print(f"No feasible harvest plan found for {symbol}.")
+            print(f"No feasible forward ladder found for {symbol}.")

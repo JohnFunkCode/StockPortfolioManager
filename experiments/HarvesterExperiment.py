@@ -1,5 +1,56 @@
 import math
 import pandas as pd
+import yfinance as yf
+
+
+def compute_historical_volatility(prices):
+    """
+    Compute daily and annualized volatility from a series of prices using log returns.
+
+    Returns:
+        (daily_vol, annual_vol) or (None, None) if not enough data.
+    """
+    if len(prices) < 2:
+        return None, None
+
+    log_returns = []
+    for i in range(1, len(prices)):
+        p_prev = prices[i - 1]
+        p_curr = prices[i]
+        if p_prev <= 0 or p_curr <= 0:
+            continue
+        r = math.log(p_curr / p_prev)
+        log_returns.append(r)
+
+    if len(log_returns) < 2:
+        return None, None
+
+    mean_r = sum(log_returns) / len(log_returns)
+    var_r = sum((r - mean_r) ** 2 for r in log_returns) / (len(log_returns) - 1)
+    daily_vol = math.sqrt(var_r)
+    annual_vol = daily_vol * math.sqrt(252.0)
+    return daily_vol, annual_vol
+
+
+def suggest_H_from_vol(prices, alpha=0.5, min_H=0.05, max_H=0.30):
+    """
+    Derive a harvest threshold H from historical volatility.
+
+    alpha : scaling factor for annualized volatility (H_raw = alpha * sigma_annual)
+    min_H : minimum allowed H (e.g. 0.05 for 5%)
+    max_H : maximum allowed H (e.g. 0.30 for 30%)
+
+    Returns:
+        (H, annual_vol) or (None, None) if volatility cannot be computed.
+    """
+    _, annual_vol = compute_historical_volatility(prices)
+    if annual_vol is None:
+        return None, None
+
+    H_raw = alpha * annual_vol
+    H = max(min_H, min(max_H, H_raw))
+    return H, annual_vol
+
 
 def run_harvest_from_prices_with_iterations(prices, H, s0, tax_rate=0.0, n_iterations=1):
     """
@@ -161,22 +212,7 @@ def compute_price_targets(P0, H, s0, n_harvests):
 
 def design_harvest_plan(prices, H, tax_rate, n_iterations, max_s0=1000):
     """
-    Main entry point.
-
-    prices      : list of daily prices (e.g., 360 values)
-    H           : threshold fraction of original investment for each harvest
-                  (e.g. 0.2 for +20%)
-    tax_rate    : effective tax rate on each harvest (0–1)
-    n_iterations: desired number of harvests over this price history
-    max_s0      : upper bound to search for initial share count
-
-    Returns:
-        dict with:
-          - "s0": minimal initial shares required (if found)
-          - "ladder": theoretical price target ladder for this plan
-          - "harvests": realized harvests on this price path with s0 shares
-          - "final_state": performance metrics for this plan
-        or None if no feasible s0 <= max_s0 can achieve n_iterations.
+    Backtest-style entry point (kept for completeness).
     """
     P0 = prices[0]
 
@@ -196,23 +232,37 @@ def design_harvest_plan(prices, H, tax_rate, n_iterations, max_s0=1000):
     # No feasible plan within [1, max_s0]
     return None
 
-def design_forward_ladder_from_history(prices, H, n_iterations, max_s0=1000):
+
+def design_forward_ladder_from_history(
+    prices,
+    H=None,
+    n_iterations=5,
+    max_s0=1000,
+    alpha=0.5,
+    min_H=0.05,
+    max_H=0.30,
+):
     """
     Use the last N days of prices to infer an average daily growth rate, then build a
     forward-looking price target ladder starting from the most recent price.
 
     prices      : list of daily prices (e.g., 360 values)
-    H           : threshold fraction of original investment for each harvest
-                  (e.g. 0.2 for +20%)
+    H           : harvest threshold fraction; if None, derive dynamically from volatility
     n_iterations: desired number of harvests going forward
     max_s0      : upper bound to search for initial share count
+    alpha       : scaling factor for volatility -> H mapping
+    min_H/max_H : clamps for the dynamic H
 
     Returns:
         dict with:
           - "s0": minimal initial shares required (if found)
           - "P_current": most recent price used as the starting point
           - "r_daily": inferred average daily growth rate
-          - "ladder": list of ladder rungs with expected days to each target
+          - "H": chosen harvest threshold
+          - "annual_vol": annualized volatility used to compute H (if H was None)
+          - "V0": initial investment value
+          - "n_iterations": planned number of harvests
+          - "ladder": list of ladder rungs with expected days and projected cash/gains
         or None if no feasible s0 <= max_s0 can achieve n_iterations.
     """
     if len(prices) < 2:
@@ -227,6 +277,21 @@ def design_forward_ladder_from_history(prices, H, n_iterations, max_s0=1000):
 
     # Infer average daily growth rate from the last N days
     r_daily = (P_current / P_start) ** (1.0 / N) - 1.0
+
+    # If H is not provided, derive it from historical volatility
+    annual_vol = None
+    if H is None:
+        H, annual_vol = suggest_H_from_vol(
+            prices,
+            alpha=alpha,
+            min_H=min_H,
+            max_H=max_H,
+        )
+        if H is None:
+            return None
+    else:
+        # If H is fixed, still compute annual_vol for reporting
+        _, annual_vol = compute_historical_volatility(prices)
 
     # Search for minimal s0 such that the theoretical ladder can achieve n_iterations
     for s0 in range(1, max_s0 + 1):
@@ -270,14 +335,16 @@ def design_forward_ladder_from_history(prices, H, n_iterations, max_s0=1000):
                 "s0": s0,
                 "P_current": P_current,
                 "r_daily": r_daily,
+                "H": H,
+                "annual_vol": annual_vol,
                 "V0": V0,
+                "n_iterations": n_iterations,
                 "ladder": enriched,
             }
 
     # No feasible ladder within [1, max_s0]
     return None
 
-import yfinance as yf
 
 def fetch_prices(symbol, days=360):
     """
@@ -293,7 +360,6 @@ def fetch_prices(symbol, days=360):
         or None if data retrieval fails.
     """
     try:
-        # Use the most recent `days` of daily history
         df = yf.download(symbol, period=f"{days}d", interval="1d", progress=False)
         if df.empty:
             print(f"[fetch_prices] No data found for {symbol}")
@@ -316,17 +382,37 @@ def fetch_prices(symbol, days=360):
         print(f"[fetch_prices] Error fetching data for {symbol}: {e}")
         return None
 
+
 if __name__ == "__main__":
     symbol = "msft"
     prices = fetch_prices(symbol, days=360)
     if prices:
-        forward_plan = design_forward_ladder_from_history(prices, H=0.1, n_iterations=5, max_s0=1000)
+        n_iterations = 5
+        forward_plan = design_forward_ladder_from_history(
+            prices,
+            H=None,                   # dynamic H from volatility swap this out for 0.10 to see how it works.
+            n_iterations=n_iterations,
+            max_s0=1000,
+            alpha=0.5,
+            min_H=0.05,
+            max_H=0.30,
+        )
+
         if forward_plan:
             print(f"\nForward Price Target Ladder for {symbol}")
             print(f"Current price: {forward_plan['P_current']:.2f}")
             print(f"Inferred daily growth rate: {forward_plan['r_daily']:.6f}")
-            print(f"Harvest threshold (H): {0.1:.2f} — each harvest triggers when the position grows by 10% above the original investment.")
-            print(f"Number of planned harvests (n_iterations): {5} — total number of times gains will be harvested in this forward plan.\n")
+            print(f"Inferred annual volatility: {forward_plan['annual_vol'] * 100:.2f}%\n")
+
+            print(
+                f"Harvest threshold (H): {forward_plan['H']:.3f} "
+                f"— dynamic, based on historical volatility."
+            )
+            print(
+                f"Number of planned harvests (n_iterations): {forward_plan['n_iterations']} "
+                f"— total harvest steps in this ladder.\n"
+            )
+
             print(f"Initial shares required: {forward_plan['s0']}\n")
 
             V0 = forward_plan["V0"]
@@ -340,15 +426,19 @@ if __name__ == "__main__":
             for rung in forward_plan["ladder"]:
                 days = rung["expected_days_from_now"]
                 days_str = f"{days:.1f} days" if days is not None else "N/A"
-                print(f"  Harvest {rung['harvest']}: "
-                      f"Target ${rung['price_target']:.2f}, "
-                      f"Sell {rung['shares_sold']} shares "
-                      f"(→ {rung['shares_after']} remain), "
-                      f"Expected in ~{days_str}")
+                print(
+                    f"  Harvest {rung['harvest']}: "
+                    f"Target ${rung['price_target']:.2f}, "
+                    f"Sell {rung['shares_sold']} shares "
+                    f"(→ {rung['shares_after']} remain), "
+                    f"Expected in ~{days_str}"
+                )
                 print(f"    Projected harvest this stage: ${rung['gross_harvest']:.2f}")
                 print(f"    Cumulative harvested:         ${rung['cumulative_harvest']:.2f}")
                 print(f"    Remaining position value:     ${rung['remaining_value']:.2f}")
-                print(f"    Total wealth vs initial:      ${rung['total_wealth']:.2f} "
-                      f"({rung['total_return_vs_initial'] * 100:.2f}% gain)")
+                print(
+                    f"    Total wealth vs initial:      ${rung['total_wealth']:.2f} "
+                    f"({rung['total_return_vs_initial'] * 100:.2f}% gain)"
+                )
         else:
             print(f"No feasible forward ladder found for {symbol}.")

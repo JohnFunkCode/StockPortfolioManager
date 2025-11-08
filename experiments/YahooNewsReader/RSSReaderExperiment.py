@@ -6,6 +6,8 @@ import requests_cache
 from bs4 import BeautifulSoup
 import json
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
 
 FEED_URL = "https://finance.yahoo.com/news/rssindex"
 
@@ -124,7 +126,8 @@ def main():
             "title": feed.feed.get("title", "Yahoo Finance News"),
             "link": feed.feed.get("link", "https://finance.yahoo.com/news"),
             "description": feed.feed.get("description", ""),
-            "fetched_at": datetime.now().isoformat() + "Z"
+            "fetched_at": datetime.now(ZoneInfo("America/Denver")).isoformat() + "Mountain Time",
+            # "fetched_at": datetime.now().isoformat() + "Z"
         },
         "articles": articles
     }

@@ -111,7 +111,26 @@ def create_portfolio_charts(portfolio):
 
     # Stacked bar chart (left)
     bars_purchase = ax1.bar(x, purchase_values, label="Purchase Value", color="orange")
-    bars_gain_loss = ax1.bar(x, gain_loss_values, bottom=purchase_values, label="Gain/Loss (Current - Purchase)", color="green")
+
+    # Split gain/loss into positive (green) and negative (red)
+    gain_loss_pos = [max(v, 0) for v in gain_loss_values]
+    gain_loss_neg = [min(v, 0) for v in gain_loss_values]
+
+    bars_gain_loss_pos = ax1.bar(
+        x,
+        gain_loss_pos,
+        bottom=purchase_values,
+        label="Gain (positive)",
+        color="green",
+    )
+
+    bars_gain_loss_neg = ax1.bar(
+        x,
+        gain_loss_neg,
+        bottom=purchase_values,
+        label="Loss (negative)",
+        color="red",
+    )
 
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels, rotation=45, ha="right")
@@ -120,8 +139,18 @@ def create_portfolio_charts(portfolio):
     ax1.legend()
 
     # Add value labels inside the bars
-    ax1.bar_label(bars_purchase, labels=[f"${v:,.2f}" for v in purchase_values], label_type="center", fontsize=10)
-    ax1.bar_label(bars_gain_loss, labels=[f"${v:,.2f}" for v in gain_loss_values], label_type="center", fontsize=10)
+    ax1.bar_label(
+        bars_purchase,
+        labels=[f"${v:,.2f}" for v in purchase_values],
+        label_type="center",
+        fontsize=10,
+    )
+
+    pos_labels = [f"${v:,.2f}" if v != 0 else "" for v in gain_loss_pos]
+    neg_labels = [f"${v:,.2f}" if v != 0 else "" for v in gain_loss_neg]
+
+    ax1.bar_label(bars_gain_loss_pos, labels=pos_labels, label_type="center", fontsize=10)
+    ax1.bar_label(bars_gain_loss_neg, labels=neg_labels, label_type="center", fontsize=10)
 
     # Overlayed pie chart (right)
     wedges_current, _ = ax2.pie(

@@ -384,10 +384,10 @@ def fetch_prices(symbol, days=360):
 
 
 if __name__ == "__main__":
-    symbol = "msft"
+    symbol = "MU"
     prices = fetch_prices(symbol, days=360)
     if prices:
-        n_iterations = 5
+        n_iterations = 3
         forward_plan = design_forward_ladder_from_history(
             prices,
             H=None,                   # dynamic H from volatility swap this out for 0.10 to see how it works.

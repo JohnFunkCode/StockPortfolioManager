@@ -134,5 +134,5 @@ def analyze_stocks(symbols, start='2020-01-01', end=None):
 
 # === Example usage ===
 if __name__ == "__main__":
-    stock_list = ['AVGO', 'NVDA','RCL','PANW','ZS','CAT','NET','GLW','WDC','SIMO', 'GOOG','FBTC','BOX','AMZN', 'GEV', 'SYM', 'MSFT']
+    stock_list = ['AVGO', 'NVDA','RCL','PANW','ZS','CAT','NET','GLW','WDC','SIMO', 'GOOG','MSFT','DELL','MU']
     analyze_stocks(stock_list, start='2025-01-01')

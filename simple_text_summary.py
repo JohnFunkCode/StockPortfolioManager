@@ -2,7 +2,7 @@
 
 import csv
 from datetime import datetime
-from portfolio import stock_portfolio_manager as spm
+from portfolio import portfolio as spm
 from pathlib import Path
 
 

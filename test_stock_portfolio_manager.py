@@ -4,7 +4,7 @@ from decimal import Decimal
 from unittest.mock import patch
 import pandas as pd
 from portfolio.money import Money
-from portfolio import stock_portfolio_manager as spm
+from portfolio import portfolio as spm
 
 
 class TestStockPortfolioManager(unittest.TestCase):

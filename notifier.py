@@ -4,7 +4,7 @@ from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
-from portfolio import stock_portfolio_manager as spm
+from portfolio import portfolio as spm
 import portfolio.money as money
 
 class Notifier:

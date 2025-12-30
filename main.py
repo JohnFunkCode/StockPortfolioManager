@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 from datetime import datetime
-from portfolio import stock_portfolio_manager as spm
+from portfolio import portfolio
+from portfolio import watch_list
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -12,67 +13,6 @@ import os
 from jinja2 import Environment, FileSystemLoader
 from notifier import Notifier
 from dotenv import load_dotenv
-
-
-# def read_stocks_from_csv(file_path):
-#     """
-#     Read stock data from a CSV file and return a list of Stock objects.
-#
-#     Expected CSV format:
-#     name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price
-#     """
-#     stocks = []
-#
-#     try:
-#         with open(file_path, 'r', newline='') as csvfile:
-#             reader = csv.DictReader(csvfile)
-#
-#             for row in reader:
-#                 # Parse required fields
-#                 name = row['name']
-#                 symbol = row['symbol']
-#                 purchase_price = float(row['purchase_price'])
-#                 quantity = int(row['quantity'])
-#                 purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d').date()
-#
-#                 # Parse optional fields
-#                 currency = row.get('currency', 'USD')
-#
-#                 sale_price = None
-#                 if row.get('sale_price') and row['sale_price'].strip():
-#                     sale_price = float(row['sale_price'])
-#
-#                 sale_date = None
-#                 if row.get('sale_date') and row['sale_date'].strip():
-#                     sale_date = datetime.strptime(row['sale_date'], '%Y-%m-%d').date()
-#
-#                 current_price = None
-#                 if row.get('current_price') and row['current_price'].strip():
-#                     current_price = float(row['current_price'])
-#
-#                 # Create Stock object
-#                 stock = spm.Stock(
-#                     name=name,
-#                     symbol=symbol,
-#                     purchase_price=purchase_price,
-#                     quantity=quantity,
-#                     purchase_date=purchase_date,
-#                     currency=currency,
-#                     sale_price=sale_price,
-#                     sale_date=sale_date,
-#                     current_price=current_price
-#                 )
-#
-#                 stocks.append(stock)
-#
-#         return stocks
-#
-#     except FileNotFoundError:
-#         print(f"Error: File '{file_path}' not found.")
-#         return []
-#     except (KeyError, ValueError) as e:
-#         print(f"Error parsing CSV data: {e}")
-#         return []
 
 def fig_to_base64(fig):
     """Convert matplotlib figure to base64 string for HTML embedding"""
@@ -185,7 +125,7 @@ def create_portfolio_charts(portfolio):
 
     return chart_img, total_purchase, total_current
 
-def create_portfolio_html(portfolio):
+def create_portfolio_html(portfolio, watchlist):
     """Create HTML content for the portfolio using Jinja2 templates"""
     # Set up Jinja2 environment
     script_dir = Path(__file__).parent
@@ -236,11 +176,32 @@ def create_portfolio_html(portfolio):
             'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
             'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics else "N/A",
             'two_hundred_day_moving_average' : stock.metrics.two_hundred_day_moving_average if stock.metrics else "N/A",
-            'ten_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
+            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
+            'five_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
             'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics else "N/A",
             'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics else "N/A",
             'ytd_return': stock.metrics.ytd_return if stock.metrics else "N/A",
             'one_year_return': stock.metrics.one_year_return if stock.metrics else "N/A"
+        })
+
+    #generate watchlist data
+    watchlist_details = []
+    for stock in watchlist.list_stocks():
+        watchlist_details.append({
+            'name': stock.name,
+            'symbol': stock.symbol,
+            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
+            'ten_day_moving_average': stock.metrics.ten_day_moving_average if stock.metrics.ten_day_moving_average else "N/A",
+            'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics.thirty_day_moving_average else "N/A",
+            'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics.fifty_day_moving_average else "N/A",
+            'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics.one_hundred_day_moving_average else "N/A",
+            'two_hundred_day_moving_average': stock.metrics.two_hundred_day_moving_average if stock.metrics.two_hundred_day_moving_average else "N/A",
+            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
+            'five_day_return': stock.metrics.five_day_return if stock.metrics.five_day_return else "N/A",
+            'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics.thirty_day_return else "N/A",
+            'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics.ninety_day_return else "N/A",
+            'ytd_return': stock.metrics.ytd_return if stock.metrics.ytd_return else "N/A",
+            'one_year_return': stock.metrics.one_year_return if stock.metrics.one_year_return else "N/A"
         })
 
     # Create charts
@@ -255,6 +216,7 @@ def create_portfolio_html(portfolio):
         total_gain_loss_pct=total_gain_loss_pct,
         total_dollars_per_day=total_dollars_per_day.amount,
         stock_details=stock_details,
+        watchlist_details=watchlist_details,
         chart_img=chart_img,
         total_purchase=total_purchase
     )
@@ -262,6 +224,7 @@ def create_portfolio_html(portfolio):
 def create_template_file(template_path):
     """Create the Jinja2 template file"""
     template_content = """
+
  <!DOCTYPE html>
  <html lang="en">
  <head>
@@ -299,9 +262,13 @@ def create_template_file(template_path):
                 {{ "%.2f"|format(total_gain_loss_pct) }}%
             </span>
         </p>
+        <p><strong>Dollars Per Day Gain/Loss:</strong>
+            <span class="{% if total_dollars_per_day >= 0 %}gain{% else %}loss{% endif %}">
+                ${{ "%.2f"|format(total_dollars_per_day) }}
+            </span>
     </div>
 
-    <h2>Individual Stock Details</h2>
+    <h2>Individual Stock Holdings</h2>
     <table>
         <thead>
             <tr>
@@ -312,6 +279,19 @@ def create_template_file(template_path):
                 <th>Quantity</th>
                 <th>Gain/Loss</th>
                 <th>Gain/Loss %</th>
+                <th>Days Held</th>
+                <th>Dollars per day</th>
+                <th>10 day average price</th>
+                <th>30 day average price</th>
+                <th>50 day average price</th>
+                <th>100 day average price</th>
+                <th>200 day average price</th>
+                <th>Today's Change</th>
+                <th>5 Day Return</th>
+                <th>30 day Return</th>
+                <th>90 Day Return</th>
+                <th>YTD Return</th>
+                <th>1 Year Return</th>
             </tr>
         </thead>
         <tbody>
@@ -331,6 +311,7 @@ def create_template_file(template_path):
                 <td class="{% if stock.gain_loss != "N/A" %}{% if stock.gain_loss >= 0 %}gain{% else %}loss{% endif %}{% endif %}">
                     {% if stock.gain_loss != "N/A" %}
                         ${{ "%.2f"|format(stock.gain_loss) }}
+
                     {% else %}
                         N/A
                     {% endif %}
@@ -338,6 +319,97 @@ def create_template_file(template_path):
                 <td class="{% if stock.gain_loss != "N/A" %}{% if stock.gain_loss >= 0 %}gain{% else %}loss{% endif %}{% endif %}">
                     {% if stock.gain_loss_pct != "N/A" %}
                         {{ "%.2f"|format(stock.gain_loss_pct) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.days_held != "N/A" %}
+                        {{ stock.days_held }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.dollars_per_day != "N/A" %}
+                        ${{ "%.2f"|format(stock.dollars_per_day) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ten_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.fifty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.two_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.percent_change_today != "N/A" %}
+                        {{ "%.2f"|format(stock.percent_change_today) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.five_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.five_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.thirty_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ninety_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ninety_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ytd_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ytd_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_year_return != "N/A" %}
+                        {{ "%.2f"|format(stock.one_year_return) }}%
                     {% else %}
                         N/A
                     {% endif %}
@@ -351,6 +423,123 @@ def create_template_file(template_path):
         <h2>Portfolio Visualization</h2>
         <img src="data:image/png;base64,{{ chart_img }}" alt="Portfolio Charts">
     </div>
+
+    <h2>Watchlist</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Symbol</th>
+                <th>Current Price</th>
+                <th>10 day average price</th>
+                <th>30 day average price</th>
+                <th>50 day average price</th>
+                <th>100 day average price</th>
+                <th>200 day average price</th>
+                <th>Today's Change</th>
+                <th>5 Day Return</th>
+                <th>30 day Return</th>
+                <th>90 Day Return</th>
+                <th>YTD Return</th>
+                <th>1 Year Return</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stock in watchlist_details %}
+            <tr>
+                <td>{{ stock.name }}</td>
+                <td>{{ stock.symbol }}</td>
+                <td>
+                    {% if stock.current_price != "N/A" %}
+                        ${{ "%.2f"|format(stock.current_price) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if stock.ten_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.fifty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.two_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.percent_change_today != "N/A" %}
+                        {{ "%.2f"|format(stock.percent_change_today) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.five_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.five_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.thirty_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ninety_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ninety_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ytd_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ytd_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_year_return != "N/A" %}
+                        {{ "%.2f"|format(stock.one_year_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+
 </body>
 </html>
 """
@@ -384,31 +573,32 @@ def save_html_to_s3(html_content):
 
 if __name__ == "__main__":
     # Create a portfolio
-    portfolio = spm.Portfolio()
+    portfolio = portfolio.Portfolio()
 
     # Get the directory where the script is located
     script_dir = Path(__file__).parent
 
     # Read stocks from CSV file
-    csv_file = script_dir / "stocks.csv"
+    csv_file = script_dir / "portfolio.csv"
     portfolio.read_stocks_from_csv(csv_file)
-
-    # stocks = read_stocks_from_csv(csv_file)
-    #
-    # if not stocks:
-    #     print("No stocks loaded. Please check the CSV file.")
-    #     exit(1)
-    #
-    # # Add stocks to portfolio
-    # for stock in stocks:
-    #     portfolio.add_stock(stock)
 
     # Update current prices
     portfolio.update_all_prices()
     portfolio.update_metrics()
 
+    # Create a watchlist of stocks to track
+    watchlist = watch_list.WatchList()
+
+
+    # read watchlist from yaml file
+    yaml_file = script_dir / "watchlist.yaml"
+    watchlist.read_stocks_from_yaml(yaml_file)
+    watchlist.update_all_prices()
+    watchlist.update_metrics()
+
+
     # Create HTML report
-    html_content = create_portfolio_html(portfolio)
+    html_content = create_portfolio_html(portfolio,watchlist)
 
     # Save HTML to S3
     s3_url = save_html_to_s3(html_content)

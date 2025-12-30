@@ -4,11 +4,11 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 
 ## Features
 
-- Track stocks with purchase information (price, date, quantity)
+- Track stocks portfolio positions including purchase information (price, date, quantity) read from posrtolio.csv
+- Tracks Optional watchlist including per-stock 'tags' loaded from watchlist.yaml
 - Fetch real-time stock prices via Yahoo Finance API
 - Calculate gain/loss for individual stocks and total portfolio
 - Support for multiple currencies with real-time conversion
-- Load portfolio data from CSV files
 - Generate HTML reports with portfolio performance metrics
 - Calculate portfolio performance statistics
 
@@ -51,6 +51,17 @@ Amazon.com Inc	     AMZN	$168.97	         $223.21	    100	        $5424.00	32.10
 
 ```
 
+### Watchlist Files
+YAML file entries:
+~~~
+- name: Example Corp
+  symbol: EXMPL
+  currency: USD
+  tags:
+    - ai
+    - cloud
+~~~
+
 ## Installation
 
 1. Clone the repository:
@@ -81,13 +92,12 @@ python main.py
 ## Project Structure
 
 - `main.py`: Application entry point, reads CSV data and displays portfolio information
-- `stock_portfolio_manager.py`: Core functionality for managing stocks and portfolios
-- `money.py`: Currency handling and conversion functionality
-- `generate_report.py`: HTML report generation using Jinja2 templates
-- `templates/`: Directory containing Jinja2 HTML templates
-- `stocks.csv`: CSV file containing stock data
-- `test_money.py`: Unit tests for money handling
-- `test_stock_portfolio_manager.py`: Unit tests for portfolio functionality
+- portfolio/ – domain modules (stock.py, money.py, metrics.py, portfolio.py, watch_list.py, yfinance_gateway.py).
+- html_summary.py, simple_text_summary.py – reporting utilities.
+- notifier.py – notification hook.
+- templates/ – Jinja2 HTML template.
+- Tests: test_money.py, test_stock_portfolio_manager.py.
+- Data samples: portfolio.csv, watchlist.csv, watchlist.yaml.
 
 ## Testing
 

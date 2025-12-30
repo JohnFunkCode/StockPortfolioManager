@@ -43,29 +43,29 @@
     </div>
 
     <h2>Individual Stock Holdings</h2>
-    <table>
+    <table id="holdings">
         <thead>
             <tr>
-                <th>Name</th>
-                <th>Symbol</th>
-                <th>Purchase Price</th>
-                <th>Current Price</th>
-                <th>Quantity</th>
-                <th>Gain/Loss</th>
-                <th>Gain/Loss %</th>
-                <th>Days Held</th>
-                <th>Dollars per day</th>
-                <th>10 day average price</th>
-                <th>30 day average price</th>
-                <th>50 day average price</th>
-                <th>100 day average price</th>
-                <th>200 day average price</th>
-                <th>Today's Change</th>
-                <th>5 Day Return</th>
-                <th>30 day Return</th>
-                <th>90 Day Return</th>
-                <th>YTD Return</th>
-                <th>1 Year Return</th>
+                <th onclick="sortTable('holdings',0)">Name</th>
+                <th onclick="sortTable('holdings',1)">Symbol</th>
+                <th onclick="sortTable('holdings',2)">Purchase Price</th>
+                <th onclick="sortTable('holdings',3)">Current Price</th>
+                <th onclick="sortTable('holdings',4)">Quantity</th>
+                <th onclick="sortTable('holdings',5)">Gain/Loss</th>
+                <th onclick="sortTable('holdings',6)">Gain/Loss %</th>
+                <th onclick="sortTable('holdings',7)">Days Held</th>
+                <th onclick="sortTable('holdings',8)">Dollars per day</th>
+                <th onclick="sortTable('holdings',9)">10 day average price</th>
+                <th onclick="sortTable('holdings',10)">30 day average price</th>
+                <th onclick="sortTable('holdings',11)">50 day average price</th>
+                <th onclick="sortTable('holdings',12)">100 day average price</th>
+                <th onclick="sortTable('holdings',13)">200 day average price</th>
+                <th onclick="sortTable('holdings',14)">Today's Change</th>
+                <th onclick="sortTable('holdings',15)">5 Day Return</th>
+                <th onclick="sortTable('holdings',16)">30 day Return</th>
+                <th onclick="sortTable('holdings',17)">90 Day Return</th>
+                <th onclick="sortTable('holdings',18)">YTD Return</th>
+                <th onclick="sortTable('holdings',19)">1 Year Return</th>
             </tr>
         </thead>
         <tbody>
@@ -199,23 +199,23 @@
     </div>
 
     <h2>Watchlist</h2>
-    <table>
+    <table id="watchlist">
         <thead>
             <tr>
-                <th>Name</th>
-                <th>Symbol</th>
-                <th>Current Price</th>
-                <th>10 day average price</th>
-                <th>30 day average price</th>
-                <th>50 day average price</th>
-                <th>100 day average price</th>
-                <th>200 day average price</th>
-                <th>Today's Change</th>
-                <th>5 Day Return</th>
-                <th>30 day Return</th>
-                <th>90 Day Return</th>
-                <th>YTD Return</th>
-                <th>1 Year Return</th>
+                <th onclick="sortTable('watchlist',0)">Name</th>
+                <th onclick="sortTable('watchlist',1)">Symbol</th>
+                <th onclick="sortTable('watchlist',2)">Current Price</th>
+                <th onclick="sortTable('watchlist',3)">10 day average price</th>
+                <th onclick="sortTable('watchlist',4)">30 day average price</th>
+                <th onclick="sortTable('watchlist',5)">50 day average price</th>
+                <th onclick="sortTable('watchlist',6)">100 day average price</th>
+                <th onclick="sortTable('watchlist',7)">200 day average price</th>
+                <th onclick="sortTable('watchlist',8)">Today's Change</th>
+                <th onclick="sortTable('watchlist',9)">5 Day Return</th>
+                <th onclick="sortTable('watchlist',10)">30 day Return</th>
+                <th onclick="sortTable('watchlist',11)">90 Day Return</th>
+                <th onclick="sortTable('watchlist',12)">YTD Return</th>
+                <th onclick="sortTable('watchlist',13)">1 Year Return</th>
             </tr>
         </thead>
         <tbody>
@@ -313,6 +313,62 @@
         </tbody>
     </table>
 
+<script>
+function sortTable(table_id, column_number) {
+  var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
+  table = document.getElementById(table_id);
+  switching = true;
+  // Set the sorting direction to ascending:
+  dir = "asc";
+  /* Make a loop that will continue until
+  no switching has been done: */
+  while (switching) {
+    // Start by saying: no switching is done:
+    switching = false;
+    rows = table.rows;
+    /* Loop through all table rows (except the
+    first, which contains table headers): */
+    for (i = 1; i < (rows.length - 1); i++) {
+      // Start by saying there should be no switching:
+      shouldSwitch = false;
+      /* Get the two elements you want to compare,
+      one from current row and one from the next: */
+      x = rows[i].getElementsByTagName("TD")[column_number];
+      y = rows[i + 1].getElementsByTagName("TD")[column_number];
+      /* Check if the two rows should switch place,
+      based on the direction, asc or desc: */
+      if (dir == "asc") {
+        if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
+          // If so, mark as a switch and break the loop:
+          shouldSwitch = true;
+          break;
+        }
+      } else if (dir == "desc") {
+        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
+          // If so, mark as a switch and break the loop:
+          shouldSwitch = true;
+          break;
+        }
+      }
+    }
+    if (shouldSwitch) {
+      /* If a switch has been marked, make the switch
+      and mark that a switch has been done: */
+      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+      switching = true;
+      // Each time a switch is done, increase this count by 1:
+      switchcount ++;
+    } else {
+      /* If no switching has been done AND the direction is "asc",
+      set the direction to "desc" and run the while loop again. */
+      if (switchcount == 0 && dir == "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+}
+</script>
 
 </body>
 </html>

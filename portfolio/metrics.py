@@ -29,6 +29,7 @@ class Metrics:
         fifty_day_moving_average: Optional[float] = None,
         one_hundred_day_moving_average: Optional[float] = None,
         two_hundred_day_moving_average: Optional[float] = None,
+        percent_change_today: Optional[float] = None,
         five_day_return: Optional[float] = None,
         thirty_day_return: Optional[float] = None,
         ninety_day_return: Optional[float] = None,
@@ -41,6 +42,7 @@ class Metrics:
         self.fifty_day_moving_average = fifty_day_moving_average
         self.one_hundred_day_moving_average = one_hundred_day_moving_average
         self.two_hundred_day_moving_average = two_hundred_day_moving_average
+        self.percent_change_today = percent_change_today
         self.five_day_return = five_day_return
         self.thirty_day_return = thirty_day_return
         self.ninety_day_return = ninety_day_return
@@ -143,7 +145,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     metrics = {}
     for symbol in data.columns.levels[0]:
         change_today = data[symbol]['Close'].iloc[-1] - data[symbol]['Close'].iloc[-2]
-        percent_change_today = change_today / data[symbol]['Close'].iloc[-2]
+        percent_change_today = change_today / data[symbol]['Close'].iloc[-2] * 100
 
         ten_day_moving_average = data[symbol]['Close'].tail(10).mean()
         ten_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=10)
@@ -188,6 +190,7 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
             two_hundred_day_moving_average=two_hundred_day_moving_average,
             # two_hundred_day_velocity = two_hundred_day_velocity,
 
+            percent_change_today = percent_change_today,
             five_day_return=five_day_return,
             thirty_day_return=thirty_day_return,
             ninety_day_return=ninety_day_return,

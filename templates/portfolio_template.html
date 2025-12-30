@@ -42,7 +42,7 @@
             </span>
     </div>
 
-    <h2>Individual Stock Details</h2>
+    <h2>Individual Stock Holdings</h2>
     <table>
         <thead>
             <tr>
@@ -60,6 +60,7 @@
                 <th>50 day average price</th>
                 <th>100 day average price</th>
                 <th>200 day average price</th>
+                <th>Today's Change</th>
                 <th>5 Day Return</th>
                 <th>30 day Return</th>
                 <th>90 Day Return</th>
@@ -109,6 +110,7 @@
                     {% else %}
                         N/A
                     {% endif %}
+                </td>
                 <td>
                     {% if stock.ten_day_moving_average != "N/A" %}
                         ${{ "%.2f"|format(stock.ten_day_moving_average) }}
@@ -145,8 +147,15 @@
                     {% endif %}
                 </td>
                 <td>
+                    {% if stock.percent_change_today != "N/A" %}
+                        {{ "%.2f"|format(stock.percent_change_today) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
                     {% if stock.five_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.ten_day_return) }}%
+                        {{ "%.2f"|format(stock.five_day_return) }}%
                     {% else %}
                         N/A
                     {% endif %}
@@ -188,5 +197,122 @@
         <h2>Portfolio Visualization</h2>
         <img src="data:image/png;base64,{{ chart_img }}" alt="Portfolio Charts">
     </div>
+
+    <h2>Watchlist</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Symbol</th>
+                <th>Current Price</th>
+                <th>10 day average price</th>
+                <th>30 day average price</th>
+                <th>50 day average price</th>
+                <th>100 day average price</th>
+                <th>200 day average price</th>
+                <th>Today's Change</th>
+                <th>5 Day Return</th>
+                <th>30 day Return</th>
+                <th>90 Day Return</th>
+                <th>YTD Return</th>
+                <th>1 Year Return</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for stock in watchlist_details %}
+            <tr>
+                <td>{{ stock.name }}</td>
+                <td>{{ stock.symbol }}</td>
+                <td>
+                    {% if stock.current_price != "N/A" %}
+                        ${{ "%.2f"|format(stock.current_price) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+
+                <td>
+                    {% if stock.ten_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.fifty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.two_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.percent_change_today != "N/A" %}
+                        {{ "%.2f"|format(stock.percent_change_today) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.five_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.five_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.thirty_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ninety_day_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ninety_day_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ytd_return != "N/A" %}
+                        {{ "%.2f"|format(stock.ytd_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_year_return != "N/A" %}
+                        {{ "%.2f"|format(stock.one_year_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+
 </body>
 </html>

@@ -9,8 +9,8 @@ class Stock:
     name: str
     symbol: str
     quantity: int
-    purchase_price: Money
-    purchase_date: date
+    purchase_price: Optional[Money] = None
+    purchase_date: Optional[date] = None
     sale_price: Optional[Money] = None
     sale_date: Optional[date] = None
     current_price: Optional[Money] = None
@@ -20,22 +20,22 @@ class Stock:
         self,
         name: str,
         symbol: str,
-        quantity: int,
-        purchase_price: float,
-        purchase_date: date,
+        quantity: Optional[int],
+        purchase_price: Optional[float],
+        purchase_date: Optional[date],
         currency: str = "USD",
         sale_price: Optional[float] = None,
         sale_date: Optional[date] = None,
         current_price: Optional[float] = None,
-
+        tags: Optional[List[str]] = None
     ):
         self.name = name
         self.symbol = symbol
-        self.quantity = quantity
-        self.purchase_price = Money(purchase_price, currency)
-        self.purchase_date = purchase_date
+        self.quantity = quantity if quantity is not None else 0
+        self.purchase_price = Money(purchase_price, currency) if purchase_price is not None else None
+        self.purchase_date = purchase_date if purchase_date is not None else date.today()
         self.sale_price = Money(sale_price, currency) if sale_price is not None else None
-        self.sale_date = sale_date
+        self.sale_date = sale_date if sale_date is not None else date.today()
         self.current_price = Money(current_price, currency) if current_price is not None else None
 
 

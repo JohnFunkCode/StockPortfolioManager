@@ -60,7 +60,7 @@ class Notifier:
                     "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
                     "embeds": [
                         {
-                            "title": f"{stock.name} ({stock.symbol})",
+                            "title": f"{stock.name} ({stock.symbol}) Loss Alert",
                             "description": f"Current Price: {stock.current_price}\n"
                                            f"Purchase Price: {stock.purchase_price}\n"
                                            f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",

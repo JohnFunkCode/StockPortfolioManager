@@ -24,7 +24,7 @@
  
      <div class="summary">
          <h2>Portfolio Summary</h2>
-        <p><strong>Total Investment:</strong> {{ total_investment }}</p>
+        <p><strong>Total Investment:</strong> {{ total_investment }}</p>a
         <p><strong>Total Current Value:</strong> {{ total_current }}</p>
         <p><strong>Total Gain/Loss:</strong> 
             <span class="{% if total_gain_loss.amount >= 0 %}gain{% else %}loss{% endif %}">
@@ -73,7 +73,7 @@
             {% for stock in stock_details %}
             <tr>
                 <td>{{ stock.name }}</td>
-                <td>{{ stock.symbol }}</td>
+                <td><a href="https://finance.yahoo.com/quote/{{ stock.symbol }}/" target="_blank" rel="noopener">{{ stock.symbol }}</a></td>
                 <td>${{ "%.2f"|format(stock.purchase_price) }}</td>
                 <td>
                     {% if stock.current_price != "N/A" %}
@@ -223,7 +223,7 @@
             {% for stock in watchlist_details %}
             <tr>
                 <td>{{ stock.name }}</td>
-                <td>{{ stock.symbol }}</td>
+                <td><a href="https://finance.yahoo.com/quote/{{ stock.symbol }}/" target="_blank" rel="noopener">{{ stock.symbol }}</a></td>
                 <td>
                     {% if stock.current_price != "N/A" %}
                         ${{ "%.2f"|format(stock.current_price) }}

@@ -76,7 +76,7 @@ def create_portfolio_charts(portfolio):
     ax1.set_xticklabels(labels, rotation=45, ha="right")
     ax1.set_ylabel("Value ($)")
     ax1.set_title("Stock Purchase vs Current Value (Stacked Bar)")
-    ax1.legend()
+    ax1.legend(loc="upper right")
 
     # Add value labels inside the bars
     ax1.bar_label(

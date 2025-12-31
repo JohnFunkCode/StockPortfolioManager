@@ -40,32 +40,33 @@
             <span class="{% if total_dollars_per_day >= 0 %}gain{% else %}loss{% endif %}">
                 ${{ "%.2f"|format(total_dollars_per_day) }}
             </span>
+        </p>
     </div>
 
     <h2>Individual Stock Holdings</h2>
     <table id="holdings">
         <thead>
             <tr>
-                <th onclick="sortTable('holdings',0)">Name</th>
-                <th onclick="sortTable('holdings',1)">Symbol</th>
-                <th onclick="sortTable('holdings',2)">Purchase Price</th>
-                <th onclick="sortTable('holdings',3)">Current Price</th>
-                <th onclick="sortTable('holdings',4)">Quantity</th>
-                <th onclick="sortTable('holdings',5)">Gain/Loss</th>
-                <th onclick="sortTable('holdings',6)">Gain/Loss %</th>
-                <th onclick="sortTable('holdings',7)">Days Held</th>
-                <th onclick="sortTable('holdings',8)">Dollars per day</th>
-                <th onclick="sortTable('holdings',9)">10 day average price</th>
-                <th onclick="sortTable('holdings',10)">30 day average price</th>
-                <th onclick="sortTable('holdings',11)">50 day average price</th>
-                <th onclick="sortTable('holdings',12)">100 day average price</th>
-                <th onclick="sortTable('holdings',13)">200 day average price</th>
-                <th onclick="sortTable('holdings',14)">Today's Change</th>
-                <th onclick="sortTable('holdings',15)">5 Day Return</th>
-                <th onclick="sortTable('holdings',16)">30 day Return</th>
-                <th onclick="sortTable('holdings',17)">90 Day Return</th>
-                <th onclick="sortTable('holdings',18)">YTD Return</th>
-                <th onclick="sortTable('holdings',19)">1 Year Return</th>
+                <th onclick="sortTable('holdings',0, false)">Name</th>
+                <th onclick="sortTable('holdings',1, false)">Symbol</th>
+                <th onclick="sortTable('holdings',2, true)">Purchase Price</th>
+                <th onclick="sortTable('holdings',3, true)">Current Price</th>
+                <th onclick="sortTable('holdings',4, true)">Quantity</th>
+                <th onclick="sortTable('holdings',5, true)">Gain/Loss</th>
+                <th onclick="sortTable('holdings',6, true)">Gain/Loss %</th>
+                <th onclick="sortTable('holdings',7, true)">Days Held</th>
+                <th onclick="sortTable('holdings',8, true)">Dollars per day</th>
+                <th onclick="sortTable('holdings',9, true)">10 day average price</th>
+                <th onclick="sortTable('holdings',10, true)">30 day average price</th>
+                <th onclick="sortTable('holdings',11, true)">50 day average price</th>
+                <th onclick="sortTable('holdings',12, true)">100 day average price</th>
+                <th onclick="sortTable('holdings',13, true)">200 day average price</th>
+                <th onclick="sortTable('holdings',14, true)">Today's Change</th>
+                <th onclick="sortTable('holdings',15, true)">5 Day Return</th>
+                <th onclick="sortTable('holdings',16, true)">30 day Return</th>
+                <th onclick="sortTable('holdings',17, true)">90 Day Return</th>
+                <th onclick="sortTable('holdings',18, true)">YTD Return</th>
+                <th onclick="sortTable('holdings',19, true)">1 Year Return</th>
             </tr>
         </thead>
         <tbody>
@@ -202,20 +203,20 @@
     <table id="watchlist">
         <thead>
             <tr>
-                <th onclick="sortTable('watchlist',0)">Name</th>
-                <th onclick="sortTable('watchlist',1)">Symbol</th>
-                <th onclick="sortTable('watchlist',2)">Current Price</th>
-                <th onclick="sortTable('watchlist',3)">10 day average price</th>
-                <th onclick="sortTable('watchlist',4)">30 day average price</th>
-                <th onclick="sortTable('watchlist',5)">50 day average price</th>
-                <th onclick="sortTable('watchlist',6)">100 day average price</th>
-                <th onclick="sortTable('watchlist',7)">200 day average price</th>
-                <th onclick="sortTable('watchlist',8)">Today's Change</th>
-                <th onclick="sortTable('watchlist',9)">5 Day Return</th>
-                <th onclick="sortTable('watchlist',10)">30 day Return</th>
-                <th onclick="sortTable('watchlist',11)">90 Day Return</th>
-                <th onclick="sortTable('watchlist',12)">YTD Return</th>
-                <th onclick="sortTable('watchlist',13)">1 Year Return</th>
+                <th onclick="sortTable('watchlist',0, false)">Name</th>
+                <th onclick="sortTable('watchlist',1, false)">Symbol</th>
+                <th onclick="sortTable('watchlist',2, true)">Current Price</th>
+                <th onclick="sortTable('watchlist',3, true)">10 day average price</th>
+                <th onclick="sortTable('watchlist',4, true)">30 day average price</th>
+                <th onclick="sortTable('watchlist',5, true)">50 day average price</th>
+                <th onclick="sortTable('watchlist',6, true)">100 day average price</th>
+                <th onclick="sortTable('watchlist',7, true)">200 day average price</th>
+                <th onclick="sortTable('watchlist',8, true)">Today's Change</th>
+                <th onclick="sortTable('watchlist',9, true)">5 Day Return</th>
+                <th onclick="sortTable('watchlist',10, true)">30 day Return</th>
+                <th onclick="sortTable('watchlist',11, true)">90 Day Return</th>
+                <th onclick="sortTable('watchlist',12, true)">YTD Return</th>
+                <th onclick="sortTable('watchlist',13, true)">1 Year Return</th>
             </tr>
         </thead>
         <tbody>
@@ -314,57 +315,52 @@
     </table>
 
 <script>
-function sortTable(table_id, column_number) {
-  var table, rows, switching, i, x, y, shouldSwitch, dir, switchcount = 0;
-  table = document.getElementById(table_id);
-  switching = true;
-  // Set the sorting direction to ascending:
-  dir = "asc";
-  /* Make a loop that will continue until
-  no switching has been done: */
+function sortTable(table_id, column_number, is_numeric = false) {
+  const table = document.getElementById(table_id);
+  let switching = true;
+  let dir = "asc";
+  let switchcount = 0;
+
+  const parseNumeric = (text) => {
+    const normalized = text.replace(/[$,%\s]/g, "").replace(/,/g, "");
+    return parseFloat(normalized);
+  };
+
   while (switching) {
-    // Start by saying: no switching is done:
     switching = false;
-    rows = table.rows;
-    /* Loop through all table rows (except the
-    first, which contains table headers): */
-    for (i = 1; i < (rows.length - 1); i++) {
-      // Start by saying there should be no switching:
-      shouldSwitch = false;
-      /* Get the two elements you want to compare,
-      one from current row and one from the next: */
-      x = rows[i].getElementsByTagName("TD")[column_number];
-      y = rows[i + 1].getElementsByTagName("TD")[column_number];
-      /* Check if the two rows should switch place,
-      based on the direction, asc or desc: */
-      if (dir == "asc") {
-        if (x.innerHTML.toLowerCase() > y.innerHTML.toLowerCase()) {
-          // If so, mark as a switch and break the loop:
-          shouldSwitch = true;
-          break;
-        }
-      } else if (dir == "desc") {
-        if (x.innerHTML.toLowerCase() < y.innerHTML.toLowerCase()) {
-          // If so, mark as a switch and break the loop:
-          shouldSwitch = true;
-          break;
-        }
+    const rows = table.rows;
+    let shouldSwitch = false;
+    let switchIndex = -1;
+
+    for (let i = 1; i < rows.length - 1; i++) {
+      const xCell = rows[i].getElementsByTagName("TD")[column_number];
+      const yCell = rows[i + 1].getElementsByTagName("TD")[column_number];
+      const xText = xCell ? xCell.textContent.trim() : "";
+      const yText = yCell ? yCell.textContent.trim() : "";
+
+      let comparison;
+      if (is_numeric) {
+        const xVal = parseNumeric(xText);
+        const yVal = parseNumeric(yText);
+        comparison = (!isNaN(xVal) && !isNaN(yVal)) ? xVal - yVal : xText.localeCompare(yText);
+      } else {
+        comparison = xText.localeCompare(yText);
+      }
+
+      if ((dir === "asc" && comparison > 0) || (dir === "desc" && comparison < 0)) {
+        shouldSwitch = true;
+        switchIndex = i;
+        break;
       }
     }
-    if (shouldSwitch) {
-      /* If a switch has been marked, make the switch
-      and mark that a switch has been done: */
-      rows[i].parentNode.insertBefore(rows[i + 1], rows[i]);
+
+    if (shouldSwitch && switchIndex !== -1) {
+      rows[switchIndex].parentNode.insertBefore(rows[switchIndex + 1], rows[switchIndex]);
       switching = true;
-      // Each time a switch is done, increase this count by 1:
-      switchcount ++;
-    } else {
-      /* If no switching has been done AND the direction is "asc",
-      set the direction to "desc" and run the while loop again. */
-      if (switchcount == 0 && dir == "asc") {
-        dir = "desc";
-        switching = true;
-      }
+      switchcount++;
+    } else if (switchcount === 0 && dir === "asc") {
+      dir = "desc";
+      switching = true;
     }
   }
 }

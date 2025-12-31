@@ -21,8 +21,8 @@ class Notifier:
             ma_violations = []
 
             # Check each moving average
-            if stock.current_price.amount < stock.metrics.ten_day_moving_average:
-                ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
+            # if stock.current_price.amount < stock.metrics.ten_day_moving_average:
+            #     ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
 
             if stock.current_price.amount < stock.metrics.thirty_day_moving_average:
                 ma_violations.append(f"30-Day Moving Average: {stock.metrics.thirty_day_moving_average:.2f}")

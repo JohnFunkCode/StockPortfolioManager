@@ -82,13 +82,13 @@ class Notifier:
                 already_logged = notification_log_msg in log_file.read()
 
         if already_logged:
-            print("Notification already logged. Skipping duplicate notification.")
+            print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Skipping duplicate notification.')
             return
 
         with open(log_path, 'a', encoding='utf-8') as log_file:
             log_file.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} - {notification_log_msg}\n")
         results = requests.post(self.discord_webhook_url, json=embed)
         if 200 <= results.status_code < 300:
-            print("Notification sent successfully.")
+            print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Notification sent successfully.')
         else:
-            print(f"Failed to send notification. Status code: {results.status_code}, Response: {results.text}")
+            print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Failed to send notification. Status code: {results.status_code}, Response: {results.text}')

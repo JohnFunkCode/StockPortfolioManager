@@ -74,7 +74,7 @@ class Notifier:
     def send_notifications(self, embed):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 
-        log_path = 'notificaiton.log'
+        log_path = 'notification.log'
 
         already_logged = False
         if os.path.exists(log_path):

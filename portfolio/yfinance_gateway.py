@@ -35,7 +35,10 @@ def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Op
                         while( pd.isna(price_value) and index > 0):
                             index -= 1
                             price_value= float(data["Close"][sym].iloc[index])
-                    assert not pd.isna(price_value), f"yFinance returned all prices as NaN for the symbol {sym}!"
+                    # assert not pd.isna(price_value), f"yFinance call to get current prices returned all prices as NaN for the symbol {sym}!"
+                    if pd.isna(price_value):
+                        print(f"Warning:yFinance returned all prices as NaN for the symbol {sym}!")
+                        price_value=0
                     prices[sym] = Money(price_value, currency)
                 except KeyError:
                     pass

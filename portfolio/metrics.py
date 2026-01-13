@@ -148,19 +148,19 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
         percent_change_today = change_today / data[symbol]['Close'].iloc[-2] * 100
 
         ten_day_moving_average = data[symbol]['Close'].tail(10).mean()
-        ten_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=10)
+        # ten_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=10)
 
         thirty_day_moving_average = data[symbol]['Close'].tail(30).mean()
-        thirty_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=30)
+        # thirty_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=30)
 
         fifty_day_moving_average = data[symbol]['Close'].tail(50).mean()
-        fifty_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=50)
+        # fifty_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=50)
 
         one_hundred_day_moving_average = data[symbol]['Close'].tail(100).mean()
-        one_hundred_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=100)
+        # one_hundred_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=100)
 
         two_hundred_day_moving_average = data[symbol]['Close'].tail(200).mean()
-        two_hundred_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=200)
+        # two_hundred_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=200)
 
         five_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-6]) / data[symbol]['Close'].iloc[-6] * 100
         thirty_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-31]) / data[symbol]['Close'].iloc[-31] * 100

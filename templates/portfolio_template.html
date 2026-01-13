@@ -56,17 +56,17 @@
                 <th onclick="sortTable('holdings',6, true)">Gain/Loss %</th>
                 <th onclick="sortTable('holdings',7, true)">Days Held</th>
                 <th onclick="sortTable('holdings',8, true)">Dollars per day</th>
-                <th onclick="sortTable('holdings',9, true)">10 day average price</th>
-                <th onclick="sortTable('holdings',10, true)">30 day average price</th>
-                <th onclick="sortTable('holdings',11, true)">50 day average price</th>
-                <th onclick="sortTable('holdings',12, true)">100 day average price</th>
-                <th onclick="sortTable('holdings',13, true)">200 day average price</th>
-                <th onclick="sortTable('holdings',14, true)">Today's Change</th>
-                <th onclick="sortTable('holdings',15, true)">5 Day Return</th>
-                <th onclick="sortTable('holdings',16, true)">30 day Return</th>
-                <th onclick="sortTable('holdings',17, true)">90 Day Return</th>
-                <th onclick="sortTable('holdings',18, true)">YTD Return</th>
-                <th onclick="sortTable('holdings',19, true)">1 Year Return</th>
+                <th onclick="sortTable('holdings',9, true)">Today's Change</th>
+                <th onclick="sortTable('holdings',10, true)">5 Day Return</th>
+                <th onclick="sortTable('holdings',11, true)">30 day Return</th>
+                <th onclick="sortTable('holdings',12, true)">90 Day Return</th>
+                <th onclick="sortTable('holdings',13, true)">YTD Return</th>
+                <th onclick="sortTable('holdings',14, true)">1 Year Return</th>
+                <th onclick="sortTable('holdings',15, true)">10 day average price</th>
+                <th onclick="sortTable('holdings',16, true)">30 day average price</th>
+                <th onclick="sortTable('holdings',17, true)">50 day average price</th>
+                <th onclick="sortTable('holdings',18, true)">100 day average price</th>
+                <th onclick="sortTable('holdings',19, true)">200 day average price</th>
             </tr>
         </thead>
         <tbody>
@@ -113,41 +113,6 @@
                     {% endif %}
                 </td>
                 <td>
-                    {% if stock.ten_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.fifty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.two_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
                     {% if stock.percent_change_today != "N/A" %}
                         {{ "%.2f"|format(stock.percent_change_today) }}%
                     {% else %}
@@ -185,6 +150,41 @@
                 <td>
                     {% if stock.one_year_return != "N/A" %}
                         {{ "%.2f"|format(stock.one_year_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ten_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.fifty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.two_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
                     {% else %}
                         N/A
                     {% endif %}
@@ -206,17 +206,17 @@
                 <th onclick="sortTable('watchlist',0, false)">Name</th>
                 <th onclick="sortTable('watchlist',1, false)">Symbol</th>
                 <th onclick="sortTable('watchlist',2, true)">Current Price</th>
-                <th onclick="sortTable('watchlist',3, true)">10 day average price</th>
-                <th onclick="sortTable('watchlist',4, true)">30 day average price</th>
-                <th onclick="sortTable('watchlist',5, true)">50 day average price</th>
-                <th onclick="sortTable('watchlist',6, true)">100 day average price</th>
-                <th onclick="sortTable('watchlist',7, true)">200 day average price</th>
-                <th onclick="sortTable('watchlist',8, true)">Today's Change</th>
-                <th onclick="sortTable('watchlist',9, true)">5 Day Return</th>
-                <th onclick="sortTable('watchlist',10, true)">30 day Return</th>
-                <th onclick="sortTable('watchlist',11, true)">90 Day Return</th>
-                <th onclick="sortTable('watchlist',12, true)">YTD Return</th>
-                <th onclick="sortTable('watchlist',13, true)">1 Year Return</th>
+                <th onclick="sortTable('watchlist',3, true)">Today's Change</th>
+                <th onclick="sortTable('watchlist',4, true)">5 Day Return</th>
+                <th onclick="sortTable('watchlist',5, true)">30 day Return</th>
+                <th onclick="sortTable('watchlist',6, true)">90 Day Return</th>
+                <th onclick="sortTable('watchlist',7, true)">YTD Return</th>
+                <th onclick="sortTable('watchlist',8, true)">1 Year Return</th>
+                <th onclick="sortTable('watchlist',9, true)">10 day average price</th>
+                <th onclick="sortTable('watchlist',10, true)">30 day average price</th>
+                <th onclick="sortTable('watchlist',11, true)">50 day average price</th>
+                <th onclick="sortTable('watchlist',12, true)">100 day average price</th>
+                <th onclick="sortTable('watchlist',13, true)">200 day average price</th>
             </tr>
         </thead>
         <tbody>
@@ -231,43 +231,7 @@
                         N/A
                     {% endif %}
                 </td>
-
-                <td>
-                    {% if stock.ten_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.fifty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.two_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
+             <td>
                     {% if stock.percent_change_today != "N/A" %}
                         {{ "%.2f"|format(stock.percent_change_today) }}%
                     {% else %}
@@ -305,6 +269,41 @@
                 <td>
                     {% if stock.one_year_return != "N/A" %}
                         {{ "%.2f"|format(stock.one_year_return) }}%
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.ten_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.thirty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.fifty_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.one_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+                <td>
+                    {% if stock.two_hundred_day_moving_average != "N/A" %}
+                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
                     {% else %}
                         N/A
                     {% endif %}

@@ -11,6 +11,8 @@ class Notifier:
     def __init__(self, portfolio: spm.Portfolio):
         load_dotenv()
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
+        # if not self.discord_webhook_url:
+        #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
         self.notification = None
 
@@ -87,6 +89,9 @@ class Notifier:
 
         with open(log_path, 'a', encoding='utf-8') as log_file:
             log_file.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} - {notification_log_msg}\n")
+        if not self.discord_webhook_url:
+            print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Discord webhook URL not set. Skipping notification.')
+            return
         results = requests.post(self.discord_webhook_url, json=embed)
         if 200 <= results.status_code < 300:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Notification sent successfully.')

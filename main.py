@@ -558,18 +558,30 @@ def save_html_to_s3(html_content):
     load_dotenv()
     bucket_name = os.environ.get("BUCKET_NAME")
     key = os.environ.get("BUCKET_KEY")
+    if not bucket_name or not key:
+        # # Missing configuration, store locally
+        # script_dir = Path(__file__).parent
+        # local_file = script_dir / "portfolio_report.html"
+        # with open(local_file, 'w') as f:
+        #     f.write(html_content)
+        #
+        # print(f'file saved locally at file://{local_file}')
+        # return f'file://{local_file}'
+        return None
+    else:
+        #store it in S3 Bucket
 
-    # Upload HTML content directly to S3
-    s3.put_object(
-        Bucket=bucket_name,
-        Key=key,
-        Body=html_content,
-        ContentType='text/html',
-        CacheControl='no-store,no-cache,private,max-age=60'
-    )
+        # Upload HTML content directly to S3
+        s3.put_object(
+            Bucket=bucket_name,
+            Key=key,
+            Body=html_content,
+            ContentType='text/html',
+            CacheControl='no-store,no-cache,private,max-age=60'
+        )
 
-    print(f"Portfolio report uploaded to S3: s3://{bucket_name}/{key}")
-    return f"https://www.{bucket_name}/{key}"
+        print(f"Portfolio report uploaded to S3: s3://{bucket_name}/{key}")
+        return f"https://www.{bucket_name}/{key}"
 
 if __name__ == "__main__":
     # Create a portfolio

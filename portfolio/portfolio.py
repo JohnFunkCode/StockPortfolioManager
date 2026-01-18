@@ -6,6 +6,7 @@ from portfolio.stock import Stock
 from portfolio.money import Money
 from portfolio.metrics import Metrics, get_historical_metrics
 from portfolio.yfinance_gateway import get_latest_prices
+from portfolio.yfinance_gateway import get_descriptive_info
 
 class Portfolio:
     def __init__(self, default_currency: str = "USD"):
@@ -34,6 +35,20 @@ class Portfolio:
         prices = get_latest_prices(symbols, self.default_currency)
         for stock in self.stocks.values():
             stock.current_price = prices[stock.symbol] if stock.symbol in prices else None
+
+    def add_descriptive_info_to_stocks(self) -> None:
+        """Add descriptive info to all stocks in the portfolio"""
+        symbols = list()
+        for stock in self.stocks.values():
+            symbols.append(stock.symbol)
+
+        info = get_descriptive_info(symbols)
+        for stock in self.stocks.values():
+            for item in info:
+                if stock.symbol == item['symbol']:
+                    stock.earnings_date = item['earnings_date'] if 'earnings_date' in item else None
+                    # tbd - add quarterly_income_stmt and propagate it all the way to the report
+
 
     def get_total_investment(self, currency: str = None) -> Money:
         """Calculate the total investment (sum of purchase prices) in the portfolio"""

@@ -14,6 +14,7 @@ class Stock:
     sale_price: Optional[Money] = None
     sale_date: Optional[date] = None
     current_price: Optional[Money] = None
+    earnings_date: Optional[date] = None
     metrics: Metrics = Metrics()
 
     def __init__(

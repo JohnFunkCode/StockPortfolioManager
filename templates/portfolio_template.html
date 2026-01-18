@@ -56,17 +56,18 @@
                 <th onclick="sortTable('holdings',6, true)">Gain/Loss %</th>
                 <th onclick="sortTable('holdings',7, true)">Days Held</th>
                 <th onclick="sortTable('holdings',8, true)">Dollars per day</th>
-                <th onclick="sortTable('holdings',9, true)">Today's Change</th>
-                <th onclick="sortTable('holdings',10, true)">5 Day Return</th>
-                <th onclick="sortTable('holdings',11, true)">30 day Return</th>
-                <th onclick="sortTable('holdings',12, true)">90 Day Return</th>
-                <th onclick="sortTable('holdings',13, true)">YTD Return</th>
-                <th onclick="sortTable('holdings',14, true)">1 Year Return</th>
-                <th onclick="sortTable('holdings',15, true)">10 day average price</th>
-                <th onclick="sortTable('holdings',16, true)">30 day average price</th>
-                <th onclick="sortTable('holdings',17, true)">50 day average price</th>
-                <th onclick="sortTable('holdings',18, true)">100 day average price</th>
-                <th onclick="sortTable('holdings',19, true)">200 day average price</th>
+                <th onclick="sortTable('holdings',9, false)">Earnings_Date</th>
+                <th onclick="sortTable('holdings',10, true)">Today's Change</th>
+                <th onclick="sortTable('holdings',11, true)">5 Day Return</th>
+                <th onclick="sortTable('holdings',12, true)">30 day Return</th>
+                <th onclick="sortTable('holdings',13, true)">90 Day Return</th>
+                <th onclick="sortTable('holdings',14, true)">YTD Return</th>
+                <th onclick="sortTable('holdings',15, true)">1 Year Return</th>
+                <th onclick="sortTable('holdings',16, true)">10 day average price</th>
+                <th onclick="sortTable('holdings',17, true)">30 day average price</th>
+                <th onclick="sortTable('holdings',18, true)">50 day average price</th>
+                <th onclick="sortTable('holdings',19, true)">100 day average price</th>
+                <th onclick="sortTable('holdings',20, true)">200 day average price</th>
             </tr>
         </thead>
         <tbody>
@@ -112,6 +113,15 @@
                         N/A
                     {% endif %}
                 </td>
+
+                <td>
+                    {% if stock.earnings_date != "N/A" %}
+                        {{ stock.earnings_date }}
+                    {% else %}
+                        N/A
+                    {% endif %}
+                </td>
+
                 <td>
                     {% if stock.percent_change_today != "N/A" %}
                         {{ "%.2f"|format(stock.percent_change_today) }}%

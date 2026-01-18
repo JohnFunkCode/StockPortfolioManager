@@ -171,6 +171,7 @@ def create_portfolio_html(portfolio, watchlist):
             'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
             'days_held': (datetime.now().date() - stock.purchase_date).days,
             'dollars_per_day': float(dollars_per_day.amount) if dollars_per_day else "N/A",
+            'earnings_date': stock.earnings_date.strftime("%Y-%m-%d") if stock.earnings_date else "N/A",
             'ten_day_moving_average' : stock.metrics.ten_day_moving_average if stock.metrics else "N/A",
             'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics else "N/A",
             'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
@@ -596,6 +597,7 @@ if __name__ == "__main__":
 
     # Update current prices
     portfolio.update_all_prices()
+    portfolio.add_descriptive_info_to_stocks()
     portfolio.update_metrics()
 
     # Create a watchlist of stocks to track

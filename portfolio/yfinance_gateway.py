@@ -51,3 +51,28 @@ def get_latest_prices(symbols: list[str], currency: str = "USD") -> dict[str, Op
                 pass
 
     return prices
+
+def get_descriptive_info(symbols: list[str]) -> list[dict]:
+    """
+    Return a dict of descriptive info for the given symbols.
+    """
+
+    info=[]
+    tickers = yf.Tickers(" ".join(symbols))
+
+    t= tickers.tickers
+
+    for symbol, ticker in t.items():
+        # print(f"Symbol: {symbol}, Ticker Object: {ticker}")
+        earnings_date = ticker.calendar["Earnings Date"][0] if "Earnings Date" in ticker.calendar \
+            else None
+
+        quarterly_income_stmt = ticker.quarterly_income_stmt
+        # print(f'Symbol {symbol} '
+        #       f'{earnings_date.strftime("%Y-%m-%d") if earnings_date is not None else "N/A"}')
+
+        # Append a dictionary with the key "earnings_date" and its value
+        info.append({"symbol": symbol,
+                     "earnings_date": earnings_date,
+                     "quarterly_income_stmt": quarterly_income_stmt})
+    return info

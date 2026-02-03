@@ -384,7 +384,7 @@ def fetch_prices(symbol, days=360):
 
 
 if __name__ == "__main__":
-    symbol = "PATH"
+    symbol = "IREN"
     prices = fetch_prices(symbol, days=360)
     if prices:
         n_iterations = 4

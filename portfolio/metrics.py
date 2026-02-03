@@ -144,8 +144,8 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
     # Calculate the average price for each stock in the data
     metrics = {}
     for symbol in data.columns.levels[0]:
-        change_today = data[symbol]['Close'].iloc[-1] - data[symbol]['Close'].iloc[-2]
-        percent_change_today = change_today / data[symbol]['Close'].iloc[-2] * 100
+        change_today = data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-1]
+        percent_change_today = change_today / data[symbol]['Open'].iloc[-1] * 100
 
         ten_day_moving_average = data[symbol]['Close'].tail(10).mean()
         # ten_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=10)
@@ -162,18 +162,18 @@ def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
         two_hundred_day_moving_average = data[symbol]['Close'].tail(200).mean()
         # two_hundred_day_velocity = ma_regression_slope(data[symbol]['Close'], ma_window=200)
 
-        five_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-6]) / data[symbol]['Close'].iloc[-6] * 100
-        thirty_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-31]) / data[symbol]['Close'].iloc[-31] * 100
-        ninety_day_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-91]) / data[symbol]['Close'].iloc[-91] * 100
+        five_day_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-6]) / data[symbol]['Open'].iloc[-6] * 100
+        thirty_day_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-31]) / data[symbol]['Open'].iloc[-31] * 100
+        ninety_day_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-91]) / data[symbol]['Open'].iloc[-91] * 100
 
         # days_since_start_of_year = (pd.Timestamp.now() - pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)).days
-        # ytd_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-days_since_start_of_year]) / data[symbol]['Close'].iloc[-days_since_start_of_year] * 100
+        # ytd_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-days_since_start_of_year]) / data[symbol]['Open'].iloc[-days_since_start_of_year] * 100
 
         start_of_year = pd.Timestamp(year=pd.Timestamp.now().year, month=1, day=1)
         today = pd.Timestamp.now().normalize()
         working_days = len(pd.bdate_range(start=start_of_year, end=today)) - 1  # exclude today if needed
-        ytd_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[-working_days]) / data[symbol]['Close'].iloc[-working_days] * 100
-        one_year_return = (data[symbol]['Open'].iloc[-1] - data[symbol]['Close'].iloc[0]) / data[symbol]['Close'].iloc[0] * 100
+        ytd_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[-working_days]) / data[symbol]['Open'].iloc[-working_days] * 100
+        one_year_return = (data[symbol]['Close'].iloc[-1] - data[symbol]['Open'].iloc[0]) / data[symbol]['Open'].iloc[0] * 100
 
         one_year_average_volume = data[symbol]['Volume'].mean()
 

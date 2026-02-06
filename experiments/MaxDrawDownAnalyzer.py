@@ -6,8 +6,12 @@ class MaxDrawDownAnalyzer:
         self.symbol = symbol
         self.start = start
         self.end = end
-        self.data = None
+        self.close_prices = None
+        self.price_data = None
         self.max_drawdown = None
+        self.worst_day_change = None
+        self.worst_day_date = None
+        self.worst_day_percent_change = None
 
     def fetch_data(self):
         try:
@@ -15,18 +19,19 @@ class MaxDrawDownAnalyzer:
             df = ticker.history(start=self.start, end=self.end)
             if df.empty:
                 raise ValueError(f"No data found for {self.symbol}")
-            self.data = df['Close']
+            self.close_prices = df['Close']
+            self.price_data = df
         except Exception as e:
             print(f"Error fetching data for {self.symbol}: {e}")
-            self.data = None
+            self.close_prices = None
 
     def calculate_max_drawdown(self):
-        if self.data is None:
+        if self.close_prices is None:
             print(f"Data not available for {self.symbol}")
             return None
 
-        peak_price = self.data.iloc[0]
-        peak_date = self.data.index[0]
+        peak_price = self.close_prices.iloc[0]
+        peak_date = self.close_prices.index[0]
         max_drawdown = 0
         trough_price = peak_price
         trough_date = peak_date
@@ -34,7 +39,7 @@ class MaxDrawDownAnalyzer:
         current_peak_price = peak_price
         current_peak_date = peak_date
 
-        for date, price in self.data.items():
+        for date, price in self.close_prices.items():
             if price > current_peak_price:
                 current_peak_price = price
                 current_peak_date = date
@@ -56,8 +61,26 @@ class MaxDrawDownAnalyzer:
         return max_drawdown
 
 
+    def calculate_worst_day1(self):
+        df = self.price_data.copy()
+
+        df['prev_close'] = df['Close'].shift(1)
+        df['pct_change'] = (df['Close'] - df['prev_close']) / df['prev_close']
+
+        df = df.dropna()
+
+        worst_idx = df['pct_change'].idxmin()
+        worst_row = df.loc[worst_idx]
+
+        # print(f"  Worst one-day close-to-close drop: Date: {worst_idx.date()} Return: {worst_row['pct_change']:.4%} Previous Close: {worst_row['prev_close']:.2f} Close: {worst_row['Close']:.2f}")
+        print(f"  Worst one-day close-to-close drop: {worst_row['pct_change']:.4%}")
+        print(f"    Date: {worst_idx.date()} Previous Close: {worst_row['prev_close']:.2f} Close: {worst_row['Close']:.2f}")
+
+        worst_day_percent_change = float(worst_row['pct_change'])
+        return worst_day_percent_change
+
     def calculate_rolling_drawdown(self, window_days=5):
-        if self.data is None:
+        if self.close_prices is None:
             print(f"Data not available for {self.symbol}")
             return None
 
@@ -67,8 +90,8 @@ class MaxDrawDownAnalyzer:
         worst_peak = None
         worst_trough = None
 
-        for i in range(len(self.data) - window_days + 1):
-            window = self.data.iloc[i:i + window_days]
+        for i in range(len(self.close_prices) - window_days + 1):
+            window = self.close_prices.iloc[i:i + window_days]
             dates = window.index
             prices = window.values
 
@@ -108,7 +131,7 @@ class MaxDrawDownAnalyzer:
         else:
             print(f"{self.symbol}: Could not compute Max Drawdown")
 
-        # Also show rolling N-day drawdown
+        # Also show rolling 10 day drawdown
         window_days = 10
         rolling_dd = self.calculate_rolling_drawdown(window_days=window_days)
         if rolling_dd is not None:
@@ -116,7 +139,7 @@ class MaxDrawDownAnalyzer:
             print(f"    From {self.rolling_start_date.date()} at ${self.rolling_peak_price:.2f}")
             print(f"    To   {self.rolling_end_date.date()} at ${self.rolling_trough_price:.2f}")
 
-        # Also show rolling N-day drawdown
+        # Also show rolling 5 day drawdown
         window_days = 5
         rolling_dd = self.calculate_rolling_drawdown(window_days=window_days)
         if rolling_dd is not None:
@@ -124,6 +147,16 @@ class MaxDrawDownAnalyzer:
             print(f"    From {self.rolling_start_date.date()} at ${self.rolling_peak_price:.2f}")
             print(f"    To   {self.rolling_end_date.date()} at ${self.rolling_trough_price:.2f}")
 
+        # # Also show rolling 2 day drawdown
+        # window_days = 2
+        # rolling_dd = self.calculate_rolling_drawdown(window_days=window_days)
+        # if rolling_dd is not None:
+        #     print(f"  Worst {window_days}-Day Drop = {rolling_dd:.2%}")
+        #     print(f"    From {self.rolling_start_date.date()} at ${self.rolling_peak_price:.2f}")
+        #     print(f"    To   {self.rolling_end_date.date()} at ${self.rolling_trough_price:.2f}")
+
+        # and print the worst day change
+        worst_day_change = self.calculate_worst_day1()
 
 def analyze_stocks(symbols, start='2020-01-01', end=None):
     for symbol in symbols:
@@ -134,5 +167,5 @@ def analyze_stocks(symbols, start='2020-01-01', end=None):
 
 # === Example usage ===
 if __name__ == "__main__":
-    stock_list = ['AVGO', 'NVDA','RCL','PANW','ZS','CAT','GLW','WDC','GOOG','MSFT','MU','AAPL','QCOM','ZS','IREN']
+    stock_list = ['AVGO', 'NVDA','RCL','PANW','ZS','CAT','GLW','WDC','GOOG','MSFT','MU','AAPL','QCOM','ZS','IREN','TER']
     analyze_stocks(stock_list, start='2025-01-01')

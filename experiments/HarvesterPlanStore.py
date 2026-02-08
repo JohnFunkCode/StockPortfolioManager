@@ -1,4 +1,5 @@
 import sqlite3
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -1026,7 +1027,8 @@ class HarvesterController:
             self.db._ensure_next_rung_alert(int(row["instance_id"]))
 
 if __name__ == "__main__":
-    db = HarvesterPlanDB("harvester.sqlite")
+    db_path = os.environ.get("HARVESTER_DB_PATH", "harvester.sqlite")
+    db = HarvesterPlanDB(db_path)
 
     # 1) Build + store a plan
     params = PlanBuildParams(history_window_days=360, n_iterations=4, alpha=0.5, min_H=0.05, max_H=0.30)

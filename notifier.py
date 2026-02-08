@@ -15,13 +15,29 @@ if str(PROJECT_ROOT) not in sys.path:
 from experiments.HarvesterPlanStore import HarvesterPlanDB
 
 class Notifier:
-    def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str = "harvester.sqlite"):
+    def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str | None = None):
         load_dotenv()
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
         # if not self.discord_webhook_url:
         #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
-        self.harvester_db_path = harvester_db_path
+        env_db_path = os.environ.get("HARVESTER_DB_PATH")
+        if harvester_db_path:
+            self.harvester_db_path = harvester_db_path
+        elif env_db_path:
+            self.harvester_db_path = env_db_path
+        else:
+            self.harvester_db_path = str(PROJECT_ROOT / "experiments" / "harvester.sqlite")
+            print(
+                f"{datetime.now():%Y-%m-%d %H:%M:%S} HARVESTER_DB_PATH not set. "
+                f"Defaulting to {self.harvester_db_path}"
+            )
+
+        if not os.path.exists(self.harvester_db_path):
+            print(
+                f"{datetime.now():%Y-%m-%d %H:%M:%S} "
+                f"Harvester DB not found at {self.harvester_db_path}"
+            )
         self.notification = None
 
     
@@ -100,21 +116,7 @@ class Notifier:
                 ]
             }
             self.send_notifications(embed)
-            # Keep separate notification for price below purchase price
-            if stock.current_price.amount < stock.purchase_price.amount:
-                embed = {
-                    "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
-                    "embeds": [
-                        {
-                            "title": f"{stock.name} ({stock.symbol}) Loss Alert",
-                            "description": f"Current Price: {stock.current_price}\n"
-                                           f"Purchase Price: {stock.purchase_price}\n"
-                                           f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
-                            "color": 16711680  # Red color for alert
-                        }
-                    ]
-                }
-                self.send_notifications(embed)
+            # end of Harvester Notification
 
 
     def send_notifications(self, embed):

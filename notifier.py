@@ -1,23 +1,33 @@
 import json
 import os
+import sys
+from pathlib import Path
 from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
 from portfolio import portfolio as spm
 import portfolio.money as money
+PROJECT_ROOT = Path(__file__).resolve().parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from experiments.HarvesterPlanStore import HarvesterPlanDB
 
 class Notifier:
-    def __init__(self, portfolio: spm.Portfolio):
+    def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str = "harvester.sqlite"):
         load_dotenv()
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
         # if not self.discord_webhook_url:
         #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
+        self.harvester_db_path = harvester_db_path
         self.notification = None
 
     
     def calculate_and_send_notifications(self):
+        self.calculate_and_send_harvest_notifications()
+
         for stock in self.portfolio.stocks.values():
             # Track all moving average violations for each stock
             ma_violations = []
@@ -56,6 +66,40 @@ class Notifier:
                 }
                 self.send_notifications(embed)
 
+    def calculate_and_send_harvest_notifications(self):
+        try:
+            db = HarvesterPlanDB(self.harvester_db_path)
+            hits = db.symbols_at_harvest_points()
+        except Exception as exc:
+            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Harvester scan failed: {exc}")
+            return
+
+        for hit in hits:
+            symbol = hit["symbol"]
+            rung_id = hit.get("rung_id")
+            instance_id = hit.get("instance_id")
+            shares_to_sell = hit["shares_to_sell"]
+            current_price = hit.get("current_price")
+            target_price = hit.get("target_price")
+
+            price_line = ""
+            if current_price is not None and target_price is not None:
+                price_line = f"Current Price: {current_price:.2f}\nTarget Price: {target_price:.2f}\n\n"
+
+            title_suffix = f" (rung {rung_id})" if rung_id is not None else ""
+            instance_line = f"Plan Instance: {instance_id}\n" if instance_id is not None else ""
+            embed = {
+                "content": f"Harvest Alert: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
+                "embeds": [
+                    {
+                        "title": f"{symbol} Harvest Point Reached{title_suffix}",
+                        "description": f"{price_line}{instance_line}Planned Shares To Sell: {shares_to_sell}\n\n"
+                                       f"[Investigate](https://finance.yahoo.com/chart/{symbol})",
+                        "color": 65280  # Green color for harvest alert
+                    }
+                ]
+            }
+            self.send_notifications(embed)
             # Keep separate notification for price below purchase price
             if stock.current_price.amount < stock.purchase_price.amount:
                 embed = {

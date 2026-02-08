@@ -12,7 +12,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from experiments.HarvesterPlanStore import HarvesterPlanDB
+from experiments.harvesterPlanStore import (
+    HarvesterPlanDB,
+    SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
+)
 
 class Notifier:
     def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str | None = None):
@@ -42,9 +45,12 @@ class Notifier:
 
     
     def calculate_and_send_notifications(self):
-        self.calculate_and_send_harvest_notifications()
-
         for stock in self.portfolio.stocks.values():
+            self.check_and_send_harvest_notification_for_stock(
+                stock.symbol,
+                stock.current_price.amount,
+            )
+
             # Track all moving average violations for each stock
             ma_violations = []
 
@@ -82,41 +88,84 @@ class Notifier:
                 }
                 self.send_notifications(embed)
 
-    def calculate_and_send_harvest_notifications(self):
+                # Keep separate notification for price below purchase price
+                if stock.current_price.amount < stock.purchase_price.amount:
+                    embed = {
+                        "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
+                        "embeds": [
+                            {
+                                "title": f"{stock.name} ({stock.symbol}) Loss Alert",
+                                "description": f"Current Price: {stock.current_price}\n"
+                                               f"Purchase Price: {stock.purchase_price}\n"
+                                               f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
+                                "color": 16711680  # Red color for alert
+                            }
+                        ]
+                    }
+                    self.send_notifications(embed)
+
+
+    def check_and_send_harvest_notification_for_stock(
+        self,
+        symbol: str,
+        current_price: float,
+    ) -> None:
         try:
             db = HarvesterPlanDB(self.harvester_db_path)
-            hits = db.symbols_at_harvest_points()
         except Exception as exc:
-            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Harvester scan failed: {exc}")
+            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Harvester DB init failed: {exc}")
             return
 
-        for hit in hits:
-            symbol = hit["symbol"]
-            rung_id = hit.get("rung_id")
-            instance_id = hit.get("instance_id")
-            shares_to_sell = hit["shares_to_sell"]
-            current_price = hit.get("current_price")
-            target_price = hit.get("target_price")
+        if current_price is None:
+            return
 
-            price_line = ""
-            if current_price is not None and target_price is not None:
-                price_line = f"Current Price: {current_price:.2f}\nTarget Price: {target_price:.2f}\n\n"
+        with db._connect() as conn:
+            instance = conn.execute(
+                SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
+                {"ticker": symbol},
+            ).fetchone()
+            if not instance:
+                return
+            instance_id = int(instance["instance_id"])
 
-            title_suffix = f" (rung {rung_id})" if rung_id is not None else ""
-            instance_line = f"Plan Instance: {instance_id}\n" if instance_id is not None else ""
-            embed = {
-                "content": f"Harvest Alert: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
-                "embeds": [
-                    {
-                        "title": f"{symbol} Harvest Point Reached{title_suffix}",
-                        "description": f"{price_line}{instance_line}Planned Shares To Sell: {shares_to_sell}\n\n"
-                                       f"[Investigate](https://finance.yahoo.com/chart/{symbol})",
-                        "color": 65280  # Green color for harvest alert
-                    }
-                ]
-            }
-            self.send_notifications(embed)
-            # end of Harvester Notification
+            rung = conn.execute(
+                """
+                SELECT rung_id, rung_index, target_price, shares_sold_planned
+                FROM plan_rungs
+                WHERE instance_id = :instance_id
+                  AND status = 'PENDING'
+                  AND target_price <= :current_price
+                ORDER BY rung_index ASC
+                LIMIT 1;
+                """,
+                {"instance_id": instance_id, "current_price": float(current_price)},
+            ).fetchone()
+            if not rung:
+                return
+
+        rung_id = int(rung["rung_id"])
+        target_price = float(rung["target_price"])
+        shares_to_sell = int(rung["shares_sold_planned"])
+
+        price_line = ""
+        if current_price is not None and target_price is not None:
+            price_line = f"Current Price: {current_price:.2f}\nTarget Price: {target_price:.2f}\n\n"
+
+        title_suffix = f" (rung {rung_id})" if rung_id is not None else ""
+        instance_line = f"Plan Instance: {instance_id}\n" if instance_id is not None else ""
+        embed = {
+            "content": f"Harvest Alert: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
+            "embeds": [
+                {
+                    "title": f"{symbol} Harvest Point Reached{title_suffix}",
+                    "description": f"{price_line}{instance_line}Planned Shares To Sell: {shares_to_sell}\n\n"
+                                   f"[Investigate](https://finance.yahoo.com/chart/{symbol})",
+                    "color": 65280  # Green color for harvest alert
+                }
+            ]
+        }
+        self.send_notifications(embed)
+        # end of Harvester Notification
 
 
     def send_notifications(self, embed):

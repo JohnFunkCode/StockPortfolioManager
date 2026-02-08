@@ -13,7 +13,9 @@ except Exception:  # pragma: no cover
 
 
 DEFAULT_SYMBOLS = ["NVDA", "CAT", "GLW", "WDC", "GOOGL", "AAPL", "QCOM", "GEV", "TER"]
-WATCHLIST_YAML_PATH = "/Users/johnfunk/Documents/code/StockPortfolioManager/watchlist.yaml"
+# WATCHLIST_YAML_PATH = "/Users/johnfunk/Documents/code/StockPortfolioManager/watchlist.yaml"
+WATCHLIST_YAML_PATH = "none"
+
 
 # Default weights (sum to 1.00)
 WEIGHTS = {

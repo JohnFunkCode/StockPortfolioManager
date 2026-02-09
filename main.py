@@ -599,37 +599,37 @@ if __name__ == "__main__":
     portfolio.update_all_prices()
     portfolio.add_descriptive_info_to_stocks()
     portfolio.update_metrics()
-    #
-    # # Create a watchlist of stocks to track
-    # watchlist = watch_list.WatchList()
-    #
-    #
-    # # read watchlist from yaml file
-    # yaml_file = script_dir / "watchlist.yaml"
-    # watchlist.read_stocks_from_yaml(yaml_file)
-    # watchlist.update_all_prices()
-    # watchlist.update_metrics()
-    #
-    #
-    # # Create HTML report
-    # html_content = create_portfolio_html(portfolio,watchlist)
-    #
-    # # Save HTML to S3
-    # s3_url = save_html_to_s3(html_content)
-    #
-    # # Write HTML to file
-    # html_file = script_dir / "portfolio_report.html"
-    # with open(html_file, 'w') as f:
-    #     f.write(html_content)
-    #
-    #
-    #
-    # # Open HTML in default browser
-    # # webbrowser.open('file://' + os.path.abspath(html_file))
-    # # webbrowser.open(s3_url)
-    #
-    #
-    # print(f"Portfolio report generated and opened in your browser: {html_file}")
+
+    # Create a watchlist of stocks to track
+    watchlist = watch_list.WatchList()
+
+
+    # read watchlist from yaml file
+    yaml_file = script_dir / "watchlist.yaml"
+    watchlist.read_stocks_from_yaml(yaml_file)
+    watchlist.update_all_prices()
+    watchlist.update_metrics()
+
+
+    # Create HTML report
+    html_content = create_portfolio_html(portfolio,watchlist)
+
+    # Save HTML to S3
+    s3_url = save_html_to_s3(html_content)
+
+    # Write HTML to file
+    html_file = script_dir / "portfolio_report.html"
+    with open(html_file, 'w') as f:
+        f.write(html_content)
+
+
+
+    # Open HTML in default browser
+    # webbrowser.open('file://' + os.path.abspath(html_file))
+    # webbrowser.open(s3_url)
+
+
+    print(f"Portfolio report generated and opened in your browser: {html_file}")
 
     notifier = Notifier(portfolio)
     notifier.calculate_and_send_notifications()

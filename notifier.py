@@ -12,10 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from experiments.harvesterPlanStore import (
-    HarvesterPlanDB,
-    SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
-)
+from experiments.HarvesterPlanStore import HarvesterPlanDB
 
 class Notifier:
     def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str | None = None):
@@ -24,148 +21,127 @@ class Notifier:
         # if not self.discord_webhook_url:
         #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
-        env_db_path = os.environ.get("HARVESTER_DB_PATH")
-        if harvester_db_path:
-            self.harvester_db_path = harvester_db_path
-        elif env_db_path:
-            self.harvester_db_path = env_db_path
-        else:
-            self.harvester_db_path = str(PROJECT_ROOT / "experiments" / "harvester.sqlite")
-            print(
-                f"{datetime.now():%Y-%m-%d %H:%M:%S} HARVESTER_DB_PATH not set. "
-                f"Defaulting to {self.harvester_db_path}"
-            )
-
-        if not os.path.exists(self.harvester_db_path):
-            print(
-                f"{datetime.now():%Y-%m-%d %H:%M:%S} "
-                f"Harvester DB not found at {self.harvester_db_path}"
-            )
         self.notification = None
 
     
     def calculate_and_send_notifications(self):
+        harvester_db = HarvesterPlanDB()
         for stock in self.portfolio.stocks.values():
-            self.check_and_send_harvest_notification_for_stock(
-                stock.symbol,
-                stock.current_price.amount,
+            hits = harvester_db.harvest_hit_for_symbol(
+                symbol=stock.symbol,
+                current_price=float(stock.current_price.amount),
             )
+            if hits:
+                rung_ids = [hit["rung_id"] for hit in hits if hit.get("rung_id") is not None]
+                harvester_db.mark_rungs_achieved(
+                    rung_ids=rung_ids,
+                    trigger_price=float(stock.current_price.amount),
+                )
+                self.send_harvest_alert(hits)
 
-            # Track all moving average violations for each stock
-            ma_violations = []
+                # Track all moving average violations for each stock
+                ma_violations = []
 
-            # Check each moving average
-            # if stock.current_price.amount < stock.metrics.ten_day_moving_average:
-            #     ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
+                # Check each moving average
+                # if stock.current_price.amount < stock.metrics.ten_day_moving_average:
+                #     ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
 
-            if stock.current_price.amount < stock.metrics.thirty_day_moving_average:
-                ma_violations.append(f"30-Day Moving Average: {stock.metrics.thirty_day_moving_average:.2f}")
+                if stock.current_price.amount < stock.metrics.thirty_day_moving_average:
+                    ma_violations.append(f"30-Day Moving Average: {stock.metrics.thirty_day_moving_average:.2f}")
 
-            if stock.current_price.amount < stock.metrics.fifty_day_moving_average:
-                ma_violations.append(f"50-Day Moving Average: {stock.metrics.fifty_day_moving_average:.2f}")
+                if stock.current_price.amount < stock.metrics.fifty_day_moving_average:
+                    ma_violations.append(f"50-Day Moving Average: {stock.metrics.fifty_day_moving_average:.2f}")
 
-            if stock.current_price.amount < stock.metrics.one_hundred_day_moving_average:
-                ma_violations.append(f"100-Day Moving Average: {stock.metrics.one_hundred_day_moving_average:.2f}")
+                if stock.current_price.amount < stock.metrics.one_hundred_day_moving_average:
+                    ma_violations.append(f"100-Day Moving Average: {stock.metrics.one_hundred_day_moving_average:.2f}")
 
-            if stock.current_price.amount < stock.metrics.two_hundred_day_moving_average:
-                ma_violations.append(f"200-Day Moving Average: {stock.metrics.two_hundred_day_moving_average:.2f}")
+                if stock.current_price.amount < stock.metrics.two_hundred_day_moving_average:
+                    ma_violations.append(f"200-Day Moving Average: {stock.metrics.two_hundred_day_moving_average:.2f}")
 
-            # Send a single consolidated alert if any moving averages are violated
-            if ma_violations:
-                violations_text = "\n".join(ma_violations)
+                # Send a single consolidated alert if any moving averages are violated
+                if ma_violations:
+                    violations_text = "\n".join(ma_violations)
 
-                embed = {
-                    "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
-                    "embeds": [
-                        {
-                            "title": f"{stock.name} ({stock.symbol}) Moving Average Alert",
-                            "description": f"Current Price: {stock.current_price}\n\n"
-                                           f"Below the following moving averages:\n{violations_text}\n\n"
-                                           f"[Investigate](https://finance.yahoo.com/chart/{stock.symbol})",
-                            "color": 16776960  # Yellow color for alert
-                        }
-                    ]
-                }
-                self.send_notifications(embed)
-
-                # Keep separate notification for price below purchase price
-                if stock.current_price.amount < stock.purchase_price.amount:
                     embed = {
                         "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
                         "embeds": [
                             {
-                                "title": f"{stock.name} ({stock.symbol}) Loss Alert",
-                                "description": f"Current Price: {stock.current_price}\n"
-                                               f"Purchase Price: {stock.purchase_price}\n"
-                                               f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
-                                "color": 16711680  # Red color for alert
+                                "title": f"{stock.name} ({stock.symbol}) Moving Average Alert",
+                                "description": f"Current Price: {stock.current_price}\n\n"
+                                               f"Below the following moving averages:\n{violations_text}\n\n"
+                                               f"[Investigate](https://finance.yahoo.com/chart/{stock.symbol})",
+                                "color": 16776960  # Yellow color for alert
                             }
                         ]
                     }
                     self.send_notifications(embed)
 
+                    # Keep separate notification for price below purchase price
+                    if stock.current_price.amount < stock.purchase_price.amount:
+                        embed = {
+                            "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
+                            "embeds": [
+                                {
+                                    "title": f"{stock.name} ({stock.symbol}) Loss Alert",
+                                    "description": f"Current Price: {stock.current_price}\n"
+                                                   f"Purchase Price: {stock.purchase_price}\n"
+                                                   f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
+                                    "color": 16711680  # Red color for alert
+                                }
+                            ]
+                        }
+                        self.send_notifications(embed)
 
-    def check_and_send_harvest_notification_for_stock(
-        self,
-        symbol: str,
-        current_price: float,
-    ) -> None:
-        try:
-            db = HarvesterPlanDB(self.harvester_db_path)
-        except Exception as exc:
-            print(f"{datetime.now():%Y-%m-%d %H:%M:%S} Harvester DB init failed: {exc}")
+
+    def send_harvest_alert(self, hits: list[dict]) -> None:
+        if not hits:
             return
 
-        if current_price is None:
-            return
+        symbol = hits[0]["symbol"]
+        instance_id = hits[0].get("instance_id")
+        current_price = hits[0].get("current_price")
 
-        with db._connect() as conn:
-            instance = conn.execute(
-                SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
-                {"ticker": symbol},
-            ).fetchone()
-            if not instance:
-                return
-            instance_id = int(instance["instance_id"])
-
-            rung = conn.execute(
-                """
-                SELECT rung_id, rung_index, target_price, shares_sold_planned
-                FROM plan_rungs
-                WHERE instance_id = :instance_id
-                  AND status = 'PENDING'
-                  AND target_price <= :current_price
-                ORDER BY rung_index ASC
-                LIMIT 1;
-                """,
-                {"instance_id": instance_id, "current_price": float(current_price)},
-            ).fetchone()
-            if not rung:
-                return
-
-        rung_id = int(rung["rung_id"])
-        target_price = float(rung["target_price"])
-        shares_to_sell = int(rung["shares_sold_planned"])
+        target_prices = [hit.get("target_price") for hit in hits if hit.get("target_price") is not None]
+        min_target = min(target_prices) if target_prices else None
+        max_target = max(target_prices) if target_prices else None
 
         price_line = ""
-        if current_price is not None and target_price is not None:
-            price_line = f"Current Price: {current_price:.2f}\nTarget Price: {target_price:.2f}\n\n"
+        if current_price is not None and min_target is not None:
+            if max_target is not None and max_target != min_target:
+                price_line = (
+                    f"Current Price: {current_price:.2f}\n"
+                    f"Target Range: {min_target:.2f} - {max_target:.2f}\n\n"
+                )
+            else:
+                price_line = f"Current Price: {current_price:.2f}\nTarget Price: {min_target:.2f}\n\n"
 
-        title_suffix = f" (rung {rung_id})" if rung_id is not None else ""
+        rung_lines = []
+        for hit in hits:
+            rung_id = hit.get("rung_id")
+            rung_index = hit.get("rung_index")
+            target_price = hit.get("target_price")
+            shares_to_sell = hit.get("shares_to_sell")
+            rung_label = f"rung {rung_index}" if rung_index is not None else "rung"
+            rung_id_text = f" (id {rung_id})" if rung_id is not None else ""
+            target_text = f"{target_price:.2f}" if target_price is not None else "n/a"
+            shares_text = f"{shares_to_sell}" if shares_to_sell is not None else "n/a"
+            rung_lines.append(f"- {rung_label}{rung_id_text}: target {target_text}, shares {shares_text}")
+
+        rungs_block = "\n".join(rung_lines)
         instance_line = f"Plan Instance: {instance_id}\n" if instance_id is not None else ""
+        rung_count = len(hits)
         embed = {
             "content": f"Harvest Alert: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
             "embeds": [
                 {
-                    "title": f"{symbol} Harvest Point Reached{title_suffix}",
-                    "description": f"{price_line}{instance_line}Planned Shares To Sell: {shares_to_sell}\n\n"
+                    "title": f"{symbol} Harvest Points Reached ({rung_count})",
+                    "description": f"{price_line}{instance_line}Rungs Hit:\n{rungs_block}\n\n"
                                    f"[Investigate](https://finance.yahoo.com/chart/{symbol})",
                     "color": 65280  # Green color for harvest alert
                 }
             ]
         }
         self.send_notifications(embed)
-        # end of Harvester Notification
 
 
     def send_notifications(self, embed):

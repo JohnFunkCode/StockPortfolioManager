@@ -52,6 +52,9 @@ class Money:
         else:
             return f"{symbol}{self.amount:,.2f}"
 
+    def __float__(self) -> float:
+        return float(self.amount)
+
     def _get_currency_symbol(self) -> str:
         """Get the currency symbol for the current currency."""
         symbols = {

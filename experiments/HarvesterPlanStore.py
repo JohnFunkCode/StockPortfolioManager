@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import yfinance as yf
+from dotenv import load_dotenv
 
 # Import your plan builder from HarvesterExperiment.py
 # Assumes HarvesterExperiment.py is in the same folder or on PYTHONPATH.
@@ -280,9 +281,9 @@ WHERE alert_id = :alert_id
   AND status = 'ACTIVE';
 """
 
-SQL_MARK_RUNG_TRIGGERED = """
+SQL_MARK_RUNG_ACHIEVED = """
 UPDATE plan_rungs
-SET status = 'TRIGGERED',
+SET status = 'ACHIEVED',
     triggered_at = :ts,
     trigger_price = :price
 WHERE rung_id = :rung_id
@@ -306,7 +307,7 @@ SET status = 'EXECUTED',
     tax_paid_actual = :tax_paid,
     net_harvest_actual = :net_harvest
 WHERE rung_id = :rung_id
-  AND status IN ('TRIGGERED', 'PENDING');
+  AND status IN ('ACHIEVED', 'PENDING');
 """
 
 SQL_GET_RUNG_INSTANCE = """
@@ -435,8 +436,12 @@ class PlanBuildParams:
 
 
 class HarvesterPlanDB:
-    def __init__(self, db_path: str):
-        self.db_path = db_path
+    def __init__(self, db_path: Optional[str] = None):
+        load_dotenv()
+        # get the database path from the .env file
+        self.db_path = db_path or os.getenv("HARVESTER_DB_PATH")
+        if not self.db_path:
+            raise ValueError("HARVESTER_DB_PATH is not set and no db_path was provided.")
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -664,7 +669,7 @@ class HarvesterPlanDB:
                           :instance_id, :rung_index,
                           :target_price,
                           :shares_before, :shares_sold_planned, :shares_after_planned,
-                          :expected_days_from_now, NULL,
+                          :expected_days_from_now, :expected_date,
                           :gross_harvest_planned, :cumulative_harvest_planned,
                           :remaining_value_planned, :total_wealth_planned, :total_return_planned,
                           'PENDING'
@@ -779,6 +784,84 @@ class HarvesterPlanDB:
                 # Optional: mark alert/rung as triggered automatically here
                 # or leave that to a separate "fire alerts" path.
         return results
+
+    def harvest_hit_for_symbol(
+        self,
+        symbol: str,
+        current_price: float,
+    ) -> List[Dict[str, Any]]:
+        """
+        For a given symbol and current price, return all pending rungs hit
+        (ordered by rung_index). Returns an empty list if no hit.
+        """
+        if current_price is None:
+            return []
+        symbol = symbol.upper().strip()
+
+        with self._connect() as conn:
+            instance = conn.execute(
+                SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
+                {"ticker": symbol},
+            ).fetchone()
+            if not instance:
+                return []
+            instance_id = int(instance["instance_id"])
+
+            rows = conn.execute(
+                """
+                SELECT rung_id, rung_index, target_price, shares_sold_planned
+                FROM plan_rungs
+                WHERE instance_id = :instance_id
+                  AND status = 'PENDING'
+                  AND target_price <= :current_price
+                ORDER BY rung_index ASC
+                """,
+                {"instance_id": instance_id, "current_price": float(current_price)},
+            ).fetchall()
+            if not rows:
+                return []
+
+        hits: List[Dict[str, Any]] = []
+        for rung in rows:
+            hits.append({
+                "symbol": symbol,
+                "instance_id": instance_id,
+                "rung_id": int(rung["rung_id"]),
+                "rung_index": int(rung["rung_index"]),
+                "target_price": float(rung["target_price"]),
+                "shares_to_sell": int(rung["shares_sold_planned"]),
+                "current_price": float(current_price),
+            })
+        return hits
+
+    def mark_rungs_achieved(
+        self,
+        rung_ids: List[int],
+        trigger_price: float,
+        triggered_at: Optional[str] = None,
+    ) -> int:
+        """
+        Mark the given rungs as TRIGGERED. Returns the number of rows updated.
+        """
+        if not rung_ids:
+            return 0
+        ts = triggered_at or _utc_now_iso()
+        updated = 0
+
+        with self._connect() as conn:
+            conn.execute("BEGIN;")
+            try:
+                for rung_id in rung_ids:
+                    cur = conn.execute(
+                        SQL_MARK_RUNG_ACHIEVED,
+                        {"rung_id": rung_id, "ts": ts, "price": trigger_price},
+                    )
+                    updated += cur.rowcount
+                conn.execute("COMMIT;")
+            except Exception:
+                conn.execute("ROLLBACK;")
+                raise
+        return updated
 
     def purge_superseded_plans(
         self,
@@ -925,7 +1008,7 @@ class HarvesterController:
     def scan_and_fire_alerts(self) -> List[Dict[str, Any]]:
         """
         Poll prices for active plans, and mark alert/rung when target is reached.
-        Returns a list of triggered rungs with context for execution.
+        Returns a list of achieved rungs with context for execution.
         """
         fired: List[Dict[str, Any]] = []
         now = _utc_now_iso()
@@ -963,7 +1046,7 @@ class HarvesterController:
                             "ts": now,
                             "price": current_price,
                         })
-                    conn.execute(SQL_MARK_RUNG_TRIGGERED, {
+                    conn.execute(SQL_MARK_RUNG_ACHIEVED, {
                         "rung_id": rung_id,
                         "ts": now,
                         "price": current_price,

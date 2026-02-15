@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import os
 from dataclasses import dataclass
@@ -920,6 +921,135 @@ class HarvesterPlanDB:
                 conn.execute("ROLLBACK;")
                 raise
         return {"count": matched, "instance_ids": ids} if return_ids else matched
+
+    # -------------------------
+    # Query methods (used by REST API)
+    # -------------------------
+
+    def get_plan_by_id(self, instance_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single plan instance by ID, joined with symbol ticker."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT pi.*, s.ticker AS symbol
+                FROM plan_instances pi
+                JOIN symbols s ON s.symbol_id = pi.symbol_id
+                WHERE pi.instance_id = ?;
+                """,
+                (instance_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def get_rungs_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
+        """Get all rungs for a plan instance, ordered by rung_index."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM plan_rungs
+                WHERE instance_id = ?
+                ORDER BY rung_index ASC;
+                """,
+                (instance_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_rung_by_id(self, rung_id: int) -> Optional[Dict[str, Any]]:
+        """Get a single rung by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM plan_rungs WHERE rung_id = ?;",
+                (rung_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def update_plan_metadata(
+        self,
+        instance_id: int,
+        notes: Optional[str] = None,
+        metadata_json: Optional[str] = None,
+    ) -> bool:
+        """Update notes and/or metadata_json for a plan instance. Returns True if a row was updated."""
+        parts: List[str] = []
+        params: List[Any] = []
+        if notes is not None:
+            parts.append("notes = ?")
+            params.append(notes)
+        if metadata_json is not None:
+            parts.append("metadata_json = ?")
+            params.append(metadata_json)
+        if not parts:
+            return False
+        params.append(instance_id)
+        sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ?;"
+        with self._connect() as conn:
+            cur = conn.execute(sql, params)
+            return cur.rowcount > 0
+
+    def delete_plan(self, instance_id: int) -> bool:
+        """Archive a plan by setting its status to SUPERSEDED. Returns True if updated."""
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND status = 'ACTIVE';",
+                (instance_id,),
+            )
+            return cur.rowcount > 0
+
+    def list_all_symbols(self) -> List[Dict[str, Any]]:
+        """List all symbols with their active plan instance_id (if any)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT s.symbol_id, s.ticker, s.name, s.currency,
+                       ap.instance_id AS active_plan_id
+                FROM symbols s
+                LEFT JOIN plan_instances ap
+                  ON ap.symbol_id = s.symbol_id AND ap.status = 'ACTIVE'
+                ORDER BY s.ticker;
+                """,
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_alerts_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
+        """Get all alerts for a plan instance."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM alerts WHERE instance_id = ? ORDER BY alert_id;",
+                (instance_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_dashboard_stats(self) -> Dict[str, Any]:
+        """Return aggregate statistics for the dashboard."""
+        stats: Dict[str, Any] = {}
+        with self._connect() as conn:
+            # Plan counts by status
+            for row in conn.execute(
+                "SELECT status, COUNT(*) AS cnt FROM plan_instances GROUP BY status;"
+            ).fetchall():
+                stats[f"{row['status'].lower()}_plans"] = int(row["cnt"])
+            stats["total_plans"] = sum(
+                v for k, v in stats.items() if k.endswith("_plans")
+            )
+
+            # Rung counts by status
+            for row in conn.execute(
+                "SELECT status, COUNT(*) AS cnt FROM plan_rungs GROUP BY status;"
+            ).fetchall():
+                stats[f"{row['status'].lower()}_rungs"] = int(row["cnt"])
+
+            # Unique symbols with plans
+            row = conn.execute(
+                "SELECT COUNT(DISTINCT symbol_id) AS cnt FROM plan_instances;"
+            ).fetchone()
+            stats["symbols_tracked"] = int(row["cnt"]) if row else 0
+
+            # Active alerts
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM alerts WHERE status = 'ACTIVE';"
+            ).fetchone()
+            stats["active_alerts"] = int(row["cnt"]) if row else 0
+
+        return stats
 
     # -------------------------
     # Internal helpers

@@ -1033,7 +1033,11 @@ class HarvesterPlanDB:
 
             # Rung counts by status
             for row in conn.execute(
-                "SELECT status, COUNT(*) AS cnt FROM plan_rungs GROUP BY status;"
+                "SELECT pr.status, COUNT(*) AS cnt "
+                "FROM plan_rungs pr "
+                "JOIN plan_instances pi ON pi.instance_id = pr.instance_id "
+                "WHERE pi.status = 'ACTIVE'"
+                "GROUP BY pr.status;"
             ).fetchall():
                 stats[f"{row['status'].lower()}_rungs"] = int(row["cnt"])
 
@@ -1245,7 +1249,7 @@ if __name__ == "__main__":
 
     # 1) Build + store a plan
     params = PlanBuildParams(history_window_days=360, n_iterations=4, alpha=0.5, min_H=0.05, max_H=0.30)
-    summary = db.build_plan(symbol="GOOGL", template_name="Vol-adjust ladder v1", params=params)
+    summary = db.build_plan(symbol="MSFT", template_name="Vol-adjust ladder v1", params=params)
     print(summary)
 
     # 2) Display all plans

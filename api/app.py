@@ -129,7 +129,7 @@ def create_app() -> Flask:
         plan = db.get_plan_by_id(instance_id)
         if not plan:
             return jsonify({"error": "Plan not found", "status": 404}), 404
-        rungs = db.get_rungs_for_plan(instance_id)
+        rungs = db.get_rungs_for_plan(instance_id) if plan["status"] == "ACTIVE" else []
         return jsonify({"plan": plan, "rungs": rungs})
 
     @app.route("/api/plans/<int:instance_id>", methods=["PATCH"])
@@ -160,7 +160,7 @@ def create_app() -> Flask:
         plan = db.get_plan_by_id(instance_id)
         if not plan:
             return jsonify({"error": "Plan not found", "status": 404}), 404
-        rungs = db.get_rungs_for_plan(instance_id)
+        rungs = db.get_rungs_for_plan(instance_id) if plan["status"] == "ACTIVE" else []
         return jsonify({"rungs": rungs})
 
     @app.route("/api/rungs/<int:rung_id>", methods=["GET"])

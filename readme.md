@@ -99,6 +99,99 @@ python main.py
 - Tests: test_money.py, test_stock_portfolio_manager.py.
 - Data samples: portfolio.csv, watchlist.csv, watchlist.yaml.
 
+## REST API (`api/`)
+
+A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the React frontend or other clients.
+
+**Entry point:** `api/app.py`
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/health` | Health check — confirms the API and SQLite database are reachable |
+| GET | `/api/plans` | List harvest plans; filter by `?status=ACTIVE\|SUPERSEDED\|ALL` |
+| POST | `/api/plans` | Create a new harvest plan for a symbol |
+| GET | `/api/plans/<id>` | Get a single plan with its rungs |
+| PATCH | `/api/plans/<id>` | Update plan notes or metadata |
+| DELETE | `/api/plans/<id>` | Delete (supersede) a plan |
+| GET | `/api/plans/<id>/rungs` | List all rungs for a plan |
+| GET | `/api/rungs/<id>` | Get a single rung |
+| POST | `/api/rungs/<id>/achieve` | Mark a rung as achieved at a given trigger price |
+| POST | `/api/rungs/<id>/execute` | Record that shares were sold at a rung (price, quantity, tax) |
+| GET | `/api/symbols` | List all ticker symbols that have plans |
+| GET | `/api/symbols/<ticker>/price` | Fetch the latest close price for a ticker |
+| GET | `/api/dashboard/stats` | Aggregate stats for the dashboard |
+
+### Starting the API server
+
+```bash
+# From the project root, with the virtualenv active:
+source .venv/bin/activate
+python -m api.app
+```
+
+The server starts on `http://127.0.0.1:5000`. CORS is enabled for all origins on `/api/*` routes so the React dev server can connect without a proxy.
+
+---
+
+## React Frontend (`frontend/`)
+
+A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the Flask API above.
+
+### Pages
+
+| Page | Route | Description |
+|------|-------|-------------|
+| Dashboard | `/` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
+| Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
+| Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |
+| Symbols | `/symbols` | Look up the latest live price for any ticker symbol |
+
+### Key dependencies
+
+- **React Router v7** — client-side navigation
+- **TanStack Query v5** — data fetching, caching, and background refresh
+- **MUI v6** (Material UI + MUI X Data Grid) — UI components and data tables
+
+### Starting the frontend dev server
+
+```bash
+# From the frontend/ directory:
+cd frontend
+npm install        # first time only
+npm run dev
+```
+
+The dev server starts on `http://localhost:5173` and hot-reloads on file changes. It expects the Flask API to be running on `http://127.0.0.1:5000`.
+
+To build a production bundle:
+
+```bash
+cd frontend
+npm run build      # output goes to frontend/dist/
+```
+
+---
+
+## Starting Both Servers Together (Mac)
+
+`runUI-MAC.sh` is a convenience script that launches both the API and frontend servers in the background from a single command.
+
+```bash
+./runUI-MAC.sh
+```
+
+What it does:
+- Activates the Python virtualenv (`.venv/`)
+- Starts the Flask API server in the background — output logged to `api.log`
+- Starts the Vite frontend dev server in the background — output logged to `frontent.log`
+- Prints the PID of each process and the URLs for both servers
+
+Both processes run independently; closing the terminal does not stop them. The script prints a `kill` command with both PIDs so you can shut them down when done.
+
+---
+
 ## Testing
 
 Run the unit tests:

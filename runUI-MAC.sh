@@ -9,9 +9,9 @@ source "$SCRIPT_DIR/.venv/bin/activate"
 python -m api.app > "$SCRIPT_DIR/api.log" 2>&1 &
 API_PID=$!
 
-echo "Starting frontend server... (logs: frontent.log)"
+echo "Starting frontend server... (logs: frontend.log)"
 cd "$SCRIPT_DIR/frontend"
-npm run dev > "$SCRIPT_DIR/frontent.log" 2>&1 &
+npm run dev > "$SCRIPT_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 
 echo "API PID:      $API_PID"

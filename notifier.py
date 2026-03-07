@@ -39,58 +39,58 @@ class Notifier:
                 )
                 self.send_harvest_alert(hits)
 
-                # Track all moving average violations for each stock
-                ma_violations = []
+            # Track all moving average violations for each stock
+            ma_violations = []
 
-                # Check each moving average
-                # if stock.current_price.amount < stock.metrics.ten_day_moving_average:
-                #     ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
+            # Check each moving average
+            # if stock.current_price.amount < stock.metrics.ten_day_moving_average:
+            #     ma_violations.append(f"10-Day Moving Average: {stock.metrics.ten_day_moving_average:.2f}")
 
-                if stock.current_price.amount < stock.metrics.thirty_day_moving_average:
-                    ma_violations.append(f"30-Day Moving Average: {stock.metrics.thirty_day_moving_average:.2f}")
+            if stock.current_price.amount < stock.metrics.thirty_day_moving_average:
+                ma_violations.append(f"30-Day Moving Average: {stock.metrics.thirty_day_moving_average:.2f}")
 
-                if stock.current_price.amount < stock.metrics.fifty_day_moving_average:
-                    ma_violations.append(f"50-Day Moving Average: {stock.metrics.fifty_day_moving_average:.2f}")
+            if stock.current_price.amount < stock.metrics.fifty_day_moving_average:
+                ma_violations.append(f"50-Day Moving Average: {stock.metrics.fifty_day_moving_average:.2f}")
 
-                if stock.current_price.amount < stock.metrics.one_hundred_day_moving_average:
-                    ma_violations.append(f"100-Day Moving Average: {stock.metrics.one_hundred_day_moving_average:.2f}")
+            if stock.current_price.amount < stock.metrics.one_hundred_day_moving_average:
+                ma_violations.append(f"100-Day Moving Average: {stock.metrics.one_hundred_day_moving_average:.2f}")
 
-                if stock.current_price.amount < stock.metrics.two_hundred_day_moving_average:
-                    ma_violations.append(f"200-Day Moving Average: {stock.metrics.two_hundred_day_moving_average:.2f}")
+            if stock.current_price.amount < stock.metrics.two_hundred_day_moving_average:
+                ma_violations.append(f"200-Day Moving Average: {stock.metrics.two_hundred_day_moving_average:.2f}")
 
-                # Send a single consolidated alert if any moving averages are violated
-                if ma_violations:
-                    violations_text = "\n".join(ma_violations)
+            # Send a single consolidated alert if any moving averages are violated
+            if ma_violations:
+                violations_text = "\n".join(ma_violations)
 
-                    embed = {
-                        "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
-                        "embeds": [
-                            {
-                                "title": f"{stock.name} ({stock.symbol}) Moving Average Alert",
-                                "description": f"Current Price: {stock.current_price}\n\n"
-                                               f"Below the following moving averages:\n{violations_text}\n\n"
-                                               f"[Investigate](https://finance.yahoo.com/chart/{stock.symbol})",
-                                "color": 16776960  # Yellow color for alert
-                            }
-                        ]
-                    }
-                    self.send_notifications(embed)
-
-                    # Keep separate notification for price below purchase price
-                    if stock.current_price.amount < stock.purchase_price.amount:
-                        embed = {
-                            "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
-                            "embeds": [
-                                {
-                                    "title": f"{stock.name} ({stock.symbol}) Loss Alert",
-                                    "description": f"Current Price: {stock.current_price}\n"
-                                                   f"Purchase Price: {stock.purchase_price}\n"
-                                                   f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
-                                    "color": 16711680  # Red color for alert
-                                }
-                            ]
+                embed = {
+                    "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
+                    "embeds": [
+                        {
+                            "title": f"{stock.name} ({stock.symbol}) Moving Average Alert",
+                            "description": f"Current Price: {stock.current_price}\n\n"
+                                           f"Below the following moving averages:\n{violations_text}\n\n"
+                                           f"[Investigate](https://finance.yahoo.com/chart/{stock.symbol})",
+                            "color": 16776960  # Yellow color for alert
                         }
-                        self.send_notifications(embed)
+                    ]
+                }
+                self.send_notifications(embed)
+
+            # Keep separate notification for price below purchase price
+            if stock.current_price.amount < stock.purchase_price.amount:
+                embed = {
+                    "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
+                    "embeds": [
+                        {
+                            "title": f"{stock.name} ({stock.symbol}) Loss Alert",
+                            "description": f"Current Price: {stock.current_price}\n"
+                                           f"Purchase Price: {stock.purchase_price}\n"
+                                           f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
+                            "color": 16711680  # Red color for alert
+                        }
+                    ]
+                }
+                self.send_notifications(embed)
 
 
     def send_harvest_alert(self, hits: list[dict]) -> None:

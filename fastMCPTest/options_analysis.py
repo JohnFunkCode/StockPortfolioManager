@@ -9,6 +9,7 @@ Usage:
     python options_analysis.py
     python options_analysis.py --watchlist /path/to/watchlist.yaml
     python options_analysis.py --puts-budget 1000
+    python options_analysis.py --watchlist /path/to/watchlist.yaml --puts-budget 1000 --top-n 15
 """
 
 import argparse
@@ -42,6 +43,14 @@ BB_OVERBOUGHT_THRESHOLD = 1.0  # price >= upper band
 
 # Minimum OI on the put side to trust the P/C signal
 MIN_PUT_OI_FOR_SIGNAL = 500
+
+# Portfolio ranking: blended conviction + ROI score
+# ROI is capped before normalising so extreme outliers (e.g. 776%) don't
+# swamp the conviction signal from the put score.
+ROI_CAP_FOR_RANKING = 200.0   # cap ROI% at this value before normalising
+ROI_WEIGHT = 0.40             # weight given to (capped, normalised) ROI
+CONVICTION_WEIGHT = 0.60      # weight given to normalised put_score
+MAX_PUT_SCORE = 8             # theoretical max from scoring rules
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +387,7 @@ def build_put_trade(
         "put_call_ratio": sec.options.put_call_ratio,
         "put_oi": sec.options.total_put_oi,
         "bb_pos": round(sec.bb_pos, 3),
+        "put_score": sec.put_score,
     }
 
 
@@ -482,21 +492,41 @@ def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: 
     print_put_portfolio_summary(trades, budget)
 
 
+def _combined_rank_score(t: dict) -> float:
+    """
+    Blended ranking score used to order trades in the portfolio summary.
+
+    Combines two normalised components:
+      - ROI component   : min(roi, ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
+      - Conviction component: put_score / MAX_PUT_SCORE
+
+    Capping ROI prevents a single high-ROI / low-conviction outlier (e.g. a
+    score-3 stock with 776% theoretical ROI) from monopolising the budget ahead
+    of high-conviction names that have a more reliable directional thesis.
+    """
+    roi_norm = min(t["roi_at_target_pct"], ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
+    conv_norm = t.get("put_score", 0) / MAX_PUT_SCORE
+    return ROI_WEIGHT * roi_norm + CONVICTION_WEIGHT * conv_norm
+
+
 def print_put_portfolio_summary(trades: list[dict], total_budget: float) -> None:
-    """Greedy budget fill: add trades in conviction order until budget is exhausted."""
+    """Greedy budget fill: add trades ranked by blended conviction + ROI score."""
     if not trades:
         return
     print_section(f"PUT PORTFOLIO SUMMARY  (budget ${total_budget:,.0f})")
+    print(f"  Ranking: {int(CONVICTION_WEIGHT*100)}% conviction (put score) + "
+          f"{int(ROI_WEIGHT*100)}% ROI (capped at {ROI_CAP_FOR_RANKING:.0f}%)\n")
 
     remaining = total_budget
     selected = []
-    for t in sorted(trades, key=lambda x: x["roi_at_target_pct"], reverse=True):
+    for t in sorted(trades, key=_combined_rank_score, reverse=True):
         cost = t["ask"] * 100  # cost per single contract
         if cost <= remaining:
             affordable_contracts = max(1, int(remaining // cost))
             t = dict(t)  # copy to avoid mutation
             t["contracts"] = affordable_contracts
             t["total_cost"] = round(cost * affordable_contracts, 2)
+            t["rank_score"] = _combined_rank_score(t)
             selected.append(t)
             remaining -= t["total_cost"]
         if remaining < 50:  # no budget left for even one cheap contract
@@ -512,6 +542,7 @@ def print_put_portfolio_summary(trades: list[dict], total_budget: float) -> None
             f"  {t['symbol']:<6}  ${t['strike']} put  exp={t['expiration']}"
             f"  {t['contracts']}x  cost=${t['total_cost']:.0f}"
             f"  target=${t['target_price']}  est ROI={t['roi_at_target_pct']:.0f}%"
+            f"  conviction={t.get('put_score', 0):.0f}  rank={t['rank_score']:.2f}"
         )
     print(f"\n  Total deployed: ${total_spent:,.0f} / ${total_budget:,.0f}")
     leftover = total_budget - total_spent

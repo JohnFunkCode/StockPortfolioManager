@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "stock-price-server": {
+      "command": "fastmcp",
+      "args": ["run", "stock_price_server.py"]
+    }
+  }
+}

@@ -1,0 +1,1008 @@
+- name: ZScaler
+  symbol: ZS
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Cloudflare
+  symbol: NET
+  currency: USD
+  tags:
+    - cybersecurity
+    - cloud
+- name: Box
+  symbol: BOX
+  currency: USD
+  tags:
+    - AI Software
+- name: Amazon
+  symbol: AMZN
+  currency: USD
+  tags:
+    - eCommerce
+    - Cloud
+    - AI
+    - Genesis
+- name: Meta
+  symbol: META
+  currency: USD
+  tags:
+    - eCommerce
+    - Cloud
+    - AI
+    - Genesis
+    - Magnificent Seven
+- name: Apple
+  symbol: AAPL
+  currency: USD
+  tags:
+    - Magnificent Seven
+- name: GE Vernova
+  symbol: GEV
+  currency: USD
+  tags:
+    - Energy
+- name: Symbotics
+  symbol: SYM
+  currency: USD
+  tags:
+    - Robotics
+- name: Silicon Motion Technologies
+  symbol: SIMO
+  currency: USD
+  tags:
+    - Storage
+- name: Palantir Technologies
+  symbol: PLTR
+  currency: USD
+  tags:
+    - AI Software
+    - Genesis
+- name: Qualcomm
+  symbol: QCOM
+  currency: USD
+  tags:
+    - AI Factory
+- name: Royal Caribbean Cruises
+  symbol: RCL
+  currency: USD
+  tags:
+    - Travel
+- name: Super Micro Computer
+  symbol: SMCI
+  currency: USD
+  tags:
+    - AI Factory
+- name: Abbot Laboratories
+  symbol: ABT
+  currency: USD
+  tags:
+    - Healthcare
+- name: Nebius Group
+  symbol: NBIS
+  currency: USD
+  tags:
+    - AI Factory
+- name: Schneider Electric SE
+  symbol: SU.PA
+  currency: USD
+  tags:
+    - AI Factory
+- name: Credo Technologies
+  symbol: CRDO
+  currency: USD
+  tags:
+    - AI Factory
+- name: Adobe
+  symbol: ADBE
+  currency: USD
+  tags:
+    - AI Software
+- name: Advanced Micro Devices
+  symbol: AMD
+  currency: USD
+  tags:
+    - AI Factory
+- name: The Walt Disney Company
+  symbol: DIS
+  currency: USD
+  tags:
+    - Entertainment
+    - Travel
+- name: Carnival Corporation
+  symbol: CRVL
+  currency: USD
+  tags:
+    - Travel
+- name: International Business Machines
+  symbol: IBM
+  currency: USD
+  tags:
+    - AI Factory
+    - Quantum
+- name: RBC Bearing Incorporated
+  symbol: RBC
+  currency: USD
+  tags:
+    - Engineered Components
+    -
+- name: ESCO Industries
+  symbol: ESE
+  currency: USD
+  tags:
+    - Engineered Components
+- name: Costco Wholesale Corporation
+  symbol: COST
+  currency: USD
+  tags:
+    - Retail
+    - Subscription
+- name: CBRE Group
+  symbol: CBRE
+  currency: USD
+  tags:
+    - Commercial Real Estate
+- name: Oracle Corporation
+  symbol: ORCL
+  currency: USD
+  tags:
+    - AI Factory
+- name: The Timken Company
+  symbol: TKR
+  currency: USD
+  tags:
+    - Engineered Components
+- name: Abbvie Inc.
+  symbol: ABBV
+  currency: USD
+  tags:
+    - Healthcare
+    - Pharmaceuticals
+- name: Crowdstrike Holdings
+  symbol: CRWD
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Check Point Software Technologies LTD
+  symbol: CHKP
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Fortinet Inc.
+  symbol: FTNT
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: SailPoint Inc.
+  symbol: SAIL
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Rapid 7 Inc.
+  symbol: RPD
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Qualys Inc.
+  symbol: QUAL
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Tenable Holdings Inc.
+  symbol: TENB
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Okta Inc
+  symbol: OKTA
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Trimble Inc.
+  symbol: TRMB
+  currency: USD
+  tags:
+    - Scientific Software
+- name: Rocket Labs Corporation
+  symbol: RKLB
+  currency: USD
+  tags:
+    - Aerospace
+- name: Firefly Aerospace
+  symbol: FLY
+  currency: USD
+  tags:
+    - Aerospace
+- name: Tesla Inc.
+  symbol: TSLA
+  currency: USD
+  tags:
+    - Robotics
+    - Electric Vehicle
+- name: Rivian Technologies Corp.
+  symbol: RIVN
+  currency: USD
+  tags:
+    - Electric Vehicle
+- name: PTC Inc.
+  symbol: PTC
+  currency: USD
+  tags:
+    - Chip Design Software
+- name: Digital Realty Trust Inc.
+  symbol: DLR
+  currency: USD
+  tags:
+    - Commercial Real Estate
+    - AI Factory
+- name: Veronis Systems
+  symbol: VRSN
+  currency: USD
+  tags:
+    - Cybersecurity
+- name: Recursion Pharmaceuticals
+  symbol: RXRX
+  currency: USD
+  tags:
+    - Pharmaceuticals
+- name: Applied Digital Corporation
+  symbol: APLD
+  currency: USD
+  tags:
+    - AI Factory
+- name: Sound Hound AI
+  symbol: SOUN
+  currency: USD
+  tags:
+    - AI Software
+- name: HP Enterprise
+  symbol: HPE
+  currency: USD
+  tags:
+    - AI Factory
+    - Genesis
+- name: IonQ Inc.
+  symbol: IONQ
+  currency: USD
+  tags:
+    - Quantum
+- name: Quantum Computing Inc.
+  symbol: QUBT
+  currency: USD
+  tags:
+    - Quantum
+- name: Rigetti Computing
+  symbol: RGTI
+  currency: USD
+  tags:
+    - Quantum
+- name: D-Wave Systems Inc.
+  symbol: QBTS
+  currency: USD
+  tags:
+    - Quantum
+- name: Netflix
+  symbol: NFLX
+  currency: USD
+  tags:
+    - Magnificent Seven
+- name: Domo Inc
+  symbol: DOMO
+  currency: USD
+  tags:
+    - AI Software
+- name: Snowflake
+  symbol: SNOW
+  currency: USD
+  tags:
+    - AI Software
+- name:  Gilead Sciences
+  symbol: GILD
+  currency: USD
+  tags:
+    - Pharmaceuticals
+- name: Applied Materials Inc.
+  symbol: AMAT
+  currency: USD
+  tags:
+    - AI Factory
+
+- name: Argan, Inc.
+  symbol: AGX
+  currency: USD
+  tags:
+    - Engineering & Construction
+
+- name: Public Service Enterprise Group, Inc.
+  symbol: PEG
+  currency: USD
+  tags:
+    - Utilities
+
+- name: Vertiv Holdings Co
+  symbol: VRT
+  currency: USD
+  tags:
+    - Data Center Infrastructure
+
+- name: Constellation Energy Corporation
+  symbol: CEG
+  currency: USD
+  tags:
+    - Utilities
+    - Nuclear Energy
+
+- name: Vistra Corp.
+  symbol: VST
+  currency: USD
+  tags:
+    - Utilities
+    - Power Generation
+
+- name: Talen Energy Corporation
+  symbol: TLN
+  currency: USD
+  tags:
+    - Independent Power Producers
+
+- name: NextEra Energy, Inc.
+  symbol: NEE
+  currency: USD
+  tags:
+    - Utilities
+    - Renewable Energy
+
+- name: NRG Energy, Inc.
+  symbol: NRG
+  currency: USD
+  tags:
+    - Utilities
+    - Power Generation
+
+- name: Cameco Corporation
+  symbol: CCJ
+  currency: USD
+  tags:
+    - Uranium
+    - Energy Materials
+
+- name: Oklo Inc.
+  symbol: OKLO
+  currency: USD
+  tags:
+    - Nuclear Energy
+    - Advanced Reactors
+
+- name: BWX Technologies, Inc.
+  symbol: BWXT
+  currency: USD
+  tags:
+    - Nuclear Engineering
+    - Defense
+
+- name: Cummins Inc.
+  symbol: CMI
+  currency: USD
+  tags:
+    - Industrial Manufacturing
+    - Engines & Power Systems
+
+- name: EOG Resources, Inc.
+  symbol: EOG
+  currency: USD
+  tags:
+    - Oil & Gas
+    - Exploration & Production
+
+- name: Generac Holdings Inc.
+  symbol: GNRC
+  currency: USD
+  tags:
+    - Power Equipment
+    - Energy Infrastructure
+
+- name: Synopsys, Inc.
+  symbol: SNPS
+  currency: USD
+  tags:
+    - Semiconductor Software
+    - EDA
+
+- name: Cadence Design Systems, Inc.
+  symbol: CDNS
+  currency: USD
+  tags:
+    - Semiconductor Software
+    - EDA
+
+- name: Pure Storage, Inc.
+  symbol: PSTG
+  currency: USD
+  tags:
+    - Data Storage
+    - Enterprise IT
+
+- name: Taiwan Semiconductor Manufacturing Company
+  symbol: TSM
+  currency: USD
+  tags:
+    - Semiconductors
+    - Foundry
+
+- name: DigitalOcean Holdings, Inc.
+  symbol: DOCN
+  currency: USD
+  tags:
+    - Cloud Computing
+    - Infrastructure as a Service
+
+- name: Netskope, Inc.
+  symbol: NTSK
+  currency: USD
+  tags:
+    - Cybersecurity
+    - Cloud Security
+
+- name: Kenvue Inc.
+  symbol: KVUE
+  currency: USD
+  tags:
+    - Consumer Health
+    - Consumer Staples
+
+- name: Universal Technical Institute, Inc.
+  symbol: UTI
+  currency: USD
+  tags:
+    - Education Services
+
+- name: Cellebrite DI Ltd.
+  symbol: CLBT
+  currency: USD
+  tags:
+    - Digital Forensics
+    - Law Enforcement Technology
+
+- name: Prologis, Inc.
+  symbol: PLD
+  currency: USD
+  tags:
+    - Real Estate
+    - Industrial REIT
+
+- name: Rockwell Automation, Inc.
+  symbol: ROK
+  currency: USD
+  tags:
+    - Industrial Automation
+
+- name: Siemens AG
+  symbol: SIEGY
+  currency: USD
+  tags:
+    - Industrial Conglomerate
+    - Automation & Energy
+
+- name: Teradyne, Inc.
+  symbol: TER
+  currency: USD
+  tags:
+    - Semiconductor Equipment
+    - Test & Measurement
+
+- name: ABB Ltd
+  symbol: ABBNY
+  currency: USD
+  tags:
+    - Industrial Automation
+    - Electrification
+
+- name: Elastic N.V.
+  symbol: ESTC
+  currency: USD
+  tags:
+    - Software
+    - Observability & Search
+
+- name: PayPal Holdings, Inc.
+  symbol: PYPL
+  currency: USD
+  tags:
+    - Financial Technology
+    - Digital Payments
+
+- name: Wix.com Ltd.
+  symbol: WIX
+  currency: USD
+  tags:
+    - Web Services
+    - SaaS
+
+- name: GE Aerospace
+  symbol: GE
+  currency: USD
+  tags:
+    - Aerospace & Defense
+
+- name: C3.ai, Inc.
+  symbol: AI
+  currency: USD
+  tags:
+    - Enterprise AI
+    - Software
+
+- name: L3Harris Technologies, Inc.
+  symbol: LHX
+  currency: USD
+  tags:
+    - Aerospace & Defense
+
+- name: Thomson Reuters Corporation
+  symbol: TRI
+  currency: USD
+  tags:
+    - Information Services
+    - Legal & Financial Data
+
+- name: RELX PLC
+  symbol: RELX
+  currency: USD
+  tags:
+    - Information Services
+    - Analytics
+
+- name: CACI International Inc
+  symbol: CACI
+  currency: USD
+  tags:
+    - Government Services
+    - Defense IT
+
+- name: The GEO Group, Inc.
+  symbol: GEO
+  currency: USD
+  tags:
+    - Real Estate
+    - Correctional Services
+
+- name: Motorola Solutions, Inc.
+  symbol: MSI
+  currency: USD
+  tags:
+    - Communications Equipment
+    - Public Safety Technology
+
+- name: General Dynamics Corporation
+  symbol: GD
+  currency: USD
+  tags:
+    - Aerospace & Defense
+
+- name: Booz Allen Hamilton Holding Corp.
+  symbol: BAH
+  currency: USD
+  tags:
+    - Consulting
+    - Government Services
+
+- name: Rubrik, Inc.
+  symbol: RBRK
+  currency: USD
+  tags:
+    - Data Security
+    - Cloud Software
+
+- name: Joby Aviation, Inc.
+  symbol: JOBY
+  currency: USD
+  tags:
+    - Aerospace
+    - Electric Aviation
+
+- name: Nutanix, Inc.
+  symbol: NTNX
+  currency: USD
+  tags:
+    - Cloud Infrastructure
+    - Enterprise Software
+
+- name: Hitachi, Ltd.
+  symbol: HTHIY
+  currency: USD
+  tags:
+    - Industrial Conglomerate
+
+- name: Astera Labs, Inc.
+  symbol: ALAB
+  currency: USD
+  tags:
+    - Semiconductors
+    - Data Center Connectivity
+
+- name: Lowe’s Companies, Inc.
+  symbol: LOW
+  currency: USD
+  tags:
+    - Retail
+    - Home Improvement
+
+- name: AutoStore Holdings Ltd.
+  symbol: AUTO.OL
+  currency: USD
+  tags:
+    - Warehouse Automation
+    - Robotics
+
+- name: Maplebear Inc. (Instacart)
+  symbol: CART
+  currency: USD
+  tags:
+    - E-Commerce
+    - Grocery Technology
+
+- name: KION GROUP AG
+  symbol: KGX.DE
+  currency: USD
+  tags:
+    - Material Handling
+    - Industrial Automation
+
+- name: AppLovin Corporation
+  symbol: APP
+  currency: USD
+  tags:
+    - Mobile Advertising
+    - Software
+
+- name: Seagate Technology Holdings plc
+  symbol: STX
+  currency: USD
+  tags:
+    - Data Storage
+    - Hardware
+
+- name: Dynex Capital, Inc.
+  symbol: DX
+  currency: USD
+  tags:
+    - Mortgage REIT
+
+- name: Clearway Energy, Inc.
+  symbol: CWEN
+  currency: USD
+  tags:
+    - Renewable Energy
+    - Power Generation
+
+- name: Vanguard S&P 500 ETF
+  symbol: VOO
+  currency: USD
+  tags:
+    - ETF
+    - Broad Market
+
+- name: Lumentum Holdings Inc.
+  symbol: LITE
+  currency: USD
+  tags:
+    - Optical Networking
+    - Photonics
+
+- name: Celestica Inc.
+  symbol: CLS
+  currency: USD
+  tags:
+    - Electronics Manufacturing
+    - Supply Chain Services
+
+- name: GitLab Inc.
+  symbol: GTLB
+  currency: USD
+  tags:
+    - Developer Tools
+    - DevOps Software
+
+- name: Marvell Technology, Inc.
+  symbol: MRVL
+  currency: USD
+  tags:
+    - Semiconductors
+    - Data Center Networking
+
+- name: Intel Corporation
+  symbol: INTC
+  currency: USD
+  tags:
+    - Semiconductors
+    - Integrated Device Manufacturer
+
+- name: Solstice Advanced Materials
+  symbol: SOLS
+  currency: USD
+  tags:
+    - Advanced Materials
+    - Industrial Chemicals
+
+- name: Powell Industries, Inc.
+  symbol: POWL
+  currency: USD
+  tags:
+    - Electrical Equipment
+    - Power Infrastructure
+
+- name: Planet Labs PBC
+  symbol: PL
+  currency: USD
+  tags:
+    - Geospatial Data
+    - Satellite Imaging
+
+- name: Open Text Corporation
+  symbol: OTEX
+  currency: USD
+  tags:
+    - Enterprise Software
+    - Information Management
+
+- name: Comfort Systems USA, Inc.
+  symbol: FIX
+  currency: USD
+  tags:
+    - Building Systems
+    - HVAC & Mechanical Services
+
+- name: Duke Energy Corporation
+  symbol: DUK
+  currency: USD
+  tags:
+    - Utilities
+    - Regulated Electric Power
+
+- name: SoFi Technologies, Inc.
+  symbol: SOFI
+  currency: USD
+  tags:
+    - Financial Technology
+    - Digital Banking
+
+- name: ServiceNow, Inc.
+  symbol: NOW
+  currency: USD
+  tags:
+    - Enterprise Software
+    - IT Service Management
+
+- name: Dell Technologies, Inc.
+  symbol: DELL
+  currency: USD
+  tags:
+    - AI Factory
+
+- name: Johnson Controls
+  symbol: JCI
+  currency: USD
+  tags:
+    - AI Factory
+    - Smart Locks
+
+- name: ASSA ABLOY AB
+  symbol: ASSA-B.ST
+  currency: USD
+  tags:
+    - Smart Locks
+
+- name: Ryder System, Inc.
+  symbol: R
+  currency: USD
+  tags:
+    - Logistics
+    - AI Software
+
+- name: Amphenol Corporation
+  symbol: APH
+  currency: USD
+  tags:
+    - Engineered Components
+    - AI Factory
+
+- name: Analog Devices, Inc.
+  symbol: ADI
+  currency: USD
+  tags:
+    - AI Factory
+
+- name: Corweavest Systems, Inc.
+  symbol: CRWV
+  currency: USD
+  tags:
+    - AI Factory
+
+- name: Mitek Systems, Inc.
+  symbol: MITK
+  currency: USD
+  tags:
+    - AI Software
+    - Cybersecurity
+    - Financial Technology
+
+- name: IREN Limited
+  symbol: IREN
+  currency: USD
+  tags:
+    - AI Factory
+
+- name: Lantronix, Inc.
+  symbol: LTRX
+  currency: USD
+  tags:
+    - Robotics
+
+- name: HUT 8 Corp.
+  symbol: HUT
+  currency: USD
+  tags:
+    - AI Factory
+    - Bitcoin Mining
+
+- name: Broadcom Corporation
+  symbol: AVGO
+  currency: USD
+  tags:
+    - AI Factory
+    - Networking
+    - Chips
+
+- name: Palo Alto Networks
+  symbol: PANW
+  currency: USD
+  tags:
+    - Cybersecurity
+
+- name: Davita Inc.
+  symbol: DVA
+  currency: USD
+  tags:
+    - Healthcare
+
+- name: Intuitive Machines Inc.
+  symbol: LUNR
+  currency: USD
+  tags:
+    - Space
+
+- name: The AES Corporation
+  symbol: AES
+  currency: USD
+  tags:
+    - Energy
+
+- name: Ball Corporation
+  symbol: BALL
+  currency: USD
+  tags:
+    - Packaging
+
+- name: Emerson Electric Co.
+  symbol: EMR
+  currency: USD
+  tags:
+    - Electronics
+
+- name: W.W. Grainger, Inc.
+  symbol: GWW
+  currency: USD
+  tags:
+    - Parts
+
+- name: Sandisk Corporation
+  symbol: SNDK
+  currency: USD
+  tags:
+    - Storage
+    - Memory
+
+- name: KLA Corporation
+  symbol: KLAC
+  currency: USD
+  tags:
+    - Chips
+
+- name: ASML Holding
+  symbol: ASML
+  currency: USD
+  tags:
+    - Memory
+    - Chips
+
+- name: BE Semiconductor Industries N.V.
+  symbol: BESI.AS
+  currency: USD
+  tags:
+    - Memory
+    - Chips
+
+- name: Fabrinet
+  symbol: FN
+  currency: USD
+  tags:
+    - AI Factory
+    - Optical Networking
+    - Networking
+
+- name: SK hynix Inc.
+  symbol: 000660.KS
+  currency: KRW
+  tags:
+    - Memory
+
+- name: BE Semiconductor Industries
+  symbol: BSI.SG
+  currency: SGD
+  tags:
+    - Chips
+
+- name: Ormat Technologies, Inc.
+  symbol: ORA
+  currency: USD
+  tags:
+    - Energy
+
+- name: TeraWulf Inc.
+  symbol: WULF
+  currency: USD
+  tags:
+    - Bitcoin Mining
+
+- name: Cipher Digital Inc.
+  symbol: CIFR
+  currency: USD
+  tags:
+    - Bitcoin Mining
+
+- name: Zeta Global Holdings Corp.
+  symbol: ZETA
+  currency: USD
+  tags:
+    - Marketing Technology
+
+
+- name: Onto Innovation Inc.
+  symbol: ONTO
+  currency: USD
+  tags:
+    - Chips
+
+- name: Coherent Corp.
+  symbol: COHR
+  currency: USD
+  tags:
+    - Photonics
+
+- name: Arm Holdings plc
+  symbol: ARM
+  currency: USD
+  tags:
+    - Chips
+
+- name: Walmart Inc.
+  symbol: WMT
+  currency: USD
+  tags:
+    - Retail
+
+- name: Procore Technologies, Inc.
+  symbol: PCOR
+  currency: USD
+  tags:
+    - Construction Software
+
+- name: EPAM Systems, Inc.
+  symbol: EPAM
+  currency: USD
+  tags:
+    - IT Services
+
+- name: Akamai Technologies, Inc.
+  symbol: AKAM
+  currency: USD
+  tags:
+    - Cloud

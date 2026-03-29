@@ -1,0 +1,251 @@
+────────────────────────────────────────────────────────────────────────
+  LONG / BOUNCE CANDIDATES  (oversold + bullish options)
+────────────────────────────────────────────────────────────────────────
+
+  #1  RGTI    $13.32     score=7
+       BB   lower=13.83  mid=16.14  upper=18.45
+            [█-------------------]  pos=-0.11
+       P/C  0.35 ▲▲ very bullish
+       Vol  call_volume=16,434
+       Why  below lower BB (13.83); P/C 0.35 (very bullish); large call volume (16,434)
+
+  #2  AI      $7.76      score=7
+       BB   lower=7.94  mid=8.78  upper=9.62
+            [█-------------------]  pos=-0.11
+       P/C  0.04 ▲▲ very bullish
+       Vol  call_volume=58,765
+       Why  below lower BB (7.94); P/C 0.04 (very bullish); huge call volume (58,765)
+
+  #3  META    $525.72    score=6
+       BB   lower=545.72  mid=620.79  upper=695.86
+            [█-------------------]  pos=-0.13
+       P/C  0.70 ▲  bullish
+       Vol  call_volume=69,443
+       Why  below lower BB (545.72); P/C 0.70 (bullish); huge call volume (69,443)
+
+  #4  SIMO    $110.06    score=6
+       BB   lower=110.64  mid=121.39  upper=132.15
+            [█-------------------]  pos=-0.03
+       P/C  0.19 ▲▲ very bullish
+       Vol  call_volume=182
+       Why  below lower BB (110.64); P/C 0.19 (very bullish)
+
+  #5  PLTR    $143.06    score=6
+       BB   lower=143.9  mid=152.36  upper=160.81
+            [█-------------------]  pos=-0.05
+       P/C  0.57 ▲  bullish
+       Vol  call_volume=69,050
+       Why  below lower BB (143.9); P/C 0.57 (bullish); huge call volume (69,050)
+
+  #6  RPD     $5.27      score=6
+       BB   lower=5.36  mid=6.37  upper=7.39
+            [█-------------------]  pos=-0.04
+       P/C  0.03 ▲▲ very bullish
+       Vol  call_volume=107
+       Why  below lower BB (5.36); P/C 0.03 (very bullish)
+
+  #7  TENB    $16.54     score=6
+       BB   lower=17.63  mid=19.89  upper=22.16
+            [█-------------------]  pos=-0.24
+       P/C  0.03 ▲▲ very bullish
+       Vol  call_volume=70
+       Why  below lower BB (17.63); P/C 0.03 (very bullish)
+
+  #8  RKLB    $60.93     score=6
+       BB   lower=62.79  mid=69.73  upper=76.68
+            [█-------------------]  pos=-0.13
+       P/C  0.76 ▲  bullish
+       Vol  call_volume=22,507
+       Why  below lower BB (62.79); P/C 0.76 (bullish); large call volume (22,507)
+
+  #9  RXRX    $2.94      score=6
+       BB   lower=3.01  mid=3.37  upper=3.72
+            [█-------------------]  pos=-0.10
+       P/C  0.14 ▲▲ very bullish
+       Vol  call_volume=325
+       Why  below lower BB (3.01); P/C 0.14 (very bullish)
+
+  #10  QBTS    $13.90     score=6
+       BB   lower=14.19  mid=17.29  upper=20.39
+            [█-------------------]  pos=-0.05
+       P/C  0.33 ▲▲ very bullish
+       Vol  call_volume=9,189
+       Why  below lower BB (14.19); P/C 0.33 (very bullish)
+
+  #11  CLBT    $12.95     score=6
+       BB   lower=13.24  mid=14.39  upper=15.53
+            [█-------------------]  pos=-0.13
+       P/C  0.23 ▲▲ very bullish
+       Vol  call_volume=143
+       Why  below lower BB (13.24); P/C 0.23 (very bullish)
+
+  #12  ESTC    $48.52     score=6
+       BB   lower=48.85  mid=52.54  upper=56.23
+            [█-------------------]  pos=-0.04
+       P/C  0.16 ▲▲ very bullish
+       Vol  call_volume=396
+       Why  below lower BB (48.85); P/C 0.16 (very bullish)
+
+  #13  CACI    $563.67    score=6
+       BB   lower=566.69  mid=604.56  upper=642.42
+            [█-------------------]  pos=-0.04
+       P/C  0.15 ▲▲ very bullish
+       Vol  call_volume=30
+       Why  below lower BB (566.69); P/C 0.15 (very bullish)
+
+  #14  NTNX    $37.61     score=6
+       BB   lower=37.73  mid=39.83  upper=41.93
+            [█-------------------]  pos=-0.03
+       P/C  0.11 ▲▲ very bullish
+       Vol  call_volume=3,016
+       Why  below lower BB (37.73); P/C 0.11 (very bullish)
+
+  #15  SOFI    $15.23     score=6
+       BB   lower=15.49  mid=17.63  upper=19.77
+            [█-------------------]  pos=-0.06
+       P/C  0.57 ▲  bullish
+       Vol  call_volume=47,811
+       Why  below lower BB (15.49); P/C 0.57 (bullish); large call volume (47,811)
+
+────────────────────────────────────────────────────────────────────────
+  PUT / BEARISH CANDIDATES  (overbought or heavy put positioning)
+────────────────────────────────────────────────────────────────────────
+
+  #1  AMD     $201.99    score=5
+       BB   lower=188.45  mid=200.92  upper=213.39
+            [----------█---------]  pos=0.54
+       P/C  2.22 ▼▼ very bearish
+       OI   put_oi=144,272
+       Why  P/C 2.22 (very bearish); put OI 144,272 >> call OI 64,985 (2.2x); massive put OI (144,272)
+       PUT  strike=202.5  exp=2026-04-02  ask=$5.85/share  IV=58%
+            target=$188.45  est. P&L/contract=$820  ROI=140%
+            cost=1x @ $585 total
+
+  #2  ORCL    $139.66    score=5
+       BB   lower=140.92  mid=151.77  upper=162.62
+            [█-------------------]  pos=-0.06
+       P/C  2.45 ▼▼ very bearish
+       OI   put_oi=122,450
+       Why  P/C 2.45 (very bearish); put OI 122,450 >> call OI 49,954 (2.5x); massive put OI (122,450)
+       PUT  strike=140.0  exp=2026-04-02  ask=$4.10/share  IV=58%
+            target=$133.87  est. P&L/contract=$203  ROI=50%
+            cost=1x @ $410 total
+
+  #3  QUBT    $6.66      score=4
+       BB   lower=6.66  mid=7.48  upper=8.3
+            [█-------------------]  pos=0.00
+       P/C  2.79 ▼▼ very bearish
+       OI   put_oi=14,505
+       Why  P/C 2.79 (very bearish); put OI 14,505 >> call OI 5,201 (2.8x)
+
+  #4  AGX     $566.62    score=4
+       BB   lower=395.96  mid=459.71  upper=523.47
+            [-------------------█]  pos=1.34
+       P/C  1.23 ▼  bearish
+       OI   put_oi=3,004
+       Why  above upper BB (523.47) by +8.2%; put OI (3,004) > call OI (2,440)
+
+  #5  VRT     $251.07    score=4
+       BB   lower=240.94  mid=260.03  upper=279.12
+            [-----█--------------]  pos=0.27
+       P/C  2.61 ▼▼ very bearish
+       OI   put_oi=15,880
+       Why  P/C 2.61 (very bearish); put OI 15,880 >> call OI 6,079 (2.6x)
+       PUT  strike=250.0  exp=2026-04-02  ask=$8.25/share  IV=72%  *** high IV — consider debit spread ***
+            target=$240.94  est. P&L/contract=$81  ROI=10%
+            cost=1x @ $825 total
+
+  #6  NEE     $91.40     score=4
+       BB   lower=89.88  mid=91.68  upper=93.48
+            [--------█-----------]  pos=0.42
+       P/C  2.38 ▼▼ very bearish
+       OI   put_oi=4,665
+       Why  P/C 2.38 (very bearish); put OI 4,665 >> call OI 1,961 (2.4x)
+
+  #7  CCJ     $103.92    score=4
+       BB   lower=99.07  mid=111.66  upper=124.25
+            [---█----------------]  pos=0.19
+       P/C  3.37 ▼▼ very bearish
+       OI   put_oi=19,231
+       Why  P/C 3.37 (very bearish); put OI 19,231 >> call OI 5,715 (3.4x)
+       PUT  strike=104.0  exp=2026-04-02  ask=$3.45/share  IV=66%  *** high IV — consider debit spread ***
+            target=$99.07  est. P&L/contract=$148  ROI=43%
+            cost=1x @ $345 total
+
+  #8  TSM     $326.74    score=4
+       BB   lower=322.24  mid=343.16  upper=364.07
+            [--█-----------------]  pos=0.11
+       P/C  1.80 ▼  bearish
+       OI   put_oi=53,829
+       Why  P/C 1.80 (bearish); put OI (53,829) > call OI (29,913); massive put OI (53,829)
+
+  #9  OTEX    $21.54     score=4
+       BB   lower=20.9  mid=23.49  upper=26.08
+            [--█-----------------]  pos=0.12
+       P/C  3.60 ▼▼ very bearish
+       OI   put_oi=867
+       Why  P/C 3.60 (very bearish); put OI 867 >> call OI 241 (3.6x)
+       PUT  strike=22.5  exp=2026-04-17  ask=$1.55/share  IV=48%
+            target=$20.9  est. P&L/contract=$5  ROI=3%
+            cost=1x @ $155 total
+
+  #10  APH     $123.62    score=4
+       BB   lower=123.07  mid=131.48  upper=139.89
+            [█-------------------]  pos=0.03
+       P/C  2.31 ▼▼ very bearish
+       OI   put_oi=37,916
+       Why  P/C 2.31 (very bearish); put OI 37,916 >> call OI 16,396 (2.3x)
+
+  #11  ADI     $307.44    score=4
+       BB   lower=293.89  mid=318.92  upper=343.95
+            [-----█--------------]  pos=0.27
+       P/C  2.99 ▼▼ very bearish
+       OI   put_oi=4,429
+       Why  P/C 2.99 (very bearish); put OI 4,429 >> call OI 1,480 (3.0x)
+       PUT  strike=307.5  exp=2026-04-02  ask=$7.40/share  IV=51%
+            target=$293.89  est. P&L/contract=$621  ROI=84%
+            cost=1x @ $740 total
+
+  #12  HUT     $47.40     score=4
+       BB   lower=45.5  mid=50.43  upper=55.36
+            [---█----------------]  pos=0.19
+       P/C  4.54 ▼▼ very bearish
+       OI   put_oi=12,242
+       Why  P/C 4.54 (very bearish); put OI 12,242 >> call OI 2,696 (4.5x)
+
+  #13  ASML    $1302.47   score=4
+       BB   lower=1296.13  mid=1363.41  upper=1430.69
+            [█-------------------]  pos=0.05
+       P/C  3.63 ▼▼ very bearish
+       OI   put_oi=15,417
+       Why  P/C 3.63 (very bearish); put OI 15,417 >> call OI 4,242 (3.6x)
+
+  #14  AKAM    $114.50    score=4
+       BB   lower=95.45  mid=107.51  upper=119.58
+            [---------------█----]  pos=0.79
+       P/C  5.40 ▼▼ very bearish
+       OI   put_oi=977
+       Why  P/C 5.40 (very bearish); put OI 977 >> call OI 181 (5.4x)
+       PUT  strike=114.0  exp=2026-04-02  ask=$4.10/share  IV=65%
+            target=$95.45  est. P&L/contract=$1445  ROI=352%
+            cost=1x @ $410 total
+
+  #15  RCL     $261.80    score=3
+       BB   lower=258.07  mid=278.82  upper=299.58
+            [-█------------------]  pos=0.09
+       P/C  1.61 ▼  bearish
+       OI   put_oi=1,502
+       Why  P/C 1.61 (bearish); put OI (1,502) > call OI (934)
+
+────────────────────────────────────────────────────────────────────────
+  PUT PORTFOLIO SUMMARY  (budget $1,000)
+────────────────────────────────────────────────────────────────────────
+  AKAM    $114.0 put  exp=2026-04-02  2x  cost=$820  target=$95.45  est ROI=352%
+  OTEX    $22.5 put  exp=2026-04-17  1x  cost=$155  target=$20.9  est ROI=3%
+
+  Total deployed: $975 / $1,000
+  Remaining:      $25  (consider longer-dated puts or debit spreads)
+
+  Skipped (no signal): NET, CRDO, CRVL, COST, AMAT, TLN, UTI, ROK, SIEGY, CLS, MRVL, ONTO
+
+────────────────────────────────────────────────────────────────────────

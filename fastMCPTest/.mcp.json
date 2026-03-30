@@ -3,6 +3,10 @@
     "stock-price-server": {
       "command": "fastmcp",
       "args": ["run", "stock_price_server.py"]
+    },
+    "market-analysis-server": {
+      "command": "fastmcp",
+      "args": ["run", "market_analysis_server.py"]
     }
   }
 }

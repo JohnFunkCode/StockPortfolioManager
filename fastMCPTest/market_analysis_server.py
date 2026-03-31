@@ -21,6 +21,7 @@ LIMITATIONS:
     intraday tick-level spread data is not available via yfinance.
 """
 
+import concurrent.futures
 import datetime
 import math
 
@@ -33,6 +34,24 @@ mcp = FastMCP("market-analysis-server")
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _fetch_ticker_info(symbol: str, timeout: float = 15.0) -> dict:
+    """Fetch ticker.info with a hard timeout to prevent the MCP call from hanging.
+
+    yfinance's ticker.info hits a slow Yahoo Finance endpoint that can block
+    indefinitely.  We run it in a thread and abandon it after `timeout` seconds.
+    """
+    ticker = yf.Ticker(symbol)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(lambda: ticker.info)
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            raise TimeoutError(
+                f"Yahoo Finance .info request timed out after {timeout}s for {symbol}. "
+                "The endpoint is temporarily slow or rate-limiting. Try again in a moment."
+            )
+
 
 def _safe_float(val, default: float = 0.0) -> float:
     try:
@@ -84,8 +103,14 @@ def get_short_interest(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'AAPL')
     """
-    ticker = yf.Ticker(symbol.upper())
-    info   = ticker.info
+    try:
+        info = _fetch_ticker_info(symbol.upper(), timeout=15.0)
+    except TimeoutError as e:
+        return {
+            "symbol":  symbol.upper(),
+            "error":   str(e),
+            "note":    "Retry the call — Yahoo Finance info endpoint was temporarily unresponsive.",
+        }
 
     shares_short       = _safe_int(info.get("sharesShort"))
     shares_outstanding = _safe_int(info.get("sharesOutstanding"))

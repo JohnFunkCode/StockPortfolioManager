@@ -27,6 +27,7 @@ import math
 
 import yfinance as yf
 from fastmcp import FastMCP
+from ohlcv_cache import get_history, period_to_days
 
 mcp = FastMCP("market-analysis-server")
 
@@ -231,8 +232,7 @@ def get_dark_pool(symbol: str, lookback: int = 20, interval: str = "1d") -> dict
     fetch_period = {"1d": "6mo", "1h": "60d"}[interval]
     fmt          = "%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 10:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 10})")
@@ -425,7 +425,7 @@ def get_bid_ask_spread(symbol: str, lookback: int = 20) -> dict:
         options_spread_pct = round(sum(atm_spreads) / len(atm_spreads), 2)
 
     # ---- 3. High-low range ratio (intraday spread proxy) ----
-    hist      = ticker.history(period="3mo", interval="1d").copy()
+    hist     = get_history(symbol.upper(), "1d", 90).copy()
     hl_ratio  = None
     spread_vs_norm = "unknown"
 

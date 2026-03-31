@@ -30,7 +30,98 @@ pip install fastmcp yfinance numpy pandas pyyaml
 | `stock_price_server.py` | MCP Server | Price, momentum, structure, options flow tools |
 | `market_analysis_server.py` | MCP Server | Market microstructure: short interest, dark pool, spreads |
 | `options_analysis.py` | CLI Script | Watchlist-level put/call scoring and trade recommendations |
+| `ohlcv_cache.py` | Shared Library | SQLite-backed OHLCV bar cache; eliminates redundant yfinance calls |
 | `.mcp.json` | Config | Registers both MCP servers for auto-start |
+
+---
+
+## OHLCV Cache (`ohlcv_cache.py`)
+
+All three MCP tools previously called `ticker.history()` independently for each analysis function. For a 7-symbol deep analysis (RSI + MACD + stochastic + OBV + VWAP + candlesticks + higher lows + volume + gap analysis × 7 symbols) this produced ~63 redundant HTTP requests. The cache reduces this to ~7 on subsequent runs.
+
+### How it works
+
+On first call for a symbol/interval pair (cold start), the cache fetches the maximum useful history from yfinance and stores it in SQLite (`ohlcv_cache.db`). Subsequent calls for the same symbol are served entirely from the database unless a bar needs refreshing.
+
+The cache fetches from yfinance only when:
+1. No cached data exists for the symbol/interval — cold start
+2. An OPEN bar exists (today's bar during market hours needs refreshing)
+3. The most recent CLOSED bar is at least 1 trading day old — incremental update
+
+### Bar status
+
+Each stored bar carries a `BarStatus` that tracks its lifecycle:
+
+| Status | Meaning |
+|--------|---------|
+| `OPEN` | Bar is currently forming — data is live and will change |
+| `CLOSED` | Bar interval has ended — data is final and will not change |
+| `GAP` | No trades occurred during this time slot — synthetic placeholder, excluded from results |
+| `CORRECTED` | A previously-CLOSED bar was re-fetched with a materially different close price (>0.1%), indicating a split adjustment or exchange correction |
+
+`CORRECTED` detection catches split adjustments automatically: if yfinance returns adjusted prices that differ from the cached close by more than 0.1%, the bar status is upgraded to `CORRECTED` and the stored price is updated.
+
+### Public API
+
+```python
+from ohlcv_cache import get_history, period_to_days
+
+# Returns pd.DataFrame matching yfinance ticker.history() format
+# columns: Open, High, Low, Close, Volume
+# index: DatetimeIndex (UTC)
+hist = get_history("AAPL", "1d", days=180)
+
+# Convert yfinance period string to calendar days
+days = period_to_days("6mo")   # → 182
+days = period_to_days("2y")    # → 730
+```
+
+### Warm-up window
+
+On cold start the cache is pre-populated with the maximum useful history so all downstream tools are fully served from cache on the second run:
+
+| Interval | Warm-up window |
+|----------|---------------|
+| `1d` | 730 days (2 years) |
+| `1wk` | 1825 days (5 years) |
+| `1mo` | 3650 days (10 years) |
+| `1h` / `30m` / `15m` | 59 days (yfinance limit) |
+
+### SQLite schema
+
+```sql
+CREATE TABLE ohlcv (
+    symbol   TEXT    NOT NULL,
+    interval TEXT    NOT NULL,
+    ts       INTEGER NOT NULL,   -- UTC Unix seconds
+    open     REAL    NOT NULL,
+    high     REAL    NOT NULL,
+    low      REAL    NOT NULL,
+    close    REAL    NOT NULL,
+    volume   INTEGER NOT NULL,
+    status   TEXT    NOT NULL    -- OPEN | CLOSED | GAP | CORRECTED
+        CHECK(status IN ('OPEN','CLOSED','GAP','CORRECTED')),
+    PRIMARY KEY (symbol, interval, ts)
+);
+
+-- Fast lookups by symbol/interval
+CREATE INDEX idx_ohlcv_lookup ON ohlcv (symbol, interval, ts DESC);
+
+-- Partial index for bars that need attention
+CREATE INDEX idx_ohlcv_needs_action ON ohlcv (symbol, interval)
+    WHERE status IN ('OPEN', 'CORRECTED');
+
+CREATE TABLE fetch_log (
+    symbol     TEXT    NOT NULL,
+    interval   TEXT    NOT NULL,
+    fetched_at INTEGER NOT NULL,   -- UTC Unix seconds
+    PRIMARY KEY (symbol, interval)
+);
+```
+
+### Integration
+
+All `ticker.history()` calls in `stock_price_server.py`, `market_analysis_server.py`, and `options_analysis.py` route through `get_history()`. Live-only calls (fast_info, options chains, news) still use `yf.Ticker()` directly.
 
 ---
 
@@ -615,6 +706,7 @@ Use the following tools in sequence to build a multi-signal bounce confirmation:
 | Tool | Limitation |
 |------|-----------|
 | All tools | Yahoo Finance data; may have 15-min delay for options |
+| `ohlcv_cache.py` | SQLite cache (`ohlcv_cache.db`) in the same directory; delete the file to force a full re-fetch |
 | `get_short_interest` | FINRA bi-monthly update; lags up to 2 weeks |
 | `get_dark_pool` | Proxy only — true dark pool requires paid feed (FINRA ATS, Bloomberg) |
 | `get_bid_ask_spread` | Equity spread from fast_info; not tick-level data |

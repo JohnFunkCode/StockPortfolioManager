@@ -22,6 +22,7 @@ from typing import Optional
 import numpy as np
 import yaml
 import yfinance as yf
+from ohlcv_cache import get_history, period_to_days
 
 
 # ---------------------------------------------------------------------------
@@ -211,7 +212,7 @@ def _safe_int(val, default: int = 0) -> int:
 
 def fetch_bollinger_bands(ticker: yf.Ticker) -> Optional[BollingerBands]:
     try:
-        hist = ticker.history(period=HISTORY_PERIOD)
+        hist = get_history(ticker.ticker, "1d", period_to_days(HISTORY_PERIOD))
         if hist.empty or len(hist) < BB_PERIOD:
             return None
         close = hist["Close"]
@@ -389,7 +390,7 @@ def fetch_iv_analysis(ticker: yf.Ticker, options: Optional[OptionsSummary]) -> O
     most recent HV30 value so rank/percentile still reflect the vol environment.
     """
     try:
-        hist = ticker.history(period="1y")
+        hist = get_history(ticker.ticker, "1d", 365)
         if hist.empty or len(hist) < 31:
             return None
 

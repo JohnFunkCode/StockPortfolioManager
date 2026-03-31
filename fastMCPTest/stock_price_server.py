@@ -2,6 +2,7 @@ import datetime
 import math
 import yfinance as yf
 from fastmcp import FastMCP
+from ohlcv_cache import get_history, period_to_days
 
 mcp = FastMCP("stock-price-server")
 
@@ -84,7 +85,7 @@ def get_stock_price(symbol: str) -> dict:
         raise ValueError(f"Could not retrieve price for symbol: {symbol}")
 
     # Bollinger Bands
-    hist = ticker.history(period="3mo")
+    hist = get_history(symbol.upper(), "1d", 90)
     close = hist["Close"]
     sma20 = close.rolling(window=20).mean().iloc[-1]
     std20 = close.rolling(window=20).std().iloc[-1]
@@ -140,8 +141,7 @@ def get_rsi(symbol: str, period: int = 14, interval: str = "1d") -> dict:
 
     fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist = ticker.history(period=fetch_period, interval=interval)
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period))
     closes = hist["Close"].dropna()
 
     if len(closes) < period + 1:
@@ -193,8 +193,7 @@ def get_macd(symbol: str, interval: str = "1d") -> dict:
 
     fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist = ticker.history(period=fetch_period, interval=interval)
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period))
     closes = hist["Close"].dropna()
 
     if len(closes) < 35:
@@ -254,8 +253,7 @@ def get_stochastic(symbol: str, k_period: int = 14, d_period: int = 3, interval:
 
     fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist = ticker.history(period=fetch_period, interval=interval)
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period))
 
     if len(hist) < k_period + d_period:
         raise ValueError(
@@ -337,8 +335,7 @@ def get_volume_analysis(symbol: str, lookback: int = 20, interval: str = "1d") -
 
     fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 5:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -469,8 +466,7 @@ def get_obv(symbol: str, lookback: int = 20, interval: str = "1d") -> dict:
 
     fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 5:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -614,8 +610,7 @@ def get_vwap(symbol: str, lookback: int = 20, interval: str = "1d") -> dict:
 
     fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 5:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -783,8 +778,7 @@ def get_candlestick_patterns(symbol: str, lookback: int = 10, interval: str = "1
 
     fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 25:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 25})")
@@ -1028,8 +1022,7 @@ def get_higher_lows(symbol: str, swing_bars: int = 3, lookback_swings: int = 6,
 
     fetch_period = {"15m": "60d", "30m": "60d", "1h": "60d", "1d": "2y"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     min_bars = swing_bars * 2 + 10
     if len(hist) < min_bars:
@@ -1208,8 +1201,7 @@ def get_gap_analysis(symbol: str, min_gap_pct: float = 0.5, lookback: int = 60,
 
     fetch_period = {"1d": "2y", "1h": "60d"}[interval]
 
-    ticker = yf.Ticker(symbol.upper())
-    hist   = ticker.history(period=fetch_period, interval=interval).copy()
+    hist = get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
     if len(hist) < lookback + 5:
         raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")

@@ -27,7 +27,7 @@ pip install fastmcp yfinance numpy pandas pyyaml
 
 | File | Type | Purpose |
 |------|------|---------|
-| `stock_price_server.py` | MCP Server | Price, momentum, structure, options flow tools |
+| `stock_price_server.py` | MCP Server | Price, momentum, structure, options flow, and stop loss tools |
 | `market_analysis_server.py` | MCP Server | Market microstructure: short interest, dark pool, spreads |
 | `options_analysis.py` | CLI Script | Watchlist-level put/call scoring and trade recommendations |
 | `ohlcv_cache.py` | Shared Library | SQLite-backed OHLCV bar cache; eliminates redundant yfinance calls |
@@ -129,7 +129,7 @@ All `ticker.history()` calls in `stock_price_server.py`, `market_analysis_server
 
 **File:** `stock_price_server.py`
 
-Provides 13 tools covering price data, momentum indicators, volume analysis, options flow, and price structure patterns. All data sourced from Yahoo Finance via yfinance.
+Provides 15 tools covering price data, momentum indicators, volume analysis, options flow, price structure patterns, historical drawdown analysis, and synthesised stop loss recommendations. All data sourced from Yahoo Finance via yfinance.
 
 ---
 
@@ -469,6 +469,109 @@ Provides 13 tools covering price data, momentum indicators, volume analysis, opt
 - Use to identify upcoming earnings, analyst upgrades/downgrades, product announcements, or macro events that could act as catalysts for a bounce.
 - Cross-reference the published date against price action — if a negative article caused a selloff but price is now stabilising, the news may be fully priced in.
 - Watch for a **golden cross** or **analyst upgrade** story appearing while the stock is technically oversold — narrative + technicals aligning is the highest-confidence bounce setup.
+
+---
+
+### `get_historical_drawdown(symbol, lookback_days=252)`
+
+**What it does:** Calculates historical max drawdown metrics from the SQLite OHLCV cache to establish the noise floor for trailing stop calibration.
+
+**Parameters:**
+- `lookback_days` — trading days to look back (default 252 = 1 year)
+
+**Returns:**
+- `max_1day_drawdown_pct` — worst single close-to-close drop (negative value)
+- `worst_1day_date` — date of the worst 1-day drop
+- `max_5day_drawdown_pct` — worst 5-trading-day rolling drop (negative value)
+- `worst_5day_start` / `worst_5day_end` — date range of the worst 5-day window
+- `max_intraday_drop_pct` — worst single-day High→Low intraday drop
+- `recent_max_1day_pct` — worst 1-day drop in the most recent 30 bars (current volatility regime)
+- `avg_drawdown_pct` — average of `|max_1day|` and `|max_5day|` — the derived trailing stop floor
+- `trailing_stop_pct` — recommended minimum trailing stop % to survive historical volatility
+- `lookback_trading_days`, `last_close`
+
+**Noise floor logic:**
+
+The trailing stop percentage is computed as `avg(|max_1day_drawdown|, |max_5day_drawdown|)`. This is the minimum distance a trailing stop must be set to avoid being triggered by a single bad session or a normal 5-day correction. Any trailing stop tighter than this will statistically false-trigger on routine volatility.
+
+**Application notes:**
+- Use this tool first before setting any broker trailing stop order. If your intended stop distance is smaller than `trailing_stop_pct`, it will be triggered by noise, not by a genuine trend breakdown.
+- `recent_max_1day_pct` vs `max_1day_drawdown_pct` is a regime gauge — if recent volatility is significantly higher than the 1-year baseline, the stock is in an elevated-risk regime and stops should be widened accordingly.
+- This tool is the foundation of `get_stop_loss_analysis` — it supplies the noise-floor-calibrated baseline trailing stop that the synthesis tool refines with options and short interest data.
+- All data is served from the OHLCV cache; no live yfinance calls are made for historical data.
+
+---
+
+### `get_stop_loss_analysis(symbol, cost_basis=0.0, shares=0, max_expirations=4)`
+
+**What it does:** Synthesises a complete stop loss recommendation by combining price/momentum indicators, options-derived support levels, historical drawdown noise floor, and short interest regime into a structured two-stop output (technical watch level + broker trailing stop).
+
+**Parameters:**
+- `symbol` — ticker symbol
+- `cost_basis` — average purchase price per share (optional; enables position P&L output)
+- `shares` — number of shares held (optional; enables total P&L calculations)
+- `max_expirations` — options expirations to include when locating gamma wall (default 4)
+
+**Returns:**
+
+| Section | Key fields |
+|---------|-----------|
+| `position` | `cost_basis`, `shares`, `unrealized_pnl_per_share`, `unrealized_pnl_pct`, `total_unrealized_pnl`, `pnl_at_technical_stop`, `pnl_at_trailing_stop` |
+| `technical` | `above_vwap`, `vwap`, `consecutive_bars`, `sma_20`, `bb_upper/lower`, `rsi`, `macd_crossover`, `gamma_wall`, `primary_support`, `primary_support_price`, `support_levels` |
+| `short_interest` | `short_float_pct`, `short_ratio_days`, `squeeze_potential` (`LOW`/`MEDIUM`/`HIGH`), `stop_impact` |
+| `drawdown` | `max_1day_pct`, `max_5day_pct`, `max_intraday_pct`, `recent_max_1day_pct`, `base_trailing_stop_pct` |
+| `stops` | `technical_stop`, `technical_stop_distance_pct`, `technical_stop_inside_noise_floor`, `trailing_stop_pct`, `trailing_stop_price` |
+| `flags` | Array of warning strings (see below) |
+| `summary` | Human-readable one-paragraph narrative |
+
+**Support level priority:**
+
+Candidates are evaluated in this priority order; only levels below current price qualify as support (levels above price are resistance and are excluded):
+
+| Priority | Level | Buffer below support |
+|----------|-------|---------------------|
+| 1 | Gamma wall | 0.8% |
+| 2 | VWAP | 1.4% |
+| 3 | 20-day SMA | 1.4% |
+| 4 | BB lower band | 2.0% |
+
+The highest-priority level below price becomes the `primary_support`. The technical stop = `primary_support × (1 − buffer)`.
+
+**Trailing stop calibration:**
+
+Base trailing stop = `get_historical_drawdown` → `trailing_stop_pct` (noise floor). Adjusted for short interest regime:
+
+| Condition | Adjustment | Rationale |
+|-----------|-----------|-----------|
+| Short float ≥ 15% AND price below VWAP | −10% (tighter) | High short float in downtrend amplifies breakdowns |
+| Short float ≥ 20% AND price above VWAP | +10% (wider) | Potential squeeze provides cushion during dips |
+| All other cases | Neutral | No adjustment |
+
+**Flags generated:**
+
+| Flag | Meaning |
+|------|---------|
+| `technical_stop_inside_noise_floor` | Technical stop distance < max 1-day drawdown — will false-trigger on a bad session; use trailing stop for broker orders |
+| `rsi_oversold_NN` | RSI ≤ 35 — potential bounce territory |
+| `rsi_overbought_NN` | RSI ≥ 70 — extended, reversion risk |
+| `squeeze_potential_high/medium` | Elevated short float — squeeze fuel in place |
+| `elevated_recent_volatility` | Recent 30-bar volatility is 40%+ above the 1-year baseline |
+| `bullish/bearish_macd` / `bullish_macd_crossover` | Current MACD momentum regime |
+| `N_bars_above/below_vwap` | Streak length in current VWAP position |
+
+**Two-stop system:**
+
+This tool returns two distinct stops with different purposes:
+
+- **Technical stop** (`stops.technical_stop`) — the conceptual floor. The price level below the nearest support structure where the bullish thesis is broken. Monitor manually; do not place as a broker order if it is inside the noise floor (see flag).
+- **Trailing stop** (`stops.trailing_stop_pct` + `stops.trailing_stop_price`) — the broker order level. Calibrated to the historical noise floor so it survives normal daily/weekly volatility. Place this as a trailing stop order with your broker.
+
+**Application notes:**
+- Always run this tool before refreshing a stop loss order. The gamma wall location changes as expirations roll and OI shifts — the nearest support level may have moved since the stop was last set.
+- If `technical_stop_inside_noise_floor` is flagged, the technical stop is for monitoring only. Place the wider trailing stop with your broker to avoid false triggers.
+- Re-run weekly or after any significant price move (≥5%) in either direction — both the support levels and the short interest regime can shift meaningfully over that timeframe.
+- For positions with elevated `recent_max_1day_pct` (elevated volatility regime flag), consider widening the trailing stop manually beyond the tool's recommendation until the regime normalises.
+- Combine with `get_news` to verify no binary catalyst (earnings, FDA, macro announcement) is scheduled within the trailing stop's loss window before placing the order.
 
 ---
 

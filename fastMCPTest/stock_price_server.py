@@ -1,14 +1,12 @@
+import datetime
 import math
 import yfinance as yf
 from fastmcp import FastMCP
-<<<<<<< Updated upstream
-=======
 from ohlcv_cache import get_history, period_to_days
 from options_store import OptionsStore
 
 # Shared store — persists every get_stock_price call for backtesting (issue #10)
 _options_store = OptionsStore()
->>>>>>> Stashed changes
 
 mcp = FastMCP("stock-price-server")
 
@@ -91,7 +89,7 @@ def get_stock_price(symbol: str) -> dict:
         raise ValueError(f"Could not retrieve price for symbol: {symbol}")
 
     # Bollinger Bands
-    hist = ticker.history(period="3mo")
+    hist = get_history(symbol.upper(), "1d", 90)
     close = hist["Close"]
     sma20 = close.rolling(window=20).mean().iloc[-1]
     std20 = close.rolling(window=20).std().iloc[-1]
@@ -131,21 +129,6 @@ def get_stock_price(symbol: str) -> dict:
         },
         "options": options_data,
     }
-
-<<<<<<< Updated upstream
-=======
-    # Persist snapshot for backtesting (issue #10) — fire-and-forget, never raises
-    try:
-        _options_store.save_snapshot(
-            symbol=result["symbol"],
-            price=result["price"],
-            bollinger_bands=result["bollinger_bands"],
-            options=result["options"],
-        )
-    except Exception:
-        pass
-
-    return result
 
 @mcp.tool()
 def get_rsi(symbol: str, period: int = 14, interval: str = "1d") -> dict:
@@ -1838,7 +1821,400 @@ def get_delta_adjusted_oi(
         "by_expiration":       expiry_summaries,
     }
 
->>>>>>> Stashed changes
+@mcp.tool()
+def get_historical_drawdown(
+    symbol: str,
+    lookback_days: int = 252,
+) -> dict:
+    """Calculate historical max drawdown metrics to calibrate trailing stop loss orders.
+
+    Computes the worst single-day and worst 5-day close-to-close drawdowns over
+    the lookback period, then averages them to produce a recommended trailing stop
+    percentage.  This answers the key stop-loss calibration question: "How wide
+    does a stop need to be to survive normal volatility without false-triggering?"
+
+    A fixed technical stop set CLOSER than the max 1-day drawdown will be triggered
+    by routine market noise rather than a genuine breakdown.  Use trailing_stop_pct
+    as the minimum safe distance when placing a trailing stop order with a broker.
+
+    Metrics returned
+    ----------------
+    max_1day_drawdown_pct  — worst single close-to-close decline over the period
+    max_5day_drawdown_pct  — worst rolling 5-bar close-to-close decline
+    avg_drawdown_pct       — average of the two → minimum trailing stop distance
+    trailing_stop_pct      — same value, formatted as a positive % for broker input
+    max_intraday_drop_pct  — worst high-to-low % within a single session (gap/halt risk)
+    recent_max_1day_pct    — worst 1-day drop in the last 30 bars (current volatility regime)
+    stop_validation        — assessment of whether a given stop distance is adequate
+    worst_1day_date        — when the worst single-day drop occurred
+    worst_5day_date_range  — start/end of the worst 5-day window
+
+    Args:
+        symbol:        Stock ticker symbol (e.g. 'AAPL')
+        lookback_days: Trading days to analyse (default: 252 ≈ 1 year)
+    """
+    # Request enough calendar days to cover the trading-day lookback.
+    # ~252 trading days ≈ 365 calendar days; use 2× to be safe with the cache.
+    calendar_days = max(lookback_days * 2, 365)
+    hist = get_history(symbol.upper(), "1d", calendar_days).copy()
+
+    if len(hist) < 10:
+        raise ValueError(
+            f"Not enough data for {symbol} (got {len(hist)} bars, need at least 10)"
+        )
+
+    # Trim to the requested trading-day lookback
+    hist  = hist.tail(lookback_days)
+    close = hist["Close"].dropna()
+    high  = hist["High"].dropna()
+    low   = hist["Low"].dropna()
+
+    if len(close) < 6:
+        raise ValueError(f"Insufficient price data for {symbol}")
+
+    # ------------------------------------------------------------------ #
+    # 1-day close-to-close drawdown
+    # ------------------------------------------------------------------ #
+    daily_returns   = close.pct_change().dropna()
+    min_1day_return = float(daily_returns.min())
+    worst_1day_idx  = daily_returns.idxmin()
+
+    max_1day_drawdown_pct = round(min_1day_return * 100, 2)   # negative number
+    worst_1day_date       = worst_1day_idx.strftime("%Y-%m-%d")
+
+    # ------------------------------------------------------------------ #
+    # 5-day rolling close-to-close drawdown
+    # ------------------------------------------------------------------ #
+    rolling_5day    = close.pct_change(periods=5).dropna()
+    min_5day_return = float(rolling_5day.min())
+    worst_5day_end  = rolling_5day.idxmin()
+
+    end_pos   = close.index.get_loc(worst_5day_end)
+    start_pos = max(0, end_pos - 5)
+
+    max_5day_drawdown_pct  = round(min_5day_return * 100, 2)
+    worst_5day_end_str     = worst_5day_end.strftime("%Y-%m-%d")
+    worst_5day_start_str   = close.index[start_pos].strftime("%Y-%m-%d")
+
+    # ------------------------------------------------------------------ #
+    # Worst intraday drop (High → Low within a single session)
+    # ------------------------------------------------------------------ #
+    intraday_drops        = ((low - high) / high * 100).dropna()
+    max_intraday_drop_pct = round(float(intraday_drops.min()), 2)
+    worst_intraday_date   = intraday_drops.idxmin().strftime("%Y-%m-%d")
+
+    # ------------------------------------------------------------------ #
+    # Recent 30-bar regime (has volatility changed lately?)
+    # ------------------------------------------------------------------ #
+    recent_returns      = daily_returns.tail(30)
+    recent_max_1day_pct = round(float(recent_returns.min()) * 100, 2) if len(recent_returns) > 0 else max_1day_drawdown_pct
+
+    # ------------------------------------------------------------------ #
+    # Trailing stop recommendation — average of 1-day and 5-day worst
+    # ------------------------------------------------------------------ #
+    abs_1day          = abs(max_1day_drawdown_pct)
+    abs_5day          = abs(max_5day_drawdown_pct)
+    avg_drawdown_pct  = round((abs_1day + abs_5day) / 2, 2)
+    trailing_stop_pct = avg_drawdown_pct   # positive %, for broker trailing stop input
+
+    # ------------------------------------------------------------------ #
+    # Stop validation notes
+    # ------------------------------------------------------------------ #
+    abs_recent = abs(recent_max_1day_pct)
+    notes = []
+
+    if abs_recent > abs_1day * 1.4:
+        notes.append(
+            f"Recent 30-bar volatility ({abs_recent:.1f}% max 1-day) is significantly "
+            f"higher than the {len(close)}-day average ({abs_1day:.1f}%). "
+            "Consider widening the trailing stop to reflect the current regime."
+        )
+    elif abs_recent < abs_1day * 0.6:
+        notes.append(
+            f"Recent 30-bar volatility ({abs_recent:.1f}%) is well below the "
+            f"{len(close)}-day average ({abs_1day:.1f}%). "
+            "A tighter trailing stop may be appropriate in the current low-volatility regime."
+        )
+
+    notes.append(
+        f"Any fixed stop within {abs_1day:.1f}% of current price risks a false trigger "
+        f"on a single bad session. Minimum safe trailing stop: {trailing_stop_pct:.1f}%."
+    )
+
+    if abs_5day > abs_1day * 2.0:
+        notes.append(
+            f"5-day drawdown ({abs_5day:.1f}%) exceeds 2× the single-day worst "
+            f"({abs_1day:.1f}%), indicating this stock can trend down steadily across "
+            "multiple sessions. A trailing stop may lag significantly in a sustained sell-off."
+        )
+
+    return {
+        "symbol":               symbol.upper(),
+        "lookback_trading_days": len(close),
+        "last_close":           round(float(close.iloc[-1]), 2),
+
+        "max_1day_drawdown_pct":  max_1day_drawdown_pct,
+        "worst_1day_date":        worst_1day_date,
+
+        "max_5day_drawdown_pct":  max_5day_drawdown_pct,
+        "worst_5day_start":       worst_5day_start_str,
+        "worst_5day_end":         worst_5day_end_str,
+
+        "max_intraday_drop_pct":  max_intraday_drop_pct,
+        "worst_intraday_date":    worst_intraday_date,
+
+        "recent_max_1day_pct":    recent_max_1day_pct,
+
+        "avg_drawdown_pct":       avg_drawdown_pct,
+        "trailing_stop_pct":      trailing_stop_pct,
+
+        "stop_width_note":        " ".join(notes),
+    }
+
+
+@mcp.tool()
+def get_stop_loss_analysis(
+    symbol: str,
+    cost_basis: float = 0.0,
+    shares: int = 0,
+    max_expirations: int = 4,
+) -> dict:
+    """Synthesise a complete stop loss recommendation combining options/technical analysis
+    and historical drawdown calibration.
+
+    Runs seven sub-analyses in sequence — price/BB, VWAP, MACD, RSI, delta-adjusted OI
+    (gamma wall), historical drawdown, and short interest — then produces two stops:
+
+      technical_stop  — the conceptual floor derived from the nearest meaningful support
+                        level (gamma wall > VWAP > 20-day SMA > lower BB), with a small
+                        buffer below it.  Watch this level manually; it tells you when the
+                        thesis is breaking.
+
+      trailing_stop   — a percentage-based stop calibrated to the stock's historical
+                        noise floor (avg of max 1-day and max 5-day drawdowns), adjusted
+                        for short interest dynamics.  Place this as the automated order
+                        in your broker so it trails up as the stock rises.
+
+    The tool also flags when the technical stop falls inside the historical noise floor
+    (meaning it would false-trigger on a single bad session) and computes position-level
+    P&L at each stop level when cost_basis and shares are provided.
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        cost_basis:      Average cost per share (optional — enables P&L output)
+        shares:          Number of shares held (optional — enables total P&L output)
+        max_expirations: Options expirations to scan for gamma wall (default: 4)
+    """
+    sym = symbol.upper()
+
+    # ── 1. Price + Bollinger Bands ────────────────────────────────────────
+    price_data = get_stock_price(sym)
+    price      = price_data["price"]
+    bb         = price_data["bollinger_bands"]
+    bb_upper   = bb["upper"]
+    bb_middle  = bb["middle"]   # 20-day SMA
+    bb_lower   = bb["lower"]
+
+    # ── 2. VWAP ──────────────────────────────────────────────────────────
+    vwap_data  = get_vwap(sym)
+    vwap       = vwap_data["vwap"]
+    above_vwap = vwap_data["position"] == "above_vwap"
+    vwap_bars  = vwap_data.get(
+        "consecutive_bars_above" if above_vwap else "consecutive_bars_below", 0
+    )
+
+    # ── 3. Momentum ───────────────────────────────────────────────────────
+    macd_data  = get_macd(sym)
+    macd_cross = macd_data["crossover"]
+
+    rsi_data   = get_rsi(sym)
+    rsi        = rsi_data["rsi"]
+
+    # ── 4. Options — gamma wall ───────────────────────────────────────────
+    gamma_wall = None
+    try:
+        daoi_data  = get_delta_adjusted_oi(sym, max_expirations=max_expirations)
+        gamma_wall = daoi_data.get("gamma_wall_strike")
+    except Exception:
+        pass
+
+    # ── 5. Historical drawdown ────────────────────────────────────────────
+    dd               = get_historical_drawdown(sym)
+    base_trailing    = dd["trailing_stop_pct"]
+    max_1day_pct     = abs(dd["max_1day_drawdown_pct"])
+    max_5day_pct     = abs(dd["max_5day_drawdown_pct"])
+    max_intraday_pct = abs(dd["max_intraday_drop_pct"])
+    recent_1day_pct  = abs(dd["recent_max_1day_pct"])
+
+    # ── 6. Short interest ─────────────────────────────────────────────────
+    short_float_pct = 0.0
+    short_ratio     = 0.0
+    short_available = False
+    try:
+        t_info          = yf.Ticker(sym).info
+        raw_si          = float(t_info.get("shortPercentOfFloat") or 0)
+        short_float_pct = round(raw_si * 100 if raw_si <= 1.0 else raw_si, 2)
+        short_ratio     = round(float(t_info.get("shortRatio") or 0), 2)
+        short_available = True
+    except Exception:
+        pass
+
+    if short_float_pct >= 20 and short_ratio >= 5:
+        squeeze = "HIGH"
+    elif short_float_pct >= 10 or short_ratio >= 3:
+        squeeze = "MEDIUM"
+    else:
+        squeeze = "LOW"
+
+    # ── 7. Support levels below current price ─────────────────────────────
+    # Gamma wall takes priority; VWAP only if price is above it (otherwise
+    # VWAP is resistance); then 20-day SMA; then lower BB as last resort.
+    supports = {}
+    if gamma_wall and float(gamma_wall) < price:
+        supports["gamma_wall"] = float(gamma_wall)
+    if vwap < price:
+        supports["vwap"] = float(vwap)
+    if bb_middle < price:
+        supports["sma_20"] = float(bb_middle)
+    if bb_lower < price:
+        supports["bb_lower"] = float(bb_lower)
+
+    sorted_supports = sorted(supports.items(), key=lambda x: x[1], reverse=True)
+
+    # Buffer below primary support — tighter for options-defined levels,
+    # slightly wider for statistical levels that get tested more frequently.
+    _buf = {"gamma_wall": 0.008, "vwap": 0.014, "sma_20": 0.014, "bb_lower": 0.020}
+
+    if sorted_supports:
+        primary_name, primary_level = sorted_supports[0]
+        technical_stop = round(primary_level * (1 - _buf.get(primary_name, 0.014)), 2)
+    else:
+        primary_name   = "bb_lower"
+        primary_level  = bb_lower
+        technical_stop = round(bb_lower * 0.980, 2)
+
+    technical_dist_pct = round((technical_stop - price) / price * 100, 2)
+    stop_inside_noise  = abs(technical_dist_pct) < max_1day_pct
+
+    # ── 8. Trailing stop — calibrate and adjust for short interest ─────────
+    if short_float_pct >= 15 and not above_vwap:
+        # High SI in a downtrend: shorts add selling pressure on breakdown
+        adj_trailing = round(base_trailing * 0.90, 2)
+        si_impact    = "tightened — high short float in downtrend adds breakdown pressure"
+    elif short_float_pct >= 20 and above_vwap:
+        # High SI in an uptrend: squeeze cushions pullbacks
+        adj_trailing = round(base_trailing * 1.10, 2)
+        si_impact    = "widened — high short float with upward momentum adds squeeze cushion"
+    else:
+        adj_trailing = base_trailing
+        si_impact    = "neutral"
+
+    trailing_stop_price = round(price * (1 - adj_trailing / 100), 2)
+
+    # ── 9. Position P&L at each stop ──────────────────────────────────────
+    position = {}
+    if cost_basis > 0:
+        pnl_per_share = round(price - cost_basis, 2)
+        pnl_pct       = round((price - cost_basis) / cost_basis * 100, 2)
+        n             = shares if shares > 0 else 1
+        position = {
+            "cost_basis":               round(cost_basis, 2),
+            "shares":                   shares,
+            "unrealized_pnl_per_share": pnl_per_share,
+            "unrealized_pnl_pct":       pnl_pct,
+            "total_unrealized_pnl":     round(pnl_per_share * n, 2),
+            "pnl_at_technical_stop":    round((technical_stop - cost_basis) * n, 2),
+            "pnl_at_trailing_stop":     round((trailing_stop_price - cost_basis) * n, 2),
+        }
+
+    # ── 10. Flags ──────────────────────────────────────────────────────────
+    flags = []
+    flags.append(f"{vwap_bars}_bars_{'above' if above_vwap else 'below'}_vwap")
+    flags.append(
+        "bearish_macd"          if "bearish" in macd_cross else
+        "bullish_macd_crossover" if macd_cross == "bullish_crossover" else
+        "bullish_macd"
+    )
+    if rsi < 35:
+        flags.append(f"rsi_oversold_{rsi:.0f}")
+    elif rsi > 70:
+        flags.append(f"rsi_overbought_{rsi:.0f}")
+    if stop_inside_noise:
+        flags.append("technical_stop_inside_noise_floor")
+    if squeeze == "HIGH":
+        flags.append("squeeze_potential_high")
+    elif squeeze == "MEDIUM":
+        flags.append("squeeze_potential_medium")
+    if recent_1day_pct > max_1day_pct * 1.4:
+        flags.append("elevated_recent_volatility")
+
+    # ── 11. Human-readable summary ─────────────────────────────────────────
+    trend = "uptrend" if above_vwap else "downtrend"
+    mom   = "bullish" if "bullish" in macd_cross else "bearish"
+    lines = [
+        f"{sym} at ${price:.2f} — {trend} "
+        f"({vwap_bars} bars {'above' if above_vwap else 'below'} VWAP ${vwap:.2f}).",
+        f"Momentum: MACD {mom}, RSI {rsi:.0f}.",
+        f"Primary support: {primary_name.replace('_', ' ')} at ${primary_level:.2f}.",
+        f"Technical stop: ${technical_stop:.2f} ({technical_dist_pct:.1f}% from price).",
+    ]
+    if stop_inside_noise:
+        lines.append(
+            f"WARNING — technical stop is inside the {max_1day_pct:.1f}% "
+            "historical 1-day noise floor and will false-trigger on a bad session."
+        )
+    lines.append(
+        f"Broker trailing stop: {adj_trailing:.1f}% → ${trailing_stop_price:.2f}."
+    )
+    if cost_basis > 0 and shares > 0:
+        lines.append(
+            f"Position: {shares} shares @ ${cost_basis:.2f}. "
+            f"P&L at trailing stop: ${position['pnl_at_trailing_stop']:+.2f}."
+        )
+
+    return {
+        "symbol":   sym,
+        "price":    price,
+        "position": position,
+        "technical": {
+            "above_vwap":            above_vwap,
+            "vwap":                  round(float(vwap), 2),
+            "consecutive_bars":      vwap_bars,
+            "vwap_direction":        "above" if above_vwap else "below",
+            "sma_20":                round(bb_middle, 2),
+            "bb_upper":              round(bb_upper, 2),
+            "bb_lower":              round(bb_lower, 2),
+            "rsi":                   round(rsi, 1),
+            "macd_crossover":        macd_cross,
+            "gamma_wall":            gamma_wall,
+            "primary_support":       primary_name,
+            "primary_support_price": round(primary_level, 2),
+            "support_levels":        {k: round(v, 2) for k, v in sorted_supports},
+        },
+        "short_interest": {
+            "short_float_pct":   short_float_pct,
+            "short_ratio_days":  short_ratio,
+            "squeeze_potential": squeeze,
+            "stop_impact":       si_impact,
+            "data_available":    short_available,
+        },
+        "drawdown": {
+            "max_1day_pct":           -round(max_1day_pct, 2),
+            "max_5day_pct":           -round(max_5day_pct, 2),
+            "max_intraday_pct":       -round(max_intraday_pct, 2),
+            "recent_max_1day_pct":    -round(recent_1day_pct, 2),
+            "base_trailing_stop_pct": base_trailing,
+        },
+        "stops": {
+            "technical_stop":                    technical_stop,
+            "technical_stop_distance_pct":       technical_dist_pct,
+            "technical_stop_inside_noise_floor":  stop_inside_noise,
+            "trailing_stop_pct":                 adj_trailing,
+            "trailing_stop_price":               trailing_stop_price,
+        },
+        "flags":   flags,
+        "summary": " ".join(lines),
+    }
 
 if __name__ == "__main__":
     mcp.run()

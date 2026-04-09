@@ -9,6 +9,7 @@ Usage:
     python options_analysis.py
     python options_analysis.py --watchlist /path/to/watchlist.yaml
     python options_analysis.py --puts-budget 1000
+    python options_analysis.py --watchlist /path/to/watchlist.yaml --puts-budget 1000 --top-n 15
 """
 
 import argparse
@@ -18,8 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import yaml
 import yfinance as yf
+from ohlcv_cache import get_history, period_to_days
 
 from options_store import OptionsStore
 
@@ -121,6 +124,64 @@ class BollingerBands:
 
 
 @dataclass
+class PutCallAnalysis:
+    """
+    Rich Put/Call analysis across multiple expirations and signal types.
+
+    near_oi_pc    — OI-based P/C for nearest expiry (accumulated positioning)
+    near_vol_pc   — Volume-based P/C for nearest expiry (today's trading sentiment)
+    near_atm_pc   — ATM-only OI P/C (±PC_ATM_STRIKES strikes around current price)
+                    Most directional signal — targeted hedging right at current price
+    mid_oi_pc     — OI-based P/C for next expiry (~30–60 days out); None if unavailable
+    term_skew     — near_oi_pc − mid_oi_pc (positive = near-term fear > longer-term)
+    vol_oi_ratio  — near_vol_pc / near_oi_pc
+                    < PC_UNWIND_THRESHOLD  → puts being sold today (fear unwinding → bounce)
+                    > PC_FRESH_BUY_THRESH  → fresh put buying today (new bearish positioning)
+    put_unwinding     — True when vol/OI ratio signals active put selling
+    fresh_put_buying  — True when vol/OI ratio signals aggressive new put buying
+    near_term_fear    — True when near expiry P/C is meaningfully > mid expiry P/C
+    """
+    near_expiry:      str
+    near_oi_pc:       Optional[float]
+    near_vol_pc:      Optional[float]
+    near_atm_pc:      Optional[float]
+    mid_expiry:       Optional[str]
+    mid_oi_pc:        Optional[float]
+    term_skew:        Optional[float]
+    vol_oi_ratio:     Optional[float]
+    put_unwinding:    bool
+    fresh_put_buying: bool
+    near_term_fear:   bool
+
+
+@dataclass
+class IVAnalysis:
+    """
+    IV Rank and IV Percentile computed from 252 days of rolling 30-day
+    historical volatility (HV30) as a proxy for historical implied volatility.
+
+    current_iv     — ATM implied volatility from the live options chain (%)
+    hv_30          — current 30-day realised volatility, annualised (%)
+    iv_vs_hv       — current_iv / hv_30 ratio (>1.0 = IV premium over realised vol)
+    hv_52w_low     — lowest HV30 value over the past 252 trading days (%)
+    hv_52w_high    — highest HV30 value over the past 252 trading days (%)
+    iv_rank        — (current_iv - hv_52w_low) / (hv_52w_high - hv_52w_low) × 100
+                     0 = at 52-week low, 100 = at 52-week high
+    iv_percentile  — % of trading days in past year where HV30 < current_iv
+                     90th percentile = IV higher than 90% of the past year
+    label          — plain-English summary of the IV environment
+    """
+    current_iv:    float
+    hv_30:         float
+    iv_vs_hv:      float
+    hv_52w_low:    float
+    hv_52w_high:   float
+    iv_rank:       float
+    iv_percentile: float
+    label:         str
+
+
+@dataclass
 class OptionsSummary:
     expiration: str
     put_call_ratio: Optional[float]
@@ -142,6 +203,8 @@ class SecurityAnalysis:
     price: float
     bands: BollingerBands
     options: Optional[OptionsSummary]
+    iv: Optional[IVAnalysis] = None
+    pc: Optional[PutCallAnalysis] = None
 
     # Derived scores (set by score())
     bb_pos: float = 0.0          # 0 = lower band, 1 = upper band
@@ -178,7 +241,7 @@ def _safe_int(val, default: int = 0) -> int:
 
 def fetch_bollinger_bands(ticker: yf.Ticker) -> Optional[BollingerBands]:
     try:
-        hist = ticker.history(period=HISTORY_PERIOD)
+        hist = get_history(ticker.ticker, "1d", period_to_days(HISTORY_PERIOD))
         if hist.empty or len(hist) < BB_PERIOD:
             return None
         close = hist["Close"]
@@ -565,6 +628,12 @@ def score(sec: SecurityAnalysis) -> None:
       +3  put/call ratio < 0.5 (very bullish options positioning)
       +2  put/call ratio 0.5–0.8
       +1  large total call volume (top-tier institutional attention)
+      +3  IV rank ≥ 80% (extreme fear / capitulation — IV expensive, mean-reversion likely)
+      +2  IV rank 60–80% (elevated fear — potential bounce zone)
+      +1  IV rank 40–60% (above average — some fear priced in)
+      +2  put unwinding (vol P/C < OI P/C — today's traders selling puts = fear fading)
+      +1  near-term fear > mid-term (near P/C > mid P/C by ≥ 0.30 — acute short-term capitulation)
+      +1  ATM P/C lower than total P/C (near-money calls being bought — targeted bullish positioning)
 
     PUT score drivers (higher = stronger bearish / put trade signal):
       +3  price above upper BB (technically overbought)
@@ -573,6 +642,10 @@ def score(sec: SecurityAnalysis) -> None:
       +2  put/call ratio 1.5–2.0
       +1  put OI > call OI by a significant margin
       +1  large total put OI (institutional hedging conviction)
+      +2  IV rank ≤ 20% (complacency — puts are cheap, ideal entry for bearish trades)
+      +1  IV rank ≤ 10% (very cheap IV — maximum complacency)
+      +2  fresh put buying (vol P/C ≥ 1.5× OI P/C — aggressive new bearish positioning today)
+      +1  ATM P/C higher than total P/C (targeted hedging right at current price)
     """
     bb_pos = sec.bands.position(sec.price)
     sec.bb_pos = bb_pos
@@ -628,6 +701,41 @@ def score(sec: SecurityAnalysis) -> None:
 
         if sec.options.total_put_oi > 50_000:
             put_points.append((1, f"massive put OI ({sec.options.total_put_oi:,})"))
+
+    # --- IV Rank signals ---
+    if sec.iv is not None:
+        ivr = sec.iv.iv_rank
+        if ivr >= IV_RANK_EXTREME_FEAR:
+            long_points.append((3, f"IV rank {ivr:.0f}% (extreme fear — capitulation signal)"))
+        elif ivr >= IV_RANK_HIGH_FEAR:
+            long_points.append((2, f"IV rank {ivr:.0f}% (elevated fear — potential bounce zone)"))
+        elif ivr >= IV_RANK_ELEVATED:
+            long_points.append((1, f"IV rank {ivr:.0f}% (above-average fear)"))
+
+        if ivr <= IV_RANK_VERY_CHEAP:
+            put_points.append((3, f"IV rank {ivr:.0f}% (very cheap IV — maximum complacency, puts cheap)"))
+        elif ivr <= IV_RANK_COMPLACENT:
+            put_points.append((2, f"IV rank {ivr:.0f}% (low IV — complacency, puts cheap)"))
+
+    # --- Rich P/C signals ---
+    if sec.pc is not None:
+        pc = sec.pc
+
+        # Long signals
+        if pc.put_unwinding:
+            long_points.append((2, f"put unwinding (vol P/C {pc.near_vol_pc:.2f} < OI P/C {pc.near_oi_pc:.2f} — fear fading)"))
+        if pc.near_term_fear:
+            long_points.append((1, f"near-term fear spike (near P/C {pc.near_oi_pc:.2f} vs mid {pc.mid_oi_pc:.2f}, skew +{pc.term_skew:.2f})"))
+        if (pc.near_atm_pc is not None and pc.near_oi_pc is not None
+                and pc.near_atm_pc < pc.near_oi_pc * 0.85):
+            long_points.append((1, f"ATM P/C {pc.near_atm_pc:.2f} < total P/C {pc.near_oi_pc:.2f} (near-money calls bought)"))
+
+        # Put signals
+        if pc.fresh_put_buying:
+            put_points.append((2, f"fresh put buying (vol P/C {pc.near_vol_pc:.2f} ≥ {PC_FRESH_BUY_THRESH}× OI P/C {pc.near_oi_pc:.2f})"))
+        if (pc.near_atm_pc is not None and pc.near_oi_pc is not None
+                and pc.near_atm_pc > pc.near_oi_pc * 1.20):
+            put_points.append((1, f"ATM P/C {pc.near_atm_pc:.2f} > total P/C {pc.near_oi_pc:.2f} (targeted hedging at current price)"))
 
     sec.long_score = sum(pts for pts, _ in long_points)
     sec.put_score = sum(pts for pts, _ in put_points)

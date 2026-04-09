@@ -1,8 +1,0 @@
-{
-  "mcpServers": {
-    "stock-price-server": {
-      "command": "fastmcp",
-      "args": ["run", "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/fastMCPTest/stock_price_server.py"]
-    }
-  }
-}

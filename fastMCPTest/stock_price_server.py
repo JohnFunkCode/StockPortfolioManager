@@ -1,5 +1,10 @@
 import datetime
 import math
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+
 import yfinance as yf
 from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days

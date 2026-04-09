@@ -15,14 +15,22 @@ Usage:
 import argparse
 import math
 import sys
+import platform
 from dataclasses import dataclass, field
+from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Optional
+
+sys.path.insert(0, str(Path(__file__).parent))
 
 import numpy as np
 import yaml
 import yfinance as yf
+from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
+
+
+mcp = FastMCP("options-analysis-server")
 
 
 # ---------------------------------------------------------------------------
@@ -902,6 +910,130 @@ SKIP_SUFFIXES = (".PA", ".OL", ".AS", ".SG", ".KS", ".ST", ".DE")
 
 def is_us_listed(symbol: str) -> bool:
     return not any(symbol.upper().endswith(sfx) for sfx in SKIP_SUFFIXES)
+
+
+# ---------------------------------------------------------------------------
+# MCP tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def mcp_health_check() -> dict:
+    """Return lightweight version/config info for MCP diagnostics."""
+    try:
+        fastmcp_version = importlib_metadata.version("fastmcp")
+    except importlib_metadata.PackageNotFoundError:
+        fastmcp_version = "unknown"
+
+    return {
+        "server": "options-analysis-server",
+        "python_version": sys.version.split()[0],
+        "platform": platform.platform(),
+        "fastmcp_version": fastmcp_version,
+        "history_period": HISTORY_PERIOD,
+        "bb_period": BB_PERIOD,
+        "bb_std_dev": BB_STD_DEV,
+        "watchlist_default": str(Path(__file__).parent / "watchlist.yaml"),
+    }
+
+
+def _build_candidate_summary(sec: SecurityAnalysis) -> dict:
+    pc = sec.options.put_call_ratio if sec.options else None
+    return {
+        "symbol": sec.symbol,
+        "name": sec.name,
+        "tags": sec.tags,
+        "price": sec.price,
+        "bb_pos": round(sec.bb_pos, 3),
+        "bands": {
+            "lower": sec.bands.lower,
+            "middle": sec.bands.middle,
+            "upper": sec.bands.upper,
+        },
+        "put_call_ratio": pc,
+        "long_score": sec.long_score,
+        "put_score": sec.put_score,
+        "long_reason": sec.long_reason,
+        "put_reason": sec.put_reason,
+        "iv_label": sec.iv.label if sec.iv else None,
+        "pc_analysis": {
+            "near_oi_pc": sec.pc.near_oi_pc if sec.pc else None,
+            "near_vol_pc": sec.pc.near_vol_pc if sec.pc else None,
+            "near_atm_pc": sec.pc.near_atm_pc if sec.pc else None,
+            "mid_oi_pc": sec.pc.mid_oi_pc if sec.pc else None,
+            "term_skew": sec.pc.term_skew if sec.pc else None,
+            "put_unwinding": sec.pc.put_unwinding if sec.pc else None,
+            "fresh_put_buying": sec.pc.fresh_put_buying if sec.pc else None,
+            "near_term_fear": sec.pc.near_term_fear if sec.pc else None,
+        },
+    }
+
+
+def _run_analysis(entries: list[dict], puts_budget: float, top_n: int) -> dict:
+    results: list[SecurityAnalysis] = []
+    failed: list[str] = []
+
+    for entry in entries:
+        sec = fetch_security(entry["symbol"], entry["name"], entry["tags"])
+        if sec is None:
+            failed.append(entry["symbol"])
+            continue
+        score(sec)
+        results.append(sec)
+
+    long_candidates = sorted(
+        [s for s in results if s.long_score > 0],
+        key=lambda s: s.long_score,
+        reverse=True,
+    )[:top_n]
+
+    put_candidates = sorted(
+        [s for s in results if s.put_score > 0],
+        key=lambda s: s.put_score,
+        reverse=True,
+    )[:top_n]
+
+    trades = []
+    for sec in put_candidates:
+        trade = build_put_trade(
+            sec,
+            budget_per_trade=puts_budget / max(len(put_candidates), 1),
+            total_budget=puts_budget,
+        )
+        if trade:
+            trades.append(trade)
+
+    return {
+        "symbols_scanned": len(entries),
+        "fetched": len(results),
+        "failed": failed,
+        "long_candidates": [_build_candidate_summary(s) for s in long_candidates],
+        "put_candidates": [_build_candidate_summary(s) for s in put_candidates],
+        "put_trades": trades,
+    }
+
+
+@mcp.tool()
+def analyze_options_watchlist(
+    watchlist_path: str | None = None,
+    puts_budget: float = 1000.0,
+    top_n: int = 10,
+    include_non_us: bool = False,
+) -> dict:
+    """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
+    path = Path(watchlist_path) if watchlist_path else (Path(__file__).parent / "watchlist.yaml")
+    if not path.exists():
+        raise FileNotFoundError(f"watchlist not found at {path}")
+    entries = load_watchlist(path)
+    if not include_non_us:
+        entries = [e for e in entries if is_us_listed(e["symbol"])]
+    return _run_analysis(entries, puts_budget=puts_budget, top_n=top_n)
+
+
+@mcp.tool()
+def analyze_options_symbol(symbol: str, puts_budget: float = 1000.0, top_n: int = 10) -> dict:
+    """Analyze a single symbol using the same scoring rules as the watchlist run."""
+    entry = {"symbol": symbol.upper(), "name": symbol.upper(), "tags": []}
+    return _run_analysis([entry], puts_budget=puts_budget, top_n=top_n)
 
 
 # ---------------------------------------------------------------------------

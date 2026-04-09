@@ -1,12 +1,25 @@
 {
   "mcpServers": {
-    "stock-price-server": {
-      "command": "fastmcp",
-      "args": ["run", "stock_price_server.py"]
-    },
     "market-analysis-server": {
-      "command": "fastmcp",
-      "args": ["run", "market_analysis_server.py"]
+      "command": "/Users/johnfunk/Documents/code/StockPortfolioManager/.venv/bin/fastmcp",
+      "args": [
+        "run",
+        "/Users/johnfunk/Documents/code/StockPortfolioManager/fastMCPTest/market_analysis_server.py"
+      ]
+    },
+    "options-analysis-server": {
+      "command": "/Users/johnfunk/Documents/code/StockPortfolioManager/.venv/bin/fastmcp",
+      "args": [
+        "run",
+        "/Users/johnfunk/Documents/code/StockPortfolioManager/fastMCPTest/options_analysis.py"
+      ]
+    },
+    "stock_price_server": {
+      "command": "/Users/johnfunk/Documents/code/StockPortfolioManager/.venv/bin/fastmcp",
+      "args": [
+        "run",
+        "/Users/johnfunk/Documents/code/StockPortfolioManager/fastMCPTest/stock_price_server.py"
+      ]
     }
   }
 }

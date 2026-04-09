@@ -57,7 +57,14 @@ export default function SecuritiesPage() {
   const { data, isLoading, error } = useSecurities();
 
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
-  const [tagFilter, setTagFilter] = useState<string[]>([]);
+  const [tagFilter, setTagFilter] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('securities-tag-filter');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [search, setSearch] = useState('');
   const [screenerOpen, setScreenerOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
@@ -72,6 +79,14 @@ export default function SecuritiesPage() {
       return [];
     }
   });
+
+  const setTagFilterPersisted = (tags: string[] | ((prev: string[]) => string[])) => {
+    setTagFilter((prev) => {
+      const next = typeof tags === 'function' ? tags(prev) : tags;
+      localStorage.setItem('securities-tag-filter', JSON.stringify(next));
+      return next;
+    });
+  };
 
   const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
   const { mutate: refreshSnapshots, isPending: refreshing, data: refreshResult, reset: resetRefresh } = useRefreshOptionsSnapshots();
@@ -103,7 +118,7 @@ export default function SecuritiesPage() {
       renderCell: (p: GridRenderCellParams<Security, string>) => (
         <Typography
           variant="body2"
-          sx={{ cursor: 'pointer', color: 'primary.main', fontWeight: 600 }}
+          sx={{ cursor: 'pointer', color: 'secondary.main', fontWeight: 600 }}
           onClick={() => navigate(`/securities/${p.value}`)}
         >
           {p.value}
@@ -149,9 +164,23 @@ export default function SecuritiesPage() {
       minWidth: 200,
       sortable: false,
       renderCell: (p: GridRenderCellParams<Security, string[]>) => (
-        <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>
+        <Stack
+          direction="row" spacing={0.5} flexWrap="wrap" useFlexGap
+          onClick={(e) => e.stopPropagation()}
+        >
           {(p.value ?? []).slice(0, 4).map((t) => (
-            <Chip key={t} label={t} size="small" variant="outlined" sx={{ fontSize: 11 }} />
+            <Chip
+              key={t}
+              label={t}
+              size="small"
+              variant={tagFilter.includes(t) ? 'filled' : 'outlined'}
+              color={tagFilter.includes(t) ? 'secondary' : 'default'}
+              clickable
+              onClick={() => setTagFilterPersisted((prev) =>
+                prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+              )}
+              sx={{ fontSize: 11 }}
+            />
           ))}
           {(p.value ?? []).length > 4 && (
             <Tooltip title={(p.value ?? []).slice(4).join(', ')}>
@@ -208,7 +237,7 @@ export default function SecuritiesPage() {
               multiple
               value={tagFilter}
               onChange={(e: SelectChangeEvent<string[]>) =>
-                setTagFilter(typeof e.target.value === 'string'
+                setTagFilterPersisted(typeof e.target.value === 'string'
                   ? e.target.value.split(',')
                   : e.target.value)
               }
@@ -227,12 +256,24 @@ export default function SecuritiesPage() {
             </Select>
           </FormControl>
 
+          {tagFilter.length > 0 && (
+            <Button
+              size="small"
+              variant="outlined"
+              color="secondary"
+              onClick={() => setTagFilterPersisted([])}
+              sx={{ ml: 'auto' }}
+            >
+              Clear Tags ({tagFilter.length})
+            </Button>
+          )}
+
           <Button
             size="small"
             startIcon={<FilterListIcon />}
             variant={screenerOpen ? 'contained' : 'outlined'}
             onClick={() => setScreenerOpen((o) => !o)}
-            sx={{ ml: 'auto' }}
+            sx={{ ml: tagFilter.length > 0 ? 0 : 'auto' }}
           >
             Screener
           </Button>

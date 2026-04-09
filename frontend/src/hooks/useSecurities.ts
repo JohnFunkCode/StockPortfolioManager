@@ -134,6 +134,14 @@ export function useBackfillOptionsHistory(ticker: string) {
   });
 }
 
+export function useRemoveFromPortfolio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ticker: string) => securitiesApi.removeFromPortfolio(ticker),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['securities'] }),
+  });
+}
+
 export function useAddSecurity() {
   const qc = useQueryClient();
   const invalidate = () => {

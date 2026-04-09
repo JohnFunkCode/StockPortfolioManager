@@ -406,6 +406,38 @@ def create_app() -> Flask:
 
         return jsonify({"symbol": symbol, "destination": "portfolio"}), 201
 
+    @app.route("/api/portfolio/<ticker>", methods=["DELETE"])
+    def remove_from_portfolio(ticker: str):
+        """Remove a position from portfolio.csv (or sample_stocks.csv) by symbol."""
+        ticker = ticker.upper()
+
+        for candidate in ("portfolio.csv", "sample_stocks.csv"):
+            csv_path = PROJECT_ROOT / candidate
+            if csv_path.exists():
+                break
+        else:
+            return jsonify({"error": "Portfolio file not found"}), 404
+
+        rows: list[dict] = []
+        with open(csv_path, newline="") as fh:
+            reader = csv.DictReader(fh)
+            fieldnames = reader.fieldnames or []
+            for row in reader:
+                rows.append(row)
+
+        original_count = len(rows)
+        rows = [r for r in rows if r.get("symbol", "").strip().upper() != ticker]
+
+        if len(rows) == original_count:
+            return jsonify({"error": f"{ticker} not found in portfolio"}), 404
+
+        with open(csv_path, "w", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+
+        return jsonify({"symbol": ticker, "removed": True}), 200
+
     @app.route("/api/watchlist", methods=["GET"])
     def get_watchlist():
         return jsonify({"securities": _load_watchlist()})

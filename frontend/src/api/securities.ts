@@ -102,4 +102,9 @@ export const securitiesApi = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  removeFromPortfolio: (ticker: string) =>
+    apiRequest<{ symbol: string; removed: boolean }>(`/api/portfolio/${ticker}`, {
+      method: 'DELETE',
+    }),
 };

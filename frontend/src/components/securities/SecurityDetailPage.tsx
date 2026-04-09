@@ -4,6 +4,11 @@ import {
   Box,
   Button,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogContentText,
+  DialogTitle,
   Divider,
   FormControl,
   InputLabel,
@@ -19,10 +24,13 @@ import {
   TableHead,
   TableRow,
   Tabs,
+  TextField,
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory } from '../../hooks/useSecurities';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio } from '../../hooks/useSecurities';
 import SignalsTab from './SignalsTab';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
@@ -51,8 +59,19 @@ export default function SecurityDetailPage() {
   const [days, setDays] = useState(180);
   const [pcDays, setPcDays] = useState(30);
   const [analyticsExpIdx, setAnalyticsExpIdx] = useState(0);
+  const [addPortfolioOpen, setAddPortfolioOpen] = useState(false);
+  const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ purchase_price: '', quantity: '', purchase_date: '' });
+  const [addError, setAddError] = useState('');
 
   const ticker = symbol.toUpperCase();
+
+  const { data: securitiesData } = useSecurities();
+  const security = securitiesData?.securities.find((s) => s.symbol === ticker);
+  const source = security?.source ?? null;
+
+  const { portfolio: addPortfolio } = useAddSecurity();
+  const { mutate: removeFromPortfolio, isPending: removing } = useRemoveFromPortfolio();
 
   const {
     data: techData,
@@ -83,10 +102,34 @@ export default function SecurityDetailPage() {
   const indicators = techData?.indicators ?? [];
   const latest = indicators.at(-1);
 
+  const handleAddToPortfolio = () => {
+    setAddError('');
+    addPortfolio.mutate(
+      {
+        symbol: ticker,
+        name: security?.name ?? ticker,
+        currency: security?.currency ?? 'USD',
+        purchase_price: addForm.purchase_price ? Number(addForm.purchase_price) : undefined,
+        quantity: addForm.quantity ? Number(addForm.quantity) : undefined,
+        purchase_date: addForm.purchase_date || undefined,
+      },
+      {
+        onSuccess: () => { setAddPortfolioOpen(false); setAddForm({ purchase_price: '', quantity: '', purchase_date: '' }); },
+        onError: (e) => setAddError((e as Error).message),
+      },
+    );
+  };
+
+  const handleRemoveFromPortfolio = () => {
+    removeFromPortfolio(ticker, {
+      onSuccess: () => { setRemoveConfirmOpen(false); },
+    });
+  };
+
   return (
     <Box>
       {/* Header */}
-      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }}>
+      <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
         <Button
           startIcon={<ArrowBackIcon />}
           onClick={() => navigate('/securities')}
@@ -109,9 +152,103 @@ export default function SecurityDetailPage() {
             color={latest.rsi >= 70 ? 'error' : latest.rsi <= 30 ? 'success' : 'default'}
           />
         )}
+
+        <Box sx={{ flex: 1 }} />
+
+        {/* Portfolio actions */}
+        {source === 'watchlist' && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<AccountBalanceWalletIcon />}
+            onClick={() => { setAddError(''); setAddPortfolioOpen(true); }}
+          >
+            Add to Portfolio
+          </Button>
+        )}
+        {(source === 'portfolio' || source === 'both') && (
+          <Button
+            size="small"
+            variant="outlined"
+            color="error"
+            startIcon={<DeleteOutlineIcon />}
+            onClick={() => setRemoveConfirmOpen(true)}
+          >
+            Remove from Portfolio
+          </Button>
+        )}
       </Stack>
 
       {techError && <ErrorAlert message={(techError as Error).message} />}
+
+      {/* Add to Portfolio dialog */}
+      <Dialog open={addPortfolioOpen} onClose={() => setAddPortfolioOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Add {ticker} to Portfolio</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Purchase Price"
+              size="small"
+              type="number"
+              value={addForm.purchase_price}
+              onChange={(e) => setAddForm((f) => ({ ...f, purchase_price: e.target.value }))}
+              inputProps={{ min: 0, step: 0.01 }}
+            />
+            <TextField
+              label="Quantity"
+              size="small"
+              type="number"
+              value={addForm.quantity}
+              onChange={(e) => setAddForm((f) => ({ ...f, quantity: e.target.value }))}
+              inputProps={{ min: 0 }}
+            />
+            <TextField
+              label="Purchase Date"
+              size="small"
+              type="date"
+              value={addForm.purchase_date}
+              onChange={(e) => setAddForm((f) => ({ ...f, purchase_date: e.target.value }))}
+              InputLabelProps={{ shrink: true }}
+            />
+            {addError && (
+              <Typography variant="caption" color="error">{addError}</Typography>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAddPortfolioOpen(false)} size="small">Cancel</Button>
+          <Button
+            variant="contained"
+            size="small"
+            onClick={handleAddToPortfolio}
+            disabled={addPortfolio.isPending}
+          >
+            {addPortfolio.isPending ? 'Adding…' : 'Add'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Remove from Portfolio confirmation */}
+      <Dialog open={removeConfirmOpen} onClose={() => setRemoveConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Remove from Portfolio</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove <strong>{ticker}</strong> from the portfolio? This will delete the position from the CSV. The security will remain on the watchlist if it appears there.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveConfirmOpen(false)} size="small">Cancel</Button>
+          <Button
+            variant="contained"
+            color="error"
+            size="small"
+            onClick={handleRemoveFromPortfolio}
+            disabled={removing}
+          >
+            {removing ? 'Removing…' : 'Remove'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Tabs */}
       <Paper sx={{ mb: 2 }}>

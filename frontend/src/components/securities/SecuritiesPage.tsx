@@ -2,7 +2,10 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
+  Button,
   Chip,
+  CircularProgress,
+  Collapse,
   FormControl,
   InputLabel,
   MenuItem,
@@ -16,16 +19,28 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { SelectChangeEvent } from '@mui/material';
-import { useSecurities } from '../../hooks/useSecurities';
+import { useSecurities, useScreener } from '../../hooks/useSecurities';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
-import type { Security } from '../../api/securitiesTypes';
+import type { Security, ScreenerResult } from '../../api/securitiesTypes';
 
 type SourceFilter = 'all' | 'portfolio' | 'watchlist' | 'both';
+
+const SCREENER_PRESETS = [
+  { label: 'Oversold (RSI < 30)',    params: { rsi_max: '30' } },
+  { label: 'Overbought (RSI > 70)',  params: { rsi_min: '70' } },
+  { label: 'Near BB Lower',          params: { near_bb_lower: '1' } },
+  { label: 'Near BB Upper',          params: { near_bb_upper: '1' } },
+  { label: 'Above MA200',            params: { above_ma200: '1' } },
+  { label: 'Below MA200',            params: { below_ma200: '1' } },
+  { label: 'MACD Bullish',           params: { macd_bullish: '1' } },
+  { label: 'MACD Bearish',           params: { macd_bearish: '1' } },
+] as const;
 
 const SOURCE_COLORS: Record<string, 'primary' | 'success' | 'secondary'> = {
   portfolio: 'primary',
@@ -40,6 +55,11 @@ export default function SecuritiesPage() {
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [screenerOpen, setScreenerOpen] = useState(false);
+  const [screenerParams, setScreenerParams] = useState<Record<string, string>>({});
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
 
   const allTags = useMemo<string[]>(() => {
     const set = new Set<string>();
@@ -183,11 +203,90 @@ export default function SecuritiesPage() {
             </Select>
           </FormControl>
 
-          <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
+          <Button
+            size="small"
+            startIcon={<FilterListIcon />}
+            variant={screenerOpen ? 'contained' : 'outlined'}
+            onClick={() => setScreenerOpen((o) => !o)}
+            sx={{ ml: 'auto' }}
+          >
+            Screener
+          </Button>
+
+          <Typography variant="body2" color="text.secondary">
             {filtered.length} of {data?.securities.length ?? 0} securities
           </Typography>
         </Stack>
       </Paper>
+
+      {/* Technical Screener */}
+      <Collapse in={screenerOpen}>
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>Technical Screener (from cached OHLCV data)</Typography>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            {SCREENER_PRESETS.map((preset) => (
+              <Chip
+                key={preset.label}
+                label={preset.label}
+                clickable
+                variant={activePreset === preset.label ? 'filled' : 'outlined'}
+                color={activePreset === preset.label ? 'primary' : 'default'}
+                onClick={() => {
+                  if (activePreset === preset.label) {
+                    setActivePreset(null);
+                    setScreenerParams({});
+                  } else {
+                    setActivePreset(preset.label);
+                    setScreenerParams(preset.params as Record<string, string>);
+                  }
+                }}
+                sx={{ fontSize: 12 }}
+              />
+            ))}
+            {activePreset && (
+              <Chip label="Clear" variant="outlined" clickable
+                onClick={() => { setActivePreset(null); setScreenerParams({}); }}
+                sx={{ fontSize: 12, borderColor: '#ef4444', color: '#ef4444' }} />
+            )}
+          </Stack>
+
+          {screenerLoading && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">Scanning...</Typography>
+            </Box>
+          )}
+
+          {screenerData && !screenerLoading && (
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" sx={{ mb: 1, color: '#9ca3af' }}>
+                {screenerData.count} match{screenerData.count !== 1 ? 'es' : ''} — click to navigate
+              </Typography>
+              <Stack direction="row" flexWrap="wrap" spacing={1} useFlexGap>
+                {screenerData.results.map((r: ScreenerResult) => (
+                  <Chip
+                    key={r.symbol}
+                    label={
+                      `${r.symbol}` +
+                      (r.rsi != null ? ` · RSI ${r.rsi.toFixed(0)}` : '') +
+                      (r.last_close != null ? ` · $${r.last_close.toFixed(2)}` : '')
+                    }
+                    clickable
+                    onClick={() => navigate(`/securities/${r.symbol}`)}
+                    sx={{
+                      fontSize: 12,
+                      bgcolor: r.rsi != null && r.rsi <= 30 ? '#1e3a2f'
+                        : r.rsi != null && r.rsi >= 70 ? '#3a1e1e'
+                        : '#1f2937',
+                      color: '#f9fafb',
+                    }}
+                  />
+                ))}
+              </Stack>
+            </Box>
+          )}
+        </Paper>
+      </Collapse>
 
       <DataGrid
         rows={filtered}

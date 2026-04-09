@@ -574,6 +574,54 @@ class OptionsStore:
 
         return [dict(r) for r in rows]
 
+    def get_iv_history(self, symbol: str, days: int = 365) -> list[dict]:
+        """
+        Return composite IV (average of avg_call_iv and avg_put_iv across all
+        expirations) per snapshot for the past `days` days.
+
+        Used to compute IV Rank and IV Percentile:
+          IV Rank       = (current - 52w_low) / (52w_high - 52w_low) × 100
+          IV Percentile = % of past days where IV was below today's IV
+
+        Returns list of dicts ordered by captured_at ASC:
+            [{"captured_at": str, "composite_iv": float}, ...]
+        """
+        symbol = symbol.upper()
+        from datetime import timedelta
+        cutoff = (
+            datetime.now(timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+        ) - timedelta(days=days)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    s.snapshot_id,
+                    s.captured_at,
+                    AVG(
+                        CASE
+                          WHEN e.avg_call_iv IS NOT NULL AND e.avg_put_iv IS NOT NULL
+                            THEN (e.avg_call_iv + e.avg_put_iv) / 2.0
+                          WHEN e.avg_call_iv IS NOT NULL THEN e.avg_call_iv
+                          WHEN e.avg_put_iv  IS NOT NULL THEN e.avg_put_iv
+                          ELSE NULL
+                        END
+                    ) AS composite_iv
+                FROM   options_snapshots   s
+                JOIN   options_expirations e ON e.snapshot_id = s.snapshot_id
+                WHERE  s.symbol      = ?
+                  AND  s.captured_at >= ?
+                GROUP  BY s.snapshot_id
+                HAVING composite_iv IS NOT NULL
+                ORDER  BY s.captured_at ASC
+                """,
+                (symbol, cutoff_str),
+            ).fetchall()
+
+        return [{"captured_at": r["captured_at"], "composite_iv": r["composite_iv"]} for r in rows]
+
     def get_symbols(self) -> list[str]:
         """Return all symbols that have at least one snapshot."""
         with self._connect() as conn:

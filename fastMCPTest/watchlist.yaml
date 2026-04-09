@@ -22,6 +22,14 @@
     - Cloud
     - AI
     - Genesis
+- name: NVIDIA Corporation 
+  symbol: NVDA
+  currency: USD
+  tags:
+    - Crypto 
+    - Cloud
+    - AI
+    - Genesis
 - name: Meta
   symbol: META
   currency: USD

@@ -2,8 +2,46 @@
 > harvest-ladder-frontend@1.0.0 dev
 > vite
 
+Port 5173 is in use, trying another one...
 
-  VITE v6.4.1  ready in 76 ms
+  VITE v6.4.1  ready in 84 ms
 
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
+  ➜  Local:   http://localhost:12:36:41 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:36:47 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:36:51 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:36:56 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:37:28 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:37:33 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:37:36 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:37:41 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:38:06 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:41:14 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:41:16 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:41:20 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:41:24 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:41:29 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:41:37 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:41:55 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:50:05 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:50:11 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:50:17 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:50:26 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx, /src/components/securities/SecurityDetailPage.tsx
+12:50:31 PM [vite] (client) hmr update /src/components/securities/charts/PriceChart.tsx
+12:50:34 PM [vite] (client) hmr update /src/components/securities/charts/PriceChart.tsx
+12:50:42 PM [vite] (client) hmr update /src/components/securities/charts/PriceChart.tsx
+12:50:45 PM [vite] (client) hmr update /src/components/securities/charts/PriceChart.tsx
+12:50:51 PM [vite] (client) hmr update /src/components/securities/charts/PriceChart.tsx
+12:52:05 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:52:08 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:52:19 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:52:23 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:52:30 PM [vite] (client) hmr update /src/components/securities/SecurityDetailPage.tsx
+12:52:37 PM [vite] (client) hmr update /src/components/dashboard/DashboardPage.tsx
+12:52:40 PM [vite] (client) hmr update /src/components/dashboard/DashboardPage.tsx
+12:52:55 PM [vite] (client) hmr update /src/components/dashboard/DashboardPage.tsx
+12:53:03 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:53:10 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:53:17 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:53:32 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:53:33 PM [vite] (client) ✨ new dependencies optimized: @mui/icons-material/FilterList
+12:53:33 PM [vite] (client) ✨ optimized dependencies changed. reloading

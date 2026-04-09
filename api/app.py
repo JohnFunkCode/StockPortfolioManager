@@ -51,6 +51,80 @@ class _JSONEncoder(json.JSONEncoder):
 
 
 # ---------------------------------------------------------------------------
+# Options analytics helpers
+# ---------------------------------------------------------------------------
+
+def _compute_max_pain(contracts: list[dict]):
+    """
+    Return (max_pain_strike, pain_by_strike) where pain_by_strike maps
+    strike → total dollar pain if the stock settled at that strike.
+    """
+    calls: dict[float, int] = {}
+    puts:  dict[float, int] = {}
+    for c in contracts:
+        oi = int(c.get("open_interest") or 0)
+        s  = float(c.get("strike") or 0)
+        if s <= 0 or oi <= 0:
+            continue
+        if c["kind"] == "call":
+            calls[s] = calls.get(s, 0) + oi
+        else:
+            puts[s]  = puts.get(s, 0)  + oi
+
+    all_strikes = sorted(set(list(calls) + list(puts)))
+    if not all_strikes:
+        return None, {}
+
+    min_pain = float("inf")
+    max_pain_strike = all_strikes[0]
+    pain_by_strike: dict[float, float] = {}
+
+    for test_s in all_strikes:
+        pain  = sum((test_s - k) * oi * 100 for k, oi in calls.items() if test_s > k)
+        pain += sum((k - test_s) * oi * 100 for k, oi in puts.items()  if test_s < k)
+        pain_by_strike[test_s] = pain
+        if pain < min_pain:
+            min_pain = pain
+            max_pain_strike = test_s
+
+    return max_pain_strike, pain_by_strike
+
+
+def _bs_delta_local(S: float, K: float, T: float, sigma: float,
+                    r: float, is_call: bool) -> float:
+    """Black-Scholes delta — mirror of stock_price_server._bs_delta (no import needed)."""
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return 0.5 if is_call else -0.5
+    try:
+        import math as _math
+        d1 = (_math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * _math.sqrt(T))
+        cdf = lambda x: (1.0 + _math.erf(x / _math.sqrt(2.0))) / 2.0  # noqa: E731
+        return cdf(d1) if is_call else cdf(d1) - 1.0
+    except (ValueError, ZeroDivisionError):
+        return 0.5 if is_call else -0.5
+
+
+def _compute_expected_move(contracts: list[dict], current_price: float):
+    """
+    Estimate expected move as the ATM straddle price (call last + put last).
+    Returns (em_dollar, em_pct, atm_strike).
+    """
+    calls = {float(c["strike"]): c for c in contracts if c["kind"] == "call"}
+    puts  = {float(c["strike"]): c for c in contracts if c["kind"] == "put"}
+
+    all_strikes = sorted(set(list(calls) + list(puts)))
+    if not all_strikes or current_price <= 0:
+        return 0.0, 0.0, None
+
+    atm_strike = min(all_strikes, key=lambda s: abs(s - current_price))
+    call_last  = float((calls.get(atm_strike) or {}).get("last_price") or 0)
+    put_last   = float((puts.get(atm_strike)  or {}).get("last_price") or 0)
+    straddle   = call_last + put_last
+    em_pct     = (straddle / current_price * 100) if current_price > 0 else 0.0
+    return straddle, em_pct, atm_strike
+
+
+# ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
 
@@ -461,6 +535,57 @@ def create_app() -> Flask:
 
         return jsonify({"ticker": ticker, "history": history})
 
+    @app.route("/api/securities/<ticker>/options/analytics", methods=["GET"])
+    def get_options_analytics(ticker: str):
+        """
+        Per-expiration max pain and expected move computed from the most recent
+        full-chain snapshot stored by get_full_options_chain.
+        """
+        ticker = ticker.upper()
+        try:
+            from options_store import OptionsStore
+            store = OptionsStore()
+            chain = store.get_full_chain(ticker)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        if chain is None:
+            return jsonify({
+                "ticker":    ticker,
+                "analytics": None,
+                "message":   "No full chain data. Run get_full_options_chain via MCP first.",
+            })
+
+        price  = float(chain.get("price") or 0)
+        result = []
+
+        for exp in chain.get("expirations", []):
+            contracts = exp.get("contracts", [])
+            if not contracts:
+                continue
+
+            max_pain_strike, pain_by_strike = _compute_max_pain(contracts)
+            em_dollar, em_pct, atm_strike   = _compute_expected_move(contracts, price)
+
+            result.append({
+                "expiration":           exp["expiration"],
+                "max_pain":             max_pain_strike,
+                "expected_move_dollar": round(em_dollar, 2),
+                "expected_move_pct":    round(em_pct, 2),
+                "atm_strike":           atm_strike,
+                "upper_bound":          round(price + em_dollar, 2),
+                "lower_bound":          round(price - em_dollar, 2),
+                "total_call_oi":        exp.get("total_call_oi") or 0,
+                "total_put_oi":         exp.get("total_put_oi") or 0,
+                "put_call_ratio":       exp.get("put_call_ratio"),
+                "pain_curve": [
+                    {"strike": s, "pain": round(p)}
+                    for s, p in sorted(pain_by_strike.items())
+                ],
+            })
+
+        return jsonify({"ticker": ticker, "price": price, "analytics": result})
+
     @app.route("/api/securities/<ticker>/options/chain", methods=["GET"])
     def get_options_chain(ticker: str):
         """
@@ -493,6 +618,422 @@ def create_app() -> Flask:
             ]
 
         return jsonify({"ticker": ticker, "chain": chain})
+
+    @app.route("/api/securities/<ticker>/options/iv-rank", methods=["GET"])
+    def get_iv_rank(ticker: str):
+        """
+        IV Rank and IV Percentile for a ticker over the past 365 days.
+
+        IV Rank       = (current_iv - 52w_low) / (52w_high - 52w_low) × 100
+        IV Percentile = % of past data points where composite IV < current IV
+
+        Composite IV per snapshot = average of avg_call_iv and avg_put_iv
+        across all stored expirations for that snapshot.
+        """
+        ticker = ticker.upper()
+        try:
+            from options_store import OptionsStore
+            store = OptionsStore()
+            history = store.get_iv_history(ticker, days=365)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        iv_values = [row["composite_iv"] for row in history if row["composite_iv"] is not None]
+
+        if len(iv_values) < 2:
+            return jsonify({
+                "ticker":        ticker,
+                "current_iv":    iv_values[-1] if iv_values else None,
+                "iv_rank":       None,
+                "iv_percentile": None,
+                "iv_52w_high":   max(iv_values) if iv_values else None,
+                "iv_52w_low":    min(iv_values) if iv_values else None,
+                "data_points":   len(iv_values),
+                "history":       history,
+            })
+
+        current_iv   = iv_values[-1]
+        iv_52w_high  = max(iv_values)
+        iv_52w_low   = min(iv_values)
+        iv_range     = iv_52w_high - iv_52w_low
+        iv_rank      = round((current_iv - iv_52w_low) / iv_range * 100, 1) if iv_range > 0 else 0.0
+        past         = iv_values[:-1]
+        iv_percentile = round(sum(1 for v in past if v < current_iv) / len(past) * 100, 1) if past else None
+
+        return jsonify({
+            "ticker":        ticker,
+            "current_iv":    round(current_iv, 2),
+            "iv_rank":       iv_rank,
+            "iv_percentile": iv_percentile,
+            "iv_52w_high":   round(iv_52w_high, 2),
+            "iv_52w_low":    round(iv_52w_low, 2),
+            "data_points":   len(iv_values),
+            "history":       history,
+        })
+
+    # -----------------------------------------------------------------------
+    # Securities — earnings dates  (#3)
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/securities/<ticker>/earnings", methods=["GET"])
+    def get_earnings_dates(ticker: str):
+        """Return past and upcoming earnings dates for a ticker (yfinance calendar)."""
+        ticker = ticker.upper()
+        import yfinance as yf
+        dates: list[str] = []
+        try:
+            t = yf.Ticker(ticker)
+            # earnings_dates: DataFrame with DatetimeTZDtype index (past + future)
+            try:
+                ed = t.earnings_dates
+                if ed is not None and not ed.empty:
+                    for ts in ed.index:
+                        try:
+                            dates.append(str(ts.date())[:10])
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+            # calendar: may have next "Earnings Date" key
+            try:
+                cal = t.calendar
+                if isinstance(cal, dict):
+                    next_ed = cal.get("Earnings Date")
+                    if next_ed is not None:
+                        candidates = next_ed if hasattr(next_ed, "__iter__") and not isinstance(next_ed, str) else [next_ed]
+                        for d in candidates:
+                            s = str(d)[:10]
+                            if s and len(s) == 10:
+                                dates.append(s)
+            except Exception:
+                pass
+            dates = sorted(set(d for d in dates if d and len(d) == 10))
+        except Exception as exc:
+            return jsonify({"ticker": ticker, "earnings_dates": [], "error": str(exc)})
+        return jsonify({"ticker": ticker, "earnings_dates": dates})
+
+    # -----------------------------------------------------------------------
+    # Securities — signals  (#4)
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/securities/<ticker>/signals/technical", methods=["GET"])
+    def get_signals_technical(ticker: str):
+        """
+        Momentum + structure signals computed from cached OHLCV data:
+        stochastic, VWAP, OBV, volume analysis, candlestick patterns,
+        higher lows, gap analysis.
+        """
+        ticker = ticker.upper()
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from stock_price_server import (
+            get_stochastic, get_vwap, get_obv, get_volume_analysis,
+            get_candlestick_patterns, get_higher_lows, get_gap_analysis,
+        )
+
+        tasks = {
+            "stochastic":           lambda: get_stochastic(ticker),
+            "vwap":                 lambda: get_vwap(ticker),
+            "obv":                  lambda: get_obv(ticker),
+            "volume_analysis":      lambda: get_volume_analysis(ticker),
+            "candlestick_patterns": lambda: get_candlestick_patterns(ticker),
+            "higher_lows":          lambda: get_higher_lows(ticker, interval="1d"),
+            "gap_analysis":         lambda: get_gap_analysis(ticker),
+        }
+
+        results: dict = {}
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {executor.submit(fn): key for key, fn in tasks.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    results[key] = future.result()
+                except Exception as e:
+                    results[key] = None
+
+        return jsonify({"ticker": ticker, **results})
+
+    @app.route("/api/securities/<ticker>/signals/options-flow", methods=["GET"])
+    def get_signals_options_flow(ticker: str):
+        """Unusual call sweeps and delta-adjusted OI (market maker positioning)."""
+        ticker = ticker.upper()
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from stock_price_server import get_unusual_calls, get_delta_adjusted_oi
+
+        tasks = {
+            "unusual_calls":      lambda: get_unusual_calls(ticker),
+            "delta_adjusted_oi":  lambda: get_delta_adjusted_oi(ticker),
+        }
+
+        results: dict = {}
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = {executor.submit(fn): key for key, fn in tasks.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    results[key] = future.result()
+                except Exception:
+                    results[key] = None
+
+        return jsonify({"ticker": ticker, **results})
+
+    @app.route("/api/securities/<ticker>/signals/risk", methods=["GET"])
+    def get_signals_risk(ticker: str):
+        """Historical drawdown metrics for stop-loss calibration."""
+        ticker = ticker.upper()
+        from stock_price_server import get_historical_drawdown
+        try:
+            dd = get_historical_drawdown(ticker)
+        except Exception as exc:
+            return jsonify({"ticker": ticker, "drawdown": None, "error": str(exc)})
+        # Derive a simple stop-loss recommendation from drawdown stats
+        price_data: dict = {}
+        try:
+            from stock_price_server import get_vwap
+            vd = get_vwap(ticker)
+            price_data = {"vwap": vd.get("vwap"), "vwap_position": vd.get("position")}
+        except Exception:
+            pass
+        return jsonify({"ticker": ticker, "drawdown": dd, **price_data})
+
+    # -----------------------------------------------------------------------
+    # Portfolio — delta exposure from stored full chains  (#5)
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/portfolio/delta-exposure", methods=["GET"])
+    def get_portfolio_delta_exposure():
+        """
+        For each portfolio security that has a stored full options chain,
+        compute the net delta-adjusted OI (market maker share-equivalent exposure)
+        using Black-Scholes delta on the stored contract data.
+        """
+        import datetime as _dt
+        from options_store import OptionsStore
+
+        portfolio = _load_portfolio()
+        store = OptionsStore()
+        today = _dt.date.today()
+        RISK_FREE = 0.045
+
+        exposure_list = []
+        total_net_daoi = 0.0
+
+        for sec in portfolio:
+            sym = sec["symbol"]
+            chain = store.get_full_chain(sym)
+            if chain is None:
+                continue
+
+            price = float(chain.get("price") or 0)
+            if price <= 0:
+                continue
+
+            net_call_daoi = 0.0
+            net_put_daoi  = 0.0
+
+            for exp in chain.get("expirations", []):
+                exp_str = exp.get("expiration")
+                if not exp_str:
+                    continue
+                try:
+                    exp_date = _dt.date.fromisoformat(exp_str)
+                    T = max((exp_date - today).days / 365.0, 1 / 365.0)
+                except Exception:
+                    continue
+
+                for c in exp.get("contracts", []):
+                    K      = float(c.get("strike") or 0)
+                    oi     = int(c.get("open_interest") or 0)
+                    raw_iv = float(c.get("implied_vol") or 0)
+                    sigma  = raw_iv / 100.0 if raw_iv > 1 else raw_iv  # stored as pct or decimal
+                    if sigma <= 0:
+                        sigma = 0.30
+                    is_call = c.get("kind") == "call"
+
+                    if K <= 0 or oi <= 0:
+                        continue
+
+                    delta = _bs_delta_local(price, K, T, sigma, RISK_FREE, is_call)
+                    daoi  = delta * oi
+                    if is_call:
+                        net_call_daoi += daoi
+                    else:
+                        net_put_daoi  += daoi
+
+            net_daoi = net_call_daoi + net_put_daoi
+            total_net_daoi += net_daoi
+
+            # Stock position delta (1.0 per share)
+            shares = sec.get("quantity") or 0
+            stock_delta = float(shares)
+
+            mm_hedge_bias = "buy_on_rally" if (-net_daoi) > 0 else "sell_on_rally"
+
+            exposure_list.append({
+                "symbol":          sym,
+                "name":            sec.get("name", sym),
+                "price":           round(price, 2),
+                "shares":          shares,
+                "stock_delta":     stock_delta,
+                "net_daoi_shares": round(net_daoi, 0),
+                "call_daoi":       round(net_call_daoi, 0),
+                "put_daoi":        round(net_put_daoi, 0),
+                "mm_hedge_bias":   mm_hedge_bias,
+                "captured_at":     chain.get("captured_at"),
+            })
+
+        return jsonify({
+            "portfolio_net_daoi": round(total_net_daoi, 0),
+            "positions":          exposure_list,
+        })
+
+    # -----------------------------------------------------------------------
+    # Securities — technical screener  (#6)
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/securities/screen", methods=["GET"])
+    def screen_securities():
+        """
+        Screen all securities against technical criteria computed from cached OHLCV.
+
+        Query params (all optional, additive AND logic):
+          rsi_max   — include only RSI ≤ N   (e.g. 30 for oversold)
+          rsi_min   — include only RSI ≥ N   (e.g. 70 for overbought)
+          above_ma50  — '1' to require close > MA50
+          below_ma50  — '1' to require close < MA50
+          above_ma200 — '1' to require close > MA200
+          below_ma200 — '1' to require close < MA200
+          near_bb_lower — '1' to require close within 3% of bb_lower
+          near_bb_upper — '1' to require close within 3% of bb_upper
+          macd_bullish  — '1' to require macd > macd_signal
+          macd_bearish  — '1' to require macd < macd_signal
+          source        — 'portfolio' | 'watchlist' | 'all' (default all)
+        """
+        import sqlite3 as _sqlite3
+
+        rsi_max      = request.args.get("rsi_max",      type=float)
+        rsi_min      = request.args.get("rsi_min",      type=float)
+        above_ma50   = request.args.get("above_ma50")   == "1"
+        below_ma50   = request.args.get("below_ma50")   == "1"
+        above_ma200  = request.args.get("above_ma200")  == "1"
+        below_ma200  = request.args.get("below_ma200")  == "1"
+        near_bb_low  = request.args.get("near_bb_lower") == "1"
+        near_bb_high = request.args.get("near_bb_upper") == "1"
+        macd_bull    = request.args.get("macd_bullish") == "1"
+        macd_bear    = request.args.get("macd_bearish") == "1"
+        src_filter   = request.args.get("source", "all")
+
+        # Load all securities
+        portfolio = {s["symbol"]: s for s in _load_portfolio()}
+        watchlist = {s["symbol"]: s for s in _load_watchlist()}
+        combined: dict[str, dict] = {}
+        for sym, s in portfolio.items():
+            combined[sym] = s
+        for sym, s in watchlist.items():
+            if sym in combined:
+                combined[sym]["source"] = "both"
+                combined[sym]["tags"] = s["tags"]
+            else:
+                combined[sym] = s
+
+        if src_filter == "portfolio":
+            symbols = [s for s in combined if combined[s]["source"] in ("portfolio", "both")]
+        elif src_filter == "watchlist":
+            symbols = [s for s in combined if combined[s]["source"] in ("watchlist", "both")]
+        else:
+            symbols = list(combined.keys())
+
+        if not symbols:
+            return jsonify({"results": [], "count": 0})
+
+        # Pull last 250 daily bars for each symbol in one SQL query
+        OHLCV_DB = FAST_MCP_DIR / "ohlcv_cache.db"
+        try:
+            conn = _sqlite3.connect(str(OHLCV_DB))
+            conn.row_factory = _sqlite3.Row
+            placeholders = ",".join("?" for _ in symbols)
+            rows = conn.execute(
+                f"""
+                SELECT symbol, ts, close, volume, high, low, open
+                FROM ohlcv
+                WHERE interval = '1d'
+                  AND symbol IN ({placeholders})
+                  AND status != 'GAP'
+                ORDER BY symbol, ts ASC
+                """,
+                symbols,
+            ).fetchall()
+            conn.close()
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        # Group rows by symbol and compute indicators
+        from collections import defaultdict
+        bars_by_sym: dict[str, list] = defaultdict(list)
+        for r in rows:
+            bars_by_sym[r["symbol"]].append(r)
+
+        results = []
+        for sym in symbols:
+            bars = bars_by_sym.get(sym, [])
+            if len(bars) < 30:
+                continue
+
+            closes  = np.array([b["close"] for b in bars], dtype=float)
+            volumes = np.array([b["volume"] for b in bars], dtype=float)
+
+            # Use pandas Series for rolling computation
+            cs = pd.Series(closes)
+            ma50  = cs.rolling(50).mean().iloc[-1]   if len(closes) >= 50  else None
+            ma200 = cs.rolling(200).mean().iloc[-1]  if len(closes) >= 200 else None
+            sma20 = cs.rolling(20).mean()
+            std20 = cs.rolling(20).std()
+            bb_upper_s = (sma20 + 2 * std20).iloc[-1]
+            bb_lower_s = (sma20 - 2 * std20).iloc[-1]
+
+            # RSI
+            rsi_val = _compute_rsi(cs).iloc[-1]
+
+            # MACD
+            macd_line, signal_line, _ = _compute_macd(cs)
+            macd_val   = float(macd_line.iloc[-1])   if not pd.isna(macd_line.iloc[-1])   else None
+            macd_sig   = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else None
+
+            last_close = float(closes[-1])
+            rsi        = float(rsi_val)   if rsi_val is not None and not pd.isna(rsi_val) else None
+            ma50_f     = float(ma50)      if ma50 is not None and not pd.isna(ma50)       else None
+            ma200_f    = float(ma200)     if ma200 is not None and not pd.isna(ma200)     else None
+            bb_upper_f = float(bb_upper_s) if not pd.isna(bb_upper_s)                    else None
+            bb_lower_f = float(bb_lower_s) if not pd.isna(bb_lower_s)                    else None
+
+            # Apply filters
+            if rsi_max  is not None and (rsi is None or rsi > rsi_max):       continue
+            if rsi_min  is not None and (rsi is None or rsi < rsi_min):       continue
+            if above_ma50  and (ma50_f  is None or last_close <= ma50_f):     continue
+            if below_ma50  and (ma50_f  is None or last_close >= ma50_f):     continue
+            if above_ma200 and (ma200_f is None or last_close <= ma200_f):    continue
+            if below_ma200 and (ma200_f is None or last_close >= ma200_f):    continue
+            if near_bb_low and (bb_lower_f is None or
+                                abs(last_close - bb_lower_f) / bb_lower_f > 0.03): continue
+            if near_bb_high and (bb_upper_f is None or
+                                 abs(last_close - bb_upper_f) / bb_upper_f > 0.03): continue
+            if macd_bull and (macd_val is None or macd_sig is None or macd_val <= macd_sig): continue
+            if macd_bear and (macd_val is None or macd_sig is None or macd_val >= macd_sig): continue
+
+            sec = combined[sym]
+            results.append({
+                **sec,
+                "last_close":  round(last_close, 4),
+                "rsi":         round(rsi, 1) if rsi is not None else None,
+                "ma50":        round(ma50_f, 2) if ma50_f is not None else None,
+                "ma200":       round(ma200_f, 2) if ma200_f is not None else None,
+                "bb_upper":    round(bb_upper_f, 2) if bb_upper_f is not None else None,
+                "bb_lower":    round(bb_lower_f, 2) if bb_lower_f is not None else None,
+                "macd":        round(macd_val, 4) if macd_val is not None else None,
+                "macd_signal": round(macd_sig, 4) if macd_sig is not None else None,
+            })
+
+        results.sort(key=lambda x: x["rsi"] if x["rsi"] is not None else 50)
+        return jsonify({"results": results, "count": len(results)})
 
     return app
 

@@ -12,6 +12,7 @@ interface Props {
   showMAs?: { ma50?: boolean; ma200?: boolean; ma30?: boolean };
   showBB?: boolean;
   height?: number;
+  earningsDates?: string[]; // YYYY-MM-DD strings to mark on chart
 }
 
 const MARGIN = { top: 16, right: 16, bottom: 32, left: 60 };
@@ -27,6 +28,7 @@ export default function PriceChart({
   showMAs = { ma50: true, ma200: true },
   showBB = true,
   height = 300,
+  earningsDates = [],
 }: Props) {
   const ref = useRef<SVGSVGElement>(null);
 
@@ -162,6 +164,27 @@ export default function PriceChart({
     g.selectAll('.domain').attr('stroke', '#374151');
     g.selectAll('.tick line').attr('stroke', '#374151');
 
+    // Earnings date markers — vertical dashed lines with "E" label
+    if (earningsDates.length > 0) {
+      const [domainStart, domainEnd] = xScale.domain() as [Date, Date];
+      earningsDates.forEach((ds) => {
+        const dt = new Date(ds + 'T12:00:00'); // noon UTC to avoid timezone shift
+        if (dt < domainStart || dt > domainEnd) return;
+        const ex = xScale(dt);
+        g.append('line')
+          .attr('x1', ex).attr('x2', ex)
+          .attr('y1', 0).attr('y2', H)
+          .attr('stroke', '#facc15')
+          .attr('stroke-width', 1)
+          .attr('stroke-dasharray', '4,3')
+          .attr('opacity', 0.7);
+        g.append('text')
+          .attr('x', ex + 3).attr('y', H - 6)
+          .attr('fill', '#facc15').attr('font-size', 9).attr('font-weight', 700)
+          .text('E');
+      });
+    }
+
     // Crosshair tooltip
     const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');
     const bisect = d3.bisector<TechnicalIndicator, Date>((d) => new Date(d.date)).left;
@@ -203,7 +226,7 @@ export default function PriceChart({
         focus.style('display', 'none');
         tooltip.style('display', 'none');
       });
-  }, [data, showMAs, showBB, height]);
+  }, [data, showMAs, showBB, height, earningsDates]);
 
   const latest = data[data.length - 1];
   const first  = data[0];
@@ -232,6 +255,9 @@ export default function PriceChart({
         {showMAs.ma30 && <Typography variant="body2" sx={{ color: MA_COLORS.ma30 }}>━ MA30</Typography>}
         {showMAs.ma50 && <Typography variant="body2" sx={{ color: MA_COLORS.ma50 }}>━ MA50</Typography>}
         {showMAs.ma200 && <Typography variant="body2" sx={{ color: MA_COLORS.ma200 }}>━ MA200</Typography>}
+        {earningsDates.length > 0 && (
+          <Typography variant="body2" sx={{ color: '#facc15' }}>┆ Earnings</Typography>
+        )}
       </Stack>
       <svg ref={ref} style={{ width: '100%', display: 'block' }} />
     </Box>

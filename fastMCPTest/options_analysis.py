@@ -24,6 +24,8 @@ import yaml
 import yfinance as yf
 from ohlcv_cache import get_history, period_to_days
 
+from options_store import OptionsStore
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -69,6 +71,27 @@ ROI_WEIGHT = 0.40             # weight given to (capped, normalised) ROI
 CONVICTION_WEIGHT = 0.60      # weight given to normalised put_score
 MAX_PUT_SCORE = 15            # theoretical max from scoring rules (IV rank + P/C signals)
 
+# ---------------------------------------------------------------------------
+# Guardrail configuration
+# ---------------------------------------------------------------------------
+
+# 1. Earnings proximity: skip put trades when earnings are this close
+EARNINGS_BLACKOUT_DAYS = 14
+
+# 2. Catalyst cooldown: scan recent news this many days back for positive catalysts
+CATALYST_LOOKBACK_DAYS = 5
+
+POSITIVE_CATALYST_KEYWORDS = {
+    "upgrade", "upgraded", "outperform", "overweight", "buy rating",
+    "price target raised", "target raised", "raised target", "raised price target",
+    "strong buy", "partnership", "deal", "contract awarded",
+    "beats", "beat expectations", "revenue growth",
+    "guidance raised", "raised guidance", "raised outlook",
+}
+
+# 3. Contradiction guard: suppress put trade when both scores are this high
+CONTRADICTION_LONG_MIN = 3
+CONTRADICTION_PUT_MIN  = 3
 
 # ---------------------------------------------------------------------------
 # Data classes
@@ -168,7 +191,8 @@ class OptionsSummary:
     total_put_volume: int
     avg_call_iv: float
     avg_put_iv: float
-    atm_puts: list = field(default_factory=list)   # list of dicts from yfinance
+    atm_calls: list = field(default_factory=list)  # 5 nearest call contracts
+    atm_puts: list = field(default_factory=list)   # 5 nearest put contracts
 
 
 @dataclass
@@ -188,6 +212,11 @@ class SecurityAnalysis:
     put_score: float = 0.0       # Higher = stronger bearish/put signal
     long_reason: str = ""
     put_reason: str = ""
+
+    # Guardrail data (set by fetch_security())
+    days_to_earnings: Optional[int] = None       # None = unknown; <14 triggers blackout
+    recent_positive_catalyst: bool = False        # True = upgrade/deal in last 5 days
+    catalyst_headline: str = ""                   # The headline that triggered the flag
 
 
 # ---------------------------------------------------------------------------
@@ -252,21 +281,22 @@ def fetch_options(ticker: yf.Ticker, price: float) -> Optional[OptionsSummary]:
             round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None
         )
 
-        # ATM puts: 5 strikes nearest to current price
-        puts_df = puts_df[puts_df["strike"] > 0].copy()
-        puts_df["moneyness"] = abs(puts_df["strike"] - price)
-        atm_puts = []
-        for _, row in puts_df.nsmallest(5, "moneyness").iterrows():
-            atm_puts.append({
-                "strike": round(float(row["strike"]), 2),
-                "last": round(_safe_float(row.get("lastPrice")), 2),
-                "bid": round(_safe_float(row.get("bid")), 2),
-                "ask": round(_safe_float(row.get("ask")), 2),
-                "iv": round(_safe_float(row.get("impliedVolatility")) * 100, 1),
-                "volume": _safe_int(row.get("volume")),
-                "open_interest": _safe_int(row.get("openInterest")),
-                "in_the_money": bool(row.get("inTheMoney", False)),
-            })
+        def _atm_contracts(df, price):
+            df = df[df["strike"] > 0].copy()
+            df["moneyness"] = abs(df["strike"] - price)
+            contracts = []
+            for _, row in df.nsmallest(5, "moneyness").iterrows():
+                contracts.append({
+                    "strike": round(float(row["strike"]), 2),
+                    "last": round(_safe_float(row.get("lastPrice")), 2),
+                    "bid": round(_safe_float(row.get("bid")), 2),
+                    "ask": round(_safe_float(row.get("ask")), 2),
+                    "iv": round(_safe_float(row.get("impliedVolatility")) * 100, 1),
+                    "volume": _safe_int(row.get("volume")),
+                    "open_interest": _safe_int(row.get("openInterest")),
+                    "in_the_money": bool(row.get("inTheMoney", False)),
+                })
+            return sorted(contracts, key=lambda x: x["strike"])
 
         return OptionsSummary(
             expiration=nearest_exp,
@@ -277,7 +307,8 @@ def fetch_options(ticker: yf.Ticker, price: float) -> Optional[OptionsSummary]:
             total_put_volume=total_put_vol,
             avg_call_iv=avg_call_iv,
             avg_put_iv=avg_put_iv,
-            atm_puts=sorted(atm_puts, key=lambda x: x["strike"]),
+            atm_calls=_atm_contracts(calls_df, price),
+            atm_puts=_atm_contracts(puts_df, price),
         )
     except Exception:
         return None
@@ -455,6 +486,96 @@ def fetch_iv_analysis(ticker: yf.Ticker, options: Optional[OptionsSummary]) -> O
         return None
 
 
+# ---------------------------------------------------------------------------
+# Guardrail helpers
+# ---------------------------------------------------------------------------
+
+def fetch_earnings_proximity(ticker: yf.Ticker) -> Optional[int]:
+    """
+    Return the number of calendar days until the next earnings date,
+    or None if the information is unavailable.
+
+    Values < EARNINGS_BLACKOUT_DAYS (14) trigger the earnings blackout guardrail.
+    """
+    try:
+        from datetime import date as _date, datetime as _datetime
+        cal = ticker.calendar
+        if cal is None:
+            return None
+
+        # yfinance ≥ 0.2 returns a DataFrame; older versions return a dict.
+        if hasattr(cal, "index"):
+            # DataFrame: rows are field names, columns are dates
+            # Earnings Date row may appear as "Earnings Date" or similar
+            for label in ("Earnings Date", "Earnings High", "Earnings Low"):
+                if label in cal.index:
+                    raw_dates = cal.loc[label].tolist()
+                    break
+            else:
+                # Fallback: use any column values that look like dates
+                raw_dates = list(cal.columns)
+        elif isinstance(cal, dict):
+            raw_dates = list(cal.values())
+        else:
+            return None
+
+        today = _date.today()
+        future_days = []
+        for d in raw_dates:
+            if d is None:
+                continue
+            if hasattr(d, "date"):
+                d = d.date()
+            elif isinstance(d, str):
+                try:
+                    d = _datetime.strptime(d[:10], "%Y-%m-%d").date()
+                except ValueError:
+                    continue
+            if isinstance(d, _date) and d >= today:
+                future_days.append((d - today).days)
+
+        return min(future_days) if future_days else None
+    except Exception:
+        return None
+
+
+def fetch_recent_positive_catalyst(ticker: yf.Ticker) -> tuple[bool, str]:
+    """
+    Scan the last CATALYST_LOOKBACK_DAYS of news headlines for analyst upgrades
+    or positive catalyst keywords.
+
+    Returns (triggered: bool, headline: str).
+    The headline is the first matching title found, for display in the report.
+    """
+    try:
+        from datetime import datetime as _datetime, timezone as _timezone, timedelta as _timedelta
+        cutoff = _datetime.now(_timezone.utc) - _timedelta(days=CATALYST_LOOKBACK_DAYS)
+
+        news = ticker.news
+        if not news:
+            return False, ""
+
+        for item in news:
+            # yfinance news items have providerPublishTime (Unix epoch int)
+            ts = item.get("providerPublishTime") or item.get("published") or 0
+            try:
+                pub_dt = _datetime.fromtimestamp(float(ts), tz=_timezone.utc)
+            except (TypeError, ValueError, OSError):
+                continue
+
+            if pub_dt < cutoff:
+                continue
+
+            title = (item.get("title") or "").lower()
+            for kw in POSITIVE_CATALYST_KEYWORDS:
+                if kw in title:
+                    return True, item.get("title", "")
+
+        return False, ""
+    except Exception:
+        return False, ""
+
+
 def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnalysis]:
     try:
         ticker = yf.Ticker(symbol.upper())
@@ -471,6 +592,8 @@ def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnaly
         options     = fetch_options(ticker, price)
         iv_analysis = fetch_iv_analysis(ticker, options)
         pc_analysis = fetch_put_call_analysis(ticker, price)
+        days_to_earnings = fetch_earnings_proximity(ticker)
+        catalyst_hit, catalyst_headline = fetch_recent_positive_catalyst(ticker)
 
         return SecurityAnalysis(
             symbol=symbol.upper(),
@@ -481,6 +604,9 @@ def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnaly
             options=options,
             iv=iv_analysis,
             pc=pc_analysis,
+            days_to_earnings=days_to_earnings,
+            recent_positive_catalyst=catalyst_hit,
+            catalyst_headline=catalyst_headline,
         )
     except Exception:
         return None
@@ -636,6 +762,29 @@ def build_put_trade(
     if sec.options is None or not sec.options.atm_puts:
         return None
 
+    # --- Guardrail 1: Earnings proximity blackout ---
+    # Earnings events can gap the stock in either direction; a pure put thesis
+    # becomes a coin-flip inside the blackout window.
+    if (
+        sec.days_to_earnings is not None
+        and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
+    ):
+        return None
+
+    # --- Guardrail 2: Catalyst cooldown ---
+    # A recent analyst upgrade or positive catalyst undermines the bearish thesis.
+    # The upgrade may be exactly what caused the put-heavy positioning (hedging longs),
+    # making the P/C signal a false bearish read.
+    if sec.recent_positive_catalyst:
+        return None
+
+    # --- Guardrail 3: Contradiction guard ---
+    # When both the long and put scores are elevated, the signals are contradicting
+    # each other (e.g. oversold bounce potential AND heavy put protection).
+    # Ambiguous setups have poor risk/reward as the true direction is unclear.
+    if sec.long_score >= CONTRADICTION_LONG_MIN and sec.put_score >= CONTRADICTION_PUT_MIN:
+        return None
+
     # Prefer the put closest to ATM (first one after sorting by moneyness)
     best_put = min(sec.options.atm_puts, key=lambda p: abs(p["strike"] - sec.price))
     ask = best_put["ask"]
@@ -689,6 +838,82 @@ def build_put_trade(
     }
 
 
+def build_call_trade(
+    sec: SecurityAnalysis,
+    budget_per_trade: float = 500.0,
+    total_budget: float = 1000.0,
+) -> Optional[dict]:
+    """
+    Given a bullish security, select the best ATM/near-ATM call contract and
+    return a trade spec with cost, target, and risk/reward estimate.
+
+    Target price for calls is always the upper Bollinger Band.
+    If the price is already above the upper BB (breakout confirmed),
+    target 5% above the upper BB.
+
+    Guardrails applied:
+      - Earnings blackout (<14 days): earnings gap risk is direction-agnostic.
+    Catalyst cooldown and contradiction guard are NOT applied to calls —
+    a positive catalyst supports the call thesis.
+    """
+    if sec.options is None or not sec.options.atm_calls:
+        return None
+
+    # Earnings blackout applies to both directions
+    if (
+        sec.days_to_earnings is not None
+        and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
+    ):
+        return None
+
+    best_call = min(sec.options.atm_calls, key=lambda c: abs(c["strike"] - sec.price))
+    ask = best_call["ask"]
+    if ask <= 0:
+        return None
+
+    cost_per_contract = ask * 100
+
+    if cost_per_contract > total_budget:
+        return None
+
+    contracts = max(1, int(budget_per_trade // cost_per_contract))
+
+    # Target is always the upper Bollinger Band.
+    # If the price is already above the upper BB, target 5% above it.
+    if sec.price > sec.bands.upper:
+        target_price = round(sec.bands.upper * 1.05, 2)
+    else:
+        target_price = sec.bands.upper
+
+    intrinsic_at_target = max(0.0, target_price - best_call["strike"])
+    profit_per_contract = (intrinsic_at_target - ask) * 100
+    roi_pct = (profit_per_contract / cost_per_contract * 100) if cost_per_contract > 0 else 0
+
+    if roi_pct <= 0:
+        return None
+
+    # Spread suggestion when ATM call IV is high — sell a higher strike to offset cost
+    suggest_spread = best_call["iv"] > 65.0
+
+    return {
+        "symbol": sec.symbol,
+        "strike": best_call["strike"],
+        "expiration": sec.options.expiration,
+        "ask": ask,
+        "contracts": contracts,
+        "total_cost": round(cost_per_contract * contracts, 2),
+        "iv": best_call["iv"],
+        "target_price": round(target_price, 2),
+        "profit_at_target_per_contract": round(profit_per_contract, 2),
+        "roi_at_target_pct": round(roi_pct, 1),
+        "suggest_spread": suggest_spread,
+        "put_call_ratio": sec.options.put_call_ratio,
+        "call_oi": sec.options.total_call_oi,
+        "bb_pos": round(sec.bb_pos, 3),
+        "long_score": sec.long_score,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
@@ -726,7 +951,11 @@ def print_section(title: str) -> None:
     print(SEPARATOR)
 
 
-def print_long_candidates(results: list[SecurityAnalysis], top_n: int = 10) -> None:
+def print_long_candidates(
+    results: list[SecurityAnalysis],
+    top_n: int = 10,
+    budget: float = 1000.0,
+) -> None:
     print_section("LONG / BOUNCE CANDIDATES  (oversold + bullish options)")
     candidates = sorted(
         [s for s in results if s.long_score > 0],
@@ -738,11 +967,12 @@ def print_long_candidates(results: list[SecurityAnalysis], top_n: int = 10) -> N
         print("  No candidates met the scoring threshold.")
         return
 
+    call_trades = []
     for rank, sec in enumerate(candidates, 1):
         pc = sec.options.put_call_ratio if sec.options else None
         call_vol = sec.options.total_call_volume if sec.options else 0
         iv_label = sec.iv.label if sec.iv else "n/a"
-        print(f"\n  #{rank}  {sec.symbol:<6}  ${sec.price:<8.2f}  score={sec.long_score}")
+        print(f"\n  #{rank}  {sec.symbol:<6}  ${sec.price:<8.2f}  long_score={sec.long_score}")
         print(f"       BB   lower={sec.bands.lower}  mid={sec.bands.middle}  upper={sec.bands.upper}")
         print(f"            {_bb_bar(sec.bb_pos)}  pos={sec.bb_pos:.2f}")
         print(f"       P/C  {_pc_label(pc)}", end="")
@@ -751,14 +981,102 @@ def print_long_candidates(results: list[SecurityAnalysis], top_n: int = 10) -> N
             vol = f"  vol={sec.pc.near_vol_pc:.2f}" if sec.pc.near_vol_pc else ""
             mid = f"  mid={sec.pc.mid_oi_pc:.2f}" if sec.pc.mid_oi_pc else ""
             flags = ""
-            if sec.pc.put_unwinding:    flags += " [UNWINDING]"
-            if sec.pc.near_term_fear:   flags += " [NEAR-TERM-FEAR]"
+            if sec.pc.put_unwinding:  flags += " [UNWINDING]"
+            if sec.pc.near_term_fear: flags += " [NEAR-TERM-FEAR]"
             print(f"{atm}{vol}{mid}{flags}")
         else:
             print()
         print(f"       IV   {iv_label}")
         print(f"       Vol  call_volume={call_vol:,}")
+        if sec.days_to_earnings is not None:
+            print(f"       ERN  {sec.days_to_earnings}d to earnings")
         print(f"       Why  {sec.long_reason}")
+
+        # Primary recommendation: call trade
+        call_guardrail = _call_guardrail_reason(sec)
+        if call_guardrail:
+            print(f"       *** GUARDRAIL (CALL): {call_guardrail} — call trade skipped ***")
+        call_trade = build_call_trade(
+            sec,
+            budget_per_trade=budget / max(len(candidates), 1),
+            total_budget=budget,
+        )
+        if call_trade:
+            call_trades.append(call_trade)
+            _print_call_trade(call_trade)
+
+        # Comparison: put trade for the same security
+        put_guardrail = _guardrail_reason(sec)
+        if put_guardrail:
+            print(f"       *** GUARDRAIL (PUT):  {put_guardrail} — put trade skipped ***")
+        put_trade = build_put_trade(
+            sec,
+            budget_per_trade=budget / max(len(candidates), 1),
+            total_budget=budget,
+        )
+        if put_trade:
+            _print_put_trade(put_trade)
+
+    print_call_portfolio_summary(call_trades, budget)
+
+
+def _guardrail_reason(sec: SecurityAnalysis) -> str:
+    """
+    Return a human-readable description of the first active put guardrail,
+    or an empty string if no guardrail is triggered.
+    Mirrors the logic in build_put_trade() so the display is always consistent.
+    """
+    if (
+        sec.days_to_earnings is not None
+        and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
+    ):
+        return f"earnings in {sec.days_to_earnings}d (blackout <{EARNINGS_BLACKOUT_DAYS}d)"
+    if sec.recent_positive_catalyst:
+        headline = sec.catalyst_headline[:60] + "…" if len(sec.catalyst_headline) > 60 else sec.catalyst_headline
+        return f"positive catalyst within {CATALYST_LOOKBACK_DAYS}d: \"{headline}\""
+    if sec.long_score >= CONTRADICTION_LONG_MIN and sec.put_score >= CONTRADICTION_PUT_MIN:
+        return (
+            f"ambiguous signal (long_score={sec.long_score:.0f} AND put_score={sec.put_score:.0f} "
+            f"both ≥ {CONTRADICTION_PUT_MIN})"
+        )
+    return ""
+
+
+def _call_guardrail_reason(sec: SecurityAnalysis) -> str:
+    """
+    Return a human-readable description of the first active call guardrail,
+    or an empty string if no guardrail is triggered.
+    Only earnings blackout applies to calls — positive catalysts support the
+    call thesis and the contradiction guard is not used for directional long trades.
+    """
+    if (
+        sec.days_to_earnings is not None
+        and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
+    ):
+        return f"earnings in {sec.days_to_earnings}d (blackout <{EARNINGS_BLACKOUT_DAYS}d)"
+    return ""
+
+
+def _print_call_trade(trade: dict) -> None:
+    """Print a single call trade spec in a consistent format."""
+    spread_note = "  *** high IV — consider bull call spread ***" if trade["suggest_spread"] else ""
+    print(f"       CALL strike={trade['strike']}  exp={trade['expiration']}"
+          f"  ask=${trade['ask']:.2f}/share  IV={trade['iv']:.0f}%{spread_note}")
+    print(f"            target=${trade['target_price']}  "
+          f"est. P&L/contract=${trade['profit_at_target_per_contract']:.0f}  "
+          f"ROI={trade['roi_at_target_pct']:.0f}%")
+    print(f"            cost={trade['contracts']}x @ ${trade['total_cost']:.0f} total")
+
+
+def _print_put_trade(trade: dict) -> None:
+    """Print a single put trade spec in a consistent format."""
+    spread_note = "  *** high IV — consider debit spread ***" if trade["suggest_spread"] else ""
+    print(f"       PUT  strike={trade['strike']}  exp={trade['expiration']}"
+          f"  ask=${trade['ask']:.2f}/share  IV={trade['iv']:.0f}%{spread_note}")
+    print(f"            target=${trade['target_price']}  "
+          f"est. P&L/contract=${trade['profit_at_target_per_contract']:.0f}  "
+          f"ROI={trade['roi_at_target_pct']:.0f}%")
+    print(f"            cost={trade['contracts']}x @ ${trade['total_cost']:.0f} total")
 
 
 def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: int = 7) -> None:
@@ -778,7 +1096,7 @@ def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: 
         pc = sec.options.put_call_ratio if sec.options else None
         put_oi = sec.options.total_put_oi if sec.options else 0
         iv_label = sec.iv.label if sec.iv else "n/a"
-        print(f"\n  #{rank}  {sec.symbol:<6}  ${sec.price:<8.2f}  score={sec.put_score}")
+        print(f"\n  #{rank}  {sec.symbol:<6}  ${sec.price:<8.2f}  put_score={sec.put_score}  long_score={sec.long_score}")
         print(f"       BB   lower={sec.bands.lower}  mid={sec.bands.middle}  upper={sec.bands.upper}")
         print(f"            {_bb_bar(sec.bb_pos)}  pos={sec.bb_pos:.2f}")
         print(f"       P/C  {_pc_label(pc)}", end="")
@@ -794,8 +1112,14 @@ def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: 
             print()
         print(f"       IV   {iv_label}")
         print(f"       OI   put_oi={put_oi:,}")
+        if sec.days_to_earnings is not None:
+            print(f"       ERN  {sec.days_to_earnings}d to earnings")
         print(f"       Why  {sec.put_reason}")
 
+        # Primary recommendation: put trade
+        guardrail_reason = _guardrail_reason(sec)
+        if guardrail_reason:
+            print(f"       *** GUARDRAIL (PUT):  {guardrail_reason} — put trade skipped ***")
         trade = build_put_trade(
             sec,
             budget_per_trade=budget / max(len(candidates), 1),
@@ -803,57 +1127,65 @@ def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: 
         )
         if trade:
             trades.append(trade)
-            spread_note = "  *** high IV — consider debit spread ***" if trade["suggest_spread"] else ""
-            print(f"       PUT  strike={trade['strike']}  exp={trade['expiration']}"
-                  f"  ask=${trade['ask']:.2f}/share  IV={trade['iv']:.0f}%{spread_note}")
-            print(f"            target=${trade['target_price']}  "
-                  f"est. P&L/contract=${trade['profit_at_target_per_contract']:.0f}  "
-                  f"ROI={trade['roi_at_target_pct']:.0f}%")
-            print(f"            cost={trade['contracts']}x @ ${trade['total_cost']:.0f} total")
+            _print_put_trade(trade)
+
+        # Comparison: call trade for the same security
+        call_guardrail = _call_guardrail_reason(sec)
+        if call_guardrail:
+            print(f"       *** GUARDRAIL (CALL): {call_guardrail} — call trade skipped ***")
+        call_trade = build_call_trade(
+            sec,
+            budget_per_trade=budget / max(len(candidates), 1),
+            total_budget=budget,
+        )
+        if call_trade:
+            _print_call_trade(call_trade)
 
     print_put_portfolio_summary(trades, budget)
 
 
-def _combined_rank_score(t: dict) -> float:
-    """
-    Blended ranking score used to order trades in the portfolio summary.
-
-    Combines two normalised components:
-      - ROI component   : min(roi, ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
-      - Conviction component: put_score / MAX_PUT_SCORE
-
-    Capping ROI prevents a single high-ROI / low-conviction outlier (e.g. a
-    score-3 stock with 776% theoretical ROI) from monopolising the budget ahead
-    of high-conviction names that have a more reliable directional thesis.
-    """
-    roi_norm = min(t["roi_at_target_pct"], ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
+def _combined_put_rank_score(t: dict) -> float:
+    """Blended rank: conviction (put_score) × CONVICTION_WEIGHT + capped ROI × ROI_WEIGHT."""
+    roi_norm  = min(t["roi_at_target_pct"], ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
     conv_norm = t.get("put_score", 0) / MAX_PUT_SCORE
-    return ROI_WEIGHT * roi_norm + CONVICTION_WEIGHT * conv_norm
+    return CONVICTION_WEIGHT * conv_norm + ROI_WEIGHT * roi_norm
+
+
+def _combined_call_rank_score(t: dict) -> float:
+    """Blended rank: conviction (long_score) × CONVICTION_WEIGHT + capped ROI × ROI_WEIGHT."""
+    roi_norm  = min(t["roi_at_target_pct"], ROI_CAP_FOR_RANKING) / ROI_CAP_FOR_RANKING
+    conv_norm = t.get("long_score", 0) / MAX_PUT_SCORE
+    return CONVICTION_WEIGHT * conv_norm + ROI_WEIGHT * roi_norm
+
+
+def _greedy_fill(trades: list[dict], total_budget: float, rank_fn) -> list[dict]:
+    """Greedy budget fill sorted by rank_fn descending. Returns selected trades."""
+    remaining = total_budget
+    selected = []
+    for t in sorted(trades, key=rank_fn, reverse=True):
+        cost = t["ask"] * 100
+        if cost <= remaining:
+            affordable_contracts = max(1, int(remaining // cost))
+            t = dict(t)
+            t["contracts"] = affordable_contracts
+            t["total_cost"] = round(cost * affordable_contracts, 2)
+            t["rank_score"] = rank_fn(t)
+            selected.append(t)
+            remaining -= t["total_cost"]
+        if remaining < 50:
+            break
+    return selected
 
 
 def print_put_portfolio_summary(trades: list[dict], total_budget: float) -> None:
-    """Greedy budget fill: add trades ranked by blended conviction + ROI score."""
+    """Greedy budget fill sorted by blended conviction + ROI score."""
     if not trades:
         return
     print_section(f"PUT PORTFOLIO SUMMARY  (budget ${total_budget:,.0f})")
     print(f"  Ranking: {int(CONVICTION_WEIGHT*100)}% conviction (put score) + "
           f"{int(ROI_WEIGHT*100)}% ROI (capped at {ROI_CAP_FOR_RANKING:.0f}%)\n")
 
-    remaining = total_budget
-    selected = []
-    for t in sorted(trades, key=_combined_rank_score, reverse=True):
-        cost = t["ask"] * 100  # cost per single contract
-        if cost <= remaining:
-            affordable_contracts = max(1, int(remaining // cost))
-            t = dict(t)  # copy to avoid mutation
-            t["contracts"] = affordable_contracts
-            t["total_cost"] = round(cost * affordable_contracts, 2)
-            t["rank_score"] = _combined_rank_score(t)
-            selected.append(t)
-            remaining -= t["total_cost"]
-        if remaining < 50:  # no budget left for even one cheap contract
-            break
-
+    selected = _greedy_fill(trades, total_budget, _combined_put_rank_score)
     if not selected:
         print("  No trades fit within budget.")
         return
@@ -870,6 +1202,33 @@ def print_put_portfolio_summary(trades: list[dict], total_budget: float) -> None
     leftover = total_budget - total_spent
     if leftover > 0:
         print(f"  Remaining:      ${leftover:,.0f}  (consider longer-dated puts or debit spreads)")
+
+
+def print_call_portfolio_summary(trades: list[dict], total_budget: float) -> None:
+    """Greedy budget fill for call trades sorted by blended conviction + ROI score."""
+    if not trades:
+        return
+    print_section(f"CALL PORTFOLIO SUMMARY  (budget ${total_budget:,.0f})")
+    print(f"  Ranking: {int(CONVICTION_WEIGHT*100)}% conviction (long score) + "
+          f"{int(ROI_WEIGHT*100)}% ROI (capped at {ROI_CAP_FOR_RANKING:.0f}%)\n")
+
+    selected = _greedy_fill(trades, total_budget, _combined_call_rank_score)
+    if not selected:
+        print("  No trades fit within budget.")
+        return
+
+    total_spent = sum(t["total_cost"] for t in selected)
+    for t in selected:
+        print(
+            f"  {t['symbol']:<6}  ${t['strike']} call  exp={t['expiration']}"
+            f"  {t['contracts']}x  cost=${t['total_cost']:.0f}"
+            f"  target=${t['target_price']}  est ROI={t['roi_at_target_pct']:.0f}%"
+            f"  conviction={t.get('long_score', 0):.0f}  rank={t['rank_score']:.2f}"
+        )
+    print(f"\n  Total deployed: ${total_spent:,.0f} / ${total_budget:,.0f}")
+    leftover = total_budget - total_spent
+    if leftover > 0:
+        print(f"  Remaining:      ${leftover:,.0f}  (consider longer-dated calls or bull call spreads)")
 
 
 def print_skip_list(results: list[SecurityAnalysis]) -> None:
@@ -934,6 +1293,17 @@ def main() -> None:
         default=None,
         help="Analyse a single symbol instead of full watchlist",
     )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="Path to options SQLite database (default: options_chain.db next to this script)",
+    )
+    parser.add_argument(
+        "--no-persist",
+        action="store_true",
+        help="Skip saving snapshots to the database (useful for quick one-off runs)",
+    )
     args = parser.parse_args()
 
     if args.symbol:
@@ -945,14 +1315,22 @@ def main() -> None:
         entries = load_watchlist(args.watchlist)
         entries = [e for e in entries if is_us_listed(e["symbol"])]
 
+    # Set up persistence (unless suppressed)
+    store: Optional[OptionsStore] = None
+    if not args.no_persist:
+        store = OptionsStore(args.db) if args.db else OptionsStore()
+
     print(f"\nOptions Analysis Engine")
     print(f"Watchlist : {args.watchlist}")
     print(f"Symbols   : {len(entries)} (US-listed)")
     print(f"Put Budget: ${args.puts_budget:,.0f}")
+    if store:
+        print(f"Database  : {store.db_path}")
     print(f"\nFetching data", end="", flush=True)
 
     results: list[SecurityAnalysis] = []
     failed: list[str] = []
+    saved = 0
 
     for entry in entries:
         sym = entry["symbol"]
@@ -964,7 +1342,36 @@ def main() -> None:
         score(sec)
         results.append(sec)
 
+        # Persist snapshot for backtesting (issue #10)
+        if store and sec.options:
+            bb_dict = {
+                "upper": sec.bands.upper,
+                "middle": sec.bands.middle,
+                "lower": sec.bands.lower,
+                "period": 20,
+            }
+            opts_dict = {
+                "expiration": sec.options.expiration,
+                "put_call_ratio": sec.options.put_call_ratio,
+                "calls": {
+                    "total_open_interest": sec.options.total_call_oi,
+                    "total_volume": sec.options.total_call_volume,
+                    "avg_iv_pct": sec.options.avg_call_iv,
+                    "atm_contracts": sec.options.atm_calls,
+                },
+                "puts": {
+                    "total_open_interest": sec.options.total_put_oi,
+                    "total_volume": sec.options.total_put_volume,
+                    "avg_iv_pct": sec.options.avg_put_iv,
+                    "atm_contracts": sec.options.atm_puts,
+                },
+            }
+            if store.save_snapshot(sym, sec.price, bb_dict, opts_dict) is not None:
+                saved += 1
+
     print(f" done ({len(results)} fetched, {len(failed)} failed)")
+    if store:
+        print(f"Persisted : {saved} new snapshots → {store.db_path.name}")
     if failed:
         print(f"Failed    : {', '.join(failed)}")
 
@@ -972,7 +1379,7 @@ def main() -> None:
         print("No data retrieved. Check network / symbols.")
         sys.exit(1)
 
-    print_long_candidates(results, top_n=args.top_n)
+    print_long_candidates(results, top_n=args.top_n, budget=args.puts_budget)
     print_put_candidates(results, budget=args.puts_budget, top_n=args.top_n)
     print_skip_list(results)
     print(f"\n{SEPARATOR}\n")

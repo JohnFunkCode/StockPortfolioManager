@@ -3,6 +3,10 @@ import math
 import yfinance as yf
 from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
+from options_store import OptionsStore
+
+# Shared store — persists every get_stock_price call for backtesting (issue #10)
+_options_store = OptionsStore()
 
 mcp = FastMCP("stock-price-server")
 
@@ -112,7 +116,7 @@ def get_stock_price(symbol: str) -> dict:
             "puts": puts_summary,
         }
 
-    return {
+    result = {
         "symbol": symbol.upper(),
         "price": round(price, 2),
         "currency": getattr(info, "currency", "USD"),
@@ -1817,7 +1821,6 @@ def get_delta_adjusted_oi(
         "by_expiration":       expiry_summaries,
     }
 
-
 @mcp.tool()
 def get_historical_drawdown(
     symbol: str,
@@ -2212,7 +2215,6 @@ def get_stop_loss_analysis(
         "flags":   flags,
         "summary": " ".join(lines),
     }
-
 
 if __name__ == "__main__":
     mcp.run()

@@ -33,7 +33,7 @@ class TestMoney(unittest.TestCase):
         result = m / 4
         self.assertEqual(result.amount, Decimal("2.50"))
 
-    @patch("money.Money._fetch_exchange_rate", return_value=0.9)
+    @patch("portfolio.money.Money._fetch_exchange_rate", return_value=0.9)
     def test_convert_to(self, mock_fetch):
         m = Money(10, "USD")
         converted = m.convert_to("EUR")

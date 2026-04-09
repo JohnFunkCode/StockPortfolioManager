@@ -7,6 +7,10 @@
     "market-analysis-server": {
       "command": "fastmcp",
       "args": ["run", "market_analysis_server.py"]
+    },
+    "news-sentiment-server": {
+      "command": "fastmcp",
+      "args": ["run", "news_sentiment_server.py"]
     }
   }
 }

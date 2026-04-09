@@ -80,7 +80,7 @@ class TestStockPortfolioManager(unittest.TestCase):
         self.assertIsNone(stock.sale_date)
         self.assertIsNone(stock.current_price)
 
-    @patch('stock_portfolio_manager.get_latest_prices')
+    @patch('portfolio.stock.get_latest_prices')
     def test_stock_update_current_price(self, mock_get_prices):
         mock_get_prices.return_value = {"TEST": Money(120, "USD")}
 
@@ -127,7 +127,7 @@ class TestStockPortfolioManager(unittest.TestCase):
         portfolio.remove_stock("TEST")
         self.assertIsNone(portfolio.get_stock("TEST"))
 
-    @patch('stock_portfolio_manager.get_latest_prices')
+    @patch('portfolio.portfolio.get_latest_prices')
     def test_portfolio_update_all_prices(self, mock_get_prices):
         portfolio = spm.Portfolio()
         stock1 = spm.Stock("Stock1", "S1", 10, 100, date(2023, 1, 1))
@@ -200,7 +200,7 @@ class TestStockPortfolioManager(unittest.TestCase):
 
         self.assertEqual(percentage, 10.0)  # 500/5000*100
 
-    @patch('money.Money.convert_to')
+    @patch('portfolio.money.Money.convert_to')
     def test_portfolio_currency_conversion(self, mock_convert):
         portfolio = spm.Portfolio()
         stock = spm.Stock("Stock", "S1", 10, 100, date(2023, 1, 1), currency="USD")

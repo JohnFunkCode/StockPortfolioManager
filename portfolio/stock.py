@@ -3,6 +3,7 @@ from typing import Optional, Dict, List
 from datetime import date
 from portfolio.metrics import Metrics
 from portfolio.money import Money
+from portfolio.yfinance_gateway import get_latest_prices
 
 
 class Stock:
@@ -36,14 +37,14 @@ class Stock:
         self.purchase_price = Money(purchase_price, currency) if purchase_price is not None else None
         self.purchase_date = purchase_date if purchase_date is not None else date.today()
         self.sale_price = Money(sale_price, currency) if sale_price is not None else None
-        self.sale_date = sale_date if sale_date is not None else date.today()
+        self.sale_date = sale_date
         self.current_price = Money(current_price, currency) if current_price is not None else None
 
 
-    # def update_current_price(self) -> None:
-    #     """Update the current price using yfinance"""
-    #     prices = get_latest_prices([self.symbol], self.purchase_price.currency)
-    #     self.current_price = prices[self.symbol]
+    def update_current_price(self) -> None:
+        """Update the current price using yfinance"""
+        prices = get_latest_prices([self.symbol], self.purchase_price.currency)
+        self.current_price = prices[self.symbol]
 
     def calculate_gain_loss(self) -> Optional[Money]:
         """Calculate the gain/loss based on purchase and current/sale price"""

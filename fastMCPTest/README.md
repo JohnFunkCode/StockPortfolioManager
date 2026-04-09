@@ -30,8 +30,116 @@ pip install fastmcp yfinance numpy pandas pyyaml
 | `stock_price_server.py` | MCP Server | Price, momentum, structure, options flow, and stop loss tools |
 | `market_analysis_server.py` | MCP Server | Market microstructure: short interest, dark pool, spreads |
 | `options_analysis.py` | CLI Script | Watchlist-level put/call scoring and trade recommendations |
+| `options_store.py` | Shared Library | SQLite persistence for options chain snapshots; enables backtesting |
 | `ohlcv_cache.py` | Shared Library | SQLite-backed OHLCV bar cache; eliminates redundant yfinance calls |
 | `.mcp.json` | Config | Registers both MCP servers for auto-start |
+
+---
+
+## Options Chain Persistence (`options_store.py`)
+
+Saves a full options chain snapshot to SQLite every time `options_analysis.py` runs or `get_stock_price` is called via MCP. Snapshots accumulate over time and enable backtesting of put/call ratio trends, IV rank history, and trade outcome validation.
+
+### How it works
+
+Each snapshot captures the full state of a security at a point in time: price, Bollinger Bands, the nearest expiration's call and put chains (all ATM contracts), and aggregate metrics (P/C ratio, total OI, total volume, average IV). Snapshots are idempotent — a duplicate `(symbol, captured_at)` pair is silently ignored, so running the analysis multiple times on the same day will not create duplicates.
+
+### Auto-integration
+
+Both entry points save snapshots automatically with no extra configuration:
+
+- **`options_analysis.py`** — saves one snapshot per symbol after fetching live data. Pass `--no-persist` to skip, or `--db /path/to/file.db` to use a custom database path.
+- **`stock_price_server.py` `get_stock_price()`** — saves a snapshot after every MCP tool call. Failures are fire-and-forget so the tool never fails due to database issues.
+
+### SQLite schema
+
+Three tables with WAL mode and cascading foreign key deletes:
+
+```sql
+-- One row per symbol per fetch
+CREATE TABLE options_snapshots (
+    snapshot_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol       TEXT    NOT NULL,
+    captured_at  TEXT    NOT NULL,   -- ISO-8601 UTC timestamp
+    price        REAL    NOT NULL,
+    bb_upper     REAL,
+    bb_middle    REAL,
+    bb_lower     REAL,
+    bb_period    INTEGER,
+    UNIQUE (symbol, captured_at)
+);
+
+-- One row per expiration per snapshot
+CREATE TABLE options_expirations (
+    expiration_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapshot_id      INTEGER NOT NULL REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE,
+    expiration       TEXT    NOT NULL,
+    put_call_ratio   REAL,
+    total_call_oi    INTEGER,
+    total_put_oi     INTEGER,
+    total_call_vol   INTEGER,
+    total_put_vol    INTEGER,
+    avg_call_iv_pct  REAL,
+    avg_put_iv_pct   REAL
+);
+
+-- One row per ATM contract per expiration
+CREATE TABLE options_contracts (
+    contract_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    expiration_id  INTEGER NOT NULL REFERENCES options_expirations(expiration_id) ON DELETE CASCADE,
+    kind           TEXT    NOT NULL CHECK(kind IN ('call','put')),
+    strike         REAL    NOT NULL,
+    last_price     REAL,
+    bid            REAL,
+    ask            REAL,
+    implied_vol    REAL,
+    volume         INTEGER,
+    open_interest  INTEGER,
+    in_the_money   INTEGER
+);
+```
+
+### Public API
+
+```python
+from options_store import OptionsStore
+
+store = OptionsStore()                          # default: options_chain.db next to script
+store = OptionsStore("/path/to/custom.db")      # custom path
+
+# Save a snapshot (returns snapshot_id, or None if duplicate)
+snapshot_id = store.save_snapshot(symbol, price, bollinger_bands_dict, options_dict)
+
+# P/C ratio time series for backtesting (last N days)
+history = store.get_pc_history("AMD", days=30)
+# → [{"captured_at": "2026-04-09T...", "put_call_ratio": 1.4, "price": 231.82, ...}, ...]
+
+# Full snapshot with all expirations and contracts
+snapshot = store.get_latest_snapshot("AMD")
+
+# Filtered snapshot history
+snapshots = store.get_snapshots("AMD", since="2026-03-01", limit=50)
+
+# Inventory helpers
+symbols = store.get_symbols()           # → ["AAPL", "AMD", ...]
+count   = store.snapshot_count()        # → 153
+```
+
+### CLI flags
+
+```bash
+# Use a custom database path
+python options_analysis.py --db /data/options_history.db
+
+# Skip persistence entirely (quick one-off run)
+python options_analysis.py --no-persist --symbol AAPL
+```
+
+### Data limitations
+
+- Only ATM contracts (5 nearest strikes each side) are stored per expiration. Full-chain storage is not implemented.
+- Only the nearest expiration is stored per snapshot (the expiration used by the scoring engine).
+- Timestamps are captured at fetch time. During off-hours, the price reflects the last close.
 
 ---
 
@@ -146,6 +254,7 @@ Provides 15 tools covering price data, momentum indicators, volume analysis, opt
 - Bollinger Band position is the primary oversold/overbought gauge. Price at or below the lower band (pos ≤ 0) is a technical bounce setup.
 - The put/call ratio from this tool is OI-based from the nearest expiry only. For richer P/C analysis use `get_unusual_calls` or the options_analysis.py CLI.
 - Use as the first call in any analysis — establishes the price anchor all other tools reference.
+- Every call to this tool automatically saves a snapshot to `options_chain.db` via `OptionsStore`. Snapshots accumulate passively over time and enable backtesting without any extra steps.
 
 ---
 
@@ -693,6 +802,12 @@ python options_analysis.py --symbol AMD --puts-budget 1000
 
 # Custom watchlist
 python options_analysis.py --watchlist /path/to/custom.yaml --puts-budget 5000 --top-n 20
+
+# Use a custom SQLite database path
+python options_analysis.py --db /data/options_history.db
+
+# Skip saving snapshots (quick one-off run)
+python options_analysis.py --no-persist --symbol AAPL
 ```
 
 ### Scoring system
@@ -738,6 +853,51 @@ rank_score = 0.60 × (put_score / 11) + 0.40 × min(roi%, 200%) / 200%
 ```
 
 ROI is capped at 200% to prevent high-ROI / low-conviction outliers from monopolising the budget ahead of better-supported trades. Trades are filled greedily from highest rank_score until the budget is exhausted.
+
+### Trade guardrails
+
+Three filters are applied before any put trade is built. Each guardrail addresses a real failure mode identified from post-mortem analysis of losing trades:
+
+| Guardrail | Condition | Reason |
+|-----------|-----------|--------|
+| **Earnings blackout** | Earnings within 14 days | Earnings events gap stocks in either direction; a pure put thesis becomes a coin-flip against the event. Applies to both put and call trades. |
+| **Catalyst cooldown** | Analyst upgrade, raised price target, partnership, or beat in news within 5 days | A positive catalyst may be exactly what drove put-heavy OI — institutions hedging long positions, not directional bets. Applies to put trades only; positive catalysts support call trades. |
+| **Contradiction guard** | `long_score ≥ 3` AND `put_score ≥ 3` simultaneously | When both oversold bounce signals and overbought put signals are both elevated, the market is genuinely ambiguous. Ambiguous setups have poor risk/reward since the true direction is unclear. Applies to put trades only. |
+
+When a guardrail triggers, the output shows a `*** GUARDRAIL: ... ***` annotation on the candidate with the specific reason (e.g. `earnings in 4d`, `positive catalyst: "AMD upgraded to Buy"`, or `ambiguous signal`). The security still appears in the scored candidates list for awareness.
+
+Guardrail thresholds are configurable at the top of `options_analysis.py`:
+
+```python
+EARNINGS_BLACKOUT_DAYS    = 14   # days before earnings to block trades
+CATALYST_LOOKBACK_DAYS    = 5    # days of news to scan for positive catalysts
+CONTRADICTION_LONG_MIN    = 3    # long_score threshold for contradiction guard
+CONTRADICTION_PUT_MIN     = 3    # put_score threshold for contradiction guard
+```
+
+### Call trade analysis
+
+Both the LONG CANDIDATES and PUT CANDIDATES sections now show **both a call trade and a put trade** for each security, enabling direct comparison of cost, target, and ROI in each direction.
+
+**Long candidates section** — primary recommendation is a call trade (target: upper BB), with a put trade shown for comparison.
+
+**Put candidates section** — primary recommendation is a put trade (target: lower BB), with a call trade shown for comparison.
+
+**Call trade target:** always the upper Bollinger Band. If the price is already above the upper BB (confirmed breakout), the target is set 5% above the upper BB.
+
+**Put trade target:** always the lower Bollinger Band. If the price is already below the lower BB (confirmed breakdown), the target is set 5% below the lower BB.
+
+Both sections end with their own portfolio summary ranked by a blended conviction + ROI score:
+
+```
+# Put portfolio
+rank_score = 0.60 × (put_score / MAX_PUT_SCORE) + 0.40 × min(roi%, 200%) / 200%
+
+# Call portfolio
+rank_score = 0.60 × (long_score / MAX_PUT_SCORE) + 0.40 × min(roi%, 200%) / 200%
+```
+
+A spread is suggested (debit spread for puts, bull call spread for calls) when ATM IV exceeds 65%, to reduce the cost of high-IV entries.
 
 ### IV Rank methodology
 
@@ -810,10 +970,11 @@ Use the following tools in sequence to build a multi-signal bounce confirmation:
 |------|-----------|
 | All tools | Yahoo Finance data; may have 15-min delay for options |
 | `ohlcv_cache.py` | SQLite cache (`ohlcv_cache.db`) in the same directory; delete the file to force a full re-fetch |
+| `options_store.py` | Stores ATM contracts only (5 nearest strikes per side); full-chain storage not implemented. Only the nearest expiration is persisted per snapshot. |
 | `get_short_interest` | FINRA bi-monthly update; lags up to 2 weeks |
 | `get_dark_pool` | Proxy only — true dark pool requires paid feed (FINRA ATS, Bloomberg) |
 | `get_bid_ask_spread` | Equity spread from fast_info; not tick-level data |
 | `get_unusual_calls` | vol/OI and last≥ask proxies for sweeps; individual prints not available |
 | `get_delta_adjusted_oi` | Uses live IV snapshot; delta is approximate (Black-Scholes, no dividends) |
-| `options_analysis.py` | IV Rank uses HV30 as IV proxy; true historical IV requires paid feed |
+| `options_analysis.py` | IV Rank uses HV30 as IV proxy; true historical IV requires paid feed. Catalyst cooldown keyword list may not capture all positive catalysts. |
 | Non-US symbols | Options data unavailable; automatically skipped in watchlist scan |

@@ -2,9 +2,10 @@ import json
 import os
 import sys
 from pathlib import Path
-from datetime import datetime
+from datetime import date, datetime
 
 import requests
+import yfinance as yf
 from dotenv import load_dotenv
 from portfolio import portfolio as spm
 import portfolio.money as money
@@ -12,16 +13,35 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
+if str(FAST_MCP_DIR) not in sys.path:
+    sys.path.insert(0, str(FAST_MCP_DIR))
+
 from experiments.HarvesterPlanStore import HarvesterPlanDB
+from options_position_store import (
+    OptionsPositionStore,
+    ALERT_ITM,
+    ALERT_EXPIRATION_1D,
+    ALERT_EXPIRATION_7D,
+    ALERT_PROFIT_TARGET,
+)
 
 class Notifier:
-    def __init__(self, portfolio: spm.Portfolio, harvester_db_path: str | None = None):
+    def __init__(
+        self,
+        portfolio: spm.Portfolio,
+        harvester_db_path: str | None = None,
+        options_db_path: str | None = None,
+    ):
         load_dotenv()
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
         # if not self.discord_webhook_url:
         #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
         self.notification = None
+        self._options_positions = OptionsPositionStore(
+            Path(options_db_path) if options_db_path else None
+        )
 
     
     def calculate_and_send_notifications(self):
@@ -92,6 +112,129 @@ class Notifier:
                 }
                 self.send_notifications(embed)
 
+        self.check_options_alerts()
+
+
+    # ------------------------------------------------------------------
+    # Options position alerts (issue #12)
+    # ------------------------------------------------------------------
+
+    def check_options_alerts(self) -> None:
+        """
+        Fetch current prices for all active options positions, evaluate
+        pending alerts (ITM, expiration, profit target), and send Discord
+        notifications for each.  Deduplication is handled by send_notifications()
+        via the notification.log file.
+        """
+        # Auto-expire positions whose expiration date has already passed
+        expired = self._options_positions.auto_expire_past_positions()
+        for pos in expired:
+            embed = self._build_options_embed(
+                title=f"{pos['symbol']} ${pos['strike']:.2f} {pos['kind'].upper()} EXPIRED",
+                description=(
+                    f"Position {pos['position_id']} — {pos['contracts']} contract(s)  "
+                    f"Strike: ${pos['strike']:.2f}  Expiration: {pos['expiration']}\n"
+                    f"Cost: ${pos['purchase_price'] * 100 * pos['contracts']:.0f}  "
+                    f"Status: expired worthless\n\n"
+                    f"[{pos['symbol']} chart](https://finance.yahoo.com/chart/{pos['symbol']})"
+                ),
+                color=0x808080,  # Grey for expired
+                symbol=pos["symbol"],
+            )
+            self.send_notifications(embed)
+
+        active = self._options_positions.get_active_positions()
+        if not active:
+            return
+
+        # Fetch live prices for all unique symbols in one batch
+        symbols = list({p["symbol"] for p in active})
+        current_prices: dict[str, float] = {}
+        for sym in symbols:
+            try:
+                info = yf.Ticker(sym).fast_info
+                price = getattr(info, "last_price", None)
+                if price is not None and price > 0:
+                    current_prices[sym] = float(price)
+            except Exception:
+                pass
+
+        alerts = self._options_positions.get_pending_alerts(current_prices)
+
+        _COLORS = {
+            ALERT_ITM:           0x00FF00,  # Green  — in the money
+            ALERT_EXPIRATION_1D: 0xFF0000,  # Red    — expires tomorrow/today
+            ALERT_EXPIRATION_7D: 0xFFA500,  # Orange — expires within 7 days
+            ALERT_PROFIT_TARGET: 0x00BFFF,  # Blue   — profit target reached
+        }
+
+        _TITLES = {
+            ALERT_ITM:           "Options Alert: In The Money",
+            ALERT_EXPIRATION_1D: "Options Alert: Expiring Very Soon",
+            ALERT_EXPIRATION_7D: "Options Alert: Expiration Warning",
+            ALERT_PROFIT_TARGET: "Options Alert: Profit Target Reached",
+        }
+
+        for alert in alerts:
+            sym         = alert["symbol"]
+            kind        = alert["kind"].upper()
+            strike      = alert["strike"]
+            expiry      = alert["expiration"]
+            contracts   = alert["contracts"]
+            cur_price   = alert["current_price"]
+            intrinsic   = alert["intrinsic_value"]
+            roi         = alert["roi_pct"]
+            days        = alert["days_to_expiry"]
+            total_cost  = alert["total_cost"]
+            total_val   = alert["total_intrinsic"]
+            alert_type  = alert["alert_type"]
+
+            # Include today's date in expiration alert titles so the same alert
+            # fires once per day rather than being suppressed after the first fire.
+            today_str = date.today().isoformat()
+            if alert_type in (ALERT_EXPIRATION_1D, ALERT_EXPIRATION_7D):
+                title = f"{sym} ${strike:.2f} {kind} — {_TITLES[alert_type]} [{today_str}]"
+            elif alert_type == ALERT_ITM:
+                title = f"{sym} ${strike:.2f} {kind} — {_TITLES[alert_type]}"
+            else:
+                title = f"{sym} ${strike:.2f} {kind} — {_TITLES[alert_type]}"
+
+            description = (
+                f"**{contracts} contract(s)  |  Strike: ${strike:.2f}  |  Exp: {expiry}**\n\n"
+                f"Current Price:   ${cur_price:.2f}\n"
+                f"Intrinsic Value: ${intrinsic:.2f}/share\n"
+                f"Est. P&L:        ${total_val:.0f} vs cost ${total_cost:.0f}\n"
+                f"ROI:             {roi:+.0f}%\n"
+                f"Days to Expiry:  {days}\n\n"
+                f"{alert['message']}\n\n"
+                f"[{sym} chart](https://finance.yahoo.com/chart/{sym})"
+            )
+
+            embed = self._build_options_embed(
+                title=title,
+                description=description,
+                color=_COLORS.get(alert_type, 0xFFFFFF),
+                symbol=sym,
+            )
+            self.send_notifications(embed)
+
+    def _build_options_embed(
+        self,
+        title: str,
+        description: str,
+        color: int,
+        symbol: str,
+    ) -> dict:
+        return {
+            "content": f"Options Alert: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
+            "embeds": [
+                {
+                    "title": title,
+                    "description": description,
+                    "color": color,
+                }
+            ],
+        }
 
     def send_harvest_alert(self, hits: list[dict]) -> None:
         if not hits:

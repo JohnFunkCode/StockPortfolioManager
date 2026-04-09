@@ -45,3 +45,6 @@ Port 5173 is in use, trying another one...
 12:53:32 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
 12:53:33 PM [vite] (client) ✨ new dependencies optimized: @mui/icons-material/FilterList
 12:53:33 PM [vite] (client) ✨ optimized dependencies changed. reloading
+12:58:50 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:58:56 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx
+12:59:02 PM [vite] (client) hmr update /src/components/securities/SecuritiesPage.tsx

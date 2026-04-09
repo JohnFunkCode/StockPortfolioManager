@@ -20,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import FilterListIcon from '@mui/icons-material/FilterList';
-import { DataGrid, GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
+import { DataGrid, GridColDef, GridRenderCellParams, GridSortModel } from '@mui/x-data-grid';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { SelectChangeEvent } from '@mui/material';
@@ -58,6 +58,15 @@ export default function SecuritiesPage() {
   const [screenerOpen, setScreenerOpen] = useState(false);
   const [screenerParams, setScreenerParams] = useState<Record<string, string>>({});
   const [activePreset, setActivePreset] = useState<string | null>(null);
+
+  const [sortModel, setSortModel] = useState<GridSortModel>(() => {
+    try {
+      const saved = localStorage.getItem('securities-sort-model');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
 
@@ -297,6 +306,11 @@ export default function SecuritiesPage() {
         disableRowSelectionOnClick
         pageSizeOptions={[25, 50, 100]}
         initialState={{ pagination: { paginationModel: { pageSize: 25 } } }}
+        sortModel={sortModel}
+        onSortModelChange={(model) => {
+          setSortModel(model);
+          localStorage.setItem('securities-sort-model', JSON.stringify(model));
+        }}
         onRowClick={(params) => navigate(`/securities/${params.row.symbol}`)}
         sx={{ cursor: 'pointer' }}
       />

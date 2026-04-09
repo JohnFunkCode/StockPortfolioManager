@@ -9,3 +9,7 @@ jinja2>=3.1.6
 PyYAML>=6.0.3
 Flask>=3.0.0
 flask-cors>=4.0.0
+feedparser>=6.0.0
+# Optional — required for FinBERT sentiment scoring:
+# transformers>=4.40.0
+# torch>=2.0.0

@@ -445,6 +445,27 @@ class OptionsStore:
 
         return result
 
+    def get_snapshot_dates(self, symbol: str, days: int = 365) -> set[str]:
+        """
+        Return the set of calendar dates (YYYY-MM-DD) for which a snapshot
+        already exists, so backfill callers can skip them.
+        """
+        from datetime import timedelta
+        symbol = symbol.upper()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT captured_at
+                FROM   options_snapshots
+                WHERE  symbol      = ?
+                  AND  captured_at >= ?
+                """,
+                (symbol, cutoff_str),
+            ).fetchall()
+        return {r[0][:10] for r in rows}
+
     def get_pc_history(self, symbol: str, days: int = 30) -> list[dict]:
         """
         Return put/call ratio over time for a symbol.

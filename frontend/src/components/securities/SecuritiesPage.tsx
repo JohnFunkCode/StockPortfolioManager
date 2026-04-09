@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import AddSecurityDialog from './AddSecurityDialog';
 import {
   Box,
   Button,
@@ -19,12 +20,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import { DataGrid, GridColDef, GridRenderCellParams, GridSortModel } from '@mui/x-data-grid';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { SelectChangeEvent } from '@mui/material';
-import { useSecurities, useScreener } from '../../hooks/useSecurities';
+import { useSecurities, useScreener, useRefreshOptionsSnapshots } from '../../hooks/useSecurities';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import type { Security, ScreenerResult } from '../../api/securitiesTypes';
@@ -56,6 +60,7 @@ export default function SecuritiesPage() {
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [screenerOpen, setScreenerOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
   const [screenerParams, setScreenerParams] = useState<Record<string, string>>({});
   const [activePreset, setActivePreset] = useState<string | null>(null);
 
@@ -69,6 +74,7 @@ export default function SecuritiesPage() {
   });
 
   const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
+  const { mutate: refreshSnapshots, isPending: refreshing, data: refreshResult, reset: resetRefresh } = useRefreshOptionsSnapshots();
 
   const allTags = useMemo<string[]>(() => {
     const set = new Set<string>();
@@ -162,7 +168,16 @@ export default function SecuritiesPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Securities</Typography>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Typography variant="h4">Securities</Typography>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setAddOpen(true)}
+        >
+          Add Security
+        </Button>
+      </Stack>
 
       {/* Filter toolbar */}
       <Paper sx={{ p: 2, mb: 2 }}>
@@ -297,6 +312,51 @@ export default function SecuritiesPage() {
         </Paper>
       </Collapse>
 
+      {/* Options Snapshot Refresh */}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
+          <Box sx={{ flex: 1, minWidth: 200 }}>
+            <Typography variant="subtitle2">Options Snapshot Collection</Typography>
+            <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+              Captures today's P/C ratio &amp; IV for all securities. Run once per trading day to build trend data.
+              yfinance only provides the current chain — past snapshots cannot be backfilled.
+            </Typography>
+          </Box>
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={refreshing ? <CircularProgress size={14} /> : <RefreshIcon />}
+            disabled={refreshing}
+            onClick={() => { resetRefresh(); refreshSnapshots({ source: 'all', chainType: 'atm' }); }}
+          >
+            {refreshing ? 'Collecting…' : 'Refresh All (ATM)'}
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            color="secondary"
+            startIcon={refreshing ? <CircularProgress size={14} /> : <RefreshIcon />}
+            disabled={refreshing}
+            onClick={() => { resetRefresh(); refreshSnapshots({ source: 'portfolio', chainType: 'full' }); }}
+          >
+            {refreshing ? 'Collecting…' : 'Refresh Portfolio (Full Chain)'}
+          </Button>
+          {refreshResult && !refreshing && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <CheckCircleOutlineIcon sx={{ color: '#10b981', fontSize: 18 }} />
+              <Typography variant="caption" sx={{ color: '#10b981' }}>
+                {refreshResult.succeeded}/{refreshResult.total} succeeded in {refreshResult.duration_seconds}s
+              </Typography>
+              {refreshResult.failed > 0 && (
+                <Typography variant="caption" sx={{ color: '#ef4444' }}>
+                  · {refreshResult.failed} failed
+                </Typography>
+              )}
+            </Stack>
+          )}
+        </Stack>
+      </Paper>
+
       <DataGrid
         rows={filtered}
         columns={columns}
@@ -314,6 +374,8 @@ export default function SecuritiesPage() {
         onRowClick={(params) => navigate(`/securities/${params.row.symbol}`)}
         sx={{ cursor: 'pointer' }}
       />
+
+      <AddSecurityDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </Box>
   );
 }

@@ -1,5 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { securitiesApi } from '../api/securities';
+import type { AddSecurityPayload } from '../api/securitiesTypes';
 
 export function useSecurities(source?: 'portfolio' | 'watchlist') {
   return useQuery({
@@ -114,4 +115,37 @@ export function useScreener(params: Record<string, string>, enabled = false) {
     enabled,
     staleTime: 5 * 60 * 1000,
   });
+}
+
+export function useRefreshOptionsSnapshots() {
+  return useMutation({
+    mutationFn: ({
+      source = 'all',
+      chainType = 'atm',
+    }: { source?: 'portfolio' | 'watchlist' | 'all'; chainType?: 'atm' | 'full' } = {}) =>
+      securitiesApi.refreshOptionsSnapshots(source, chainType),
+  });
+}
+
+export function useBackfillOptionsHistory(ticker: string) {
+  return useMutation({
+    mutationFn: ({ days = 90 }: { days?: number } = {}) =>
+      securitiesApi.backfillOptionsHistory(ticker, days),
+  });
+}
+
+export function useAddSecurity() {
+  const qc = useQueryClient();
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['securities'] });
+  };
+  const watchlist = useMutation({
+    mutationFn: (payload: AddSecurityPayload) => securitiesApi.addToWatchlist(payload),
+    onSuccess: invalidate,
+  });
+  const portfolio = useMutation({
+    mutationFn: (payload: AddSecurityPayload) => securitiesApi.addToPortfolio(payload),
+    onSuccess: invalidate,
+  });
+  return { watchlist, portfolio };
 }

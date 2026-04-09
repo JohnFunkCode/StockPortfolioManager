@@ -1,6 +1,6 @@
 import { Routes, Route, Link, useLocation, Outlet } from 'react-router-dom';
 import {
-  AppBar, Toolbar, Typography, Button, Container, Box, Stack,
+  AppBar, Toolbar, Typography, Button, Container, Box, Stack, alpha,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListAltIcon from '@mui/icons-material/ListAlt';
@@ -27,26 +27,50 @@ function Layout() {
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <AppBar position="static">
         <Toolbar>
-          <Typography variant="h6" sx={{ mr: 4 }}>
+          <Typography
+            variant="h6"
+            sx={{
+              mr: 4,
+              fontFamily: '"Orbitron", sans-serif',
+              fontWeight: 700,
+              background: 'linear-gradient(90deg, #ff2d78 0%, #00e5ff 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              letterSpacing: '0.05em',
+            }}
+          >
             Harvest Ladder
           </Typography>
           <Stack direction="row" spacing={1}>
-            {navItems.map((item) => (
-              <Button
-                key={item.path}
-                component={Link}
-                to={item.path}
-                color="inherit"
-                startIcon={item.icon}
-                sx={{
-                  opacity: location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path)) ? 1 : 0.7,
-                  borderBottom: location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path)) ? '2px solid white' : 'none',
-                  borderRadius: 0,
-                }}
-              >
-                {item.label}
-              </Button>
-            ))}
+            {navItems.map((item) => {
+              const active = location.pathname === item.path ||
+                (item.path !== '/' && location.pathname.startsWith(item.path));
+              return (
+                <Button
+                  key={item.path}
+                  component={Link}
+                  to={item.path}
+                  color="inherit"
+                  startIcon={item.icon}
+                  sx={{
+                    color: active ? '#ff2d78' : 'rgba(240,230,255,0.7)',
+                    borderBottom: active ? '2px solid #ff2d78' : '2px solid transparent',
+                    borderRadius: 0,
+                    fontWeight: active ? 700 : 500,
+                    textShadow: active ? '0 0 12px rgba(255,45,120,0.7)' : 'none',
+                    transition: 'color 0.2s, text-shadow 0.2s',
+                    '&:hover': {
+                      color: '#ff2d78',
+                      backgroundColor: alpha('#ff2d78', 0.07),
+                      textShadow: '0 0 12px rgba(255,45,120,0.5)',
+                    },
+                  }}
+                >
+                  {item.label}
+                </Button>
+              );
+            })}
           </Stack>
         </Toolbar>
       </AppBar>

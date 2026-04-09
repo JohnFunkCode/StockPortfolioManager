@@ -22,7 +22,7 @@ import {
   Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings } from '../../hooks/useSecurities';
+import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory } from '../../hooks/useSecurities';
 import SignalsTab from './SignalsTab';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
@@ -31,6 +31,7 @@ import VolumeChart from './charts/VolumeChart';
 import OptionsChainChart from './charts/OptionsChainChart';
 import PCRatioChart from './charts/PCRatioChart';
 import MaxPainChart from './charts/MaxPainChart';
+import IVTermStructureChart from './charts/IVTermStructureChart';
 import ErrorAlert from '../common/ErrorAlert';
 
 function daysToExpiry(expiration: string): number {
@@ -76,6 +77,8 @@ export default function SecurityDetailPage() {
 
   const { data: ivRankData } = useIVRank(ticker);
   const { data: earningsData } = useEarnings(ticker);
+  const { mutate: backfill, isPending: backfilling, data: backfillResult, reset: resetBackfill } = useBackfillOptionsHistory(ticker);
+  const [backfillDays, setBackfillDays] = useState(90);
 
   const indicators = techData?.indicators ?? [];
   const latest = indicators.at(-1);
@@ -293,51 +296,335 @@ export default function SecurityDetailPage() {
       )}
 
       {/* --- Tab 3: Options Performance --- */}
-      {tab === 3 && (
-        <Paper sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
-            <Typography variant="subtitle1">Put/Call Ratio History</Typography>
-            <FormControl size="small" sx={{ minWidth: 100 }}>
-              <InputLabel>Period</InputLabel>
-              <Select
-                value={pcDays}
-                label="Period"
-                onChange={(e) => setPcDays(Number(e.target.value))}
-              >
-                {[7, 14, 30, 60, 90].map((d) => (
-                  <MenuItem key={d} value={d}>{d}d</MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Stack>
+      {tab === 3 && (() => {
+        const snap = optLatest?.snapshot;
+        const expirations = snap?.expirations ?? [];
 
-          {pcLoading ? (
-            <ChartSkeleton height={200} />
-          ) : (optHistory?.history ?? []).length > 0 ? (
-            <>
-              <PCRatioChart data={optHistory!.history} height={220} />
-              <Divider sx={{ my: 2 }} />
-              <Typography variant="subtitle2" gutterBottom>Interpretation</Typography>
-              <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+        // Aggregate OI and IV across all expirations for summary metrics
+        const totalCallOI = expirations.reduce((s, e) => s + (e.total_call_oi ?? 0), 0);
+        const totalPutOI  = expirations.reduce((s, e) => s + (e.total_put_oi  ?? 0), 0);
+        const totalOI     = totalCallOI + totalPutOI;
+        const aggPC       = totalCallOI > 0 ? totalPutOI / totalCallOI : null;
+
+        const ivExps = expirations.filter((e) => e.avg_call_iv != null || e.avg_put_iv != null);
+        const avgCallIV = ivExps.length
+          ? ivExps.reduce((s, e) => s + (e.avg_call_iv ?? 0), 0) / ivExps.length
+          : null;
+        const avgPutIV = ivExps.length
+          ? ivExps.reduce((s, e) => s + (e.avg_put_iv ?? 0), 0) / ivExps.length
+          : null;
+
+        const histPoints = optHistory?.history ?? [];
+
+        return (
+          <Stack spacing={2}>
+            {/* Summary metrics */}
+            {snap && (
+              <Paper sx={{ p: 2 }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+                  <Typography variant="subtitle1">Options Overview</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Snapshot: {snap.captured_at.slice(0, 16).replace('T', ' ')} UTC
+                    &nbsp;·&nbsp;${snap.price.toFixed(2)}
+                  </Typography>
+                </Stack>
+                <Stack direction="row" spacing={3} flexWrap="wrap" sx={{ mt: 1 }}>
+                  {[
+                    { label: 'Expirations', value: expirations.length, color: '#f9fafb' },
+                    { label: 'Total Call OI', value: totalCallOI.toLocaleString(), color: '#3b82f6' },
+                    { label: 'Total Put OI',  value: totalPutOI.toLocaleString(),  color: '#f59e0b' },
+                    { label: 'Agg P/C Ratio', value: aggPC != null ? aggPC.toFixed(2) : '—',
+                      color: aggPC == null ? '#6b7280' : aggPC > 1 ? '#f59e0b' : aggPC < 0.7 ? '#3b82f6' : '#f9fafb' },
+                    { label: 'Avg Call IV',   value: avgCallIV != null ? `${avgCallIV.toFixed(1)}%` : '—', color: '#3b82f6' },
+                    { label: 'Avg Put IV',    value: avgPutIV  != null ? `${avgPutIV.toFixed(1)}%`  : '—', color: '#f59e0b' },
+                  ].map(({ label, value, color }) => (
+                    <Box key={label}>
+                      <Typography variant="caption" sx={{ color: '#6b7280' }}>{label}</Typography>
+                      <Typography variant="body1" sx={{ color, fontWeight: 700 }}>{value}</Typography>
+                    </Box>
+                  ))}
+                  {totalOI > 0 && (
+                    <Box sx={{ flex: 1, minWidth: 180, alignSelf: 'center' }}>
+                      <Typography variant="caption" sx={{ color: '#6b7280' }}>Call / Put OI Split</Typography>
+                      <Box sx={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', mt: 0.5 }}>
+                        <Box sx={{ width: `${(totalCallOI / totalOI) * 100}%`, bgcolor: '#3b82f6', opacity: 0.8 }} />
+                        <Box sx={{ flex: 1, bgcolor: '#f59e0b', opacity: 0.8 }} />
+                      </Box>
+                      <Stack direction="row" justifyContent="space-between">
+                        <Typography variant="caption" sx={{ color: '#3b82f6', fontSize: 9 }}>
+                          {((totalCallOI / totalOI) * 100).toFixed(0)}% calls
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#f59e0b', fontSize: 9 }}>
+                          {((totalPutOI / totalOI) * 100).toFixed(0)}% puts
+                        </Typography>
+                      </Stack>
+                    </Box>
+                  )}
+                </Stack>
+              </Paper>
+            )}
+
+            {/* IV Term Structure */}
+            {expirations.length > 0 && (
+              <Paper sx={{ p: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>IV Term Structure</Typography>
+                {optLoading ? (
+                  <ChartSkeleton height={240} />
+                ) : (
+                  <>
+                    <Stack direction="row" spacing={2} sx={{ mb: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#3b82f6' }}>▮ Avg Call IV</Typography>
+                      <Typography variant="caption" sx={{ color: '#f59e0b' }}>▮ Avg Put IV</Typography>
+                      <Typography variant="caption" sx={{ color: '#a855f7' }}>╌ Composite Avg</Typography>
+                    </Stack>
+                    <IVTermStructureChart expirations={expirations} height={240} />
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                      X-axis = days to expiry. Elevated near-term IV relative to longer dates indicates
+                      backwardation — typically caused by an upcoming event (earnings, Fed, etc.).
+                      Normal contango curves rise gradually from left to right.
+                    </Typography>
+                  </>
+                )}
+              </Paper>
+            )}
+
+            {/* Expiration breakdown table */}
+            {expirations.length > 0 && (
+              <Paper sx={{ p: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>Expiration Breakdown</Typography>
+                <Box sx={{ overflowX: 'auto' }}>
+                  <Table size="small" sx={{ '& td, & th': { fontSize: 12, py: 0.5 } }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Expiration</TableCell>
+                        <TableCell align="right">DTE</TableCell>
+                        <TableCell align="right">Call OI</TableCell>
+                        <TableCell align="right">Put OI</TableCell>
+                        <TableCell align="right">P/C Ratio</TableCell>
+                        <TableCell align="right">Avg Call IV</TableCell>
+                        <TableCell align="right">Avg Put IV</TableCell>
+                        <TableCell align="right">Call Vol</TableCell>
+                        <TableCell align="right">Put Vol</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {expirations.map((e) => {
+                        const dte = Math.max(0, Math.round(
+                          (new Date(e.expiration).getTime() - Date.now()) / 86_400_000
+                        ));
+                        return (
+                          <TableRow key={e.expiration}>
+                            <TableCell>{e.expiration}</TableCell>
+                            <TableCell align="right"
+                              sx={{ color: dte <= 7 ? '#ef4444' : dte <= 21 ? '#f59e0b' : '#9ca3af' }}>
+                              {dte}d
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#3b82f6' }}>
+                              {e.total_call_oi?.toLocaleString() ?? '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#f59e0b' }}>
+                              {e.total_put_oi?.toLocaleString() ?? '—'}
+                            </TableCell>
+                            <TableCell align="right">
+                              {e.put_call_ratio != null
+                                ? <Chip size="small" label={e.put_call_ratio.toFixed(2)}
+                                    sx={{ fontSize: 10, height: 18,
+                                      bgcolor: e.put_call_ratio > 1 ? '#1e3a2f' : '#1e2a3a',
+                                      color:   e.put_call_ratio > 1 ? '#10b981' : '#60a5fa' }} />
+                                : '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#3b82f6' }}>
+                              {e.avg_call_iv != null ? `${e.avg_call_iv.toFixed(1)}%` : '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#f59e0b' }}>
+                              {e.avg_put_iv != null ? `${e.avg_put_iv.toFixed(1)}%` : '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#9ca3af' }}>
+                              {e.total_call_vol?.toLocaleString() ?? '—'}
+                            </TableCell>
+                            <TableCell align="right" sx={{ color: '#9ca3af' }}>
+                              {e.total_put_vol?.toLocaleString() ?? '—'}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </Box>
+              </Paper>
+            )}
+
+            {!snap && !optLoading && (
+              <Paper sx={{ p: 2 }}>
                 <Typography variant="body2" color="text.secondary">
-                  P/C &gt; 1.0 = more put buyers → bearish sentiment
+                  No options snapshot for {ticker}. Run <code>get_stock_price</code> or{' '}
+                  <code>get_full_options_chain</code> via MCP to collect data.
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  P/C &lt; 0.7 = call dominated → bullish sentiment or complacency
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Extreme readings can be contrarian signals
-                </Typography>
+              </Paper>
+            )}
+
+            {/* Polygon.io historical backfill */}
+            <Paper sx={{ p: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>Historical P/C Backfill via Polygon.io</Typography>
+              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 1.5 }}>
+                Polygon.io (Starter plan, ~$29/mo) provides 2+ years of historical options snapshots.
+                Requires <code>POLYGON_API_KEY</code> in your <code>.env</code> file.
+                Each backfill stores end-of-day P/C ratio and IV for all expirations.
+              </Typography>
+              <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                <FormControl size="small" sx={{ minWidth: 110 }}>
+                  <InputLabel>Days back</InputLabel>
+                  <Select
+                    value={backfillDays}
+                    label="Days back"
+                    onChange={(e) => setBackfillDays(Number(e.target.value))}
+                    disabled={backfilling}
+                  >
+                    {[30, 60, 90, 180, 365, 730].map((d) => (
+                      <MenuItem key={d} value={d}>{d}d</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                <Button
+                  size="small"
+                  variant="contained"
+                  color="secondary"
+                  disabled={backfilling}
+                  startIcon={backfilling ? <Skeleton variant="circular" width={14} height={14} /> : undefined}
+                  onClick={() => { resetBackfill(); backfill({ days: backfillDays }); }}
+                >
+                  {backfilling ? `Fetching ${backfillDays}d of history…` : `Backfill ${backfillDays} days`}
+                </Button>
+                {backfillResult && !backfilling && (
+                  <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Chip size="small" label={`${backfillResult.stored} days stored`}
+                      sx={{ bgcolor: '#14532d', color: '#86efac', fontSize: 11 }} />
+                    {backfillResult.skipped > 0 && (
+                      <Chip size="small" label={`${backfillResult.skipped} already existed`}
+                        sx={{ bgcolor: '#1f2937', color: '#9ca3af', fontSize: 11 }} />
+                    )}
+                    {backfillResult.no_data > 0 && (
+                      <Chip size="small" label={`${backfillResult.no_data} no data (holidays/pre-listing)`}
+                        sx={{ bgcolor: '#1f2937', color: '#9ca3af', fontSize: 11 }} />
+                    )}
+                    {backfillResult.failed > 0 && (
+                      <Chip size="small" label={`${backfillResult.failed} errors`}
+                        sx={{ bgcolor: '#7f1d1d', color: '#fca5a5', fontSize: 11 }} />
+                    )}
+                    {backfillResult.stored > 0 && (
+                      <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                        Refresh the page to see updated P/C trend below.
+                      </Typography>
+                    )}
+                  </Stack>
+                )}
               </Stack>
-            </>
-          ) : (
-            <Typography variant="body2" color="text.secondary">
-              No historical options data for {ticker} in the last {pcDays} days.
-              Data is collected each time the MCP server's <code>get_stock_price</code> tool is called.
-            </Typography>
-          )}
-        </Paper>
-      )}
+              {backfillResult && backfillResult.failed > 0 && (
+                <Box sx={{ mt: 1.5 }}>
+                  {backfillResult.results
+                    .filter((r) => r.status === 'error')
+                    .slice(0, 3)
+                    .map((r) => (
+                      <Typography key={r.date} variant="caption" sx={{ color: '#ef4444', display: 'block' }}>
+                        {r.date}: {r.error}
+                      </Typography>
+                    ))}
+                </Box>
+              )}
+            </Paper>
+
+            {/* P/C Ratio history */}
+            <Paper sx={{ p: 2 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="subtitle1">Put/Call Ratio History</Typography>
+                <FormControl size="small" sx={{ minWidth: 100 }}>
+                  <InputLabel>Period</InputLabel>
+                  <Select value={pcDays} label="Period" onChange={(e) => setPcDays(Number(e.target.value))}>
+                    {[7, 14, 30, 60, 90].map((d) => (
+                      <MenuItem key={d} value={d}>{d}d</MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Stack>
+              {pcLoading ? (
+                <ChartSkeleton height={200} />
+              ) : histPoints.length >= 2 ? (
+                <>
+                  <PCRatioChart data={histPoints} height={220} />
+                  <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap sx={{ mt: 1 }}>
+                    <Typography variant="caption" color="text.secondary">P/C &gt; 1.0 → more put buyers (bearish sentiment)</Typography>
+                    <Typography variant="caption" color="text.secondary">P/C &lt; 0.7 → call-dominated (bullish or complacency)</Typography>
+                    <Typography variant="caption" color="text.secondary">Extreme readings are often contrarian signals</Typography>
+                  </Stack>
+                </>
+              ) : histPoints.length === 1 && histPoints[0].put_call_ratio != null ? (() => {
+                const pt = histPoints[0];
+                const pc = pt.put_call_ratio!;
+                const sentiment = pc > 1.2 ? 'Bearish' : pc > 1.0 ? 'Mildly Bearish' : pc < 0.6 ? 'Bullish' : pc < 0.8 ? 'Mildly Bullish' : 'Neutral';
+                const sentColor = pc > 1.0 ? '#f59e0b' : pc < 0.8 ? '#10b981' : '#9ca3af';
+                return (
+                  <Stack spacing={2}>
+                    <Stack direction="row" spacing={4} alignItems="center" flexWrap="wrap">
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Current P/C Ratio</Typography>
+                        <Typography variant="h3" sx={{ color: sentColor, fontWeight: 700 }}>{pc.toFixed(2)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Sentiment</Typography>
+                        <Typography variant="h5" sx={{ color: sentColor, fontWeight: 700 }}>{sentiment}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Captured</Typography>
+                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>
+                          {pt.captured_at.slice(0, 10)}
+                        </Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Price at Capture</Typography>
+                        <Typography variant="body2" sx={{ color: '#f9fafb' }}>${pt.price.toFixed(2)}</Typography>
+                      </Box>
+                    </Stack>
+                    <Box sx={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', maxWidth: 400 }}>
+                      <Box sx={{ width: `${Math.min(100, (pc / 2) * 100)}%`, bgcolor: sentColor, transition: 'width 0.4s' }} />
+                      <Box sx={{ flex: 1, bgcolor: '#1f2937' }} />
+                    </Box>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {[
+                        { label: 'Extreme put buying', range: '> 1.5', active: pc > 1.5 },
+                        { label: 'Put-heavy', range: '1.0–1.5', active: pc >= 1.0 && pc <= 1.5 },
+                        { label: 'Neutral', range: '0.8–1.0', active: pc >= 0.8 && pc < 1.0 },
+                        { label: 'Call-heavy', range: '0.6–0.8', active: pc >= 0.6 && pc < 0.8 },
+                        { label: 'Extreme call buying', range: '< 0.6', active: pc < 0.6 },
+                      ].map(({ label, range, active }) => (
+                        <Chip
+                          key={label}
+                          size="small"
+                          label={`${label} (${range})`}
+                          variant={active ? 'filled' : 'outlined'}
+                          sx={{
+                            fontSize: 11,
+                            bgcolor: active ? (pc > 1.0 ? '#78350f' : pc < 0.8 ? '#14532d' : '#1f2937') : 'transparent',
+                            color: active ? '#f9fafb' : '#6b7280',
+                            borderColor: '#374151',
+                          }}
+                        />
+                      ))}
+                    </Stack>
+                    <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                      Only 1 snapshot collected. Use the "Refresh All" button on the Securities page daily to build a trend.
+                    </Typography>
+                  </Stack>
+                );
+              })() : (
+                <Typography variant="body2" color="text.secondary">
+                  No P/C history for {ticker} in the last {pcDays} days. Use the "Refresh All" button on the
+                  Securities page to collect today's snapshot, then repeat daily to build a trend.
+                </Typography>
+              )}
+            </Paper>
+          </Stack>
+        );
+      })()}
 
       {/* --- Tab 4: Options Analytics (Max Pain + Expected Move) --- */}
       {tab === 4 && (() => {

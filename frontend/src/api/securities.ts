@@ -13,6 +13,10 @@ import type {
   RiskSignalsResponse,
   PortfolioDeltaResponse,
   ScreenerResponse,
+  SnapshotRefreshResponse,
+  BackfillResponse,
+  AddSecurityPayload,
+  AddSecurityResponse,
 } from './securitiesTypes';
 
 export interface SecuritiesResponse { securities: Security[] }
@@ -23,7 +27,8 @@ export interface OptionsPCHistoryResponse { ticker: string; history: OptionsPCHi
 export type {
   OptionsAnalyticsResponse, IVRankResponse, EarningsResponse,
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
-  PortfolioDeltaResponse, ScreenerResponse,
+  PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
+  AddSecurityPayload, AddSecurityResponse,
 };
 
 export const securitiesApi = {
@@ -73,4 +78,28 @@ export const securitiesApi = {
     const qs = new URLSearchParams(params).toString();
     return apiRequest<ScreenerResponse>(`/api/securities/screen${qs ? `?${qs}` : ''}`);
   },
+
+  refreshOptionsSnapshots: (source: 'portfolio' | 'watchlist' | 'all' = 'all', chainType: 'atm' | 'full' = 'atm') =>
+    apiRequest<SnapshotRefreshResponse>(
+      `/api/securities/refresh-options-snapshots?source=${source}&chain_type=${chainType}`,
+      { method: 'POST' },
+    ),
+
+  backfillOptionsHistory: (ticker: string, days = 90) =>
+    apiRequest<BackfillResponse>(
+      `/api/securities/${ticker}/options/history/backfill?days=${days}`,
+      { method: 'POST' },
+    ),
+
+  addToWatchlist: (payload: AddSecurityPayload) =>
+    apiRequest<AddSecurityResponse>('/api/watchlist', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  addToPortfolio: (payload: AddSecurityPayload) =>
+    apiRequest<AddSecurityResponse>('/api/portfolio', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 };

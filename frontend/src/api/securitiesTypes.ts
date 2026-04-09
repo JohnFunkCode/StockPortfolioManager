@@ -224,6 +224,60 @@ export interface PortfolioDeltaResponse {
   positions: PortfolioDeltaPosition[];
 }
 
+// Add security
+export interface AddSecurityPayload {
+  symbol: string;
+  name?: string;
+  currency?: string;
+  // watchlist only
+  tags?: string[];
+  // portfolio only
+  purchase_price?: number | null;
+  quantity?: number | null;
+  purchase_date?: string | null;
+}
+export interface AddSecurityResponse {
+  symbol: string;
+  destination: 'watchlist' | 'portfolio';
+}
+
+// Polygon.io historical backfill
+export interface BackfillResult {
+  date: string;
+  status: 'stored' | 'duplicate' | 'no_data' | 'no_expirations' | 'error';
+  expirations?: number;
+  contracts?: number;
+  price?: number;
+  error?: string;
+}
+export interface BackfillResponse {
+  ticker: string;
+  days_requested: number;
+  dates_attempted: number;
+  stored: number;
+  skipped: number;
+  no_data: number;
+  failed: number;
+  results: BackfillResult[];
+}
+
+// Bulk options snapshot refresh
+export interface SnapshotRefreshResult {
+  symbol: string;
+  status: 'ok' | 'error';
+  error?: string;
+}
+export interface SnapshotRefreshResponse {
+  source: string;
+  chain_type: string;
+  total: number;
+  succeeded: number;
+  failed: number;
+  duration_seconds: number;
+  results: SnapshotRefreshResult[];
+  note: string;
+}
+
 // #6 Screener
 export interface ScreenerResult extends Security {
   last_close: number;

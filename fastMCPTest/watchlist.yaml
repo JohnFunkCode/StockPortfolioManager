@@ -1014,3 +1014,6 @@
   currency: USD
   tags:
     - Cloud
+- currency: USD
+  name: Antero Resources
+  symbol: AR

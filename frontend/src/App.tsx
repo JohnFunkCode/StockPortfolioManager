@@ -5,16 +5,20 @@ import {
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
+import BarChartIcon from '@mui/icons-material/BarChart';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
 import SymbolsPage from './components/symbols/SymbolsPage';
+import SecuritiesPage from './components/securities/SecuritiesPage';
+import SecurityDetailPage from './components/securities/SecurityDetailPage';
 
 function Layout() {
   const location = useLocation();
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
+    { label: 'Securities', path: '/securities', icon: <BarChartIcon /> },
     { label: 'Plans', path: '/plans', icon: <ListAltIcon /> },
     { label: 'Symbols', path: '/symbols', icon: <ShowChartIcon /> },
   ];
@@ -35,8 +39,8 @@ function Layout() {
                 color="inherit"
                 startIcon={item.icon}
                 sx={{
-                  opacity: location.pathname === item.path ? 1 : 0.7,
-                  borderBottom: location.pathname === item.path ? '2px solid white' : 'none',
+                  opacity: location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path)) ? 1 : 0.7,
+                  borderBottom: location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path)) ? '2px solid white' : 'none',
                   borderRadius: 0,
                 }}
               >
@@ -58,6 +62,8 @@ export default function App() {
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<DashboardPage />} />
+        <Route path="/securities" element={<SecuritiesPage />} />
+        <Route path="/securities/:symbol" element={<SecurityDetailPage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/plans/:id" element={<PlanDetailPage />} />
         <Route path="/symbols" element={<SymbolsPage />} />

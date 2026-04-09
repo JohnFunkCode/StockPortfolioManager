@@ -130,6 +130,120 @@ def get_stock_price(symbol: str) -> dict:
         "options": options_data,
     }
 
+    _options_store.save_snapshot(
+        symbol=symbol.upper(),
+        price=price,
+        bollinger_bands=result["bollinger_bands"],
+        options=options_data,
+    )
+
+    return result
+
+def _chain_side_full(chain_df, price):
+    """Return all contracts + aggregate stats for one side (calls or puts)."""
+    df = chain_df.copy()
+    df = df[df["strike"] > 0].copy()
+
+    contracts = []
+    for _, row in df.iterrows():
+        contracts.append({
+            "strike":        round(float(row["strike"]), 2),
+            "last":          round(float(row.get("lastPrice", 0) or 0), 2),
+            "bid":           round(float(row.get("bid", 0) or 0), 2),
+            "ask":           round(float(row.get("ask", 0) or 0), 2),
+            "iv":            round(float(row.get("impliedVolatility", 0) or 0) * 100, 1),
+            "volume":        _safe_int(row.get("volume")),
+            "open_interest": _safe_int(row.get("openInterest")),
+            "in_the_money":  bool(row.get("inTheMoney", False)),
+        })
+
+    total_oi  = int(df["openInterest"].fillna(0).sum())
+    total_vol = int(df["volume"].fillna(0).sum())
+    avg_iv    = round(float(df["impliedVolatility"].fillna(0).mean()) * 100, 1)
+
+    return {
+        "contracts":          sorted(contracts, key=lambda x: x["strike"]),
+        "total_open_interest": total_oi,
+        "total_volume":        total_vol,
+        "avg_iv_pct":          avg_iv,
+    }
+
+
+@mcp.tool()
+def get_full_options_chain(symbol: str) -> dict:
+    """Fetch the full options chain (all strikes, all expirations) for a ticker and persist to DB."""
+    ticker = yf.Ticker(symbol.upper())
+    info   = ticker.fast_info
+    price  = info.last_price
+    if price is None:
+        raise ValueError(f"Could not retrieve price for symbol: {symbol}")
+
+    # Bollinger Bands for context
+    hist   = get_history(symbol.upper(), "1d", 90)
+    close  = hist["Close"]
+    sma20  = float(close.rolling(window=20).mean().iloc[-1])
+    std20  = float(close.rolling(window=20).std().iloc[-1])
+    bollinger_bands = {
+        "upper":   round(sma20 + 2 * std20, 2),
+        "middle":  round(sma20, 2),
+        "lower":   round(sma20 - 2 * std20, 2),
+        "period":  20,
+        "std_dev": 2,
+    }
+
+    expirations = ticker.options
+    if not expirations:
+        return {
+            "symbol":           symbol.upper(),
+            "price":            round(price, 2),
+            "bollinger_bands":  bollinger_bands,
+            "expiration_count": 0,
+            "total_contracts":  0,
+            "expirations":      [],
+        }
+
+    expirations_data = []
+    total_contracts  = 0
+
+    for exp_date in expirations:
+        try:
+            chain = ticker.option_chain(exp_date)
+        except Exception:
+            continue
+
+        calls_data = _chain_side_full(chain.calls, price)
+        puts_data  = _chain_side_full(chain.puts,  price)
+
+        total_call_oi  = calls_data["total_open_interest"]
+        total_put_oi   = puts_data["total_open_interest"]
+        put_call_ratio = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None
+
+        expirations_data.append({
+            "expiration":      exp_date,
+            "put_call_ratio":  put_call_ratio,
+            "calls":           calls_data,
+            "puts":            puts_data,
+        })
+        total_contracts += len(calls_data["contracts"]) + len(puts_data["contracts"])
+
+    _options_store.save_full_chain(
+        symbol=symbol.upper(),
+        price=price,
+        bollinger_bands=bollinger_bands,
+        expirations_data=expirations_data,
+    )
+
+    return {
+        "symbol":           symbol.upper(),
+        "price":            round(price, 2),
+        "currency":         getattr(info, "currency", "USD"),
+        "bollinger_bands":  bollinger_bands,
+        "expiration_count": len(expirations_data),
+        "total_contracts":  total_contracts,
+        "expirations":      [e["expiration"] for e in expirations_data],
+    }
+
+
 @mcp.tool()
 def get_rsi(symbol: str, period: int = 14, interval: str = "1d") -> dict:
     """Calculate the Relative Strength Index (RSI) for a stock symbol.

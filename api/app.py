@@ -845,6 +845,7 @@ def create_app() -> Flask:
         }
 
         results: dict = {}
+        errors: dict = {}
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(fn): key for key, fn in tasks.items()}
             for future in as_completed(futures):
@@ -853,8 +854,9 @@ def create_app() -> Flask:
                     results[key] = future.result()
                 except Exception as e:
                     results[key] = None
+                    errors[key] = str(e)
 
-        return jsonify({"ticker": ticker, **results})
+        return jsonify({"ticker": ticker, "_errors": errors if errors else None, **results})
 
     @app.route("/api/securities/<ticker>/signals/options-flow", methods=["GET"])
     def get_signals_options_flow(ticker: str):
@@ -869,16 +871,18 @@ def create_app() -> Flask:
         }
 
         results: dict = {}
+        errors: dict = {}
         with ThreadPoolExecutor(max_workers=2) as executor:
             futures = {executor.submit(fn): key for key, fn in tasks.items()}
             for future in as_completed(futures):
                 key = futures[future]
                 try:
                     results[key] = future.result()
-                except Exception:
+                except Exception as e:
                     results[key] = None
+                    errors[key] = str(e)
 
-        return jsonify({"ticker": ticker, **results})
+        return jsonify({"ticker": ticker, "_errors": errors if errors else None, **results})
 
     @app.route("/api/securities/<ticker>/signals/risk", methods=["GET"])
     def get_signals_risk(ticker: str):

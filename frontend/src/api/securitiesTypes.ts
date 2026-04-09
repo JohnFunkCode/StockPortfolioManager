@@ -180,10 +180,12 @@ export interface TechnicalSignalsResponse {
   candlestick_patterns: CandlestickPatternsData | null;
   higher_lows: HigherLowsData | null;
   gap_analysis: GapAnalysisData | null;
+  _errors?: Record<string, string> | null;
 }
 
 export interface OptionsFlowResponse {
   ticker: string;
+  _errors?: Record<string, string> | null;
   unusual_calls: {
     sweep_signal: string; interpretation: string;
     unusual_calls: {

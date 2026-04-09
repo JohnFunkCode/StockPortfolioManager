@@ -2,7 +2,8 @@
  * SignalsTab — Signals tab content for SecurityDetailPage.
  * Shows technical momentum, structure, options flow, and risk signals.
  */
-import { Box, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals } from '../../hooks/useSecurities';
 
 interface Props { ticker: string }
@@ -31,6 +32,22 @@ function MetricRow({ label, value, color = '#f9fafb' }: { label: string; value: 
   );
 }
 
+function SectionError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Alert
+      severity="error"
+      action={
+        <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={onRetry}>
+          Retry
+        </Button>
+      }
+      sx={{ fontSize: 12 }}
+    >
+      {message}
+    </Alert>
+  );
+}
+
 function strengthColor(s: string | undefined): string {
   if (!s) return '#6b7280';
   if (s === 'strong')   return '#10b981';
@@ -50,9 +67,9 @@ function signalColor(s: string | undefined): string {
 }
 
 export default function SignalsTab({ ticker }: Props) {
-  const { data: tech, isLoading: techLoading } = useTechnicalSignals(ticker, true);
-  const { data: flow, isLoading: flowLoading } = useOptionsFlowSignals(ticker, true);
-  const { data: risk, isLoading: riskLoading } = useRiskSignals(ticker, true);
+  const { data: tech, isLoading: techLoading, error: techError, refetch: refetchTech } = useTechnicalSignals(ticker, true);
+  const { data: flow, isLoading: flowLoading, error: flowError, refetch: refetchFlow } = useOptionsFlowSignals(ticker, true);
+  const { data: risk, isLoading: riskLoading, error: riskError, refetch: refetchRisk } = useRiskSignals(ticker, true);
 
   return (
     <Stack spacing={2}>
@@ -62,6 +79,8 @@ export default function SignalsTab({ ticker }: Props) {
         <SectionHeader title="Momentum & Volume" />
         {techLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+        ) : techError ? (
+          <SectionError message={(techError as Error).message ?? 'Failed to load technical signals'} onRetry={refetchTech} />
         ) : (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
 
@@ -135,6 +154,14 @@ export default function SignalsTab({ ticker }: Props) {
             </Box>
           </Stack>
         )}
+        {tech?._errors && Object.keys(tech._errors).length > 0 && (
+          <Alert severity="warning" sx={{ mt: 1, fontSize: 11 }}>
+            Some signals failed to load: {Object.keys(tech._errors).join(', ')}
+            <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={refetchTech} sx={{ ml: 1 }}>
+              Retry
+            </Button>
+          </Alert>
+        )}
         {tech?.vwap?.interpretation && (
           <Typography variant="caption" sx={{ color: '#9ca3af', mt: 1, display: 'block', fontStyle: 'italic' }}>
             {tech.vwap.interpretation}
@@ -152,6 +179,8 @@ export default function SignalsTab({ ticker }: Props) {
         <SectionHeader title="Price Structure" />
         {techLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+        ) : techError ? (
+          <SectionError message={(techError as Error).message ?? 'Failed to load technical signals'} onRetry={refetchTech} />
         ) : (
           <Stack spacing={2}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
@@ -250,6 +279,8 @@ export default function SignalsTab({ ticker }: Props) {
         <SectionHeader title="Options Flow (Smart Money)" />
         {flowLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+        ) : flowError ? (
+          <SectionError message={(flowError as Error).message ?? 'Failed to load options flow signals'} onRetry={refetchFlow} />
         ) : (
           <Stack spacing={2}>
             {/* DAOI summary */}
@@ -278,6 +309,15 @@ export default function SignalsTab({ ticker }: Props) {
               </Stack>
             ) : (
               <Typography variant="body2" color="text.secondary">Delta-adjusted OI not available (no options data).</Typography>
+            )}
+
+            {flow?._errors && Object.keys(flow._errors).length > 0 && (
+              <Alert severity="warning" sx={{ fontSize: 11 }}>
+                Some flow signals failed: {Object.keys(flow._errors).join(', ')}
+                <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={refetchFlow} sx={{ ml: 1 }}>
+                  Retry
+                </Button>
+              </Alert>
             )}
 
             {/* Unusual calls */}
@@ -349,6 +389,8 @@ export default function SignalsTab({ ticker }: Props) {
         <SectionHeader title="Risk & Stop-Loss Calibration" />
         {riskLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+        ) : riskError ? (
+          <SectionError message={(riskError as Error).message ?? 'Failed to load risk signals'} onRetry={refetchRisk} />
         ) : risk?.drawdown ? (
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
             <Box sx={{ flex: 1 }}>

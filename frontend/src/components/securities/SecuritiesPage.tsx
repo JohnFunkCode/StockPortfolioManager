@@ -118,7 +118,7 @@ export default function SecuritiesPage() {
       renderCell: (p: GridRenderCellParams<Security, string>) => (
         <Typography
           variant="body2"
-          sx={{ cursor: 'pointer', color: 'secondary.main', fontWeight: 600 }}
+          sx={{ cursor: 'pointer', color: 'secondary.main', fontWeight: 600, lineHeight: '52px' }}
           onClick={() => navigate(`/securities/${p.value}`)}
         >
           {p.value}
@@ -166,6 +166,7 @@ export default function SecuritiesPage() {
       renderCell: (p: GridRenderCellParams<Security, string[]>) => (
         <Stack
           direction="row" spacing={0.5} flexWrap="wrap" useFlexGap
+          alignItems="center" sx={{ height: '100%' }}
           onClick={(e) => e.stopPropagation()}
         >
           {(p.value ?? []).slice(0, 4).map((t) => (

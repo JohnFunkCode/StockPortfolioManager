@@ -279,6 +279,171 @@ function buildAnalyticsSummary(
   return lines;
 }
 
+// ---------------------------------------------------------------------------
+// Price & MAs narrative summary
+// ---------------------------------------------------------------------------
+
+function buildPriceMASummary(indicators: import('../../api/securitiesTypes').TechnicalIndicator[]): string[] {
+  if (indicators.length < 5) return [];
+  const lines: string[] = [];
+  const latest = indicators.at(-1)!;
+  const { close, ma10, ma30, ma50, ma100, ma200, bb_upper, bb_lower, bb_middle } = latest;
+  if (close == null) return [];
+
+  // --- MA stack / trend posture ---
+  const maOrder: { label: string; value: number | null }[] = [
+    { label: 'MA10', value: ma10 }, { label: 'MA30', value: ma30 },
+    { label: 'MA50', value: ma50 }, { label: 'MA100', value: ma100 },
+    { label: 'MA200', value: ma200 },
+  ];
+  const definedMAs = maOrder.filter((m) => m.value != null) as { label: string; value: number }[];
+  const aboveMAs = definedMAs.filter((m) => close > m.value);
+  const belowMAs = definedMAs.filter((m) => close < m.value);
+
+  if (aboveMAs.length === definedMAs.length && definedMAs.length >= 3) {
+    lines.push(`Price ($${close.toFixed(2)}) is trading above all ${definedMAs.length} moving averages — a fully bullish MA stack indicating broad trend alignment to the upside.`);
+  } else if (belowMAs.length === definedMAs.length && definedMAs.length >= 3) {
+    lines.push(`Price ($${close.toFixed(2)}) is below all ${definedMAs.length} moving averages — a fully bearish MA stack with no nearby technical support above.`);
+  } else if (aboveMAs.length > belowMAs.length) {
+    const below = belowMAs.map((m) => m.label).join(', ');
+    lines.push(`Price ($${close.toFixed(2)}) is above most moving averages but still below ${below}, suggesting an uptrend that has not yet fully recovered.`);
+  } else if (belowMAs.length > aboveMAs.length) {
+    const above = aboveMAs.map((m) => m.label).join(', ');
+    lines.push(`Price ($${close.toFixed(2)}) is below most moving averages with only ${above || 'none'} as support — the trend posture is predominantly bearish.`);
+  }
+
+  // --- MA200 context ---
+  if (ma200 != null) {
+    const pct = ((close - ma200) / ma200) * 100;
+    if (Math.abs(pct) < 2) {
+      lines.push(`Price is testing the 200-day MA ($${ma200.toFixed(2)}) — a key long-term support/resistance level. A decisive close above or below would be a significant signal.`);
+    } else if (pct > 0) {
+      lines.push(`Price is ${pct.toFixed(1)}% above the 200-day MA ($${ma200.toFixed(2)}), confirming a long-term uptrend.`);
+    } else {
+      lines.push(`Price is ${Math.abs(pct).toFixed(1)}% below the 200-day MA ($${ma200.toFixed(2)}), consistent with a long-term downtrend or extended correction.`);
+    }
+  }
+
+  // --- Golden / death cross proximity ---
+  if (ma50 != null && ma200 != null) {
+    const spread = ((ma50 - ma200) / ma200) * 100;
+    if (spread > 0 && spread < 2) {
+      lines.push(`The MA50 ($${ma50.toFixed(2)}) is just ${spread.toFixed(1)}% above the MA200 ($${ma200.toFixed(2)}) — a recent golden cross or one approaching, historically a long-term bullish signal.`);
+    } else if (spread < 0 && spread > -2) {
+      lines.push(`The MA50 ($${ma50.toFixed(2)}) is just ${Math.abs(spread).toFixed(1)}% below the MA200 ($${ma200.toFixed(2)}) — a recent death cross or one approaching, historically a long-term bearish signal.`);
+    } else if (spread > 0) {
+      lines.push(`MA50 ($${ma50.toFixed(2)}) is above MA200 ($${ma200.toFixed(2)}) by ${spread.toFixed(1)}pp — a golden cross is in effect, supporting the long-term bullish case.`);
+    } else {
+      lines.push(`MA50 ($${ma50.toFixed(2)}) is below MA200 ($${ma200.toFixed(2)}) by ${Math.abs(spread).toFixed(1)}pp — a death cross is in effect, reinforcing the long-term bearish posture.`);
+    }
+  }
+
+  // --- Bollinger Band position ---
+  if (bb_upper != null && bb_lower != null && bb_middle != null) {
+    const bw = ((bb_upper - bb_lower) / bb_middle) * 100;
+    if (close >= bb_upper) {
+      lines.push(`Price has touched or exceeded the upper Bollinger Band ($${bb_upper.toFixed(2)}) — a statistically extended move that may indicate short-term overbought conditions or the start of a strong breakout.`);
+    } else if (close <= bb_lower) {
+      lines.push(`Price is at or below the lower Bollinger Band ($${bb_lower.toFixed(2)}) — statistically oversold on a mean-reversion basis, though not a signal in isolation during a strong downtrend.`);
+    } else {
+      const pct = ((close - bb_lower) / (bb_upper - bb_lower) * 100).toFixed(0);
+      lines.push(`Price ($${close.toFixed(2)}) sits ${pct}% of the way through the Bollinger Band range ($${bb_lower.toFixed(2)}–$${bb_upper.toFixed(2)}), near the midline ($${bb_middle.toFixed(2)}).`);
+    }
+    if (bw < 10) {
+      lines.push(`Band width is compressed at ${bw.toFixed(1)}% — a squeeze often precedes a sharp directional expansion.`);
+    } else if (bw > 30) {
+      lines.push(`Band width is wide at ${bw.toFixed(1)}%, reflecting elevated recent volatility.`);
+    }
+  }
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Technical Analysis narrative summary
+// ---------------------------------------------------------------------------
+
+function buildTechnicalSummary(indicators: import('../../api/securitiesTypes').TechnicalIndicator[]): string[] {
+  if (indicators.length < 5) return [];
+  const lines: string[] = [];
+  const latest = indicators.at(-1)!;
+  const { rsi, macd, macd_signal, macd_hist, close } = latest;
+
+  // --- RSI ---
+  if (rsi != null) {
+    if (rsi >= 80) {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — deeply overbought territory. Momentum is strong but risk of mean reversion or pause is elevated.`);
+    } else if (rsi >= 70) {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — overbought. Price has run hard; watch for divergence or a pullback signal before adding exposure.`);
+    } else if (rsi <= 20) {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — deeply oversold. Selling pressure may be exhausting; a mean-reversion bounce is statistically likely but confirmation is needed.`);
+    } else if (rsi <= 30) {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — oversold. Often a precondition for a bounce, though in strong downtrends RSI can remain depressed for extended periods.`);
+    } else if (rsi > 50) {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — above the midline, consistent with a bullish trend where dips tend to be bought.`);
+    } else {
+      lines.push(`RSI is at ${rsi.toFixed(1)} — below the midline, consistent with a bearish trend where rallies tend to be sold.`);
+    }
+
+    // RSI trend over last 5 bars
+    const rsiSeries = indicators.slice(-6, -1).map((d) => d.rsi).filter((v): v is number => v != null);
+    if (rsiSeries.length >= 3) {
+      const rsiDelta = rsi - rsiSeries[0];
+      if (rsiDelta > 10) lines.push(`RSI has risen ${rsiDelta.toFixed(0)} points over the last few sessions — building upward momentum.`);
+      else if (rsiDelta < -10) lines.push(`RSI has fallen ${Math.abs(rsiDelta).toFixed(0)} points over the last few sessions — momentum is deteriorating.`);
+    }
+  }
+
+  // --- MACD ---
+  if (macd != null && macd_signal != null) {
+    const crossBullish = macd > macd_signal;
+    const separation = Math.abs(macd - macd_signal);
+    if (crossBullish) {
+      lines.push(`MACD (${macd.toFixed(3)}) is above the signal line (${macd_signal.toFixed(3)}) — a bullish configuration${separation < 0.05 ? ', though the lines are close and a bearish cross could follow' : ''}.`);
+    } else {
+      lines.push(`MACD (${macd.toFixed(3)}) is below the signal line (${macd_signal.toFixed(3)}) — a bearish configuration${separation < 0.05 ? ', though the lines are converging and a bullish cross may be near' : ''}.`);
+    }
+  }
+
+  // --- MACD histogram momentum ---
+  if (macd_hist != null) {
+    const histSeries = indicators.slice(-4).map((d) => d.macd_hist).filter((v): v is number => v != null);
+    if (histSeries.length >= 3) {
+      const increasing = histSeries.every((v, i) => i === 0 || v > histSeries[i - 1]);
+      const decreasing = histSeries.every((v, i) => i === 0 || v < histSeries[i - 1]);
+      if (macd_hist > 0 && increasing) {
+        lines.push(`MACD histogram is positive and expanding — bullish momentum is accelerating.`);
+      } else if (macd_hist > 0 && decreasing) {
+        lines.push(`MACD histogram is positive but shrinking — bullish momentum is present but fading; watch for a potential cross below the signal line.`);
+      } else if (macd_hist < 0 && decreasing) {
+        lines.push(`MACD histogram is negative and deepening — bearish momentum is accelerating.`);
+      } else if (macd_hist < 0 && increasing) {
+        lines.push(`MACD histogram is negative but rising toward zero — bearish momentum is losing steam, a potential bullish cross may be forming.`);
+      }
+    }
+  }
+
+  // --- Volume trend ---
+  const recentVols = indicators.slice(-10).map((d) => d.volume).filter((v) => v > 0);
+  if (recentVols.length >= 5) {
+    const halfLen = Math.floor(recentVols.length / 2);
+    const avgRecent = recentVols.slice(-halfLen).reduce((a, b) => a + b, 0) / halfLen;
+    const avgPrior  = recentVols.slice(0, halfLen).reduce((a, b) => a + b, 0) / halfLen;
+    const volTrend = ((avgRecent - avgPrior) / avgPrior) * 100;
+    if (volTrend > 20 && close != null) {
+      const priceRecent = indicators.slice(-halfLen).map((d) => d.close).filter((v): v is number => v != null);
+      const pricePrior  = indicators.slice(-recentVols.length, -halfLen).map((d) => d.close).filter((v): v is number => v != null);
+      const priceUp = priceRecent.length > 0 && pricePrior.length > 0 &&
+        priceRecent.at(-1)! > pricePrior[0];
+      lines.push(`Volume has risen ${volTrend.toFixed(0)}% over the past several sessions${priceUp ? ' alongside rising prices — a healthy sign of demand-driven accumulation' : ' while price fell — elevated selling pressure or distribution'}.`);
+    } else if (volTrend < -20) {
+      lines.push(`Volume has declined ${Math.abs(volTrend).toFixed(0)}% recently — drying up participation may signal either consolidation or waning conviction in the current trend.`);
+    }
+  }
+
+  return lines;
+}
+
 const DAYS_OPTIONS = [30, 60, 90, 180, 365];
 
 function ChartSkeleton({ height = 200 }: { height?: number }) {
@@ -558,6 +723,22 @@ export default function SecurityDetailPage() {
               ))}
             </Stack>
           )}
+
+          {/* Interpretation */}
+          {!techLoading && indicators.length > 0 && (() => {
+            const priceLines = buildPriceMASummary(indicators);
+            if (priceLines.length === 0) return null;
+            return (
+              <Paper variant="outlined" sx={{ p: 2, mt: 2, borderColor: 'divider', bgcolor: 'background.default' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>Interpretation</Typography>
+                <Stack spacing={0.75}>
+                  {priceLines.map((line, i) => (
+                    <Typography key={i} variant="body2" sx={{ lineHeight: 1.6 }}>{line}</Typography>
+                  ))}
+                </Stack>
+              </Paper>
+            );
+          })()}
         </Paper>
       )}
 
@@ -597,6 +778,22 @@ export default function SecurityDetailPage() {
               </>
             )}
           </Paper>
+
+          {/* Interpretation */}
+          {!techLoading && indicators.length > 0 && (() => {
+            const techLines = buildTechnicalSummary(indicators);
+            if (techLines.length === 0) return null;
+            return (
+              <Paper variant="outlined" sx={{ p: 2, borderColor: 'divider', bgcolor: 'background.default' }}>
+                <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>Interpretation</Typography>
+                <Stack spacing={0.75}>
+                  {techLines.map((line, i) => (
+                    <Typography key={i} variant="body2" sx={{ lineHeight: 1.6 }}>{line}</Typography>
+                  ))}
+                </Stack>
+              </Paper>
+            );
+          })()}
 
           {/* RSI / MACD interpretation */}
           {latest && !techLoading && (

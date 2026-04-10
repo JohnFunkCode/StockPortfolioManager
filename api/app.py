@@ -1417,7 +1417,7 @@ def create_app() -> Flask:
         source      = request.args.get("source", "portfolio")
         chain_type  = request.args.get("chain_type", "atm")
         batch_size  = int(request.args.get("batch_size", 10))
-        max_workers = int(request.args.get("max_workers", 2))
+        max_workers = int(request.args.get("max_workers", 4))
         batch_delay = float(request.args.get("batch_delay", 1.5))  # seconds between batches
 
         portfolio  = _load_portfolio()

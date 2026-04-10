@@ -148,3 +148,17 @@
 127.0.0.1 - - [10/Apr/2026 12:59:15] "GET /api/securities/GOOG/signals/risk HTTP/1.1" 200 -
 127.0.0.1 - - [10/Apr/2026 12:59:15] "GET /api/securities/GOOG/signals/technical HTTP/1.1" 200 -
 127.0.0.1 - - [10/Apr/2026 12:59:16] "GET /api/securities/GOOG/signals/options-flow HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:04:18] "GET /api/securities/DELL/earnings HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/earnings HTTP/1.1" 200 -

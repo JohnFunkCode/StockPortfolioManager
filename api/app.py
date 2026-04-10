@@ -1414,9 +1414,11 @@ def create_app() -> Flask:
         from concurrent.futures import ThreadPoolExecutor, as_completed
         import time as _time
 
-        source     = request.args.get("source", "portfolio")
-        chain_type = request.args.get("chain_type", "atm")
-        max_workers = int(request.args.get("max_workers", 5))
+        source      = request.args.get("source", "portfolio")
+        chain_type  = request.args.get("chain_type", "atm")
+        batch_size  = int(request.args.get("batch_size", 10))
+        max_workers = int(request.args.get("max_workers", 2))
+        batch_delay = float(request.args.get("batch_delay", 1.5))  # seconds between batches
 
         portfolio  = _load_portfolio()
         watchlist  = _load_watchlist()
@@ -1444,16 +1446,41 @@ def create_app() -> Flask:
         results_list = []
 
         def _fetch_one(sym: str) -> dict:
-            try:
-                _fetch(sym)
-                return {"symbol": sym, "status": "ok"}
-            except Exception as exc:
-                return {"symbol": sym, "status": "error", "error": str(exc)}
+            """Fetch with one automatic retry on failure."""
+            for attempt in range(2):
+                try:
+                    _fetch(sym)
+                    return {"symbol": sym, "status": "ok"}
+                except Exception as exc:
+                    last_exc = exc
+                    if attempt == 0:
+                        _time.sleep(2)  # brief pause before retry
+            return {"symbol": sym, "status": "error", "error": str(last_exc)}
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(_fetch_one, sym): sym for sym in symbols}
-            for future in as_completed(futures):
-                results_list.append(future.result())
+        # Use a single executor for the entire run so threads are reused across
+        # batches.  Creating a new executor per batch spawns fresh threads each
+        # time, and yfinance's peewee cache opens one DB connection per thread
+        # (tkr-tz.db, cookies.db) that is never closed — exhausting file
+        # descriptors after enough batches.
+        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
+        try:
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for idx, batch in enumerate(batches):
+                    futures = {executor.submit(_fetch_one, sym): sym for sym in batch}
+                    for future in as_completed(futures):
+                        results_list.append(future.result())
+                    # Pause between batches (skip delay after the last batch)
+                    if idx < len(batches) - 1:
+                        _time.sleep(batch_delay)
+        finally:
+            # Close yfinance's peewee cache DB connections that are held open
+            # in each worker thread's thread-local storage.
+            try:
+                from yfinance.cache import _TzDBManager, _CookieDBManager
+                _TzDBManager.close_db()
+                _CookieDBManager.close_db()
+            except Exception:
+                pass
 
         elapsed = round(_time.monotonic() - start, 1)
         results_list.sort(key=lambda r: r["symbol"])

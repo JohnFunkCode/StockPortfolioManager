@@ -79,11 +79,14 @@ export const securitiesApi = {
     return apiRequest<ScreenerResponse>(`/api/securities/screen${qs ? `?${qs}` : ''}`);
   },
 
-  refreshOptionsSnapshots: (source: 'portfolio' | 'watchlist' | 'all' = 'all', chainType: 'atm' | 'full' = 'atm') =>
-    apiRequest<SnapshotRefreshResponse>(
+  refreshOptionsSnapshots: (source: 'portfolio' | 'watchlist' | 'all' = 'all', chainType: 'atm' | 'full' = 'atm') => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6 * 60 * 1000); // 6 min
+    return apiRequest<SnapshotRefreshResponse>(
       `/api/securities/refresh-options-snapshots?source=${source}&chain_type=${chainType}`,
-      { method: 'POST' },
-    ),
+      { method: 'POST', signal: controller.signal },
+    ).finally(() => clearTimeout(timeoutId));
+  },
 
   backfillOptionsHistory: (ticker: string, days = 90) =>
     apiRequest<BackfillResponse>(

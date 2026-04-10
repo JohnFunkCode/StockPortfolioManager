@@ -15,6 +15,8 @@ from __future__ import annotations
 import datetime
 import enum
 import logging
+import threading
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -127,15 +129,28 @@ CREATE TABLE IF NOT EXISTS fetch_log (
 """
 
 _db_initialised = False
+_db_init_lock = threading.Lock()
+
+_SQLITE_TIMEOUT = 30  # seconds to wait for a write lock before raising
+
+
+def _connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(CACHE_DB, timeout=_SQLITE_TIMEOUT)
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA synchronous = NORMAL")
+    return conn
 
 
 def _init_db() -> None:
     global _db_initialised
     if _db_initialised:
         return
-    with sqlite3.connect(CACHE_DB) as conn:
-        conn.executescript(_DDL)
-    _db_initialised = True
+    with _db_init_lock:
+        if _db_initialised:
+            return
+        with closing(_connect()) as conn:
+            conn.executescript(_DDL)
+        _db_initialised = True
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +193,7 @@ def _ts_to_int(ts: object) -> int:
 
 
 def _count_cached(symbol: str, interval: str) -> int:
-    with sqlite3.connect(CACHE_DB) as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM ohlcv WHERE symbol=? AND interval=?",
             (symbol, interval),
@@ -187,7 +202,7 @@ def _count_cached(symbol: str, interval: str) -> int:
 
 
 def _latest_closed_ts(symbol: str, interval: str) -> Optional[int]:
-    with sqlite3.connect(CACHE_DB) as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT MAX(ts) FROM ohlcv WHERE symbol=? AND interval=? AND status='CLOSED'",
             (symbol, interval),
@@ -196,7 +211,7 @@ def _latest_closed_ts(symbol: str, interval: str) -> Optional[int]:
 
 
 def _has_open_bar(symbol: str, interval: str) -> bool:
-    with sqlite3.connect(CACHE_DB) as conn:
+    with closing(_connect()) as conn:
         row = conn.execute(
             "SELECT 1 FROM ohlcv WHERE symbol=? AND interval=? AND status='OPEN' LIMIT 1",
             (symbol, interval),
@@ -212,7 +227,7 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     if df.empty:
         return
 
-    with sqlite3.connect(CACHE_DB) as conn:
+    with closing(_connect()) as conn:
         for ts_idx, row in df.iterrows():
             ts_int     = _ts_to_int(ts_idx)
             bar_date   = pd.Timestamp(ts_idx).date()
@@ -265,7 +280,7 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
     cutoff = int(
         (datetime.datetime.utcnow() - datetime.timedelta(days=days)).timestamp()
     )
-    with sqlite3.connect(CACHE_DB) as conn:
+    with closing(_connect()) as conn:
         rows = conn.execute(
             """
             SELECT ts, open, high, low, close, volume

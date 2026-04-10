@@ -25,6 +25,7 @@ Usage:
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -127,15 +128,16 @@ class OptionsStore:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def _ensure_schema(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.executescript(_DDL)
             # Migration: add chain_type column to existing databases
             try:
@@ -184,7 +186,7 @@ class OptionsStore:
 
         bb = bollinger_bands or {}
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             # --- options_snapshots ---
             try:
                 cur = conn.execute(
@@ -307,7 +309,7 @@ class OptionsStore:
         symbol = symbol.upper()
         bb = bollinger_bands or {}
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             try:
                 cur = conn.execute(
                     """
@@ -402,7 +404,7 @@ class OptionsStore:
         """
         symbol = symbol.upper()
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
@@ -454,7 +456,7 @@ class OptionsStore:
         symbol = symbol.upper()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT DISTINCT captured_at
@@ -485,7 +487,7 @@ class OptionsStore:
         cutoff -= timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.captured_at, s.price, e.put_call_ratio,
@@ -505,19 +507,38 @@ class OptionsStore:
         """
         Return the most recent full snapshot for a symbol, including
         its expiration data and ATM contracts.
+
+        Prefers the most recent 'full' chain snapshot (all strikes/expirations)
+        over ATM snapshots, since ATM snapshots have no contract/expiration data
+        and would leave the Options Chain tab empty.  Falls back to any snapshot
+        if no full chain exists yet.
         """
         symbol = symbol.upper()
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
+            # Prefer the most recent full-chain snapshot
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
                 WHERE  symbol = ?
+                  AND  chain_type = 'full'
                 ORDER  BY captured_at DESC
                 LIMIT  1
                 """,
                 (symbol,),
             ).fetchone()
+
+            # Fall back to any snapshot (e.g. ATM-only) if no full chain exists
+            if snap is None:
+                snap = conn.execute(
+                    """
+                    SELECT * FROM options_snapshots
+                    WHERE  symbol = ?
+                    ORDER  BY captured_at DESC
+                    LIMIT  1
+                    """,
+                    (symbol,),
+                ).fetchone()
 
             if snap is None:
                 return None
@@ -590,7 +611,7 @@ class OptionsStore:
         query += " ORDER BY s.captured_at DESC LIMIT ?"
         params.append(limit)
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
 
         return [dict(r) for r in rows]
@@ -615,7 +636,7 @@ class OptionsStore:
         ) - timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT
@@ -645,7 +666,7 @@ class OptionsStore:
 
     def get_symbols(self) -> list[str]:
         """Return all symbols that have at least one snapshot."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT DISTINCT symbol FROM options_snapshots ORDER BY symbol"
             ).fetchall()
@@ -653,7 +674,7 @@ class OptionsStore:
 
     def snapshot_count(self, symbol: Optional[str] = None) -> int:
         """Return total number of snapshots, optionally for one symbol."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             if symbol:
                 row = conn.execute(
                     "SELECT COUNT(*) FROM options_snapshots WHERE symbol = ?",

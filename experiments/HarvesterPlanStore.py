@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import os
+from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
@@ -446,12 +447,14 @@ class HarvesterPlanDB:
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def _init_db(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.executescript(SCHEMA_SQL)
 
     # -------------------------
@@ -476,7 +479,7 @@ class HarvesterPlanDB:
         now = _utc_now_iso()
 
         # 1) Ensure symbol row and get symbol_id
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute(SQL_INSERT_SYMBOL, {"ticker": symbol, "created_at": now})
             row = conn.execute(SQL_GET_SYMBOL_ID, {"ticker": symbol}).fetchone()
             if not row:
@@ -488,7 +491,7 @@ class HarvesterPlanDB:
         if bars.empty:
             raise RuntimeError(f"No price history returned for {symbol}")
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute("BEGIN;")
             try:
                 for _, r in bars.iterrows():
@@ -510,7 +513,7 @@ class HarvesterPlanDB:
                 raise
 
         # 3) Pull last N adj_close prices from the local DB (deterministic)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             prices_rows = conn.execute(
                 """
                 SELECT bar_date, adj_close, close
@@ -548,7 +551,7 @@ class HarvesterPlanDB:
             raise RuntimeError(f"No feasible forward ladder found for {symbol}")
 
         # 5) Create/find template
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             tmpl = conn.execute(
                 """
                 SELECT template_id FROM plan_templates
@@ -588,7 +591,7 @@ class HarvesterPlanDB:
                 template_id = cur.lastrowid
 
         # 6) Insert plan_instance (supersede any active plan for that symbol)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute("BEGIN;")
             try:
                 prev = conn.execute(
@@ -730,7 +733,7 @@ class HarvesterPlanDB:
             )
             params = (status,)
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
@@ -747,7 +750,7 @@ class HarvesterPlanDB:
         results: List[Dict[str, Any]] = []
         now = _utc_now_iso()
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
 
         for row in active:
@@ -756,7 +759,7 @@ class HarvesterPlanDB:
             ticker = row["ticker"]
 
             next_rung = None
-            with self._connect() as conn:
+            with closing(self._connect()) as conn:
                 next_rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
 
             if not next_rung:
@@ -799,7 +802,7 @@ class HarvesterPlanDB:
             return []
         symbol = symbol.upper().strip()
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             instance = conn.execute(
                 SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
                 {"ticker": symbol},
@@ -849,7 +852,7 @@ class HarvesterPlanDB:
         ts = triggered_at or _utc_now_iso()
         updated = 0
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.execute("BEGIN;")
             try:
                 for rung_id in rung_ids:
@@ -903,7 +906,7 @@ class HarvesterPlanDB:
         ids_sql = f"SELECT instance_id FROM plan_instances WHERE {where_clause} ORDER BY created_at DESC;"
         delete_sql = f"DELETE FROM plan_instances WHERE {where_clause};"
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(count_sql, params).fetchone()
             matched = int(row["cnt"]) if row else 0
             ids: List[int] = []
@@ -928,7 +931,7 @@ class HarvesterPlanDB:
 
     def get_plan_by_id(self, instance_id: int) -> Optional[Dict[str, Any]]:
         """Get a single plan instance by ID, joined with symbol ticker."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 """
                 SELECT pi.*, s.ticker AS symbol
@@ -942,7 +945,7 @@ class HarvesterPlanDB:
 
     def get_rungs_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
         """Get all rungs for a plan instance, ordered by rung_index."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM plan_rungs
@@ -955,7 +958,7 @@ class HarvesterPlanDB:
 
     def get_rung_by_id(self, rung_id: int) -> Optional[Dict[str, Any]]:
         """Get a single rung by ID."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             row = conn.execute(
                 "SELECT * FROM plan_rungs WHERE rung_id = ?;",
                 (rung_id,),
@@ -981,13 +984,13 @@ class HarvesterPlanDB:
             return False
         params.append(instance_id)
         sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ?;"
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             cur = conn.execute(sql, params)
             return cur.rowcount > 0
 
     def delete_plan(self, instance_id: int) -> bool:
         """Archive a plan by setting its status to SUPERSEDED. Returns True if updated."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             cur = conn.execute(
                 "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND status = 'ACTIVE';",
                 (instance_id,),
@@ -996,7 +999,7 @@ class HarvesterPlanDB:
 
     def list_all_symbols(self) -> List[Dict[str, Any]]:
         """List all symbols with their active plan instance_id (if any)."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.symbol_id, s.ticker, s.name, s.currency,
@@ -1011,7 +1014,7 @@ class HarvesterPlanDB:
 
     def get_alerts_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
         """Get all alerts for a plan instance."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT * FROM alerts WHERE instance_id = ? ORDER BY alert_id;",
                 (instance_id,),
@@ -1021,7 +1024,7 @@ class HarvesterPlanDB:
     def get_dashboard_stats(self) -> Dict[str, Any]:
         """Return aggregate statistics for the dashboard."""
         stats: Dict[str, Any] = {}
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             # Plan counts by status
             for row in conn.execute(
                 "SELECT status, COUNT(*) AS cnt FROM plan_instances GROUP BY status;"
@@ -1084,7 +1087,7 @@ class HarvesterPlanDB:
         Create/refresh an alert for the next pending rung and disable others for the instance.
         """
         now = _utc_now_iso()
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 return
@@ -1126,7 +1129,7 @@ class HarvesterController:
 
         for row in active:
             instance_id = int(row["instance_id"])
-            with self.db._connect() as conn:
+            with closing(self.db._connect()) as conn:
                 rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 continue
@@ -1154,7 +1157,7 @@ class HarvesterController:
             instance_id = int(row["instance_id"])
             ticker = row["ticker"]
 
-            with self.db._connect() as conn:
+            with closing(self.db._connect()) as conn:
                 rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 continue
@@ -1167,7 +1170,7 @@ class HarvesterController:
             if current_price is None or current_price < target_price:
                 continue
 
-            with self.db._connect() as conn:
+            with closing(self.db._connect()) as conn:
                 conn.execute("BEGIN;")
                 try:
                     alert = conn.execute(

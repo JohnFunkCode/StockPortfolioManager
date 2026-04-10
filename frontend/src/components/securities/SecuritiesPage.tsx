@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AddSecurityDialog from './AddSecurityDialog';
 import {
+  Alert,
   Box,
   Button,
   Chip,
@@ -89,7 +90,7 @@ export default function SecuritiesPage() {
   };
 
   const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
-  const { mutate: refreshSnapshots, isPending: refreshing, data: refreshResult, reset: resetRefresh } = useRefreshOptionsSnapshots();
+  const { mutate: refreshSnapshots, isPending: refreshing, data: refreshResult, error: refreshError, reset: resetRefresh } = useRefreshOptionsSnapshots();
 
   const allTags = useMemo<string[]>(() => {
     const set = new Set<string>();
@@ -395,6 +396,11 @@ export default function SecuritiesPage() {
                 </Typography>
               )}
             </Stack>
+          )}
+          {refreshError && !refreshing && (
+            <Alert severity="error" onClose={resetRefresh} sx={{ fontSize: 12, py: 0 }}>
+              {(refreshError as Error).message || 'Refresh failed — check that the API server is running.'}
+            </Alert>
           )}
         </Stack>
       </Paper>

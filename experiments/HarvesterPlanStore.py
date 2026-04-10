@@ -481,6 +481,7 @@ class HarvesterPlanDB:
         # 1) Ensure symbol row and get symbol_id
         with closing(self._connect()) as conn:
             conn.execute(SQL_INSERT_SYMBOL, {"ticker": symbol, "created_at": now})
+            conn.commit()
             row = conn.execute(SQL_GET_SYMBOL_ID, {"ticker": symbol}).fetchone()
             if not row:
                 raise RuntimeError(f"Failed to resolve symbol_id for {symbol}")
@@ -589,6 +590,7 @@ class HarvesterPlanDB:
                     },
                 )
                 template_id = cur.lastrowid
+                conn.commit()
 
         # 6) Insert plan_instance (supersede any active plan for that symbol)
         with closing(self._connect()) as conn:

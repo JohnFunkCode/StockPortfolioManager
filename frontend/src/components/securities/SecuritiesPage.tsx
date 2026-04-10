@@ -101,7 +101,11 @@ export default function SecuritiesPage() {
   const filtered = useMemo<Security[]>(() => {
     const list = data?.securities ?? [];
     return list.filter((s) => {
-      if (sourceFilter !== 'all' && s.source !== sourceFilter) return false;
+      if (sourceFilter !== 'all') {
+        if (sourceFilter === 'portfolio' && s.source !== 'portfolio' && s.source !== 'both') return false;
+        if (sourceFilter === 'watchlist' && s.source !== 'watchlist' && s.source !== 'both') return false;
+        if (sourceFilter === 'both' && s.source !== 'both') return false;
+      }
       if (tagFilter.length > 0 && !tagFilter.some((t) => s.tags.includes(t))) return false;
       if (search) {
         const q = search.toLowerCase();

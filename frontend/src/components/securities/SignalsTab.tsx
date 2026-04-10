@@ -66,13 +66,129 @@ function signalColor(s: string | undefined): string {
   return '#f59e0b';
 }
 
+function buildSignalsSummary(
+  tech: import('../../api/securitiesTypes').TechnicalSignalsResponse | undefined,
+  flow: import('../../api/securitiesTypes').OptionsFlowResponse | undefined,
+  risk: import('../../api/securitiesTypes').RiskSignalsResponse | undefined,
+): string[] {
+  if (!tech && !flow && !risk) return [];
+  const lines: string[] = [];
+
+  // --- Overall technical bias ---
+  const bullishSignals: string[] = [];
+  const bearishSignals: string[] = [];
+
+  if (tech?.stochastic) {
+    const { k, signal } = tech.stochastic;
+    if (k <= 20 || signal.toLowerCase().includes('bull') || signal.toLowerCase().includes('oversold')) bullishSignals.push('stochastic oversold');
+    else if (k >= 80 || signal.toLowerCase().includes('bear') || signal.toLowerCase().includes('overbought')) bearishSignals.push('stochastic overbought');
+  }
+  if (tech?.vwap) {
+    if (tech.vwap.position === 'above_vwap') bullishSignals.push('price above VWAP');
+    else bearishSignals.push('price below VWAP');
+    if (tech.vwap.reclaim_signal) bullishSignals.push(`VWAP reclaim (${tech.vwap.reclaim_strength})`);
+  }
+  if (tech?.obv) {
+    if (tech.obv.divergence === 'bullish') bullishSignals.push(`bullish OBV divergence (${tech.obv.divergence_strength})`);
+    else if (tech.obv.divergence === 'bearish') bearishSignals.push(`bearish OBV divergence (${tech.obv.divergence_strength})`);
+    if (tech.obv.obv_trend === 'rising' && tech.obv.price_trend === 'rising') bullishSignals.push('OBV and price trending up');
+    else if (tech.obv.obv_trend === 'falling' && tech.obv.price_trend === 'falling') bearishSignals.push('OBV and price trending down');
+  }
+  if (tech?.higher_lows?.higher_low_pattern) {
+    bullishSignals.push(`${tech.higher_lows.pattern_strength} higher-low structure (${tech.higher_lows.consecutive_higher_lows} consecutive)`);
+  }
+  if (tech?.candlestick_patterns && tech.candlestick_patterns.pattern_count > 0) {
+    const bullPat = tech.candlestick_patterns.patterns_found.filter((p) => p.bias === 'bullish').length;
+    const bearPat = tech.candlestick_patterns.patterns_found.filter((p) => p.bias === 'bearish').length;
+    if (bullPat > bearPat) bullishSignals.push(`${bullPat} bullish candlestick pattern${bullPat > 1 ? 's' : ''}`);
+    else if (bearPat > bullPat) bearishSignals.push(`${bearPat} bearish candlestick pattern${bearPat > 1 ? 's' : ''}`);
+  }
+
+  const net = bullishSignals.length - bearishSignals.length;
+  if (bullishSignals.length > 0 || bearishSignals.length > 0) {
+    if (net >= 2) {
+      lines.push(`Technical picture is broadly bullish (${bullishSignals.length} bullish vs ${bearishSignals.length} bearish signal${bearishSignals.length !== 1 ? 's' : ''}): ${bullishSignals.join(', ')}.`);
+    } else if (net <= -2) {
+      lines.push(`Technical picture is broadly bearish (${bearishSignals.length} bearish vs ${bullishSignals.length} bullish signal${bullishSignals.length !== 1 ? 's' : ''}): ${bearishSignals.join(', ')}.`);
+    } else {
+      lines.push(`Technical signals are mixed — ${bullishSignals.length > 0 ? `bullish: ${bullishSignals.join(', ')}` : 'no clear bullish signals'}${bearishSignals.length > 0 ? `; bearish: ${bearishSignals.join(', ')}` : ''}.`);
+    }
+  }
+
+  // --- Volume context ---
+  if (tech?.volume_analysis) {
+    const ratio = tech.volume_analysis.last_volume_ratio;
+    if (ratio >= 2) {
+      lines.push(`Volume is running ${ratio.toFixed(1)}× the average — unusually high activity that often precedes or confirms a directional move.`);
+    } else if (ratio < 0.5) {
+      lines.push(`Volume is thin at ${ratio.toFixed(1)}× average — low participation reduces confidence in any price move seen recently.`);
+    }
+    if (tech.volume_analysis.climax_events.length > 0) {
+      const latest = tech.volume_analysis.climax_events[0];
+      lines.push(`A ${latest.direction}-volume climax event (${latest.volume_ratio}× avg) was recorded on ${latest.date} — these extremes often mark short-term exhaustion points.`);
+    }
+  }
+
+  // --- Gap structure ---
+  if (tech?.gap_analysis && tech.gap_analysis.unfilled_count > 0) {
+    const gaps = tech.gap_analysis.bounce_targets;
+    if (gaps.length > 0) {
+      const gapStr = gaps.slice(0, 2).map((g) => `$${g.gap_bottom.toFixed(2)}–$${g.gap_top.toFixed(2)} (${g.distance_pct > 0 ? '+' : ''}${g.distance_pct.toFixed(1)}%)`).join(', ');
+      lines.push(`${tech.gap_analysis.unfilled_count} unfilled gap${tech.gap_analysis.unfilled_count > 1 ? 's' : ''} remain as potential reversion targets: ${gapStr}.`);
+    }
+  }
+
+  // --- Options flow / smart money ---
+  if (flow?.delta_adjusted_oi) {
+    const daoi = flow.delta_adjusted_oi;
+    const biasLabel = daoi.mm_hedge_bias === 'buy_on_rally' ? 'buy on rallies' : 'sell on rallies';
+    lines.push(`Delta-adjusted OI shows ${daoi.net_daoi_shares.toLocaleString()} net shares of market-maker hedge exposure — MMs are positioned to ${biasLabel}${daoi.gamma_wall_strike ? `, with a gamma wall at $${daoi.gamma_wall_strike}` : ''}${daoi.delta_flip_strike ? ` and a delta flip point at $${daoi.delta_flip_strike}` : ''}.`);
+  }
+  if (flow?.unusual_calls) {
+    const sweep = flow.unusual_calls.sweep_signal;
+    const count = flow.unusual_calls.unusual_calls.length;
+    if (count > 0) {
+      const topCall = flow.unusual_calls.unusual_calls[0];
+      lines.push(`Unusual call activity detected (${count} sweep${count > 1 ? 's' : ''}, ${sweep} signal): the largest is the $${topCall.strike} strike expiring ${topCall.expiration} with ${topCall.volume.toLocaleString()} contracts at ${topCall.vol_oi_ratio.toFixed(1)}× vol/OI — ${topCall.conviction} conviction.`);
+    }
+  }
+
+  // --- Risk / stop context ---
+  if (risk?.drawdown) {
+    const stop = risk.drawdown.trailing_stop_pct;
+    const worst = risk.drawdown.max_1day_drawdown_pct;
+    lines.push(`Historical drawdown analysis suggests a minimum trailing stop of ${stop.toFixed(1)}% to avoid noise-driven exits (worst single-day drop: ${worst.toFixed(1)}%).`);
+  }
+
+  return lines;
+}
+
 export default function SignalsTab({ ticker }: Props) {
   const { data: tech, isLoading: techLoading, error: techError, refetch: refetchTech } = useTechnicalSignals(ticker, true);
   const { data: flow, isLoading: flowLoading, error: flowError, refetch: refetchFlow } = useOptionsFlowSignals(ticker, true);
   const { data: risk, isLoading: riskLoading, error: riskError, refetch: refetchRisk } = useRiskSignals(ticker, true);
 
+  const summaryLines = buildSignalsSummary(tech, flow, risk);
+  const allLoading = techLoading || flowLoading || riskLoading;
+
   return (
     <Stack spacing={2}>
+
+      {/* ── Interpretation summary ──────────────────────────────────── */}
+      {!allLoading && summaryLines.length > 0 && (
+        <Paper variant="outlined" sx={{ p: 2, borderColor: 'divider', bgcolor: 'background.default' }}>
+          <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+            Interpretation
+          </Typography>
+          <Stack spacing={0.75}>
+            {summaryLines.map((line, i) => (
+              <Typography key={i} variant="body2" sx={{ color: 'text.primary', lineHeight: 1.6 }}>
+                {line}
+              </Typography>
+            ))}
+          </Stack>
+        </Paper>
+      )}
 
       {/* ── Section 1: Momentum ─────────────────────────────────────── */}
       <Paper sx={{ p: 2 }}>

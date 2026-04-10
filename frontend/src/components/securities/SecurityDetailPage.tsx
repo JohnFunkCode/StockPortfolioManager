@@ -46,6 +46,239 @@ function daysToExpiry(expiration: string): number {
   return Math.round((new Date(expiration).getTime() - Date.now()) / 86_400_000);
 }
 
+// ---------------------------------------------------------------------------
+// Options Performance narrative summary
+// ---------------------------------------------------------------------------
+
+interface PcHistPoint { captured_at: string; price: number; put_call_ratio: number | null }
+
+interface PerfExpiration {
+  expiration: string;
+  put_call_ratio: number | null;
+  total_call_oi: number | null;
+  total_put_oi: number | null;
+  total_call_vol: number | null;
+  total_put_vol: number | null;
+  avg_call_iv: number | null;
+  avg_put_iv: number | null;
+}
+
+function buildPerformanceSummary(
+  snap: { price: number; expirations: PerfExpiration[] } | null | undefined,
+  histPoints: PcHistPoint[],
+  aggPC: number | null,
+  avgCallIV: number | null,
+  avgPutIV: number | null,
+): string[] {
+  if (!snap) return [];
+  const lines: string[] = [];
+  const { expirations } = snap;
+  if (expirations.length === 0) return [];
+
+  // --- Aggregate P/C sentiment ---
+  if (aggPC != null) {
+    if (aggPC > 1.5) {
+      lines.push(`Aggregate put/call OI ratio is ${aggPC.toFixed(2)} — sharply elevated, reflecting broad bearish hedging or outright put buying across all expirations.`);
+    } else if (aggPC > 1.0) {
+      lines.push(`Aggregate put/call OI ratio of ${aggPC.toFixed(2)} indicates a net bearish tilt, with more open put positions than calls when summed across all expirations.`);
+    } else if (aggPC < 0.5) {
+      lines.push(`Aggregate put/call OI ratio is low at ${aggPC.toFixed(2)}, signalling strong bullish positioning with call OI heavily dominating across expirations.`);
+    } else if (aggPC < 0.75) {
+      lines.push(`Aggregate put/call OI ratio of ${aggPC.toFixed(2)} is modestly call-skewed, suggesting more bullish than bearish positioning overall.`);
+    } else {
+      lines.push(`Aggregate put/call OI ratio of ${aggPC.toFixed(2)} is broadly neutral, with no strong directional tilt evident across expirations.`);
+    }
+  }
+
+  // --- IV term structure shape ---
+  const sortedByDTE = [...expirations]
+    .filter((e) => e.avg_call_iv != null || e.avg_put_iv != null)
+    .sort((a, b) => daysToExpiry(a.expiration) - daysToExpiry(b.expiration));
+
+  if (sortedByDTE.length >= 2) {
+    const near = sortedByDTE[0];
+    const far  = sortedByDTE[sortedByDTE.length - 1];
+    const nearIV = ((near.avg_call_iv ?? 0) + (near.avg_put_iv ?? 0)) / 2;
+    const farIV  = ((far.avg_call_iv  ?? 0) + (far.avg_put_iv  ?? 0)) / 2;
+    const nearDTE = Math.max(0, daysToExpiry(near.expiration));
+    const farDTE  = Math.max(0, daysToExpiry(far.expiration));
+
+    if (nearIV > farIV + 5) {
+      lines.push(`The IV term structure is in backwardation: near-term options (${nearDTE}d, ${nearIV.toFixed(1)}% avg IV) are priced significantly higher than longer-dated ones (${farDTE}d, ${farIV.toFixed(1)}% avg IV). This typically signals an imminent catalyst — earnings, guidance, or a macro event — driving elevated short-dated premium.`);
+    } else if (farIV > nearIV + 3) {
+      lines.push(`The IV term structure is in normal contango: longer-dated options (${farDTE}d, ${farIV.toFixed(1)}% avg IV) carry more premium than near-term contracts (${nearDTE}d, ${nearIV.toFixed(1)}% avg IV), consistent with typical time-value behaviour and no immediate event risk.`);
+    } else {
+      lines.push(`IV term structure is relatively flat from ${nearDTE}d (${nearIV.toFixed(1)}%) to ${farDTE}d (${farIV.toFixed(1)}%), indicating the market is pricing comparable uncertainty across the time horizon.`);
+    }
+  }
+
+  // --- Most active expiration by volume ---
+  const byVol = [...expirations]
+    .filter((e) => (e.total_call_vol ?? 0) + (e.total_put_vol ?? 0) > 0)
+    .sort((a, b) =>
+      ((b.total_call_vol ?? 0) + (b.total_put_vol ?? 0)) -
+      ((a.total_call_vol ?? 0) + (a.total_put_vol ?? 0))
+    );
+
+  if (byVol.length > 0) {
+    const hotExp = byVol[0];
+    const totalVol = (hotExp.total_call_vol ?? 0) + (hotExp.total_put_vol ?? 0);
+    const callVol = hotExp.total_call_vol ?? 0;
+    const putVol  = hotExp.total_put_vol  ?? 0;
+    const volBias = callVol > putVol * 1.5 ? 'call-dominated' : putVol > callVol * 1.5 ? 'put-dominated' : 'balanced';
+    lines.push(`Trading activity is most concentrated in the ${hotExp.expiration} expiry (${Math.max(0, daysToExpiry(hotExp.expiration))}d) with ${totalVol.toLocaleString()} total contracts traded — volume is ${volBias} (${callVol.toLocaleString()} calls / ${putVol.toLocaleString()} puts).`);
+  }
+
+  // --- Highest OI expiration ---
+  const byOI = [...expirations]
+    .filter((e) => (e.total_call_oi ?? 0) + (e.total_put_oi ?? 0) > 0)
+    .sort((a, b) =>
+      ((b.total_call_oi ?? 0) + (b.total_put_oi ?? 0)) -
+      ((a.total_call_oi ?? 0) + (a.total_put_oi ?? 0))
+    );
+
+  if (byOI.length > 0 && byOI[0].expiration !== byVol[0]?.expiration) {
+    const topOI = byOI[0];
+    const totalOI = (topOI.total_call_oi ?? 0) + (topOI.total_put_oi ?? 0);
+    lines.push(`The largest open interest concentration is in the ${topOI.expiration} expiry (${Math.max(0, daysToExpiry(topOI.expiration))}d) with ${totalOI.toLocaleString()} contracts — this is typically a key gamma/delta exposure date for market makers.`);
+  }
+
+  // --- Call vs put IV skew direction ---
+  if (avgCallIV != null && avgPutIV != null) {
+    const diff = avgPutIV - avgCallIV;
+    if (diff > 5) {
+      lines.push(`Put implied volatility (${avgPutIV.toFixed(1)}% avg) runs ${diff.toFixed(1)}pp above call IV (${avgCallIV.toFixed(1)}% avg) across all expirations — a classic downside skew where tail-risk protection is priced at a premium.`);
+    } else if (diff < -5) {
+      lines.push(`Call implied volatility (${avgCallIV.toFixed(1)}% avg) exceeds put IV (${avgPutIV.toFixed(1)}% avg) by ${Math.abs(diff).toFixed(1)}pp — an unusual reverse skew suggesting strong speculative call demand or a shortage of call sellers.`);
+    } else {
+      lines.push(`Call IV (${avgCallIV.toFixed(1)}%) and put IV (${avgPutIV.toFixed(1)}%) are closely matched on average, implying the market is not pricing an asymmetric move in either direction.`);
+    }
+  }
+
+  // --- P/C trend from history ---
+  const validHistory = histPoints.filter((p) => p.put_call_ratio != null);
+  if (validHistory.length >= 3) {
+    const recent = validHistory.slice(-Math.min(5, validHistory.length));
+    const first = recent[0].put_call_ratio!;
+    const last  = recent[recent.length - 1].put_call_ratio!;
+    const delta = last - first;
+    if (delta > 0.2) {
+      lines.push(`The P/C ratio has trended up from ${first.toFixed(2)} to ${last.toFixed(2)} over the last ${recent.length} sessions — growing bearish hedging pressure or increasing downside protection demand.`);
+    } else if (delta < -0.2) {
+      lines.push(`The P/C ratio has fallen from ${first.toFixed(2)} to ${last.toFixed(2)} over the last ${recent.length} sessions — put demand is unwinding, suggesting improving sentiment or reduced fear.`);
+    } else {
+      lines.push(`The P/C ratio has been stable (${first.toFixed(2)} → ${last.toFixed(2)}) over the last ${recent.length} sessions, with no meaningful shift in overall positioning.`);
+    }
+  }
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Options Analytics narrative summary
+// ---------------------------------------------------------------------------
+
+interface AnalyticsRow {
+  expiration: string;
+  atm_strike: number | null;
+  expected_move_dollar: number;
+  expected_move_pct: number;
+  upper_bound: number;
+  lower_bound: number;
+  max_pain: number | null;
+  put_call_ratio: number | null;
+}
+
+interface IVRankData {
+  current_iv: number | null;
+  iv_rank: number | null;
+  iv_percentile: number | null;
+  iv_52w_high: number | null;
+  iv_52w_low: number | null;
+  data_points: number;
+}
+
+function buildAnalyticsSummary(
+  rows: AnalyticsRow[],
+  price: number,
+  ivRank: IVRankData | null | undefined,
+): string[] {
+  if (rows.length === 0 && !ivRank) return [];
+  const lines: string[] = [];
+
+  // --- IV rank environment ---
+  if (ivRank && ivRank.current_iv != null) {
+    const iv = ivRank.current_iv;
+    const rank = ivRank.iv_rank;
+    const pct  = ivRank.iv_percentile;
+    if (rank != null && rank >= 80) {
+      lines.push(`IV is historically elevated — IV Rank ${rank.toFixed(0)} / IV Percentile ${pct?.toFixed(0) ?? '—'} (current: ${iv.toFixed(1)}%). Options are expensive relative to the past year, favouring premium-selling strategies (covered calls, cash-secured puts, credit spreads).`);
+    } else if (rank != null && rank >= 50) {
+      lines.push(`IV is in the upper half of its 52-week range — IV Rank ${rank.toFixed(0)} / IV Percentile ${pct?.toFixed(0) ?? '—'} (current: ${iv.toFixed(1)}%). Premium is moderately elevated; both buying and selling strategies are viable depending on directional conviction.`);
+    } else if (rank != null && rank < 20) {
+      lines.push(`IV is near 52-week lows — IV Rank ${rank.toFixed(0)} / IV Percentile ${pct?.toFixed(0) ?? '—'} (current: ${iv.toFixed(1)}%). Options are cheap; long volatility strategies (debit spreads, long straddles ahead of catalysts) have a favourable risk/reward.`);
+    } else if (rank != null) {
+      lines.push(`IV Rank of ${rank.toFixed(0)} places current IV (${iv.toFixed(1)}%) in the lower half of its 52-week range — options are reasonably priced with no strong bias toward buying or selling premium.`);
+    }
+  }
+
+  if (rows.length === 0) return lines;
+
+  // Sort by DTE ascending
+  const sorted = [...rows].sort(
+    (a, b) => daysToExpiry(a.expiration) - daysToExpiry(b.expiration)
+  );
+  const nearest = sorted[0];
+  const nearDTE = Math.max(0, daysToExpiry(nearest.expiration));
+
+  // --- Nearest expiration expected move ---
+  lines.push(
+    `The nearest expiration (${nearest.expiration}, ${nearDTE}d) prices in a ±$${nearest.expected_move_dollar.toFixed(2)} move (${nearest.expected_move_pct.toFixed(1)}%), ` +
+    `implying a range of $${nearest.lower_bound.toFixed(2)}–$${nearest.upper_bound.toFixed(2)} from the current price of $${price.toFixed(2)}.`
+  );
+
+  // --- Max pain proximity for nearest expiry ---
+  if (nearest.max_pain != null) {
+    const dist = ((nearest.max_pain - price) / price * 100);
+    const absD = Math.abs(dist);
+    if (absD < 1) {
+      lines.push(`Max pain for ${nearest.expiration} is $${nearest.max_pain} — nearly coincident with the current price. Market makers' net delta exposure is minimal here, reducing pinning risk but also limiting a clear gravitational pull.`);
+    } else if (absD < 3) {
+      lines.push(`Max pain for ${nearest.expiration} is $${nearest.max_pain} (${dist > 0 ? '+' : ''}${dist.toFixed(1)}% from current price). Price is within the typical pinning range; there may be gravitational pressure toward this strike into expiry.`);
+    } else {
+      lines.push(`Max pain for ${nearest.expiration} sits at $${nearest.max_pain}, ${dist > 0 ? 'above' : 'below'} current price by ${absD.toFixed(1)}%. A ${dist > 0 ? 'rally' : 'decline'} toward max pain would represent the path of maximum options decay for sellers.`);
+    }
+  }
+
+  // --- Near-term vs longer-dated EM comparison ---
+  if (sorted.length >= 2) {
+    const far = sorted[sorted.length - 1];
+    const farDTE = Math.max(1, daysToExpiry(far.expiration));
+    // Annualise EM% to compare apples-to-apples
+    const nearAnnualised = nearest.expected_move_pct / Math.sqrt(nearDTE || 1) * Math.sqrt(252);
+    const farAnnualised  = far.expected_move_pct  / Math.sqrt(farDTE)           * Math.sqrt(252);
+    if (nearAnnualised > farAnnualised * 1.15) {
+      lines.push(`Annualised volatility implied by the near-term expiry (${nearest.expiration}) is higher than longer-dated contracts (${far.expiration}), consistent with an elevated short-term risk event driving near-term premium.`);
+    } else if (farAnnualised > nearAnnualised * 1.15) {
+      lines.push(`Longer-dated options (${far.expiration}) imply higher annualised volatility than near-term contracts, suggesting the market anticipates increasing uncertainty over a longer horizon rather than a near-term catalyst.`);
+    }
+  }
+
+  // --- Max pain above/below price across expirations ---
+  const aboveCount = rows.filter((r) => r.max_pain != null && r.max_pain > price).length;
+  const belowCount = rows.filter((r) => r.max_pain != null && r.max_pain < price).length;
+  const totalWithPain = aboveCount + belowCount;
+  if (totalWithPain >= 2) {
+    if (aboveCount > belowCount) {
+      lines.push(`Across all expirations, max pain is above the current price in ${aboveCount} of ${totalWithPain} cases, suggesting options market structure broadly favours a drift upward toward expiration.`);
+    } else if (belowCount > aboveCount) {
+      lines.push(`Max pain is below the current price in ${belowCount} of ${totalWithPain} expirations, implying market maker positioning broadly creates gravitational pull to the downside into expiry dates.`);
+    }
+  }
+
+  return lines;
+}
+
 const DAYS_OPTIONS = [30, 60, 90, 180, 365];
 
 function ChartSkeleton({ height = 200 }: { height?: number }) {
@@ -501,6 +734,26 @@ export default function SecurityDetailPage() {
               </Paper>
             )}
 
+            {/* Narrative summary */}
+            {snap && (() => {
+              const perfLines = buildPerformanceSummary(snap, histPoints, aggPC, avgCallIV, avgPutIV);
+              if (perfLines.length === 0) return null;
+              return (
+                <Paper variant="outlined" sx={{ p: 2, borderColor: 'divider', bgcolor: 'background.default' }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                    Interpretation
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    {perfLines.map((line, i) => (
+                      <Typography key={i} variant="body2" sx={{ color: 'text.primary', lineHeight: 1.6 }}>
+                        {line}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Paper>
+              );
+            })()}
+
             {/* IV Term Structure */}
             {expirations.length > 0 && (
               <Paper sx={{ p: 2 }}>
@@ -841,6 +1094,26 @@ export default function SecurityDetailPage() {
                 </Typography>
               </Paper>
             )}
+
+            {/* Narrative summary */}
+            {(() => {
+              const analyticsLines = buildAnalyticsSummary(rows, price, ivRankData);
+              if (analyticsLines.length === 0) return null;
+              return (
+                <Paper variant="outlined" sx={{ p: 2, borderColor: 'divider', bgcolor: 'background.default' }}>
+                  <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>
+                    Interpretation
+                  </Typography>
+                  <Stack spacing={0.75}>
+                    {analyticsLines.map((line, i) => (
+                      <Typography key={i} variant="body2" sx={{ color: 'text.primary', lineHeight: 1.6 }}>
+                        {line}
+                      </Typography>
+                    ))}
+                  </Stack>
+                </Paper>
+              );
+            })()}
 
             {/* Expected Move table */}
             <Paper sx={{ p: 2 }}>

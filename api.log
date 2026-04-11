@@ -6,173 +6,43 @@
  * Restarting with stat
  * Debugger is active!
  * Debugger PIN: 105-569-433
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities/NVDA/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities/NVDA/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities/NVDA/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities/NVDA/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:52] "GET /api/securities/NVDA/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:57:53] "GET /api/securities/NVDA/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:58:14] "GET /api/securities/NVDA/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:58:14] "GET /api/securities/NVDA/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:58:15] "GET /api/securities/NVDA/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:04] "GET /api/securities/screen?near_bb_lower=1 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:08] "GET /api/securities/SNOW/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:08] "GET /api/securities/SNOW/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:08] "GET /api/securities/SNOW/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:08] "GET /api/securities/SNOW/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:08] "GET /api/securities/SNOW/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:09] "GET /api/securities/SNOW/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:30] "GET /api/securities/SNOW/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:30] "GET /api/securities/SNOW/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 11:59:31] "GET /api/securities/SNOW/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:02] "GET /api/securities/ADBE/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:02] "GET /api/securities/ADBE/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:02] "GET /api/securities/ADBE/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:02] "GET /api/securities/ADBE/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:02] "GET /api/securities/ADBE/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:03] "GET /api/securities/ADBE/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:31] "GET /api/securities/ADBE/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:31] "GET /api/securities/ADBE/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:00:31] "GET /api/securities/ADBE/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:46] "GET /api/securities/ABT/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:46] "GET /api/securities/ABT/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:46] "GET /api/securities/ABT/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:46] "GET /api/securities/ABT/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:46] "GET /api/securities/ABT/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:47] "GET /api/securities/ABT/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:01:58] "GET /api/securities/ABT/technicals?days=365 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:02:00] "GET /api/securities/ABT/technicals?days=90 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:02:43] "GET /api/securities/ABT/options/history?days=90 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:00] "GET /api/securities/ABT/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:00] "GET /api/securities/ABT/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:01] "GET /api/securities/ABT/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:20] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:27] "GET /api/securities/screen?near_bb_upper=1 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:30] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:30] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:31] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:31] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:31] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:32] "GET /api/securities/AAPL/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:46] "GET /api/securities/AAPL/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:46] "GET /api/securities/AAPL/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:03:47] "GET /api/securities/AAPL/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:04:29] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:04:29] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:04:29] "GET /api/portfolio/delta-exposure HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:05:51] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:05:52] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:05:53] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:05:55] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:05:57] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:06:05] "[33mGET /api/plans/1 HTTP/1.1[0m" 404 -
-127.0.0.1 - - [10/Apr/2026 12:06:05] "[33mGET /api/plans/2 HTTP/1.1[0m" 404 -
-127.0.0.1 - - [10/Apr/2026 12:06:05] "[33mGET /api/plans/3 HTTP/1.1[0m" 404 -
-127.0.0.1 - - [10/Apr/2026 12:06:05] "[33mGET /api/plans/4 HTTP/1.1[0m" 404 -
-127.0.0.1 - - [10/Apr/2026 12:06:08] "[33mGET /api/plans/1 HTTP/1.1[0m" 404 -
-127.0.0.1 - - [10/Apr/2026 12:06:11] "GET /api/plans HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:06:52] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:06:54] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:08:24] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:08:24] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
- * Detected change in '/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/experiments/HarvesterPlanStore.py', reloading
- * Restarting with stat
- * Debugger is active!
- * Debugger PIN: 105-569-433
- * Detected change in '/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/experiments/HarvesterPlanStore.py', reloading
- * Restarting with stat
- * Debugger is active!
- * Debugger PIN: 105-569-433
-127.0.0.1 - - [10/Apr/2026 12:10:43] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:10:43] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:14] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:11:17] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:11:17] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:11:18] "[35m[1mPOST /api/plans HTTP/1.1[0m" 201 -
-127.0.0.1 - - [10/Apr/2026 12:11:39] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:39] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:39] "GET /api/portfolio/delta-exposure HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:44] "GET /api/plans/4 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:44] "GET /api/symbols/NVDA/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:59] "GET /api/plans/3 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:11:59] "GET /api/symbols/AMZN/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:29] "GET /api/symbols/AMZN/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:32] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:32] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:34] "GET /api/plans/2 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:35] "GET /api/symbols/GOOG/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:40] "GET /api/plans/1 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:12:41] "GET /api/symbols/AAPL/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:19] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:21] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:21] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:21] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:21] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:21] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:22] "GET /api/securities/AAPL/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:33] "GET /api/securities/AAPL/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:33] "GET /api/securities/AAPL/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:13:34] "GET /api/securities/AAPL/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:01] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:01] "GET /api/dashboard/stats HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:13] "GET /api/plans?status=SUPERSEDED HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:14] "GET /api/plans?status=ALL HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:16] "GET /api/symbols HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:22] "GET /api/plans/2 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:22] "GET /api/symbols/GOOG/price HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:28] "GET /api/securities/ABBV/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:28] "GET /api/securities/ABBV/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:28] "GET /api/securities/ABBV/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:28] "GET /api/securities/ABBV/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:28] "GET /api/securities/ABBV/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:29] "GET /api/securities/ABBV/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:35] "GET /api/securities/AR/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:35] "GET /api/securities/AR/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:35] "GET /api/securities/AR/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:35] "GET /api/securities/AR/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:35] "GET /api/securities/AR/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:36] "GET /api/securities/AR/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:49] "GET /api/securities/AR/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:50] "GET /api/securities/AR/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:14:50] "GET /api/securities/AR/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:25:34] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:56:02] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:15] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:38] "GET /api/securities/GOOG/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:38] "GET /api/securities/GOOG/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:38] "GET /api/securities/GOOG/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:38] "GET /api/securities/GOOG/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:38] "GET /api/securities/GOOG/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:58:39] "GET /api/securities/GOOG/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:59:15] "GET /api/securities/GOOG/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:59:15] "GET /api/securities/GOOG/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 12:59:16] "GET /api/securities/GOOG/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:17] "GET /api/securities/DELL/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:04:18] "GET /api/securities/DELL/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:09:09] "GET /api/securities/DELL/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:16:08] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:16:08] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:16:08] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:16:08] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:16:08] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:17:26] "GET /api/securities/DELL/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:17:26] "GET /api/securities/DELL/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:17:27] "GET /api/securities/DELL/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities/DELL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities/DELL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities/DELL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities/DELL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [10/Apr/2026 13:24:15] "GET /api/securities/DELL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:35] "GET /api/plans?status=ACTIVE HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:35] "GET /api/dashboard/stats HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:38] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:41] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:46] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:46] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:46] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:46] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:46] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:42:47] "GET /api/securities/AAPL/earnings HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:43:03] "GET /api/securities/AAPL/signals/risk HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:43:03] "GET /api/securities/AAPL/signals/technical HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:43:04] "GET /api/securities/AAPL/signals/options-flow HTTP/1.1" 200 -
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 47027.12it/s]
+[1mBertForSequenceClassification LOAD REPORT[0m from: ProsusAI/finbert
+Key                          | Status     |  | 
+-----------------------------+------------+--+-
+bert.embeddings.position_ids | UNEXPECTED |  | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+127.0.0.1 - - [11/Apr/2026 16:43:07] "GET /api/securities/AAPL/news?max_articles=10 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:26] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:26] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:26] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:26] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:26] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:27] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:45:27] "GET /api/securities/AAPL/earnings HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:43] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:46] "GET /api/securities/AAPL/signals/risk HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:46] "GET /api/securities/AAPL/signals/technical HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:46] "GET /api/securities/AAPL/news?max_articles=10 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 16:56:47] "GET /api/securities/AAPL/signals/options-flow HTTP/1.1" 200 -

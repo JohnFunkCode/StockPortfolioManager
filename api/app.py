@@ -936,6 +936,28 @@ def create_app() -> Flask:
         return jsonify({"ticker": ticker, "drawdown": dd, **price_data})
 
     # -----------------------------------------------------------------------
+    # Securities — news with FinBERT sentiment
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/securities/<ticker>/news", methods=["GET"])
+    def get_security_news(ticker: str):
+        """
+        Recent news articles for a ticker, each scored by FinBERT sentiment
+        (positive / negative / neutral + confidence score).
+
+        Query params:
+          max_articles (int, default 10) — number of articles to return
+        """
+        ticker = ticker.upper()
+        max_articles = int(request.args.get("max_articles", 10))
+        try:
+            from stock_price_server import get_news
+            result = get_news(ticker, max_articles=max_articles)
+        except Exception as exc:
+            return jsonify({"ticker": ticker, "error": str(exc), "articles": []}), 500
+        return jsonify(result)
+
+    # -----------------------------------------------------------------------
     # Portfolio — delta exposure from stored full chains  (#5)
     # -----------------------------------------------------------------------
 

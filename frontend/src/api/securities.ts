@@ -17,6 +17,7 @@ import type {
   BackfillResponse,
   AddSecurityPayload,
   AddSecurityResponse,
+  NewsResponse,
 } from './securitiesTypes';
 
 export interface SecuritiesResponse { securities: Security[] }
@@ -28,7 +29,7 @@ export type {
   OptionsAnalyticsResponse, IVRankResponse, EarningsResponse,
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
-  AddSecurityPayload, AddSecurityResponse,
+  AddSecurityPayload, AddSecurityResponse, NewsResponse,
 };
 
 export const securitiesApi = {
@@ -110,4 +111,7 @@ export const securitiesApi = {
     apiRequest<{ symbol: string; removed: boolean }>(`/api/portfolio/${ticker}`, {
       method: 'DELETE',
     }),
+
+  getNews: (ticker: string, maxArticles = 10) =>
+    apiRequest<NewsResponse>(`/api/securities/${ticker}/news?max_articles=${maxArticles}`),
 };

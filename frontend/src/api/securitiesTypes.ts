@@ -280,7 +280,32 @@ export interface SnapshotRefreshResponse {
   note: string;
 }
 
-// #6 Screener
+// #6 News + FinBERT sentiment
+export interface NewsArticle {
+  title: string;
+  publisher: string;
+  published: string;
+  summary: string;
+  url: string;
+  sentiment?: 'positive' | 'negative' | 'neutral';
+  sentiment_score?: number;
+}
+export interface NewsSentimentSummary {
+  overall: 'positive' | 'negative' | 'neutral';
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  scored_count: number;
+}
+export interface NewsResponse {
+  symbol: string;
+  article_count: number;
+  articles: NewsArticle[];
+  sentiment_summary?: NewsSentimentSummary;
+  sentiment_note?: string;
+}
+
+// #7 Screener
 export interface ScreenerResult extends Security {
   last_close: number;
   rsi: number | null;

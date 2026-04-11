@@ -100,6 +100,15 @@ export function useRiskSignals(ticker: string, enabled = true) {
   });
 }
 
+export function useNews(ticker: string, maxArticles = 10) {
+  return useQuery({
+    queryKey: ['news', ticker, maxArticles],
+    queryFn: () => securitiesApi.getNews(ticker, maxArticles),
+    enabled: !!ticker,
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
 export function usePortfolioDeltaExposure() {
   return useQuery({
     queryKey: ['portfolio-delta-exposure'],

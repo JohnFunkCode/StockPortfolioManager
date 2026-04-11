@@ -2,9 +2,10 @@
  * SignalsTab — Signals tab content for SecurityDetailPage.
  * Shows technical momentum, structure, options flow, and risk signals.
  */
-import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, Divider, Link, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals } from '../../hooks/useSecurities';
+import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals, useNews } from '../../hooks/useSecurities';
+import type { NewsResponse } from '../../api/securitiesTypes';
 
 interface Props { ticker: string }
 
@@ -70,8 +71,9 @@ function buildSignalsSummary(
   tech: import('../../api/securitiesTypes').TechnicalSignalsResponse | undefined,
   flow: import('../../api/securitiesTypes').OptionsFlowResponse | undefined,
   risk: import('../../api/securitiesTypes').RiskSignalsResponse | undefined,
+  news: NewsResponse | undefined,
 ): string[] {
-  if (!tech && !flow && !risk) return [];
+  if (!tech && !flow && !risk && !news) return [];
   const lines: string[] = [];
 
   // --- Overall technical bias ---
@@ -160,6 +162,17 @@ function buildSignalsSummary(
     lines.push(`Historical drawdown analysis suggests a minimum trailing stop of ${stop.toFixed(1)}% to avoid noise-driven exits (worst single-day drop: ${worst.toFixed(1)}%).`);
   }
 
+  // --- News sentiment ---
+  if (news?.sentiment_summary && news.sentiment_summary.scored_count > 0) {
+    const { overall, positive_count, negative_count, neutral_count, scored_count } = news.sentiment_summary;
+    const overallLabel = overall === 'positive' ? 'broadly positive' : overall === 'negative' ? 'broadly negative' : 'mixed/neutral';
+    lines.push(
+      `News sentiment across ${scored_count} recent article${scored_count !== 1 ? 's' : ''} is ${overallLabel} ` +
+      `(${positive_count} positive, ${negative_count} negative, ${neutral_count} neutral) — ` +
+      `${overall === 'negative' ? 'negative headlines may act as a near-term headwind' : overall === 'positive' ? 'positive news flow supports bullish momentum' : 'no strong directional bias from news'}.`
+    );
+  }
+
   return lines;
 }
 
@@ -167,8 +180,9 @@ export default function SignalsTab({ ticker }: Props) {
   const { data: tech, isLoading: techLoading, error: techError, refetch: refetchTech } = useTechnicalSignals(ticker, true);
   const { data: flow, isLoading: flowLoading, error: flowError, refetch: refetchFlow } = useOptionsFlowSignals(ticker, true);
   const { data: risk, isLoading: riskLoading, error: riskError, refetch: refetchRisk } = useRiskSignals(ticker, true);
+  const { data: news, isLoading: newsLoading, refetch: refetchNews } = useNews(ticker);
 
-  const summaryLines = buildSignalsSummary(tech, flow, risk);
+  const summaryLines = buildSignalsSummary(tech, flow, risk, news);
   const allLoading = techLoading || flowLoading || riskLoading;
 
   return (
@@ -500,7 +514,94 @@ export default function SignalsTab({ ticker }: Props) {
         )}
       </Paper>
 
-      {/* ── Section 4: Risk / Drawdown ──────────────────────────────── */}
+      {/* ── Section 4: News & Sentiment ─────────────────────────────── */}
+      <Paper sx={{ p: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
+          <SectionHeader title="Recent News & Sentiment" />
+          <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={() => refetchNews()} sx={{ fontSize: 11 }}>
+            Refresh
+          </Button>
+        </Stack>
+        {newsLoading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
+        ) : !news || news.articles.length === 0 ? (
+          <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
+        ) : (
+          <Stack spacing={0}>
+            {news.sentiment_summary && (
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+                <Typography variant="caption" sx={{ color: '#6b7280' }}>Overall:</Typography>
+                <Chip
+                  size="small"
+                  label={news.sentiment_summary.overall.toUpperCase()}
+                  sx={{
+                    fontSize: 11, height: 20, fontWeight: 700,
+                    bgcolor: news.sentiment_summary.overall === 'positive' ? '#1e3a2f'
+                      : news.sentiment_summary.overall === 'negative' ? '#3a1e1e'
+                      : '#1f2937',
+                    color: news.sentiment_summary.overall === 'positive' ? '#10b981'
+                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
+                      : '#9ca3af',
+                    border: '1px solid',
+                    borderColor: news.sentiment_summary.overall === 'positive' ? '#10b981'
+                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
+                      : '#4b5563',
+                  }}
+                />
+                <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                  {news.sentiment_summary.positive_count}↑ &nbsp;
+                  {news.sentiment_summary.negative_count}↓ &nbsp;
+                  {news.sentiment_summary.neutral_count}–
+                </Typography>
+              </Stack>
+            )}
+            {news.articles.map((article, i) => (
+              <Box key={i}>
+                {i > 0 && <Divider sx={{ my: 1, borderColor: '#1f2937' }} />}
+                <Stack direction="row" spacing={1} alignItems="flex-start">
+                  {article.sentiment && (
+                    <Chip
+                      size="small"
+                      label={article.sentiment === 'positive' ? '↑' : article.sentiment === 'negative' ? '↓' : '–'}
+                      title={`${article.sentiment} (${((article.sentiment_score ?? 0) * 100).toFixed(0)}%)`}
+                      sx={{
+                        fontSize: 12, height: 20, minWidth: 24, mt: 0.2, flexShrink: 0,
+                        bgcolor: article.sentiment === 'positive' ? '#1e3a2f'
+                          : article.sentiment === 'negative' ? '#3a1e1e'
+                          : '#1f2937',
+                        color: article.sentiment === 'positive' ? '#10b981'
+                          : article.sentiment === 'negative' ? '#ef4444'
+                          : '#6b7280',
+                      }}
+                    />
+                  )}
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    {article.url ? (
+                      <Link href={article.url} target="_blank" rel="noopener noreferrer"
+                        sx={{ color: '#f9fafb', fontSize: 12, fontWeight: 500, textDecoration: 'none',
+                          '&:hover': { textDecoration: 'underline' } }}>
+                        {article.title}
+                      </Link>
+                    ) : (
+                      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{article.title}</Typography>
+                    )}
+                    <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mt: 0.25 }}>
+                      {article.publisher}{article.published ? ` · ${new Date(article.published).toLocaleDateString()}` : ''}
+                      {article.sentiment_score != null && (
+                        <span style={{ marginLeft: 6, color: '#4b5563' }}>
+                          ({((article.sentiment_score) * 100).toFixed(0)}% confidence)
+                        </span>
+                      )}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </Box>
+            ))}
+          </Stack>
+        )}
+      </Paper>
+
+      {/* ── Section 5: Risk / Drawdown ──────────────────────────────── */}
       <Paper sx={{ p: 2 }}>
         <SectionHeader title="Risk & Stop-Loss Calibration" />
         {riskLoading ? (

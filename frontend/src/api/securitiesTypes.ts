@@ -305,7 +305,26 @@ export interface NewsResponse {
   sentiment_note?: string;
 }
 
-// #7 Screener
+// #7 Bulk sentiment dashboard
+export interface SentimentSummaryItem {
+  symbol: string;
+  name: string;
+  source: 'portfolio' | 'watchlist' | 'both';
+  tags: string[];
+  captured_at: string;
+  overall_sentiment: 'positive' | 'negative' | 'neutral' | null;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  scored_count: number;
+  article_count: number;
+}
+export interface BulkSentimentResponse {
+  items: SentimentSummaryItem[];
+  count: number;
+}
+
+// #9 Screener
 export interface ScreenerResult extends Security {
   last_close: number;
   rsi: number | null;
@@ -315,6 +334,7 @@ export interface ScreenerResult extends Security {
   bb_lower: number | null;
   macd: number | null;
   macd_signal: number | null;
+  news_sentiment?: 'positive' | 'negative' | 'neutral' | null;
 }
 export interface ScreenerResponse {
   results: ScreenerResult[];

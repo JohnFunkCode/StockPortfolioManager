@@ -109,6 +109,14 @@ export function useNews(ticker: string, maxArticles = 10) {
   });
 }
 
+export function useSentimentSummary(source: 'portfolio' | 'watchlist' | 'all' = 'all') {
+  return useQuery({
+    queryKey: ['sentiment-summary', source],
+    queryFn: () => securitiesApi.getSentimentSummary(source),
+    staleTime: 10 * 60 * 1000,
+  });
+}
+
 export function usePortfolioDeltaExposure() {
   return useQuery({
     queryKey: ['portfolio-delta-exposure'],

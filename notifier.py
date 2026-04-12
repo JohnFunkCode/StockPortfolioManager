@@ -113,6 +113,7 @@ class Notifier:
                 self.send_notifications(embed)
 
         self.check_options_alerts()
+        self.check_sentiment_flips()
 
 
     # ------------------------------------------------------------------
@@ -235,6 +236,76 @@ class Notifier:
                 }
             ],
         }
+
+    # ------------------------------------------------------------------
+    # Sentiment flip alerts
+    # ------------------------------------------------------------------
+
+    def check_sentiment_flips(self) -> None:
+        """
+        For each portfolio stock, compare the two most recent FinBERT sentiment
+        snapshots.  If the overall_sentiment changed (positive ↔ negative, or
+        anything ↔ negative), fire a Discord alert.
+
+        Requires at least two stored snapshots per symbol; silently skips
+        symbols with fewer entries or if sentiment_store is unavailable.
+        """
+        try:
+            from sentiment_store import SentimentStore
+            store = SentimentStore()
+        except Exception:
+            return  # non-fatal — sentiment_store may not be installed
+
+        symbols = list(self.portfolio.stocks.keys())
+        for symbol in symbols:
+            latest = store.get_latest(symbol)
+            prior  = store.get_prior(symbol)
+
+            if not latest or not prior:
+                continue
+
+            new_sentiment  = latest.get("overall_sentiment")
+            prev_sentiment = prior.get("overall_sentiment")
+
+            if not new_sentiment or not prev_sentiment:
+                continue
+            if new_sentiment == prev_sentiment:
+                continue
+
+            # Only alert on meaningful flips involving negative or positive
+            if "neutral" in (new_sentiment, prev_sentiment) and \
+               not (new_sentiment == "negative" or prev_sentiment == "negative"):
+                continue
+
+            direction_emoji = "🔴" if new_sentiment == "negative" else "🟢"
+            color = 0xFF4444 if new_sentiment == "negative" else 0x00CC66
+
+            pos   = latest.get("positive_count", 0)
+            neg   = latest.get("negative_count", 0)
+            neu   = latest.get("neutral_count",  0)
+            total = latest.get("scored_count",   0)
+            ts    = latest.get("captured_at", "")[:10]
+
+            embed = {
+                "content": f"Sentiment Flip: {datetime.now():%Y-%m-%d %H:%M:%S} {symbol}",
+                "embeds": [
+                    {
+                        "title": (
+                            f"{direction_emoji} {symbol} News Sentiment Flip: "
+                            f"{prev_sentiment.upper()} → {new_sentiment.upper()}"
+                        ),
+                        "description": (
+                            f"**Latest snapshot ({ts}):** "
+                            f"{pos} positive · {neg} negative · {neu} neutral "
+                            f"({total} articles scored)\n\n"
+                            f"{'⚠️ Negative news flow may signal emerging headwinds.' if new_sentiment == 'negative' else '✅ Positive news flow may support bullish momentum.'}\n\n"
+                            f"[View {symbol} chart](https://finance.yahoo.com/chart/{symbol})"
+                        ),
+                        "color": color,
+                    }
+                ],
+            }
+            self.send_notifications(embed)
 
     def send_harvest_alert(self, hits: list[dict]) -> None:
         if not hits:

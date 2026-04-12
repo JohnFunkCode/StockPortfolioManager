@@ -18,6 +18,7 @@ import type {
   AddSecurityPayload,
   AddSecurityResponse,
   NewsResponse,
+  BulkSentimentResponse,
 } from './securitiesTypes';
 
 export interface SecuritiesResponse { securities: Security[] }
@@ -29,7 +30,7 @@ export type {
   OptionsAnalyticsResponse, IVRankResponse, EarningsResponse,
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
-  AddSecurityPayload, AddSecurityResponse, NewsResponse,
+  AddSecurityPayload, AddSecurityResponse, NewsResponse, BulkSentimentResponse,
 };
 
 export const securitiesApi = {
@@ -114,4 +115,7 @@ export const securitiesApi = {
 
   getNews: (ticker: string, maxArticles = 10) =>
     apiRequest<NewsResponse>(`/api/securities/${ticker}/news?max_articles=${maxArticles}`),
+
+  getSentimentSummary: (source: 'portfolio' | 'watchlist' | 'all' = 'all') =>
+    apiRequest<BulkSentimentResponse>(`/api/securities/news/sentiment-summary?source=${source}`),
 };

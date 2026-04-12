@@ -945,6 +945,9 @@ def create_app() -> Flask:
         Recent news articles for a ticker, each scored by FinBERT sentiment
         (positive / negative / neutral + confidence score).
 
+        Aggregate sentiment is persisted to sentiment.sqlite for trend tracking,
+        flip detection, and the bulk sentiment dashboard.
+
         Query params:
           max_articles (int, default 10) — number of articles to return
         """
@@ -955,7 +958,77 @@ def create_app() -> Flask:
             result = get_news(ticker, max_articles=max_articles)
         except Exception as exc:
             return jsonify({"ticker": ticker, "error": str(exc), "articles": []}), 500
+
+        # Persist aggregate sentiment for trend/flip tracking
+        try:
+            from sentiment_store import SentimentStore
+            SentimentStore().save_snapshot(ticker, result)
+        except Exception:
+            pass  # non-fatal — never block the news response
+
         return jsonify(result)
+
+    @app.route("/api/securities/news/sentiment-summary", methods=["GET"])
+    def get_sentiment_summary():
+        """
+        Bulk sentiment dashboard: returns the latest FinBERT sentiment snapshot
+        for every symbol that has been scored, merged with security metadata
+        (name, source, tags) and ranked by overall_sentiment then negative_count.
+
+        Optional query params:
+          source — 'portfolio' | 'watchlist' | 'all' (default all)
+        """
+        src_filter = request.args.get("source", "all")
+
+        portfolio = {s["symbol"]: s for s in _load_portfolio()}
+        watchlist = {s["symbol"]: s for s in _load_watchlist()}
+        combined: dict[str, dict] = {}
+        for sym, s in portfolio.items():
+            combined[sym] = s
+        for sym, s in watchlist.items():
+            if sym in combined:
+                combined[sym]["source"] = "both"
+                combined[sym]["tags"] = s.get("tags", [])
+            else:
+                combined[sym] = s
+
+        try:
+            from sentiment_store import SentimentStore
+            latest = SentimentStore().get_all_latest()
+        except Exception as exc:
+            return jsonify({"error": str(exc), "items": []}), 500
+
+        _ORDER = {"negative": 0, "neutral": 1, "positive": 2}
+
+        items = []
+        for sym, snap in latest.items():
+            sec = combined.get(sym, {})
+            src = sec.get("source", "watchlist")
+            if src_filter == "portfolio" and src not in ("portfolio", "both"):
+                continue
+            if src_filter == "watchlist" and src not in ("watchlist", "both"):
+                continue
+
+            items.append({
+                "symbol":            sym,
+                "name":              sec.get("name", sym),
+                "source":            src,
+                "tags":              sec.get("tags", []),
+                "captured_at":       snap["captured_at"],
+                "overall_sentiment": snap["overall_sentiment"],
+                "positive_count":    snap["positive_count"],
+                "negative_count":    snap["negative_count"],
+                "neutral_count":     snap["neutral_count"],
+                "scored_count":      snap["scored_count"],
+                "article_count":     snap["article_count"],
+            })
+
+        items.sort(key=lambda x: (
+            _ORDER.get(x["overall_sentiment"] or "neutral", 1),
+            -(x["negative_count"] or 0),
+        ))
+
+        return jsonify({"items": items, "count": len(items)})
 
     # -----------------------------------------------------------------------
     # Portfolio — delta exposure from stored full chains  (#5)
@@ -1072,17 +1145,31 @@ def create_app() -> Flask:
         """
         import sqlite3 as _sqlite3
 
-        rsi_max      = request.args.get("rsi_max",      type=float)
-        rsi_min      = request.args.get("rsi_min",      type=float)
-        above_ma50   = request.args.get("above_ma50")   == "1"
-        below_ma50   = request.args.get("below_ma50")   == "1"
-        above_ma200  = request.args.get("above_ma200")  == "1"
-        below_ma200  = request.args.get("below_ma200")  == "1"
-        near_bb_low  = request.args.get("near_bb_lower") == "1"
-        near_bb_high = request.args.get("near_bb_upper") == "1"
-        macd_bull    = request.args.get("macd_bullish") == "1"
-        macd_bear    = request.args.get("macd_bearish") == "1"
-        src_filter   = request.args.get("source", "all")
+        rsi_max        = request.args.get("rsi_max",        type=float)
+        rsi_min        = request.args.get("rsi_min",        type=float)
+        above_ma50     = request.args.get("above_ma50")     == "1"
+        below_ma50     = request.args.get("below_ma50")     == "1"
+        above_ma200    = request.args.get("above_ma200")    == "1"
+        below_ma200    = request.args.get("below_ma200")    == "1"
+        near_bb_low    = request.args.get("near_bb_lower")  == "1"
+        near_bb_high   = request.args.get("near_bb_upper")  == "1"
+        macd_bull      = request.args.get("macd_bullish")   == "1"
+        macd_bear      = request.args.get("macd_bearish")   == "1"
+        news_sentiment = request.args.get("news_sentiment")  # 'positive'|'negative'|'neutral'
+        src_filter     = request.args.get("source", "all")
+
+        # Always pre-load sentiment so results carry news_sentiment even when
+        # the filter is not active.  Cheap SQLite read — non-fatal if missing.
+        _sentiment_map: dict[str, str] = {}
+        try:
+            from sentiment_store import SentimentStore
+            _sentiment_map = {
+                sym: snap["overall_sentiment"]
+                for sym, snap in SentimentStore().get_all_latest().items()
+                if snap.get("overall_sentiment")
+            }
+        except Exception:
+            pass
 
         # Load all securities
         portfolio = {s["symbol"]: s for s in _load_portfolio()}
@@ -1180,18 +1267,20 @@ def create_app() -> Flask:
                                  abs(last_close - bb_upper_f) / bb_upper_f > 0.03): continue
             if macd_bull and (macd_val is None or macd_sig is None or macd_val <= macd_sig): continue
             if macd_bear and (macd_val is None or macd_sig is None or macd_val >= macd_sig): continue
+            if news_sentiment and _sentiment_map.get(sym) != news_sentiment:                 continue
 
             sec = combined[sym]
             results.append({
                 **sec,
-                "last_close":  round(last_close, 4),
-                "rsi":         round(rsi, 1) if rsi is not None else None,
-                "ma50":        round(ma50_f, 2) if ma50_f is not None else None,
-                "ma200":       round(ma200_f, 2) if ma200_f is not None else None,
-                "bb_upper":    round(bb_upper_f, 2) if bb_upper_f is not None else None,
-                "bb_lower":    round(bb_lower_f, 2) if bb_lower_f is not None else None,
-                "macd":        round(macd_val, 4) if macd_val is not None else None,
-                "macd_signal": round(macd_sig, 4) if macd_sig is not None else None,
+                "last_close":      round(last_close, 4),
+                "rsi":             round(rsi, 1) if rsi is not None else None,
+                "ma50":            round(ma50_f, 2) if ma50_f is not None else None,
+                "ma200":           round(ma200_f, 2) if ma200_f is not None else None,
+                "bb_upper":        round(bb_upper_f, 2) if bb_upper_f is not None else None,
+                "bb_lower":        round(bb_lower_f, 2) if bb_lower_f is not None else None,
+                "macd":            round(macd_val, 4) if macd_val is not None else None,
+                "macd_signal":     round(macd_sig, 4) if macd_sig is not None else None,
+                "news_sentiment":  _sentiment_map.get(sym),
             })
 
         results.sort(key=lambda x: x["rsi"] if x["rsi"] is not None else 50)

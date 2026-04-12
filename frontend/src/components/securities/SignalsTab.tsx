@@ -141,7 +141,7 @@ function buildSignalsSummary(
   }
 
   // --- Options flow / smart money ---
-  if (flow?.delta_adjusted_oi) {
+  if (flow?.delta_adjusted_oi?.net_daoi_shares != null) {
     const daoi = flow.delta_adjusted_oi;
     const biasLabel = daoi.mm_hedge_bias === 'buy_on_rally' ? 'buy on rallies' : 'sell on rallies';
     lines.push(`Delta-adjusted OI shows ${daoi.net_daoi_shares.toLocaleString()} net shares of market-maker hedge exposure — MMs are positioned to ${biasLabel}${daoi.gamma_wall_strike ? `, with a gamma wall at $${daoi.gamma_wall_strike}` : ''}${daoi.delta_flip_strike ? ` and a delta flip point at $${daoi.delta_flip_strike}` : ''}.`);
@@ -287,7 +287,7 @@ export default function SignalsTab({ ticker }: Props) {
         {tech?._errors && Object.keys(tech._errors).length > 0 && (
           <Alert severity="warning" sx={{ mt: 1, fontSize: 11 }}>
             Some signals failed to load: {Object.keys(tech._errors).join(', ')}
-            <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={refetchTech} sx={{ ml: 1 }}>
+            <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={() => refetchTech()} sx={{ ml: 1 }}>
               Retry
             </Button>
           </Alert>
@@ -414,7 +414,7 @@ export default function SignalsTab({ ticker }: Props) {
         ) : (
           <Stack spacing={2}>
             {/* DAOI summary */}
-            {flow?.delta_adjusted_oi ? (
+            {flow?.delta_adjusted_oi?.net_daoi_shares != null ? (
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <Box sx={{ flex: 1 }}>
                   <Typography variant="caption" sx={{ color: '#6b7280' }}>Delta-Adjusted OI (Market Maker)</Typography>
@@ -444,7 +444,7 @@ export default function SignalsTab({ ticker }: Props) {
             {flow?._errors && Object.keys(flow._errors).length > 0 && (
               <Alert severity="warning" sx={{ fontSize: 11 }}>
                 Some flow signals failed: {Object.keys(flow._errors).join(', ')}
-                <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={refetchFlow} sx={{ ml: 1 }}>
+                <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={() => refetchFlow()} sx={{ ml: 1 }}>
                   Retry
                 </Button>
               </Alert>
@@ -524,11 +524,11 @@ export default function SignalsTab({ ticker }: Props) {
         </Stack>
         {newsLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
-        ) : !news || news.articles.length === 0 ? (
+        ) : !news?.articles?.length ? (
           <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
         ) : (
           <Stack spacing={0}>
-            {news.sentiment_summary && (
+            {news.sentiment_summary?.overall && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
                 <Typography variant="caption" sx={{ color: '#6b7280' }}>Overall:</Typography>
                 <Chip

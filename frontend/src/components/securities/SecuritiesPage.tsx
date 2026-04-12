@@ -29,10 +29,10 @@ import { DataGrid, GridColDef, GridRenderCellParams, GridSortModel } from '@mui/
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import type { SelectChangeEvent } from '@mui/material';
-import { useSecurities, useScreener, useRefreshOptionsSnapshots } from '../../hooks/useSecurities';
+import { useSecurities, useScreener, useRefreshOptionsSnapshots, useSentimentSummary } from '../../hooks/useSecurities';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
-import type { Security, ScreenerResult } from '../../api/securitiesTypes';
+import type { Security, ScreenerResult, SentimentSummaryItem } from '../../api/securitiesTypes';
 
 type SourceFilter = 'all' | 'portfolio' | 'watchlist' | 'both';
 
@@ -45,7 +45,25 @@ const SCREENER_PRESETS = [
   { label: 'Below MA200',            params: { below_ma200: '1' } },
   { label: 'MACD Bullish',           params: { macd_bullish: '1' } },
   { label: 'MACD Bearish',           params: { macd_bearish: '1' } },
+  { label: 'News: Positive',         params: { news_sentiment: 'positive' } },
+  { label: 'News: Negative',         params: { news_sentiment: 'negative' } },
 ] as const;
+
+const SENTIMENT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  positive: { bg: '#1e3a2f', text: '#10b981', border: '#10b981' },
+  negative: { bg: '#3a1e1e', text: '#ef4444', border: '#ef4444' },
+  neutral:  { bg: '#1f2937', text: '#9ca3af', border: '#4b5563' },
+};
+
+function SentimentBadge({ sentiment }: { sentiment: string | null | undefined }) {
+  if (!sentiment) return <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>;
+  const c = SENTIMENT_COLORS[sentiment] ?? SENTIMENT_COLORS.neutral;
+  const label = sentiment === 'positive' ? '↑ pos' : sentiment === 'negative' ? '↓ neg' : '– neu';
+  return (
+    <Chip size="small" label={label}
+      sx={{ fontSize: 11, height: 20, bgcolor: c.bg, color: c.text, border: `1px solid ${c.border}` }} />
+  );
+}
 
 const SOURCE_COLORS: Record<string, 'primary' | 'success' | 'secondary'> = {
   portfolio: 'primary',
@@ -71,6 +89,7 @@ export default function SecuritiesPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [screenerParams, setScreenerParams] = useState<Record<string, string>>({});
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [sentimentOpen, setSentimentOpen] = useState(false);
 
   const [sortModel, setSortModel] = useState<GridSortModel>(() => {
     try {
@@ -91,6 +110,16 @@ export default function SecuritiesPage() {
 
   const { data: screenerData, isLoading: screenerLoading } = useScreener(screenerParams, screenerOpen && Object.keys(screenerParams).length > 0);
   const { mutate: refreshSnapshots, isPending: refreshing, data: refreshResult, error: refreshError, reset: resetRefresh } = useRefreshOptionsSnapshots();
+  const { data: sentimentData, isLoading: sentimentLoading, refetch: refetchSentiment } = useSentimentSummary('all');
+
+  // Build a symbol→sentiment map for the DataGrid badge column
+  const sentimentMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    (sentimentData?.items ?? []).forEach((item) => {
+      if (item.overall_sentiment) map[item.symbol] = item.overall_sentiment;
+    });
+    return map;
+  }, [sentimentData]);
 
   const allTags = useMemo<string[]>(() => {
     const set = new Set<string>();
@@ -147,6 +176,15 @@ export default function SecuritiesPage() {
       ),
     },
     { field: 'currency', headerName: 'Currency', width: 90 },
+    {
+      field: '_sentiment',
+      headerName: 'News',
+      width: 90,
+      sortable: false,
+      renderCell: (p: GridRenderCellParams<Security>) => (
+        <SentimentBadge sentiment={sentimentMap[p.row.symbol]} />
+      ),
+    },
     {
       field: 'purchase_price',
       headerName: 'Cost Basis',
@@ -284,6 +322,15 @@ export default function SecuritiesPage() {
             Screener
           </Button>
 
+          <Button
+            size="small"
+            variant={sentimentOpen ? 'contained' : 'outlined'}
+            color="secondary"
+            onClick={() => setSentimentOpen((o) => !o)}
+          >
+            Sentiment
+          </Button>
+
           <Typography variant="body2" color="text.secondary">
             {filtered.length} of {data?.securities.length ?? 0} securities
           </Typography>
@@ -334,27 +381,118 @@ export default function SecuritiesPage() {
                 {screenerData.count} match{screenerData.count !== 1 ? 'es' : ''} — click to navigate
               </Typography>
               <Stack direction="row" flexWrap="wrap" spacing={1} useFlexGap>
-                {screenerData.results.map((r: ScreenerResult) => (
-                  <Chip
-                    key={r.symbol}
-                    label={
-                      `${r.symbol}` +
-                      (r.rsi != null ? ` · RSI ${r.rsi.toFixed(0)}` : '') +
-                      (r.last_close != null ? ` · $${r.last_close.toFixed(2)}` : '')
-                    }
-                    clickable
-                    onClick={() => navigate(`/securities/${r.symbol}`)}
-                    sx={{
-                      fontSize: 12,
-                      bgcolor: r.rsi != null && r.rsi <= 30 ? '#1e3a2f'
-                        : r.rsi != null && r.rsi >= 70 ? '#3a1e1e'
-                        : '#1f2937',
-                      color: '#f9fafb',
-                    }}
-                  />
-                ))}
+                {screenerData.results.map((r: ScreenerResult) => {
+                  const sentColor = r.news_sentiment
+                    ? SENTIMENT_COLORS[r.news_sentiment]?.bg
+                    : undefined;
+                  const bg = sentColor
+                    ?? (r.rsi != null && r.rsi <= 30 ? '#1e3a2f'
+                      : r.rsi != null && r.rsi >= 70 ? '#3a1e1e'
+                      : '#1f2937');
+                  return (
+                    <Chip
+                      key={r.symbol}
+                      label={
+                        `${r.symbol}` +
+                        (r.news_sentiment ? ` · ${r.news_sentiment}` : '') +
+                        (r.rsi != null ? ` · RSI ${r.rsi.toFixed(0)}` : '') +
+                        (r.last_close != null ? ` · $${r.last_close.toFixed(2)}` : '')
+                      }
+                      clickable
+                      onClick={() => navigate(`/securities/${r.symbol}`)}
+                      sx={{ fontSize: 12, bgcolor: bg, color: '#f9fafb' }}
+                    />
+                  );
+                })}
               </Stack>
             </Box>
+          )}
+        </Paper>
+      </Collapse>
+
+      {/* Sentiment Dashboard */}
+      <Collapse in={sentimentOpen}>
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1.5 }}>
+            <Typography variant="subtitle2">News Sentiment Dashboard (FinBERT)</Typography>
+            <Button size="small" startIcon={<RefreshIcon />} onClick={() => refetchSentiment()} disabled={sentimentLoading}>
+              Refresh
+            </Button>
+          </Stack>
+
+          {sentimentLoading && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <CircularProgress size={18} />
+              <Typography variant="body2" color="text.secondary">Loading sentiment data…</Typography>
+            </Box>
+          )}
+
+          {!sentimentLoading && sentimentData && sentimentData.count === 0 && (
+            <Typography variant="body2" color="text.secondary">
+              No sentiment data yet — open a security's Signals tab to score its news.
+            </Typography>
+          )}
+
+          {!sentimentLoading && sentimentData && sentimentData.count > 0 && (
+            <>
+              {/* Summary counts */}
+              <Stack direction="row" spacing={2} sx={{ mb: 1.5 }}>
+                {(['negative', 'neutral', 'positive'] as const).map((s) => {
+                  const count = sentimentData.items.filter((i) => i.overall_sentiment === s).length;
+                  const c = SENTIMENT_COLORS[s];
+                  return (
+                    <Chip key={s} size="small"
+                      label={`${s === 'positive' ? '↑' : s === 'negative' ? '↓' : '–'} ${count} ${s}`}
+                      sx={{ fontSize: 11, bgcolor: c.bg, color: c.text, border: `1px solid ${c.border}` }} />
+                  );
+                })}
+                <Typography variant="caption" sx={{ color: '#6b7280', alignSelf: 'center' }}>
+                  {sentimentData.count} scored securities
+                </Typography>
+              </Stack>
+
+              {/* Ranked table — negative first */}
+              <Box sx={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: '#6b7280', textAlign: 'left', borderBottom: '1px solid #1f2937' }}>
+                      <th style={{ padding: '4px 8px' }}>Symbol</th>
+                      <th style={{ padding: '4px 8px' }}>Name</th>
+                      <th style={{ padding: '4px 8px' }}>Sentiment</th>
+                      <th style={{ padding: '4px 8px', textAlign: 'center' }}>↑</th>
+                      <th style={{ padding: '4px 8px', textAlign: 'center' }}>↓</th>
+                      <th style={{ padding: '4px 8px', textAlign: 'center' }}>–</th>
+                      <th style={{ padding: '4px 8px' }}>Scored</th>
+                      <th style={{ padding: '4px 8px' }}>As of</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sentimentData.items.map((item: SentimentSummaryItem) => {
+                      const c = SENTIMENT_COLORS[item.overall_sentiment ?? 'neutral'];
+                      return (
+                        <tr key={item.symbol}
+                          style={{ borderBottom: '1px solid #111827', cursor: 'pointer' }}
+                          onClick={() => navigate(`/securities/${item.symbol}`)}
+                        >
+                          <td style={{ padding: '4px 8px', color: '#818cf8', fontWeight: 600 }}>{item.symbol}</td>
+                          <td style={{ padding: '4px 8px', color: '#d1d5db', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</td>
+                          <td style={{ padding: '4px 8px' }}>
+                            <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, borderRadius: 4, padding: '1px 6px', fontSize: 11 }}>
+                              {item.overall_sentiment ?? '—'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '4px 8px', textAlign: 'center', color: '#10b981' }}>{item.positive_count}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'center', color: '#ef4444' }}>{item.negative_count}</td>
+                          <td style={{ padding: '4px 8px', textAlign: 'center', color: '#6b7280' }}>{item.neutral_count}</td>
+                          <td style={{ padding: '4px 8px', color: '#9ca3af' }}>{item.scored_count}</td>
+                          <td style={{ padding: '4px 8px', color: '#4b5563' }}>{item.captured_at?.slice(0, 10) ?? '—'}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </Box>
+            </>
           )}
         </Paper>
       </Collapse>

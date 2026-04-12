@@ -10,6 +10,49 @@ from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
 from options_store import OptionsStore
 
+# ---------------------------------------------------------------------------
+# FinBERT — lazy-loaded on first news request so the server starts fast
+# ---------------------------------------------------------------------------
+
+_finbert_pipeline = None
+
+
+def _get_finbert():
+    """Return the FinBERT pipeline, initialising it on first call."""
+    global _finbert_pipeline
+    if _finbert_pipeline is None:
+        try:
+            from transformers import pipeline as hf_pipeline
+            _finbert_pipeline = hf_pipeline(
+                "text-classification",
+                model="ProsusAI/finbert",
+                tokenizer="ProsusAI/finbert",
+                max_length=512,
+                truncation=True,
+            )
+        except Exception:
+            _finbert_pipeline = None  # transformers not installed — degrade gracefully
+    return _finbert_pipeline
+
+
+def _score_sentiment(text: str) -> dict | None:
+    """Score a text snippet with FinBERT.
+
+    Returns {"sentiment": "positive"|"negative"|"neutral", "sentiment_score": float}
+    or None if the model is unavailable.
+    """
+    pipe = _get_finbert()
+    if pipe is None or not text.strip():
+        return None
+    try:
+        result = pipe(text[:1000], truncation=True)[0]
+        return {
+            "sentiment": result["label"].lower(),
+            "sentiment_score": round(float(result["score"]), 4),
+        }
+    except Exception:
+        return None
+
 # Shared store — persists every get_stock_price call for backtesting (issue #10)
 _options_store = OptionsStore()
 
@@ -60,27 +103,76 @@ def _summarize_options(chain_df, price, kind):
 
 @mcp.tool()
 def get_news(symbol: str, max_articles: int = 10) -> dict:
-    """Get recent news articles for a given ticker symbol from Yahoo Finance."""
+    """Get recent news articles for a given ticker symbol from Yahoo Finance.
+
+    Each article is scored by FinBERT (ProsusAI/finbert), a BERT model
+    fine-tuned on financial text, and tagged with:
+      sentiment        — 'positive', 'negative', or 'neutral'
+      sentiment_score  — model confidence (0–1)
+
+    The response also includes aggregate sentiment counts and an overall
+    sentiment label (plurality wins).  If the transformers library is not
+    installed the sentiment fields are omitted and a 'sentiment_note' field
+    explains why.
+
+    Args:
+        symbol:       Stock ticker symbol (e.g. 'AAPL')
+        max_articles: Maximum number of articles to return (default: 10)
+    """
     ticker = yf.Ticker(symbol.upper())
     raw = ticker.news or []
+
+    finbert_available = _get_finbert() is not None
 
     articles = []
     for item in raw[:max_articles]:
         content = item.get("content", {})
-        pub_ts = content.get("pubDate", "")
-        articles.append({
-            "title": content.get("title", ""),
-            "publisher": content.get("provider", {}).get("displayName", ""),
-            "published": pub_ts,
-            "summary": content.get("summary", ""),
-            "url": content.get("canonicalUrl", {}).get("url", ""),
-        })
+        title   = content.get("title", "")
+        summary = content.get("summary", "")
 
-    return {
-        "symbol": symbol.upper(),
+        article = {
+            "title":     title,
+            "publisher": content.get("provider", {}).get("displayName", ""),
+            "published": content.get("pubDate", ""),
+            "summary":   summary,
+            "url":       content.get("canonicalUrl", {}).get("url", ""),
+        }
+
+        if finbert_available:
+            scored = _score_sentiment(f"{title}. {summary}".strip())
+            if scored:
+                article["sentiment"]       = scored["sentiment"]
+                article["sentiment_score"] = scored["sentiment_score"]
+
+        articles.append(article)
+
+    result: dict = {
+        "symbol":        symbol.upper(),
         "article_count": len(articles),
-        "articles": articles,
+        "articles":      articles,
     }
+
+    if finbert_available:
+        scored_articles = [a for a in articles if "sentiment" in a]
+        pos = sum(1 for a in scored_articles if a["sentiment"] == "positive")
+        neg = sum(1 for a in scored_articles if a["sentiment"] == "negative")
+        neu = sum(1 for a in scored_articles if a["sentiment"] == "neutral")
+        counts = {"positive": pos, "negative": neg, "neutral": neu}
+        overall = max(counts, key=lambda k: counts[k]) if scored_articles else "neutral"
+        result["sentiment_summary"] = {
+            "overall":        overall,
+            "positive_count": pos,
+            "negative_count": neg,
+            "neutral_count":  neu,
+            "scored_count":   len(scored_articles),
+        }
+    else:
+        result["sentiment_note"] = (
+            "FinBERT sentiment scoring unavailable — install transformers and torch: "
+            "pip install transformers torch"
+        )
+
+    return result
 
 
 @mcp.tool()
@@ -95,11 +187,19 @@ def get_stock_price(symbol: str) -> dict:
 
     # Bollinger Bands
     hist = get_history(symbol.upper(), "1d", 90)
-    close = hist["Close"]
-    sma20 = close.rolling(window=20).mean().iloc[-1]
-    std20 = close.rolling(window=20).std().iloc[-1]
-    upper_band = sma20 + 2 * std20
-    lower_band = sma20 - 2 * std20
+    close = hist["Close"].dropna()
+    if len(close) >= 20:
+        sma20 = float(close.rolling(window=20).mean().iloc[-1])
+        std20 = float(close.rolling(window=20).std().iloc[-1])
+        bollinger_bands: dict | None = {
+            "upper":    round(sma20 + 2 * std20, 2),
+            "middle":   round(sma20, 2),
+            "lower":    round(sma20 - 2 * std20, 2),
+            "period":   20,
+            "std_dev":  2,
+        }
+    else:
+        bollinger_bands = None
 
     # Options chain (nearest expiration)
     options_data = None
@@ -125,15 +225,126 @@ def get_stock_price(symbol: str) -> dict:
         "symbol": symbol.upper(),
         "price": round(price, 2),
         "currency": getattr(info, "currency", "USD"),
-        "bollinger_bands": {
-            "upper": round(upper_band, 2),
-            "middle": round(sma20, 2),
-            "lower": round(lower_band, 2),
-            "period": 20,
-            "std_dev": 2,
-        },
+        "bollinger_bands": bollinger_bands,
         "options": options_data,
     }
+
+    _options_store.save_snapshot(
+        symbol=symbol.upper(),
+        price=price,
+        bollinger_bands=bollinger_bands,
+        options=options_data,
+    )
+
+    return result
+
+def _chain_side_full(chain_df, price):
+    """Return all contracts + aggregate stats for one side (calls or puts)."""
+    df = chain_df.copy()
+    df = df[df["strike"] > 0].copy()
+
+    contracts = []
+    for _, row in df.iterrows():
+        contracts.append({
+            "strike":        round(float(row["strike"]), 2),
+            "last":          round(float(row.get("lastPrice", 0) or 0), 2),
+            "bid":           round(float(row.get("bid", 0) or 0), 2),
+            "ask":           round(float(row.get("ask", 0) or 0), 2),
+            "iv":            round(float(row.get("impliedVolatility", 0) or 0) * 100, 1),
+            "volume":        _safe_int(row.get("volume")),
+            "open_interest": _safe_int(row.get("openInterest")),
+            "in_the_money":  bool(row.get("inTheMoney", False)),
+        })
+
+    total_oi  = int(df["openInterest"].fillna(0).sum())
+    total_vol = int(df["volume"].fillna(0).sum())
+    avg_iv    = round(float(df["impliedVolatility"].fillna(0).mean()) * 100, 1)
+
+    return {
+        "contracts":          sorted(contracts, key=lambda x: x["strike"]),
+        "total_open_interest": total_oi,
+        "total_volume":        total_vol,
+        "avg_iv_pct":          avg_iv,
+    }
+
+
+@mcp.tool()
+def get_full_options_chain(symbol: str) -> dict:
+    """Fetch the full options chain (all strikes, all expirations) for a ticker and persist to DB."""
+    ticker = yf.Ticker(symbol.upper())
+    info   = ticker.fast_info
+    price  = info.last_price
+    if price is None:
+        raise ValueError(f"Could not retrieve price for symbol: {symbol}")
+
+    # Bollinger Bands for context
+    hist  = get_history(symbol.upper(), "1d", 90)
+    close = hist["Close"].dropna()
+    if len(close) >= 20:
+        sma20 = float(close.rolling(window=20).mean().iloc[-1])
+        std20 = float(close.rolling(window=20).std().iloc[-1])
+        bollinger_bands: dict | None = {
+            "upper":   round(sma20 + 2 * std20, 2),
+            "middle":  round(sma20, 2),
+            "lower":   round(sma20 - 2 * std20, 2),
+            "period":  20,
+            "std_dev": 2,
+        }
+    else:
+        bollinger_bands = None
+
+    expirations = ticker.options
+    if not expirations:
+        return {
+            "symbol":           symbol.upper(),
+            "price":            round(price, 2),
+            "bollinger_bands":  bollinger_bands,
+            "expiration_count": 0,
+            "total_contracts":  0,
+            "expirations":      [],
+        }
+
+    expirations_data = []
+    total_contracts  = 0
+
+    for exp_date in expirations:
+        try:
+            chain = ticker.option_chain(exp_date)
+        except Exception:
+            continue
+
+        calls_data = _chain_side_full(chain.calls, price)
+        puts_data  = _chain_side_full(chain.puts,  price)
+
+        total_call_oi  = calls_data["total_open_interest"]
+        total_put_oi   = puts_data["total_open_interest"]
+        put_call_ratio = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None
+
+        expirations_data.append({
+            "expiration":      exp_date,
+            "put_call_ratio":  put_call_ratio,
+            "calls":           calls_data,
+            "puts":            puts_data,
+        })
+        total_contracts += len(calls_data["contracts"]) + len(puts_data["contracts"])
+
+    _options_store.save_full_chain(
+        symbol=symbol.upper(),
+        price=price,
+        bollinger_bands=bollinger_bands,
+        expirations_data=expirations_data,
+    )
+
+    return {
+        "symbol":           symbol.upper(),
+        "price":            round(price, 2),
+        "currency":         getattr(info, "currency", "USD"),
+        "bollinger_bands":  bollinger_bands,
+        "expiration_count": len(expirations_data),
+        "total_contracts":  total_contracts,
+        "expirations":      [e["expiration"] for e in expirations_data],
+    }
+
 
 @mcp.tool()
 def get_rsi(symbol: str, period: int = 14, interval: str = "1d") -> dict:

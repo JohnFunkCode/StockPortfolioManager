@@ -25,6 +25,7 @@ Usage:
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -52,6 +53,7 @@ CREATE TABLE IF NOT EXISTS options_snapshots (
     bb_middle    REAL,
     bb_lower     REAL,
     bb_period    INTEGER DEFAULT 20,
+    chain_type   TEXT    NOT NULL DEFAULT 'atm',  -- 'atm' (nearest exp, ATM only) or 'full' (all exps, all strikes)
     UNIQUE (symbol, captured_at)
 );
 
@@ -126,16 +128,24 @@ class OptionsStore:
     # ------------------------------------------------------------------
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         conn.execute("PRAGMA journal_mode = WAL")
+        conn.execute("PRAGMA synchronous = NORMAL")
         return conn
 
     def _ensure_schema(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             conn.executescript(_DDL)
+            # Migration: add chain_type column to existing databases
+            try:
+                conn.execute(
+                    "ALTER TABLE options_snapshots ADD COLUMN chain_type TEXT NOT NULL DEFAULT 'atm'"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     @staticmethod
     def _now_utc() -> str:
@@ -176,7 +186,7 @@ class OptionsStore:
 
         bb = bollinger_bands or {}
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             # --- options_snapshots ---
             try:
                 cur = conn.execute(
@@ -265,9 +275,198 @@ class OptionsStore:
 
         return snapshot_id
 
+    def save_full_chain(
+        self,
+        symbol: str,
+        price: float,
+        bollinger_bands: Optional[dict],
+        expirations_data: list[dict],
+        captured_at: Optional[str] = None,
+    ) -> Optional[int]:
+        """
+        Persist a full options chain snapshot (all strikes, all expirations).
+
+        Parameters
+        ----------
+        symbol           : ticker, e.g. "AAPL"
+        price            : last trade price at capture time
+        bollinger_bands  : dict with keys upper/middle/lower/period
+        expirations_data : list of dicts, one per expiration:
+                           {
+                             expiration: str,
+                             put_call_ratio: float|None,
+                             calls: { contracts: [...], total_open_interest, total_volume, avg_iv_pct },
+                             puts:  { contracts: [...], total_open_interest, total_volume, avg_iv_pct },
+                           }
+                           Each contract: { strike, last, bid, ask, iv, volume, open_interest, in_the_money }
+        captured_at      : ISO-8601 UTC string; defaults to now
+
+        Returns
+        -------
+        snapshot_id  or  None if duplicate.
+        """
+        ts = captured_at or self._now_utc()
+        symbol = symbol.upper()
+        bb = bollinger_bands or {}
+
+        with closing(self._connect()) as conn:
+            try:
+                cur = conn.execute(
+                    """
+                    INSERT INTO options_snapshots
+                        (symbol, captured_at, price, bb_upper, bb_middle, bb_lower, bb_period, chain_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'full')
+                    """,
+                    (
+                        symbol,
+                        ts,
+                        round(price, 4),
+                        bb.get("upper"),
+                        bb.get("middle"),
+                        bb.get("lower"),
+                        bb.get("period", 20),
+                    ),
+                )
+                snapshot_id = cur.lastrowid
+            except sqlite3.IntegrityError:
+                return None
+
+            for exp_entry in expirations_data:
+                expiration = exp_entry.get("expiration")
+                if not expiration:
+                    continue
+
+                calls = exp_entry.get("calls") or {}
+                puts = exp_entry.get("puts") or {}
+
+                cur = conn.execute(
+                    """
+                    INSERT INTO options_expirations
+                        (snapshot_id, expiration, put_call_ratio,
+                         total_call_oi, total_put_oi,
+                         total_call_vol, total_put_vol,
+                         avg_call_iv, avg_put_iv)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (snapshot_id, expiration) DO NOTHING
+                    """,
+                    (
+                        snapshot_id,
+                        expiration,
+                        exp_entry.get("put_call_ratio"),
+                        calls.get("total_open_interest"),
+                        puts.get("total_open_interest"),
+                        calls.get("total_volume"),
+                        puts.get("total_volume"),
+                        calls.get("avg_iv_pct"),
+                        puts.get("avg_iv_pct"),
+                    ),
+                )
+                expiration_id = cur.lastrowid
+
+                rows = []
+                for kind, side in (("call", calls), ("put", puts)):
+                    for c in side.get("contracts", []):
+                        rows.append((
+                            expiration_id,
+                            kind,
+                            c.get("strike"),
+                            c.get("last"),
+                            c.get("bid"),
+                            c.get("ask"),
+                            c.get("iv"),
+                            c.get("volume"),
+                            c.get("open_interest"),
+                            int(bool(c.get("in_the_money", False))),
+                        ))
+
+                if rows:
+                    conn.executemany(
+                        """
+                        INSERT INTO options_contracts
+                            (expiration_id, kind, strike, last_price, bid, ask,
+                             implied_vol, volume, open_interest, in_the_money)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (expiration_id, kind, strike) DO NOTHING
+                        """,
+                        rows,
+                    )
+
+        return snapshot_id
+
     # ------------------------------------------------------------------
     # Read / backtesting queries
     # ------------------------------------------------------------------
+
+    def get_full_chain(self, symbol: str) -> Optional[dict]:
+        """
+        Return the most recent full-chain snapshot for a symbol,
+        including all expirations and all strikes.
+        """
+        symbol = symbol.upper()
+
+        with closing(self._connect()) as conn:
+            snap = conn.execute(
+                """
+                SELECT * FROM options_snapshots
+                WHERE  symbol = ? AND chain_type = 'full'
+                ORDER  BY captured_at DESC
+                LIMIT  1
+                """,
+                (symbol,),
+            ).fetchone()
+
+            if snap is None:
+                return None
+
+            snap_dict = dict(snap)
+
+            exps = conn.execute(
+                """
+                SELECT * FROM options_expirations
+                WHERE  snapshot_id = ?
+                ORDER  BY expiration ASC
+                """,
+                (snap_dict["snapshot_id"],),
+            ).fetchall()
+
+            result = dict(snap_dict)
+            result["expirations"] = []
+
+            for exp in exps:
+                exp_dict = dict(exp)
+                contracts = conn.execute(
+                    """
+                    SELECT * FROM options_contracts
+                    WHERE  expiration_id = ?
+                    ORDER  BY kind, strike
+                    """,
+                    (exp_dict["expiration_id"],),
+                ).fetchall()
+                exp_dict["contracts"] = [dict(c) for c in contracts]
+                result["expirations"].append(exp_dict)
+
+        return result
+
+    def get_snapshot_dates(self, symbol: str, days: int = 365) -> set[str]:
+        """
+        Return the set of calendar dates (YYYY-MM-DD) for which a snapshot
+        already exists, so backfill callers can skip them.
+        """
+        from datetime import timedelta
+        symbol = symbol.upper()
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT captured_at
+                FROM   options_snapshots
+                WHERE  symbol      = ?
+                  AND  captured_at >= ?
+                """,
+                (symbol, cutoff_str),
+            ).fetchall()
+        return {r[0][:10] for r in rows}
 
     def get_pc_history(self, symbol: str, days: int = 30) -> list[dict]:
         """
@@ -288,7 +487,7 @@ class OptionsStore:
         cutoff -= timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.captured_at, s.price, e.put_call_ratio,
@@ -308,19 +507,38 @@ class OptionsStore:
         """
         Return the most recent full snapshot for a symbol, including
         its expiration data and ATM contracts.
+
+        Prefers the most recent 'full' chain snapshot (all strikes/expirations)
+        over ATM snapshots, since ATM snapshots have no contract/expiration data
+        and would leave the Options Chain tab empty.  Falls back to any snapshot
+        if no full chain exists yet.
         """
         symbol = symbol.upper()
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
+            # Prefer the most recent full-chain snapshot
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
                 WHERE  symbol = ?
+                  AND  chain_type = 'full'
                 ORDER  BY captured_at DESC
                 LIMIT  1
                 """,
                 (symbol,),
             ).fetchone()
+
+            # Fall back to any snapshot (e.g. ATM-only) if no full chain exists
+            if snap is None:
+                snap = conn.execute(
+                    """
+                    SELECT * FROM options_snapshots
+                    WHERE  symbol = ?
+                    ORDER  BY captured_at DESC
+                    LIMIT  1
+                    """,
+                    (symbol,),
+                ).fetchone()
 
             if snap is None:
                 return None
@@ -393,14 +611,62 @@ class OptionsStore:
         query += " ORDER BY s.captured_at DESC LIMIT ?"
         params.append(limit)
 
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(query, params).fetchall()
 
         return [dict(r) for r in rows]
 
+    def get_iv_history(self, symbol: str, days: int = 365) -> list[dict]:
+        """
+        Return composite IV (average of avg_call_iv and avg_put_iv across all
+        expirations) per snapshot for the past `days` days.
+
+        Used to compute IV Rank and IV Percentile:
+          IV Rank       = (current - 52w_low) / (52w_high - 52w_low) × 100
+          IV Percentile = % of past days where IV was below today's IV
+
+        Returns list of dicts ordered by captured_at ASC:
+            [{"captured_at": str, "composite_iv": float}, ...]
+        """
+        symbol = symbol.upper()
+        from datetime import timedelta
+        cutoff = (
+            datetime.now(timezone.utc)
+            .replace(hour=0, minute=0, second=0, microsecond=0)
+        ) - timedelta(days=days)
+        cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        with closing(self._connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    s.snapshot_id,
+                    s.captured_at,
+                    AVG(
+                        CASE
+                          WHEN e.avg_call_iv IS NOT NULL AND e.avg_put_iv IS NOT NULL
+                            THEN (e.avg_call_iv + e.avg_put_iv) / 2.0
+                          WHEN e.avg_call_iv IS NOT NULL THEN e.avg_call_iv
+                          WHEN e.avg_put_iv  IS NOT NULL THEN e.avg_put_iv
+                          ELSE NULL
+                        END
+                    ) AS composite_iv
+                FROM   options_snapshots   s
+                JOIN   options_expirations e ON e.snapshot_id = s.snapshot_id
+                WHERE  s.symbol      = ?
+                  AND  s.captured_at >= ?
+                GROUP  BY s.snapshot_id
+                HAVING composite_iv IS NOT NULL
+                ORDER  BY s.captured_at ASC
+                """,
+                (symbol, cutoff_str),
+            ).fetchall()
+
+        return [{"captured_at": r["captured_at"], "composite_iv": r["composite_iv"]} for r in rows]
+
     def get_symbols(self) -> list[str]:
         """Return all symbols that have at least one snapshot."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             rows = conn.execute(
                 "SELECT DISTINCT symbol FROM options_snapshots ORDER BY symbol"
             ).fetchall()
@@ -408,7 +674,7 @@ class OptionsStore:
 
     def snapshot_count(self, symbol: Optional[str] = None) -> int:
         """Return total number of snapshots, optionally for one symbol."""
-        with self._connect() as conn:
+        with closing(self._connect()) as conn:
             if symbol:
                 row = conn.execute(
                     "SELECT COUNT(*) FROM options_snapshots WHERE symbol = ?",

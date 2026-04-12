@@ -15,6 +15,8 @@
     "@mui/material": "^6.4.0",
     "@mui/x-data-grid": "^7.26.0",
     "@tanstack/react-query": "^5.66.0",
+    "@types/d3": "^7.4.3",
+    "d3": "^7.9.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.1.0"

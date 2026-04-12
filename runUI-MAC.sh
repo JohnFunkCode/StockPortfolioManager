@@ -3,6 +3,7 @@
 # Logs are written to api.log and frontent.log in the project root.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+NODE_BIN="/Users/thomasfowler/.nvm/versions/node/v25.7.0/bin"
 
 echo "Starting API server... (logs: api.log)"
 source "$SCRIPT_DIR/.venv/bin/activate"
@@ -11,7 +12,7 @@ API_PID=$!
 
 echo "Starting frontend server... (logs: frontend.log)"
 cd "$SCRIPT_DIR/frontend"
-npm run dev > "$SCRIPT_DIR/frontend.log" 2>&1 &
+PATH="$NODE_BIN:$PATH" npm run dev > "$SCRIPT_DIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
 
 echo "API PID:      $API_PID"

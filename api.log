@@ -53,3 +53,7 @@ Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF
 127.0.0.1 - - [12/Apr/2026 11:27:03] "GET /api/securities/screen?near_bb_upper=1 HTTP/1.1" 200 -
 127.0.0.1 - - [12/Apr/2026 11:27:08] "GET /api/securities/screen?above_ma200=1 HTTP/1.1" 200 -
 127.0.0.1 - - [12/Apr/2026 11:27:19] "GET /api/securities/screen?macd_bullish=1 HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 11:32:47] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 11:32:47] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 11:35:19] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 11:35:19] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -

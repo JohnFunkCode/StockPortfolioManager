@@ -6,18 +6,19 @@
  * Restarting with stat
  * Debugger is active!
  * Debugger PIN: 105-569-433
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:06] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:08] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:08] "GET /api/securities/ABBNY/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:08] "GET /api/securities/ABBNY/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:09] "GET /api/securities/ABBNY/signals/options-flow HTTP/1.1" 200 -
-Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
-Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 86636.02it/s]
+127.0.0.1 - - [11/Apr/2026 18:54:25] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:25] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:29] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:33] "GET /api/securities/ADBE/options/iv-rank HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:33] "GET /api/securities/ADBE/options/history?days=30 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:33] "GET /api/securities/ADBE/options/analytics HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:33] "GET /api/securities/ADBE/options/latest HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:33] "GET /api/securities/ADBE/technicals?days=180 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:34] "GET /api/securities/ADBE/earnings HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:35] "GET /api/securities/ADBE/signals/risk HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:35] "GET /api/securities/ADBE/signals/technical HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:35] "GET /api/securities/ADBE/signals/options-flow HTTP/1.1" 200 -
+Loading weights:   0%|          | 0/201 [00:00<?, ?it/s]Loading weights: 100%|██████████| 201/201 [00:00<00:00, 49169.20it/s]
 [1mBertForSequenceClassification LOAD REPORT[0m from: ProsusAI/finbert
 Key                          | Status     |  | 
 -----------------------------+------------+--+-
@@ -25,83 +26,38 @@ bert.embeddings.position_ids | UNEXPECTED |  |
 
 Notes:
 - UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:11] "GET /api/securities/ABBNY/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:14] "GET /api/securities/ABBNY/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:14] "GET /api/securities/ABBNY/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:14] "GET /api/securities/ABBNY/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:14] "GET /api/securities/ABBNY/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:17] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:19] "GET /api/securities/ABBNY/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:19] "GET /api/securities/ABBNY/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:19] "GET /api/securities/ABBNY/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:47:19] "GET /api/securities/ABBNY/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:52:13] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 17:57:33] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:19:53] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities/ABBNY/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities/ABBNY/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities/ABBNY/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities/ABBNY/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:22] "GET /api/securities/ABBNY/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:23] "GET /api/securities/ABBNY/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:33] "GET /api/securities/ABBNY/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:33] "GET /api/securities/ABBNY/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:33] "GET /api/securities/ABBNY/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:20:33] "GET /api/securities/ABBNY/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:22] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:24] "GET /api/securities/AAPL/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:35] "GET /api/securities/AAPL/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:35] "GET /api/securities/AAPL/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:36] "GET /api/securities/AAPL/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:36] "GET /api/securities/AAPL/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:50] "GET /api/securities/ABT/options/iv-rank HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:50] "GET /api/securities/ABT/options/history?days=30 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:50] "GET /api/securities/ABT/technicals?days=180 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:50] "GET /api/securities/ABT/options/analytics HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:50] "GET /api/securities/ABT/options/latest HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:21:51] "GET /api/securities/ABT/earnings HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:07] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/signals/technical HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/signals/risk HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/news?max_articles=10 HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/signals/options-flow HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:22:20] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:24:57] "GET /api/securities HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:24:57] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
-127.0.0.1 - - [11/Apr/2026 18:30:30] "GET /api/securities HTTP/1.1" 200 -
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+127.0.0.1 - - [11/Apr/2026 18:54:38] "GET /api/securities/ADBE/news?max_articles=10 HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:54:45] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:56:57] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:56:57] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:59:52] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:59:52] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:06:28] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:06:28] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:17:32] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:17:32] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:20:17] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:20:17] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:24:43] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:24:43] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:28:56] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:28:56] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:31:15] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:31:15] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:33:28] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:33:28] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:35:39] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:35:39] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:40:37] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 19:40:37] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 21:22:28] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 21:22:28] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 22:07:28] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 22:07:28] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:24:53] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:24:53] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:38:20] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:38:20] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:44:56] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [12/Apr/2026 08:44:56] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -

@@ -7,18 +7,19 @@
 
 1. [Executive Summary](#executive-summary)
 2. [Problem Statement](#problem-statement)
-3. [Existing Notification Infrastructure](#existing-notification-infrastructure)
-4. [Proposed Solution](#proposed-solution)
-5. [System Architecture](#system-architecture)
-6. [Agent Designs](#agent-designs)
+3. [Benefits Over Current Approach](#benefits-over-current-approach)
+4. [Existing Notification Infrastructure](#existing-notification-infrastructure)
+5. [Proposed Solution](#proposed-solution)
+6. [System Architecture](#system-architecture)
+7. [Agent Designs](#agent-designs)
    - [Signal Scanner Agent](#agent-1--signal-scanner)
    - [Deep Analysis Agent](#agent-2--deep-analysis)
    - [Portfolio Monitor Agent](#agent-3--portfolio-monitor)
    - [Orchestrator](#orchestrator)
-7. [MCP Tool Inventory](#mcp-tool-inventory)
-8. [Implementation Plan](#implementation-plan)
-9. [Technical Stack](#technical-stack)
-10. [Open Questions](#open-questions)
+8. [MCP Tool Inventory](#mcp-tool-inventory)
+9. [Implementation Plan](#implementation-plan)
+10. [Technical Stack](#technical-stack)
+11. [Open Questions](#open-questions)
 
 ---
 
@@ -39,6 +40,30 @@ Active portfolio management against a universe of 20–40 symbols requires const
 - **Portfolio monitoring** — tracking stop levels, drawdown, institutional flow changes, and VWAP health across all open positions daily
 
 These are not judgment tasks — they are data aggregation and pattern recognition tasks. They are exactly what an agent is suited for.
+
+---
+
+## Benefits Over Current Approach
+
+The table below contrasts the current ad-hoc workflow against the proposed system across the dimensions that matter most to an active portfolio manager.
+
+| Dimension | Current Ad-Hoc Approach | Agentic System |
+|-----------|------------------------|----------------|
+| **Coverage frequency** | Whenever a team member manually runs `main.py` or checks a chart — typically once or twice per session, if at all | Signal Scanner sweeps the full symbol universe every 15 minutes throughout market hours — no gaps, no forgotten symbols |
+| **Symbols covered per session** | Whichever symbols a team member happens to check; fatigue and time constraints mean most of the watchlist is never reviewed on a given day | Every portfolio position and every watchlist symbol, every sweep, without exception |
+| **Time to detect a setup** | Hours — a breakout that forms at 10:00 AM may not be noticed until end of day, or not at all | Under 15 minutes from signal formation to Discord alert |
+| **Depth of analysis** | Varies by analyst and available time; a rushed check may cover price and RSI only | Deep Analysis runs a consistent 6-phase, 20-tool pipeline every time — no shortcuts under pressure |
+| **Consistency** | Analyst-dependent; the same symbol may be evaluated differently on different days or by different team members | Deterministic scoring and a fixed tool sequence — the same signal on the same data produces the same score every time |
+| **After-hours / pre-market** | No monitoring; institutional moves overnight go undetected until the next manual check | Portfolio Monitor runs at the open (9:35 AM) to surface overnight changes immediately |
+| **Prioritization** | Implicit — whoever shouts loudest or whichever ticker is top-of-mind gets attention | Explicit four-tier priority queue: portfolio AT RISK → institutional exit → portfolio scanner hits → watchlist hits |
+| **Notification reliability** | Discord alerts only fire when `main.py` is run manually; easy to miss an alert window entirely | Alerts fire automatically on schedule; heartbeat embed confirms the system is alive |
+| **Deduplication** | File-based log that never rotates — a firing alert is permanently suppressed, even if the condition worsens | SQLite time-windowed dedup — a signal suppressed at 10:00 AM can re-fire at 12:00 PM if the condition persists |
+| **Audit trail** | None — no record of which signals were seen, which were acted on, or which were missed | All signals and recommendations logged to SQLite with timestamps; enables backtesting and signal quality review |
+| **Cognitive load** | High — team members must hold the full symbol universe in mind and decide what to check | Low — agents surface only what crosses the escalation threshold; human attention is reserved for final decisions |
+
+### Summary
+
+The core problem with the ad-hoc approach is not that the team lacks skill — it is that **human attention is a bottleneck applied to a task that does not require human judgment**. Scanning 40 symbols for RSI, MACD, and options flow crossovers is mechanical work. The agentic system removes that bottleneck entirely, so the team's analytical energy is spent where it actually matters: evaluating the recommendations the agents surface and making the final call.
 
 ---
 

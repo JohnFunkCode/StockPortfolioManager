@@ -102,3 +102,6 @@ Notes:
 127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/news?max_articles=10 HTTP/1.1" 200 -
 127.0.0.1 - - [11/Apr/2026 18:22:13] "GET /api/securities/ABT/signals/options-flow HTTP/1.1" 200 -
 127.0.0.1 - - [11/Apr/2026 18:22:20] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:24:57] "GET /api/securities HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:24:57] "GET /api/securities/news/sentiment-summary?source=all HTTP/1.1" 200 -
+127.0.0.1 - - [11/Apr/2026 18:30:30] "GET /api/securities HTTP/1.1" 200 -

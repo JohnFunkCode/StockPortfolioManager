@@ -2,10 +2,8 @@
 > harvest-ladder-frontend@1.0.0 dev
 > vite
 
-Port 5173 is in use, trying another one...
-Port 5174 is in use, trying another one...
 
-  VITE v6.4.1  ready in 71 ms
+  VITE v6.4.1  ready in 183 ms
 
-  ➜  Local:   http://localhost:5175/
+  ➜  Local:   http://localhost:5173/
   ➜  Network: use --host to expose

@@ -335,7 +335,23 @@ def _fetch_yfinance(symbol: str, interval: str, days: int) -> pd.DataFrame:
     # yf.download returns MultiIndex columns when downloading a single symbol in
     # newer versions; flatten if needed.
     if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
+        # Level 0 may be either Price names ("Close", "Open", …) or the ticker
+        # symbol ("MU", "AAPL", …) depending on the yfinance version.  Detect
+        # which level holds the field names and flatten to that.
+        _FIELD_NAMES = {"Open", "High", "Low", "Close", "Volume", "Adj Close",
+                        "Dividends", "Stock Splits"}
+        if df.columns.get_level_values(0)[0] in _FIELD_NAMES:
+            df.columns = df.columns.get_level_values(0)
+        else:
+            df.columns = df.columns.get_level_values(1)
+
+    # Ensure the expected columns exist after flattening
+    required = {"Open", "High", "Low", "Close", "Volume"}
+    if not required.issubset(set(df.columns)):
+        logger.warning(
+            "yfinance columns unexpected for %s/%s: %s", symbol, interval, list(df.columns)
+        )
+        return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])
 
     return df[["Open", "High", "Low", "Close", "Volume"]].dropna(subset=["Close"])
 

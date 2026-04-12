@@ -1337,3 +1337,16 @@
   - Oil & Gas
   - Natural Gas
   - Midstream
+- currency: USD
+  name: Micron Technology, Inc.
+  symbol: MU
+  tags:
+  - Technology
+  - Semiconductors
+  - Memory
+- currency: USD
+  name: ASUSTeK Computer Inc.
+  symbol: ASUUY
+  tags:
+  - Technology
+  - Computer Hardware

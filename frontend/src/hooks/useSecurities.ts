@@ -174,3 +174,13 @@ export function useAddSecurity() {
   });
   return { watchlist, portfolio };
 }
+
+export function useSymbolLookup(symbol: string) {
+  return useQuery({
+    queryKey: ['symbol-lookup', symbol],
+    queryFn: () => securitiesApi.lookupSymbol(symbol),
+    enabled: symbol.length > 0,
+    staleTime: 10 * 60 * 1000,
+    retry: false,
+  });
+}

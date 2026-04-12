@@ -491,6 +491,31 @@ def create_app() -> Flask:
         return jsonify({"securities": list(combined.values())})
 
     # -----------------------------------------------------------------------
+    # Securities — symbol lookup (name + suggested tags from yfinance info)
+    # -----------------------------------------------------------------------
+
+    @app.route("/api/securities/lookup", methods=["GET"])
+    def lookup_security():
+        import yfinance as yf
+        symbol = request.args.get("symbol", "").strip().upper()
+        if not symbol:
+            return jsonify({"error": "symbol is required"}), 400
+        try:
+            ticker = yf.Ticker(symbol)
+            info = ticker.info or {}
+            name = info.get("longName") or info.get("shortName") or ""
+            sector = info.get("sector") or ""
+            industry = info.get("industry") or ""
+            suggested_tags = [t for t in [sector, industry] if t]
+            return jsonify({
+                "symbol": symbol,
+                "name": name,
+                "suggested_tags": suggested_tags,
+            })
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+    # -----------------------------------------------------------------------
     # Securities — OHLCV price history
     # -----------------------------------------------------------------------
 

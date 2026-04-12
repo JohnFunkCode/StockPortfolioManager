@@ -1,20 +1,26 @@
 import { Routes, Route, Link, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar, Toolbar, Typography, Button, Container, Box, Stack, alpha,
+  IconButton, Tooltip,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import LightModeIcon from '@mui/icons-material/LightMode';
+import DarkModeIcon from '@mui/icons-material/DarkMode';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
 import SymbolsPage from './components/symbols/SymbolsPage';
 import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
+import { useAppTheme } from './ThemeContext';
 
 function Layout() {
   const location = useLocation();
+  const { themeName, setThemeName } = useAppTheme();
+  const isLight = themeName === 'light';
 
   const navItems = [
     { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
@@ -42,6 +48,7 @@ function Layout() {
           >
             Harvest Ladder
           </Typography>
+
           <Stack direction="row" spacing={1}>
             {navItems.map((item) => {
               const active = location.pathname === item.path ||
@@ -54,16 +61,24 @@ function Layout() {
                   color="inherit"
                   startIcon={item.icon}
                   sx={{
-                    color: active ? '#ff2d78' : 'rgba(240,230,255,0.7)',
-                    borderBottom: active ? '2px solid #ff2d78' : '2px solid transparent',
+                    color: active
+                      ? 'primary.main'
+                      : isLight ? 'text.secondary' : 'rgba(240,230,255,0.7)',
+                    borderBottom: active ? '2px solid' : '2px solid transparent',
+                    borderBottomColor: active ? 'primary.main' : 'transparent',
                     borderRadius: 0,
                     fontWeight: active ? 700 : 500,
-                    textShadow: active ? '0 0 12px rgba(255,45,120,0.7)' : 'none',
+                    textShadow: active
+                      ? (theme: { palette: { primary: { main: string } } }) =>
+                          `0 0 12px ${alpha(theme.palette.primary.main, 0.7)}`
+                      : 'none',
                     transition: 'color 0.2s, text-shadow 0.2s',
                     '&:hover': {
-                      color: '#ff2d78',
-                      backgroundColor: alpha('#ff2d78', 0.07),
-                      textShadow: '0 0 12px rgba(255,45,120,0.5)',
+                      color: 'primary.main',
+                      backgroundColor: (theme: { palette: { primary: { main: string } } }) =>
+                        alpha(theme.palette.primary.main, 0.07),
+                      textShadow: (theme: { palette: { primary: { main: string } } }) =>
+                        `0 0 12px ${alpha(theme.palette.primary.main, 0.5)}`,
                     },
                   }}
                 >
@@ -72,6 +87,31 @@ function Layout() {
               );
             })}
           </Stack>
+
+          {/* Theme toggle — pushed to the far right */}
+          <Box sx={{ ml: 'auto' }}>
+            <Tooltip title={isLight ? 'Switch to Dark Synthwave' : 'Switch to Light Synthwave'}>
+              <IconButton
+                onClick={() => setThemeName(isLight ? 'dark' : 'light')}
+                size="small"
+                sx={{
+                  color: 'primary.main',
+                  border: '1px solid',
+                  borderColor: (theme) => alpha(theme.palette.primary.main, 0.35),
+                  borderRadius: 1.5,
+                  p: 0.75,
+                  transition: 'box-shadow 0.2s, border-color 0.2s',
+                  '&:hover': {
+                    borderColor: 'primary.main',
+                    boxShadow: (theme) =>
+                      `0 0 10px ${alpha(theme.palette.primary.main, 0.4)}`,
+                  },
+                }}
+              >
+                {isLight ? <DarkModeIcon fontSize="small" /> : <LightModeIcon fontSize="small" />}
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Toolbar>
       </AppBar>
       <Container maxWidth="xl" sx={{ py: 3, flex: 1 }}>

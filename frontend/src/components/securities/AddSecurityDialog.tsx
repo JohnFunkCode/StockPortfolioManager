@@ -3,6 +3,7 @@ import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -19,7 +20,7 @@ import {
 } from '@mui/material';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import VisibilityIcon from '@mui/icons-material/Visibility';
-import { useAddSecurity } from '../../hooks/useSecurities';
+import { useAddSecurity, useSymbolLookup } from '../../hooks/useSecurities';
 
 interface Props {
   open: boolean;
@@ -43,9 +44,22 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [tagChips, setTagChips] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [lookupSymbol, setLookupSymbol] = useState('');
 
   const { watchlist, portfolio } = useAddSecurity();
   const isPending = watchlist.isPending || portfolio.isPending;
+  const { data: lookupData, isFetching: isLookingUp } = useSymbolLookup(lookupSymbol);
+
+  // Auto-populate name and tags when lookup resolves
+  useEffect(() => {
+    if (!lookupData) return;
+    if (!form.name && lookupData.name) {
+      setForm((f) => ({ ...f, name: lookupData.name }));
+    }
+    if (destination === 0 && tagChips.length === 0 && lookupData.suggested_tags.length > 0) {
+      setTagChips(lookupData.suggested_tags);
+    }
+  }, [lookupData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Reset form when dialog opens/closes
   useEffect(() => {
@@ -53,6 +67,7 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
       setForm(EMPTY_FORM);
       setTagChips([]);
       setError('');
+      setLookupSymbol('');
       watchlist.reset();
       portfolio.reset();
     }
@@ -142,7 +157,11 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
               size="small"
               value={form.symbol}
               onChange={set('symbol')}
-              onBlur={() => setForm((f) => ({ ...f, symbol: f.symbol.trim().toUpperCase() }))}
+              onBlur={() => {
+                const sym = form.symbol.trim().toUpperCase();
+                setForm((f) => ({ ...f, symbol: sym }));
+                if (sym) setLookupSymbol(sym);
+              }}
               inputProps={{ style: { textTransform: 'uppercase' } }}
               sx={{ width: 120 }}
               autoFocus
@@ -154,6 +173,9 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
               onChange={set('name')}
               placeholder="e.g. Apple Inc."
               sx={{ flex: 1 }}
+              InputProps={isLookingUp ? {
+                endAdornment: <CircularProgress size={14} sx={{ mr: 0.5 }} />,
+              } : undefined}
             />
           </Stack>
 

@@ -182,11 +182,19 @@ def get_stock_price(symbol: str) -> dict:
 
     # Bollinger Bands
     hist = get_history(symbol.upper(), "1d", 90)
-    close = hist["Close"]
-    sma20 = close.rolling(window=20).mean().iloc[-1]
-    std20 = close.rolling(window=20).std().iloc[-1]
-    upper_band = sma20 + 2 * std20
-    lower_band = sma20 - 2 * std20
+    close = hist["Close"].dropna()
+    if len(close) >= 20:
+        sma20 = float(close.rolling(window=20).mean().iloc[-1])
+        std20 = float(close.rolling(window=20).std().iloc[-1])
+        bollinger_bands: dict | None = {
+            "upper":    round(sma20 + 2 * std20, 2),
+            "middle":   round(sma20, 2),
+            "lower":    round(sma20 - 2 * std20, 2),
+            "period":   20,
+            "std_dev":  2,
+        }
+    else:
+        bollinger_bands = None
 
     # Options chain (nearest expiration)
     options_data = None
@@ -212,20 +220,14 @@ def get_stock_price(symbol: str) -> dict:
         "symbol": symbol.upper(),
         "price": round(price, 2),
         "currency": getattr(info, "currency", "USD"),
-        "bollinger_bands": {
-            "upper": round(upper_band, 2),
-            "middle": round(sma20, 2),
-            "lower": round(lower_band, 2),
-            "period": 20,
-            "std_dev": 2,
-        },
+        "bollinger_bands": bollinger_bands,
         "options": options_data,
     }
 
     _options_store.save_snapshot(
         symbol=symbol.upper(),
         price=price,
-        bollinger_bands=result["bollinger_bands"],
+        bollinger_bands=bollinger_bands,
         options=options_data,
     )
 
@@ -271,17 +273,20 @@ def get_full_options_chain(symbol: str) -> dict:
         raise ValueError(f"Could not retrieve price for symbol: {symbol}")
 
     # Bollinger Bands for context
-    hist   = get_history(symbol.upper(), "1d", 90)
-    close  = hist["Close"]
-    sma20  = float(close.rolling(window=20).mean().iloc[-1])
-    std20  = float(close.rolling(window=20).std().iloc[-1])
-    bollinger_bands = {
-        "upper":   round(sma20 + 2 * std20, 2),
-        "middle":  round(sma20, 2),
-        "lower":   round(sma20 - 2 * std20, 2),
-        "period":  20,
-        "std_dev": 2,
-    }
+    hist  = get_history(symbol.upper(), "1d", 90)
+    close = hist["Close"].dropna()
+    if len(close) >= 20:
+        sma20 = float(close.rolling(window=20).mean().iloc[-1])
+        std20 = float(close.rolling(window=20).std().iloc[-1])
+        bollinger_bands: dict | None = {
+            "upper":   round(sma20 + 2 * std20, 2),
+            "middle":  round(sma20, 2),
+            "lower":   round(sma20 - 2 * std20, 2),
+            "period":  20,
+            "std_dev": 2,
+        }
+    else:
+        bollinger_bands = None
 
     expirations = ticker.options
     if not expirations:

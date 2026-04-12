@@ -19,6 +19,7 @@ import type {
   AddSecurityResponse,
   NewsResponse,
   BulkSentimentResponse,
+  SymbolLookupResponse,
 } from './securitiesTypes';
 
 export interface SecuritiesResponse { securities: Security[] }
@@ -31,6 +32,7 @@ export type {
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
   AddSecurityPayload, AddSecurityResponse, NewsResponse, BulkSentimentResponse,
+  SymbolLookupResponse,
 };
 
 export const securitiesApi = {
@@ -95,6 +97,9 @@ export const securitiesApi = {
       `/api/securities/${ticker}/options/history/backfill?days=${days}`,
       { method: 'POST' },
     ),
+
+  lookupSymbol: (symbol: string) =>
+    apiRequest<SymbolLookupResponse>(`/api/securities/lookup?symbol=${encodeURIComponent(symbol)}`),
 
   addToWatchlist: (payload: AddSecurityPayload) =>
     apiRequest<AddSecurityResponse>('/api/watchlist', {

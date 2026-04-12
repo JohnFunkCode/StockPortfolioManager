@@ -226,6 +226,13 @@ export interface PortfolioDeltaResponse {
   positions: PortfolioDeltaPosition[];
 }
 
+// Symbol lookup
+export interface SymbolLookupResponse {
+  symbol: string;
+  name: string;
+  suggested_tags: string[];
+}
+
 // Add security
 export interface AddSecurityPayload {
   symbol: string;

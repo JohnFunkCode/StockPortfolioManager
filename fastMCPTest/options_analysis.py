@@ -26,6 +26,14 @@ from ohlcv_cache import get_history, period_to_days
 
 from options_store import OptionsStore
 
+# News sentiment integration (optional — gracefully skipped if not available)
+try:
+    from news_store import NewsStore
+    from news_collector import NewsCollector
+    _NEWS_AVAILABLE = True
+except ImportError:
+    _NEWS_AVAILABLE = False
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -217,6 +225,10 @@ class SecurityAnalysis:
     days_to_earnings: Optional[int] = None       # None = unknown; <14 triggers blackout
     recent_positive_catalyst: bool = False        # True = upgrade/deal in last 5 days
     catalyst_headline: str = ""                   # The headline that triggered the flag
+
+    # News sentiment (set by fetch_security() when news_store is available)
+    news_signal: str = ""                         # BULLISH/BEARISH/MIXED/NEUTRAL/INSUFFICIENT_DATA
+    news_top_headline: str = ""                   # Representative headline for display
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +588,12 @@ def fetch_recent_positive_catalyst(ticker: yf.Ticker) -> tuple[bool, str]:
         return False, ""
 
 
-def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnalysis]:
+def fetch_security(
+    symbol: str,
+    name: str,
+    tags: list,
+    news_store=None,
+) -> Optional[SecurityAnalysis]:
     try:
         ticker = yf.Ticker(symbol.upper())
         info = ticker.fast_info
@@ -593,7 +610,35 @@ def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnaly
         iv_analysis = fetch_iv_analysis(ticker, options)
         pc_analysis = fetch_put_call_analysis(ticker, price)
         days_to_earnings = fetch_earnings_proximity(ticker)
-        catalyst_hit, catalyst_headline = fetch_recent_positive_catalyst(ticker)
+
+        # --- News sentiment ---
+        news_signal = ""
+        news_top_headline = ""
+        catalyst_hit = False
+        catalyst_headline = ""
+
+        if news_store is not None:
+            try:
+                summary = news_store.get_sentiment_summary(symbol.upper(), days=CATALYST_LOOKBACK_DAYS)
+                news_signal = summary.get("signal", "")
+                # Use top positive/negative headline for display
+                if summary.get("top_positive"):
+                    news_top_headline = summary["top_positive"][0]
+                elif summary.get("top_negative"):
+                    news_top_headline = summary["top_negative"][0]
+
+                # Map news signal to catalyst flag used by guardrails
+                # BULLISH news blocks puts (positive catalyst undermines bearish thesis)
+                if news_signal == "BULLISH" and summary.get("scored_articles", 0) > 0:
+                    catalyst_hit = True
+                    catalyst_headline = news_top_headline
+                elif news_signal in ("INSUFFICIENT_DATA", ""):
+                    # Fall back to keyword scan if no scored articles yet
+                    catalyst_hit, catalyst_headline = fetch_recent_positive_catalyst(ticker)
+            except Exception:
+                catalyst_hit, catalyst_headline = fetch_recent_positive_catalyst(ticker)
+        else:
+            catalyst_hit, catalyst_headline = fetch_recent_positive_catalyst(ticker)
 
         return SecurityAnalysis(
             symbol=symbol.upper(),
@@ -607,6 +652,8 @@ def fetch_security(symbol: str, name: str, tags: list) -> Optional[SecurityAnaly
             days_to_earnings=days_to_earnings,
             recent_positive_catalyst=catalyst_hit,
             catalyst_headline=catalyst_headline,
+            news_signal=news_signal,
+            news_top_headline=news_top_headline,
         )
     except Exception:
         return None
@@ -736,6 +783,15 @@ def score(sec: SecurityAnalysis) -> None:
         if (pc.near_atm_pc is not None and pc.near_oi_pc is not None
                 and pc.near_atm_pc > pc.near_oi_pc * 1.20):
             put_points.append((1, f"ATM P/C {pc.near_atm_pc:.2f} > total P/C {pc.near_oi_pc:.2f} (targeted hedging at current price)"))
+
+    # --- News sentiment boost ---
+    if sec.news_signal == "BULLISH":
+        long_points.append((2, "FinBERT news signal: BULLISH"))
+    elif sec.news_signal == "BEARISH":
+        put_points.append((2, "FinBERT news signal: BEARISH"))
+    elif sec.news_signal == "MIXED":
+        # Mixed news adds a modest point to the directionally dominant side
+        long_points.append((1, "FinBERT news signal: MIXED (slight long bias)"))
 
     sec.long_score = sum(pts for pts, _ in long_points)
     sec.put_score = sum(pts for pts, _ in put_points)
@@ -990,6 +1046,9 @@ def print_long_candidates(
         print(f"       Vol  call_volume={call_vol:,}")
         if sec.days_to_earnings is not None:
             print(f"       ERN  {sec.days_to_earnings}d to earnings")
+        if sec.news_signal:
+            headline = f'  "{sec.news_top_headline[:70]}"' if sec.news_top_headline else ""
+            print(f"       NEWS {sec.news_signal}{headline}")
         print(f"       Why  {sec.long_reason}")
 
         # Primary recommendation: call trade
@@ -1046,14 +1105,18 @@ def _call_guardrail_reason(sec: SecurityAnalysis) -> str:
     """
     Return a human-readable description of the first active call guardrail,
     or an empty string if no guardrail is triggered.
-    Only earnings blackout applies to calls — positive catalysts support the
-    call thesis and the contradiction guard is not used for directional long trades.
+    Earnings blackout and BEARISH news signal block calls.
+    Positive catalysts support the call thesis; contradiction guard not applied.
     """
     if (
         sec.days_to_earnings is not None
         and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
     ):
         return f"earnings in {sec.days_to_earnings}d (blackout <{EARNINGS_BLACKOUT_DAYS}d)"
+    if sec.news_signal == "BEARISH":
+        headline = sec.news_top_headline[:60] + "…" if len(sec.news_top_headline) > 60 else sec.news_top_headline
+        note = f': "{headline}"' if headline else ""
+        return f"FinBERT BEARISH news signal within {CATALYST_LOOKBACK_DAYS}d{note}"
     return ""
 
 
@@ -1114,6 +1177,9 @@ def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: 
         print(f"       OI   put_oi={put_oi:,}")
         if sec.days_to_earnings is not None:
             print(f"       ERN  {sec.days_to_earnings}d to earnings")
+        if sec.news_signal:
+            headline = f'  "{sec.news_top_headline[:70]}"' if sec.news_top_headline else ""
+            print(f"       NEWS {sec.news_signal}{headline}")
         print(f"       Why  {sec.put_reason}")
 
         # Primary recommendation: put trade
@@ -1304,6 +1370,11 @@ def main() -> None:
         action="store_true",
         help="Skip saving snapshots to the database (useful for quick one-off runs)",
     )
+    parser.add_argument(
+        "--no-news",
+        action="store_true",
+        help="Skip RSS/FinBERT news collection and sentiment scoring",
+    )
     args = parser.parse_args()
 
     if args.symbol:
@@ -1320,12 +1391,30 @@ def main() -> None:
     if not args.no_persist:
         store = OptionsStore(args.db) if args.db else OptionsStore()
 
+    # Set up news sentiment (optional)
+    news_store = None
+    if not args.no_news and _NEWS_AVAILABLE:
+        news_store = NewsStore()
+        symbols_to_collect = [e["symbol"] for e in entries]
+        print(f"\nCollecting news for {len(symbols_to_collect)} symbols (RSS + yfinance + FinBERT)…",
+              flush=True)
+        nc = NewsCollector(store=news_store)
+        nc.collect(symbols_to_collect, score=True)
+        total_news = news_store.article_count()
+        print(f"News DB   : {total_news} articles scored")
+
     print(f"\nOptions Analysis Engine")
     print(f"Watchlist : {args.watchlist}")
     print(f"Symbols   : {len(entries)} (US-listed)")
     print(f"Put Budget: ${args.puts_budget:,.0f}")
     if store:
         print(f"Database  : {store.db_path}")
+    if news_store is not None:
+        print(f"News      : enabled (FinBERT)")
+    elif args.no_news:
+        print(f"News      : disabled (--no-news)")
+    else:
+        print(f"News      : unavailable (pip install feedparser transformers torch)")
     print(f"\nFetching data", end="", flush=True)
 
     results: list[SecurityAnalysis] = []
@@ -1335,7 +1424,7 @@ def main() -> None:
     for entry in entries:
         sym = entry["symbol"]
         print(".", end="", flush=True)
-        sec = fetch_security(sym, entry["name"], entry["tags"])
+        sec = fetch_security(sym, entry["name"], entry["tags"], news_store=news_store)
         if sec is None:
             failed.append(sym)
             continue

@@ -536,7 +536,7 @@ stateDiagram-v2
     [*] --> Idle
 
     Idle --> SignalScan : 15-min timer fires (market hours)
-    Idle --> PortfolioScan : 9:35 AM or 3:55 PM ET
+    Idle --> PortfolioScan : 0935 or 1555 ET
 
     SignalScan --> EvaluateScore : scanner returns results
     EvaluateScore --> Idle : score < ±4

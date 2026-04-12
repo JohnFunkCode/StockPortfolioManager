@@ -1150,6 +1150,28 @@ def _print_put_trade(trade: dict) -> None:
     print(f"            cost={trade['contracts']}x @ ${trade['total_cost']:.0f} total")
 
 
+def _guardrail_reason(sec: SecurityAnalysis) -> str:
+    """
+    Return a human-readable description of the first active guardrail,
+    or an empty string if no guardrail is triggered.
+    Mirrors the logic in build_put_trade() so the display is always consistent.
+    """
+    if (
+        sec.days_to_earnings is not None
+        and sec.days_to_earnings < EARNINGS_BLACKOUT_DAYS
+    ):
+        return f"earnings in {sec.days_to_earnings}d (blackout <{EARNINGS_BLACKOUT_DAYS}d)"
+    if sec.recent_positive_catalyst:
+        headline = sec.catalyst_headline[:60] + "…" if len(sec.catalyst_headline) > 60 else sec.catalyst_headline
+        return f"positive catalyst within {CATALYST_LOOKBACK_DAYS}d: \"{headline}\""
+    if sec.long_score >= CONTRADICTION_LONG_MIN and sec.put_score >= CONTRADICTION_PUT_MIN:
+        return (
+            f"ambiguous signal (long_score={sec.long_score:.0f} AND put_score={sec.put_score:.0f} "
+            f"both ≥ {CONTRADICTION_PUT_MIN})"
+        )
+    return ""
+
+
 def print_put_candidates(results: list[SecurityAnalysis], budget: float, top_n: int = 7) -> None:
     print_section("PUT / BEARISH CANDIDATES  (overbought or heavy put positioning)")
     candidates = sorted(

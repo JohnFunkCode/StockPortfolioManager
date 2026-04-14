@@ -31,6 +31,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio } from '../../hooks/useSecurities';
+import RecommendationPanel from './RecommendationPanel';
 import SignalsTab from './SignalsTab';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
@@ -657,6 +658,7 @@ export default function SecurityDetailPage() {
           <Tab label="Options Performance" />
           <Tab label="Options Analytics" />
           <Tab label="Signals" />
+          <Tab label="Agent Analysis" />
         </Tabs>
       </Paper>
 
@@ -1459,6 +1461,7 @@ export default function SecurityDetailPage() {
 
       {/* --- Tab 5: Signals --- */}
       {tab === 5 && <SignalsTab ticker={ticker} />}
+      {tab === 6 && <RecommendationPanel ticker={ticker} />}
 
       {/* Global D3 tooltip div (shared across all charts) */}
       <div

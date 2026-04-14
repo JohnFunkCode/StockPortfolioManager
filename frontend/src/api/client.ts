@@ -21,6 +21,9 @@ export async function apiRequest<T>(
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      window.location.href = '/auth/login';
+    }
     const error = await response.json().catch(() => ({}));
     throw new ApiError(error.message || error.error || response.statusText, response.status);
   }

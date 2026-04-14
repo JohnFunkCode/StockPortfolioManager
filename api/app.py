@@ -19,6 +19,11 @@ import yaml
 from flask import Flask, current_app, jsonify, request
 from flask_cors import CORS
 
+from api.agents import agents_bp
+from api.auth import auth_bp
+from api.maintenance import maintenance_bp
+from agents.orchestrator.orchestrator import orchestrator_bp
+
 # Ensure project root is on sys.path so experiments/ and fastMCPTest/ are importable.
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -134,8 +139,16 @@ def create_app() -> Flask:
     app.json.ensure_ascii = False
     app.json_encoder = _JSONEncoder  # type: ignore[attr-defined]
 
-    # CORS – allow React dev servers
-    CORS(app, resources={r"/api/*": {"origins": "*"}})
+    # CORS — restrict to known frontend origins; credentials required for cookies
+    CORS(app, resources={r"/*": {"origins": [
+        "http://localhost:5173",
+        "http://localhost:5001",
+    ]}}, supports_credentials=True)
+
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(agents_bp)
+    app.register_blueprint(orchestrator_bp)
+    app.register_blueprint(maintenance_bp)
 
     # Initialise a single HarvesterPlanDB instance shared across requests.
     db = HarvesterPlanDB()
@@ -1636,6 +1649,25 @@ def create_app() -> Flask:
                 "Run this endpoint once per trading day to build a P/C ratio trend over time."
             ),
         })
+
+    # -----------------------------------------------------------------------
+    # SPA static file serving (production only)
+    # When the React dist/ exists, serve it for all unmatched routes so that
+    # React Router handles client-side navigation.  In local dev the Vite
+    # dev server (port 5173) proxies /api/* to here; this code is a no-op.
+    # -----------------------------------------------------------------------
+
+    from flask import send_from_directory as _sfd
+    _DIST = Path(__file__).parent.parent / "frontend" / "dist"
+
+    if _DIST.exists():
+        @app.route("/", defaults={"path": ""})
+        @app.route("/<path:path>")
+        def serve_spa(path: str):
+            target = _DIST / path
+            if path and target.exists() and target.is_file():
+                return _sfd(str(_DIST), path)
+            return _sfd(str(_DIST), "index.html")
 
     return app
 

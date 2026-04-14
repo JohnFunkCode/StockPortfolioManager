@@ -1,0 +1,151 @@
+name: Build & Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:   # allow manual trigger from GitHub UI
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel an in-flight deploy
+
+env:
+  GCP_PROJECT:    stock-portfolio-tfowler
+  GCP_REGION:     us-central1
+  AR_REPO:        stock-portfolio
+  SERVICE_NAME:   stock-portfolio-api
+  IMAGE:          us-central1-docker.pkg.dev/stock-portfolio-tfowler/stock-portfolio/api
+
+jobs:
+  # ── Build & push Docker image ────────────────────────────────────────────────
+  build:
+    name: Build image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for Workload Identity Federation
+
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP (Workload Identity Federation)
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push image
+        id: meta
+        run: |
+          SHORT_SHA="${GITHUB_SHA::8}"
+          IMAGE_TAG="${{ env.IMAGE }}:${SHORT_SHA}"
+          LATEST_TAG="${{ env.IMAGE }}:latest"
+
+          docker build \
+            --tag "${IMAGE_TAG}" \
+            --tag "${LATEST_TAG}" \
+            --cache-from "${LATEST_TAG}" \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
+            .
+
+          docker push "${IMAGE_TAG}"
+          docker push "${LATEST_TAG}"
+
+          echo "image=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+
+  # ── Run migrations ───────────────────────────────────────────────────────────
+  migrate:
+    name: Database migrations
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install Cloud SQL Proxy
+        run: |
+          curl -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+
+      - name: Start Cloud SQL Proxy
+        run: |
+          ./cloud-sql-proxy \
+            "${{ env.GCP_PROJECT }}:${{ env.GCP_REGION }}:stock-portfolio-db" \
+            --port=5433 &
+          sleep 3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install alembic psycopg2-binary sqlalchemy
+
+      - name: Run migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: alembic upgrade head
+
+  # ── Deploy to Cloud Run ──────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Cloud Run
+    needs: [build, migrate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service:  ${{ env.SERVICE_NAME }}
+          image:    ${{ needs.build.outputs.image }}
+          region:   ${{ env.GCP_REGION }}
+          project_id: ${{ env.GCP_PROJECT }}
+          flags: |
+            --concurrency=10
+            --max-instances=3
+            --min-instances=0
+            --cpu=1
+            --memory=2Gi
+            --timeout=300
+            --set-env-vars=GCP_PROJECT=${{ env.GCP_PROJECT }},DEEP_ANALYSIS_MAX_CONCURRENT=3
+            --set-secrets=DATABASE_URL=db-connection-string:latest,JWT_SECRET=jwt-secret:latest,GOOGLE_CLIENT_ID=google-client-id:latest,GOOGLE_CLIENT_SECRET=google-client-secret:latest
+
+      - name: Output service URL
+        run: |
+          echo "Deployed to: ${{ steps.deploy.outputs.url }}"

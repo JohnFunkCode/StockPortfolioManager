@@ -3,6 +3,7 @@ import { Grid, Card, CardContent, Paper, Stack, Typography, Box, Table, TableHea
 import { useDashboard } from '../../hooks/useDashboard';
 import { usePlans } from '../../hooks/usePlans';
 import { usePortfolioDeltaExposure } from '../../hooks/useSecurities';
+import AgentHealthWidget from '../agents/AgentHealthWidget';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import { formatCurrency, formatPercent } from '../../utils/formatting';
@@ -37,6 +38,9 @@ export default function DashboardPage() {
             </Card>
           </Grid>
         ))}
+        <Grid item xs={12} sm={6} md={3}>
+          <AgentHealthWidget />
+        </Grid>
       </Grid>
 
       {/* Portfolio Market Maker Exposure */}

@@ -23,7 +23,7 @@
 12. [MCP Tool Inventory](#mcp-tool-inventory)
 13. [Implementation Plan](#implementation-plan)
 14. [Technical Stack](#technical-stack)
-15. [Open Questions](#open-questions)
+15. [Decisions Log](#decisions-log)
 
 ---
 
@@ -600,7 +600,7 @@ flowchart LR
 
 **Purpose:** Fast, lightweight sweep to detect tradeable setups across the full symbol universe.
 **Frequency:** Every 15 minutes, 9:30 AM – 4:00 PM ET, triggered by Cloud Scheduler per tenant
-**Symbols:** All portfolio positions + watchlist for the calling tenant
+**Symbols:** Portfolio positions only for initial rollout. Watchlist expansion follows once signal quality is validated.
 
 #### Tool Sequence & Scoring
 
@@ -854,9 +854,10 @@ All 21 tools are accounted for across the three agents.
 > Goal: `AgentNotifier` extended for multi-tenant + Pub/Sub; `alert_dedup` table live.
 
 - [ ] Subclass `Notifier` as `AgentNotifier` — add signal, recommendation, portfolio, and report methods
-- [ ] Update `AgentNotifier` to fetch `discord_webhook_url` from tenant record (not `.env`)
-- [ ] Implement `alert_dedup` PostgreSQL-backed time-windowed deduplication, scoped per tenant
+- [ ] Update `AgentNotifier` to fetch `discord_webhook_url` from tenant record (not `.env`); schema must accommodate future per-channel routing
+- [ ] Implement `alert_dedup` PostgreSQL-backed time-windowed deduplication, scoped per tenant; suppression windows stored in a config table and tunable without a deployment
 - [ ] Validate `discord_webhook_url` per tenant at Orchestrator startup; heartbeat embed confirms connectivity
+- [ ] Add `puts_budget` column to tenant config table; set explicitly during onboarding (no global default)
 
 **Deliverable:** `AgentNotifier` unit-tested with all embed formats and per-tenant webhook routing.
 
@@ -885,7 +886,7 @@ All 21 tools are accounted for across the three agents.
 - [ ] Deploy Portfolio Monitor as Cloud Run service; configure 0935/1555 ET Cloud Scheduler jobs
 - [ ] Test against current portfolio positions with live market data
 
-**Deliverable:** Daily morning/close reports posting as purple embeds. Individual position alerts firing per tenant.
+**Deliverable:** Daily morning/close reports posting as purple embeds. Individual position alerts firing per tenant. MA violation and loss alert checks disabled in `main.py` — harvest rung and options alerts remain active there until covered by an agent.
 
 ---
 
@@ -909,9 +910,10 @@ All 21 tools are accounted for across the three agents.
 - [ ] Tune escalation thresholds based on false-positive rate
 - [ ] Add circuit breakers: pause during pre/post market, halt on MCP API errors
 - [ ] Implement retry logic with exponential backoff for Cloud Run → MCP calls
-- [ ] Rate-limit Deep Analysis to N concurrent runs per tenant; queue overflow to Pub/Sub dead-letter
+- [ ] Rate-limit Deep Analysis to 2–3 concurrent runs; queue overflow to Pub/Sub dead-letter. Raise cap based on Phase 7 load data.
 - [ ] Configure Cloud Logging dashboards and alerts for agent error rates and latency
 - [ ] Penetration review: verify CORS, JWT expiry, RLS, Secret Manager access controls
+- [ ] Implement Cloud Scheduler data retention job — prune `agent_signals` older than 90 days, `agent_recommendations` older than 1 year
 
 **Deliverable:** System runs unattended for one full trading week per tenant without intervention.
 
@@ -958,31 +960,24 @@ All 21 tools are accounted for across the three agents.
 
 ---
 
-## Open Questions
+## Decisions Log
 
-1. **GCP project structure** — Single GCP project for all environments (dev/staging/prod) with separate Cloud SQL instances, or separate GCP projects per environment? Separate projects provide stronger blast-radius isolation but add IAM management overhead.
+All design questions have been resolved. The table below records each decision for reference.
 
-2. **Cloud Run vs GKE** — Cloud Run (serverless containers) is the recommended starting point due to zero cluster management and per-invocation billing. If agent run frequency and concurrency grow significantly, migrating to GKE Autopilot avoids cold-start latency. Revisit after Phase 7 instrumentation.
-
-3. **Tenant onboarding flow** — Currently proposed as an admin script. Should there be a self-service signup flow (any Google account can create a tenant), or invite-only (admin creates tenant, invites specific emails)? Invite-only is safer for a team tool.
-
-4. **Per-tenant Discord channels** — Each tenant's `discord_webhook_url` in PostgreSQL enables independent channels. Should agent-type routing (signals channel, recommendations channel, portfolio channel) also be supported per tenant? This adds a webhook URL per channel per tenant.
-
-5. **Single channel vs. multiple channels** — As agent volume increases (up to ~26 alerts per sweep across 40 symbols), one Discord channel can become noisy. Separate channels by alert type (`#signals`, `#recommendations`, `#portfolio-health`) are a one-line code change but require the Discord server to be configured upfront.
-
-6. **Deduplication window tuning** — The proposed windows (2h signals, 4h recommendations, 12h reports) are initial defaults. Validate empirically during paper mode before going live.
-
-7. **Conviction threshold** — ±4 out of ±9 is the proposed escalation cutoff. Validate against historical setups before live deployment.
-
-8. **Symbol universe** — Should the Signal Scanner cover the full watchlist (~40 symbols per tenant) or portfolio positions only for initial rollout? Covering 40 symbols every 15 minutes is ~240 MCP tool calls per sweep, multiplied by active tenant count.
-
-9. **Deep Analysis rate limiting** — If multiple symbols escalate simultaneously across multiple tenants, how many parallel Deep Analysis runs are allowed? Each run is ~20 tool calls. Cloud Run concurrency settings and Pub/Sub dead-lettering handle overflow but the budget needs to be defined.
-
-10. **Coexistence with `main.py`** — The existing `main.py` runs `Notifier` on demand (MA, harvest, options, sentiment). In the GCP edition `main.py` is superseded by the Portfolio Monitor. Define a formal sunset date for `main.py` so the team does not run duplicate notifications.
-
-11. **Data retention** — `agent_signals` and `agent_recommendations` will accumulate rapidly. Define a retention policy (e.g., keep 90 days of signals, 1 year of recommendations) and implement a Cloud Scheduler maintenance job to prune old rows.
-
-12. **Options budget per tenant** — `analyze_options_symbol` and `analyze_options_watchlist` accept a `puts_budget` parameter. This should be configurable per tenant in the database, not hardcoded.
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | GCP project structure | Single GCP project for all environments. Environment-specific configuration (Cloud SQL instances, secrets, Cloud Run service names) controlled per environment via config — not separate projects. |
+| 2 | Cloud Run vs GKE | Start with Cloud Run. Revisit after Phase 7 instrumentation once real throughput and cold-start impact are measured. |
+| 3 | Tenant onboarding flow | Invite-only. Admin creates the tenant and invites specific email addresses. No self-service signup. |
+| 4 | Per-tenant Discord channels | One webhook URL per tenant to start. Per-channel routing (by alert type) is a planned future extension — schema must accommodate it but does not require it on day one. |
+| 5 | Single vs. multiple Discord channels | Single channel per tenant, consistent with decision 4. Noise controlled via deduplication windows. |
+| 6 | Deduplication window tuning | Keep proposed defaults (2h signals, 4h BUY/SELL, 24h HOLD, 2h AT RISK / INST. EXIT, 12h reports). Windows are configurable per alert type in the database — tunable without a deployment. |
+| 7 | Conviction threshold | ±4 default is a reasonable starting point. Validate and tune during paper mode in Phase 7. Threshold is configurable without a deployment. |
+| 8 | Symbol universe | Signal Scanner covers portfolio positions only for initial rollout. Expand to full watchlist once system is stable and signal quality is validated. |
+| 9 | Deep Analysis rate limiting | Cap at 2–3 concurrent Deep Analysis runs. Overflow waits in the Pub/Sub queue. Raise the cap based on observed load after Phase 7 instrumentation. |
+| 10 | Coexistence with `main.py` | Phased retirement. Once the Portfolio Monitor is live, disable MA violation and loss alert checks in `main.py`. Keep harvest rung and options alerts in `main.py` until those are explicitly covered by an agent, then fully retire it. |
+| 11 | Data retention | 90 days for `agent_signals`, 1 year for `agent_recommendations`. Enforced by a Cloud Scheduler maintenance job. Revisit if storage costs become a concern. |
+| 12 | Options budget per tenant | `puts_budget` stored per tenant in the database. Set explicitly during onboarding — no global default. |
 
 ---
 

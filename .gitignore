@@ -1,10 +1,10 @@
-  node_modules
-  .venv
-  __pycache__/
-  *.pyc
-  *.db
-  *.sqlite
-  *.log
-  .env
-  api.log
-  frontend.log
+node_modules
+.venv
+__pycache__/
+*.pyc
+*.db
+*.sqlite
+*.log
+.env
+api.log
+frontend.log

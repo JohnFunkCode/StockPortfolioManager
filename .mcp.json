@@ -1,16 +1,16 @@
 {
   "mcpServers": {
-    "stock-price-server": {
-      "command": "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/.venv/bin/fastmcp",
-      "args": ["run", "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/fastMCPTest/stock_price_server.py"]
+    "market-analysis": {
+      "command": "python3",
+      "args": ["fastMCPTest/market_analysis_server.py"]
     },
-    "market-analysis-server": {
-      "command": "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/.venv/bin/fastmcp",
-      "args": ["run", "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/fastMCPTest/market_analysis_server.py"]
+    "stock-price-server": {
+      "command": "python3",
+      "args": ["fastMCPTest/stock_price_server.py"]
     },
     "options-analysis-server": {
-      "command": "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/.venv/bin/fastmcp",
-      "args": ["run", "/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/fastMCPTest/options_analysis.py"]
+      "command": ".venv/bin/fastmcp",
+      "args": ["run", "fastMCPTest/options_analysis.py"]
     }
   }
 }

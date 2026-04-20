@@ -270,6 +270,7 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
             "INSERT OR REPLACE INTO fetch_log (symbol, interval, fetched_at) VALUES (?,?,?)",
             (symbol, interval, int(datetime.datetime.utcnow().timestamp())),
         )
+        conn.commit()
 
 
 def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:

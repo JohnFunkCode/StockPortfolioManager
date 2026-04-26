@@ -374,3 +374,134 @@ AAPL at $270.23 is **$9.61 above the upper Bollinger Band** (bb_pos = 1.635). On
 
 *Follow-up analysis generated: April 18, 2026*
 *Data sources: yfinance, FastMCP stock-price-server, market-analysis-server, options-analysis-server*
+
+---
+---
+
+# Follow-Up Analysis — April 20, 2026 | Tim Cook Steps Down
+
+**Price on Apr 18:** $270.23 → **Price on Apr 20:** $273.05 → **+$2.82 (+1.0%) since Apr 18** | **+$14.22 (+5.5%) from Apr 14 entry**
+
+> **⚠ Breaking News:** Reuters, TechCrunch, and The Guardian confirmed this evening that **Tim Cook is stepping down as Apple CEO**, transitioning to **Executive Chairman**. **John Ternus** (SVP Hardware Engineering — the architect of Apple Silicon, AirPods, and iPad) takes over as CEO on **September 1, 2026**. Cook is not departing the company.
+
+---
+
+## Target 3 Status — April 14 Projection Final Check
+
+| Projection (Apr 14) | Result | Grade |
+|---------------------|--------|-------|
+| Target 3: $272–$275 (+5–6%) | **ACHIEVED** — price at $273.05, inside the zone | ✅ |
+| Target 4 (new, Apr 18): $280 | Not yet — $6.95 away | 🟡 |
+
+**April 14 analysis: 11/11 projections correct.** All three original targets hit within 6 trading days.
+
+---
+
+## The Tim Cook Announcement — Market Impact
+
+### Options Fear Gauge — The Key Signal
+
+| Time | Options Spread (Fear Gauge) |
+|------|-----------------------------|
+| Earlier today (pre-announcement) | ~10.62% |
+| Post-announcement (now) | **47.66%** |
+
+A **4.5× spike** in the ATM options spread is the clearest real-time fingerprint of the announcement. Market makers widened dramatically to protect against directional uncertainty.
+
+### Price — Holding Up
+
+At $273.05, AAPL is slightly above its earlier close — still inside Target 3. No panic selling. The orderly succession narrative (Cook staying as Executive Chairman, Ternus a known internal leader) is containing the initial reaction. Full price discovery happens at Monday's open.
+
+### Institutional Options Flow — Buying, Not Fleeing
+
+| Metric | Value | Signal |
+|--------|-------|--------|
+| Unusual call count | **34** (up from 30 earlier today) | Increasing — bullish |
+| Sweep signal | **Strong** | Unchanged |
+| High-conviction calls | 13 | Institutions loading |
+| Fills at/above ask | 10 | Aggressive buyers |
+| Put/call ratio | **0.60** | Calls dominating 5:3 — bullish |
+
+Notable: Apr-22 $290 calls (+6.6% OTM) swept at 4.5× OI volume paid at ask. Apr-24 $300 calls also swept. Institutional money is buying the news, not selling it.
+
+### Gamma Wall & Delta-Adjusted OI
+
+- **Gamma wall: $270** — current price just above it; this is now support
+- **Net DAOI: +86,764 shares** (up from +78,198 earlier today) — MM selling pressure on rallies continues
+- Delta flip strike: $350 — irrelevant; $270 is the key battle level
+
+---
+
+## News Sentiment — Mixed on CEO Transition
+
+| Source | Story | Sentiment |
+|--------|-------|-----------|
+| Reuters | Apple names John Ternus CEO, Cook becomes Executive Chairman | Neutral |
+| TechCrunch | Tim Cook stepping down — Ternus takes over September 1 | Slightly negative |
+| The Guardian | "The greatest privilege of my life" — Cook on transition | Neutral |
+| Morgan Stanley | $300 price target by September — "sees a path" | 🟢 Bullish |
+| Goldman Sachs | Wall Street concerns "overly pessimistic" ahead of Q2 earnings | 🟢 Bullish |
+| CIO (Reuters Video) | Apple is "a dead stock right now" — AI weak, relying on Google Gemini | 🔴 Bearish |
+| India Antitrust | Regulator proceeding as Apple withholds key data | 🔴 Bearish |
+| Barrons | Apple helping lift the Dow alongside IBM and JPMorgan | 🟢 Positive |
+
+**Overall: Positive (5) / Negative (2) / Neutral (3).** CEO transition reported neutrally — orderly succession narrative holding.
+
+---
+
+## Short Interest & Market Microstructure
+
+| Metric | Value | Signal |
+|--------|-------|--------|
+| Short float | 0.86% | Bears are not positioned against AAPL |
+| Days to cover | 3.11 | MEDIUM squeeze potential on volume spike |
+| Options spread (fear) | **47.66%** | Extreme — 4.5× today's earlier level |
+| Full options chain | 24 expirations / 2,556 contracts | Deep, liquid market |
+
+> **Note:** RSI, MACD, VWAP, drawdown, and all historical bar tools unavailable today (Easter Sunday — market closed, yfinance returns no OHLCV data). Apr 18 readings remain the last confirmed technicals.
+
+---
+
+## Key Level to Watch Monday Open
+
+**$270 gamma wall = the line in the sand.**
+
+- **Hold above $270** → institutional call sweep buyers are right; expect continuation toward $275–$280.
+- **Break below $270** → the 47% options spread fear spike begins expressing in price; watch for a test of $265 (prior resistance, now support floor).
+
+### Transition Risk Assessment
+
+| Case | Argument |
+|------|----------|
+| **Bull — Ternus** | Hardware-focused CEO enters at peak of AI hardware supercycle (iPhone AI refresh, Apple Silicon, smart glasses 2027). He built these products. Morgan Stanley's $300 September target issued *after* the announcement. |
+| **Bear** | Ternus has zero public markets/IR experience. AI narrative remains weak (Google Gemini dependency). New CEO faces immediate pressure to articulate an AI strategy. |
+| **Cook mitigant** | Stays as Executive Chairman. Not an abrupt departure. Continuity on strategy, government relations, and key supplier negotiations preserved. |
+
+---
+
+## Updated Price Targets & Risk Management
+
+| Target | Price | Upside from $273.05 | Basis |
+|--------|-------|---------------------|-------|
+| Immediate resistance | $275 | +0.7% | Apr 18 primary sweep target |
+| Target 4 | $280 | +2.5% | Apr 18 call sweep at 8.3× OI |
+| Target 5 | $285–$290 | +4.4–6.2% | Apr 20 $290 call sweep (+6.6% OTM, paid at ask) |
+| Morgan Stanley target | $300 | +9.9% | Analyst target by September 2026 |
+
+| Stop | Price | Notes |
+|------|-------|-------|
+| Technical stop | $270 | Gamma wall — watch manually |
+| Broker trailing stop | **6.5% → $255.10** | Calibrated to historical noise floor |
+
+### Options Strategy (at current prices)
+
+- **Do not buy naked calls** — 47.66% spread means IV is extremely elevated post-announcement. Wait for Monday's open to normalize before entering.
+- **Recommended (if IV normalizes Monday):** Apr 24 $275/$282.50 bull call spread — defined risk, targets $280.
+- **Income play:** Sell Apr 24 $260 put — deep cushion, collect elevated IV premium.
+- **For existing positions entered at $255–$258:** You are +$15–$18/share (+5.8–7.0%). Consider trailing stop to $265, let remainder run through Q2 earnings.
+
+---
+
+*Follow-up analysis generated: April 20, 2026 — Tim Cook CEO transition*
+*Data sources: yfinance, FastMCP stock-price-server v3.2.3, market-analysis-server, options-analysis-server*
+*Note: RSI/MACD/volume/drawdown tools unavailable April 20 (Easter Sunday — market closed).*

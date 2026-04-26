@@ -192,6 +192,60 @@ Both processes run independently; closing the terminal does not stop them. The s
 
 ---
 
+## MCP Intelligence Layer (`fastMCPTest/`)
+
+A suite of **FastMCP servers** that expose real-time market analysis as tools consumable by AI agents (Claude Code, custom agents, or any MCP-compatible client). The servers provide the analytical backbone for the `get_trade_recommendation` tool described below.
+
+### Servers
+
+| Server | File | Purpose |
+|--------|------|---------|
+| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, trade recommendations |
+| `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
+| `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring and trade building |
+
+### Trade Recommendations (`get_trade_recommendation`)
+
+The flagship tool of the MCP layer. Given a stock symbol and available capital, it runs **13 independent signals** in parallel, scores each one as bullish or bearish, and produces a single actionable recommendation with entry price, target, stop loss, position size, and risk/reward ratio.
+
+**Signals scored:**
+
+| Category | Signals |
+|----------|---------|
+| Price structure | Bollinger Band position, VWAP, 20-day SMA |
+| Momentum | RSI, MACD crossover, Stochastic %K |
+| Volume & flow | Volume climax/capitulation, OBV divergence, dark pool accumulation/distribution |
+| Market microstructure | Bid/ask spread, short interest / squeeze potential |
+| Options intelligence | Unusual call sweeps, delta-adjusted OI (MM hedge flows), net options positioning |
+
+**Trade types returned:**
+
+| Net Score | Trade Type |
+|-----------|-----------|
+| ≥ 5 | LONG_CALL or BULL_CALL_SPREAD (high IV) |
+| 3 – 4 | LONG_STOCK |
+| 1 – 2 | WEAK_LONG |
+| -2 – 0 | SKIP |
+| -3 – -4 | LONG_PUT |
+| ≤ -5 | LONG_PUT or BEAR_PUT_SPREAD (high IV) |
+
+Position sizing uses a 2% risk budget: `risk_budget = capital × 0.02`, divided by the distance to the technical stop for stock trades, or by the ATM option ask for options trades.
+
+The tool also includes automated contradiction detection — it flags when options flow (institutional call sweeps, market maker hedging direction) conflicts with technical signals, helping avoid false-directional trades.
+
+For full design details, signal scoring tables, the AMZN case study, and implementation notes, see [docs/Get Trade Recommendations.md](docs/Get%20Trade%20Recommendations.md).
+
+### Starting the MCP servers
+
+The servers are configured in `.mcp.json` and start automatically when Claude Code is launched in this project. To start them manually:
+
+```bash
+source .venv/bin/activate
+python fastMCPTest/stock_price_server.py
+```
+
+---
+
 ## Testing
 
 Run the unit tests:

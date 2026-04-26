@@ -9,6 +9,7 @@ import yfinance as yf
 from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
 from options_store import OptionsStore
+from market_analysis_server import get_short_interest, get_dark_pool, get_bid_ask_spread
 
 # ---------------------------------------------------------------------------
 # FinBERT — lazy-loaded on first news request so the server starts fast
@@ -2431,6 +2432,515 @@ def get_stop_loss_analysis(
         "flags":   flags,
         "summary": " ".join(lines),
     }
+
+@mcp.tool()
+def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
+    """Synthesise all available technical and market signals into a single actionable trade recommendation.
+
+    Runs the full analysis suite — RSI, MACD, Stochastic, Bollinger Bands, volume
+    analysis, candlestick patterns, dark pool proxy, short interest, bid/ask spread,
+    unusual call sweeps, delta-adjusted OI (MM hedge flows), options market
+    positioning, and stop-loss analysis — then scores each signal and produces a
+    concrete recommendation with entry, target, stop, position size, and risk/reward.
+
+    Trade types:
+      LONG_CALL        — strong bull signal (net_score ≥ 5), low IV (avg_iv < 40%)
+      BULL_CALL_SPREAD — strong bull signal, high IV (avg_iv ≥ 40%)
+      LONG_STOCK       — moderate bull signal (net_score 3–4)
+      WEAK_LONG        — marginal bull signal (net_score 1–2); small position
+      SKIP             — neutral / conflicting signals (net_score -2 to 0)
+      LONG_PUT         — moderate/strong bear signal
+      BEAR_PUT_SPREAD  — strong bear signal (net_score ≤ -5), high IV
+
+    Squeeze override: squeeze_potential == HIGH AND net_score ≥ 3 → forces LONG_CALL.
+
+    Signal scoring additions vs prior version:
+      Unusual calls upgraded: strong sweep → +2 bull (was +1); moderate → +1
+      Signal 12 (DAOI bounce): MM buy-on-rally flow → +2 bull (strong/moderate), +1 (weak)
+      Signal 13 (Options positioning): net call delta > 50K share-equiv → +1 bull;
+                                       net put delta < -50K → +1 bear
+
+    Position sizing uses 2% of capital as the risk budget:
+      Stock:   shares    = floor(risk_budget / (price − technical_stop))
+      Options: contracts = floor(risk_budget / (atm_ask × 100)), minimum 1
+
+    Args:
+        symbol:  Stock ticker symbol (e.g. 'AAPL')
+        capital: Total capital available for this trade (default: $5,000)
+    """
+    sym = symbol.upper()
+    signals_collected = 0
+    drivers: list[str] = []
+    warnings: list[str] = []
+
+    bull_score = 0
+    bear_score = 0
+
+    # ── 1. Price + Bollinger Bands + Options ──────────────────────────────
+    price      = None
+    bb_upper   = None
+    bb_lower   = None
+    bb_pos     = None
+    avg_iv     = None
+    put_call_ratio = None
+    atm_call_ask   = None
+    atm_put_ask    = None
+
+    try:
+        price_data = get_stock_price(sym)
+        price = price_data["price"]
+        bb = price_data.get("bollinger_bands")
+        if bb:
+            bb_upper  = bb["upper"]
+            bb_lower  = bb["lower"]
+            if bb_upper != bb_lower:
+                bb_pos = round((price - bb_lower) / (bb_upper - bb_lower), 3)
+
+            if bb_pos is not None:
+                if bb_pos <= 0:
+                    bull_score += 2
+                    drivers.append(f"BB position {bb_pos:.2f} — at/below lower band (oversold)")
+                elif bb_pos >= 1:
+                    bear_score += 2
+                    drivers.append(f"BB position {bb_pos:.2f} — at/above upper band (overbought)")
+
+        options = price_data.get("options")
+        if options:
+            put_call_ratio = options.get("put_call_ratio")
+            calls_data = options.get("calls", {})
+            puts_data  = options.get("puts",  {})
+            avg_iv     = calls_data.get("avg_iv_pct", 0.0)
+
+            atm_calls = calls_data.get("atm_contracts", [])
+            if atm_calls:
+                atm_c = min(atm_calls, key=lambda c: abs(c["strike"] - price))
+                atm_call_ask = atm_c.get("ask", 0.0) or 0.0
+
+            atm_puts = puts_data.get("atm_contracts", [])
+            if atm_puts:
+                atm_p = min(atm_puts, key=lambda c: abs(c["strike"] - price))
+                atm_put_ask = atm_p.get("ask", 0.0) or 0.0
+
+            if put_call_ratio is not None and put_call_ratio > 2.0:
+                bear_score += 1
+                drivers.append(f"P/C ratio {put_call_ratio:.2f} — elevated put activity (bearish)")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    if price is None:
+        return {
+            "symbol":     sym,
+            "error":      f"Could not retrieve price for {sym}. Cannot generate recommendation.",
+            "trade_type": "SKIP",
+            "action":     "HOLD",
+        }
+
+    # ── 2. RSI ────────────────────────────────────────────────────────────
+    rsi_val = None
+    try:
+        rsi_data = get_rsi(sym)
+        rsi_val  = rsi_data["rsi"]
+
+        if rsi_val < 30:
+            bull_score += 3   # +2 for <35, +1 extra for <30
+            drivers.append(f"RSI {rsi_val:.1f} — deeply oversold")
+        elif rsi_val < 35:
+            bull_score += 2
+            drivers.append(f"RSI {rsi_val:.1f} — oversold")
+        elif rsi_val > 70:
+            bear_score += 3   # +2 for >65, +1 extra for >70
+            drivers.append(f"RSI {rsi_val:.1f} — deeply overbought")
+        elif rsi_val > 65:
+            bear_score += 2
+            drivers.append(f"RSI {rsi_val:.1f} — overbought")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 3. MACD ───────────────────────────────────────────────────────────
+    macd_crossover = None
+    try:
+        macd_data      = get_macd(sym)
+        macd_crossover = macd_data["crossover"]
+
+        if macd_crossover == "bullish_crossover":
+            bull_score += 2
+            drivers.append("MACD bullish crossover — momentum turning up")
+        elif macd_crossover == "bullish":
+            bull_score += 1
+            drivers.append("MACD bullish — positive momentum")
+        elif macd_crossover == "bearish_crossover":
+            bear_score += 2
+            drivers.append("MACD bearish crossover — momentum turning down")
+        elif macd_crossover == "bearish":
+            bear_score += 1
+            drivers.append("MACD bearish — negative momentum")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 4. Stochastic ─────────────────────────────────────────────────────
+    stoch_k = None
+    try:
+        stoch_data = get_stochastic(sym)
+        stoch_k    = stoch_data["k"]
+
+        if stoch_k < 25:
+            bull_score += 2
+            drivers.append(f"Stochastic %K {stoch_k:.1f} — oversold")
+        elif stoch_k > 75:
+            bear_score += 2
+            drivers.append(f"Stochastic %K {stoch_k:.1f} — overbought")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 5. Volume Analysis ────────────────────────────────────────────────
+    obv_divergence = False
+    try:
+        vol_data       = get_volume_analysis(sym)
+        bottom_signal  = vol_data.get("bottom_signal", "none")
+        obv_divergence = vol_data.get("obv_divergence", False)
+        climax_events  = vol_data.get("climax_events", [])
+
+        bs_lower = bottom_signal.lower()
+        if "strong" in bs_lower or "moderate" in bs_lower:
+            bull_score += 2
+            drivers.append(f"Volume bottom signal: {bottom_signal}")
+
+        if obv_divergence:
+            bull_score += 1
+            drivers.append("OBV bullish divergence — accumulation beneath the surface")
+
+        recent_up_climax = any(
+            e.get("direction") == "up" for e in climax_events[-3:]
+        ) if climax_events else False
+        if recent_up_climax:
+            bear_score += 2
+            drivers.append("Volume exhaustion top — high-volume climax on up day, potential reversal")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 6. Candlestick Patterns ───────────────────────────────────────────
+    try:
+        cs_data   = get_candlestick_patterns(sym)
+        patterns  = cs_data.get("patterns_found", [])
+
+        bullish_pats = [p for p in patterns if p.get("bias") == "bullish"]
+        bearish_pats = [p for p in patterns if p.get("bias") == "bearish"]
+
+        if bullish_pats:
+            best = max(bullish_pats, key=lambda p: p.get("strength_score", 0))
+            bull_score += 1
+            drivers.append(
+                f"Candlestick: {best['pattern']} ({best['strength']} bullish reversal)"
+            )
+        elif bearish_pats:
+            best = max(bearish_pats, key=lambda p: p.get("strength_score", 0))
+            bear_score += 1
+            drivers.append(
+                f"Candlestick: {best['pattern']} ({best['strength']} bearish signal)"
+            )
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 7. Unusual Calls ─────────────────────────────────────────────────
+    unusual_call_activity = False
+    try:
+        uc_data      = get_unusual_calls(sym)
+        sweep_signal = uc_data.get("sweep_signal", "none")
+
+        if sweep_signal == "strong":
+            unusual_call_activity = True
+            bull_score += 2
+            drivers.append("Unusual call activity: strong sweep signal — aggressive institutional buying")
+        elif sweep_signal == "moderate":
+            unusual_call_activity = True
+            bull_score += 1
+            drivers.append("Unusual call activity: moderate sweep signal")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 8. Stop Loss Analysis ─────────────────────────────────────────────
+    technical_stop    = None
+    trailing_stop_pct = None
+    try:
+        sl_data           = get_stop_loss_analysis(sym)
+        stops             = sl_data.get("stops", {})
+        technical_stop    = stops.get("technical_stop")
+        trailing_stop_pct = stops.get("trailing_stop_pct")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 9. Short Interest ─────────────────────────────────────────────────
+    squeeze_potential = "LOW"
+    try:
+        si_data           = get_short_interest(sym)
+        squeeze_potential = si_data.get("squeeze_potential", "LOW")
+
+        if squeeze_potential == "HIGH":
+            bull_score += 1
+            drivers.append(
+                f"Short squeeze potential HIGH — {si_data.get('squeeze_note', '')}"
+            )
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 10. Dark Pool ─────────────────────────────────────────────────────
+    dark_pool_signal = "none"
+    try:
+        dp_data          = get_dark_pool(sym)
+        dark_pool_signal = dp_data.get("net_signal", "none")
+
+        if dark_pool_signal == "accumulation":
+            bull_score += 2
+            drivers.append("Dark pool: accumulation — institutions absorbing sell pressure")
+        elif dark_pool_signal == "distribution":
+            bear_score += 2
+            drivers.append("Dark pool: distribution — institutions absorbing buy pressure")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 11. Bid/Ask Spread ────────────────────────────────────────────────
+    spread_vs_norm = "unknown"
+    try:
+        bas_data       = get_bid_ask_spread(sym)
+        spread_vs_norm = bas_data.get("spread_vs_norm", "unknown")
+
+        if spread_vs_norm == "narrowing":
+            bull_score += 1
+            drivers.append("Bid/ask spread narrowing — liquidity returning (bounce setup)")
+        elif spread_vs_norm == "widening":
+            bear_score += 1
+            drivers.append("Bid/ask spread widening — liquidity stress / fear elevated")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 12. Delta-Adjusted OI (MM Hedge Flows) ───────────────────────────
+    daoi_signal     = "none"
+    mm_hedge_bias   = None
+    gamma_wall      = None
+    delta_flip      = None
+    net_daoi_shares = None
+    try:
+        daoi_data       = get_delta_adjusted_oi(sym)
+        daoi_signal     = daoi_data.get("signal", "none")
+        mm_hedge_bias   = daoi_data.get("mm_hedge_bias")
+        gamma_wall      = daoi_data.get("gamma_wall_strike")
+        delta_flip      = daoi_data.get("delta_flip_strike")
+        net_daoi_shares = daoi_data.get("net_daoi_shares")
+
+        if daoi_signal == "strong":
+            bull_score += 2
+            drivers.append("DAOI: strong MM buy-on-rally flow — mechanical support amplifies upside")
+        elif daoi_signal == "moderate":
+            bull_score += 2
+            drivers.append("DAOI: moderate MM buy-on-rally flow — hedging supports rally")
+        elif daoi_signal == "weak":
+            bull_score += 1
+            drivers.append("DAOI: weak MM buy-on-rally bias")
+
+        if mm_hedge_bias == "sell_on_rally":
+            warnings.append(
+                "MM hedge bias: sell_on_rally — market makers must sell stock as price rises (mechanical resistance)"
+            )
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 13. Options Market Directional Positioning ───────────────────────
+    if net_daoi_shares is not None:
+        if net_daoi_shares > 50_000:
+            bull_score += 1
+            drivers.append(
+                f"Options positioning: {net_daoi_shares:,.0f} net call delta — institutions overwhelmingly long"
+            )
+        elif net_daoi_shares < -50_000:
+            bear_score += 1
+            drivers.append(
+                f"Options positioning: {net_daoi_shares:,.0f} net delta — heavy put/defensive hedging"
+            )
+        signals_collected += 1
+
+    # ── Aggregate Scores ──────────────────────────────────────────────────
+    net_score = bull_score - bear_score
+
+    if abs(net_score) >= 5:
+        confidence = "HIGH"
+    elif abs(net_score) >= 3:
+        confidence = "MEDIUM"
+    else:
+        confidence = "LOW"
+
+    avg_iv_val = avg_iv if avg_iv is not None else 0.0
+    high_iv    = avg_iv_val >= 40.0
+
+    # Squeeze override: HIGH short interest + sufficient bull score → force LONG_CALL
+    squeeze_override = squeeze_potential == "HIGH" and net_score >= 3
+
+    # ── Trade Type Selection ──────────────────────────────────────────────
+    if squeeze_override:
+        trade_type = "LONG_CALL"
+        action     = "BUY"
+    elif net_score >= 5:
+        trade_type = "BULL_CALL_SPREAD" if high_iv else "LONG_CALL"
+        action     = "BUY"
+    elif net_score >= 3:
+        trade_type = "LONG_STOCK"
+        action     = "BUY"
+    elif net_score >= 1:
+        trade_type = "WEAK_LONG"
+        action     = "BUY"
+        warnings.append("Low confidence — consider reducing position size")
+    elif net_score >= -2:
+        trade_type = "SKIP"
+        action     = "HOLD"
+        warnings.append("Signals conflicting or neutral — no clear directional edge")
+    elif net_score >= -4:
+        trade_type = "LONG_PUT"
+        action     = "BUY"
+    else:   # net_score <= -5
+        trade_type = "BEAR_PUT_SPREAD" if high_iv else "LONG_PUT"
+        action     = "BUY"
+
+    is_long  = trade_type in ("LONG_CALL", "BULL_CALL_SPREAD", "LONG_STOCK", "WEAK_LONG")
+    is_short = trade_type in ("LONG_PUT", "BEAR_PUT_SPREAD")
+
+    # ── Target ────────────────────────────────────────────────────────────
+    target = None
+    if is_long and bb_upper is not None:
+        target = bb_upper
+    elif is_short and bb_lower is not None:
+        target = bb_lower
+
+    # ── Stop Loss ─────────────────────────────────────────────────────────
+    stop_loss = None
+    if is_long:
+        stop_loss = technical_stop   # get_stop_loss_analysis places this below price
+        if stop_loss is None or stop_loss >= price:
+            if trailing_stop_pct is not None:
+                stop_loss = round(price * (1 - trailing_stop_pct / 100), 2)
+            else:
+                stop_loss = round(price * 0.95, 2)
+            if technical_stop is not None and technical_stop >= price:
+                warnings.append(
+                    f"Technical stop ${technical_stop:.2f} was above entry — using trailing stop fallback"
+                )
+    elif is_short:
+        if trailing_stop_pct is not None:
+            stop_loss = round(price * (1 + trailing_stop_pct / 100), 2)
+        else:
+            stop_loss = round(price * 1.05, 2)
+
+    # ── Risk/Reward ───────────────────────────────────────────────────────
+    risk_reward_ratio = None
+    if target is not None and stop_loss is not None:
+        reward = abs(target - price)
+        risk   = abs(price - stop_loss)
+        if risk > 0:
+            risk_reward_ratio = round(reward / risk, 2)
+
+    # ── Position Sizing (2% risk budget) ─────────────────────────────────
+    risk_budget    = capital * 0.02
+    position_size  = 0
+    estimated_cost = 0.0
+
+    is_options = trade_type in ("LONG_CALL", "BULL_CALL_SPREAD", "LONG_PUT", "BEAR_PUT_SPREAD")
+
+    if trade_type == "SKIP":
+        position_size  = 0
+        estimated_cost = 0.0
+    elif is_options:
+        option_ask = atm_call_ask if is_long else atm_put_ask
+        if option_ask and option_ask > 0:
+            contracts     = math.floor(risk_budget / (option_ask * 100))
+            position_size = max(1, contracts)
+            estimated_cost = min(position_size * option_ask * 100, capital)
+        else:
+            position_size  = 1
+            estimated_cost = 0.0
+    else:
+        if stop_loss is not None:
+            risk_per_share = abs(price - stop_loss)
+            if risk_per_share > 0:
+                position_size  = max(0, math.floor(risk_budget / risk_per_share))
+                estimated_cost = min(position_size * price, capital)
+
+    # ── Contradiction Warnings ────────────────────────────────────────────
+    if bull_score > 0 and bear_score > 0:
+        warnings.append(
+            f"Mixed signals: {bull_score} bull pts vs {bear_score} bear pts — some signals contradict"
+        )
+    if rsi_val is not None and macd_crossover is not None:
+        if rsi_val < 30 and "bearish" in str(macd_crossover):
+            warnings.append("RSI deeply oversold but MACD still bearish — wait for momentum confirmation")
+        elif rsi_val > 70 and "bullish" in str(macd_crossover):
+            warnings.append("RSI deeply overbought with MACD still bullish — caution, late in the move")
+    if unusual_call_activity and mm_hedge_bias == "sell_on_rally":
+        warnings.append(
+            "Strong call sweeps vs MM sell-on-rally: smart money buying but structure caps upside — confirm with price action"
+        )
+    if net_daoi_shares is not None and net_daoi_shares > 50_000 and net_score < -2:
+        warnings.append(
+            "Heavy call positioning conflicts with bearish technical signals — options market disagrees with price action"
+        )
+
+    # ── Options Context ───────────────────────────────────────────────────
+    options_context = None
+    if is_options:
+        options_context = {
+            "avg_iv_pct":      avg_iv_val,
+            "high_iv":         high_iv,
+            "atm_call_ask":    atm_call_ask,
+            "atm_put_ask":     atm_put_ask,
+            "put_call_ratio":  put_call_ratio,
+            "mm_hedge_bias":   mm_hedge_bias,
+            "gamma_wall":      gamma_wall,
+            "delta_flip":      delta_flip,
+            "net_daoi_shares": net_daoi_shares,
+        }
+
+    return {
+        "symbol":            sym,
+        "price":             price,
+        "trade_type":        trade_type,
+        "action":            action,
+        "confidence":        confidence,
+        "bull_score":        bull_score,
+        "bear_score":        bear_score,
+        "net_score":         net_score,
+        "entry":             price,
+        "target":            target,
+        "stop_loss":         stop_loss,
+        "risk_reward_ratio": risk_reward_ratio,
+        "position_size":     position_size,
+        "estimated_cost":    round(estimated_cost, 2),
+        "drivers":           drivers,
+        "warnings":          warnings,
+        "signals_collected": signals_collected,
+        "options_context":   options_context,
+    }
+
 
 if __name__ == "__main__":
     mcp.run()

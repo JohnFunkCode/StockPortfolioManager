@@ -10,6 +10,12 @@ from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
 from options_store import OptionsStore
 from market_analysis_server import get_short_interest, get_dark_pool, get_bid_ask_spread
+from company_fundamentals_server import (
+    get_earnings_calendar,
+    get_fundamental_score,
+    get_revenue_growth,
+    get_earnings_acceleration,
+)
 
 # ---------------------------------------------------------------------------
 # FinBERT — lazy-loaded on first news request so the server starts fast
@@ -2433,6 +2439,158 @@ def get_stop_loss_analysis(
         "summary": " ".join(lines),
     }
 
+_SECTOR_ETF_MAP: dict[str, str] = {
+    "Technology":             "XLK",
+    "Communication Services": "XLC",
+    "Consumer Discretionary": "XLY",
+    "Consumer Staples":       "XLP",
+    "Energy":                 "XLE",
+    "Financials":             "XLF",
+    "Health Care":            "XLV",
+    "Industrials":            "XLI",
+    "Materials":              "XLB",
+    "Basic Materials":        "XLB",
+    "Real Estate":            "XLRE",
+    "Utilities":              "XLU",
+}
+
+
+@mcp.tool()
+def get_relative_strength(symbol: str) -> dict:
+    """Compute relative strength vs SPY, QQQ, and the stock's sector ETF.
+
+    Returns 1/3/6/12-month total returns (%) for the stock and three
+    benchmarks, excess return vs SPY over 12 months (rs_ratio_vs_spy),
+    and two summary labels:
+
+      relative_strength_label:
+        leader        — outperforms SPY by ≥ 20 pp over 12 months
+        outperforming — outperforms SPY by 5–19 pp
+        neutral       — within ±5 pp of SPY
+        laggard       — underperforms SPY by 5–19 pp
+        weak          — underperforms SPY by ≥ 20 pp
+
+      sector_momentum:
+        sector_leading  — sector ETF beats SPY by ≥ 5 pp over 3 months
+        sector_neutral  — sector within ±5 pp of SPY
+        sector_lagging  — sector trails SPY by > 5 pp
+
+    The best long-entry combination is leader + sector_leading.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'AAPL')
+    """
+    sym = symbol.upper()
+
+    result: dict = {
+        "symbol":                   sym,
+        "sector":                   None,
+        "sector_etf":               None,
+        "returns": {
+            "stock":  {"1m": None, "3m": None, "6m": None, "12m": None},
+            "spy":    {"1m": None, "3m": None, "6m": None, "12m": None},
+            "qqq":    {"1m": None, "3m": None, "6m": None, "12m": None},
+            "sector": {"1m": None, "3m": None, "6m": None, "12m": None},
+        },
+        "rs_ratio_vs_spy":          None,
+        "rs_ratio_vs_qqq":          None,
+        "rs_ratio_vs_sector":       None,
+        "relative_strength_label":  "unknown",
+        "sector_momentum":          "unknown",
+    }
+
+    try:
+        info = yf.Ticker(sym).info or {}
+        sector = info.get("sector")
+        result["sector"] = sector
+        sector_etf = _SECTOR_ETF_MAP.get(sector or "", "XLK")
+        result["sector_etf"] = sector_etf
+    except Exception:
+        sector_etf = "XLK"
+
+    tickers_to_fetch = list(dict.fromkeys([sym, "SPY", "QQQ", sector_etf]))
+
+    try:
+        data = yf.download(
+            tickers_to_fetch,
+            period="400d",
+            auto_adjust=True,
+            progress=False,
+        )
+        if "Close" in data.columns:
+            closes = data["Close"]
+        else:
+            closes = data  # single-ticker fallback
+
+        def _pct_return(series: "pd.Series", trading_days: int) -> "float | None":
+            s = series.dropna()
+            if len(s) < trading_days + 1:
+                return None
+            start = float(s.iloc[-trading_days - 1])
+            end = float(s.iloc[-1])
+            if start <= 0:
+                return None
+            return round((end / start - 1) * 100, 2)
+
+        periods = {"1m": 21, "3m": 63, "6m": 126, "12m": 252}
+        ticker_keys = {
+            "stock":  sym,
+            "spy":    "SPY",
+            "qqq":    "QQQ",
+            "sector": sector_etf,
+        }
+
+        for key, ticker in ticker_keys.items():
+            col = closes[ticker] if ticker in closes.columns else None
+            if col is None and closes.ndim == 1:
+                col = closes
+            if col is None:
+                continue
+            for period_name, days in periods.items():
+                result["returns"][key][period_name] = _pct_return(col, days)
+
+        s12   = result["returns"]["stock"]["12m"]
+        spy12 = result["returns"]["spy"]["12m"]
+        qqq12 = result["returns"]["qqq"]["12m"]
+        sec12 = result["returns"]["sector"]["12m"]
+
+        if s12 is not None and spy12 is not None:
+            result["rs_ratio_vs_spy"] = round(s12 - spy12, 2)
+        if s12 is not None and qqq12 is not None:
+            result["rs_ratio_vs_qqq"] = round(s12 - qqq12, 2)
+        if s12 is not None and sec12 is not None:
+            result["rs_ratio_vs_sector"] = round(s12 - sec12, 2)
+
+        rs = result["rs_ratio_vs_spy"]
+        if rs is not None:
+            if rs >= 20:
+                result["relative_strength_label"] = "leader"
+            elif rs >= 5:
+                result["relative_strength_label"] = "outperforming"
+            elif rs >= -5:
+                result["relative_strength_label"] = "neutral"
+            elif rs >= -20:
+                result["relative_strength_label"] = "laggard"
+            else:
+                result["relative_strength_label"] = "weak"
+
+        spy3 = result["returns"]["spy"]["3m"]
+        sec3 = result["returns"]["sector"]["3m"]
+        if spy3 is not None and sec3 is not None:
+            diff = sec3 - spy3
+            if diff >= 5:
+                result["sector_momentum"] = "sector_leading"
+            elif diff >= -5:
+                result["sector_momentum"] = "sector_neutral"
+            else:
+                result["sector_momentum"] = "sector_lagging"
+
+    except Exception:
+        pass
+
+    return result
+
+
 @mcp.tool()
 def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     """Synthesise all available technical and market signals into a single actionable trade recommendation.
@@ -2440,8 +2598,9 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     Runs the full analysis suite — RSI, MACD, Stochastic, Bollinger Bands, volume
     analysis, candlestick patterns, dark pool proxy, short interest, bid/ask spread,
     unusual call sweeps, delta-adjusted OI (MM hedge flows), options market
-    positioning, and stop-loss analysis — then scores each signal and produces a
-    concrete recommendation with entry, target, stop, position size, and risk/reward.
+    positioning, stop-loss analysis, and news sentiment (FinBERT) — then scores each
+    signal and produces a concrete recommendation with entry, target, stop, position
+    size, and risk/reward.
 
     Trade types:
       LONG_CALL        — strong bull signal (net_score ≥ 5), low IV (avg_iv < 40%)
@@ -2459,6 +2618,10 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
       Signal 12 (DAOI bounce): MM buy-on-rally flow → +2 bull (strong/moderate), +1 (weak)
       Signal 13 (Options positioning): net call delta > 50K share-equiv → +1 bull;
                                        net put delta < -50K → +1 bear
+      Signal 19 (News sentiment): strong positive (≥60% positive articles) → +2 bull;
+                                   moderate positive (≥40%) → +1 bull;
+                                   strong negative (≥60% negative) → +2 bear;
+                                   moderate negative (≥40%) → +1 bear
 
     Position sizing uses 2% of capital as the risk budget:
       Stock:   shares    = floor(risk_budget / (price − technical_stop))
@@ -2782,6 +2945,153 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
             )
         signals_collected += 1
 
+    # ── 14. Earnings Calendar ─────────────────────────────────────────────
+    earnings_days_out = None
+    earnings_risk = "UNKNOWN"
+    pre_earnings_setup = False
+    try:
+        ec_data = get_earnings_calendar(sym)
+        earnings_days_out = ec_data.get("days_to_earnings")
+        earnings_risk = ec_data.get("risk_level", "UNKNOWN")
+        pre_earnings_setup = ec_data.get("pre_earnings_setup", False)
+        avg_move_pct = ec_data.get("historical_avg_move_pct")
+
+        if earnings_days_out is not None:
+            if earnings_days_out < 7:
+                warnings.append(
+                    f"CRITICAL: Earnings in {earnings_days_out} days — avoid new options positions (IV crush imminent)"
+                )
+            elif earnings_days_out < 14:
+                warnings.append(
+                    f"Earnings in {earnings_days_out} days — options positions carry IV crush risk post-earnings"
+                )
+            elif pre_earnings_setup:
+                bull_score += 1
+                note = f"{earnings_days_out} days to earnings"
+                if avg_move_pct:
+                    note += f", avg historical move ±{avg_move_pct:.1f}%"
+                drivers.append(f"Pre-earnings IV expansion: {note} — long calls benefit from IV buildup")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 15. Fundamental Score ─────────────────────────────────────────────
+    fund_composite = None
+    try:
+        fund_data = get_fundamental_score(sym)
+        fund_composite = fund_data.get("composite_score", 0)
+        fund_label = fund_data.get("fundamental_label", "average")
+
+        if fund_composite >= 8:
+            bull_score += 2
+            drivers.append(f"Fundamentals: {fund_label} — strong compounder (score {fund_composite})")
+        elif fund_composite >= 4:
+            bull_score += 1
+            drivers.append(f"Fundamentals: {fund_label} (score {fund_composite})")
+        elif fund_composite <= -4:
+            bear_score += 2
+            drivers.append(f"Fundamentals: {fund_label} — deteriorating business (score {fund_composite})")
+        elif fund_composite < 0:
+            bear_score += 1
+            drivers.append(f"Fundamentals: {fund_label} (score {fund_composite})")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 16. Revenue Growth Trajectory ────────────────────────────────────
+    try:
+        rev_data = get_revenue_growth(sym)
+        trajectory = rev_data.get("trajectory", "")
+
+        if trajectory in ("accelerating", "inflecting_positive"):
+            bull_score += 1
+            drivers.append(f"Revenue: {trajectory} — fundamental momentum building")
+        elif trajectory in ("decelerating", "inflecting_negative"):
+            bear_score += 1
+            drivers.append(f"Revenue: {trajectory} — fundamental headwind")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 17. Earnings Acceleration (CAN SLIM 'A') ─────────────────────────
+    try:
+        ea_data = get_earnings_acceleration(sym)
+        ea_score = ea_data.get("acceleration_score", 0)
+        ea_label = ea_data.get("acceleration_label", "")
+
+        if ea_score > 0:
+            bull_score += ea_score
+            drivers.append(f"EPS acceleration: {ea_label} — institutional accumulation signal")
+        elif ea_score < 0:
+            bear_score += abs(ea_score)
+            drivers.append(f"EPS acceleration: {ea_label} — earnings deceleration warning")
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 18. Relative Strength vs Market & Sector ─────────────────────────
+    try:
+        rs_data = get_relative_strength(sym)
+        rs_label = rs_data.get("relative_strength_label", "")
+        rs_vs_spy = rs_data.get("rs_ratio_vs_spy")
+        sector_momentum = rs_data.get("sector_momentum", "")
+
+        if rs_label == "leader":
+            bull_score += 2
+            drivers.append(f"Relative strength: market leader ({rs_vs_spy:+.1f}% vs SPY over 12m)")
+        elif rs_label == "outperforming":
+            bull_score += 1
+            drivers.append(f"Relative strength: outperforming SPY ({rs_vs_spy:+.1f}% over 12m)")
+        elif rs_label == "laggard":
+            bear_score += 1
+            drivers.append(f"Relative strength: laggard ({rs_vs_spy:+.1f}% vs SPY over 12m)")
+        elif rs_label == "weak":
+            bear_score += 1
+            drivers.append(f"Relative strength: weak vs SPY ({rs_vs_spy:+.1f}% over 12m)")
+
+        if sector_momentum == "sector_leading" and bull_score > bear_score:
+            bull_score += 1
+            drivers.append(
+                f"Sector momentum: {rs_data.get('sector_etf', 'sector ETF')} leading market — macro tailwind"
+            )
+
+        signals_collected += 1
+    except Exception:
+        pass
+
+    # ── 19. News Sentiment (FinBERT) ──────────────────────────────────────
+    news_sentiment = None
+    try:
+        news_data = get_news(sym)
+        sentiment_summary = news_data.get("sentiment_summary")
+        if sentiment_summary:
+            scored_count = sentiment_summary.get("scored_count", 0)
+            if scored_count > 0:
+                pos_pct = sentiment_summary["positive_count"] / scored_count
+                neg_pct = sentiment_summary["negative_count"] / scored_count
+
+                if pos_pct >= 0.60:
+                    bull_score += 2
+                    drivers.append(f"News sentiment: strongly positive ({pos_pct:.0%} of articles bullish)")
+                elif pos_pct >= 0.40:
+                    bull_score += 1
+                    drivers.append(f"News sentiment: moderately positive ({pos_pct:.0%} of articles bullish)")
+                elif neg_pct >= 0.60:
+                    bear_score += 2
+                    drivers.append(f"News sentiment: strongly negative ({neg_pct:.0%} of articles bearish)")
+                elif neg_pct >= 0.40:
+                    bear_score += 1
+                    drivers.append(f"News sentiment: moderately negative ({neg_pct:.0%} of articles bearish)")
+
+            news_sentiment = sentiment_summary
+        signals_collected += 1
+    except Exception:
+        pass
+
     # ── Aggregate Scores ──────────────────────────────────────────────────
     net_score = bull_score - bear_score
 
@@ -2822,6 +3132,14 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     else:   # net_score <= -5
         trade_type = "BEAR_PUT_SPREAD" if high_iv else "LONG_PUT"
         action     = "BUY"
+
+    is_options_trade = trade_type in ("LONG_CALL", "BULL_CALL_SPREAD", "LONG_PUT", "BEAR_PUT_SPREAD")
+    if earnings_days_out is not None and earnings_days_out < 7 and is_options_trade and net_score < 7:
+        trade_type = "SKIP"
+        action = "HOLD"
+        warnings.append(
+            f"Earnings override: {earnings_days_out} days to earnings — options trade suppressed to avoid IV crush"
+        )
 
     is_long  = trade_type in ("LONG_CALL", "BULL_CALL_SPREAD", "LONG_STOCK", "WEAK_LONG")
     is_short = trade_type in ("LONG_PUT", "BEAR_PUT_SPREAD")
@@ -2939,6 +3257,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
         "warnings":          warnings,
         "signals_collected": signals_collected,
         "options_context":   options_context,
+        "news_sentiment":    news_sentiment,
     }
 
 

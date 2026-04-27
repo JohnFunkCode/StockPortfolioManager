@@ -11,6 +11,10 @@
     "options-analysis-server": {
       "command": ".venv/bin/fastmcp",
       "args": ["run", "fastMCPTest/options_analysis.py"]
+    },
+    "company-fundamentals-server": {
+      "command": "python3",
+      "args": ["fastMCPTest/company_fundamentals_server.py"]
     }
   }
 }

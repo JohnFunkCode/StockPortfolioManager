@@ -4,6 +4,7 @@
 
 This standard defines how we structure systems that expose functionality through:
 
+- User-facing web applications (Node.js front end)
 - User-facing APIs (REST/WebSocket)
 - AI interfaces (MCP tools)
 - Operational workflows (CLI / cron jobs)
@@ -29,9 +30,9 @@ All external interfaces are thin adapters.**
 ```text
 Clients
 -------
-UI (Node)        AI Agents        Cron / Ops
-   |                 |                |
-REST API         MCP Server         CLI
+Node.js Front End        AI Agents        Cron / Ops
+        |                    |                |
+   REST/WebSocket API     MCP Server         CLI
    \                 |                /
     -------- Application Services --------
                    |
@@ -49,19 +50,28 @@ Market Data Gateway            Broker Gateway
 
 ## 4. Process Model
 
-Each interface runs as its own process:
+Each interface runs as its own process. The Node.js front end is also its own application/process, but it is a client of the REST/WebSocket API, not a peer adapter into the core Python services.
 
 ```text
-Process 1: Flask REST API
-Process 2: FastMCP server
-Process 3: CLI (invoked by cron)
+Process 1: Node.js front-end application
+Process 2: Flask REST/WebSocket API
+Process 3: FastMCP server
+Process 4: CLI (invoked by cron)
 ```
 
-All processes:
+Python service processes:
 
 - Import the same `trading_core` package
 - Share no business logic between themselves
 - Do not call each other over HTTP
+
+The Node.js front end:
+
+- Calls the Flask REST/WebSocket API
+- Does not call MCP tools directly
+- Does not call external provider gateways directly
+- Does not contain trading business logic
+- Owns UI state, presentation, form behavior, and user interaction flow
 
 ---
 
@@ -80,6 +90,7 @@ repo/
     config/
 
   apps/
+    frontend_node/
     rest_api/
     mcp_server/
     cli/
@@ -164,6 +175,28 @@ Non-responsibilities:
 ---
 
 ## 7. Interface Adapters
+
+### 7.0 Node.js Front End
+
+Purpose: user-facing trading application
+
+Must:
+
+- Call the REST/WebSocket API for backend operations
+- Treat REST/WebSocket schemas as the application contract
+- Handle presentation, routing, client-side state, form interaction, and user confirmation workflows
+- Display server-provided validation, risk, entitlement, and order-status results
+
+Must NOT:
+
+- Call MCP tools directly
+- Call provider gateways such as Finance or Alpaca directly
+- Implement trading business logic
+- Bypass backend risk, entitlement, audit, or idempotency controls
+
+The Node.js front end is a client, not a domain-service adapter. It should not import or duplicate backend domain logic.
+
+---
 
 ### 7.1 REST API (Flask)
 
@@ -311,9 +344,9 @@ REST -> Service
 ### Stock Quote
 
 ```text
-UI -> REST -> MarketDataService -> FinanceGateway -> Provider
-AI -> MCP  -> MarketDataService -> FinanceGateway -> Provider
-CLI -> Job -> MarketDataService -> FinanceGateway -> Provider
+Node.js Front End -> REST/WebSocket -> MarketDataService -> FinanceGateway -> Provider
+AI Agent          -> MCP            -> MarketDataService -> FinanceGateway -> Provider
+CLI               -> Job            -> MarketDataService -> FinanceGateway -> Provider
 ```
 
 ---
@@ -321,13 +354,13 @@ CLI -> Job -> MarketDataService -> FinanceGateway -> Provider
 ### Order Placement
 
 ```text
-UI -> REST -> OrderService
-                -> RiskService
-                -> EntitlementService
-                -> BrokerProvider (Alpaca)
-                -> AuditService
+Node.js Front End -> REST/WebSocket -> OrderService
+                                      -> RiskService
+                                      -> EntitlementService
+                                      -> BrokerProvider (Alpaca)
+                                      -> AuditService
 
-AI -> MCP -> OrderService (same path, stricter controls)
+AI Agent -> MCP -> OrderService (same path, stricter controls)
 ```
 
 ---
@@ -385,6 +418,7 @@ When generating or reviewing code, enforce:
 ### Never:
 
 - Add business logic in:
+  - Node.js front-end components
   - REST endpoints
   - MCP tools
   - CLI commands
@@ -401,11 +435,14 @@ When generating or reviewing code, enforce:
 Avoid:
 
 ```text
-1. “Convenience shortcut” from REST → gateway
-2. Duplicate logic in MCP and REST
-3. CLI calling REST for internal workflows
-4. Gateways growing into service layers
-5. AI tools bypassing risk/entitlement checks
+1. Node.js front end calling MCP tools directly
+2. Node.js front end calling Finance or Alpaca directly
+3. Trading business logic duplicated in front-end code
+4. “Convenience shortcut” from REST → gateway
+5. Duplicate logic in MCP and REST
+6. CLI calling REST for internal workflows
+7. Gateways growing into service layers
+8. AI tools bypassing risk/entitlement checks
 ```
 
 ---
@@ -417,7 +454,8 @@ If existing code violates this:
 1. Extract logic into services  
 2. Replace adapter logic with service calls  
 3. Wrap gateway calls behind provider interfaces  
-4. Add missing cross-cutting services (risk, audit, etc.)  
+4. Move duplicated trading logic out of the Node.js front end and into backend services  
+5. Add missing cross-cutting services (risk, audit, etc.)  
 
 ---
 

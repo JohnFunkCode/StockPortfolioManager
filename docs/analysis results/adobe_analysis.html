@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Adobe (ADBE) Deep Analysis Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px 0;
+            border-bottom: 2px solid #44475a;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #ff7979, #ffb347);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .timestamp {
+            color: #6272a4;
+            font-size: 0.9em;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 1.8em;
+            color: #8be9fd;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #44475a;
+        }
+
+        .alert-banner {
+            background: linear-gradient(135deg, #ff5555, #ff7979);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 5px solid #ff5555;
+        }
+
+        .alert-banner h3 {
+            color: #1e1e2e;
+            margin-bottom: 10px;
+        }
+
+        .alert-banner p, .alert-banner li {
+            color: #1e1e2e;
+            margin-bottom: 8px;
+        }
+
+        .warning-banner {
+            background: linear-gradient(135deg, #f1fa8c, #ffb347);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 5px solid #f1fa8c;
+        }
+
+        .warning-banner h3 {
+            color: #1e1e2e;
+            margin-bottom: 10px;
+        }
+
+        .warning-banner p, .warning-banner li {
+            color: #1e1e2e;
+            margin-bottom: 8px;
+        }
+
+        .stock-card {
+            background: #282a36;
+            border: 2px solid #ff7979;
+            border-radius: 8px;
+            padding: 25px;
+            margin-bottom: 30px;
+        }
+
+        .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #44475a;
+        }
+
+        .stock-name {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #ffb347;
+        }
+
+        .stock-price {
+            font-size: 1.2em;
+            color: #8be9fd;
+        }
+
+        .recommendation-badge {
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.95em;
+            font-weight: bold;
+            background: #ff7979;
+            color: #1e1e2e;
+        }
+
+        .score-box {
+            background: #21222c;
+            border: 1px solid #44475a;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .score-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+
+        .score-item {
+            text-align: center;
+            padding: 12px;
+            background: #282a36;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+        }
+
+        .score-label {
+            font-size: 0.8em;
+            color: #6272a4;
+            margin-bottom: 5px;
+        }
+
+        .score-value {
+            font-size: 1.6em;
+            font-weight: bold;
+        }
+
+        .score-positive { color: #50fa7b; }
+        .score-negative { color: #ff7979; }
+        .score-neutral { color: #f1fa8c; }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .metric-box {
+            background: #21222c;
+            border: 1px solid #44475a;
+            padding: 12px;
+            border-radius: 5px;
+        }
+
+        .metric-label {
+            color: #6272a4;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #8be9fd;
+        }
+
+        .drivers-section {
+            margin-bottom: 20px;
+        }
+
+        .drivers-section h4 {
+            color: #8be9fd;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+
+        .drivers-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .drivers-list li {
+            padding: 6px 0 6px 25px;
+            position: relative;
+            font-size: 0.9em;
+            color: #d0d0d0;
+        }
+
+        .drivers-list.positive li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #50fa7b;
+        }
+
+        .drivers-list.negative li:before {
+            content: "✗";
+            position: absolute;
+            left: 0;
+            color: #ff7979;
+        }
+
+        .drivers-list.warnings li:before {
+            content: "!";
+            position: absolute;
+            left: 5px;
+            color: #ff7979;
+            font-weight: bold;
+        }
+
+        .technical-levels {
+            background: #21222c;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+            margin-bottom: 15px;
+        }
+
+        .technical-levels-title {
+            color: #8be9fd;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .technical-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #44475a;
+            font-size: 0.9em;
+        }
+
+        .technical-item:last-child {
+            border-bottom: none;
+        }
+
+        .technical-label {
+            color: #6272a4;
+        }
+
+        .technical-value {
+            font-weight: bold;
+            color: #50fa7b;
+        }
+
+        .news-section {
+            background: #21222c;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+            margin-bottom: 15px;
+        }
+
+        .news-title {
+            color: #8be9fd;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .news-summary {
+            background: #282a36;
+            padding: 10px;
+            border-left: 3px solid #ff7979;
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+
+        .sentiment-negative { color: #ff7979; }
+        .sentiment-positive { color: #50fa7b; }
+        .sentiment-neutral { color: #f1fa8c; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+            background: #21222c;
+            border: 1px solid #44475a;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        th {
+            background: #282a36;
+            padding: 12px;
+            text-align: left;
+            border-bottom: 2px solid #44475a;
+            color: #8be9fd;
+            font-weight: bold;
+        }
+
+        td {
+            padding: 10px 12px;
+            border-bottom: 1px solid #44475a;
+        }
+
+        tr:hover {
+            background: #282a36;
+        }
+
+        .comparison-table {
+            width: 100%;
+            margin: 20px 0;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #44475a;
+            color: #6272a4;
+            font-size: 0.85em;
+        }
+
+        .call-action {
+            background: #282a36;
+            border-left: 5px solid #8be9fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎨 Adobe Inc. (ADBE) - Deep Technical & Fundamental Analysis</h1>
+            <p class="timestamp">Generated: April 27, 2026 | Price: $240.27</p>
+        </header>
+
+        <!-- EXECUTIVE SUMMARY & RECOMMENDATION -->
+        <div class="section">
+            <div class="alert-banner">
+                <h3>⚠️ HOLD / CAUTIOUS — Not Recommended at Current Levels</h3>
+                <p><strong>Net Signal: +4 (Moderate Bull), but Severely Underperforming Market</strong></p>
+                <p>Adobe shows positive technical momentum (MACD bullish, strong call sweeps) but is crushed by fundamental headwinds and relative weakness. Down 33% vs SPY over 12 months. Analyst downgrades cite AI competition threat. Better opportunities exist in your portfolio.</p>
+            </div>
+
+            <div class="warning-banner">
+                <h3>🎯 Key Thesis: AI Disruption Risk vs Valuation Support</h3>
+                <p><strong>Bull Case:</strong> MACD bullish crossover, strong institutional call sweeps (19 unusual calls), moderate upside target (+6.3% to $255).</p>
+                <p><strong>Bear Case:</strong> Weak 12M relative strength (-65.7% vs SPY), revenue growth decelerating, EPS momentum mixed, analyst downgrades highlighting AI threat to market position. Fundamentals solid but deteriorating.</p>
+                <p><strong>Verdict:</strong> Risk/reward unfavorable (0.88:1). Better to wait for either: (1) post-earnings confirmation, (2) analyst consensus stabilization, or (3) technical breakdown completion.</p>
+            </div>
+        </div>
+
+        <!-- QUICK METRICS TABLE -->
+        <div class="section">
+            <h2 class="section-title">📊 Quick Metrics Summary</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>Value</th>
+                        <th>Assessment</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Current Price</strong></td>
+                        <td>$240.27</td>
+                        <td>1.6% above VWAP</td>
+                    </tr>
+                    <tr>
+                        <td><strong>52-Week Range</strong></td>
+                        <td>~$220-$280</td>
+                        <td>Trading mid-range</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Net Signal (Bull Score)</strong></td>
+                        <td>+4 (6 bull, 2 bear)</td>
+                        <td>MODERATE BULLISH</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Confidence</strong></td>
+                        <td>MEDIUM</td>
+                        <td>Mixed signals, not high-conviction</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Trade Type</strong></td>
+                        <td>LONG_STOCK</td>
+                        <td>Avoid options (IV 95.1% — elevated)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Target (Bull Case)</strong></td>
+                        <td>$255.12</td>
+                        <td>+6.3% upside (limited)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Stop Loss (Broker)</strong></td>
+                        <td>$216.63 (9.8% trail)</td>
+                        <td>Avoid technical stop at $223 (inside noise)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>12M Relative Strength</strong></td>
+                        <td>-33.4% vs SPY</td>
+                        <td>WEAK — massive underperformance</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Fundamentals Score</strong></td>
+                        <td>6/14 (Solid)</td>
+                        <td>Strong margins (35.6% OpM), but growth decelerating</td>
+                    </tr>
+                    <tr>
+                        <td><strong>News Sentiment</strong></td>
+                        <td>50% Negative</td>
+                        <td>Recent analyst downgrades; AI threat concerns</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- TECHNICAL ANALYSIS -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div>
+                    <div class="stock-name">Technical Analysis</div>
+                    <div class="stock-price">$240.27</div>
+                </div>
+                <div class="recommendation-badge">NEUTRAL TO CAUTIOUS</div>
+            </div>
+
+            <div class="score-box">
+                <div class="score-row">
+                    <div class="score-item">
+                        <div class="score-label">RSI (14)</div>
+                        <div class="score-value score-neutral">49.4</div>
+                        <div style="font-size: 0.8em; color: #6272a4; margin-top: 5px;">Neutral (not overbought)</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-label">MACD</div>
+                        <div class="score-value score-positive">Bullish</div>
+                        <div style="font-size: 0.8em; color: #6272a4; margin-top: 5px;">Histogram +1.85</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-label">Stochastic %K</div>
+                        <div class="score-value score-neutral">61.5</div>
+                        <div style="font-size: 0.8em; color: #6272a4; margin-top: 5px;">Neutral, bearish crossover</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drivers-section">
+                <h4>✅ Positive Technical Signals</h4>
+                <ul class="drivers-list positive">
+                    <li>MACD bullish crossover (momentum turning positive)</li>
+                    <li>Price just reclaimed VWAP ($241.67) with above-avg volume</li>
+                    <li>RSI 49.4 — neutral, not overbought (room to run up)</li>
+                    <li>1.6% above VWAP (in confirmed uptrend, not stretched)</li>
+                    <li>Bollinger Bands upper at $255 (target aligns with resistance)</li>
+                </ul>
+            </div>
+
+            <div class="drivers-section">
+                <h4>⚠️ Technical Concerns</h4>
+                <ul class="drivers-list negative">
+                    <li>Stochastic %K bearish crossover — momentum losing steam despite MACD bullish</li>
+                    <li>Only 1 bar above VWAP — young reclaim, not confirmed yet</li>
+                    <li>Doji pattern on 4/21 (indecision, no reversal pattern detected)</li>
+                    <li>Volume analysis: no climax or capitulation detected (no major reversal setup)</li>
+                    <li>OBV flat — volume not confirming price strength</li>
+                </ul>
+            </div>
+
+            <div class="technical-levels">
+                <div class="technical-levels-title">Key Support/Resistance Levels</div>
+                <div class="technical-item">
+                    <span class="technical-label">Primary Resistance (BB Upper):</span>
+                    <span class="technical-value">$255.12</span>
+                </div>
+                <div class="technical-item">
+                    <span class="technical-label">VWAP (Current Support):</span>
+                    <span class="technical-value">$241.67</span>
+                </div>
+                <div class="technical-item">
+                    <span class="technical-label">SMA 20 (Dynamic Support):</span>
+                    <span class="technical-value">$241.59</span>
+                </div>
+                <div class="technical-item">
+                    <span class="technical-label">Primary Support (BB Lower):</span>
+                    <span class="technical-value">$228.05</span>
+                </div>
+                <div class="technical-item">
+                    <span class="technical-label">Trailing Stop (9.8%):</span>
+                    <span class="technical-value">$216.63</span>
+                </div>
+            </div>
+
+            <div class="call-action">
+                <strong>⚡ Technical Takeaway:</strong> MACD bullish but Stochastic bearish divergence. VWAP reclaim is positive but young. No major reversal pattern detected. Short-term technicals are mixed — wait for follow-through confirmation or better entry below $235.
+            </div>
+        </div>
+
+        <!-- FUNDAMENTALS & GROWTH -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div>
+                    <div class="stock-name">Fundamentals & Growth</div>
+                    <div class="stock-price">Score: 6/14 (Solid)</div>
+                </div>
+                <div class="recommendation-badge" style="background: #f1fa8c; color: #1e1e2e;">DETERIORATING</div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="metric-label">Revenue CAGR (3Y)</div>
+                    <div class="metric-value">10.5%</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Moderate growth</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Revenue Trajectory</div>
+                    <div class="metric-value" style="color: #f1fa8c;">STABLE</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Accel: -0.27pp (flat)</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Operating Margin (3Y)</div>
+                    <div class="metric-value score-positive">35.6%</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Strong profitability</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Margin Trend</div>
+                    <div class="metric-value">+1.5%</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Flat (no expansion)</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">FCF Margin</div>
+                    <div class="metric-value score-positive">40.2%</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Strong cash generation</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">EPS Momentum</div>
+                    <div class="metric-value score-neutral">Mixed (0)</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">1 accel, 3 decel bars</div>
+                </div>
+            </div>
+
+            <div class="drivers-section">
+                <h4>✅ Fundamental Strengths</h4>
+                <ul class="drivers-list positive">
+                    <li>Strong operating margins (35.6%) — pricing power, cost control</li>
+                    <li>Exceptional free cash flow margin (40.2%) — returns to shareholders</li>
+                    <li>Valuation reasonable: EV/Sales log=1.40 (cheap relative to history)</li>
+                    <li>Recurring revenue model (SaaS subscriptions) — predictable cash flows</li>
+                </ul>
+            </div>
+
+            <div class="drivers-section">
+                <h4>⚠️ Fundamental Red Flags (Major Concerns)</h4>
+                <ul class="drivers-list negative">
+                    <li>EPS Acceleration: MIXED signal — only 1 of 4 quarters showed acceleration. Recent deceleration warning.</li>
+                    <li>Revenue Growth: DECELERATING — from 3.5% to 3.3% QoQ (momentum dying)</li>
+                    <li>12M Momentum: -36.1% — severely negative. Stock down 33% while SPY up 32%.</li>
+                    <li>AI Competition Threat — Mizuho downgrade cites AI disintermediating Adobe's prosumer/SMB segments</li>
+                    <li>Growth Stagnation Risk — legacy software company may be disrupted by new AI-native competitors</li>
+                </ul>
+            </div>
+
+            <div class="call-action">
+                <strong>🎯 Fundamentals Takeaway:</strong> Excellent profitability and cash generation, but growth trajectory is slowing and AI threat is real. Score of 6 = solid but not compelling. Fundamentals do NOT justify the relative weakness (-65.7% vs SPY). Better opportunity elsewhere.
+            </div>
+        </div>
+
+        <!-- SENTIMENT & NEWS -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div>
+                    <div class="stock-name">Recent News & Sentiment</div>
+                    <div class="stock-price">50% Negative</div>
+                </div>
+                <div class="recommendation-badge" style="background: #ff7979; color: #1e1e2e;">NEGATIVE BIAS</div>
+            </div>
+
+            <div class="news-section">
+                <div class="news-title">Sentiment Summary</div>
+                <table style="margin: 0;">
+                    <tr>
+                        <td>Positive Articles</td>
+                        <td><strong>2</strong> (20%)</td>
+                    </tr>
+                    <tr>
+                        <td>Neutral Articles</td>
+                        <td><strong>3</strong> (30%)</td>
+                    </tr>
+                    <tr>
+                        <td>Negative Articles</td>
+                        <td><strong>5</strong> (50%)</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="news-section" style="margin-top: 15px;">
+                <div class="news-title">🚨 Critical Developments</div>
+
+                <div class="news-summary">
+                    <strong class="sentiment-negative">MIZUHO DOWNGRADE (Today):</strong> "Adobe downgraded from Outperform to Neutral, PT cut to $270 from $315." Reason: "AI poses existential threat to prosumer and SMB segments. Risk to long-term terminal value."
+                </div>
+
+                <div class="news-summary">
+                    <strong class="sentiment-negative">SOFTWARE SECTOR WASHOUT:</strong> "Have software stocks reached an extreme washout yet? Continue to proceed with caution on battered software stocks." Adobe mentioned alongside Salesforce (-31 YTD) and ServiceNow (-40 YTD).
+                </div>
+
+                <div class="news-summary">
+                    <strong class="sentiment-negative">WORST PERFORMER:</strong> Adobe down 31% YTD (2026), tied with Salesforce. ServiceNow is worst at -40%. Reflects investor skepticism on legacy software valuations.
+                </div>
+
+                <div class="news-summary">
+                    <strong class="sentiment-negative">BRIDGEWATER WARNING:</strong> "AI poses existential threat to legacy software companies, like how Amazon disrupted bookstores." Suggests structural headwinds, not just cyclical.
+                </div>
+
+                <div class="news-summary">
+                    <strong class="sentiment-positive">EARNINGS AHEAD:</strong> "Double-digit earnings growth expected" in next earnings report. Analysts still expect solid near-term results, but longer-term visibility clouded.
+                </div>
+            </div>
+
+            <div class="call-action">
+                <strong>📡 Sentiment Takeaway:</strong> Heavily bearish tone driven by AI disruption concerns. Mizuho's downgrade + Bridgewater's existential threat warning suggest structural risks, not near-term trading opportunities. Wait for earnings confirmation or analyst consensus stabilization.
+            </div>
+        </div>
+
+        <!-- INSTITUTIONAL POSITIONING -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div>
+                    <div class="stock-name">Institutional Positioning & Options Flow</div>
+                    <div class="stock-price">STRONG BULL SIGNAL</div>
+                </div>
+                <div class="recommendation-badge" style="background: #50fa7b; color: #1e1e2e;">BULLISH</div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="metric-label">Unusual Calls Detected</div>
+                    <div class="metric-value score-positive">19 Contracts</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Strong sweep signal</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">High-Conviction Calls</div>
+                    <div class="metric-value score-positive">3 Contracts</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Scores 5-6</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Call/Put Ratio (ATM)</div>
+                    <div class="metric-value">0.68 (puts heavy)</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Defensive positioning</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">IV Rank (Calls)</div>
+                    <div class="metric-value">95.1%</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Very elevated</div>
+                </div>
+            </div>
+
+            <div class="drivers-section">
+                <h4>✅ Bullish Options Signals</h4>
+                <ul class="drivers-list positive">
+                    <li>19 unusual calls detected across 3 expirations (strong sweep signal)</li>
+                    <li>High-conviction sweeps on 265, 275, 260 strikes (+6-10% OTM)</li>
+                    <li>Vol/OI ratios 1.4-3.1× indicate fresh institutional positioning</li>
+                    <li>Aggressive fills AT or ABOVE ask (motivated buyers)</li>
+                    <li>Directional bets, not hedges — bullish conviction is real</li>
+                </ul>
+            </div>
+
+            <div class="drivers-section">
+                <h4>⚠️ Options Context (Temper Expectations)</h4>
+                <ul class="drivers-list negative">
+                    <li>Call/put ratio 0.68 — more puts than calls at ATM. Defensive demand.</li>
+                    <li>IV 95.1% — EXTREMELY elevated. IV crush risk post-earnings or on bad news.</li>
+                    <li>Put volume heavy on downside protection (233-240 strikes). Institutions hedging.</li>
+                    <li>Competing signals: Bullish sweeps + bearish put demand = unresolved positioning</li>
+                </ul>
+            </div>
+
+            <div class="call-action">
+                <strong>🎯 Options Takeaway:</strong> Institutional buyers ARE initiating call sweeps (+10-15% OTM), but heavy put buying suggests they're also hedging downside risk. Mixed signals. Avoid options — IV 95% is unsustainable and will crush premium. Consider stock only if fundamentals improve post-earnings.
+            </div>
+        </div>
+
+        <!-- MARKET STRUCTURE & TECHNICALS -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div>
+                    <div class="stock-name">Market Structure & Liquidity</div>
+                    <div class="stock-price">NORMAL CONDITIONS</div>
+                </div>
+                <div class="recommendation-badge" style="background: #6272a4; color: #fff;">NEUTRAL</div>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="metric-label">Bid/Ask Spread</div>
+                    <div class="metric-value">6.52% (options)</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Normal, no stress</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Short Interest</div>
+                    <div class="metric-value">4.07% of float</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Moderate, 2.7 DTC</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Squeeze Potential</div>
+                    <div class="metric-value score-negative">LOW</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Not a factor</div>
+                </div>
+                <div class="metric-box">
+                    <div class="metric-label">Volume Trend</div>
+                    <div class="metric-value">Above average (1.2×)</div>
+                    <div style="font-size: 0.75em; color: #6272a4; margin-top: 3px;">Last bar elevated</div>
+                </div>
+            </div>
+
+            <div class="drivers-section">
+                <h4>✅ Positive Structure Signals</h4>
+                <ul class="drivers-list positive">
+                    <li>Bid/ask spread normal (6.52%) — no liquidity stress</li>
+                    <li>Volume 1.2× average on recent bars — above-average participation</li>
+                    <li>No capitulation or climax detected — no extreme fear flush to buy</li>
+                </ul>
+            </div>
+
+            <div class="drivers-section">
+                <h4>⚠️ Structure Concerns</h4>
+                <ul class="drivers-list negative">
+                    <li>Short interest moderate (4.1%) but not extreme — no squeeze catalyst</li>
+                    <li>Volume not confirming VWAP reclaim strongly (OBV flat) — weak commitment</li>
+                    <li>No major institutional bottom flush detected — suggests more selling could come</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- COMPARISON TO PORTFOLIO -->
+        <div class="section">
+            <h2 class="section-title">📊 How Adobe Compares to Your Portfolio</h2>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Metric</th>
+                        <th>ADBE (Adobe)</th>
+                        <th>Top Pick (GLW)</th>
+                        <th>Runner-up (MU)</th>
+                        <th>Bottom (GEV)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Net Signal</strong></td>
+                        <td><span class="score-neutral">+4</span></td>
+                        <td><span class="score-positive">+8 ⭐</span></td>
+                        <td><span class="score-positive">+8 ⭐</span></td>
+                        <td><span class="score-negative">-1</span></td>
+                    </tr>
+                    <tr>
+                        <td><strong>Confidence</strong></td>
+                        <td>MEDIUM</td>
+                        <td>HIGH ⭐</td>
+                        <td>HIGH ⭐</td>
+                        <td>LOW</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Risk/Reward</strong></td>
+                        <td>0.88:1 (poor)</td>
+                        <td>12.42:1 (excellent) ⭐</td>
+                        <td>0.27:1 (poor)</td>
+                        <td>N/A (skip)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>12M Rel. Strength</strong></td>
+                        <td>-65.7% vs SPY</td>
+                        <td>+261.5% vs SPY ⭐</td>
+                        <td>+538.3% vs SPY ⭐</td>
+                        <td>+178.3% vs SPY</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Fundamentals</strong></td>
+                        <td>Solid (6/14), deteriorating</td>
+                        <td>Strong (8/14) ⭐</td>
+                        <td>Solid (4/14)</td>
+                        <td>Solid (5/14)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Growth Trajectory</strong></td>
+                        <td>Stable but flat (no accel)</td>
+                        <td>Accelerating ⭐</td>
+                        <td>Mixed (decel risk)</td>
+                        <td>Inflecting negative</td>
+                    </tr>
+                    <tr>
+                        <td><strong>News Sentiment</strong></td>
+                        <td>50% negative (downgrades)</td>
+                        <td>70% positive ⭐</td>
+                        <td>40% positive</td>
+                        <td>40% neutral/neg</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Action</strong></td>
+                        <td><span class="score-neutral">HOLD / SKIP</span></td>
+                        <td><span class="score-positive">STRONG BUY ⭐</span></td>
+                        <td><span class="score-positive">STRONG BUY ⭐</span></td>
+                        <td><span class="score-negative">REDUCE</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- FINAL RECOMMENDATION -->
+        <div class="section">
+            <h2 class="section-title">🎯 Final Verdict & Action Plan</h2>
+
+            <div class="alert-banner">
+                <h3>SKIP Adobe at Current Levels</h3>
+                <p><strong>Recommendation: HOLD (if already owned), or SKIP (if considering entry)</strong></p>
+                <p>Adobe shows mixed signals with positive technical momentum and strong institutional call sweeps, but the fundamental story is deteriorating and relative weakness is severe (-65.7% vs SPY). AI disruption concerns from Mizuho downgrade are credible. Better opportunities exist in GLW, MU, or your existing portfolio holdings.</p>
+            </div>
+
+            <div class="call-action">
+                <h4>If You Own Adobe:</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>HOLD</strong> with 9.8% trailing stop at $216.63</li>
+                    <li>Wait for next earnings to confirm whether analyst downgrades are justified</li>
+                    <li>Exit if stock breaks below $228 (Bollinger lower band)</li>
+                    <li>Do NOT add on strength into resistance at $255</li>
+                </ul>
+            </div>
+
+            <div class="call-action">
+                <h4>If You're Considering Entry:</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>WAIT</strong> for post-earnings confirmation (likely May 2026)</li>
+                    <li>Better entry points: $225-230 (closer to technical support)</li>
+                    <li>Only enter if earnings beat + analyst sentiment stabilizes</li>
+                    <li>Or skip entirely — GLW and MU offer better risk/reward</li>
+                </ul>
+            </div>
+
+            <div class="warning-banner">
+                <h3>⚠️ Specific Cautions</h3>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Avoid Options:</strong> IV is 95% — unsustainably elevated. IV crush will hurt premium. Use stock only.</li>
+                    <li><strong>AI Risk Is Real:</strong> Mizuho's existential threat warning is not hyperbole. Bridgewater comparison to Amazon disrupting bookstores should concern long-term holders.</li>
+                    <li><strong>Relative Weakness Persistent:</strong> Down 65.7% vs SPY over 12 months. This is not mean-reversion — it's structural.</li>
+                    <li><strong>Earnings Risk:</strong> Next earnings will be crucial. If guidance cuts for AI-driven headwinds, stock could gap down 5-10%.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📊 Adobe (ADBE) Deep Analysis Report</p>
+            <p>Generated: April 27, 2026 | Data as of market close</p>
+            <p><strong>Disclaimer:</strong> This is informational analysis only. Not investment advice. Consult a financial advisor before trading. Past performance ≠ future results.</p>
+        </div>
+    </div>
+</body>
+</html>

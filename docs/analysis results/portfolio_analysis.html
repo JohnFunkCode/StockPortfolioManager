@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio Deep Analysis | Stock Analysis Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #1e1e2e 0%, #2d2d44 100%);
+            color: #e0e0e0;
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 30px 0;
+            border-bottom: 2px solid #44475a;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, #50fa7b, #8be9fd);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .timestamp {
+            color: #6272a4;
+            font-size: 0.9em;
+        }
+
+        .section {
+            margin-bottom: 40px;
+        }
+
+        .section-title {
+            font-size: 1.8em;
+            color: #50fa7b;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #44475a;
+        }
+
+        .warning-banner {
+            background: linear-gradient(135deg, #ff5555, #ff7979);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 5px solid #ff5555;
+        }
+
+        .warning-banner h3 {
+            color: #1e1e2e;
+            margin-bottom: 10px;
+        }
+
+        .warning-banner ul {
+            list-style: none;
+            color: #1e1e2e;
+        }
+
+        .warning-banner li {
+            padding: 5px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+
+        .warning-banner li:before {
+            content: "⚠️";
+            position: absolute;
+            left: 0;
+        }
+
+        .stock-card {
+            background: #282a36;
+            border: 1px solid #44475a;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+
+        .stock-card:hover {
+            border-color: #50fa7b;
+            box-shadow: 0 0 20px rgba(80, 250, 123, 0.2);
+        }
+
+        .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #44475a;
+        }
+
+        .stock-name {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #8be9fd;
+        }
+
+        .stock-symbol {
+            font-size: 0.9em;
+            color: #6272a4;
+            margin-left: 10px;
+        }
+
+        .confidence-badge {
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+
+        .confidence-high {
+            background: #50fa7b;
+            color: #1e1e2e;
+        }
+
+        .confidence-medium {
+            background: #f1fa8c;
+            color: #1e1e2e;
+        }
+
+        .confidence-low {
+            background: #ff7979;
+            color: #1e1e2e;
+        }
+
+        .trade-type {
+            padding: 5px 12px;
+            border-radius: 5px;
+            font-size: 0.85em;
+            font-weight: bold;
+            margin-left: 10px;
+        }
+
+        .trade-long {
+            background: #50fa7b;
+            color: #1e1e2e;
+        }
+
+        .trade-call {
+            background: #8be9fd;
+            color: #1e1e2e;
+        }
+
+        .trade-skip {
+            background: #ff7979;
+            color: #1e1e2e;
+        }
+
+        .trade-hold {
+            background: #6272a4;
+            color: #1e1e2e;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .metric-box {
+            background: #21222c;
+            border: 1px solid #44475a;
+            padding: 12px;
+            border-radius: 5px;
+        }
+
+        .metric-label {
+            color: #6272a4;
+            font-size: 0.85em;
+            margin-bottom: 5px;
+        }
+
+        .metric-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #50fa7b;
+        }
+
+        .metric-value.negative {
+            color: #ff7979;
+        }
+
+        .metric-value.neutral {
+            color: #f1fa8c;
+        }
+
+        .stock-score {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .score-item {
+            text-align: center;
+            padding: 15px;
+            background: #21222c;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+        }
+
+        .score-item-label {
+            font-size: 0.8em;
+            color: #6272a4;
+            margin-bottom: 5px;
+        }
+
+        .score-item-value {
+            font-size: 1.8em;
+            font-weight: bold;
+        }
+
+        .bull-score { color: #50fa7b; }
+        .bear-score { color: #ff7979; }
+        .net-score { color: #8be9fd; }
+
+        .score-positive { color: #50fa7b; }
+        .score-negative { color: #ff7979; }
+        .score-neutral { color: #f1fa8c; }
+
+        .drivers-section {
+            margin-bottom: 15px;
+        }
+
+        .drivers-section h4 {
+            color: #8be9fd;
+            margin-bottom: 10px;
+            font-size: 0.95em;
+        }
+
+        .drivers-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .drivers-list li {
+            padding: 6px 0 6px 25px;
+            position: relative;
+            font-size: 0.9em;
+            color: #d0d0d0;
+        }
+
+        .drivers-list li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #50fa7b;
+        }
+
+        .warnings-list {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .warnings-list li {
+            padding: 6px 0 6px 25px;
+            position: relative;
+            font-size: 0.9em;
+            color: #d0d0d0;
+            border-left: 2px solid #ff7979;
+            padding-left: 15px;
+            margin-bottom: 8px;
+        }
+
+        .warnings-list li:before {
+            content: "!";
+            position: absolute;
+            left: 5px;
+            color: #ff7979;
+            font-weight: bold;
+        }
+
+        .technical-levels {
+            background: #21222c;
+            padding: 12px;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+
+        .technical-levels-title {
+            color: #8be9fd;
+            font-weight: bold;
+            margin-bottom: 8px;
+        }
+
+        .technical-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid #44475a;
+        }
+
+        .technical-item:last-child {
+            border-bottom: none;
+        }
+
+        .technical-item-label {
+            color: #6272a4;
+        }
+
+        .technical-item-value {
+            font-weight: bold;
+            color: #50fa7b;
+        }
+
+        .opportunity-score {
+            font-size: 2em;
+            font-weight: bold;
+            text-align: center;
+            padding: 15px;
+            background: linear-gradient(135deg, #21222c, #282a36);
+            border-radius: 5px;
+            border: 2px solid #44475a;
+        }
+
+        .opportunity-score.high {
+            border-color: #50fa7b;
+            color: #50fa7b;
+        }
+
+        .opportunity-score.medium {
+            border-color: #f1fa8c;
+            color: #f1fa8c;
+        }
+
+        .opportunity-score.low {
+            border-color: #ff7979;
+            color: #ff7979;
+        }
+
+        .rank-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            background: #44475a;
+            color: #f1fa8c;
+            border-radius: 20px;
+            font-weight: bold;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+        }
+
+        .rank-1 {
+            background: #50fa7b;
+            color: #1e1e2e;
+        }
+
+        .rank-2 {
+            background: #8be9fd;
+            color: #1e1e2e;
+        }
+
+        .rank-3 {
+            background: #f1fa8c;
+            color: #1e1e2e;
+        }
+
+        .legend {
+            background: #21222c;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #44475a;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+
+        .legend h4 {
+            color: #8be9fd;
+            margin-bottom: 10px;
+        }
+
+        .legend-item {
+            margin-bottom: 8px;
+        }
+
+        .legend-item strong {
+            color: #50fa7b;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 15px 0;
+        }
+
+        th {
+            background: #21222c;
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #44475a;
+            color: #8be9fd;
+            font-weight: bold;
+        }
+
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #44475a;
+        }
+
+        tr:hover {
+            background: #282a36;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            border-top: 2px solid #44475a;
+            color: #6272a4;
+            font-size: 0.85em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📊 Portfolio Deep Analysis Report</h1>
+            <p class="timestamp">Generated: April 27, 2026 | Analysis Across 6 Holdings</p>
+        </header>
+
+        <!-- CRITICAL WARNINGS SECTION -->
+        <div class="section">
+            <h2 class="section-title">🚨 CRITICAL WARNINGS & ALERTS</h2>
+
+            <div class="warning-banner">
+                <h3>Immediate Action Required</h3>
+                <ul>
+                    <li><strong>GLW (Corning)</strong> — Earnings in 1 day. DO NOT add new options positions (IV crush risk).</li>
+                    <li><strong>CAT (Caterpillar)</strong> — Earnings in 3 days. Avoid new options entries.</li>
+                    <li><strong>LITE (Lumentum)</strong> — Earnings in 8 days. Options positions carry post-earnings IV crush risk.</li>
+                    <li><strong>GEV (GE Vernova)</strong> — Conflicting signals + negative revenue inflection. Recommend HOLD/REDUCE.</li>
+                </ul>
+            </div>
+
+            <div class="warning-banner" style="background: linear-gradient(135deg, #f1fa8c, #ffb347); color: #1e1e2e;">
+                <h3 style="color: #1e1e2e;">Technical Risk: Overbought Market</h3>
+                <ul>
+                    <li><strong>NVDA</strong> — RSI 71.6 (deeply overbought), MACD bullish but late in move. Technical stop too close (inside noise floor).</li>
+                    <li><strong>CAT</strong> — RSI 70.6 (deeply overbought), hanging man candle pattern (weak bearish signal).</li>
+                    <li><strong>GEV</strong> — RSI 80.6 (EXTREME overbought), EPS acceleration decelerating.</li>
+                    <li><strong>Market Maker Bias</strong> — ALL 6 stocks show MM sell-on-rally hedge. Price rises face mechanical resistance. Confirm entries with volume confirmation.</li>
+                </ul>
+            </div>
+
+            <div class="warning-banner" style="background: linear-gradient(135deg, #ffb347, #ff7979); color: #1e1e2e;">
+                <h3 style="color: #1e1e2e;">Stop Loss Calibration Warnings</h3>
+                <ul>
+                    <li><strong>NVDA, LITE, GLW, MU</strong> — Technical stops are inside the historical noise floor. Will false-trigger on a normal bad day. Use the wider broker trailing stops instead.</li>
+                    <li>Recommended: Use 8-17% trailing stops (varies by stock) rather than tight technical levels.</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- SUMMARY TABLE -->
+        <div class="section">
+            <h2 class="section-title">📈 Portfolio Summary</h2>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Current Price</th>
+                        <th>Trade Type</th>
+                        <th>Confidence</th>
+                        <th>Net Score</th>
+                        <th>Target</th>
+                        <th>Rec. Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>GLW</strong> (Corning)</td>
+                        <td>$170.35</td>
+                        <td><span class="trade-type trade-call">BULL CALL SPREAD</span></td>
+                        <td><span class="confidence-badge confidence-high">HIGH</span></td>
+                        <td><span class="score-positive">+8</span></td>
+                        <td>$188.63</td>
+                        <td>BUY (after earnings)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>MU</strong> (Micron)</td>
+                        <td>$518.09</td>
+                        <td><span class="trade-type trade-call">BULL CALL SPREAD</span></td>
+                        <td><span class="confidence-badge confidence-high">HIGH</span></td>
+                        <td><span class="score-positive">+8</span></td>
+                        <td>$523.28</td>
+                        <td>BUY (strong momentum)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>LITE</strong> (Lumentum)</td>
+                        <td>$865.00</td>
+                        <td><span class="trade-type trade-call">BULL CALL SPREAD</span></td>
+                        <td><span class="confidence-badge confidence-high">HIGH</span></td>
+                        <td><span class="score-positive">+6</span></td>
+                        <td>$977.09</td>
+                        <td>BUY (post-earnings)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>NVDA</strong> (Nvidia)</td>
+                        <td>$216.11</td>
+                        <td><span class="trade-type trade-long">WEAK LONG</span></td>
+                        <td><span class="confidence-badge confidence-low">LOW</span></td>
+                        <td><span class="score-neutral">+2</span></td>
+                        <td>$214.44</td>
+                        <td>HOLD (reduce size)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>CAT</strong> (Caterpillar)</td>
+                        <td>$830.74</td>
+                        <td><span class="trade-type trade-long">WEAK LONG</span></td>
+                        <td><span class="confidence-badge confidence-low">LOW</span></td>
+                        <td><span class="score-neutral">+2</span></td>
+                        <td>$859.07</td>
+                        <td>HOLD (wait for earnings)</td>
+                    </tr>
+                    <tr>
+                        <td><strong>GEV</strong> (GE Vernova)</td>
+                        <td>$1,116.76</td>
+                        <td><span class="trade-type trade-skip">SKIP</span></td>
+                        <td><span class="confidence-badge confidence-low">LOW</span></td>
+                        <td><span class="score-negative">-1</span></td>
+                        <td>N/A</td>
+                        <td>REDUCE (exit signal)</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- RANKED OPPORTUNITIES -->
+        <div class="section">
+            <h2 class="section-title">⭐ Ranked Opportunities (Best to Worst)</h2>
+
+            <!-- Rank 1: GLW -->
+            <div class="stock-card">
+                <span class="rank-badge rank-1">#1 TOP OPPORTUNITY</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">Corning Inc.</span>
+                        <span class="stock-symbol">GLW</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-high">HIGH CONFIDENCE</span>
+                        <span class="trade-type trade-call">BULL CALL SPREAD</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">13</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">5</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">+8</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score high">+8 STRONG BUY SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$170.35</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Target Price</div>
+                        <div class="metric-value score-positive">$188.63</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Upside</div>
+                        <div class="metric-value score-positive">+10.8%</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Risk/Reward</div>
+                        <div class="metric-value score-positive">12.42:1</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Fundamentals</div>
+                        <div class="metric-value score-positive">Strong Compounder</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Sector</div>
+                        <div class="metric-value">XLK Leading</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Why This Works</h4>
+                    <ul class="drivers-list">
+                        <li>Hammer candlestick pattern (moderate bullish reversal)</li>
+                        <li>Strong unusual call sweeps (institutional buying)</li>
+                        <li>MACD bullish crossover (momentum turning)</li>
+                        <li>Strong compounder fundamentals (score 8)</li>
+                        <li>Sector XLK leading market (macro tailwind)</li>
+                        <li>70% of news articles bullish (strong sentiment)</li>
+                        <li>+261% vs SPY over 12 months (proven leader)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>⚠️ Key Risks</h4>
+                    <ul class="warnings-list">
+                        <li>CRITICAL: Earnings in 1 day — DO NOT buy options yet. Wait for post-earnings confirmation.</li>
+                        <li>MM sell-on-rally hedge — price rises face mechanical resistance as MMs rehedge.</li>
+                        <li>High IV (139.5%) — IV crush post-earnings will hurt options premium. Use stock instead.</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Support (SMA 20):</span>
+                        <span class="technical-item-value">$159.22</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Gamma Wall (MM hedge):</span>
+                        <span class="technical-item-value">$170.00</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (13.4%):</span>
+                        <span class="technical-item-value">$147.56</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Relative Strength:</span>
+                        <span class="technical-item-value">+261.5% vs SPY</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: WAIT for post-earnings (1 day), then enter with 13.4% trailing stop. Excellent risk/reward.</strong>
+            </div>
+
+            <!-- Rank 2: MU -->
+            <div class="stock-card">
+                <span class="rank-badge rank-2">#2 STRONG OPPORTUNITY</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">Micron Technology</span>
+                        <span class="stock-symbol">MU</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-high">HIGH CONFIDENCE</span>
+                        <span class="trade-type trade-call">BULL CALL SPREAD</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">12</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">4</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">+8</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score high">+8 STRONG BUY SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$518.09</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Target Price</div>
+                        <div class="metric-value score-positive">$523.28</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Upside</div>
+                        <div class="metric-value score-positive">+1.0%</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Risk/Reward</div>
+                        <div class="metric-value score-neutral">0.27:1</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Fundamentals</div>
+                        <div class="metric-value score-positive">Solid (4/14)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Relative Strength</div>
+                        <div class="metric-value score-positive">+570% vs SPY</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Why This Works</h4>
+                    <ul class="drivers-list">
+                        <li>Strong unusual call sweeps (institutional buying conviction)</li>
+                        <li>143K net call delta (institutions overwhelmingly long)</li>
+                        <li>MACD bullish, RSI 68.8 (strong momentum, not yet overbought)</li>
+                        <li>Revenue accelerating (fundamental tailwind)</li>
+                        <li>EPS acceleration moderate (institutional accumulation signal)</li>
+                        <li>+570% outperformance vs SPY (extreme leader)</li>
+                        <li>Liquidity narrowing (bounce setup forming)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>⚠️ Key Risks</h4>
+                    <ul class="warnings-list">
+                        <li>Target is only 1% above current price — limited upside on the technical recommendation.</li>
+                        <li>MM sell-on-rally hedge — needs volume confirmation on entries.</li>
+                        <li>Super high IV (232.3%) — elevated premiums may not justify risk.</li>
+                        <li>EPS deceleration risk — if earnings miss, momentum reversal likely.</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Support (Gamma Wall):</span>
+                        <span class="technical-item-value">$500.00</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">VWAP (406.08):</span>
+                        <span class="technical-item-value">Strong uptrend</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (15.6%):</span>
+                        <span class="technical-item-value">$437.16</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Bid/Ask Spread:</span>
+                        <span class="technical-item-value">NARROWING (bounce setup)</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: STRONG BUY with 15.6% trailing stop. Exceptional momentum and institutional positioning. Watch for any revenue deceleration.</strong>
+            </div>
+
+            <!-- Rank 3: LITE -->
+            <div class="stock-card">
+                <span class="rank-badge rank-3">#3 HIGH CONVICTION</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">Lumentum</span>
+                        <span class="stock-symbol">LITE</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-high">HIGH CONFIDENCE</span>
+                        <span class="trade-type trade-call">BULL CALL SPREAD</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">7</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">1</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">+6</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score high">+6 BUY SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$865.00</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Target Price</div>
+                        <div class="metric-value score-positive">$977.09</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Upside</div>
+                        <div class="metric-value score-positive">+12.9%</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Risk/Reward</div>
+                        <div class="metric-value score-positive">2.53:1</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">12M Performance</div>
+                        <div class="metric-value score-positive">+1,370% (!)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Momentum</div>
+                        <div class="metric-value score-positive">Extreme</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Why This Works</h4>
+                    <ul class="drivers-list">
+                        <li>Extreme relative strength: +1,370% vs SPY in 12 months (legendary momentum)</li>
+                        <li>Revenue accelerating (fundamental momentum building)</li>
+                        <li>EPS acceleration moderate (institutional accumulation signal)</li>
+                        <li>Moderate unusual call sweep signal</li>
+                        <li>18 bars above VWAP (strong uptrend established)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>⚠️ Key Risks (MAJOR)</h4>
+                    <ul class="warnings-list">
+                        <li>EARNINGS IN 8 DAYS — carry IV crush risk. Avoid buying calls NOW.</li>
+                        <li>MACD bearish — momentum shifting negative (contradicts bull case).</li>
+                        <li>Operating margins deeply negative (-14.4%) — profitability problem.</li>
+                        <li>Revenue growth -1.3% (declining).</li>
+                        <li>$1,370% gain already achieved — limited room left. Late in the move.</li>
+                        <li>High volatility (17.3% trailing stop) — need wide stops.</li>
+                        <li>Tech stock sector momentum turning (XLK still leading but fading).</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Support (SMA 20):</span>
+                        <span class="technical-item-value">$829.74</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Gamma Wall:</span>
+                        <span class="technical-item-value">$870.00</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (17.3%):</span>
+                        <span class="technical-item-value">$715.70</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Short Interest:</span>
+                        <span class="technical-item-value">13.95% (elevated)</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: WAIT 8+ days for post-earnings. Then enter ONLY if earnings confirm growth. MACD bearish divergence is a warning. Use 17.3% trailing stop.</strong>
+            </div>
+
+            <!-- Rank 4: NVDA -->
+            <div class="stock-card">
+                <span class="rank-badge">#4 MARGINAL</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">Nvidia</span>
+                        <span class="stock-symbol">NVDA</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-low">LOW CONFIDENCE</span>
+                        <span class="trade-type trade-long">WEAK LONG</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">11</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">9</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">+2</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score medium">+2 WEAK SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$216.11</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Target Price</div>
+                        <div class="metric-value score-negative">$214.44</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Upside</div>
+                        <div class="metric-value score-negative">-0.8%</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Risk/Reward</div>
+                        <div class="metric-value score-negative">0.21:1 (poor)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">RSI</div>
+                        <div class="metric-value score-negative">71.6 (overbought)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Fundamentals</div>
+                        <div class="metric-value score-positive">Strong (8/14)</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Positive Signals</h4>
+                    <ul class="drivers-list">
+                        <li>Strong compounder fundamentals (score 8)</li>
+                        <li>Market leader +70.9% vs SPY</li>
+                        <li>Strong institutional call sweeps</li>
+                        <li>475K net call delta (institutions long)</li>
+                        <li>Pre-earnings IV expansion (23 days out)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>⚠️ Why This Is Risky</h4>
+                    <ul class="warnings-list">
+                        <li>RSI 71.6 — DEEPLY overbought. Late in the move.</li>
+                        <li>Revenue DECELERATING — growth slowing (fundamental headwind).</li>
+                        <li>MACD bullish but at the top of the range — momentum losing steam.</li>
+                        <li>Target only -0.8% below current price — downside risk greater than upside.</li>
+                        <li>MM sell-on-rally bias — mechanical resistance as price rises.</li>
+                        <li>Bid/ask spreads WIDENING (4.54%) — liquidity stress, capitulation forming.</li>
+                        <li>Technical stop ($208.32) INSIDE noise floor (-3.6%) — will false-trigger.</li>
+                        <li>News sentiment neutral (not bullish despite strong company).</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Support (VWAP):</span>
+                        <span class="technical-item-value">$186.87</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Gamma Wall:</span>
+                        <span class="technical-item-value">$210.00</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (8.1%):</span>
+                        <span class="technical-item-value">$198.63</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Bid/Ask Spread Status:</span>
+                        <span class="technical-item-value">WIDENING (maximum stress)</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: REDUCE position. Overbought with poor risk/reward. If you must stay in, use 8.1% trailing stop. Consider selling 50% on any bounce.</strong>
+            </div>
+
+            <!-- Rank 5: CAT -->
+            <div class="stock-card">
+                <span class="rank-badge">#5 MARGINAL</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">Caterpillar</span>
+                        <span class="stock-symbol">CAT</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-low">LOW CONFIDENCE</span>
+                        <span class="trade-type trade-long">WEAK LONG</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">8</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">6</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">+2</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score medium">+2 WEAK SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$830.74</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Target Price</div>
+                        <div class="metric-value score-positive">$859.07</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Upside</div>
+                        <div class="metric-value score-positive">+3.4%</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Risk/Reward</div>
+                        <div class="metric-value score-negative">0.37:1 (poor)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">RSI</div>
+                        <div class="metric-value score-negative">70.6 (overbought)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Earnings</div>
+                        <div class="metric-value score-negative">IN 3 DAYS</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Positive Signals</h4>
+                    <ul class="drivers-list">
+                        <li>Revenue accelerating (fundamental momentum)</li>
+                        <li>18 bars above VWAP (uptrend established)</li>
+                        <li>Market leader +141% vs SPY</li>
+                        <li>Moderate call sweep activity</li>
+                        <li>Bid/ask spread narrowing (liquidity returning, bounce setup)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>⚠️ Why This Is Risky</h4>
+                    <ul class="warnings-list">
+                        <li>CRITICAL: Earnings in 3 days. Avoid new options. Risk of 5%+ gap move.</li>
+                        <li>RSI 70.6 — overbought. Hanging man candle (bearish reversal signal).</li>
+                        <li>Operating margins contracting (-3.3%) — profitability declining.</li>
+                        <li>Revenue growth only 4.4% CAGR (slow for an industrial leader).</li>
+                        <li>Target only +3.4% above current — limited upside, more risk than reward.</li>
+                        <li>MM sell-on-rally hedge — needs volume confirmation.</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Support (SMA 20):</span>
+                        <span class="technical-item-value">$764.48</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Gamma Wall:</span>
+                        <span class="technical-item-value">$700.00</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (7.1%):</span>
+                        <span class="technical-item-value">$771.92</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Squeeze Potential:</span>
+                        <span class="technical-item-value">MEDIUM (3.3 days-to-cover)</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: HOLD and WAIT for post-earnings (3+ days). Do not add now. Poor risk/reward + imminent earnings risk.</strong>
+            </div>
+
+            <!-- Rank 6: GEV -->
+            <div class="stock-card">
+                <span class="rank-badge">#6 EXIT SIGNAL</span>
+                <div class="stock-header">
+                    <div>
+                        <span class="stock-name">GE Vernova Inc.</span>
+                        <span class="stock-symbol">GEV</span>
+                    </div>
+                    <div>
+                        <span class="confidence-badge confidence-low">LOW CONFIDENCE</span>
+                        <span class="trade-type trade-skip">SKIP / REDUCE</span>
+                    </div>
+                </div>
+
+                <div class="stock-score">
+                    <div class="score-item">
+                        <div class="score-item-label">Bull Score</div>
+                        <div class="score-item-value bull-score">6</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Bear Score</div>
+                        <div class="score-item-value bear-score">7</div>
+                    </div>
+                    <div class="score-item">
+                        <div class="score-item-label">Net Score</div>
+                        <div class="score-item-value net-score">-1</div>
+                    </div>
+                </div>
+
+                <div class="opportunity-score low">-1 NEGATIVE SIGNAL</div>
+
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <div class="metric-label">Current Price</div>
+                        <div class="metric-value">$1,116.76</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Analysis</div>
+                        <div class="metric-value score-negative">NO TARGET</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">RSI</div>
+                        <div class="metric-value score-negative">80.6 (extreme!)</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">EPS Momentum</div>
+                        <div class="metric-value score-negative">Decelerating</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Revenue</div>
+                        <div class="metric-value score-negative">Negative Inflection</div>
+                    </div>
+                    <div class="metric-box">
+                        <div class="metric-label">Signal</div>
+                        <div class="metric-value score-negative">REDUCE / SELL</div>
+                    </div>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>✅ Limited Positives</h4>
+                    <ul class="drivers-list">
+                        <li>Market leader +178% vs SPY (momentum from IPO/early days)</li>
+                        <li>Moderate call sweep activity (some institutional interest)</li>
+                        <li>MACD bullish (but divergence warning)</li>
+                    </ul>
+                </div>
+
+                <div class="drivers-section">
+                    <h4>🚨 MAJOR RED FLAGS</h4>
+                    <ul class="warnings-list">
+                        <li>RSI 80.6 — EXTREMELY overbought. Reversal imminent.</li>
+                        <li>REVENUE INFLECTING NEGATIVE — growth trajectory turning down (fundamental break).</li>
+                        <li>EPS ACCELERATION DECELERATING — earnings momentum dying.</li>
+                        <li>Operating margins razor-thin (0.7%) — no pricing power.</li>
+                        <li>Bull score (6) ≤ Bear score (7) — net negative signal.</li>
+                        <li>Conflicting signals — no clear directional edge.</li>
+                        <li>MM sell-on-rally — mechanical resistance as price rises.</li>
+                        <li>Support gap 17% below current price ($980) — if broken, 21% drawdown to next support.</li>
+                    </ul>
+                </div>
+
+                <div class="technical-levels">
+                    <div class="technical-levels-title">Technical Levels & Stops</div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Primary Support (VWAP):</span>
+                        <span class="technical-item-value">$980.36</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Next Support:</span>
+                        <span class="technical-item-value">$786.32</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Trailing Stop (12.8%):</span>
+                        <span class="technical-item-value">$974.04</span>
+                    </div>
+                    <div class="technical-item">
+                        <span class="technical-item-label">Squeeze Potential:</span>
+                        <span class="technical-item-value">MEDIUM (but overshadowed by fundamentals)</span>
+                    </div>
+                </div>
+
+                <strong>Recommendation: REDUCE or EXIT. Fundamental momentum breaking (negative revenue inflection + EPS deceleration). RSI extreme overbought. Net signal is negative (-1). Better opportunities elsewhere. If holding, use 12.8% trailing stop and lock in gains.</strong>
+            </div>
+        </div>
+
+        <!-- SUMMARY & ACTION ITEMS -->
+        <div class="section">
+            <h2 class="section-title">📋 Action Items & Summary</h2>
+
+            <div class="legend">
+                <h4>Immediate Actions (Next 1-3 Days)</h4>
+                <div class="legend-item"><strong>GLW:</strong> DO NOT buy options yet (earnings tomorrow). Wait 1+ days post-earnings for confirmation, then buy BULL CALL SPREAD or stock with 13.4% trailing stop. Excellent opportunity.</div>
+                <div class="legend-item"><strong>CAT:</strong> HOLD. Skip any new positions. Earnings in 3 days. Reassess after earnings announcement.</div>
+                <div class="legend-item"><strong>GEV:</strong> REDUCE or EXIT. Fundamental momentum breaking. Overbought with poor net signal.</div>
+            </div>
+
+            <div class="legend">
+                <h4>Medium-Term Actions (1-2 Weeks)</h4>
+                <div class="legend-item"><strong>MU:</strong> STRONG BUY. Add position via BULL CALL SPREAD or stock. Exceptional institutional momentum, strong relative strength. Use 15.6% trailing stop.</div>
+                <div class="legend-item"><strong>LITE:</strong> WAIT 8+ days (post-earnings). If earnings confirm growth, buy BULL CALL SPREAD. Otherwise SKIP. MACD bearish divergence is warning.</div>
+                <div class="legend-item"><strong>NVDA:</strong> REDUCE or HOLD. Overbought with poor risk/reward. Liquidity stress widening. Consider selling 50% on any bounce.</div>
+            </div>
+
+            <div class="legend">
+                <h4>Portfolio Risk Management</h4>
+                <div class="legend-item"><strong>All Positions:</strong> Use WIDER trailing stops (7-17% range) rather than tight technical stops. Technical stops fall inside historical noise floors and will false-trigger. Prefer automated trailing stops at brokers.</div>
+                <div class="legend-item"><strong>Earnings Risk:</strong> GLW (1 day), CAT (3 days), LITE (8 days) all have imminent earnings. Avoid new options until post-earnings. Consider reducing technical exposure if not able to monitor.</div>
+                <div class="legend-item"><strong>Market Maker Bias:</strong> ALL 6 stocks show MM sell-on-rally hedge bias. This means price rises will face mechanical resistance. Confirm entries with volume and do not chase on low volume.</div>
+            </div>
+        </div>
+
+        <!-- LEGEND & TERMINOLOGY -->
+        <div class="section">
+            <h2 class="section-title">📖 Analysis Legend & Terminology</h2>
+
+            <div class="legend">
+                <h4>Trade Types</h4>
+                <div class="legend-item"><strong>LONG_CALL / BULL_CALL_SPREAD:</strong> Buy calls or spreads when IV is favorable and bull signals strong. Better than long stock when IV is elevated.</div>
+                <div class="legend-item"><strong>LONG_STOCK:</strong> Buy stock outright. Used when bull signals are moderate or IV is too high for options.</div>
+                <div class="legend-item"><strong>WEAK_LONG:</strong> Marginal buy signal (net score +1 to +2). Small position only, with caution.</div>
+                <div class="legend-item"><strong>SKIP / HOLD:</strong> No edge, conflicting signals, or net negative signal. Do not initiate new positions.</div>
+            </div>
+
+            <div class="legend">
+                <h4>Key Metrics Explained</h4>
+                <div class="legend-item"><strong>Net Score:</strong> Bull signals minus bear signals. Higher = stronger conviction. Range: -14 to +14.</div>
+                <div class="legend-item"><strong>RSI:</strong> Relative Strength Index. &gt;70 = overbought, &lt;30 = oversold. Late-move warning.</div>
+                <div class="legend-item"><strong>MACD:</strong> Bullish crossover = momentum turning up. Bearish divergence = momentum fading.</div>
+                <div class="legend-item"><strong>MM Hedge Bias:</strong> Sell-on-rally = market makers must sell as price rises (resistance). Buy-on-dips = MMs support dips (support).</div>
+                <div class="legend-item"><strong>Relative Strength:</strong> % outperformance vs SPY, QQQ, sector ETF. Leaders usually outperform in bull markets.</div>
+                <div class="legend-item"><strong>Fundamentals Score:</strong> 0-14 scale. Strong compounder ≥8, Solid = 4-7, Average = 0-3, Weak ≤ -1.</div>
+            </div>
+
+            <div class="legend">
+                <h4>Technical Levels</h4>
+                <div class="legend-item"><strong>Gamma Wall:</strong> Strike where MM hedging is heaviest. Acts as price magnet / resistance.</div>
+                <div class="legend-item"><strong>VWAP:</strong> Volume-weighted average price. Support/resistance over recent period.</div>
+                <div class="legend-item"><strong>SMA 20:</strong> 20-day simple moving average. Primary support in uptrends.</div>
+                <div class="legend-item"><strong>Bollinger Bands:</strong> Upper band = overbought resistance. Lower band = oversold support.</div>
+                <div class="legend-item"><strong>Trailing Stop:</strong> Percentage-based stop that adjusts as price rises. Recommended: 8-17% depending on volatility.</div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p>📊 Portfolio Deep Analysis Report</p>
+            <p>Generated: April 27, 2026 | Data as of market close</p>
+            <p>This analysis uses multiple MCP tools: Trade Recommendations, Fundamental Scores, RSI, Short Interest, Bid/Ask Spreads, Stop Loss Analysis, Relative Strength, and more.</p>
+            <p><strong>Disclaimer:</strong> This is informational analysis only. Not investment advice. Consult a financial advisor before trading. Past performance ≠ future results.</p>
+        </div>
+    </div>
+</body>
+</html>

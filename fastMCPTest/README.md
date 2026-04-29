@@ -21,6 +21,9 @@ pip install fastmcp yfinance numpy pandas pyyaml feedparser
 pip install transformers torch
 ```
 
+The `fastMCPTest/.mcp.json` file is set up to run from inside this directory and
+uses the repo virtualenv at `../.venv/bin/fastmcp`.
+
 ---
 
 ## Architecture
@@ -37,7 +40,7 @@ pip install transformers torch
 | `news_collector.py` | Library | RSS + yfinance news fetcher with lazy-loaded FinBERT scoring pipeline |
 | `collect_options.py` | CLI / Cron | EOD snapshot collector; designed to run daily at 4:10 PM ET via cron or launchd |
 | `ohlcv_cache.py` | Library | SQLite-backed OHLCV bar cache; eliminates redundant yfinance calls |
-| `.mcp.json` | Config | Registers all three MCP servers for auto-start |
+| `.mcp.json` | Config | Registers the FastMCP servers in this directory for auto-start |
 
 ---
 

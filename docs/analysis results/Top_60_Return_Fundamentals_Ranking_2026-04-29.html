@@ -1,0 +1,542 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Top 60 Return + Fundamentals Ranking</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 24px;
+      line-height: 1.45;
+      color: #1f2937;
+      background: #f8fafc;
+    }
+
+    h1, h2 {
+      color: #111827;
+    }
+
+    .meta {
+      margin-bottom: 20px;
+    }
+
+    .panel {
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    ul {
+      margin: 8px 0 0 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+    }
+
+    th, td {
+      border: 1px solid #d1d5db;
+      padding: 8px 10px;
+      text-align: left;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #e5e7eb;
+      cursor: pointer;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    tr:nth-child(even) {
+      background: #f9fafb;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border-radius: 8px;
+    }
+
+    .chart-wrap {
+      overflow-x: auto;
+    }
+
+    .chart-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chart-note {
+      margin: 0 0 14px 0;
+      color: #4b5563;
+    }
+
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .legend-swatch {
+      width: 12px;
+      height: 12px;
+      border-radius: 999px;
+      display: inline-block;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+    }
+
+    #cluster-plot {
+      width: 100%;
+      max-width: 1000px;
+      height: auto;
+      display: block;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+    }
+
+    .numeric {
+      text-align: right;
+    }
+
+    a {
+      color: #0f766e;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="panel meta">
+    <h1>Top 60 Return + Fundamentals Ranking</h1>
+    <p><strong>Generated:</strong> 2026-04-29</p>
+  </div>
+
+  <div class="panel">
+    <h2>Universe</h2>
+    <ul>
+      <li>Top 60 symbols by 30-day return from <code>docs/analysis results/portfolio_report.html</code> (snapshot dated 2026-04-26 9:54am)</li>
+      <li>Symbols sourced from <code>portfolio.csv</code> and <code>watchlist.yaml</code></li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Method</h2>
+    <ul>
+      <li><code>30D Return Rank</code>: rank by highest 30-day return</li>
+      <li><code>Fundamental Rank</code>: rank by highest <code>composite_score</code> from live <code>get_fundamental_score</code> calls on 2026-04-29</li>
+      <li><code>Combined Score</code>: equal-weight average of return percentile rank and fundamentals percentile rank</li>
+      <li><code>Combined Rank</code>: final stack rank used for ordering below</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Fundamental Label Legend</h2>
+    <ul>
+      <li><code>strong_compounder</code>: <code>composite_score &gt;= 8</code></li>
+      <li><code>solid</code>: <code>composite_score 4 to 7</code></li>
+      <li><code>average</code>: <code>composite_score 0 to 3</code></li>
+      <li><code>weak</code>: <code>composite_score -1 to -3</code></li>
+      <li><code>deteriorating</code>: <code>composite_score &lt;= -4</code></li>
+    </ul>
+    <p>The <code>composite_score</code> is built from seven factors:</p>
+    <ul>
+      <li><code>RevCAGR3Y</code>: 3-year revenue growth</li>
+      <li><code>RevAccel</code>: revenue acceleration or deceleration</li>
+      <li><code>OpMargin3Y</code>: average operating margin</li>
+      <li><code>OpMarginTrend</code>: margin expansion or contraction</li>
+      <li><code>FCFMargin3Y</code>: free cash flow margin</li>
+      <li><code>ValMetric</code>: valuation level, where cheaper scores better</li>
+      <li><code>Mom12_1</code>: momentum from about 12 months ago to 1 month ago</li>
+    </ul>
+  </div>
+
+  <div class="panel">
+    <h2>Return vs Fundamentals Scatter</h2>
+    <p class="chart-note">This view plots <code>Fundamental Score</code> on the x-axis and <code>30D Return</code> on the y-axis. Dots are colored by k-means cluster so you can see which symbols group together on those two dimensions.</p>
+    <div class="chart-controls">
+      <label for="cluster-count"><strong>K-Means Clusters:</strong></label>
+      <select id="cluster-count">
+        <option value="3">3</option>
+        <option value="4" selected>4</option>
+        <option value="5">5</option>
+        <option value="6">6</option>
+      </select>
+    </div>
+    <div class="chart-wrap">
+      <svg id="cluster-plot" viewBox="0 0 980 540" role="img" aria-label="Scatter plot of 30-day return versus fundamental score colored by k-means cluster"></svg>
+    </div>
+    <div id="cluster-legend" class="legend"></div>
+  </div>
+
+  <div class="panel table-wrap">
+    <table id="ranking">
+      <thead>
+        <tr>
+          <th onclick="sortTable('ranking',0,true)">Combined Rank</th>
+          <th onclick="sortTable('ranking',1,false)">Symbol</th>
+          <th onclick="sortTable('ranking',2,false)">Name</th>
+          <th onclick="sortTable('ranking',3,true)">30D Return</th>
+          <th onclick="sortTable('ranking',4,true)">Fundamental Score</th>
+          <th onclick="sortTable('ranking',5,false)">Fundamental Label</th>
+          <th onclick="sortTable('ranking',6,true)">Return Rank</th>
+          <th onclick="sortTable('ranking',7,true)">Fundamental Rank</th>
+          <th onclick="sortTable('ranking',8,true)">Combined Score</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="numeric">1</td><td><a href="https://finance.yahoo.com/quote/MRVL/" target="_blank" rel="noopener">MRVL</a></td><td>Marvell Technology</td><td class="numeric">87.23%</td><td class="numeric">7</td><td>solid</td><td class="numeric">3.0</td><td class="numeric">17.0</td><td class="numeric">0.8475</td></tr>
+        <tr><td class="numeric">2</td><td><a href="https://finance.yahoo.com/quote/CLS/" target="_blank" rel="noopener">CLS</a></td><td>Celestica</td><td class="numeric">55.38%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">12.5</td><td class="numeric">7.5</td><td class="numeric">0.8475</td></tr>
+        <tr><td class="numeric">3</td><td><a href="https://finance.yahoo.com/quote/AMD/" target="_blank" rel="noopener">AMD</a></td><td>Advanced Micro Devices</td><td class="numeric">75.56%</td><td class="numeric">7</td><td>solid</td><td class="numeric">5.0</td><td class="numeric">17.0</td><td class="numeric">0.8305</td></tr>
+        <tr><td class="numeric">4</td><td><a href="https://finance.yahoo.com/quote/CRDO/" target="_blank" rel="noopener">CRDO</a></td><td>Credo Technologies</td><td class="numeric">72.57%</td><td class="numeric">7</td><td>solid</td><td class="numeric">8.0</td><td class="numeric">17.0</td><td class="numeric">0.8051</td></tr>
+        <tr><td class="numeric">5</td><td><a href="https://finance.yahoo.com/quote/ARM/" target="_blank" rel="noopener">ARM</a></td><td>Arm Holdings plc</td><td class="numeric">102.77%</td><td class="numeric">6</td><td>solid</td><td class="numeric">2.0</td><td class="numeric">25.0</td><td class="numeric">0.7881</td></tr>
+        <tr><td class="numeric">6</td><td><a href="https://finance.yahoo.com/quote/POWL/" target="_blank" rel="noopener">POWL</a></td><td>Powell Industries</td><td class="numeric">46.26%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">20.0</td><td class="numeric">7.5</td><td class="numeric">0.7839</td></tr>
+        <tr><td class="numeric">7</td><td><a href="https://finance.yahoo.com/quote/TER/" target="_blank" rel="noopener">TER</a></td><td>Teradyne</td><td class="numeric">44.17%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">22.0</td><td class="numeric">7.5</td><td class="numeric">0.7669</td></tr>
+        <tr><td class="numeric">8</td><td><a href="https://finance.yahoo.com/quote/DOCN/" target="_blank" rel="noopener">DOCN</a></td><td>DigitalOcean</td><td class="numeric">41.89%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">25.0</td><td class="numeric">7.5</td><td class="numeric">0.7415</td></tr>
+        <tr><td class="numeric">9</td><td><a href="https://finance.yahoo.com/quote/000660.KS/" target="_blank" rel="noopener">000660.KS</a></td><td>SK hynix</td><td class="numeric">37.15%</td><td class="numeric">9</td><td>strong_compounder</td><td class="numeric">31.0</td><td class="numeric">1.5</td><td class="numeric">0.7415</td></tr>
+        <tr><td class="numeric">10</td><td><a href="https://finance.yahoo.com/quote/AGX/" target="_blank" rel="noopener">AGX</a></td><td>Argan</td><td class="numeric">41.15%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">27.0</td><td class="numeric">7.5</td><td class="numeric">0.7246</td></tr>
+        <tr><td class="numeric">11</td><td><a href="https://finance.yahoo.com/quote/KLAC/" target="_blank" rel="noopener">KLAC</a></td><td>KLA</td><td class="numeric">36.54%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">32.0</td><td class="numeric">7.5</td><td class="numeric">0.6822</td></tr>
+        <tr><td class="numeric">12</td><td><a href="https://finance.yahoo.com/quote/ON/" target="_blank" rel="noopener">ON</a></td><td>onsemi</td><td class="numeric">68.55%</td><td class="numeric">5</td><td>solid</td><td class="numeric">9.0</td><td class="numeric">32.0</td><td class="numeric">0.6695</td></tr>
+        <tr><td class="numeric">13</td><td><a href="https://finance.yahoo.com/quote/COHR/" target="_blank" rel="noopener">COHR</a></td><td>Coherent</td><td class="numeric">35.31%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">34.0</td><td class="numeric">7.5</td><td class="numeric">0.6653</td></tr>
+        <tr><td class="numeric">14</td><td><a href="https://finance.yahoo.com/quote/GLW/" target="_blank" rel="noopener">GLW</a></td><td>Corning</td><td class="numeric">35.09%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">35.0</td><td class="numeric">7.5</td><td class="numeric">0.6568</td></tr>
+        <tr><td class="numeric">15</td><td><a href="https://finance.yahoo.com/quote/INTC/" target="_blank" rel="noopener">INTC</a></td><td>Intel</td><td class="numeric">79.55%</td><td class="numeric">4</td><td>solid</td><td class="numeric">4.0</td><td class="numeric">41.0</td><td class="numeric">0.6356</td></tr>
+        <tr><td class="numeric">16</td><td><a href="https://finance.yahoo.com/quote/STX/" target="_blank" rel="noopener">STX</a></td><td>Seagate Technology</td><td class="numeric">55.06%</td><td class="numeric">5</td><td>solid</td><td class="numeric">14.0</td><td class="numeric">32.0</td><td class="numeric">0.6271</td></tr>
+        <tr><td class="numeric">17</td><td><a href="https://finance.yahoo.com/quote/ALAB/" target="_blank" rel="noopener">ALAB</a></td><td>Astera Labs</td><td class="numeric">75.49%</td><td class="numeric">4</td><td>solid</td><td class="numeric">6.0</td><td class="numeric">41.0</td><td class="numeric">0.6186</td></tr>
+        <tr><td class="numeric">18</td><td><a href="https://finance.yahoo.com/quote/DELL/" target="_blank" rel="noopener">DELL</a></td><td>Dell Technologies</td><td class="numeric">43.11%</td><td class="numeric">6</td><td>solid</td><td class="numeric">24.0</td><td class="numeric">25.0</td><td class="numeric">0.6017</td></tr>
+        <tr><td class="numeric">19</td><td><a href="https://finance.yahoo.com/quote/AIXXF/" target="_blank" rel="noopener">AIXXF</a></td><td>AIXTRON SE</td><td class="numeric">50.07%</td><td class="numeric">5</td><td>solid</td><td class="numeric">18.0</td><td class="numeric">32.0</td><td class="numeric">0.5932</td></tr>
+        <tr><td class="numeric">20</td><td><a href="https://finance.yahoo.com/quote/AAOI/" target="_blank" rel="noopener">AAOI</a></td><td>Applied Optoelectronics</td><td class="numeric">55.38%</td><td class="numeric">4</td><td>solid</td><td class="numeric">12.5</td><td class="numeric">41.0</td><td class="numeric">0.5636</td></tr>
+        <tr><td class="numeric">21</td><td><a href="https://finance.yahoo.com/quote/FN/" target="_blank" rel="noopener">FN</a></td><td>Fabrinet</td><td class="numeric">38.87%</td><td class="numeric">6</td><td>solid</td><td class="numeric">29.0</td><td class="numeric">25.0</td><td class="numeric">0.5593</td></tr>
+        <tr><td class="numeric">22</td><td><a href="https://finance.yahoo.com/quote/PSIX/" target="_blank" rel="noopener">PSIX</a></td><td>Power Solutions International</td><td class="numeric">26.71%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">48.0</td><td class="numeric">7.5</td><td class="numeric">0.5466</td></tr>
+        <tr><td class="numeric">23</td><td><a href="https://finance.yahoo.com/quote/ACLS/" target="_blank" rel="noopener">ACLS</a></td><td>Axcelis Technologies</td><td class="numeric">73.49%</td><td class="numeric">3</td><td>average</td><td class="numeric">7.0</td><td class="numeric">49.5</td><td class="numeric">0.5381</td></tr>
+        <tr><td class="numeric">24</td><td><a href="https://finance.yahoo.com/quote/CIEN/" target="_blank" rel="noopener">CIEN</a></td><td>Ciena</td><td class="numeric">53.53%</td><td class="numeric">4</td><td>solid</td><td class="numeric">16.0</td><td class="numeric">41.0</td><td class="numeric">0.5339</td></tr>
+        <tr><td class="numeric">25</td><td><a href="https://finance.yahoo.com/quote/LRCX/" target="_blank" rel="noopener">LRCX</a></td><td>Lam Research</td><td class="numeric">26.11%</td><td class="numeric">8</td><td>strong_compounder</td><td class="numeric">50.0</td><td class="numeric">7.5</td><td class="numeric">0.5297</td></tr>
+        <tr><td class="numeric">26</td><td><a href="https://finance.yahoo.com/quote/PL/" target="_blank" rel="noopener">PL</a></td><td>Planet Labs</td><td class="numeric">41.87%</td><td class="numeric">5</td><td>solid</td><td class="numeric">26.0</td><td class="numeric">32.0</td><td class="numeric">0.5254</td></tr>
+        <tr><td class="numeric">27</td><td><a href="https://finance.yahoo.com/quote/SMTC/" target="_blank" rel="noopener">SMTC</a></td><td>Semtech</td><td class="numeric">29.61%</td><td class="numeric">7</td><td>solid</td><td class="numeric">42.0</td><td class="numeric">17.0</td><td class="numeric">0.5169</td></tr>
+        <tr><td class="numeric">28</td><td><a href="https://finance.yahoo.com/quote/AEHR/" target="_blank" rel="noopener">AEHR</a></td><td>Aehr Test Systems</td><td class="numeric">149.83%</td><td class="numeric">0</td><td>average</td><td class="numeric">1.0</td><td class="numeric">58.5</td><td class="numeric">0.5127</td></tr>
+        <tr><td class="numeric">29</td><td><a href="https://finance.yahoo.com/quote/ONTO/" target="_blank" rel="noopener">ONTO</a></td><td>Onto Innovation</td><td class="numeric">64.70%</td><td class="numeric">3</td><td>average</td><td class="numeric">10.0</td><td class="numeric">49.5</td><td class="numeric">0.5127</td></tr>
+        <tr><td class="numeric">30</td><td><a href="https://finance.yahoo.com/quote/VRT/" target="_blank" rel="noopener">VRT</a></td><td>Vertiv</td><td class="numeric">21.97%</td><td class="numeric">9</td><td>strong_compounder</td><td class="numeric">58.0</td><td class="numeric">1.5</td><td class="numeric">0.5127</td></tr>
+        <tr><td class="numeric">31</td><td><a href="https://finance.yahoo.com/quote/CAMT/" target="_blank" rel="noopener">CAMT</a></td><td>Camtek</td><td class="numeric">29.51%</td><td class="numeric">7</td><td>solid</td><td class="numeric">43.0</td><td class="numeric">17.0</td><td class="numeric">0.5085</td></tr>
+        <tr><td class="numeric">32</td><td><a href="https://finance.yahoo.com/quote/GEV/" target="_blank" rel="noopener">GEV</a></td><td>GE Vernova</td><td class="numeric">37.96%</td><td class="numeric">5</td><td>solid</td><td class="numeric">30.0</td><td class="numeric">32.0</td><td class="numeric">0.4915</td></tr>
+        <tr><td class="numeric">33</td><td><a href="https://finance.yahoo.com/quote/SNDK/" target="_blank" rel="noopener">SNDK</a></td><td>Sandisk</td><td class="numeric">56.94%</td><td class="numeric">1</td><td>average</td><td class="numeric">11.0</td><td class="numeric">56.5</td><td class="numeric">0.4449</td></tr>
+        <tr><td class="numeric">34</td><td><a href="https://finance.yahoo.com/quote/AMZN/" target="_blank" rel="noopener">AMZN</a></td><td>Amazon</td><td class="numeric">25.94%</td><td class="numeric">7</td><td>solid</td><td class="numeric">51.0</td><td class="numeric">17.0</td><td class="numeric">0.4407</td></tr>
+        <tr><td class="numeric">35</td><td><a href="https://finance.yahoo.com/quote/R/" target="_blank" rel="noopener">R</a></td><td>Ryder System</td><td class="numeric">33.55%</td><td class="numeric">5</td><td>solid</td><td class="numeric">36.0</td><td class="numeric">32.0</td><td class="numeric">0.4407</td></tr>
+        <tr><td class="numeric">36</td><td><a href="https://finance.yahoo.com/quote/LITE/" target="_blank" rel="noopener">LITE</a></td><td>Lumentum</td><td class="numeric">38.88%</td><td class="numeric">4</td><td>solid</td><td class="numeric">28.0</td><td class="numeric">41.0</td><td class="numeric">0.4322</td></tr>
+        <tr><td class="numeric">37</td><td><a href="https://finance.yahoo.com/quote/AVGO/" target="_blank" rel="noopener">AVGO</a></td><td>Broadcom</td><td class="numeric">25.20%</td><td class="numeric">7</td><td>solid</td><td class="numeric">52.0</td><td class="numeric">17.0</td><td class="numeric">0.4322</td></tr>
+        <tr><td class="numeric">38</td><td><a href="https://finance.yahoo.com/quote/ADI/" target="_blank" rel="noopener">ADI</a></td><td>Analog Devices</td><td class="numeric">28.94%</td><td class="numeric">6</td><td>solid</td><td class="numeric">45.0</td><td class="numeric">25.0</td><td class="numeric">0.4237</td></tr>
+        <tr><td class="numeric">39</td><td><a href="https://finance.yahoo.com/quote/BE/" target="_blank" rel="noopener">BE</a></td><td>Bloom Energy</td><td class="numeric">44.32%</td><td class="numeric">3</td><td>average</td><td class="numeric">21.0</td><td class="numeric">49.5</td><td class="numeric">0.4195</td></tr>
+        <tr><td class="numeric">40</td><td><a href="https://finance.yahoo.com/quote/HPE/" target="_blank" rel="noopener">HPE</a></td><td>Hewlett Packard Enterprise</td><td class="numeric">28.70%</td><td class="numeric">6</td><td>solid</td><td class="numeric">46.0</td><td class="numeric">25.0</td><td class="numeric">0.4153</td></tr>
+        <tr><td class="numeric">41</td><td><a href="https://finance.yahoo.com/quote/FIX/" target="_blank" rel="noopener">FIX</a></td><td>Comfort Systems</td><td class="numeric">23.65%</td><td class="numeric">7</td><td>solid</td><td class="numeric">55.0</td><td class="numeric">17.0</td><td class="numeric">0.4068</td></tr>
+        <tr><td class="numeric">42</td><td><a href="https://finance.yahoo.com/quote/TGEN/" target="_blank" rel="noopener">TGEN</a></td><td>Tecogen</td><td class="numeric">52.67%</td><td class="numeric">1</td><td>average</td><td class="numeric">17.0</td><td class="numeric">56.5</td><td class="numeric">0.3941</td></tr>
+        <tr><td class="numeric">43</td><td><a href="https://finance.yahoo.com/quote/CRWV/" target="_blank" rel="noopener">CRWV</a></td><td>CoreWeave</td><td class="numeric">35.86%</td><td class="numeric">4</td><td>solid</td><td class="numeric">33.0</td><td class="numeric">41.0</td><td class="numeric">0.3898</td></tr>
+        <tr><td class="numeric">44</td><td><a href="https://finance.yahoo.com/quote/HUT/" target="_blank" rel="noopener">HUT</a></td><td>HUT 8</td><td class="numeric">53.74%</td><td class="numeric">-1</td><td>weak</td><td class="numeric">15.0</td><td class="numeric">60.0</td><td class="numeric">0.3814</td></tr>
+        <tr><td class="numeric">45</td><td><a href="https://finance.yahoo.com/quote/AMAT/" target="_blank" rel="noopener">AMAT</a></td><td>Applied Materials</td><td class="numeric">21.77%</td><td class="numeric">7</td><td>solid</td><td class="numeric">59.5</td><td class="numeric">17.0</td><td class="numeric">0.3686</td></tr>
+        <tr><td class="numeric">46</td><td><a href="https://finance.yahoo.com/quote/LUNR/" target="_blank" rel="noopener">LUNR</a></td><td>Intuitive Machines</td><td class="numeric">43.35%</td><td class="numeric">2</td><td>average</td><td class="numeric">23.0</td><td class="numeric">54.0</td><td class="numeric">0.3644</td></tr>
+        <tr><td class="numeric">47</td><td><a href="https://finance.yahoo.com/quote/FLY/" target="_blank" rel="noopener">FLY</a></td><td>Firefly Aerospace</td><td class="numeric">47.36%</td><td class="numeric">0</td><td>average</td><td class="numeric">19.0</td><td class="numeric">58.5</td><td class="numeric">0.3602</td></tr>
+        <tr><td class="numeric">48</td><td><a href="https://finance.yahoo.com/quote/U/" target="_blank" rel="noopener">U</a></td><td>Unity Software</td><td class="numeric">32.30%</td><td class="numeric">4</td><td>solid</td><td class="numeric">39.0</td><td class="numeric">41.0</td><td class="numeric">0.3390</td></tr>
+        <tr><td class="numeric">49</td><td><a href="https://finance.yahoo.com/quote/ACMR/" target="_blank" rel="noopener">ACMR</a></td><td>ACM Research</td><td class="numeric">23.03%</td><td class="numeric">6</td><td>solid</td><td class="numeric">56.0</td><td class="numeric">25.0</td><td class="numeric">0.3305</td></tr>
+        <tr><td class="numeric">50</td><td><a href="https://finance.yahoo.com/quote/CIFR/" target="_blank" rel="noopener">CIFR</a></td><td>Cipher Digital</td><td class="numeric">29.81%</td><td class="numeric">4</td><td>solid</td><td class="numeric">41.0</td><td class="numeric">41.0</td><td class="numeric">0.3220</td></tr>
+        <tr><td class="numeric">51</td><td><a href="https://finance.yahoo.com/quote/CMI/" target="_blank" rel="noopener">CMI</a></td><td>Cummins</td><td class="numeric">21.77%</td><td class="numeric">6</td><td>solid</td><td class="numeric">59.5</td><td class="numeric">25.0</td><td class="numeric">0.3008</td></tr>
+        <tr><td class="numeric">52</td><td><a href="https://finance.yahoo.com/quote/GEO/" target="_blank" rel="noopener">GEO</a></td><td>GEO Group</td><td class="numeric">33.45%</td><td class="numeric">3</td><td>average</td><td class="numeric">37.0</td><td class="numeric">49.5</td><td class="numeric">0.2839</td></tr>
+        <tr><td class="numeric">53</td><td><a href="https://finance.yahoo.com/quote/NBIS/" target="_blank" rel="noopener">NBIS</a></td><td>Nebius Group</td><td class="numeric">33.25%</td><td class="numeric">3</td><td>average</td><td class="numeric">38.0</td><td class="numeric">49.5</td><td class="numeric">0.2754</td></tr>
+        <tr><td class="numeric">54</td><td><a href="https://finance.yahoo.com/quote/OUST/" target="_blank" rel="noopener">OUST</a></td><td>Ouster</td><td class="numeric">22.96%</td><td class="numeric">5</td><td>solid</td><td class="numeric">57.0</td><td class="numeric">32.0</td><td class="numeric">0.2627</td></tr>
+        <tr><td class="numeric">55</td><td><a href="https://finance.yahoo.com/quote/SIMO/" target="_blank" rel="noopener">SIMO</a></td><td>Silicon Motion</td><td class="numeric">26.46%</td><td class="numeric">4</td><td>solid</td><td class="numeric">49.0</td><td class="numeric">41.0</td><td class="numeric">0.2542</td></tr>
+        <tr><td class="numeric">56</td><td><a href="https://finance.yahoo.com/quote/BESI.AS/" target="_blank" rel="noopener">BESI.AS</a></td><td>BE Semiconductor Industries</td><td class="numeric">29.33%</td><td class="numeric">3</td><td>average</td><td class="numeric">44.0</td><td class="numeric">49.5</td><td class="numeric">0.2246</td></tr>
+        <tr><td class="numeric">57</td><td><a href="https://finance.yahoo.com/quote/BRZE/" target="_blank" rel="noopener">BRZE</a></td><td>Braze</td><td class="numeric">25.04%</td><td class="numeric">4</td><td>solid</td><td class="numeric">53.0</td><td class="numeric">41.0</td><td class="numeric">0.2203</td></tr>
+        <tr><td class="numeric">58</td><td><a href="https://finance.yahoo.com/quote/WULF/" target="_blank" rel="noopener">WULF</a></td><td>TeraWulf</td><td class="numeric">32.25%</td><td class="numeric">2</td><td>average</td><td class="numeric">40.0</td><td class="numeric">54.0</td><td class="numeric">0.2203</td></tr>
+        <tr><td class="numeric">59</td><td><a href="https://finance.yahoo.com/quote/APLD/" target="_blank" rel="noopener">APLD</a></td><td>Applied Digital</td><td class="numeric">24.48%</td><td class="numeric">4</td><td>solid</td><td class="numeric">54.0</td><td class="numeric">41.0</td><td class="numeric">0.2119</td></tr>
+        <tr><td class="numeric">60</td><td><a href="https://finance.yahoo.com/quote/IONQ/" target="_blank" rel="noopener">IONQ</a></td><td>IonQ</td><td class="numeric">27.13%</td><td class="numeric">2</td><td>average</td><td class="numeric">47.0</td><td class="numeric">54.0</td><td class="numeric">0.1610</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="panel">
+    <h2>Reproduction Formula</h2>
+    <p>Use this process to rebuild the report:</p>
+    <ol>
+      <li>Start with the combined symbol universe from <code>portfolio.csv</code> and <code>watchlist.yaml</code>.</li>
+      <li>Pull <code>30 day Return</code> for each symbol from <code>docs/analysis results/portfolio_report.html</code>.</li>
+      <li>Sort all symbols by <code>30 day Return</code> descending.</li>
+      <li>Keep the top 60 unique symbols by <code>30 day Return</code>.</li>
+      <li>For each of those 60 symbols, fetch live <code>composite_score</code> and <code>fundamental_label</code> from <code>get_fundamental_score(symbol)</code>.</li>
+      <li>Rank the 60 symbols on both measures:
+        <ul>
+          <li><code>Return Rank</code>: rank of <code>30 day Return</code>, descending, using average rank for ties</li>
+          <li><code>Fundamental Rank</code>: rank of <code>composite_score</code>, descending, using average rank for ties</li>
+        </ul>
+      </li>
+      <li>Convert each rank into a percentile-style score:</li>
+    </ol>
+    <pre><code>N = number of ranked symbols
+
+Return Percentile = 1 - ((Return Rank - 1) / (N - 1))
+Fundamental Percentile = 1 - ((Fundamental Rank - 1) / (N - 1))</code></pre>
+    <p>Compute the final combined score:</p>
+    <pre><code>Combined Score = 0.5 * Return Percentile + 0.5 * Fundamental Percentile</code></pre>
+    <p>Sort by:</p>
+    <ul>
+      <li><code>Combined Score</code> descending</li>
+      <li>then <code>30 day Return</code> descending</li>
+      <li>then <code>composite_score</code> descending</li>
+    </ul>
+    <p>For the HTML scatter plot:</p>
+    <ul>
+      <li>plot each symbol as one point with <code>x = composite_score</code> and <code>y = 30 day Return</code></li>
+      <li>run k-means clustering on the 2D points <code>(composite_score, 30 day Return)</code></li>
+      <li>color each point by its assigned cluster</li>
+      <li>draw centroid markers for each cluster</li>
+      <li>use the median <code>composite_score</code> and median <code>30 day Return</code> as dashed reference lines</li>
+    </ul>
+    <p>Practical notes:</p>
+    <ul>
+      <li><code>N</code> was <code>60</code> in this report.</li>
+      <li><code>30 day Return</code> came from the local HTML snapshot dated <code>2026-04-26 9:54am</code>.</li>
+      <li>Fundamentals were fetched live on <code>2026-04-29</code>.</li>
+      <li><code>Fundamental Label</code> is the bucket derived from <code>composite_score</code>, not a separate formula.</li>
+      <li>The HTML report currently lets you switch between <code>k = 3, 4, 5, 6</code> clusters.</li>
+    </ul>
+  </div>
+
+  <script>
+  function extractRankingData() {
+    const rows = Array.from(document.querySelectorAll("#ranking tbody tr"));
+    return rows.map((row) => {
+      const cells = row.querySelectorAll("td");
+      return {
+        combinedRank: parseFloat(cells[0].textContent.trim()),
+        symbol: cells[1].textContent.trim(),
+        symbolUrl: cells[1].querySelector("a")?.href || "#",
+        name: cells[2].textContent.trim(),
+        ret30: parseFloat(cells[3].textContent.replace("%", "").trim()),
+        fundamentalScore: parseFloat(cells[4].textContent.trim()),
+        fundamentalLabel: cells[5].textContent.trim(),
+      };
+    });
+  }
+
+  function kmeans(points, k, maxIterations = 100) {
+    const centroids = [];
+    const used = new Set();
+
+    for (let i = 0; i < k; i++) {
+      let idx = Math.floor((i * points.length) / k);
+      while (used.has(idx) && used.size < points.length) idx = (idx + 1) % points.length;
+      used.add(idx);
+      centroids.push([...points[idx]]);
+    }
+
+    let assignments = new Array(points.length).fill(0);
+
+    for (let iter = 0; iter < maxIterations; iter++) {
+      let changed = false;
+
+      for (let i = 0; i < points.length; i++) {
+        let bestCluster = 0;
+        let bestDistance = Infinity;
+
+        for (let c = 0; c < k; c++) {
+          const dx = points[i][0] - centroids[c][0];
+          const dy = points[i][1] - centroids[c][1];
+          const distance = dx * dx + dy * dy;
+          if (distance < bestDistance) {
+            bestDistance = distance;
+            bestCluster = c;
+          }
+        }
+
+        if (assignments[i] !== bestCluster) {
+          assignments[i] = bestCluster;
+          changed = true;
+        }
+      }
+
+      const sums = Array.from({ length: k }, () => [0, 0, 0]);
+      for (let i = 0; i < points.length; i++) {
+        const cluster = assignments[i];
+        sums[cluster][0] += points[i][0];
+        sums[cluster][1] += points[i][1];
+        sums[cluster][2] += 1;
+      }
+
+      for (let c = 0; c < k; c++) {
+        if (sums[c][2] > 0) {
+          centroids[c][0] = sums[c][0] / sums[c][2];
+          centroids[c][1] = sums[c][1] / sums[c][2];
+        }
+      }
+
+      if (!changed) break;
+    }
+
+    return { assignments, centroids };
+  }
+
+  function renderClusterPlot() {
+    const svg = document.getElementById("cluster-plot");
+    const legend = document.getElementById("cluster-legend");
+    const k = parseInt(document.getElementById("cluster-count").value, 10);
+    const data = extractRankingData();
+    const points = data.map((d) => [d.fundamentalScore, d.ret30]);
+    const { assignments, centroids } = kmeans(points, k);
+    const colors = ["#0f766e", "#dc2626", "#2563eb", "#d97706", "#7c3aed", "#059669"];
+
+    const width = 980;
+    const height = 540;
+    const margin = { top: 20, right: 20, bottom: 60, left: 70 };
+    const plotWidth = width - margin.left - margin.right;
+    const plotHeight = height - margin.top - margin.bottom;
+
+    const xValues = data.map((d) => d.fundamentalScore);
+    const yValues = data.map((d) => d.ret30);
+    const xMin = Math.min(...xValues) - 0.5;
+    const xMax = Math.max(...xValues) + 0.5;
+    const yMin = Math.min(...yValues) - 5;
+    const yMax = Math.max(...yValues) + 5;
+
+    const scaleX = (x) => margin.left + ((x - xMin) / (xMax - xMin)) * plotWidth;
+    const scaleY = (y) => margin.top + plotHeight - ((y - yMin) / (yMax - yMin)) * plotHeight;
+
+    const xTicks = [];
+    for (let x = Math.ceil(xMin); x <= Math.floor(xMax); x++) xTicks.push(x);
+
+    const yTicks = [];
+    const yStep = 20;
+    for (let y = Math.ceil(yMin / yStep) * yStep; y <= yMax; y += yStep) yTicks.push(y);
+
+    let markup = "";
+
+    markup += `<rect x="0" y="0" width="${width}" height="${height}" fill="#ffffff"></rect>`;
+
+    yTicks.forEach((tick) => {
+      const y = scaleY(tick);
+      markup += `<line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" stroke="#e5e7eb" stroke-width="1"></line>`;
+      markup += `<text x="${margin.left - 10}" y="${y + 4}" text-anchor="end" font-size="12" fill="#6b7280">${tick}%</text>`;
+    });
+
+    xTicks.forEach((tick) => {
+      const x = scaleX(tick);
+      markup += `<line x1="${x}" y1="${margin.top}" x2="${x}" y2="${height - margin.bottom}" stroke="#f3f4f6" stroke-width="1"></line>`;
+      markup += `<text x="${x}" y="${height - margin.bottom + 22}" text-anchor="middle" font-size="12" fill="#6b7280">${tick}</text>`;
+    });
+
+    markup += `<line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="#111827" stroke-width="1.5"></line>`;
+    markup += `<line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="#111827" stroke-width="1.5"></line>`;
+
+    const medianX = xValues.slice().sort((a, b) => a - b)[Math.floor(xValues.length / 2)];
+    const medianY = yValues.slice().sort((a, b) => a - b)[Math.floor(yValues.length / 2)];
+    markup += `<line x1="${scaleX(medianX)}" y1="${margin.top}" x2="${scaleX(medianX)}" y2="${height - margin.bottom}" stroke="#9ca3af" stroke-dasharray="6 4" stroke-width="1.5"></line>`;
+    markup += `<line x1="${margin.left}" y1="${scaleY(medianY)}" x2="${width - margin.right}" y2="${scaleY(medianY)}" stroke="#9ca3af" stroke-dasharray="6 4" stroke-width="1.5"></line>`;
+
+    data.forEach((d, i) => {
+      const cluster = assignments[i];
+      const color = colors[cluster % colors.length];
+      const x = scaleX(d.fundamentalScore);
+      const y = scaleY(d.ret30);
+      const label = `${d.symbol}: Return ${d.ret30.toFixed(2)}%, Fundamental ${d.fundamentalScore}, Cluster ${cluster + 1}`;
+      markup += `
+        <a href="${d.symbolUrl}" target="_blank" rel="noopener">
+          <circle cx="${x}" cy="${y}" r="6" fill="${color}" stroke="#ffffff" stroke-width="1.5">
+            <title>${label}</title>
+          </circle>
+        </a>
+      `;
+    });
+
+    centroids.forEach((centroid, i) => {
+      const x = scaleX(centroid[0]);
+      const y = scaleY(centroid[1]);
+      const color = colors[i % colors.length];
+      markup += `<rect x="${x - 6}" y="${y - 6}" width="12" height="12" fill="${color}" stroke="#111827" stroke-width="1.5" transform="rotate(45 ${x} ${y})"></rect>`;
+    });
+
+    markup += `<text x="${margin.left + plotWidth / 2}" y="${height - 14}" text-anchor="middle" font-size="14" fill="#111827">Fundamental Score</text>`;
+    markup += `<text x="20" y="${margin.top + plotHeight / 2}" text-anchor="middle" font-size="14" fill="#111827" transform="rotate(-90 20 ${margin.top + plotHeight / 2})">30D Return</text>`;
+
+    svg.innerHTML = markup;
+
+    const counts = new Array(k).fill(0);
+    assignments.forEach((cluster) => { counts[cluster] += 1; });
+    legend.innerHTML = counts.map((count, i) => `
+      <span class="legend-item">
+        <span class="legend-swatch" style="background:${colors[i % colors.length]}"></span>
+        Cluster ${i + 1} (${count} symbols)
+      </span>
+    `).join("");
+  }
+
+  function sortTable(table_id, column_number, is_numeric = false) {
+    const table = document.getElementById(table_id);
+    let switching = true;
+    let dir = "asc";
+    let switchcount = 0;
+
+    const parseNumeric = (text) => {
+      const normalized = text.replace(/[$,%\s]/g, "").replace(/,/g, "");
+      return parseFloat(normalized);
+    };
+
+    while (switching) {
+      switching = false;
+      const rows = table.rows;
+      let shouldSwitch = false;
+      let switchIndex = -1;
+
+      for (let i = 1; i < rows.length - 1; i++) {
+        const xCell = rows[i].getElementsByTagName("TD")[column_number];
+        const yCell = rows[i + 1].getElementsByTagName("TD")[column_number];
+        const xText = xCell ? xCell.textContent.trim() : "";
+        const yText = yCell ? yCell.textContent.trim() : "";
+
+        let comparison;
+        if (is_numeric) {
+          const xVal = parseNumeric(xText);
+          const yVal = parseNumeric(yText);
+          comparison = (!isNaN(xVal) && !isNaN(yVal)) ? xVal - yVal : xText.localeCompare(yText);
+        } else {
+          comparison = xText.localeCompare(yText);
+        }
+
+        if ((dir === "asc" && comparison > 0) || (dir === "desc" && comparison < 0)) {
+          shouldSwitch = true;
+          switchIndex = i;
+          break;
+        }
+      }
+
+      if (shouldSwitch && switchIndex !== -1) {
+        rows[switchIndex].parentNode.insertBefore(rows[switchIndex + 1], rows[switchIndex]);
+        switching = true;
+        switchcount++;
+      } else if (switchcount === 0 && dir === "asc") {
+        dir = "desc";
+        switching = true;
+      }
+    }
+  }
+
+  document.getElementById("cluster-count").addEventListener("change", renderClusterPlot);
+  renderClusterPlot();
+  </script>
+</body>
+</html>

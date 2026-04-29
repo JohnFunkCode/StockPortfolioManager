@@ -241,7 +241,7 @@ The servers are configured in `.mcp.json` and start automatically when Claude Co
 
 ```bash
 source .venv/bin/activate
-python fastMCPTest/stock_price_server.py
+fastmcp run fastMCPTest/stock_price_server.py
 ```
 
 ---

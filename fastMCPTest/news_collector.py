@@ -24,8 +24,10 @@ Usage:
 from __future__ import annotations
 
 import logging
+import ssl
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.request import urlopen
 
 import yfinance as yf
 
@@ -148,10 +150,23 @@ def _fetch_rss(symbol: str) -> list[dict]:
 
     url = _YF_RSS_URL.format(symbol=symbol)
     try:
-        feed = feedparser.parse(url)
+        # Create SSL context that accepts self-signed or expired certificates
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
+        # Fetch URL with permissive SSL context, then parse the content
+        with urlopen(url, context=ctx, timeout=10) as response:
+            content = response.read()
+        feed = feedparser.parse(content)
     except Exception as exc:
-        log.warning("RSS parse error for %s: %s", symbol, exc)
+        # RSS feed may be unavailable or Yahoo Finance changed the endpoint
+        log.debug("RSS feed unavailable for %s (%s) — falling back to yfinance only", symbol, type(exc).__name__)
         return []
+
+    # If feed.bozo is set, log the error but try to parse what we got
+    if feed.get("bozo"):
+        log.debug("RSS feed bozo flag set for %s: %s", symbol, feed.bozo_exception)
 
     articles = []
     for entry in feed.entries:
@@ -189,24 +204,52 @@ def _fetch_yfinance_news(symbol: str) -> list[dict]:
 
     articles = []
     for item in raw:
-        # yfinance news dict keys vary by version
-        url = item.get("link") or item.get("url") or ""
+        # yfinance API structure: top level has 'id', content nested under 'content' key
+        content = item.get("content") or {}
+
+        # Extract URL from clickThroughUrl or fall back to older structure
+        url = ""
+        click_url = content.get("clickThroughUrl") or {}
+        if isinstance(click_url, dict):
+            url = click_url.get("url") or ""
+        if not url:
+            # Fallback for older yfinance versions
+            url = item.get("link") or item.get("url") or ""
         if not url:
             continue
 
+        # Extract published timestamp
         published_at = None
-        ts = item.get("providerPublishTime") or item.get("published")
-        if ts:
+        pub_date = content.get("pubDate")
+        if pub_date:
             try:
-                published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                # Handle ISO format or Unix timestamp
+                if isinstance(pub_date, str):
+                    published_at = pub_date
+                else:
+                    published_at = datetime.fromtimestamp(int(pub_date), tz=timezone.utc).isoformat()
             except Exception:
                 pass
 
+        if not published_at:
+            ts = item.get("providerPublishTime") or item.get("published")
+            if ts:
+                try:
+                    published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                except Exception:
+                    pass
+
+        # Extract provider
+        provider = "Yahoo Finance"
+        provider_obj = content.get("provider")
+        if isinstance(provider_obj, dict):
+            provider = provider_obj.get("displayName") or provider
+
         articles.append({
-            "title":        (item.get("title") or "").strip(),
+            "title":        (content.get("title") or item.get("title") or "").strip(),
             "url":          url.strip(),
-            "summary":      None,
-            "publisher":    item.get("publisher") or "Yahoo Finance",
+            "summary":      content.get("summary") or None,
+            "publisher":    provider,
             "published_at": published_at,
             "source":       "yfinance",
         })

@@ -189,24 +189,52 @@ def _fetch_yfinance_news(symbol: str) -> list[dict]:
 
     articles = []
     for item in raw:
-        # yfinance news dict keys vary by version
-        url = item.get("link") or item.get("url") or ""
+        # yfinance news dict keys vary by version. Newer releases wrap fields
+        # under a nested "content" object; older releases expose them top-level.
+        content = item.get("content") if isinstance(item, dict) else None
+        if not isinstance(content, dict):
+            content = {}
+
+        click_through = content.get("clickThroughUrl")
+        canonical = content.get("canonicalUrl")
+        provider = content.get("provider")
+        click_through_url = click_through.get("url") if isinstance(click_through, dict) else None
+        canonical_url = canonical.get("url") if isinstance(canonical, dict) else None
+
+        url = (
+            item.get("link")
+            or item.get("url")
+            or click_through_url
+            or canonical_url
+            or ""
+        )
         if not url:
             continue
 
         published_at = None
-        ts = item.get("providerPublishTime") or item.get("published")
+        ts = (
+            item.get("providerPublishTime")
+            or item.get("published")
+            or content.get("pubDate")
+        )
         if ts:
             try:
-                published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                if isinstance(ts, (int, float)):
+                    published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+                elif isinstance(ts, str):
+                    published_at = datetime.fromisoformat(ts.replace("Z", "+00:00")).isoformat()
             except Exception:
                 pass
 
+        provider_name = provider.get("displayName") if isinstance(provider, dict) else None
+        publisher = item.get("publisher") or provider_name or "Yahoo Finance"
+        summary = content.get("summary")
+
         articles.append({
-            "title":        (item.get("title") or "").strip(),
+            "title":        ((item.get("title") or content.get("title") or "").strip()),
             "url":          url.strip(),
-            "summary":      None,
-            "publisher":    item.get("publisher") or "Yahoo Finance",
+            "summary":      summary.strip() if isinstance(summary, str) and summary.strip() else None,
+            "publisher":    publisher,
             "published_at": published_at,
             "source":       "yfinance",
         })

@@ -1,20 +1,24 @@
 {
   "mcpServers": {
-    "market-analysis": {
-      "command": "python3",
-      "args": ["fastMCPTest/market_analysis_server.py"]
-    },
     "stock-price-server": {
-      "command": "python3",
-      "args": ["fastMCPTest/stock_price_server.py"]
+      "command": ".venv/bin/fastmcp",
+      "args": ["run", "fastMCPTest/stock_price_server.py"]
+    },
+    "market-analysis-server": {
+      "command": ".venv/bin/fastmcp",
+      "args": ["run", "fastMCPTest/market_analysis_server.py"]
     },
     "options-analysis-server": {
       "command": ".venv/bin/fastmcp",
       "args": ["run", "fastMCPTest/options_analysis.py"]
     },
     "company-fundamentals-server": {
-      "command": "python3",
-      "args": ["fastMCPTest/company_fundamentals_server.py"]
+      "command": ".venv/bin/fastmcp",
+      "args": ["run", "fastMCPTest/company_fundamentals_server.py"]
+    },
+    "news-sentiment-server": {
+      "command": ".venv/bin/fastmcp",
+      "args": ["run", "fastMCPTest/news_sentiment_server.py"]
     }
   }
 }

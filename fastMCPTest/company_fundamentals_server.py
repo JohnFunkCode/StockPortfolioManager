@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import sys
-from datetime import date, datetime
+import time
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
@@ -11,6 +13,18 @@ import yfinance as yf
 from fastmcp import FastMCP
 
 sys.path.insert(0, str(Path(__file__).parent))
+
+from fundamentals_cache import (
+    cache_get,
+    cache_set,
+    cache_history,
+    cache_get_all_latest,
+    cache_stats,
+    _get_ttl_seconds,
+)
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 mcp = FastMCP("company-fundamentals-server")
 
@@ -255,29 +269,12 @@ def _compute_earnings_acceleration(
 
 
 # ---------------------------------------------------------------------------
-# MCP Tools
+# Private compute functions — extracted from tools for cache wrapping
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
-def get_earnings_calendar(symbol: str) -> dict:
-    """Return the next earnings date and options-risk profile for a stock.
 
-    Fetches the next scheduled earnings date from Yahoo Finance, computes days
-    until earnings, and classifies the risk level for options positions:
-
-      CRITICAL  — earnings within 7 days; avoid new options (IV crush imminent)
-      HIGH      — earnings within 14 days (blackout zone); IV crush risk
-      MODERATE  — earnings 15–30 days out; pre-earnings IV expansion tailwind
-      LOW       — earnings > 30 days out; no near-term options risk
-      UNKNOWN   — no earnings date available
-
-    Also returns the average absolute price move on last 4 earnings days
-    (historical_avg_move_pct) for position sizing context.
-
-    Args:
-        symbol: Stock ticker symbol (e.g. 'AAPL')
-    """
-    sym = symbol.upper()
+def _compute_earnings_calendar_internal(sym: str) -> dict:
+    """Compute earnings calendar data for a symbol (called by cache wrapper)."""
     t = yf.Ticker(sym)
 
     result: dict[str, Any] = {
@@ -305,7 +302,6 @@ def get_earnings_calendar(symbol: str) -> dict:
                 else:
                     raw_dates = list(cal.columns)
             elif isinstance(cal, dict):
-                # yfinance dict: keys are field names, "Earnings Date" value may be a list or single date
                 earn_val = cal.get("Earnings Date")
                 raw_dates = earn_val if isinstance(earn_val, list) else ([earn_val] if earn_val else [])
             else:
@@ -344,8 +340,8 @@ def get_earnings_calendar(symbol: str) -> dict:
                 else:
                     result["risk_level"] = "LOW"
                     result["note"] = "Earnings > 30 days out — no near-term options risk"
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Error fetching earnings calendar for {sym}: {e}")
 
     # ── Historical earnings-day moves ────────────────────────────────────
     try:
@@ -374,37 +370,20 @@ def get_earnings_calendar(symbol: str) -> dict:
                     result["historical_avg_move_pct"] = round(
                         sum(moves) / len(moves) * 100, 2
                     )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Error fetching historical earnings moves for {sym}: {e}")
 
     return result
 
 
-@mcp.tool()
-def get_fundamental_score(symbol: str) -> dict:
-    """Compute a composite fundamental quality score for a single stock.
-
-    Scores 7 metrics on absolute thresholds (each -2 to +2) to produce a
-    composite_score (-14 to +14) and a qualitative fundamental_label:
-
-      strong_compounder — composite ≥ 8  (high growth, strong margins, fair value)
-      solid             — composite 4–7
-      average           — composite 0–3
-      weak              — composite -1 to -3
-      deteriorating     — composite ≤ -4  (declining revenue, negative margins)
-
-    Each metric_score entry includes the raw value, numeric score, and a
-    human-readable label explaining the score.
-
-    Args:
-        symbol: Stock ticker symbol (e.g. 'NVDA')
-    """
-    sym = symbol.upper()
+def _compute_fundamental_score_internal(sym: str) -> dict:
+    """Compute fundamental score for a symbol (called by cache wrapper)."""
     t = yf.Ticker(sym)
 
     try:
         info: dict[str, Any] = t.info or {}
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error fetching info for {sym}: {e}")
         info = {}
 
     annual_rev, annual_op = _get_annual_revenue_and_operating_income(t)
@@ -467,25 +446,8 @@ def get_fundamental_score(symbol: str) -> dict:
     }
 
 
-@mcp.tool()
-def get_revenue_growth(symbol: str) -> dict:
-    """Return quarterly revenue trajectory and growth quality for a stock.
-
-    Fetches the last 5 quarters of revenue (oldest→newest), computes 4 QoQ
-    growth rates, a weighted sequential growth score (0–1 where 1 = all
-    quarters positive), a 3-year CAGR, and a trajectory label:
-
-      accelerating       — latest QoQ rate meaningfully above prior rate
-      decelerating       — latest QoQ rate meaningfully below prior rate
-      inflecting_positive — flipped from negative to positive QoQ
-      inflecting_negative — flipped from positive to negative QoQ
-      stable             — consistent growth rate, little change
-      insufficient_data  — fewer than 5 quarters available
-
-    Args:
-        symbol: Stock ticker symbol (e.g. 'NVDA')
-    """
-    sym = symbol.upper()
+def _compute_revenue_growth_internal(sym: str) -> dict:
+    """Compute revenue growth for a symbol (called by cache wrapper)."""
     t = yf.Ticker(sym)
 
     result: dict[str, Any] = {
@@ -540,28 +502,12 @@ def get_revenue_growth(symbol: str) -> dict:
     return result
 
 
-@mcp.tool()
-def get_earnings_acceleration(symbol: str) -> dict:
-    """Compute the EPS acceleration score — the CAN SLIM 'A' criterion.
+def _compute_earnings_acceleration_tool(sym: str) -> dict:
+    """Compute earnings acceleration for a symbol (called by cache wrapper).
 
-    Measures whether quarterly earnings growth is itself accelerating, the
-    fundamental signal most correlated with institutional accumulation and
-    pre-breakout setups per O'Neil's CAN SLIM research.
-
-    Given 5 quarters of Net Income, computes 4 QoQ growth rates and 3
-    acceleration deltas. Returns:
-
-      acceleration_label:
-        strong       — all 3 deltas positive, avg delta > 5 pp
-        moderate     — ≥ 2 deltas positive and avg delta > 0
-        mixed        — mixed signals
-        decelerating — 0 positive deltas or avg delta < -5 pp
-      acceleration_score: +2 (strong), +1 (moderate), 0 (mixed), -1 (decelerating)
-
-    Args:
-        symbol: Stock ticker symbol (e.g. 'NVDA')
+    Note: Different from _compute_earnings_acceleration() which is a helper
+    that operates on quarterly_income_stmt DataFrame.
     """
-    sym = symbol.upper()
     t = yf.Ticker(sym)
 
     result: dict[str, Any] = {
@@ -603,10 +549,583 @@ def get_earnings_acceleration(symbol: str) -> dict:
             else:
                 result["acceleration_label"] = "mixed"
                 result["acceleration_score"] = 0
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Error computing earnings acceleration for {sym}: {e}")
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# MCP Tools
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_earnings_calendar(symbol: str) -> dict:
+    """Return the next earnings date and options-risk profile for a stock.
+
+    Fetches the next scheduled earnings date from Yahoo Finance, computes days
+    until earnings, and classifies the risk level for options positions:
+
+      CRITICAL  — earnings within 7 days; avoid new options (IV crush imminent)
+      HIGH      — earnings within 14 days (blackout zone); IV crush risk
+      MODERATE  — earnings 15–30 days out; pre-earnings IV expansion tailwind
+      LOW       — earnings > 30 days out; no near-term options risk
+      UNKNOWN   — no earnings date available
+
+    Also returns the average absolute price move on last 4 earnings days
+    (historical_avg_move_pct) for position sizing context.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'AAPL')
+    """
+    sym = symbol.upper()
+    cached = cache_get(sym, "earnings_calendar")
+    if cached is not None:
+        return cached
+    result = _compute_earnings_calendar_internal(sym)
+    cache_set(sym, "earnings_calendar", result)
+    return result
+
+
+@mcp.tool()
+def get_fundamental_score(symbol: str) -> dict:
+    """Compute a composite fundamental quality score for a single stock.
+
+    Scores 7 metrics on absolute thresholds (each -2 to +2) to produce a
+    composite_score (-14 to +14) and a qualitative fundamental_label:
+
+      strong_compounder — composite ≥ 8  (high growth, strong margins, fair value)
+      solid             — composite 4–7
+      average           — composite 0–3
+      weak              — composite -1 to -3
+      deteriorating     — composite ≤ -4  (declining revenue, negative margins)
+
+    Each metric_score entry includes the raw value, numeric score, and a
+    human-readable label explaining the score.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'NVDA')
+    """
+    sym = symbol.upper()
+    cached = cache_get(sym, "fundamental_score")
+    if cached is not None:
+        return cached
+    result = _compute_fundamental_score_internal(sym)
+    cache_set(sym, "fundamental_score", result)
+    return result
+
+
+@mcp.tool()
+def get_revenue_growth(symbol: str) -> dict:
+    """Return quarterly revenue trajectory and growth quality for a stock.
+
+    Fetches the last 5 quarters of revenue (oldest→newest), computes 4 QoQ
+    growth rates, a weighted sequential growth score (0–1 where 1 = all
+    quarters positive), a 3-year CAGR, and a trajectory label:
+
+      accelerating       — latest QoQ rate meaningfully above prior rate
+      decelerating       — latest QoQ rate meaningfully below prior rate
+      inflecting_positive — flipped from negative to positive QoQ
+      inflecting_negative — flipped from positive to negative QoQ
+      stable             — consistent growth rate, little change
+      insufficient_data  — fewer than 5 quarters available
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'NVDA')
+    """
+    sym = symbol.upper()
+    cached = cache_get(sym, "revenue_growth")
+    if cached is not None:
+        return cached
+    result = _compute_revenue_growth_internal(sym)
+    cache_set(sym, "revenue_growth", result)
+    return result
+
+
+@mcp.tool()
+def get_earnings_acceleration(symbol: str) -> dict:
+    """Compute the EPS acceleration score — the CAN SLIM 'A' criterion.
+
+    Measures whether quarterly earnings growth is itself accelerating, the
+    fundamental signal most correlated with institutional accumulation and
+    pre-breakout setups per O'Neil's CAN SLIM research.
+
+    Given 5 quarters of Net Income, computes 4 QoQ growth rates and 3
+    acceleration deltas. Returns:
+
+      acceleration_label:
+        strong       — all 3 deltas positive, avg delta > 5 pp
+        moderate     — ≥ 2 deltas positive and avg delta > 0
+        mixed        — mixed signals
+        decelerating — 0 positive deltas or avg delta < -5 pp
+      acceleration_score: +2 (strong), +1 (moderate), 0 (mixed), -1 (decelerating)
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'NVDA')
+    """
+    sym = symbol.upper()
+    cached = cache_get(sym, "earnings_acceleration")
+    if cached is not None:
+        return cached
+    result = _compute_earnings_acceleration_tool(sym)
+    cache_set(sym, "earnings_acceleration", result)
+    return result
+
+
+@mcp.tool()
+def get_fundamental_scores_batch(symbols: list[str]) -> dict:
+    """Score multiple stocks in one call, using the cache for hits.
+
+    For each symbol: returns the cached score if fresh, otherwise fetches
+    from yfinance and caches the result. Progress is reported in the summary.
+
+    Args:
+        symbols: List of ticker symbols (e.g. ['NVDA', 'AAPL', 'MSFT'])
+    """
+    cache_hits = 0
+    fetched = 0
+    errors = 0
+    results = []
+
+    for symbol in symbols:
+        sym = symbol.upper()
+        try:
+            cached = cache_get(sym, "fundamental_score")
+            if cached is not None:
+                cached_copy = cached.copy()
+                cached_copy["cache_hit"] = True
+                results.append(cached_copy)
+                cache_hits += 1
+            else:
+                result = _compute_fundamental_score_internal(sym)
+                cache_set(sym, "fundamental_score", result)
+                result_copy = result.copy()
+                result_copy["cache_hit"] = False
+                results.append(result_copy)
+                fetched += 1
+        except Exception as e:
+            logger.error(f"Error scoring {sym}: {e}")
+            errors += 1
+
+    results.sort(key=lambda x: x.get("composite_score", -999), reverse=True)
+
+    return {
+        "requested": len(symbols),
+        "cache_hits": cache_hits,
+        "fetched": fetched,
+        "errors": errors,
+        "results": results,
+    }
+
+
+@mcp.tool()
+def get_full_fundamental_profile(symbol: str) -> dict:
+    """Return all 4 fundamental metrics for a stock in a single call.
+
+    Returns earnings calendar, fundamental score, revenue growth, and EPS
+    acceleration plus a synthesized summary with overall signal and highlights.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'NVDA')
+    """
+    sym = symbol.upper()
+
+    earnings = get_earnings_calendar(sym)
+    score = get_fundamental_score(sym)
+    revenue = get_revenue_growth(sym)
+    eps = get_earnings_acceleration(sym)
+
+    composite = score.get("composite_score", 0)
+    trajectory = revenue.get("trajectory", "unknown")
+    accel_lbl = eps.get("acceleration_label", "unknown")
+    risk_lvl = earnings.get("risk_level", "UNKNOWN")
+
+    highlights = []
+    if composite >= 8:
+        highlights.append(f"Strong fundamentals (score {composite})")
+    elif composite <= -4:
+        highlights.append(f"Deteriorating fundamentals (score {composite})")
+
+    if trajectory in ("accelerating", "inflecting_positive"):
+        highlights.append("Revenue accelerating")
+    elif trajectory == "decelerating":
+        highlights.append("Revenue decelerating")
+
+    if accel_lbl in ("strong", "moderate"):
+        highlights.append("EPS acceleration confirmed")
+
+    days_to_earnings = earnings.get("days_to_earnings")
+    if risk_lvl in ("CRITICAL", "HIGH"):
+        if days_to_earnings:
+            highlights.append(f"Earnings in {days_to_earnings}d — options risk ({risk_lvl})")
+
+    if revenue.get("cagr_3y"):
+        cagr = revenue.get("cagr_3y")
+        if cagr >= 0.25:
+            highlights.append(f"Strong 3Y CAGR ({cagr:.1%})")
+
+    overall_signal = "neutral"
+    if composite >= 8 and trajectory in ("accelerating", "inflecting_positive", "stable"):
+        overall_signal = "bullish"
+    elif composite <= -4 or trajectory in ("decelerating", "inflecting_negative"):
+        overall_signal = "bearish"
+    elif composite >= 4 and trajectory not in ("decelerating", "inflecting_negative"):
+        overall_signal = "bullish"
+    elif composite < 0 or trajectory in ("decelerating",):
+        overall_signal = "bearish"
+
+    if risk_lvl in ("CRITICAL", "HIGH"):
+        overall_signal = "caution"
+
+    return {
+        "symbol": sym,
+        "summary": {
+            "overall_signal": overall_signal,
+            "highlights": highlights,
+        },
+        "earnings_calendar": earnings,
+        "fundamental_score": score,
+        "revenue_growth": revenue,
+        "earnings_acceleration": eps,
+    }
+
+
+@mcp.tool()
+def get_top_fundamental_stocks(n: int = 10, min_coverage: float = 0.5) -> dict:
+    """Return the top N stocks ranked by composite fundamental score from the cache.
+
+    Reads from the local SQLite cache — does NOT fetch from yfinance.
+    Only symbols previously scored via get_fundamental_score() appear here.
+    Call get_fundamental_score(symbol) for each symbol to populate the cache first.
+
+    Args:
+        n:            Number of top stocks to return (default 10)
+        min_coverage: Minimum data coverage fraction to include (default 0.5,
+                      meaning at least 50% of the 7 metrics had data)
+    """
+    all_entries = cache_get_all_latest("fundamental_score")
+    ranked_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    eligible = [
+        e for e in all_entries
+        if e.get("coverage", 0) >= min_coverage and e.get("composite_score") is not None
+    ]
+    eligible.sort(key=lambda e: e["composite_score"], reverse=True)
+    top = eligible[:n]
+
+    rankings = [
+        {
+            "rank":              i + 1,
+            "symbol":            e.get("symbol"),
+            "composite_score":   e.get("composite_score"),
+            "fundamental_label": e.get("fundamental_label"),
+            "coverage":          e.get("coverage"),
+            "cached_at":         e.get("fetched_at"),
+        }
+        for i, e in enumerate(top)
+    ]
+
+    return {
+        "ranked_at":         ranked_at,
+        "n_requested":       n,
+        "total_in_cache":    len(all_entries),
+        "eligible_count":    len(eligible),
+        "min_coverage":      min_coverage,
+        "rankings":          rankings,
+    }
+
+
+@mcp.tool()
+def get_upcoming_earnings(days: int = 14, include_stale: bool = False) -> dict:
+    """Return stocks with earnings scheduled within the next N days, from the cache.
+
+    Reads cached earnings_calendar data. Only symbols previously fetched via
+    get_earnings_calendar() appear here. Call get_earnings_calendar(symbol)
+    first to populate the cache.
+
+    Days-to-earnings is recomputed from the stored earnings_date vs. today,
+    so it remains accurate even if the cached data is a few hours old.
+
+    By default, excludes symbols whose cache entry is older than
+    FUNDAMENTALS_CACHE_TTL_HOURS (default 24h). Set include_stale=True
+    to include all cached symbols regardless of age (entries will be
+    flagged with stale=True).
+
+    Args:
+        days:          How many days ahead to look (default 14)
+        include_stale: If True, include entries beyond the TTL window
+                       (flagged as stale=True in the response)
+    """
+    all_entries = cache_get_all_latest("earnings_calendar")
+    queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    today = date.today()
+    now_ts = int(time.time())
+    ttl_seconds = _get_ttl_seconds()
+
+    upcoming = []
+    stale_excluded = 0
+
+    for entry in all_entries:
+        fetched_ts = entry.get("_fetched_at_ts")
+        is_stale = ttl_seconds > 0 and (now_ts - fetched_ts) > ttl_seconds if fetched_ts else True
+        if is_stale and not include_stale:
+            stale_excluded += 1
+            continue
+
+        earnings_date_str = entry.get("earnings_date")
+        if not earnings_date_str:
+            continue
+        try:
+            earn_date = date.fromisoformat(earnings_date_str[:10])
+        except (ValueError, TypeError):
+            continue
+        computed_days = (earn_date - today).days
+        if computed_days < 0 or computed_days > days:
+            continue
+
+        upcoming.append({
+            "symbol":                  entry.get("symbol"),
+            "earnings_date":           earnings_date_str[:10],
+            "days_to_earnings":        computed_days,
+            "risk_level":              entry.get("risk_level"),
+            "pre_earnings_setup":      entry.get("pre_earnings_setup", False),
+            "historical_avg_move_pct": entry.get("historical_avg_move_pct"),
+            "cached_at":               entry.get("fetched_at"),
+            "stale":                   is_stale,
+        })
+
+    upcoming.sort(key=lambda x: x["days_to_earnings"])
+
+    return {
+        "queried_at":     queried_at,
+        "days_window":    days,
+        "include_stale":  include_stale,
+        "stale_excluded": stale_excluded,
+        "total_in_cache": len(all_entries),
+        "count":          len(upcoming),
+        "upcoming":       upcoming,
+    }
+
+
+@mcp.tool()
+def get_cache_stats() -> dict:
+    """Return a summary of what is stored in the fundamentals cache.
+
+    Reports symbol counts, date ranges, and DB file size per data type.
+    Zero network calls — reads only from the local SQLite database.
+    """
+    return cache_stats()
+
+
+@mcp.tool()
+def get_sector_fundamental_breakdown(sector: str | None = None, top_n: int = 5) -> dict:
+    """Return top stocks by fundamental score, grouped by sector.
+
+    If sector is specified, returns only stocks in that sector (case-insensitive).
+    If sector is None, returns top_n stocks for every sector found in the cache.
+    Only symbols previously scored via get_fundamental_score() appear here.
+
+    Args:
+        sector: Sector name to filter (e.g. 'Technology'), or None for all sectors
+        top_n:  Number of top stocks to return per sector (default 5)
+    """
+    all_entries = cache_get_all_latest("fundamental_score")
+    queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    sectors_dict: dict[str, list] = {}
+    for entry in all_entries:
+        sect = entry.get("sector") or "Unknown"
+        if sect not in sectors_dict:
+            sectors_dict[sect] = []
+        sectors_dict[sect].append(entry)
+
+    for sect_list in sectors_dict.values():
+        sect_list.sort(key=lambda e: e.get("composite_score", -999), reverse=True)
+
+    if sector:
+        filtered_sectors = {}
+        sector_lower = sector.lower()
+        for sect, entries in sectors_dict.items():
+            if sect.lower() == sector_lower:
+                filtered_sectors[sect] = entries[:top_n]
+        sectors_dict = filtered_sectors
+
+    result_sectors = {}
+    for sect, entries in sorted(sectors_dict.items()):
+        result_sectors[sect] = [
+            {
+                "rank": i + 1,
+                "symbol": e.get("symbol"),
+                "composite_score": e.get("composite_score"),
+                "fundamental_label": e.get("fundamental_label"),
+                "coverage": e.get("coverage"),
+            }
+            for i, e in enumerate(entries[:top_n])
+        ]
+
+    return {
+        "queried_at": queried_at,
+        "sector_filter": sector,
+        "top_n": top_n,
+        "sectors": result_sectors,
+        "sector_count": len(result_sectors),
+        "total_symbols": len(all_entries),
+    }
+
+
+@mcp.tool()
+def get_fundamental_score_changes(
+    min_delta: int = 2,
+    since_days: int = 90,
+    direction: str = "both",
+) -> dict:
+    """Return stocks whose composite fundamental score changed significantly.
+
+    Compares the earliest and latest cached snapshots within since_days.
+    Only stocks with ≥ 2 snapshots in the window are evaluated.
+
+    Args:
+        min_delta:   Minimum absolute score change to report (default 2,
+                     on the -14 to +14 composite_score scale)
+        since_days:  How far back to look for snapshots (default 90)
+        direction:   "improving" | "deteriorating" | "both" (default "both")
+    """
+    all_symbols = cache_get_all_latest("fundamental_score")
+    queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    symbols_evaluated = 0
+    symbols_insufficient = 0
+    changes = []
+
+    for entry in all_symbols:
+        sym = entry.get("symbol")
+        if not sym:
+            continue
+
+        history = cache_history(sym, "fundamental_score", since_days=since_days)
+        if len(history) < 2:
+            symbols_insufficient += 1
+            continue
+
+        symbols_evaluated += 1
+        first = history[0]
+        last = history[-1]
+
+        score_then = first.get("composite_score")
+        score_now = last.get("composite_score")
+        if score_then is None or score_now is None:
+            continue
+
+        delta = score_now - score_then
+        if abs(delta) < min_delta:
+            continue
+
+        if direction == "improving" and delta <= 0:
+            continue
+        if direction == "deteriorating" and delta >= 0:
+            continue
+
+        changes.append({
+            "symbol": sym,
+            "delta": delta,
+            "direction": "improving" if delta > 0 else "deteriorating",
+            "score_then": score_then,
+            "score_now": score_now,
+            "label_then": first.get("fundamental_label"),
+            "label_now": last.get("fundamental_label"),
+            "first_snapshot": first.get("fetched_at"),
+            "last_snapshot": last.get("fetched_at"),
+        })
+
+    if direction == "deteriorating":
+        changes.sort(key=lambda x: x["delta"])
+    else:
+        changes.sort(key=lambda x: x["delta"], reverse=True)
+
+    return {
+        "queried_at": queried_at,
+        "since_days": since_days,
+        "min_delta": min_delta,
+        "direction": direction,
+        "symbols_evaluated": symbols_evaluated,
+        "symbols_with_insufficient_history": symbols_insufficient,
+        "changes": changes,
+    }
+
+
+@mcp.tool()
+def get_fundamental_history(symbol: str, data_type: str, since_days: int = 365) -> dict:
+    """Return historical snapshots and trend for a cached fundamental data type.
+
+    Does NOT hit yfinance. Call the corresponding tool first to populate the cache.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'NVDA')
+        data_type: One of: fundamental_score, revenue_growth, earnings_acceleration, earnings_calendar
+        since_days: How many days back to look (default 365)
+    """
+    sym = symbol.upper()
+    valid = {"fundamental_score", "revenue_growth", "earnings_acceleration", "earnings_calendar"}
+
+    if data_type not in valid:
+        return {
+            "error": f"Invalid data_type. Must be one of: {sorted(valid)}",
+            "symbol": sym,
+            "data_type": data_type,
+        }
+
+    snapshots = cache_history(sym, data_type, since_days=since_days)
+
+    trend = "flat"
+    if len(snapshots) >= 2:
+        first = snapshots[0]
+        last = snapshots[-1]
+
+        if data_type == "fundamental_score":
+            val_then = first.get("composite_score")
+            val_now = last.get("composite_score")
+            if val_then is not None and val_now is not None:
+                delta = val_now - val_then
+                if delta >= 1:
+                    trend = "improving"
+                elif delta <= -1:
+                    trend = "deteriorating"
+        elif data_type == "revenue_growth":
+            val_then = first.get("weighted_score")
+            val_now = last.get("weighted_score")
+            if val_then is not None and val_now is not None:
+                delta = val_now - val_then
+                if delta >= 0.05:
+                    trend = "improving"
+                elif delta <= -0.05:
+                    trend = "deteriorating"
+        elif data_type == "earnings_acceleration":
+            val_then = first.get("acceleration_score")
+            val_now = last.get("acceleration_score")
+            if val_then is not None and val_now is not None:
+                delta = val_now - val_then
+                if delta >= 1:
+                    trend = "improving"
+                elif delta <= -1:
+                    trend = "deteriorating"
+        elif data_type == "earnings_calendar":
+            days_then = first.get("days_to_earnings")
+            days_now = last.get("days_to_earnings")
+            if days_then is not None and days_now is not None:
+                delta = days_then - days_now
+                if delta >= 7:
+                    trend = "improving"
+                elif delta <= -7:
+                    trend = "deteriorating"
+
+    return {
+        "symbol": sym,
+        "data_type": data_type,
+        "since_days": since_days,
+        "snapshot_count": len(snapshots),
+        "trend": trend,
+        "snapshots": snapshots,
+    }
 
 
 if __name__ == "__main__":

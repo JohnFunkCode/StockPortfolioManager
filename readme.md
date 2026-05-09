@@ -203,6 +203,35 @@ A suite of **FastMCP servers** that expose real-time market analysis as tools co
 | `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, trade recommendations |
 | `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
 | `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring and trade building |
+| `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
+
+### Fundamentals Cache & Cross-Symbol Analytics
+
+The `company-fundamentals-server` now features a persistent SQLite cache layer that enables portfolio-wide fundamental analysis. The cache stores earnings calendar, composite scores, revenue growth, and EPS acceleration data — building a time series for trend detection.
+
+**Wrapped tools (cache-transparent):**
+- `get_earnings_calendar(symbol)` — earnings dates and options risk profile
+- `get_fundamental_score(symbol)` — composite score (-14 to +14) + metric breakdown
+- `get_revenue_growth(symbol)` — quarterly trajectory and 3Y CAGR
+- `get_earnings_acceleration(symbol)` — CAN SLIM 'A' criterion EPS acceleration
+
+**New cross-symbol analytics tools:**
+- `get_fundamental_scores_batch(symbols)` — batch score multiple stocks; returns cache hit/miss counts
+- `get_full_fundamental_profile(symbol)` — all 4 metrics + synthesized summary in one call
+- `get_top_fundamental_stocks(n=10, min_coverage=0.5)` — rank by composite score (cache-only, zero network calls)
+- `get_upcoming_earnings(days=14, include_stale=False)` — stocks with earnings within N days, recomputed days-to-earnings
+- `get_cache_stats()` — cache inventory and database health
+- `get_sector_fundamental_breakdown(sector=None, top_n=5)` — group cached scores by sector
+- `get_fundamental_score_changes(min_delta=2, since_days=90, direction="both")` — surfaces deteriorating or improving fundamentals
+- `get_fundamental_history(symbol, data_type, since_days=365)` — historical snapshots with trend detection
+
+**Configuration:**
+- Cache TTL controlled via `FUNDAMENTALS_CACHE_TTL_HOURS` env var (default 24 hours)
+- Database location: `fastMCPTest/fundamentals_history.db`
+- Setting TTL to 0 disables caching (useful for testing)
+- TTL checked on every call, so changes take effect without server restart
+
+For full implementation details, see [docs/FUNDAMENTALS_CACHE_IMPLEMENTATION.md](docs/FUNDAMENTALS_CACHE_IMPLEMENTATION.md).
 
 ### Trade Recommendations (`get_trade_recommendation`)
 

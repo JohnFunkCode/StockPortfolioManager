@@ -2611,7 +2611,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
       LONG_PUT         — moderate/strong bear signal
       BEAR_PUT_SPREAD  — strong bear signal (net_score ≤ -5), high IV
 
-    Squeeze override: squeeze_potential == HIGH AND net_score ≥ 3 → forces LONG_CALL.
+    Squeeze override: squeeze_potential == HIGH AND net_score ≥ 3 → forces LONG_CALL.docs/
 
     Signal scoring additions vs prior version:
       Unusual calls upgraded: strong sweep → +2 bull (was +1); moderate → +1

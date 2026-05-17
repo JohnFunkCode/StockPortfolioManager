@@ -183,7 +183,7 @@
   tags:
     - Cybersecurity
 - name: Qualys Inc.
-  symbol: QUAL
+  symbol: QLYS
   currency: USD
   tags:
     - Cybersecurity
@@ -218,6 +218,96 @@
   tags:
     - Robotics
     - Electric Vehicle
+- name: Vestas Wind Systems A/S
+  symbol: VWS.CO
+  currency: DKK
+  tags:
+    - Energy
+    - Wind Energy
+- name: Ming Yang Smart Energy Group
+  symbol: 601615.SS
+  currency: CNY
+  tags:
+    - Energy
+    - Wind Energy
+- name: Goldwind Science & Technology
+  symbol: 2208.HK
+  currency: HKD
+  tags:
+    - Energy
+    - Wind Energy
+- name: SBM Offshore
+  symbol: SBMO.AS
+  currency: EUR
+  tags:
+    - Energy
+    - Offshore Engineering
+- name: Saipem S.p.A.
+  symbol: SPM.MI
+  currency: EUR
+  tags:
+    - Energy
+    - Offshore Engineering
+- name: Aker Solutions
+  symbol: AKSO.OL
+  currency: NOK
+  tags:
+    - Energy
+    - Offshore Engineering
+- name: Hexicon AB
+  symbol: HEXI.ST
+  currency: SEK
+  tags:
+    - Energy
+    - Offshore Wind
+- name: Shanghai Electric Group
+  symbol: 2727.HK
+  currency: HKD
+  tags:
+    - Energy
+    - Power Equipment
+- name: HD Hyundai Heavy Industries
+  symbol: 329180.KS
+  currency: KRW
+  tags:
+    - Shipbuilding
+    - Offshore Wind
+- name: Doosan Enerbility
+  symbol: 034020.KS
+  currency: KRW
+  tags:
+    - Energy
+    - Power Equipment
+- name: Dongfang Electric Corporation
+  symbol: 600875.SS
+  currency: CNY
+  tags:
+    - Energy
+    - Power Equipment
+- name: NOV Inc.
+  symbol: NOV
+  currency: USD
+  tags:
+    - Energy
+    - Offshore Engineering
+- name: CS Wind Corporation
+  symbol: 112610.KS
+  currency: KRW
+  tags:
+    - Energy
+    - Wind Energy
+- name: Seatrium
+  symbol: 5E2.SI
+  currency: SGD
+  tags:
+    - Shipbuilding
+    - Offshore Engineering
+- name: Technip Energies
+  symbol: TE.PA
+  currency: EUR
+  tags:
+    - Energy
+    - Offshore Engineering
 - name: Rivian Technologies Corp.
   symbol: RIVN
   currency: USD
@@ -802,6 +892,9 @@
   currency: USD
   tags:
     - AI Factory
+    - Robotics Components
+    - Inertial Measurement Units
+    - Joint Position Sensors
 
 - name: Corweavest Systems, Inc.
   symbol: CRWV
@@ -963,6 +1056,7 @@
   currency: USD
   tags:
     - Photonics
+    - Semiconductors
 
 - name: Arm Holdings plc
   symbol: ARM
@@ -1025,6 +1119,7 @@
   tags:
     - Semiconductor Equipment
     - Test & Measurement
+    - Power Management
 
 - name: onsemi
   symbol: "ON"
@@ -1032,6 +1127,7 @@
   tags:
     - Semiconductors
     - Power Management
+    - Computer Vision
 
 - name: Braze, Inc.
   symbol: BRZE
@@ -1156,6 +1252,8 @@
     - Sensors
     - Robotics
     - Autonomous Systems
+    - Robotics Components
+    - LiDAR
 
 - name: Semtech Corporation
   symbol: SMTC
@@ -1213,3 +1311,116 @@
   tags:
   - Technology
   - Semiconductors
+
+- name: ASE Technology Holding Co., Ltd.
+  symbol: ASX
+  currency: USD
+  tags:
+    - Semiconductors
+    - Semiconductor Manufacturing
+
+- name: United Microelectronics Corporation
+  symbol: UMC
+  currency: USD
+  tags:
+    - Semiconductors
+    - Semiconductor Foundry
+
+- name: Infineon Technologies AG
+  symbol: IFNNY
+  currency: USD
+  tags:
+    - Semiconductors
+    - Power Management
+
+- name: STMicroelectronics N.V.
+  symbol: STM
+  currency: USD
+  tags:
+    - Semiconductors
+    - Power Management
+
+- name: Kyocera Corporation
+  symbol: 6971.T
+  currency: JPY
+  tags:
+    - Electronic Components
+    - Semiconductors
+
+- name: GDS Holdings Limited
+  symbol: GDS
+  currency: USD
+  tags:
+    - Data Centers
+    - Cloud Infrastructure
+
+- name: Kingsoft Cloud Holdings Limited
+  symbol: KC
+  currency: USD
+  tags:
+    - Cloud Infrastructure
+    - Cloud Services
+
+- name: Vicor Corporation
+  symbol: VICR
+  currency: USD
+  tags:
+    - Semiconductors
+    - Power Management
+
+- name: Cerebras Systems Inc.
+  symbol: CBRS
+  currency: USD
+  tags:
+    - Semiconductors
+    - AI Hardware
+
+- name: Cisco Systems, Inc.
+  symbol: CSCO
+  currency: USD
+  tags:
+    - Networking
+    - AI Infrastructure
+
+- name: Navitas Semiconductor Corporation
+  symbol: NVTS
+  currency: USD
+  tags:
+    - Semiconductors
+    - Power Management
+
+- name: Wolfspeed, Inc.
+  symbol: WOLF
+  currency: USD
+  tags:
+    - Semiconductors
+    - Power Management
+
+- name: Harmonic Drive Systems Inc.
+  symbol: HSYDF
+  currency: USD
+  tags:
+    - Robotics Components
+    - Zero-Backlash Strain Wave Gears
+
+- name: Nidec Corporation
+  symbol: NIB.F
+  currency: USD
+  tags:
+    - Robotics Components
+    - Electric Motors
+
+- name: Moog Inc.
+  symbol: MOG-A
+  currency: USD
+  tags:
+    - Robotics Components
+    - High-Performance Servo Actuators
+
+- name: Eaton Corporation plc
+  symbol: ETN
+  currency: USD
+  tags:
+    - Robotics Components
+    - Intelligent Power
+    - Actuator Valves

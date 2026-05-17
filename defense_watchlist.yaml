@@ -1,0 +1,344 @@
+- name: Lockheed Martin
+  symbol: LMT
+  currency: USD
+  tags:
+    - United States
+    - Aircraft
+    - Missiles
+    - Space systems
+- name: RTX
+  symbol: RTX
+  currency: USD
+  tags:
+    - United States
+    - Missiles
+    - Air defense
+    - Sensors
+    - Aerospace systems
+- name: Northrop Grumman
+  symbol: NOC
+  currency: USD
+  tags:
+    - United States
+    - Stealth aircraft
+    - Space systems
+    - Nuclear modernization
+- name: General Dynamics
+  symbol: GD
+  currency: USD
+  tags:
+    - United States
+    - Submarines
+    - Combat vehicles
+    - Defense IT
+- name: Boeing
+  symbol: BA
+  currency: USD
+  tags:
+    - United States
+    - Defense aircraft
+    - Space systems
+    - Military systems
+- name: L3Harris Technologies
+  symbol: LHX
+  currency: USD
+  tags:
+    - United States
+    - ISR
+    - Communications
+    - Space systems
+    - Electronic systems
+- name: Huntington Ingalls Industries
+  symbol: HII
+  currency: USD
+  tags:
+    - United States
+    - Shipbuilding
+    - Nuclear vessels
+    - Navy
+- name: Leidos
+  symbol: LDOS
+  currency: USD
+  tags:
+    - United States
+    - Defense IT
+    - Cybersecurity
+    - Intelligence services
+- name: Booz Allen Hamilton
+  symbol: BAH
+  currency: USD
+  tags:
+    - United States
+    - Defense consulting
+    - Cybersecurity
+    - Analytics
+- name: SAIC
+  symbol: SAIC
+  currency: USD
+  tags:
+    - United States
+    - Government IT
+    - Engineering
+    - Mission support
+- name: CACI International
+  symbol: CACI
+  currency: USD
+  tags:
+    - United States
+    - Intelligence services
+    - Cybersecurity
+    - Defense technology
+- name: Amentum
+  symbol: AMTM
+  currency: USD
+  tags:
+    - United States
+    - Engineering
+    - Sustainment
+    - Nuclear
+    - Mission support
+- name: KBR
+  symbol: KBR
+  currency: USD
+  tags:
+    - United States
+    - Defense logistics
+    - Engineering
+    - Mission support
+- name: Parsons
+  symbol: PSN
+  currency: USD
+  tags:
+    - United States
+    - Defense technology
+    - Cybersecurity
+    - Infrastructure
+    - Missile defense
+- name: Textron
+  symbol: TXT
+  currency: USD
+  tags:
+    - United States
+    - Helicopters
+    - Military aircraft
+    - Vehicles
+- name: Palantir Technologies
+  symbol: PLTR
+  currency: USD
+  tags:
+    - United States
+    - AI Software
+    - Data platforms
+    - Defense software
+- name: Kratos Defense
+  symbol: KTOS
+  currency: USD
+  tags:
+    - United States
+    - Drones
+    - Tactical systems
+    - Hypersonics
+- name: AeroVironment
+  symbol: AVAV
+  currency: USD
+  tags:
+    - United States
+    - Tactical drones
+    - Loitering munitions
+    - Unmanned systems
+- name: BWX Technologies
+  symbol: BWXT
+  currency: USD
+  tags:
+    - United States
+    - Nuclear components
+    - Navy
+    - Government services
+- name: TransDigm
+  symbol: TDG
+  currency: USD
+  tags:
+    - United States
+    - Aerospace components
+    - Defense components
+- name: Curtiss-Wright
+  symbol: CW
+  currency: USD
+  tags:
+    - United States
+    - Defense electronics
+    - Naval systems
+    - Aerospace systems
+- name: Honeywell
+  symbol: HON
+  currency: USD
+  tags:
+    - United States
+    - Avionics
+    - Sensors
+    - Aerospace systems
+- name: GE Aerospace
+  symbol: GE
+  currency: USD
+  tags:
+    - United States
+    - Military engines
+    - Aircraft engines
+- name: BAE Systems
+  symbol: BA.L
+  currency: GBP
+  tags:
+    - United Kingdom
+    - Defense prime
+    - Combat vehicles
+    - Naval systems
+    - Electronic systems
+- name: Rheinmetall
+  symbol: RHM.DE
+  currency: EUR
+  tags:
+    - Germany
+    - Ammunition
+    - Combat vehicles
+    - Air defense
+- name: Thales
+  symbol: HO.PA
+  currency: EUR
+  tags:
+    - France
+    - Defense electronics
+    - Sensors
+    - Cybersecurity
+- name: Leonardo
+  symbol: LDO.MI
+  currency: EUR
+  tags:
+    - Italy
+    - Helicopters
+    - Aircraft
+    - Defense electronics
+- name: Airbus
+  symbol: AIR.PA
+  currency: EUR
+  tags:
+    - Netherlands
+    - France
+    - Military aircraft
+    - Space systems
+    - Helicopters
+- name: Safran
+  symbol: SAF.PA
+  currency: EUR
+  tags:
+    - France
+    - Aircraft engines
+    - Optronics
+    - Defense systems
+- name: Rolls-Royce Holdings
+  symbol: RR.L
+  currency: GBP
+  tags:
+    - United Kingdom
+    - Military engines
+    - Naval nuclear
+- name: Saab
+  symbol: SAAB-B.ST
+  currency: SEK
+  tags:
+    - Sweden
+    - Fighters
+    - Missiles
+    - Radars
+    - Sensors
+- name: Kongsberg Gruppen
+  symbol: KOG.OL
+  currency: NOK
+  tags:
+    - Norway
+    - Missiles
+    - Naval systems
+    - Air defense
+- name: Hensoldt
+  symbol: HAG.DE
+  currency: EUR
+  tags:
+    - Germany
+    - Radars
+    - Sensors
+    - Electronic warfare
+- name: Dassault Aviation
+  symbol: AM.PA
+  currency: EUR
+  tags:
+    - France
+    - Fighter aircraft
+    - Military aviation
+- name: Fincantieri
+  symbol: FCT.MI
+  currency: EUR
+  tags:
+    - Italy
+    - Naval shipbuilding
+    - Shipbuilding
+- name: QinetiQ
+  symbol: QQ.L
+  currency: GBP
+  tags:
+    - United Kingdom
+    - Defense testing
+    - Research and development
+    - Defense services
+- name: Chemring
+  symbol: CHG.L
+  currency: GBP
+  tags:
+    - United Kingdom
+    - Countermeasures
+    - Sensors
+    - Energetics
+- name: Babcock International
+  symbol: BAB.L
+  currency: GBP
+  tags:
+    - United Kingdom
+    - Naval support
+    - Defense services
+- name: Indra Sistemas
+  symbol: IDR.MC
+  currency: EUR
+  tags:
+    - Spain
+    - Defense electronics
+    - Radar
+    - Command systems
+- name: RENK Group
+  symbol: R3NK.DE
+  currency: EUR
+  tags:
+    - Germany
+    - Military vehicle transmissions
+    - Drivetrains
+- name: TKMS
+  symbol: TKMS.DE
+  currency: EUR
+  tags:
+    - Germany
+    - Submarines
+    - Frigates
+    - Naval systems
+- name: Thyssenkrupp
+  symbol: TKA.DE
+  currency: EUR
+  tags:
+    - Germany
+    - TKMS ownership
+    - Industrial holding
+    - Naval systems
+- name: Aselsan
+  symbol: ASELS.IS
+  currency: TRY
+  tags:
+    - Turkey
+    - Defense electronics
+    - Radars
+    - Communications

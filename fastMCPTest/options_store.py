@@ -211,11 +211,13 @@ class OptionsStore:
                 return None
 
             if options is None:
+                conn.commit()
                 return snapshot_id
 
             # --- options_expirations ---
             expiration = options.get("expiration")
             if not expiration:
+                conn.commit()
                 return snapshot_id
 
             calls = options.get("calls") or {}
@@ -272,6 +274,8 @@ class OptionsStore:
                 """,
                 rows,
             )
+
+            conn.commit()
 
         return snapshot_id
 
@@ -390,6 +394,8 @@ class OptionsStore:
                         """,
                         rows,
                     )
+
+            conn.commit()
 
         return snapshot_id
 

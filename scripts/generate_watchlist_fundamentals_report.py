@@ -25,55 +25,102 @@ from ohlcv_cache import get_history  # noqa: E402
 
 
 SORT_TABLE_JS = """
+const tableSortState = {};
+
 function sortTable(table_id, column_number, is_numeric = false) {
   const table = document.getElementById(table_id);
-  let switching = true;
-  let dir = "asc";
-  let switchcount = 0;
+  const tbody = table.tBodies[0];
+  const headers = Array.from(table.tHead.rows[0].cells);
+  const keyIndex = column_number;
+  const existingState = tableSortState[table_id] || [];
+  const existingKey = existingState.find((key) => key.column === keyIndex);
+  const nextDir = existingKey && existingKey.dir === "asc" ? "desc" : "asc";
+
+  tableSortState[table_id] = [
+    { column: keyIndex, isNumeric: is_numeric, dir: nextDir },
+    ...existingState.filter((key) => key.column !== keyIndex),
+  ].slice(0, 3);
 
   const parseNumeric = (text) => {
-    const normalized = text.replace(/[$,%\\s]/g, "").replace(/,/g, "");
-    return parseFloat(normalized);
+    const cleaned = text.replace(/[$,%\\s]/g, "").replace(/,/g, "");
+    const match = cleaned.match(/^(-?\\d+(?:\\.\\d+)?)([KMBT])?$/i);
+    if (!match) {
+      return NaN;
+    }
+    const value = parseFloat(match[1]);
+    const suffix = (match[2] || "").toUpperCase();
+    const multiplier = { K: 1e3, M: 1e6, B: 1e9, T: 1e12 }[suffix] || 1;
+    return value * multiplier;
   };
 
-  while (switching) {
-    switching = false;
-    const rows = table.rows;
-    let shouldSwitch = false;
-    let switchIndex = -1;
+  const compareText = (left, right, key) => {
+    const leftCell = left.cells[key.column];
+    const rightCell = right.cells[key.column];
+    const leftText = leftCell ? leftCell.textContent.trim() : "";
+    const rightText = rightCell ? rightCell.textContent.trim() : "";
 
-    for (let i = 1; i < rows.length - 1; i++) {
-      const xCell = rows[i].getElementsByTagName("TD")[column_number];
-      const yCell = rows[i + 1].getElementsByTagName("TD")[column_number];
-      const xText = xCell ? xCell.textContent.trim() : "";
-      const yText = yCell ? yCell.textContent.trim() : "";
+    let comparison;
+    if (key.isNumeric) {
+      const leftValue = parseNumeric(leftText);
+      const rightValue = parseNumeric(rightText);
+      const leftMissing = Number.isNaN(leftValue);
+      const rightMissing = Number.isNaN(rightValue);
 
-      let comparison;
-      if (is_numeric) {
-        const xVal = parseNumeric(xText);
-        const yVal = parseNumeric(yText);
-        comparison = (!isNaN(xVal) && !isNaN(yVal)) ? xVal - yVal : xText.localeCompare(yText);
+      if (leftMissing || rightMissing) {
+        if (leftMissing && rightMissing) {
+          comparison = leftText.localeCompare(rightText);
+        } else {
+          comparison = leftMissing ? 1 : -1;
+        }
       } else {
-        comparison = xText.localeCompare(yText);
+        comparison = leftValue - rightValue;
       }
-
-      if ((dir === "asc" && comparison > 0) || (dir === "desc" && comparison < 0)) {
-        shouldSwitch = true;
-        switchIndex = i;
-        break;
-      }
+    } else {
+      comparison = leftText.localeCompare(rightText);
     }
 
-    if (shouldSwitch && switchIndex !== -1) {
-      rows[switchIndex].parentNode.insertBefore(rows[switchIndex + 1], rows[switchIndex]);
-      switching = true;
-      switchcount++;
-    } else if (switchcount === 0 && dir === "asc") {
-      dir = "desc";
-      switching = true;
+    return key.dir === "asc" ? comparison : -comparison;
+  };
+
+  const rows = Array.from(tbody.rows);
+  rows.sort((left, right) => {
+    for (const key of tableSortState[table_id]) {
+      const comparison = compareText(left, right, key);
+      if (comparison !== 0) {
+        return comparison;
+      }
     }
-  }
+    return 0;
+  });
+
+  const fragment = document.createDocumentFragment();
+  rows.forEach((row) => fragment.appendChild(row));
+  tbody.appendChild(fragment);
+
+  headers.forEach((header) => {
+    if (!header.dataset.baseLabel) {
+      header.dataset.baseLabel = header.textContent.trim();
+    }
+    header.textContent = header.dataset.baseLabel;
+  });
+
+  tableSortState[table_id].forEach((key, index) => {
+    const header = headers[key.column];
+    if (!header) {
+      return;
+    }
+    const indicator = document.createElement("span");
+    indicator.className = "sort-indicator";
+    indicator.textContent = `${key.dir === "asc" ? "\\u25B2" : "\\u25BC"}${index + 1}`;
+    header.appendChild(indicator);
+  });
 }
+
+document.addEventListener("DOMContentLoaded", () => {
+  document.querySelectorAll("table thead th").forEach((header) => {
+    header.dataset.baseLabel = header.textContent.trim();
+  });
+});
 """
 
 
@@ -189,6 +236,7 @@ def collect_row(entry: dict[str, Any]) -> dict[str, Any]:
     score = profile.get("fundamental_score") or {}
     revenue = profile.get("revenue_growth") or {}
     eps = profile.get("earnings_acceleration") or {}
+    earnings = profile.get("earnings_calendar") or {}
 
     return {
         "name": name,
@@ -212,6 +260,7 @@ def collect_row(entry: dict[str, Any]) -> dict[str, Any]:
         "valuation_score": metric(score, "ValMetric").get("score"),
         "momentum_score": metric(score, "Mom12_1").get("score"),
         "revenue_trajectory": revenue.get("trajectory"),
+        "earnings_date": earnings.get("earnings_date"),
         "eps_acceleration": eps.get("acceleration_label"),
         "price_error": price_error,
         "fundamentals_error": fundamentals_error,
@@ -246,6 +295,7 @@ def render_report(rows: list[dict[str, Any]], output: Path) -> None:
         ("Valuation Score", True),
         ("Momentum Score", True),
         ("Revenue Trajectory", False),
+        ("Earnings Date", False),
         ("EPS Acceleration", False),
         ("Tags", False),
         ("Errors", False),
@@ -286,6 +336,7 @@ def render_report(rows: list[dict[str, Any]], output: Path) -> None:
             td(fmt_int(row.get("valuation_score"))),
             td(fmt_int(row.get("momentum_score"))),
             td(row.get("revenue_trajectory") or "N/A"),
+            td(row.get("earnings_date") or "N/A"),
             td(row.get("eps_acceleration") or "N/A"),
             td(row.get("tags") or ""),
             td(errors or ""),
@@ -310,6 +361,7 @@ def render_report(rows: list[dict[str, Any]], output: Path) -> None:
     .gain {{ color: green; }}
     .loss {{ color: red; }}
     a {{ color: #0645ad; text-decoration: none; }}
+    .sort-indicator {{ color: #555; font-size: 11px; margin-left: 4px; }}
   </style>
 </head>
 <body>

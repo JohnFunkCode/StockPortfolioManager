@@ -1,4 +1,4 @@
-# Architectural Standard: Service-Centered Multi-Interface Platform
+++++# Architectural Standard: Service-Centered Multi-Interface Platform
 
 ## 1. Purpose
 

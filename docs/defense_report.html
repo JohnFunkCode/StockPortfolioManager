@@ -1,0 +1,4568 @@
+
+ <!DOCTYPE html>
+ <html lang="en">
+ <head>
+     <meta charset="UTF-8">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <title>Defense Industry Stock Analysis Report</title>
+     <style>
+         body { font-family: Arial, sans-serif; margin: 20px; }
+         h1, h2 { color: #333; }
+         .datetime { font-size: 0.6em; color: #666; font-weight: normal; }
+         .summary { background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+         table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
+         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+         th { background-color: #f2f2f2; }
+         tr:nth-child(even) { background-color: #f9f9f9; }
+         .chart-container { margin: 20px 0; text-align: center; }
+         .gain { color: green; }
+         .loss { color: red; }
+     </style>
+ </head>
+ <body>
+     <h1>Defense Stock Report created on 2026-05-12 at 11:29am<span class="datetime"></span></h1>
+ 
+
+    <!-- BEGIN DEFENSE WATCHLIST FOUNDATION -->
+    <h2>Defense Watchlist Foundation</h2>
+    <p>This section translates defense_watchlist.yaml into a readable company universe. Countries and role tags come directly from the watchlist file and provide the context for the price, fundamentals, and actionability analysis below.</p>
+    <div style="overflow-x: auto;">
+    <table id="watchlistFoundation">
+        <thead>
+            <tr>
+                <th onclick="sortTable('watchlistFoundation',0, false)">Company</th>
+                <th onclick="sortTable('watchlistFoundation',1, false)">Symbol</th>
+                <th onclick="sortTable('watchlistFoundation',2, false)">Currency</th>
+                <th onclick="sortTable('watchlistFoundation',3, false)">Country</th>
+                <th onclick="sortTable('watchlistFoundation',4, false)">Defense Exposure / Role Tags</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>Lockheed Martin</td>
+                <td>LMT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Aircraft, Missiles, Space systems</td>
+            </tr>
+            <tr>
+                <td>RTX</td>
+                <td>RTX</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Missiles, Air defense, Sensors, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>Northrop Grumman</td>
+                <td>NOC</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Stealth aircraft, Space systems, Nuclear modernization</td>
+            </tr>
+            <tr>
+                <td>General Dynamics</td>
+                <td>GD</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Submarines, Combat vehicles, Defense IT</td>
+            </tr>
+            <tr>
+                <td>Boeing</td>
+                <td>BA</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense aircraft, Space systems, Military systems</td>
+            </tr>
+            <tr>
+                <td>L3Harris Technologies</td>
+                <td>LHX</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>ISR, Communications, Space systems, Electronic systems</td>
+            </tr>
+            <tr>
+                <td>Huntington Ingalls Industries</td>
+                <td>HII</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Shipbuilding, Nuclear vessels, Navy</td>
+            </tr>
+            <tr>
+                <td>Leidos</td>
+                <td>LDOS</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense IT, Cybersecurity, Intelligence services</td>
+            </tr>
+            <tr>
+                <td>Booz Allen Hamilton</td>
+                <td>BAH</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense consulting, Cybersecurity, Analytics</td>
+            </tr>
+            <tr>
+                <td>SAIC</td>
+                <td>SAIC</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Government IT, Engineering, Mission support</td>
+            </tr>
+            <tr>
+                <td>CACI International</td>
+                <td>CACI</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Intelligence services, Cybersecurity, Defense technology</td>
+            </tr>
+            <tr>
+                <td>Amentum</td>
+                <td>AMTM</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Engineering, Sustainment, Nuclear, Mission support</td>
+            </tr>
+            <tr>
+                <td>KBR</td>
+                <td>KBR</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense logistics, Engineering, Mission support</td>
+            </tr>
+            <tr>
+                <td>Parsons</td>
+                <td>PSN</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense technology, Cybersecurity, Infrastructure, Missile defense</td>
+            </tr>
+            <tr>
+                <td>Textron</td>
+                <td>TXT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Helicopters, Military aircraft, Vehicles</td>
+            </tr>
+            <tr>
+                <td>Palantir Technologies</td>
+                <td>PLTR</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>AI Software, Data platforms, Defense software</td>
+            </tr>
+            <tr>
+                <td>Kratos Defense</td>
+                <td>KTOS</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Drones, Tactical systems, Hypersonics</td>
+            </tr>
+            <tr>
+                <td>AeroVironment</td>
+                <td>AVAV</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Tactical drones, Loitering munitions, Unmanned systems</td>
+            </tr>
+            <tr>
+                <td>BWX Technologies</td>
+                <td>BWXT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Nuclear components, Navy, Government services</td>
+            </tr>
+            <tr>
+                <td>TransDigm</td>
+                <td>TDG</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Aerospace components, Defense components</td>
+            </tr>
+            <tr>
+                <td>Curtiss-Wright</td>
+                <td>CW</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Defense electronics, Naval systems, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>Honeywell</td>
+                <td>HON</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Avionics, Sensors, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>GE Aerospace</td>
+                <td>GE</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>Military engines, Aircraft engines</td>
+            </tr>
+            <tr>
+                <td>BAE Systems</td>
+                <td>BA.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>Defense prime, Combat vehicles, Naval systems, Electronic systems</td>
+            </tr>
+            <tr>
+                <td>Rheinmetall</td>
+                <td>RHM.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>Ammunition, Combat vehicles, Air defense</td>
+            </tr>
+            <tr>
+                <td>Thales</td>
+                <td>HO.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>Defense electronics, Sensors, Cybersecurity</td>
+            </tr>
+            <tr>
+                <td>Leonardo</td>
+                <td>LDO.MI</td>
+                <td>EUR</td>
+                <td>Italy</td>
+                <td>Helicopters, Aircraft, Defense electronics</td>
+            </tr>
+            <tr>
+                <td>Airbus</td>
+                <td>AIR.PA</td>
+                <td>EUR</td>
+                <td>Netherlands, France</td>
+                <td>Military aircraft, Space systems, Helicopters</td>
+            </tr>
+            <tr>
+                <td>Safran</td>
+                <td>SAF.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>Aircraft engines, Optronics, Defense systems</td>
+            </tr>
+            <tr>
+                <td>Rolls-Royce Holdings</td>
+                <td>RR.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>Military engines, Naval nuclear</td>
+            </tr>
+            <tr>
+                <td>Saab</td>
+                <td>SAAB-B.ST</td>
+                <td>SEK</td>
+                <td>Sweden</td>
+                <td>Fighters, Missiles, Radars, Sensors</td>
+            </tr>
+            <tr>
+                <td>Kongsberg Gruppen</td>
+                <td>KOG.OL</td>
+                <td>NOK</td>
+                <td>Norway</td>
+                <td>Missiles, Naval systems, Air defense</td>
+            </tr>
+            <tr>
+                <td>Hensoldt</td>
+                <td>HAG.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>Radars, Sensors, Electronic warfare</td>
+            </tr>
+            <tr>
+                <td>Dassault Aviation</td>
+                <td>AM.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>Fighter aircraft, Military aviation</td>
+            </tr>
+            <tr>
+                <td>Fincantieri</td>
+                <td>FCT.MI</td>
+                <td>EUR</td>
+                <td>Italy</td>
+                <td>Naval shipbuilding, Shipbuilding</td>
+            </tr>
+            <tr>
+                <td>QinetiQ</td>
+                <td>QQ.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>Defense testing, Research and development, Defense services</td>
+            </tr>
+            <tr>
+                <td>Chemring</td>
+                <td>CHG.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>Countermeasures, Sensors, Energetics</td>
+            </tr>
+            <tr>
+                <td>Babcock International</td>
+                <td>BAB.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>Naval support, Defense services</td>
+            </tr>
+            <tr>
+                <td>Indra Sistemas</td>
+                <td>IDR.MC</td>
+                <td>EUR</td>
+                <td>Spain</td>
+                <td>Defense electronics, Radar, Command systems</td>
+            </tr>
+            <tr>
+                <td>RENK Group</td>
+                <td>R3NK.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>Military vehicle transmissions, Drivetrains</td>
+            </tr>
+            <tr>
+                <td>TKMS</td>
+                <td>TKMS.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>Submarines, Frigates, Naval systems</td>
+            </tr>
+            <tr>
+                <td>Thyssenkrupp</td>
+                <td>TKA.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>TKMS ownership, Industrial holding, Naval systems</td>
+            </tr>
+            <tr>
+                <td>Aselsan</td>
+                <td>ASELS.IS</td>
+                <td>TRY</td>
+                <td>Turkey</td>
+                <td>Defense electronics, Radars, Communications</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <!-- END DEFENSE WATCHLIST FOUNDATION -->
+    <h2>Current Performance</h2>
+    <table id="watchlist">
+        <thead>
+            <tr>
+                <th onclick="sortTable('watchlist',0, false)">Name</th>
+                <th onclick="sortTable('watchlist',1, false)">Symbol</th>
+                <th onclick="sortTable('watchlist',2, true)">Current Price</th>
+                <th onclick="sortTable('watchlist',3, true)">Today's Change</th>
+                <th onclick="sortTable('watchlist',4, true)">5 Day Return</th>
+                <th onclick="sortTable('watchlist',5, true)">30 day Return</th>
+                <th onclick="sortTable('watchlist',6, true)">90 Day Return</th>
+                <th onclick="sortTable('watchlist',7, true)">YTD Return</th>
+                <th onclick="sortTable('watchlist',8, true)">1 Year Return</th>
+                <th onclick="sortTable('watchlist',9, true)">10 day average price</th>
+                <th onclick="sortTable('watchlist',10, true)">30 day average price</th>
+                <th onclick="sortTable('watchlist',11, true)">50 day average price</th>
+                <th onclick="sortTable('watchlist',12, true)">100 day average price</th>
+                <th onclick="sortTable('watchlist',13, true)">200 day average price</th>
+            </tr>
+        </thead>
+        <tbody>
+            
+            <tr>
+                <td>Lockheed Martin</td>
+                <td><a href="https://finance.yahoo.com/quote/LMT/" target="_blank" rel="noopener">LMT</a></td>
+                <td>
+                    
+                        $518.64
+                    
+                </td>
+             <td>
+                    
+                        1.18%
+                    
+                </td>
+                <td>
+                    
+                        -0.28%
+                    
+                </td>
+                <td>
+                    
+                        -14.22%
+                    
+                </td>
+                <td>
+                    
+                        0.29%
+                    
+                </td>
+                <td>
+                    
+                        7.30%
+                    
+                </td>
+                <td>
+                    
+                        10.36%
+                    
+                </td>
+                <td>
+                    
+                        $513.16
+                    
+                </td>
+                <td>
+                    
+                        $562.87
+                    
+                </td>
+                <td>
+                    
+                        $593.14
+                    
+                </td>
+                <td>
+                    
+                        $591.79
+                    
+                </td>
+                <td>
+                    
+                        $530.11
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>RTX</td>
+                <td><a href="https://finance.yahoo.com/quote/RTX/" target="_blank" rel="noopener">RTX</a></td>
+                <td>
+                    
+                        $178.85
+                    
+                </td>
+             <td>
+                    
+                        0.10%
+                    
+                </td>
+                <td>
+                    
+                        2.79%
+                    
+                </td>
+                <td>
+                    
+                        -5.48%
+                    
+                </td>
+                <td>
+                    
+                        -5.26%
+                    
+                </td>
+                <td>
+                    
+                        -2.57%
+                    
+                </td>
+                <td>
+                    
+                        67.96%
+                    
+                </td>
+                <td>
+                    
+                        $175.56
+                    
+                </td>
+                <td>
+                    
+                        $186.64
+                    
+                </td>
+                <td>
+                    
+                        $192.33
+                    
+                </td>
+                <td>
+                    
+                        $194.27
+                    
+                </td>
+                <td>
+                    
+                        $180.23
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Northrop Grumman</td>
+                <td><a href="https://finance.yahoo.com/quote/NOC/" target="_blank" rel="noopener">NOC</a></td>
+                <td>
+                    
+                        $554.47
+                    
+                </td>
+             <td>
+                    
+                        0.81%
+                    
+                </td>
+                <td>
+                    
+                        -2.73%
+                    
+                </td>
+                <td>
+                    
+                        -18.44%
+                    
+                </td>
+                <td>
+                    
+                        -9.78%
+                    
+                </td>
+                <td>
+                    
+                        -2.66%
+                    
+                </td>
+                <td>
+                    
+                        16.68%
+                    
+                </td>
+                <td>
+                    
+                        $560.97
+                    
+                </td>
+                <td>
+                    
+                        $620.65
+                    
+                </td>
+                <td>
+                    
+                        $659.56
+                    
+                </td>
+                <td>
+                    
+                        $662.88
+                    
+                </td>
+                <td>
+                    
+                        $622.15
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>General Dynamics</td>
+                <td><a href="https://finance.yahoo.com/quote/GD/" target="_blank" rel="noopener">GD</a></td>
+                <td>
+                    
+                        $345.59
+                    
+                </td>
+             <td>
+                    
+                        0.59%
+                    
+                </td>
+                <td>
+                    
+                        -1.57%
+                    
+                </td>
+                <td>
+                    
+                        0.28%
+                    
+                </td>
+                <td>
+                    
+                        -3.44%
+                    
+                </td>
+                <td>
+                    
+                        2.69%
+                    
+                </td>
+                <td>
+                    
+                        16.61%
+                    
+                </td>
+                <td>
+                    
+                        $345.83
+                    
+                </td>
+                <td>
+                    
+                        $338.42
+                    
+                </td>
+                <td>
+                    
+                        $344.37
+                    
+                </td>
+                <td>
+                    
+                        $348.95
+                    
+                </td>
+                <td>
+                    
+                        $340.97
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Boeing</td>
+                <td><a href="https://finance.yahoo.com/quote/BA/" target="_blank" rel="noopener">BA</a></td>
+                <td>
+                    
+                        $234.12
+                    
+                </td>
+             <td>
+                    
+                        -2.06%
+                    
+                </td>
+                <td>
+                    
+                        4.92%
+                    
+                </td>
+                <td>
+                    
+                        22.47%
+                    
+                </td>
+                <td>
+                    
+                        2.12%
+                    
+                </td>
+                <td>
+                    
+                        7.30%
+                    
+                </td>
+                <td>
+                    
+                        30.74%
+                    
+                </td>
+                <td>
+                    
+                        $229.68
+                    
+                </td>
+                <td>
+                    
+                        $224.36
+                    
+                </td>
+                <td>
+                    
+                        $217.40
+                    
+                </td>
+                <td>
+                    
+                        $226.06
+                    
+                </td>
+                <td>
+                    
+                        $219.45
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>L3Harris Technologies</td>
+                <td><a href="https://finance.yahoo.com/quote/LHX/" target="_blank" rel="noopener">LHX</a></td>
+                <td>
+                    
+                        $307.64
+                    
+                </td>
+             <td>
+                    
+                        1.75%
+                    
+                </td>
+                <td>
+                    
+                        -0.91%
+                    
+                </td>
+                <td>
+                    
+                        -10.53%
+                    
+                </td>
+                <td>
+                    
+                        -1.30%
+                    
+                </td>
+                <td>
+                    
+                        4.64%
+                    
+                </td>
+                <td>
+                    
+                        39.83%
+                    
+                </td>
+                <td>
+                    
+                        $307.96
+                    
+                </td>
+                <td>
+                    
+                        $333.19
+                    
+                </td>
+                <td>
+                    
+                        $343.23
+                    
+                </td>
+                <td>
+                    
+                        $341.23
+                    
+                </td>
+                <td>
+                    
+                        $312.46
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Huntington Ingalls Industries</td>
+                <td><a href="https://finance.yahoo.com/quote/HII/" target="_blank" rel="noopener">HII</a></td>
+                <td>
+                    
+                        $329.38
+                    
+                </td>
+             <td>
+                    
+                        2.60%
+                    
+                </td>
+                <td>
+                    
+                        -2.59%
+                    
+                </td>
+                <td>
+                    
+                        -12.08%
+                    
+                </td>
+                <td>
+                    
+                        -9.85%
+                    
+                </td>
+                <td>
+                    
+                        -3.14%
+                    
+                </td>
+                <td>
+                    
+                        30.05%
+                    
+                </td>
+                <td>
+                    
+                        $337.42
+                    
+                </td>
+                <td>
+                    
+                        $370.74
+                    
+                </td>
+                <td>
+                    
+                        $386.54
+                    
+                </td>
+                <td>
+                    
+                        $395.55
+                    
+                </td>
+                <td>
+                    
+                        $343.35
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Leidos</td>
+                <td><a href="https://finance.yahoo.com/quote/LDOS/" target="_blank" rel="noopener">LDOS</a></td>
+                <td>
+                    
+                        $128.88
+                    
+                </td>
+             <td>
+                    
+                        -0.06%
+                    
+                </td>
+                <td>
+                    
+                        -15.41%
+                    
+                </td>
+                <td>
+                    
+                        -17.40%
+                    
+                </td>
+                <td>
+                    
+                        -33.98%
+                    
+                </td>
+                <td>
+                    
+                        -28.24%
+                    
+                </td>
+                <td>
+                    
+                        -12.66%
+                    
+                </td>
+                <td>
+                    
+                        $138.32
+                    
+                </td>
+                <td>
+                    
+                        $148.71
+                    
+                </td>
+                <td>
+                    
+                        $156.21
+                    
+                </td>
+                <td>
+                    
+                        $170.54
+                    
+                </td>
+                <td>
+                    
+                        $178.56
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Booz Allen Hamilton</td>
+                <td><a href="https://finance.yahoo.com/quote/BAH/" target="_blank" rel="noopener">BAH</a></td>
+                <td>
+                    
+                        $76.89
+                    
+                </td>
+             <td>
+                    
+                        2.25%
+                    
+                </td>
+                <td>
+                    
+                        -1.73%
+                    
+                </td>
+                <td>
+                    
+                        -3.19%
+                    
+                </td>
+                <td>
+                    
+                        -13.85%
+                    
+                </td>
+                <td>
+                    
+                        -8.72%
+                    
+                </td>
+                <td>
+                    
+                        -50.73%
+                    
+                </td>
+                <td>
+                    
+                        $76.86
+                    
+                </td>
+                <td>
+                    
+                        $79.26
+                    
+                </td>
+                <td>
+                    
+                        $79.10
+                    
+                </td>
+                <td>
+                    
+                        $82.82
+                    
+                </td>
+                <td>
+                    
+                        $89.66
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>SAIC</td>
+                <td><a href="https://finance.yahoo.com/quote/SAIC/" target="_blank" rel="noopener">SAIC</a></td>
+                <td>
+                    
+                        $94.19
+                    
+                </td>
+             <td>
+                    
+                        0.93%
+                    
+                </td>
+                <td>
+                    
+                        -2.95%
+                    
+                </td>
+                <td>
+                    
+                        -1.08%
+                    
+                </td>
+                <td>
+                    
+                        -11.76%
+                    
+                </td>
+                <td>
+                    
+                        -6.44%
+                    
+                </td>
+                <td>
+                    
+                        -30.49%
+                    
+                </td>
+                <td>
+                    
+                        $94.95
+                    
+                </td>
+                <td>
+                    
+                        $95.67
+                    
+                </td>
+                <td>
+                    
+                        $95.30
+                    
+                </td>
+                <td>
+                    
+                        $97.59
+                    
+                </td>
+                <td>
+                    
+                        $99.34
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>CACI International</td>
+                <td><a href="https://finance.yahoo.com/quote/CACI/" target="_blank" rel="noopener">CACI</a></td>
+                <td>
+                    
+                        $503.17
+                    
+                </td>
+             <td>
+                    
+                        3.11%
+                    
+                </td>
+                <td>
+                    
+                        -2.14%
+                    
+                </td>
+                <td>
+                    
+                        -9.34%
+                    
+                </td>
+                <td>
+                    
+                        -11.47%
+                    
+                </td>
+                <td>
+                    
+                        -5.68%
+                    
+                </td>
+                <td>
+                    
+                        17.12%
+                    
+                </td>
+                <td>
+                    
+                        $499.95
+                    
+                </td>
+                <td>
+                    
+                        $524.90
+                    
+                </td>
+                <td>
+                    
+                        $554.31
+                    
+                </td>
+                <td>
+                    
+                        $574.86
+                    
+                </td>
+                <td>
+                    
+                        $554.47
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Amentum</td>
+                <td><a href="https://finance.yahoo.com/quote/AMTM/" target="_blank" rel="noopener">AMTM</a></td>
+                <td>
+                    
+                        $24.61
+                    
+                </td>
+             <td>
+                    
+                        -3.55%
+                    
+                </td>
+                <td>
+                    
+                        -5.00%
+                    
+                </td>
+                <td>
+                    
+                        -4.85%
+                    
+                </td>
+                <td>
+                    
+                        -21.63%
+                    
+                </td>
+                <td>
+                    
+                        -15.41%
+                    
+                </td>
+                <td>
+                    
+                        nan%
+                    
+                </td>
+                <td>
+                    
+                        $24.98
+                    
+                </td>
+                <td>
+                    
+                        $26.29
+                    
+                </td>
+                <td>
+                    
+                        $26.88
+                    
+                </td>
+                <td>
+                    
+                        $29.72
+                    
+                </td>
+                <td>
+                    
+                        $27.22
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>KBR</td>
+                <td><a href="https://finance.yahoo.com/quote/KBR/" target="_blank" rel="noopener">KBR</a></td>
+                <td>
+                    
+                        $32.58
+                    
+                </td>
+             <td>
+                    
+                        -0.14%
+                    
+                </td>
+                <td>
+                    
+                        -14.25%
+                    
+                </td>
+                <td>
+                    
+                        -9.71%
+                    
+                </td>
+                <td>
+                    
+                        -24.24%
+                    
+                </td>
+                <td>
+                    
+                        -18.89%
+                    
+                </td>
+                <td>
+                    
+                        -51.12%
+                    
+                </td>
+                <td>
+                    
+                        $35.21
+                    
+                </td>
+                <td>
+                    
+                        $36.19
+                    
+                </td>
+                <td>
+                    
+                        $36.80
+                    
+                </td>
+                <td>
+                    
+                        $39.55
+                    
+                </td>
+                <td>
+                    
+                        $42.66
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Parsons</td>
+                <td><a href="https://finance.yahoo.com/quote/PSN/" target="_blank" rel="noopener">PSN</a></td>
+                <td>
+                    
+                        $52.63
+                    
+                </td>
+             <td>
+                    
+                        4.74%
+                    
+                </td>
+                <td>
+                    
+                        4.02%
+                    
+                </td>
+                <td>
+                    
+                        -0.23%
+                    
+                </td>
+                <td>
+                    
+                        -20.67%
+                    
+                </td>
+                <td>
+                    
+                        -14.92%
+                    
+                </td>
+                <td>
+                    
+                        -33.20%
+                    
+                </td>
+                <td>
+                    
+                        $50.48
+                    
+                </td>
+                <td>
+                    
+                        $53.52
+                    
+                </td>
+                <td>
+                    
+                        $54.44
+                    
+                </td>
+                <td>
+                    
+                        $60.66
+                    
+                </td>
+                <td>
+                    
+                        $70.16
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Textron</td>
+                <td><a href="https://finance.yahoo.com/quote/TXT/" target="_blank" rel="noopener">TXT</a></td>
+                <td>
+                    
+                        $91.03
+                    
+                </td>
+             <td>
+                    
+                        -0.70%
+                    
+                </td>
+                <td>
+                    
+                        -0.60%
+                    
+                </td>
+                <td>
+                    
+                        4.63%
+                    
+                </td>
+                <td>
+                    
+                        2.13%
+                    
+                </td>
+                <td>
+                    
+                        4.02%
+                    
+                </td>
+                <td>
+                    
+                        2.75%
+                    
+                </td>
+                <td>
+                    
+                        $92.14
+                    
+                </td>
+                <td>
+                    
+                        $90.81
+                    
+                </td>
+                <td>
+                    
+                        $90.96
+                    
+                </td>
+                <td>
+                    
+                        $92.34
+                    
+                </td>
+                <td>
+                    
+                        $87.24
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Palantir Technologies</td>
+                <td><a href="https://finance.yahoo.com/quote/PLTR/" target="_blank" rel="noopener">PLTR</a></td>
+                <td>
+                    
+                        $134.12
+                    
+                </td>
+             <td>
+                    
+                        -1.82%
+                    
+                </td>
+                <td>
+                    
+                        -4.41%
+                    
+                </td>
+                <td>
+                    
+                        -4.22%
+                    
+                </td>
+                <td>
+                    
+                        -23.70%
+                    
+                </td>
+                <td>
+                    
+                        -26.03%
+                    
+                </td>
+                <td>
+                    
+                        551.02%
+                    
+                </td>
+                <td>
+                    
+                        $138.27
+                    
+                </td>
+                <td>
+                    
+                        $140.96
+                    
+                </td>
+                <td>
+                    
+                        $145.44
+                    
+                </td>
+                <td>
+                    
+                        $151.40
+                    
+                </td>
+                <td>
+                    
+                        $163.91
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Kratos Defense</td>
+                <td><a href="https://finance.yahoo.com/quote/KTOS/" target="_blank" rel="noopener">KTOS</a></td>
+                <td>
+                    
+                        $55.75
+                    
+                </td>
+             <td>
+                    
+                        -2.73%
+                    
+                </td>
+                <td>
+                    
+                        -10.98%
+                    
+                </td>
+                <td>
+                    
+                        -16.58%
+                    
+                </td>
+                <td>
+                    
+                        -37.92%
+                    
+                </td>
+                <td>
+                    
+                        -27.10%
+                    
+                </td>
+                <td>
+                    
+                        180.43%
+                    
+                </td>
+                <td>
+                    
+                        $59.51
+                    
+                </td>
+                <td>
+                    
+                        $66.04
+                    
+                </td>
+                <td>
+                    
+                        $73.56
+                    
+                </td>
+                <td>
+                    
+                        $85.77
+                    
+                </td>
+                <td>
+                    
+                        $81.56
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>AeroVironment</td>
+                <td><a href="https://finance.yahoo.com/quote/AVAV/" target="_blank" rel="noopener">AVAV</a></td>
+                <td>
+                    
+                        $165.01
+                    
+                </td>
+             <td>
+                    
+                        -1.19%
+                    
+                </td>
+                <td>
+                    
+                        -9.36%
+                    
+                </td>
+                <td>
+                    
+                        -8.26%
+                    
+                </td>
+                <td>
+                    
+                        -44.59%
+                    
+                </td>
+                <td>
+                    
+                        -33.58%
+                    
+                </td>
+                <td>
+                    
+                        -12.24%
+                    
+                </td>
+                <td>
+                    
+                        $175.27
+                    
+                </td>
+                <td>
+                    
+                        $187.09
+                    
+                </td>
+                <td>
+                    
+                        $195.49
+                    
+                </td>
+                <td>
+                    
+                        $239.66
+                    
+                </td>
+                <td>
+                    
+                        $267.57
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>BWX Technologies</td>
+                <td><a href="https://finance.yahoo.com/quote/BWXT/" target="_blank" rel="noopener">BWXT</a></td>
+                <td>
+                    
+                        $203.43
+                    
+                </td>
+             <td>
+                    
+                        -1.78%
+                    
+                </td>
+                <td>
+                    
+                        -6.58%
+                    
+                </td>
+                <td>
+                    
+                        4.28%
+                    
+                </td>
+                <td>
+                    
+                        7.63%
+                    
+                </td>
+                <td>
+                    
+                        16.56%
+                    
+                </td>
+                <td>
+                    
+                        126.04%
+                    
+                </td>
+                <td>
+                    
+                        $210.83
+                    
+                </td>
+                <td>
+                    
+                        $220.18
+                    
+                </td>
+                <td>
+                    
+                        $212.90
+                    
+                </td>
+                <td>
+                    
+                        $206.53
+                    
+                </td>
+                <td>
+                    
+                        $193.99
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>TransDigm</td>
+                <td><a href="https://finance.yahoo.com/quote/TDG/" target="_blank" rel="noopener">TDG</a></td>
+                <td>
+                    
+                        $1189.90
+                    
+                </td>
+             <td>
+                    
+                        -0.65%
+                    
+                </td>
+                <td>
+                    
+                        -2.51%
+                    
+                </td>
+                <td>
+                    
+                        4.33%
+                    
+                </td>
+                <td>
+                    
+                        -13.07%
+                    
+                </td>
+                <td>
+                    
+                        -10.51%
+                    
+                </td>
+                <td>
+                    
+                        -9.74%
+                    
+                </td>
+                <td>
+                    
+                        $1187.67
+                    
+                </td>
+                <td>
+                    
+                        $1200.75
+                    
+                </td>
+                <td>
+                    
+                        $1205.66
+                    
+                </td>
+                <td>
+                    
+                        $1277.96
+                    
+                </td>
+                <td>
+                    
+                        $1301.23
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Curtiss-Wright</td>
+                <td><a href="https://finance.yahoo.com/quote/CW/" target="_blank" rel="noopener">CW</a></td>
+                <td>
+                    
+                        $727.86
+                    
+                </td>
+             <td>
+                    
+                        0.79%
+                    
+                </td>
+                <td>
+                    
+                        0.09%
+                    
+                </td>
+                <td>
+                    
+                        13.36%
+                    
+                </td>
+                <td>
+                    
+                        24.53%
+                    
+                </td>
+                <td>
+                    
+                        31.24%
+                    
+                </td>
+                <td>
+                    
+                        161.85%
+                    
+                </td>
+                <td>
+                    
+                        $723.03
+                    
+                </td>
+                <td>
+                    
+                        $720.32
+                    
+                </td>
+                <td>
+                    
+                        $705.15
+                    
+                </td>
+                <td>
+                    
+                        $675.39
+                    
+                </td>
+                <td>
+                    
+                        $603.41
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Honeywell</td>
+                <td><a href="https://finance.yahoo.com/quote/HON/" target="_blank" rel="noopener">HON</a></td>
+                <td>
+                    
+                        $218.73
+                    
+                </td>
+             <td>
+                    
+                        -0.25%
+                    
+                </td>
+                <td>
+                    
+                        4.17%
+                    
+                </td>
+                <td>
+                    
+                        -3.08%
+                    
+                </td>
+                <td>
+                    
+                        9.15%
+                    
+                </td>
+                <td>
+                    
+                        11.77%
+                    
+                </td>
+                <td>
+                    
+                        13.52%
+                    
+                </td>
+                <td>
+                    
+                        $213.97
+                    
+                </td>
+                <td>
+                    
+                        $222.05
+                    
+                </td>
+                <td>
+                    
+                        $225.70
+                    
+                </td>
+                <td>
+                    
+                        $224.55
+                    
+                </td>
+                <td>
+                    
+                        $211.36
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>GE Aerospace</td>
+                <td><a href="https://finance.yahoo.com/quote/GE/" target="_blank" rel="noopener">GE</a></td>
+                <td>
+                    
+                        $297.29
+                    
+                </td>
+             <td>
+                    
+                        -0.81%
+                    
+                </td>
+                <td>
+                    
+                        5.25%
+                    
+                </td>
+                <td>
+                    
+                        6.97%
+                    
+                </td>
+                <td>
+                    
+                        -8.78%
+                    
+                </td>
+                <td>
+                    
+                        -4.02%
+                    
+                </td>
+                <td>
+                    
+                        82.30%
+                    
+                </td>
+                <td>
+                    
+                        $293.09
+                    
+                </td>
+                <td>
+                    
+                        $295.35
+                    
+                </td>
+                <td>
+                    
+                        $298.45
+                    
+                </td>
+                <td>
+                    
+                        $308.50
+                    
+                </td>
+                <td>
+                    
+                        $300.18
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>BAE Systems</td>
+                <td><a href="https://finance.yahoo.com/quote/BA.L/" target="_blank" rel="noopener">BA.L</a></td>
+                <td>
+                    
+                        $1926.00
+                    
+                </td>
+             <td>
+                    
+                        1.37%
+                    
+                </td>
+                <td>
+                    
+                        -5.33%
+                    
+                </td>
+                <td>
+                    
+                        -8.68%
+                    
+                </td>
+                <td>
+                    
+                        3.80%
+                    
+                </td>
+                <td>
+                    
+                        12.40%
+                    
+                </td>
+                <td>
+                    
+                        39.97%
+                    
+                </td>
+                <td>
+                    
+                        $2003.31
+                    
+                </td>
+                <td>
+                    
+                        $2129.79
+                    
+                </td>
+                <td>
+                    
+                        $2168.73
+                    
+                </td>
+                <td>
+                    
+                        $2075.51
+                    
+                </td>
+                <td>
+                    
+                        $1946.47
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Rheinmetall</td>
+                <td><a href="https://finance.yahoo.com/quote/RHM.DE/" target="_blank" rel="noopener">RHM.DE</a></td>
+                <td>
+                    
+                        $1162.00
+                    
+                </td>
+             <td>
+                    
+                        -0.38%
+                    
+                </td>
+                <td>
+                    
+                        -16.40%
+                    
+                </td>
+                <td>
+                    
+                        -17.56%
+                    
+                </td>
+                <td>
+                    
+                        -34.03%
+                    
+                </td>
+                <td>
+                    
+                        -26.06%
+                    
+                </td>
+                <td>
+                    
+                        114.00%
+                    
+                </td>
+                <td>
+                    
+                        $1318.51
+                    
+                </td>
+                <td>
+                    
+                        $1421.33
+                    
+                </td>
+                <td>
+                    
+                        $1470.72
+                    
+                </td>
+                <td>
+                    
+                        $1599.59
+                    
+                </td>
+                <td>
+                    
+                        $1660.00
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Thales</td>
+                <td><a href="https://finance.yahoo.com/quote/HO.PA/" target="_blank" rel="noopener">HO.PA</a></td>
+                <td>
+                    
+                        $225.70
+                    
+                </td>
+             <td>
+                    
+                        1.12%
+                    
+                </td>
+                <td>
+                    
+                        -3.13%
+                    
+                </td>
+                <td>
+                    
+                        -6.80%
+                    
+                </td>
+                <td>
+                    
+                        -8.50%
+                    
+                </td>
+                <td>
+                    
+                        -1.31%
+                    
+                </td>
+                <td>
+                    
+                        35.41%
+                    
+                </td>
+                <td>
+                    
+                        $232.14
+                    
+                </td>
+                <td>
+                    
+                        $248.54
+                    
+                </td>
+                <td>
+                    
+                        $247.65
+                    
+                </td>
+                <td>
+                    
+                        $250.42
+                    
+                </td>
+                <td>
+                    
+                        $245.27
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Leonardo</td>
+                <td><a href="https://finance.yahoo.com/quote/LDO.MI/" target="_blank" rel="noopener">LDO.MI</a></td>
+                <td>
+                    
+                        $49.94
+                    
+                </td>
+             <td>
+                    
+                        -1.66%
+                    
+                </td>
+                <td>
+                    
+                        -5.95%
+                    
+                </td>
+                <td>
+                    
+                        -9.07%
+                    
+                </td>
+                <td>
+                    
+                        -8.43%
+                    
+                </td>
+                <td>
+                    
+                        1.00%
+                    
+                </td>
+                <td>
+                    
+                        120.34%
+                    
+                </td>
+                <td>
+                    
+                        $52.95
+                    
+                </td>
+                <td>
+                    
+                        $55.60
+                    
+                </td>
+                <td>
+                    
+                        $57.67
+                    
+                </td>
+                <td>
+                    
+                        $56.94
+                    
+                </td>
+                <td>
+                    
+                        $53.13
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Airbus</td>
+                <td><a href="https://finance.yahoo.com/quote/AIR.PA/" target="_blank" rel="noopener">AIR.PA</a></td>
+                <td>
+                    
+                        $172.28
+                    
+                </td>
+             <td>
+                    
+                        -0.50%
+                    
+                </td>
+                <td>
+                    
+                        -2.09%
+                    
+                </td>
+                <td>
+                    
+                        8.86%
+                    
+                </td>
+                <td>
+                    
+                        -17.43%
+                    
+                </td>
+                <td>
+                    
+                        -12.48%
+                    
+                </td>
+                <td>
+                    
+                        8.14%
+                    
+                </td>
+                <td>
+                    
+                        $178.15
+                    
+                </td>
+                <td>
+                    
+                        $172.58
+                    
+                </td>
+                <td>
+                    
+                        $171.01
+                    
+                </td>
+                <td>
+                    
+                        $184.76
+                    
+                </td>
+                <td>
+                    
+                        $190.50
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Safran</td>
+                <td><a href="https://finance.yahoo.com/quote/SAF.PA/" target="_blank" rel="noopener">SAF.PA</a></td>
+                <td>
+                    
+                        $279.10
+                    
+                </td>
+             <td>
+                    
+                        0.47%
+                    
+                </td>
+                <td>
+                    
+                        5.09%
+                    
+                </td>
+                <td>
+                    
+                        2.41%
+                    
+                </td>
+                <td>
+                    
+                        -10.83%
+                    
+                </td>
+                <td>
+                    
+                        -5.17%
+                    
+                </td>
+                <td>
+                    
+                        32.53%
+                    
+                </td>
+                <td>
+                    
+                        $280.24
+                    
+                </td>
+                <td>
+                    
+                        $289.91
+                    
+                </td>
+                <td>
+                    
+                        $294.03
+                    
+                </td>
+                <td>
+                    
+                        $305.93
+                    
+                </td>
+                <td>
+                    
+                        $300.26
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Rolls-Royce Holdings</td>
+                <td><a href="https://finance.yahoo.com/quote/RR.L/" target="_blank" rel="noopener">RR.L</a></td>
+                <td>
+                    
+                        $1191.00
+                    
+                </td>
+             <td>
+                    
+                        -0.80%
+                    
+                </td>
+                <td>
+                    
+                        0.30%
+                    
+                </td>
+                <td>
+                    
+                        10.02%
+                    
+                </td>
+                <td>
+                    
+                        -4.41%
+                    
+                </td>
+                <td>
+                    
+                        2.67%
+                    
+                </td>
+                <td>
+                    
+                        182.03%
+                    
+                </td>
+                <td>
+                    
+                        $1208.80
+                    
+                </td>
+                <td>
+                    
+                        $1215.09
+                    
+                </td>
+                <td>
+                    
+                        $1216.96
+                    
+                </td>
+                <td>
+                    
+                        $1237.10
+                    
+                </td>
+                <td>
+                    
+                        $1172.68
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Saab</td>
+                <td><a href="https://finance.yahoo.com/quote/SAAB-B.ST/" target="_blank" rel="noopener">SAAB-B.ST</a></td>
+                <td>
+                    
+                        $510.10
+                    
+                </td>
+             <td>
+                    
+                        -1.90%
+                    
+                </td>
+                <td>
+                    
+                        -10.65%
+                    
+                </td>
+                <td>
+                    
+                        -12.43%
+                    
+                </td>
+                <td>
+                    
+                        nan%
+                    
+                </td>
+                <td>
+                    
+                        -6.20%
+                    
+                </td>
+                <td>
+                    
+                        125.71%
+                    
+                </td>
+                <td>
+                    
+                        $554.67
+                    
+                </td>
+                <td>
+                    
+                        $587.09
+                    
+                </td>
+                <td>
+                    
+                        $615.20
+                    
+                </td>
+                <td>
+                    
+                        $636.35
+                    
+                </td>
+                <td>
+                    
+                        $573.53
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Kongsberg Gruppen</td>
+                <td><a href="https://finance.yahoo.com/quote/KOG.OL/" target="_blank" rel="noopener">KOG.OL</a></td>
+                <td>
+                    
+                        $297.30
+                    
+                </td>
+             <td>
+                    
+                        1.74%
+                    
+                </td>
+                <td>
+                    
+                        -5.00%
+                    
+                </td>
+                <td>
+                    
+                        -24.37%
+                    
+                </td>
+                <td>
+                    
+                        6.05%
+                    
+                </td>
+                <td>
+                    
+                        14.28%
+                    
+                </td>
+                <td>
+                    
+                        79.15%
+                    
+                </td>
+                <td>
+                    
+                        $310.41
+                    
+                </td>
+                <td>
+                    
+                        $338.43
+                    
+                </td>
+                <td>
+                    
+                        $365.50
+                    
+                </td>
+                <td>
+                    
+                        $350.60
+                    
+                </td>
+                <td>
+                    
+                        $314.97
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Hensoldt</td>
+                <td><a href="https://finance.yahoo.com/quote/HAG.DE/" target="_blank" rel="noopener">HAG.DE</a></td>
+                <td>
+                    
+                        $71.48
+                    
+                </td>
+             <td>
+                    
+                        2.29%
+                    
+                </td>
+                <td>
+                    
+                        -8.59%
+                    
+                </td>
+                <td>
+                    
+                        1.39%
+                    
+                </td>
+                <td>
+                    
+                        -14.29%
+                    
+                </td>
+                <td>
+                    
+                        -4.50%
+                    
+                </td>
+                <td>
+                    
+                        84.51%
+                    
+                </td>
+                <td>
+                    
+                        $76.26
+                    
+                </td>
+                <td>
+                    
+                        $78.27
+                    
+                </td>
+                <td>
+                    
+                        $77.23
+                    
+                </td>
+                <td>
+                    
+                        $79.88
+                    
+                </td>
+                <td>
+                    
+                        $84.30
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Dassault Aviation</td>
+                <td><a href="https://finance.yahoo.com/quote/AM.PA/" target="_blank" rel="noopener">AM.PA</a></td>
+                <td>
+                    
+                        $284.40
+                    
+                </td>
+             <td>
+                    
+                        -0.21%
+                    
+                </td>
+                <td>
+                    
+                        -5.07%
+                    
+                </td>
+                <td>
+                    
+                        -8.26%
+                    
+                </td>
+                <td>
+                    
+                        -2.40%
+                    
+                </td>
+                <td>
+                    
+                        4.41%
+                    
+                </td>
+                <td>
+                    
+                        37.39%
+                    
+                </td>
+                <td>
+                    
+                        $295.24
+                    
+                </td>
+                <td>
+                    
+                        $312.22
+                    
+                </td>
+                <td>
+                    
+                        $321.03
+                    
+                </td>
+                <td>
+                    
+                        $319.98
+                    
+                </td>
+                <td>
+                    
+                        $297.49
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Fincantieri</td>
+                <td><a href="https://finance.yahoo.com/quote/FCT.MI/" target="_blank" rel="noopener">FCT.MI</a></td>
+                <td>
+                    
+                        $11.20
+                    
+                </td>
+             <td>
+                    
+                        2.27%
+                    
+                </td>
+                <td>
+                    
+                        -4.58%
+                    
+                </td>
+                <td>
+                    
+                        -13.06%
+                    
+                </td>
+                <td>
+                    
+                        -39.42%
+                    
+                </td>
+                <td>
+                    
+                        -33.51%
+                    
+                </td>
+                <td>
+                    
+                        134.42%
+                    
+                </td>
+                <td>
+                    
+                        $11.65
+                    
+                </td>
+                <td>
+                    
+                        $12.76
+                    
+                </td>
+                <td>
+                    
+                        $12.97
+                    
+                </td>
+                <td>
+                    
+                        $14.88
+                    
+                </td>
+                <td>
+                    
+                        $17.49
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>QinetiQ</td>
+                <td><a href="https://finance.yahoo.com/quote/QQ.L/" target="_blank" rel="noopener">QQ.L</a></td>
+                <td>
+                    
+                        $406.00
+                    
+                </td>
+             <td>
+                    
+                        -1.17%
+                    
+                </td>
+                <td>
+                    
+                        -8.31%
+                    
+                </td>
+                <td>
+                    
+                        -9.78%
+                    
+                </td>
+                <td>
+                    
+                        -11.51%
+                    
+                </td>
+                <td>
+                    
+                        -8.23%
+                    
+                </td>
+                <td>
+                    
+                        10.63%
+                    
+                </td>
+                <td>
+                    
+                        $431.96
+                    
+                </td>
+                <td>
+                    
+                        $458.95
+                    
+                </td>
+                <td>
+                    
+                        $471.50
+                    
+                </td>
+                <td>
+                    
+                        $482.91
+                    
+                </td>
+                <td>
+                    
+                        $478.04
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Chemring</td>
+                <td><a href="https://finance.yahoo.com/quote/CHG.L/" target="_blank" rel="noopener">CHG.L</a></td>
+                <td>
+                    
+                        $464.40
+                    
+                </td>
+             <td>
+                    
+                        -1.32%
+                    
+                </td>
+                <td>
+                    
+                        -13.20%
+                    
+                </td>
+                <td>
+                    
+                        -4.93%
+                    
+                </td>
+                <td>
+                    
+                        -5.90%
+                    
+                </td>
+                <td>
+                    
+                        -2.13%
+                    
+                </td>
+                <td>
+                    
+                        20.47%
+                    
+                </td>
+                <td>
+                    
+                        $501.99
+                    
+                </td>
+                <td>
+                    
+                        $533.11
+                    
+                </td>
+                <td>
+                    
+                        $527.73
+                    
+                </td>
+                <td>
+                    
+                        $520.36
+                    
+                </td>
+                <td>
+                    
+                        $528.11
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Babcock International</td>
+                <td><a href="https://finance.yahoo.com/quote/BAB.L/" target="_blank" rel="noopener">BAB.L</a></td>
+                <td>
+                    
+                        $1007.00
+                    
+                </td>
+             <td>
+                    
+                        -1.08%
+                    
+                </td>
+                <td>
+                    
+                        -8.41%
+                    
+                </td>
+                <td>
+                    
+                        -11.28%
+                    
+                </td>
+                <td>
+                    
+                        -25.13%
+                    
+                </td>
+                <td>
+                    
+                        -19.31%
+                    
+                </td>
+                <td>
+                    
+                        96.49%
+                    
+                </td>
+                <td>
+                    
+                        $1078.22
+                    
+                </td>
+                <td>
+                    
+                        $1176.37
+                    
+                </td>
+                <td>
+                    
+                        $1234.60
+                    
+                </td>
+                <td>
+                    
+                        $1316.24
+                    
+                </td>
+                <td>
+                    
+                        $1231.80
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Indra Sistemas</td>
+                <td><a href="https://finance.yahoo.com/quote/IDR.MC/" target="_blank" rel="noopener">IDR.MC</a></td>
+                <td>
+                    
+                        $50.82
+                    
+                </td>
+             <td>
+                    
+                        0.71%
+                    
+                </td>
+                <td>
+                    
+                        2.20%
+                    
+                </td>
+                <td>
+                    
+                        11.67%
+                    
+                </td>
+                <td>
+                    
+                        -6.07%
+                    
+                </td>
+                <td>
+                    
+                        4.93%
+                    
+                </td>
+                <td>
+                    
+                        157.43%
+                    
+                </td>
+                <td>
+                    
+                        $50.92
+                    
+                </td>
+                <td>
+                    
+                        $51.43
+                    
+                </td>
+                <td>
+                    
+                        $52.71
+                    
+                </td>
+                <td>
+                    
+                        $53.26
+                    
+                </td>
+                <td>
+                    
+                        $47.22
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>RENK Group</td>
+                <td><a href="https://finance.yahoo.com/quote/R3NK.DE/" target="_blank" rel="noopener">R3NK.DE</a></td>
+                <td>
+                    
+                        $44.11
+                    
+                </td>
+             <td>
+                    
+                        -2.58%
+                    
+                </td>
+                <td>
+                    
+                        -19.09%
+                    
+                </td>
+                <td>
+                    
+                        -8.83%
+                    
+                </td>
+                <td>
+                    
+                        -27.46%
+                    
+                </td>
+                <td>
+                    
+                        -18.92%
+                    
+                </td>
+                <td>
+                    
+                        53.68%
+                    
+                </td>
+                <td>
+                    
+                        $51.30
+                    
+                </td>
+                <td>
+                    
+                        $53.23
+                    
+                </td>
+                <td>
+                    
+                        $53.26
+                    
+                </td>
+                <td>
+                    
+                        $55.73
+                    
+                </td>
+                <td>
+                    
+                        $60.28
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>TKMS</td>
+                <td><a href="https://finance.yahoo.com/quote/TKMS.DE/" target="_blank" rel="noopener">TKMS.DE</a></td>
+                <td>
+                    
+                        $74.40
+                    
+                </td>
+             <td>
+                    
+                        0.81%
+                    
+                </td>
+                <td>
+                    
+                        -13.69%
+                    
+                </td>
+                <td>
+                    
+                        0.61%
+                    
+                </td>
+                <td>
+                    
+                        3.69%
+                    
+                </td>
+                <td>
+                    
+                        10.47%
+                    
+                </td>
+                <td>
+                    
+                        nan%
+                    
+                </td>
+                <td>
+                    
+                        $81.89
+                    
+                </td>
+                <td>
+                    
+                        $84.22
+                    
+                </td>
+                <td>
+                    
+                        $84.88
+                    
+                </td>
+                <td>
+                    
+                        $88.15
+                    
+                </td>
+                <td>
+                    
+                        $82.24
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Thyssenkrupp</td>
+                <td><a href="https://finance.yahoo.com/quote/TKA.DE/" target="_blank" rel="noopener">TKA.DE</a></td>
+                <td>
+                    
+                        $9.90
+                    
+                </td>
+             <td>
+                    
+                        -1.49%
+                    
+                </td>
+                <td>
+                    
+                        -0.04%
+                    
+                </td>
+                <td>
+                    
+                        37.69%
+                    
+                </td>
+                <td>
+                    
+                        -2.37%
+                    
+                </td>
+                <td>
+                    
+                        5.10%
+                    
+                </td>
+                <td>
+                    
+                        102.37%
+                    
+                </td>
+                <td>
+                    
+                        $10.31
+                    
+                </td>
+                <td>
+                    
+                        $9.18
+                    
+                </td>
+                <td>
+                    
+                        $8.80
+                    
+                </td>
+                <td>
+                    
+                        $9.72
+                    
+                </td>
+                <td>
+                    
+                        $9.76
+                    
+                </td>
+            </tr>
+            
+            <tr>
+                <td>Aselsan</td>
+                <td><a href="https://finance.yahoo.com/quote/ASELS.IS/" target="_blank" rel="noopener">ASELS.IS</a></td>
+                <td>
+                    
+                        $420.75
+                    
+                </td>
+             <td>
+                    
+                        -3.18%
+                    
+                </td>
+                <td>
+                    
+                        -3.12%
+                    
+                </td>
+                <td>
+                    
+                        30.61%
+                    
+                </td>
+                <td>
+                    
+                        74.69%
+                    
+                </td>
+                <td>
+                    
+                        80.71%
+                    
+                </td>
+                <td>
+                    
+                        561.28%
+                    
+                </td>
+                <td>
+                    
+                        $427.36
+                    
+                </td>
+                <td>
+                    
+                        $397.90
+                    
+                </td>
+                <td>
+                    
+                        $372.24
+                    
+                </td>
+                <td>
+                    
+                        $328.87
+                    
+                </td>
+                <td>
+                    
+                        $260.52
+                    
+                </td>
+            </tr>
+            
+        </tbody>
+    </table>
+
+    <!-- BEGIN FUNDAMENTALS ANALYSIS -->
+    <h2>Fundamentals Analysis</h2>
+    <p>Composite fundamentals are generated from the local fundamentals MCP cache using the latest available snapshot for each defense watchlist symbol.</p>
+    <div style="overflow-x: auto;">
+    <table id="fundamentals">
+        <thead>
+            <tr>
+                <th onclick="sortTable('fundamentals',0, true)">Rank</th>
+                <th onclick="sortTable('fundamentals',1, false)">Name</th>
+                <th onclick="sortTable('fundamentals',2, false)">Symbol</th>
+                <th onclick="sortTable('fundamentals',3, false)">Currency</th>
+                <th onclick="sortTable('fundamentals',4, false)">Country</th>
+                <th onclick="sortTable('fundamentals',5, true)">Composite Score</th>
+                <th onclick="sortTable('fundamentals',6, false)">Fundamental Label</th>
+                <th onclick="sortTable('fundamentals',7, true)">Coverage</th>
+                <th onclick="sortTable('fundamentals',8, false)">Sector</th>
+                <th onclick="sortTable('fundamentals',9, true)">Market Cap</th>
+                <th onclick="sortTable('fundamentals',10, false)">Revenue CAGR 3Y</th>
+                <th onclick="sortTable('fundamentals',11, false)">Revenue Acceleration</th>
+                <th onclick="sortTable('fundamentals',12, false)">Operating Margin 3Y</th>
+                <th onclick="sortTable('fundamentals',13, false)">Operating Margin Trend</th>
+                <th onclick="sortTable('fundamentals',14, false)">FCF Margin 3Y</th>
+                <th onclick="sortTable('fundamentals',15, false)">Valuation</th>
+                <th onclick="sortTable('fundamentals',16, false)">Momentum 12-1</th>
+                <th onclick="sortTable('fundamentals',17, false)">Tags</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1</td>
+                <td>GE Aerospace</td>
+                <td>GE</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>9</td>
+                <td>strong_compounder</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$310.50B</td>
+                <td>16.3% (moderate)</td>
+                <td>accelerating</td>
+                <td>16.6% (moderate)</td>
+                <td>+3.5% (expanding)</td>
+                <td>17.8% (strong)</td>
+                <td>log=1.91 (fair)</td>
+                <td>46.0% (strong momentum)</td>
+                <td>United States, Military engines, Aircraft engines</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td>Aselsan</td>
+                <td>ASELS.IS</td>
+                <td>TRY</td>
+                <td>Turkey</td>
+                <td>9</td>
+                <td>strong_compounder</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$1.91T</td>
+                <td>39.2% (strong)</td>
+                <td>decelerating</td>
+                <td>20.6% (strong)</td>
+                <td>+3.5% (expanding)</td>
+                <td>37.4% (strong)</td>
+                <td>log=2.38 (fair)</td>
+                <td>191.7% (strong momentum)</td>
+                <td>Turkey, Defense electronics, Radars, Communications</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>Safran</td>
+                <td>SAF.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>8</td>
+                <td>strong_compounder</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$116.65B</td>
+                <td>16.9% (moderate)</td>
+                <td>stable</td>
+                <td>14.2% (moderate)</td>
+                <td>+0.8% (flat)</td>
+                <td>23.5% (strong)</td>
+                <td>log=1.33 (cheap)</td>
+                <td>22.5% (strong momentum)</td>
+                <td>France, Aircraft engines, Optronics, Defense systems</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>Rolls-Royce Holdings</td>
+                <td>RR.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>8</td>
+                <td>strong_compounder</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$98.94B</td>
+                <td>16.2% (moderate)</td>
+                <td>stable</td>
+                <td>15.3% (moderate)</td>
+                <td>+8.2% (expanding)</td>
+                <td>23.4% (strong)</td>
+                <td>log=1.56 (fair)</td>
+                <td>58.5% (strong momentum)</td>
+                <td>United Kingdom, Military engines, Naval nuclear</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td>Chemring</td>
+                <td>CHG.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>8</td>
+                <td>strong_compounder</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$1.26B</td>
+                <td>7.5% (slow)</td>
+                <td>stable</td>
+                <td>12.0% (moderate)</td>
+                <td>+4.2% (expanding)</td>
+                <td>30.2% (strong)</td>
+                <td>log=1.03 (cheap)</td>
+                <td>34.3% (strong momentum)</td>
+                <td>United Kingdom, Countermeasures, Sensors, Energetics</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td>Saab</td>
+                <td>SAAB-B.ST</td>
+                <td>SEK</td>
+                <td>Sweden</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$275.13B</td>
+                <td>23.5% (moderate)</td>
+                <td>stable</td>
+                <td>9.1% (thin)</td>
+                <td>+0.9% (flat)</td>
+                <td>20.6% (strong)</td>
+                <td>log=1.23 (cheap)</td>
+                <td>33.8% (strong momentum)</td>
+                <td>Sweden, Fighters, Missiles, Radars, Sensors</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td>Rheinmetall</td>
+                <td>RHM.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$54.08B</td>
+                <td>15.7% (moderate)</td>
+                <td>accelerating</td>
+                <td>15.4% (moderate)</td>
+                <td>+2.6% (expanding)</td>
+                <td>26.5% (strong)</td>
+                <td>log=1.73 (fair)</td>
+                <td>-7.0% (slightly negative)</td>
+                <td>Germany, Ammunition, Combat vehicles, Air defense</td>
+            </tr>
+            <tr>
+                <td>8</td>
+                <td>Palantir Technologies</td>
+                <td>PLTR</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$322.44B</td>
+                <td>32.9% (strong)</td>
+                <td>accelerating</td>
+                <td>15.9% (moderate)</td>
+                <td>+23.5% (expanding)</td>
+                <td>40.6% (strong)</td>
+                <td>log=4.12 (expensive)</td>
+                <td>14.6% (positive)</td>
+                <td>United States, AI Software, Data platforms, Defense software</td>
+            </tr>
+            <tr>
+                <td>9</td>
+                <td>Kongsberg Gruppen</td>
+                <td>KOG.OL</td>
+                <td>NOK</td>
+                <td>Norway</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$262.21B</td>
+                <td>-0.3% (declining)</td>
+                <td>accelerating</td>
+                <td>13.1% (moderate)</td>
+                <td>+2.7% (expanding)</td>
+                <td>44.9% (strong)</td>
+                <td>log=2.00 (fair)</td>
+                <td>26.7% (strong momentum)</td>
+                <td>Norway, Missiles, Naval systems, Air defense</td>
+            </tr>
+            <tr>
+                <td>10</td>
+                <td>Hensoldt</td>
+                <td>HAG.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$8.26B</td>
+                <td>15.0% (moderate)</td>
+                <td>accelerating</td>
+                <td>8.8% (thin)</td>
+                <td>-0.8% (flat)</td>
+                <td>21.1% (strong)</td>
+                <td>log=1.29 (cheap)</td>
+                <td>17.8% (positive)</td>
+                <td>Germany, Radars, Sensors, Electronic warfare</td>
+            </tr>
+            <tr>
+                <td>11</td>
+                <td>General Dynamics</td>
+                <td>GD</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$93.41B</td>
+                <td>10.1% (moderate)</td>
+                <td>stable</td>
+                <td>10.1% (moderate)</td>
+                <td>+0.1% (flat)</td>
+                <td>11.9% (positive)</td>
+                <td>log=0.61 (cheap)</td>
+                <td>25.3% (strong momentum)</td>
+                <td>United States, Submarines, Combat vehicles, Defense IT</td>
+            </tr>
+            <tr>
+                <td>12</td>
+                <td>Curtiss-Wright</td>
+                <td>CW</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$26.86B</td>
+                <td>11.0% (moderate)</td>
+                <td>stable</td>
+                <td>17.6% (moderate)</td>
+                <td>+1.0% (flat)</td>
+                <td>19.2% (strong)</td>
+                <td>log=2.04 (fair)</td>
+                <td>92.0% (strong momentum)</td>
+                <td>United States, Defense electronics, Naval systems, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>13</td>
+                <td>BWX Technologies</td>
+                <td>BWXT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$18.65B</td>
+                <td>12.7% (moderate)</td>
+                <td>accelerating</td>
+                <td>11.9% (moderate)</td>
+                <td>-2.6% (contracting)</td>
+                <td>20.7% (strong)</td>
+                <td>log=1.82 (fair)</td>
+                <td>124.0% (strong momentum)</td>
+                <td>United States, Nuclear components, Navy, Government services</td>
+            </tr>
+            <tr>
+                <td>14</td>
+                <td>Babcock International</td>
+                <td>BAB.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$4.93B</td>
+                <td>5.6% (slow)</td>
+                <td>accelerating</td>
+                <td>5.3% (thin)</td>
+                <td>+3.3% (expanding)</td>
+                <td>9.4% (positive)</td>
+                <td>log=0.12 (cheap)</td>
+                <td>54.0% (strong momentum)</td>
+                <td>United Kingdom, Naval support, Defense services</td>
+            </tr>
+            <tr>
+                <td>15</td>
+                <td>Textron</td>
+                <td>TXT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$15.80B</td>
+                <td>4.8% (slow)</td>
+                <td>accelerating</td>
+                <td>6.9% (thin)</td>
+                <td>-0.2% (flat)</td>
+                <td>11.2% (positive)</td>
+                <td>log=0.21 (cheap)</td>
+                <td>20.8% (strong momentum)</td>
+                <td>United States, Helicopters, Military aircraft, Vehicles</td>
+            </tr>
+            <tr>
+                <td>16</td>
+                <td>TransDigm</td>
+                <td>TDG</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$66.47B</td>
+                <td>17.6% (moderate)</td>
+                <td>decelerating</td>
+                <td>45.6% (strong)</td>
+                <td>+2.7% (expanding)</td>
+                <td>25.5% (strong)</td>
+                <td>log=2.30 (fair)</td>
+                <td>-2.2% (slightly negative)</td>
+                <td>United States, Aerospace components, Defense components</td>
+            </tr>
+            <tr>
+                <td>17</td>
+                <td>RENK Group</td>
+                <td>R3NK.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$4.41B</td>
+                <td>17.2% (moderate)</td>
+                <td>stable</td>
+                <td>10.8% (moderate)</td>
+                <td>+2.7% (expanding)</td>
+                <td>13.8% (positive)</td>
+                <td>log=1.29 (cheap)</td>
+                <td>-4.1% (slightly negative)</td>
+                <td>Germany, Military vehicle transmissions, Drivetrains</td>
+            </tr>
+            <tr>
+                <td>18</td>
+                <td>Lockheed Martin</td>
+                <td>LMT</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$119.52B</td>
+                <td>4.4% (slow)</td>
+                <td>stable</td>
+                <td>10.9% (moderate)</td>
+                <td>-0.9% (flat)</td>
+                <td>13.3% (positive)</td>
+                <td>log=0.60 (cheap)</td>
+                <td>32.8% (strong momentum)</td>
+                <td>United States, Aircraft, Missiles, Space systems</td>
+            </tr>
+            <tr>
+                <td>19</td>
+                <td>Leidos</td>
+                <td>LDOS</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$16.23B</td>
+                <td>6.1% (slow)</td>
+                <td>stable</td>
+                <td>10.5% (moderate)</td>
+                <td>+2.6% (expanding)</td>
+                <td>9.8% (positive)</td>
+                <td>log=0.27 (cheap)</td>
+                <td>1.0% (positive)</td>
+                <td>United States, Defense IT, Cybersecurity, Intelligence services</td>
+            </tr>
+            <tr>
+                <td>20</td>
+                <td>Indra Sistemas</td>
+                <td>IDR.MC</td>
+                <td>EUR</td>
+                <td>Spain</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$8.94B</td>
+                <td>12.3% (moderate)</td>
+                <td>stable</td>
+                <td>9.0% (thin)</td>
+                <td>+1.0% (flat)</td>
+                <td>11.3% (positive)</td>
+                <td>log=0.38 (cheap)</td>
+                <td>62.2% (strong momentum)</td>
+                <td>Spain, Defense electronics, Radar, Command systems</td>
+            </tr>
+            <tr>
+                <td>21</td>
+                <td>Honeywell</td>
+                <td>HON</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$138.41B</td>
+                <td>1.8% (slow)</td>
+                <td>stable</td>
+                <td>18.4% (moderate)</td>
+                <td>-1.3% (flat)</td>
+                <td>19.4% (strong)</td>
+                <td>log=1.48 (cheap)</td>
+                <td>15.2% (positive)</td>
+                <td>United States, Avionics, Sensors, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>22</td>
+                <td>Huntington Ingalls Industries</td>
+                <td>HII</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$13.04B</td>
+                <td>5.4% (slow)</td>
+                <td>accelerating</td>
+                <td>5.2% (thin)</td>
+                <td>-0.5% (flat)</td>
+                <td>10.1% (positive)</td>
+                <td>log=0.17 (cheap)</td>
+                <td>76.5% (strong momentum)</td>
+                <td>United States, Shipbuilding, Nuclear vessels, Navy</td>
+            </tr>
+            <tr>
+                <td>23</td>
+                <td>Fincantieri</td>
+                <td>FCT.MI</td>
+                <td>EUR</td>
+                <td>Italy</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$4.03B</td>
+                <td>6.7% (slow)</td>
+                <td>accelerating</td>
+                <td>0.5% (thin)</td>
+                <td>+1.9% (flat)</td>
+                <td>10.7% (positive)</td>
+                <td>log=-0.38 (cheap)</td>
+                <td>22.4% (strong momentum)</td>
+                <td>Italy, Naval shipbuilding, Shipbuilding</td>
+            </tr>
+            <tr>
+                <td>24</td>
+                <td>BAE Systems</td>
+                <td>BA.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$56.55B</td>
+                <td>10.1% (moderate)</td>
+                <td>decelerating</td>
+                <td>9.6% (thin)</td>
+                <td>-0.2% (flat)</td>
+                <td>18.6% (strong)</td>
+                <td>log=0.81 (cheap)</td>
+                <td>32.0% (strong momentum)</td>
+                <td>United Kingdom, Defense prime, Combat vehicles, Naval systems, Electronic systems</td>
+            </tr>
+            <tr>
+                <td>25</td>
+                <td>Amentum</td>
+                <td>AMTM</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>6</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$6.01B</td>
+                <td>23.3% (moderate)</td>
+                <td>accelerating</td>
+                <td>2.6% (thin)</td>
+                <td>+0.4% (flat)</td>
+                <td>1.9% (minimal)</td>
+                <td>log=-0.41 (cheap)</td>
+                <td>28.6% (strong momentum)</td>
+                <td>United States, Engineering, Sustainment, Nuclear, Mission support</td>
+            </tr>
+            <tr>
+                <td>26</td>
+                <td>RTX</td>
+                <td>RTX</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$240.57B</td>
+                <td>9.7% (slow)</td>
+                <td>decelerating</td>
+                <td>7.9% (thin)</td>
+                <td>+3.9% (expanding)</td>
+                <td>14.8% (positive)</td>
+                <td>log=1.11 (cheap)</td>
+                <td>58.0% (strong momentum)</td>
+                <td>United States, Missiles, Air defense, Sensors, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>27</td>
+                <td>QinetiQ</td>
+                <td>QQ.L</td>
+                <td>GBP</td>
+                <td>United Kingdom</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$2.11B</td>
+                <td>13.5% (moderate)</td>
+                <td>decelerating</td>
+                <td>8.9% (thin)</td>
+                <td>-1.6% (flat)</td>
+                <td>18.3% (strong)</td>
+                <td>log=0.26 (cheap)</td>
+                <td>13.2% (positive)</td>
+                <td>United Kingdom, Defense testing, Research and development, Defense services</td>
+            </tr>
+            <tr>
+                <td>28</td>
+                <td>Northrop Grumman</td>
+                <td>NOC</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$78.65B</td>
+                <td>4.7% (slow)</td>
+                <td>stable</td>
+                <td>9.1% (thin)</td>
+                <td>+1.6% (flat)</td>
+                <td>14.7% (positive)</td>
+                <td>log=0.79 (cheap)</td>
+                <td>44.2% (strong momentum)</td>
+                <td>United States, Stealth aircraft, Space systems, Nuclear modernization</td>
+            </tr>
+            <tr>
+                <td>29</td>
+                <td>Kratos Defense</td>
+                <td>KTOS</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>86%</td>
+                <td>Industrials</td>
+                <td>$10.50B</td>
+                <td>14.5% (moderate)</td>
+                <td>accelerating</td>
+                <td>2.6% (thin)</td>
+                <td>-0.8% (flat)</td>
+                <td>no data</td>
+                <td>log=1.89 (fair)</td>
+                <td>117.1% (strong momentum)</td>
+                <td>United States, Drones, Tactical systems, Hypersonics</td>
+            </tr>
+            <tr>
+                <td>30</td>
+                <td>Thales</td>
+                <td>HO.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$46.44B</td>
+                <td>8.0% (slow)</td>
+                <td>stable</td>
+                <td>9.3% (thin)</td>
+                <td>+1.1% (flat)</td>
+                <td>15.3% (strong)</td>
+                <td>log=0.77 (cheap)</td>
+                <td>7.6% (positive)</td>
+                <td>France, Defense electronics, Sensors, Cybersecurity</td>
+            </tr>
+            <tr>
+                <td>31</td>
+                <td>CACI International</td>
+                <td>CACI</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$11.05B</td>
+                <td>11.6% (moderate)</td>
+                <td>stable</td>
+                <td>8.6% (thin)</td>
+                <td>+0.4% (flat)</td>
+                <td>7.1% (positive)</td>
+                <td>log=0.56 (cheap)</td>
+                <td>12.1% (positive)</td>
+                <td>United States, Intelligence services, Cybersecurity, Defense technology</td>
+            </tr>
+            <tr>
+                <td>32</td>
+                <td>Airbus</td>
+                <td>AIR.PA</td>
+                <td>EUR</td>
+                <td>Netherlands, France</td>
+                <td>5</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$135.81B</td>
+                <td>7.7% (slow)</td>
+                <td>stable</td>
+                <td>6.9% (thin)</td>
+                <td>+0.4% (flat)</td>
+                <td>15.5% (strong)</td>
+                <td>log=0.64 (cheap)</td>
+                <td>6.4% (positive)</td>
+                <td>Netherlands, France, Military aircraft, Space systems, Helicopters</td>
+            </tr>
+            <tr>
+                <td>33</td>
+                <td>Leonardo</td>
+                <td>LDO.MI</td>
+                <td>EUR</td>
+                <td>Italy</td>
+                <td>4</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$28.85B</td>
+                <td>9.9% (slow)</td>
+                <td>decelerating</td>
+                <td>7.6% (thin)</td>
+                <td>+1.8% (flat)</td>
+                <td>13.6% (positive)</td>
+                <td>log=0.54 (cheap)</td>
+                <td>28.7% (strong momentum)</td>
+                <td>Italy, Helicopters, Aircraft, Defense electronics</td>
+            </tr>
+            <tr>
+                <td>34</td>
+                <td>Booz Allen Hamilton</td>
+                <td>BAH</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>4</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$9.33B</td>
+                <td>12.7% (moderate)</td>
+                <td>stable</td>
+                <td>8.6% (thin)</td>
+                <td>+4.3% (expanding)</td>
+                <td>6.5% (positive)</td>
+                <td>log=0.08 (cheap)</td>
+                <td>-33.1% (weak momentum)</td>
+                <td>United States, Defense consulting, Cybersecurity, Analytics</td>
+            </tr>
+            <tr>
+                <td>35</td>
+                <td>Boeing</td>
+                <td>BA</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>4</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$184.65B</td>
+                <td>10.3% (moderate)</td>
+                <td>accelerating</td>
+                <td>-7.8% (negative)</td>
+                <td>+2.6% (expanding)</td>
+                <td>-0.2% (burning cash)</td>
+                <td>log=0.86 (cheap)</td>
+                <td>12.7% (positive)</td>
+                <td>United States, Defense aircraft, Space systems, Military systems</td>
+            </tr>
+            <tr>
+                <td>36</td>
+                <td>Dassault Aviation</td>
+                <td>AM.PA</td>
+                <td>EUR</td>
+                <td>France</td>
+                <td>4</td>
+                <td>solid</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$22.06B</td>
+                <td>2.2% (slow)</td>
+                <td>decelerating</td>
+                <td>8.1% (thin)</td>
+                <td>+0.6% (flat)</td>
+                <td>18.8% (strong)</td>
+                <td>log=0.54 (cheap)</td>
+                <td>8.4% (positive)</td>
+                <td>France, Fighter aircraft, Military aviation</td>
+            </tr>
+            <tr>
+                <td>37</td>
+                <td>L3Harris Technologies</td>
+                <td>LHX</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>3</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$57.29B</td>
+                <td>8.6% (slow)</td>
+                <td>decelerating</td>
+                <td>9.5% (thin)</td>
+                <td>+0.5% (flat)</td>
+                <td>14.4% (positive)</td>
+                <td>log=1.75 (fair)</td>
+                <td>65.2% (strong momentum)</td>
+                <td>United States, ISR, Communications, Space systems, Electronic systems</td>
+            </tr>
+            <tr>
+                <td>38</td>
+                <td>AeroVironment</td>
+                <td>AVAV</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>3</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$8.38B</td>
+                <td>22.6% (moderate)</td>
+                <td>decelerating</td>
+                <td>4.3% (thin)</td>
+                <td>+4.3% (expanding)</td>
+                <td>4.3% (minimal)</td>
+                <td>log=1.67 (fair)</td>
+                <td>16.4% (positive)</td>
+                <td>United States, Tactical drones, Loitering munitions, Unmanned systems</td>
+            </tr>
+            <tr>
+                <td>39</td>
+                <td>TKMS</td>
+                <td>TKMS.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>2</td>
+                <td>average</td>
+                <td>14%</td>
+                <td>Industrials</td>
+                <td>$4.73B</td>
+                <td>no data</td>
+                <td>no data</td>
+                <td>no data</td>
+                <td>no data</td>
+                <td>no data</td>
+                <td>log=-0.01 (cheap)</td>
+                <td>no data</td>
+                <td>Germany, Submarines, Frigates, Naval systems</td>
+            </tr>
+            <tr>
+                <td>40</td>
+                <td>Parsons</td>
+                <td>PSN</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>2</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$5.63B</td>
+                <td>14.9% (moderate)</td>
+                <td>decelerating</td>
+                <td>6.5% (thin)</td>
+                <td>+0.1% (flat)</td>
+                <td>8.4% (positive)</td>
+                <td>log=0.06 (cheap)</td>
+                <td>-14.0% (weak momentum)</td>
+                <td>United States, Defense technology, Cybersecurity, Infrastructure, Missile defense</td>
+            </tr>
+            <tr>
+                <td>41</td>
+                <td>Thyssenkrupp</td>
+                <td>TKA.DE</td>
+                <td>EUR</td>
+                <td>Germany</td>
+                <td>1</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$6.16B</td>
+                <td>-7.2% (declining)</td>
+                <td>stable</td>
+                <td>-3.6% (negative)</td>
+                <td>+2.3% (expanding)</td>
+                <td>9.6% (positive)</td>
+                <td>log=-2.01 (cheap)</td>
+                <td>-10.9% (weak momentum)</td>
+                <td>Germany, TKMS ownership, Industrial holding, Naval systems</td>
+            </tr>
+            <tr>
+                <td>42</td>
+                <td>SAIC</td>
+                <td>SAIC</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>1</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Technology</td>
+                <td>$4.07B</td>
+                <td>-2.0% (declining)</td>
+                <td>stable</td>
+                <td>7.1% (thin)</td>
+                <td>+0.0% (flat)</td>
+                <td>7.2% (positive)</td>
+                <td>log=-0.10 (cheap)</td>
+                <td>-19.9% (weak momentum)</td>
+                <td>United States, Government IT, Engineering, Mission support</td>
+            </tr>
+            <tr>
+                <td>43</td>
+                <td>KBR</td>
+                <td>KBR</td>
+                <td>USD</td>
+                <td>United States</td>
+                <td>1</td>
+                <td>average</td>
+                <td>100%</td>
+                <td>Industrials</td>
+                <td>$4.13B</td>
+                <td>5.9% (slow)</td>
+                <td>decelerating</td>
+                <td>7.1% (thin)</td>
+                <td>+0.3% (flat)</td>
+                <td>6.5% (positive)</td>
+                <td>log=-0.16 (cheap)</td>
+                <td>-34.2% (weak momentum)</td>
+                <td>United States, Defense logistics, Engineering, Mission support</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <!-- END FUNDAMENTALS ANALYSIS -->
+    <!-- BEGIN POSITIVE FUNDAMENTALS SCREEN -->
+    <h2>Positive 30-Day Return + High Fundamentals</h2>
+    <p>This screen includes defense watchlist companies with a positive 30 day return and composite fundamental score of 7 or higher.</p>
+    <div style="overflow-x: auto;">
+    <table id="positiveFundamentals">
+        <thead>
+            <tr>
+                <th onclick="sortTable('positiveFundamentals',0, true)">Rank</th>
+                <th onclick="sortTable('positiveFundamentals',1, false)">Name</th>
+                <th onclick="sortTable('positiveFundamentals',2, false)">Symbol</th>
+                <th onclick="sortTable('positiveFundamentals',3, false)">Country</th>
+                <th onclick="sortTable('positiveFundamentals',4, true)">30 Day Return</th>
+                <th onclick="sortTable('positiveFundamentals',5, true)">Composite Score</th>
+                <th onclick="sortTable('positiveFundamentals',6, false)">Fundamental Label</th>
+                <th onclick="sortTable('positiveFundamentals',7, false)">Sector</th>
+                <th onclick="sortTable('positiveFundamentals',8, true)">Market Cap</th>
+                <th onclick="sortTable('positiveFundamentals',9, false)">Revenue CAGR 3Y</th>
+                <th onclick="sortTable('positiveFundamentals',10, false)">Revenue Acceleration</th>
+                <th onclick="sortTable('positiveFundamentals',11, false)">Momentum 12-1</th>
+                <th onclick="sortTable('positiveFundamentals',12, false)">Tags</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1</td>
+                <td>Aselsan</td>
+                <td>ASELS.IS</td>
+                <td>Turkey</td>
+                <td>30.61%</td>
+                <td>9</td>
+                <td>strong_compounder</td>
+                <td>Industrials</td>
+                <td>$1.91T</td>
+                <td>39.2% (strong)</td>
+                <td>decelerating</td>
+                <td>191.7% (strong momentum)</td>
+                <td>Turkey, Defense electronics, Radars, Communications</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td>GE Aerospace</td>
+                <td>GE</td>
+                <td>United States</td>
+                <td>6.97%</td>
+                <td>9</td>
+                <td>strong_compounder</td>
+                <td>Industrials</td>
+                <td>$310.50B</td>
+                <td>16.3% (moderate)</td>
+                <td>accelerating</td>
+                <td>46.0% (strong momentum)</td>
+                <td>United States, Military engines, Aircraft engines</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>Rolls-Royce Holdings</td>
+                <td>RR.L</td>
+                <td>United Kingdom</td>
+                <td>10.02%</td>
+                <td>8</td>
+                <td>strong_compounder</td>
+                <td>Industrials</td>
+                <td>$98.94B</td>
+                <td>16.2% (moderate)</td>
+                <td>stable</td>
+                <td>58.5% (strong momentum)</td>
+                <td>United Kingdom, Military engines, Naval nuclear</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>Safran</td>
+                <td>SAF.PA</td>
+                <td>France</td>
+                <td>2.41%</td>
+                <td>8</td>
+                <td>strong_compounder</td>
+                <td>Industrials</td>
+                <td>$116.65B</td>
+                <td>16.9% (moderate)</td>
+                <td>stable</td>
+                <td>22.5% (strong momentum)</td>
+                <td>France, Aircraft engines, Optronics, Defense systems</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td>Curtiss-Wright</td>
+                <td>CW</td>
+                <td>United States</td>
+                <td>13.36%</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>Industrials</td>
+                <td>$26.86B</td>
+                <td>11.0% (moderate)</td>
+                <td>stable</td>
+                <td>92.0% (strong momentum)</td>
+                <td>United States, Defense electronics, Naval systems, Aerospace systems</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td>BWX Technologies</td>
+                <td>BWXT</td>
+                <td>United States</td>
+                <td>4.28%</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>Industrials</td>
+                <td>$18.65B</td>
+                <td>12.7% (moderate)</td>
+                <td>accelerating</td>
+                <td>124.0% (strong momentum)</td>
+                <td>United States, Nuclear components, Navy, Government services</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td>Hensoldt</td>
+                <td>HAG.DE</td>
+                <td>Germany</td>
+                <td>1.39%</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>Industrials</td>
+                <td>$8.26B</td>
+                <td>15.0% (moderate)</td>
+                <td>accelerating</td>
+                <td>17.8% (positive)</td>
+                <td>Germany, Radars, Sensors, Electronic warfare</td>
+            </tr>
+            <tr>
+                <td>8</td>
+                <td>General Dynamics</td>
+                <td>GD</td>
+                <td>United States</td>
+                <td>0.28%</td>
+                <td>7</td>
+                <td>solid</td>
+                <td>Industrials</td>
+                <td>$93.41B</td>
+                <td>10.1% (moderate)</td>
+                <td>stable</td>
+                <td>25.3% (strong momentum)</td>
+                <td>United States, Submarines, Combat vehicles, Defense IT</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <!-- END POSITIVE FUNDAMENTALS SCREEN -->
+    <!-- BEGIN DEEP ACTIONABILITY ANALYSIS -->
+    <h2>Deep Actionability Analysis</h2>
+    <p>This section ranks the eight positive-30-day, high-fundamental-score defense candidates by trade actionability using MCP fundamentals, technicals, options, market-structure, relative-strength, earnings, and news tools. Position sizing references use a $10,000 capital basis. This is research, not financial advice.</p>
+    <div style="overflow-x: auto;">
+    <table id="deepActionability">
+        <thead>
+            <tr>
+                <th onclick="sortTable('deepActionability',0, true)">Rank</th>
+                <th onclick="sortTable('deepActionability',1, false)">Symbol</th>
+                <th onclick="sortTable('deepActionability',2, false)">Company</th>
+                <th onclick="sortTable('deepActionability',3, false)">Actionability</th>
+                <th onclick="sortTable('deepActionability',4, false)">Trade Type</th>
+                <th onclick="sortTable('deepActionability',5, false)">Action</th>
+                <th onclick="sortTable('deepActionability',6, false)">Confidence</th>
+                <th onclick="sortTable('deepActionability',7, true)">Net Score</th>
+                <th onclick="sortTable('deepActionability',8, true)">Composite Score</th>
+                <th onclick="sortTable('deepActionability',9, true)">30 Day Return</th>
+                <th onclick="sortTable('deepActionability',10, false)">Relative Strength</th>
+                <th onclick="sortTable('deepActionability',11, false)">Earnings Risk</th>
+                <th onclick="sortTable('deepActionability',12, false)">Main Bull Case</th>
+                <th onclick="sortTable('deepActionability',13, false)">Main Risk</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>1</td>
+                <td>CW</td>
+                <td>Curtiss-Wright</td>
+                <td>Highest</td>
+                <td>BULL_CALL_SPREAD</td>
+                <td>BUY</td>
+                <td>HIGH</td>
+                <td>9</td>
+                <td>7</td>
+                <td>13.36%</td>
+                <td>Leader; +57.2 pp vs SPY, sector leading</td>
+                <td>LOW; 2026-08-05</td>
+                <td>Strongest total signal stack: bullish MACD, high net score, call sweeps, positive news, strong relative strength.</td>
+                <td>High IV and market-maker sell-on-rally structure cap upside; use spread rather than naked calls.</td>
+            </tr>
+            <tr>
+                <td>2</td>
+                <td>GE</td>
+                <td>GE Aerospace</td>
+                <td>High</td>
+                <td>WEAK_LONG</td>
+                <td>BUY small</td>
+                <td>LOW</td>
+                <td>1</td>
+                <td>9</td>
+                <td>6.97%</td>
+                <td>38.6% 12m stock return; RS partially unavailable in tool output</td>
+                <td>LOW; 2026-07-16</td>
+                <td>Strong compounder fundamentals, bullish MACD, bullish put/call ratio, unusual call sweeps, bullish news.</td>
+                <td>Low net score because stochastic is stretched, EPS is decelerating, and dealers sell rallies.</td>
+            </tr>
+            <tr>
+                <td>3</td>
+                <td>RR.L</td>
+                <td>Rolls-Royce Holdings</td>
+                <td>High but data-limited</td>
+                <td>LONG_CALL</td>
+                <td>BUY / watch liquidity</td>
+                <td>HIGH</td>
+                <td>5</td>
+                <td>8</td>
+                <td>10.02%</td>
+                <td>Outperforming in trade tool; relative-strength detail unavailable</td>
+                <td>UNKNOWN</td>
+                <td>High-confidence trade output, bullish MACD, strong fundamentals, improving margins, positive news in synthesis.</td>
+                <td>Local-listing options and earnings data are sparse; position sizing output is not reliable.</td>
+            </tr>
+            <tr>
+                <td>4</td>
+                <td>BWXT</td>
+                <td>BWX Technologies</td>
+                <td>Moderate setup</td>
+                <td>WEAK_LONG</td>
+                <td>BUY small / wait for reclaim</td>
+                <td>LOW</td>
+                <td>2</td>
+                <td>7</td>
+                <td>4.28%</td>
+                <td>Leader; +57.9 pp vs SPY</td>
+                <td>LOW; 2026-08-03</td>
+                <td>Strong relative strength, bullish news, positive long options score, put unwinding, medium squeeze potential.</td>
+                <td>Still below VWAP for 11 bars with bearish MACD and elevated spread; needs technical confirmation.</td>
+            </tr>
+            <tr>
+                <td>5</td>
+                <td>GD</td>
+                <td>General Dynamics</td>
+                <td>Watchlist</td>
+                <td>SKIP</td>
+                <td>HOLD / wait</td>
+                <td>LOW</td>
+                <td>0</td>
+                <td>7</td>
+                <td>0.28%</td>
+                <td>Relative-strength detail unavailable</td>
+                <td>LOW; 2026-07-22</td>
+                <td>Bullish MACD, 9 bars above VWAP, strongly positive news, cheap valuation, low short interest.</td>
+                <td>No directional edge: fresh put buying, dealer sell-on-rally, volume exhaustion, and revenue inflecting negative.</td>
+            </tr>
+            <tr>
+                <td>6</td>
+                <td>SAF.PA</td>
+                <td>Safran</td>
+                <td>Lower-quality long</td>
+                <td>WEAK_LONG</td>
+                <td>BUY small only after confirmation</td>
+                <td>LOW</td>
+                <td>1</td>
+                <td>8</td>
+                <td>2.41%</td>
+                <td>Weak vs SPY in synthesis; detailed RS unavailable</td>
+                <td>UNKNOWN</td>
+                <td>Strong compounder score, cheap valuation, strong FCF margin, bullish MACD, narrowing spread.</td>
+                <td>Negative news signal, weak relative strength, sparse local-listing data, and weak bearish candle warning.</td>
+            </tr>
+            <tr>
+                <td>7</td>
+                <td>ASELS.IS</td>
+                <td>Aselsan</td>
+                <td>Momentum watch only</td>
+                <td>SKIP</td>
+                <td>HOLD / do not chase</td>
+                <td>LOW</td>
+                <td>-2</td>
+                <td>9</td>
+                <td>30.61%</td>
+                <td>Leader; +167.2 pp vs SPY</td>
+                <td>UNKNOWN</td>
+                <td>Best raw momentum and strong fundamentals: 39.2% 3Y revenue CAGR, strong margins, strong FCF.</td>
+                <td>Overbought, bearish MACD, shooting star, volume exhaustion top, inflecting-negative revenue, no news coverage.</td>
+            </tr>
+            <tr>
+                <td>8</td>
+                <td>HAG.DE</td>
+                <td>Hensoldt</td>
+                <td>Least actionable</td>
+                <td>SKIP</td>
+                <td>HOLD / wait for reversal</td>
+                <td>LOW</td>
+                <td>-1</td>
+                <td>7</td>
+                <td>1.39%</td>
+                <td>Weak vs SPY in synthesis; detailed RS unavailable</td>
+                <td>LOW; 2026-07-31</td>
+                <td>Cheap valuation, positive 3Y growth, oversold stochastic, weak dragonfly-doji bounce hint.</td>
+                <td>Bearish MACD, widening spread, weak relative strength, decelerating EPS, inflecting-negative revenue.</td>
+            </tr>
+        </tbody>
+    </table>
+    </div>
+    <h3>1. Curtiss-Wright (CW)</h3>
+    <p><strong>Verdict:</strong> Most actionable. Buy only with structure: bull call spread or small stock position, not naked long calls at high IV.</p>
+    <p><strong>Setup:</strong> Entry around $725, target $746, technical stop $714, broker trailing stop near $668.55. Best tactical candidate, but only if price holds VWAP and follows through above the gamma-wall area near $750.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Trade recommendation: BULL_CALL_SPREAD, HIGH confidence, net score +9.</li>
+        <li>Fundamentals: composite 7, solid, 11.0% 3Y revenue CAGR, 17.6% operating margin, 19.2% FCF margin.</li>
+        <li>Revenue trajectory is inflecting positive; EPS acceleration is moderate.</li>
+        <li>Technicals: bullish MACD, RSI 54, 5 bars above VWAP.</li>
+        <li>Options: moderate call sweep signal; ATM P/C 0.06 indicates near-money calls bought; put unwinding shows fear fading.</li>
+        <li>News in synthesis was strongly positive, with 6 positive vs 1 negative article.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Options IV is expensive and options spreads are wide; spread structure is better than outright premium buying.</li>
+        <li>DAOI shows sell-on-rally dealer bias, so upside can be mechanically capped near rallies.</li>
+        <li>Technical stop at $714 is inside normal noise; use a wider 7.8% trailing stop if using stock.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Dark-pool proxy showed no block anomaly. Short interest is low, so this is not a squeeze thesis.</p>
+    <h3>2. GE Aerospace (GE)</h3>
+    <p><strong>Verdict:</strong> Actionable as a small long, but the low net score argues for controlled sizing.</p>
+    <p><strong>Setup:</strong> Entry around $296, target $317, technical stop $289.65, trailing stop 9.7%. Risk/reward from synthesis was 3.22, but position size should be reduced because mixed signals offset the headline fundamentals.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Strongest fundamental score beside ASELS: composite 9, strong compounder.</li>
+        <li>MACD bullish, price above VWAP for 4 bars, RSI neutral at 53.</li>
+        <li>Options baseline: P/C 0.42 is very bullish; unusual calls detected at +7% to +13% OTM.</li>
+        <li>News sentiment is bullish: 4 positive, 0 negative, 2 neutral articles in the 7-day MCP feed.</li>
+        <li>Earnings risk is low with next earnings listed for 2026-07-16.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is only WEAK_LONG, LOW confidence, net +1.</li>
+        <li>Stochastic is overbought, EPS acceleration is decelerating, and revenue is currently inflecting negative despite strong historical metrics.</li>
+        <li>DAOI shows sell-on-rally dealer bias; gamma wall near $310 may act as resistance.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Relative-strength tool returned incomplete SPY/sector comparisons for this call, so use report 30-day return and tool synthesis rather than a precise RS ratio.</p>
+    <h3>3. Rolls-Royce Holdings (RR.L)</h3>
+    <p><strong>Verdict:</strong> High-potential long, but less actionable than CW/GE because event, sizing, and options data are incomplete.</p>
+    <p><strong>Setup:</strong> Entry around 1191, target 1346, stop 1057.59. Treat as a trend-following stock/ADR/local-market setup unless local options liquidity is confirmed separately.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Trade recommendation: LONG_CALL, HIGH confidence, net +5.</li>
+        <li>Fundamentals: composite 8, strong compounder, 16.2% 3Y revenue CAGR, 15.3% operating margin, 23.4% FCF margin.</li>
+        <li>Operating margin trend is expanding strongly at +8.2%.</li>
+        <li>Synthesis flagged bullish MACD, relative outperformance, and moderately positive news.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Earnings date is unknown in the MCP feed.</li>
+        <li>Quarterly revenue and EPS acceleration data were insufficient.</li>
+        <li>Options context is sparse; average IV and contract costs were not reliable for position sizing.</li>
+        <li>A shooting-star candle warning appeared in synthesis.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Several U.S.-centric tools return sparse data for London listings; missing data was not treated as bearish.</p>
+    <h3>4. BWX Technologies (BWXT)</h3>
+    <p><strong>Verdict:</strong> Moderate contrarian setup. Interesting, but wait for VWAP reclaim or MACD repair before treating it as fully actionable.</p>
+    <p><strong>Setup:</strong> Entry around $204, target $240, technical stop $195.57, trailing stop 11.0%. Better entry comes after a reclaim of VWAP near $219.61 or a move through the gamma wall near $210 with volume.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Composite score 7, solid, with 12.7% 3Y revenue CAGR and 20.7% FCF margin.</li>
+        <li>Relative strength is excellent: leader, +57.9 pp vs SPY over 12 months.</li>
+        <li>News sentiment is bullish: 5 positive, 0 negative, 2 neutral articles.</li>
+        <li>Options baseline gives long_score 8: bullish P/C, put unwinding, extreme-fear IV, and medium short-squeeze potential.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is WEAK_LONG with LOW confidence.</li>
+        <li>Technicals are not confirmed: price is 11 bars below VWAP and MACD is bearish.</li>
+        <li>Spread environment is elevated; revenue trajectory is inflecting negative and margin trend is contracting.</li>
+        <li>No unusual call activity was detected.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Short interest is only medium squeeze potential, not a primary thesis.</p>
+    <h3>5. General Dynamics (GD)</h3>
+    <p><strong>Verdict:</strong> High-quality watchlist name, but not an entry right now.</p>
+    <p><strong>Setup:</strong> No new buy. If already held, use $330.34 as the technical stop reference and 5.5% as the calibrated trailing stop. For a new entry, wait for put pressure to fade or for a clean breakout above recent resistance.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Composite score 7, solid; valuation is cheap and 12-month momentum score is strong.</li>
+        <li>Technicals: bullish MACD, 9 bars above VWAP, RSI 55.</li>
+        <li>News sentiment is bullish: 8 positive, 0 negative, 2 neutral articles.</li>
+        <li>Short interest is low and liquidity range is normal.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is SKIP with net score 0.</li>
+        <li>Fresh put buying is present despite a bullish total P/C.</li>
+        <li>DAOI shows sell-on-rally dealer bias and gamma wall is below price near $300.</li>
+        <li>Revenue is inflecting negative; volume exhaustion warning appeared in synthesis.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Dark-pool proxy showed mixed block flow, not confirmed accumulation.</p>
+    <h3>6. Safran (SAF.PA)</h3>
+    <p><strong>Verdict:</strong> Fundamentally attractive but tactically weaker; only actionable after confirmation.</p>
+    <p><strong>Setup:</strong> Entry around 280.7, target 321.19, stop 248.1. Wait for relative strength to improve and negative news pressure to fade before sizing meaningfully.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Composite score 8, strong compounder; cheap valuation, strong FCF margin, and 16.9% 3Y revenue CAGR.</li>
+        <li>MACD bullish and spread was narrowing in synthesis.</li>
+        <li>Risk/reward from synthesis was 1.24, positive but not compelling.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is WEAK_LONG, LOW confidence, net +1.</li>
+        <li>News sentiment in synthesis was moderately negative.</li>
+        <li>Relative strength was weak versus SPY in the synthesis result.</li>
+        <li>Quarterly growth and EPS acceleration data were insufficient in the MCP fundamental profile.</li>
+        <li>Local-listing options data is sparse.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Earnings date is unknown; treat event risk as unresolved.</p>
+    <h3>7. Aselsan (ASELS.IS)</h3>
+    <p><strong>Verdict:</strong> Do not chase. Keep on watch for a reset despite excellent long-term momentum.</p>
+    <p><strong>Setup:</strong> No entry after a 30.61% 30-day move. Reassess after a pullback, higher-low pattern, or MACD bullish recross.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Composite score 9 with full coverage: 39.2% 3Y revenue CAGR, 20.6% operating margin, 37.4% FCF margin.</li>
+        <li>Relative strength is extreme: +167.2 pp vs SPY over 12 months.</li>
+        <li>Liquidity spread was narrowing in synthesis.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is SKIP, net -2.</li>
+        <li>RSI 67 is near overbought, MACD is bearish, and a shooting-star candle appeared.</li>
+        <li>Volume analysis detected a bullish-exhaustion top on 2026-04-13.</li>
+        <li>Revenue trajectory is inflecting negative and earnings acceleration is mixed.</li>
+        <li>News and earnings data are unavailable in the MCP feed.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> Turkey listing data is thinner across U.S.-centric options/news tools.</p>
+    <h3>8. Hensoldt (HAG.DE)</h3>
+    <p><strong>Verdict:</strong> Least actionable. The score is solid, but the trade setup is not ready.</p>
+    <p><strong>Setup:</strong> No entry. Wait for spread normalization, VWAP reclaim, and a confirmed higher-low pattern before revisiting.</p>
+    <p><strong>Bullish evidence:</strong></p>
+    <ul>
+        <li>Composite score 7 with cheap valuation, 15.0% 3Y revenue CAGR, and 21.1% FCF margin.</li>
+        <li>Stochastic is oversold and a weak dragonfly-doji reversal signal appeared.</li>
+        <li>Earnings risk is low with next earnings listed for 2026-07-31.</li>
+    </ul>
+    <p><strong>Risks and blockers:</strong></p>
+    <ul>
+        <li>Trade recommendation is SKIP, LOW confidence, net -1.</li>
+        <li>MACD is bearish and spread is widening, indicating liquidity stress.</li>
+        <li>Relative strength was weak in synthesis.</li>
+        <li>Revenue is inflecting negative and EPS acceleration is decelerating.</li>
+        <li>Options/news data is sparse.</li>
+    </ul>
+    <p><strong>Data limitations:</strong> German listing support is partial; missing options data should be treated as unavailable, not bearish.</p>
+    <h3>Tool Coverage Notes</h3>
+    <ul>
+        <li>Primary synthesis used get_trade_recommendation with $10,000 capital across all eight symbols.</li>
+        <li>Fundamental profiles were collected for all eight symbols via get_full_fundamental_profile.</li>
+        <li>Options, DAOI, short interest, bid/ask spread, stop-loss, and unusual-call details were strongest for U.S.-listed GE, CW, BWXT, and GD; non-U.S. listings often returned sparse options/news data.</li>
+        <li>A wide parallel technical batch hit an OS too-many-open-files limit in the stock-price MCP server, so lower-level technical detail relies on successful targeted calls and the already-collected synthesis output.</li>
+    </ul>
+    <!-- END DEEP ACTIONABILITY ANALYSIS -->
+
+
+<script>
+function sortTable(table_id, column_number, is_numeric = false) {
+  const table = document.getElementById(table_id);
+  let switching = true;
+  let dir = "asc";
+  let switchcount = 0;
+
+  const parseNumeric = (text) => {
+    const normalized = text.replace(/[$,%\s]/g, "").replace(/,/g, "");
+    return parseFloat(normalized);
+  };
+
+  while (switching) {
+    switching = false;
+    const rows = table.rows;
+    let shouldSwitch = false;
+    let switchIndex = -1;
+
+    for (let i = 1; i < rows.length - 1; i++) {
+      const xCell = rows[i].getElementsByTagName("TD")[column_number];
+      const yCell = rows[i + 1].getElementsByTagName("TD")[column_number];
+      const xText = xCell ? xCell.textContent.trim() : "";
+      const yText = yCell ? yCell.textContent.trim() : "";
+
+      let comparison;
+      if (is_numeric) {
+        const xVal = parseNumeric(xText);
+        const yVal = parseNumeric(yText);
+        comparison = (!isNaN(xVal) && !isNaN(yVal)) ? xVal - yVal : xText.localeCompare(yText);
+      } else {
+        comparison = xText.localeCompare(yText);
+      }
+
+      if ((dir === "asc" && comparison > 0) || (dir === "desc" && comparison < 0)) {
+        shouldSwitch = true;
+        switchIndex = i;
+        break;
+      }
+    }
+
+    if (shouldSwitch && switchIndex !== -1) {
+      rows[switchIndex].parentNode.insertBefore(rows[switchIndex + 1], rows[switchIndex]);
+      switching = true;
+      switchcount++;
+    } else if (switchcount === 0 && dir === "asc") {
+      dir = "desc";
+      switching = true;
+    }
+  }
+}
+</script>
+
+</body>
+</html>

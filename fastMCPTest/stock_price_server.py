@@ -9,6 +9,10 @@ import yfinance as yf
 from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
 from options_store import OptionsStore
+from options_contract_tools import (
+    get_option_contracts_data,
+    price_vertical_spread_data,
+)
 from market_analysis_server import get_short_interest, get_dark_pool, get_bid_ask_spread
 from company_fundamentals_server import (
     get_earnings_calendar,
@@ -335,12 +339,13 @@ def get_full_options_chain(symbol: str) -> dict:
         })
         total_contracts += len(calls_data["contracts"]) + len(puts_data["contracts"])
 
-    _options_store.save_full_chain(
+    snapshot_id = _options_store.save_full_chain(
         symbol=symbol.upper(),
         price=price,
         bollinger_bands=bollinger_bands,
         expirations_data=expirations_data,
     )
+    persisted = snapshot_id is not None
 
     return {
         "symbol":           symbol.upper(),
@@ -350,7 +355,80 @@ def get_full_options_chain(symbol: str) -> dict:
         "expiration_count": len(expirations_data),
         "total_contracts":  total_contracts,
         "expirations":      [e["expiration"] for e in expirations_data],
+        "snapshot_id":      snapshot_id,
+        "persisted":        persisted,
+        "storage_warning":  None if persisted else "Snapshot was not inserted; a duplicate timestamp may already exist.",
     }
+
+
+@mcp.tool()
+def get_option_contracts(
+    symbol: str,
+    expirations: list[str],
+    strikes: list[float],
+    kind: str = "call",
+    max_snapshot_age_minutes: int = 15,
+    allow_live_fetch: bool = True,
+) -> dict:
+    """Return specific option contracts by expiration and strike.
+
+    Uses the latest cached full-chain snapshot first. If the cache is missing,
+    stale, or incomplete and allow_live_fetch is True, fetches the live full
+    chain, persists it, and returns the requested contracts.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'CRDO')
+        expirations: Expiration dates in YYYY-MM-DD format
+        strikes: Option strikes to retrieve
+        kind: 'call' or 'put'
+        max_snapshot_age_minutes: Cache freshness window before live refresh
+        allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
+    """
+    return get_option_contracts_data(
+        symbol=symbol,
+        expirations=expirations,
+        strikes=strikes,
+        kind=kind,
+        max_snapshot_age_minutes=max_snapshot_age_minutes,
+        allow_live_fetch=allow_live_fetch,
+        store=_options_store,
+    )
+
+
+@mcp.tool()
+def price_vertical_spread(
+    symbol: str,
+    expiration: str,
+    long_strike: float,
+    short_strike: float,
+    kind: str = "call",
+    max_snapshot_age_minutes: int = 15,
+    allow_live_fetch: bool = True,
+) -> dict:
+    """Price an exact two-leg vertical spread from full-chain contracts.
+
+    Returns conservative bid/ask debit, mid-debit estimate, max profit/loss,
+    breakeven, risk/reward, leg liquidity, source, and cache/persistence status.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'CRDO')
+        expiration: Expiration date in YYYY-MM-DD format
+        long_strike: Strike of the long option leg
+        short_strike: Strike of the short option leg
+        kind: 'call' for call verticals or 'put' for put verticals
+        max_snapshot_age_minutes: Cache freshness window before live refresh
+        allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
+    """
+    return price_vertical_spread_data(
+        symbol=symbol,
+        expiration=expiration,
+        long_strike=long_strike,
+        short_strike=short_strike,
+        kind=kind,
+        max_snapshot_age_minutes=max_snapshot_age_minutes,
+        allow_live_fetch=allow_live_fetch,
+        store=_options_store,
+    )
 
 
 @mcp.tool()

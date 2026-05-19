@@ -1424,3 +1424,10 @@
     - Robotics Components
     - Intelligent Power
     - Actuator Valves
+
+- name: Postal Realty Trust, Inc.
+  symbol: PSTL
+  currency: USD
+  tags:
+    - REIT
+    - Industrial Real Estate

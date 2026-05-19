@@ -30,6 +30,10 @@ from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
 
 from options_store import OptionsStore
+from options_contract_tools import (
+    get_option_contracts_data,
+    price_vertical_spread_data,
+)
 
 # News sentiment integration (optional — gracefully skipped if not available)
 try:
@@ -41,6 +45,14 @@ except ImportError:
 
 
 mcp = FastMCP("options-analysis-server")
+_shared_options_store: Optional[OptionsStore] = None
+
+
+def _get_shared_options_store() -> OptionsStore:
+    global _shared_options_store
+    if _shared_options_store is None:
+        _shared_options_store = OptionsStore()
+    return _shared_options_store
 
 
 # ---------------------------------------------------------------------------
@@ -1459,6 +1471,59 @@ def analyze_options_symbol(symbol: str, puts_budget: float = 1000.0, top_n: int 
     """Analyze a single symbol using the same scoring rules as the watchlist run."""
     entry = {"symbol": symbol.upper(), "name": symbol.upper(), "tags": []}
     return _run_analysis([entry], puts_budget=puts_budget, top_n=top_n)
+
+
+@mcp.tool()
+def get_option_contracts(
+    symbol: str,
+    expirations: list[str],
+    strikes: list[float],
+    kind: str = "call",
+    max_snapshot_age_minutes: int = 15,
+    allow_live_fetch: bool = True,
+) -> dict:
+    """Return specific option contracts by expiration and strike.
+
+    Uses the latest cached full-chain snapshot first. If the cache is missing,
+    stale, or incomplete and allow_live_fetch is True, fetches the live full
+    chain, persists it, and returns the requested contracts.
+    """
+    return get_option_contracts_data(
+        symbol=symbol,
+        expirations=expirations,
+        strikes=strikes,
+        kind=kind,
+        max_snapshot_age_minutes=max_snapshot_age_minutes,
+        allow_live_fetch=allow_live_fetch,
+        store=_get_shared_options_store(),
+    )
+
+
+@mcp.tool()
+def price_vertical_spread(
+    symbol: str,
+    expiration: str,
+    long_strike: float,
+    short_strike: float,
+    kind: str = "call",
+    max_snapshot_age_minutes: int = 15,
+    allow_live_fetch: bool = True,
+) -> dict:
+    """Price an exact two-leg vertical spread from full-chain contracts.
+
+    Returns conservative bid/ask debit, mid-debit estimate, max profit/loss,
+    breakeven, risk/reward, leg liquidity, source, and cache/persistence status.
+    """
+    return price_vertical_spread_data(
+        symbol=symbol,
+        expiration=expiration,
+        long_strike=long_strike,
+        short_strike=short_strike,
+        kind=kind,
+        max_snapshot_age_minutes=max_snapshot_age_minutes,
+        allow_live_fetch=allow_live_fetch,
+        store=_get_shared_options_store(),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -2026,7 +2026,7 @@ def get_delta_adjusted_oi(
         signal = "none"
         signal_note = "MM net long delta — selling pressure on rallies. Not a bounce setup."
 
-    return {
+    result = {
         "symbol":              symbol.upper(),
         "price":               round(price, 2),
         "expirations_scanned": [s["expiration"] for s in expiry_summaries],
@@ -2042,6 +2042,48 @@ def get_delta_adjusted_oi(
         "signal":              signal,
         "signal_note":         signal_note,
         "by_expiration":       expiry_summaries,
+    }
+
+    _options_store.save_gamma_wall(symbol.upper(), result)
+    return result
+
+@mcp.tool()
+def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
+    """
+    Return historical daily gamma wall strike and MM hedge bias snapshots for a symbol.
+
+    Data is auto-collected whenever get_delta_adjusted_oi() is called — no manual
+    collection step needed. One row per calendar day; post-close (4:15pm+ ET) calls
+    overwrite intraday calls so settled EOD open interest is always stored.
+
+    INTENDED USE — post-hoc analysis only:
+      - Did price pin near the gamma wall on expiration Fridays?
+      - How did the gamma wall shift after monthly OpEx events?
+      - Is the MM hedge bias (buy_on_rally vs sell_on_rally) persistent for this symbol?
+
+    NOT intended for:
+      - Predicting future gamma wall levels (past values have weak autocorrelation)
+      - Making hold/sell decisions on multi-week equity positions
+      - Replacing VWAP or relative-strength trend analysis
+
+    Note: this implementation uses |delta × OI| as a GEX proxy, not true Black-Scholes
+    gamma. It provides directional intuition but is not institutional-grade precision.
+
+    Args:
+        symbol: Ticker symbol (e.g. "MSFT")
+        since_days: Number of calendar days of history to return (default 90)
+
+    Returns:
+        dict with keys: symbol, since_days, data_points, history (list of daily rows), note
+    """
+    symbol = symbol.upper().strip()
+    rows = _options_store.get_gamma_wall_history(symbol, since_days)
+    return {
+        "symbol": symbol,
+        "since_days": since_days,
+        "data_points": len(rows),
+        "history": rows,
+        "note": "One row per calendar day. Data accumulates from first call after tracking was enabled." if rows else "No history yet — call get_delta_adjusted_oi() daily to build history.",
     }
 
 @mcp.tool()
@@ -2453,6 +2495,157 @@ _SECTOR_ETF_MAP: dict[str, str] = {
     "Real Estate":            "XLRE",
     "Utilities":              "XLU",
 }
+
+
+def _get_sector_etf(symbol: str) -> str:
+    """
+    Determine the sector ETF for a symbol. Defaults to 'XLK' if not found.
+    """
+    try:
+        info = yf.Ticker(symbol.upper()).info or {}
+        sector = info.get("sector")
+        return _SECTOR_ETF_MAP.get(sector or "", "XLK")
+    except Exception:
+        return "XLK"
+
+
+@mcp.tool()
+def get_vwap_history(symbol: str, since_days: int = 90, lookback: int = 20, interval: str = "1d") -> dict:
+    """
+    Return historical daily VWAP values computed from cached OHLCV data.
+
+    VWAP is computed as a rolling sum(close × volume) / sum(volume) over `lookback` bars,
+    matching the same formula used by get_vwap(). Because all price/volume data lives in
+    ohlcv_cache.db, this tool can backfill up to 2 years of history with no network calls.
+
+    INTENDED USE — trend analysis for multi-week equity holds:
+      - Is price sustaining above VWAP (healthy uptrend) or repeatedly failing at it?
+      - When did the most recent VWAP reclaim/breakdown occur?
+      - Compare VWAP position across your hold period to assess trend quality
+
+    Each row includes: date, close, vwap, distance_pct ((close-vwap)/vwap×100),
+    position ('above_vwap' / 'below_vwap').
+
+    Args:
+        symbol: Ticker symbol (e.g. "MSFT")
+        since_days: Number of calendar days of history to return (default 90)
+        lookback: Rolling window for VWAP calculation in bars (default 20)
+        interval: Bar interval — '1d' daily (default), '1wk' weekly, '1mo' monthly
+
+    Returns:
+        dict with keys: symbol, lookback_bars, data_points, history (list of daily rows)
+    """
+    symbol = symbol.upper().strip()
+    # Fetch enough extra bars to seed the first rolling window
+    fetch_days = since_days + lookback + 5
+    df = get_history(symbol, interval=interval, days=fetch_days)
+    if df is None or df.empty:
+        return {"symbol": symbol, "error": "No OHLCV data in cache", "history": []}
+
+    df = df.sort_index()
+    df["vwap"] = (df["Close"] * df["Volume"]).rolling(lookback).sum() / df["Volume"].rolling(lookback).sum()
+    df = df.dropna(subset=["vwap"]).tail(since_days)
+
+    history = [
+        {
+            "date": idx.strftime("%Y-%m-%d"),
+            "close": round(row["Close"], 2),
+            "vwap": round(row["vwap"], 2),
+            "distance_pct": round((row["Close"] - row["vwap"]) / row["vwap"] * 100, 2),
+            "position": "above_vwap" if row["Close"] >= row["vwap"] else "below_vwap",
+        }
+        for idx, row in df.iterrows()
+    ]
+    return {"symbol": symbol, "lookback_bars": lookback, "data_points": len(history), "history": history}
+
+
+@mcp.tool()
+def get_relative_strength_history(symbol: str, since_days: int = 90, rs_period: int = 21, interval: str = "1d") -> dict:
+    """
+    Return historical daily relative strength vs SPY, QQQ, and the symbol's sector ETF.
+
+    RS is computed as the symbol's trailing `rs_period`-bar return minus the benchmark's
+    return over the same period. Positive = outperforming, negative = underperforming.
+    All data comes from ohlcv_cache.db — no network calls if benchmarks are cached.
+
+    INTENDED USE — essential for multi-week equity holds:
+      - Is relative strength improving (rotation into this stock) or deteriorating?
+      - Identify when a stock transitions from laggard to outperformer
+      - Spot early divergence: stock price rising but RS falling = weak rally
+
+    Each row includes: date, close, return_pct (trailing rs_period bars), rs_vs_spy,
+    rs_vs_qqq, rs_vs_sector, rs_label ('leader'/'outperforming'/'neutral'/'laggard'/'weak').
+
+    Note: sector ETF is looked up from the symbol's cached sector tag. If the sector ETF
+    is not in ohlcv_cache.db, rs_vs_sector will be null for that row.
+
+    Args:
+        symbol: Ticker symbol (e.g. "MSFT")
+        since_days: Number of calendar days of history to return (default 90)
+        rs_period: Rolling window for return calculation in bars (default 21 = ~1 month)
+        interval: Bar interval — '1d' daily (default), '1wk' weekly, '1mo' monthly
+
+    Returns:
+        dict with keys: symbol, rs_period_bars, sector_etf, data_points, history
+    """
+    import pandas as pd
+    symbol = symbol.upper().strip()
+    fetch_days = since_days + rs_period + 10
+    sym_df  = get_history(symbol, interval=interval, days=fetch_days)
+    spy_df  = get_history("SPY",  interval=interval, days=fetch_days)
+    qqq_df  = get_history("QQQ",  interval=interval, days=fetch_days)
+    if sym_df is None or sym_df.empty or spy_df is None or spy_df.empty:
+        return {"symbol": symbol, "error": "Insufficient OHLCV data in cache", "history": []}
+
+    # Determine sector ETF
+    sector_etf = _get_sector_etf(symbol)
+    sec_df = get_history(sector_etf, interval=interval, days=fetch_days) if sector_etf else None
+
+    def rolling_return(df):
+        closes = df["Close"]
+        return closes.pct_change(rs_period) * 100   # trailing rs_period-bar % return
+
+    sym_ret  = rolling_return(sym_df)
+    spy_ret  = rolling_return(spy_df)
+    qqq_ret  = rolling_return(qqq_df)
+    sec_ret  = rolling_return(sec_df) if sec_df is not None and not sec_df.empty else None
+
+    aligned = sym_ret.to_frame("sym").join(spy_ret.rename("spy")).join(qqq_ret.rename("qqq"))
+    if sec_ret is not None:
+        aligned = aligned.join(sec_ret.rename("sec"))
+    aligned = aligned.dropna(subset=["sym", "spy", "qqq"]).tail(since_days)
+
+    def rs_label(vs_spy, vs_qqq):
+        avg = (vs_spy + vs_qqq) / 2
+        if avg >= 5:   return "leader"
+        if avg >= 1:   return "outperforming"
+        if avg >= -1:  return "neutral"
+        if avg >= -5:  return "laggard"
+        return "weak"
+
+    history = []
+    for idx, row in aligned.iterrows():
+        close = sym_df.loc[sym_df.index <= idx, "Close"].iloc[-1] if idx in sym_df.index else None
+        vs_spy = round(row["sym"] - row["spy"], 2)
+        vs_qqq = round(row["sym"] - row["qqq"], 2)
+        vs_sec = round(row["sym"] - row.get("sec"), 2) if "sec" in row and pd.notna(row.get("sec")) else None
+        history.append({
+            "date": idx.strftime("%Y-%m-%d"),
+            "close": round(close, 2) if close else None,
+            "return_pct": round(row["sym"], 2),
+            "rs_vs_spy": vs_spy,
+            "rs_vs_qqq": vs_qqq,
+            "rs_vs_sector": vs_sec,
+            "sector_etf": sector_etf,
+            "rs_label": rs_label(vs_spy, vs_qqq),
+        })
+    return {
+        "symbol": symbol,
+        "rs_period_bars": rs_period,
+        "sector_etf": sector_etf,
+        "data_points": len(history),
+        "history": history,
+    }
 
 
 @mcp.tool()

@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import pickle
 import sys
+from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -384,6 +385,63 @@ def build_historical_summary(
         if not math.isnan(safe_float(s.get("mark_to_close_mid")))
     ]
 
+    snapshots_by_day: Dict[str, list[Dict[str, Any]]] = defaultdict(list)
+    for item in snapshots:
+        timestamp = str(item.get("timestamp_utc", ""))
+        try:
+            day = datetime.fromisoformat(timestamp).date().isoformat()
+        except Exception:
+            day = timestamp[:10] or "unknown"
+        snapshots_by_day[day].append(item)
+
+    daily_rows = []
+    for day in sorted(snapshots_by_day):
+        day_snapshots = sorted(
+            snapshots_by_day[day],
+            key=lambda item: str(item.get("timestamp_utc", "")),
+        )
+        last = day_snapshots[-1]
+        max_profit = safe_float(last.get("max_profit"))
+        if math.isnan(max_profit) or max_profit <= 0:
+            max_profit = safe_float(snapshot.max_profit)
+
+        def profit_capture(item: Dict[str, Any]) -> float:
+            pnl = safe_float(item.get("current_pnl_mid"))
+            if math.isnan(pnl) or math.isnan(max_profit) or max_profit <= 0:
+                return float("-inf")
+            return pnl / max_profit
+
+        best = max(day_snapshots, key=profit_capture)
+        worst = min(day_snapshots, key=profit_capture)
+        best_capture = profit_capture(best)
+        last_capture = profit_capture(last)
+
+        if best_capture >= 0.60:
+            flag = ">>> 60%+ PROFIT"
+        elif best_capture >= 0.50:
+            flag = "!! 50%+ PROFIT"
+        else:
+            flag = ""
+
+        daily_rows.append(
+            {
+                "date": day,
+                "runs": len(day_snapshots),
+                "last_time_utc": str(last.get("timestamp_utc", ""))[11:19],
+                "last_stock_price": safe_float(last.get("stock_price")),
+                "last_close_debit_mid": safe_float(last.get("mark_to_close_mid")),
+                "last_pnl_mid": safe_float(last.get("current_pnl_mid")),
+                "last_profit_capture": last_capture,
+                "best_pnl_mid": safe_float(best.get("current_pnl_mid")),
+                "best_profit_capture": best_capture,
+                "worst_pnl_mid": safe_float(worst.get("current_pnl_mid")),
+                "worst_profit_capture": profit_capture(worst),
+                "best_close_debit_mid": safe_float(best.get("mark_to_close_mid")),
+                "status": str(last.get("status", "")),
+                "flag": flag,
+            }
+        )
+
     return {
         "run_count": len(snapshots),
         "days_to_expiration": days_to_expiration(snapshot.expiration),
@@ -393,6 +451,7 @@ def build_historical_summary(
         "lowest_stock_price": min(stock_values) if stock_values else float("nan"),
         "lowest_close_debit_mid": min(close_debit_values) if close_debit_values else float("nan"),
         "highest_close_debit_mid": max(close_debit_values) if close_debit_values else float("nan"),
+        "daily_rows": daily_rows,
     }
 
 
@@ -637,6 +696,34 @@ def print_snapshot(
     print(f"Lowest close debit seen:    ${historical_summary['lowest_close_debit_mid']:,.2f}")
     print(f"Highest close debit seen:   ${historical_summary['highest_close_debit_mid']:,.2f}")
     print()
+
+    daily_rows = historical_summary.get("daily_rows", [])
+    if daily_rows:
+        print("Historical profit table")
+        print("-" * 112)
+        print(
+            f"{'Date':<12} {'Runs':>4} {'Stock':>9} {'Close':>8} "
+            f"{'Last P/L':>11} {'Last %':>8} {'Best P/L':>11} {'Best %':>8}  Flag"
+        )
+        print("-" * 112)
+
+        for row in daily_rows:
+            flag = row.get("flag", "")
+            print(
+                f"{row['date']:<12} "
+                f"{row['runs']:>4} "
+                f"${row['last_stock_price']:>8.2f} "
+                f"${row['last_close_debit_mid']:>7.2f} "
+                f"{format_money(row['last_pnl_mid']):>11} "
+                f"{row['last_profit_capture']:>7.1%} "
+                f"{format_money(row['best_pnl_mid']):>11} "
+                f"{row['best_profit_capture']:>7.1%}  "
+                f"{flag}"
+            )
+
+        print()
+        print("Flag legend: !! = best daily profit exceeded 50%; >>> = best daily profit exceeded 60%.")
+        print()
 
     if prior:
         prior_price = safe_float(prior.get("stock_price"))

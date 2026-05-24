@@ -233,6 +233,41 @@ The `company-fundamentals-server` now features a persistent SQLite cache layer t
 
 For full implementation details, see [docs/FUNDAMENTALS_CACHE_IMPLEMENTATION.md](docs/FUNDAMENTALS_CACHE_IMPLEMENTATION.md).
 
+### Historical Trend Tools
+
+Three MCP tools expose historical views of key technical metrics to support multi-week position monitoring. They differ in how their history is sourced:
+
+| Tool | Source | Backfill |
+|------|--------|----------|
+| `get_vwap_history(symbol, since_days=90)` | Computed from `ohlcv_cache.db` | Up to 2 years |
+| `get_relative_strength_history(symbol, since_days=90)` | Computed from `ohlcv_cache.db` | Up to 2 years |
+| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in `options_chain.db` | Forward-only from first call |
+
+#### VWAP History
+
+Rolling 20-day VWAP computed at each historical date. Use this to answer:
+- Is price sustaining above VWAP (healthy uptrend) or repeatedly failing at it?
+- When did the most recent VWAP reclaim or breakdown occur across the hold period?
+
+Returns each row with: date, close, vwap, distance_pct, position (above/below VWAP).
+
+#### Relative Strength History
+
+Rolling 21-day returns for the symbol vs SPY, QQQ, and the symbol's sector ETF. This is the **most actionable metric for multi-week equity holds**:
+- Improving RS = rotation into this stock — favorable tailwind
+- Deteriorating RS while price rises = weak rally, easy to reverse
+- Transition from laggard → outperformer often precedes sustained moves
+
+Returns each row with: date, close, return_pct, rs_vs_spy, rs_vs_qqq, rs_vs_sector, rs_label (leader/outperforming/neutral/laggard/weak).
+
+#### Gamma Wall History
+
+The strike with the highest `|delta × OI|` concentration, **auto-persisted on every call to `get_delta_adjusted_oi()`**. History builds passively — no cron job needed. A post-close call (4:15pm+ ET) overwrites any earlier intraday call so settled EOD open interest is stored.
+
+Gamma wall is an **intraday and weekly tool** used by professional services (SpotGamma, Tier1Alpha) to identify price pinning zones and MM hedging flows around expirations. It is **not** designed for multi-week equity decisions. Primary use of historical data: post-hoc analysis ("did price pin at the gamma wall on OpEx Fridays?").
+
+Our implementation uses `max(|delta × OI|)` as a GEX proxy — directional intuition, not institutional-grade precision.
+
 ### Trade Recommendations (`get_trade_recommendation`)
 
 The flagship tool of the MCP layer. Given a stock symbol and available capital, it runs **13 independent signals** in parallel, scores each one as bullish or bearish, and produces a single actionable recommendation with entry price, target, stop loss, position size, and risk/reward ratio.

@@ -104,6 +104,35 @@ CREATE TABLE IF NOT EXISTS options_contracts (
 
 CREATE INDEX IF NOT EXISTS idx_contracts_expiration
     ON options_contracts (expiration_id, kind);
+
+-- Gamma Wall History
+-- Stores one row per symbol per calendar date, auto-written by get_delta_adjusted_oi().
+-- Gamma wall is an intraday/weekly metric driven by options open interest concentration.
+-- Use this table for post-hoc analysis (e.g., did price pin at gamma wall on OpEx Fridays?)
+-- NOT for driving multi-week equity hold/sell decisions — see VWAP and relative strength for that.
+-- OI only settles once per day; for best accuracy capture after 4:15pm ET (INSERT OR REPLACE
+-- means a post-close call overwrites any earlier intraday call for the same date).
+CREATE TABLE IF NOT EXISTS gamma_wall_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol              TEXT    NOT NULL,
+    date_only           TEXT    NOT NULL,         -- YYYY-MM-DD format (date part of captured_at)
+    captured_at         TEXT    NOT NULL,         -- ISO-8601 UTC
+    price               REAL    NOT NULL,
+    gamma_wall_strike   REAL,
+    delta_flip_strike   REAL,
+    dist_to_flip_pct    REAL,
+    net_daoi_shares     REAL,
+    call_daoi_shares    REAL,
+    put_daoi_shares     REAL,
+    mm_hedge_bias       TEXT,
+    signal              TEXT,
+    expirations_scanned TEXT,                     -- JSON array string
+    payload             TEXT,                     -- full JSON blob
+    UNIQUE(symbol, date_only)                     -- one row per symbol per calendar day
+);
+
+CREATE INDEX IF NOT EXISTS idx_gamma_wall_symbol_date
+    ON gamma_wall_history (symbol, date_only DESC);
 """
 
 
@@ -392,6 +421,93 @@ class OptionsStore:
                     )
 
         return snapshot_id
+
+    def save_gamma_wall(self, symbol: str, result: dict) -> None:
+        """
+        Persist one daily gamma wall snapshot. Last write of the day wins (INSERT OR REPLACE)
+        so a post-close capture (4:15pm+ ET) overwrites any earlier intraday call.
+
+        Parameters
+        ----------
+        symbol : ticker, e.g. "MSFT"
+        result : dict from get_delta_adjusted_oi(), containing:
+                 price, gamma_wall_strike, delta_flip_strike, dist_to_flip_pct,
+                 net_daoi_shares, call_daoi_shares, put_daoi_shares,
+                 mm_hedge_bias, signal, expirations_scanned, and full payload
+        """
+        import json
+        symbol = symbol.upper()
+        captured_at = self._now_utc()
+        date_only = captured_at[:10]  # Extract YYYY-MM-DD
+
+        with closing(self._connect()) as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO gamma_wall_history
+                (symbol, date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
+                 dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
+                 mm_hedge_bias, signal, expirations_scanned, payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                symbol,
+                date_only,
+                captured_at,
+                result.get("price"),
+                result.get("gamma_wall_strike"),
+                result.get("delta_flip_strike"),
+                result.get("dist_to_flip_pct"),
+                result.get("net_daoi_shares"),
+                result.get("call_daoi_shares"),
+                result.get("put_daoi_shares"),
+                result.get("mm_hedge_bias"),
+                result.get("signal"),
+                json.dumps(result.get("expirations_scanned", [])),
+                json.dumps(result),
+            ))
+            conn.commit()
+
+    def get_gamma_wall_history(self, symbol: str, since_days: int = 90) -> list[dict]:
+        """
+        Return daily gamma wall snapshots for `symbol` over the past `since_days` days.
+
+        Returns a list of dicts ordered by date_only ASC:
+            [{
+                date, captured_at, price, gamma_wall_strike, delta_flip_strike,
+                dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
+                mm_hedge_bias, signal, expirations_scanned
+            }, ...]
+        """
+        import json
+        from datetime import timedelta
+        symbol = symbol.upper()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%d")
+
+        with closing(self._connect()) as conn:
+            rows = conn.execute("""
+                SELECT date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
+                       dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
+                       mm_hedge_bias, signal, expirations_scanned
+                FROM gamma_wall_history
+                WHERE symbol = ? AND date_only >= ?
+                ORDER BY date_only ASC
+            """, (symbol, cutoff)).fetchall()
+
+        return [
+            {
+                "date": r[0],
+                "captured_at": r[1],
+                "price": r[2],
+                "gamma_wall_strike": r[3],
+                "delta_flip_strike": r[4],
+                "dist_to_flip_pct": r[5],
+                "net_daoi_shares": r[6],
+                "call_daoi_shares": r[7],
+                "put_daoi_shares": r[8],
+                "mm_hedge_bias": r[9],
+                "signal": r[10],
+                "expirations_scanned": json.loads(r[11]) if r[11] else [],
+            }
+            for r in rows
+        ]
 
     # ------------------------------------------------------------------
     # Read / backtesting queries

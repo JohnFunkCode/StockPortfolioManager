@@ -2,8 +2,8 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-05-15  
-**MCP Tools:** 38 | **REST Endpoints:** 35+ | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 12
+**Last Updated:** 2026-05-19  
+**MCP Tools:** 42 | **REST Endpoints:** 35+ | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 12
 
 ---
 
@@ -25,7 +25,7 @@ The project exposes capabilities through five distinct surfaces:
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (5 servers) | 38 | `get_stock_price`, `get_trade_recommendation`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest` |
+| MCP Tools (5 servers) | 42 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest` |
 | REST Endpoints | 35+ | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen` |
 | WebUI Pages | 6 | Dashboard, Securities, Security Detail, Plans, Plan Detail, Symbols |
 | CLI Tools | 2 | `collect_options.py` (EOD snapshot), `options_analysis.py` (strategy analysis) |
@@ -66,7 +66,9 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Capability | MCP Tool | REST Endpoint | WebUI | CLI | Standalone |
 |---|---|---|---|---|---|
 | Latest options snapshot (price, P/C ratio, nearest-expiry chains) | `get_stock_price` (embedded) | `GET /api/securities/<ticker>/options/latest` | Securities Detail → Options Chain tab | — | — |
-| Full options chain (all strikes, all expirations) | `get_full_options_chain` (stock_price) | `GET /api/securities/<ticker>/options/chain` | Securities Detail → Options Chain tab | `collect_options.py --symbols AAPL,MSFT` | — |
+| Full options chain (all strikes, all expirations; returns persistence status) | `get_full_options_chain` (stock_price) | `GET /api/securities/<ticker>/options/chain` | Securities Detail → Options Chain tab | `collect_options.py --symbols AAPL,MSFT` | — |
+| Exact option contract lookup by expiry/strike | `get_option_contracts` (stock_price, options_analysis) | — | — | — | — |
+| Vertical spread pricing (debit, max profit/loss, breakeven, liquidity) | `price_vertical_spread` (stock_price, options_analysis) | — | — | — | — |
 | Unusual call sweep detection (vol/OI, aggressive fill, OTM scoring) | `get_unusual_calls` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Delta-Adjusted Open Interest (DAOI, gamma wall, delta flip) | `get_delta_adjusted_oi` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | IV Rank + IV Percentile (365-day) | — | `GET /api/securities/<ticker>/options/iv-rank` | Securities Detail → Options Analytics tab | — | — |
@@ -78,7 +80,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Long call setup analysis | — | — | — | `options_analysis.py --puts-budget 1000` | — |
 | Portfolio delta exposure (aggregated across positions) | — | `GET /api/portfolio/delta-exposure` | Dashboard → market maker delta table | — | — |
 
-**Gaps:** No WebUI page or REST endpoint for `get_relative_strength` or `get_delta_adjusted_oi` standalone.
+**Gaps:** No WebUI page or REST endpoint for `get_relative_strength`, `get_delta_adjusted_oi` standalone, `get_option_contracts`, or `price_vertical_spread`.
 
 ---
 
@@ -223,6 +225,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | News + FinBERT sentiment | `get_news` (MCP, ephemeral) | `collect_news` + `get_news_sentiment` (MCP, persisted to SQLite) | Ephemeral vs persisted; no trend queries on first | Two MCP tools doing similar things; unclear which to use |
 | News fetch + persist | `collect_news` (MCP) | `experiments/YahooNewsReader/RSSReaderExperiment.py` | JSON file vs SQLite; experiment is outdated | Experiment is legacy; use MCP tool instead |
 | Options chain snapshot | `get_full_options_chain` (MCP, fetches + stores) | REST `GET /api/securities/<ticker>/options/chain` (reads stored snapshot) | MCP fetches & persists; REST reads from DB | Clean separation: MCP writes, REST reads — no duplication |
+| Exact option contract/spread pricing | `get_option_contracts` + `price_vertical_spread` (MCP, cache-first/live-refresh) | Direct SQL or ad-hoc yfinance commands | MCP tools expose exact contracts and spread math | Use MCP tools; no direct database inspection needed |
 | Options flow signals | `get_unusual_calls` + `get_delta_adjusted_oi` (MCP) | REST `/signals/options-flow` | MCP tools are standalone; REST aggregates both signals | REST is a convenience wrapper; no redundancy |
 | Technical signals | MCP tools (RSI, MACD, VWAP, OBV, etc.) | REST `/signals/technical` | MCP tools are per-symbol; REST returns time series | REST is a convenience wrapper; no redundancy |
 | Portfolio HTML report | `main.py` (reads `portfolio.csv`) | `html_summary.py` (reads `sample_stocks.csv`), `simple_text_summary.py` | Different input files; legacy versions use old CSV | Legacy scripts should be deleted |
@@ -258,7 +261,8 @@ These capabilities exist in only one surface, which can make them hard to find o
 | Dark pool / block trade detection | MCP only | No REST or WebUI equivalent |
 | Short interest + squeeze potential | MCP only | No REST or WebUI equivalent |
 | Bid/ask spread signal | MCP only | No REST or WebUI equivalent |
-| Covered call / put / long setup analysis | CLI only (`options_analysis.py`) | Not exposed to MCP or WebUI |
+| Exact contract lookup and vertical spread pricing | MCP only | No REST or WebUI equivalent; exposed on both stock-price and options-analysis MCP servers |
+| Covered call / put / long setup analysis | CLI only (`options_analysis.py`) | Not exposed to REST or WebUI |
 | Sentiment trend (30-day per-day breakdown) | MCP only | No REST or WebUI equivalent |
 | List symbols with news in DB | MCP only | No REST equivalent |
 | IV Rank + IV Percentile (365-day) | REST only | No MCP equivalent; WebUI-only |
@@ -394,15 +398,16 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 - **REST + WebUI integration:** Technical signals, options data, portfolio/watchlist management are well-surfaced via both REST and WebUI.
 - **OHLCV caching:** `ohlcv_cache.db` is shared across all MCP servers, eliminating redundant yfinance calls.
 - **Harvest ladder:** Fully accessible via REST + WebUI; no gaps.
-- **Options data flow:** Clear separation: MCP tools fetch & store, REST reads from the store.
+- **Options data flow:** MCP tools fetch & store, exact-contract tools can use cache-first/live-refresh, and REST reads from the store.
 
 ### Critical Gaps
 1. **Fundamentals are MCP-only.** All 12 fundamentals MCP tools (scores, revenue, earnings, cache) lack REST endpoints and WebUI panels. The dashboard cannot display fundamental analysis.
 2. **Market microstructure is MCP-only.** Short interest, dark pool, bid/ask spread are powerful signals with zero REST or WebUI exposure.
 3. **Most powerful MCP tools are not surfaced to REST.** `get_trade_recommendation`, `get_stop_loss_analysis`, `get_relative_strength` are LLM-accessible only.
-4. **Database duplication.** OHLCV bars stored twice; news articles stored twice (normalized + JSON blobs).
-5. **`collect_options.py` is broken.** Imports non-existent classes; references wrong database file.
-6. **Two parallel position registries.** Harvester's `positions` table and `portfolio.csv` have no sync mechanism.
+4. **Exact spread tools are MCP-only.** `get_option_contracts` and `price_vertical_spread` solve tactical contract lookup for agents, but REST/WebUI still cannot price exact spreads.
+5. **Database duplication.** OHLCV bars stored twice; news articles stored twice (normalized + JSON blobs).
+6. **`collect_options.py` is broken.** Imports non-existent classes; references wrong database file.
+7. **Two parallel position registries.** Harvester's `positions` table and `portfolio.csv` have no sync mechanism.
 
 ### Recommended Quick Wins
 1. Delete legacy experiments (`RevenueGrowthExperiment.py`, `EarningsAccelerationExperiment.py`, `MaxDrawDownAnalyzer.py`, etc.). They are fully superseded by MCP tools.

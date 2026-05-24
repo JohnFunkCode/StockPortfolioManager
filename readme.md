@@ -200,10 +200,24 @@ A suite of **FastMCP servers** that expose real-time market analysis as tools co
 
 | Server | File | Purpose |
 |--------|------|---------|
-| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, trade recommendations |
+| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, exact spread pricing, trade recommendations |
 | `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
-| `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring and trade building |
+| `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring, exact spread pricing, and trade building |
 | `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
+
+### Exact Options Contract & Spread Pricing
+
+The stock-price and options-analysis MCP servers both expose exact contract lookup and vertical spread pricing tools for tactical options setups. These tools close the gap between broad directional analysis and executable spread evaluation.
+
+**Tools:**
+- `get_option_contracts(symbol, expirations, strikes, kind="call")` — returns specific call or put contracts by expiration and strike, including bid, ask, mid, IV, volume, open interest, moneyness, and bid/ask spread percentage.
+- `price_vertical_spread(symbol, expiration, long_strike, short_strike, kind="call")` — prices a two-leg vertical spread using exact contracts. Returns conservative debit (`long ask - short bid`), mid-debit estimate, max profit, max loss, breakeven, risk/reward, leg details, liquidity label, cache source, and warnings.
+- `get_full_options_chain(symbol)` — still fetches and persists all strikes/all expirations, and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the SQLite cache was updated.
+
+**Data flow:**
+- Exact-contract tools use the latest full-chain SQLite snapshot first.
+- If the cache is missing, stale, or incomplete, they can fetch the live chain from Yahoo Finance, persist it, and retry the lookup.
+- Full-chain writes are explicitly committed, so snapshots fetched by MCP are immediately queryable by later MCP calls and REST/WebUI readers.
 
 ### Fundamentals Cache & Cross-Symbol Analytics
 

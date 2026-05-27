@@ -3538,4 +3538,6 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
 
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

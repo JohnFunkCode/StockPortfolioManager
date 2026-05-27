@@ -1134,4 +1134,6 @@ def get_fundamental_history(symbol: str, data_type: str, since_days: int = 365) 
 
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

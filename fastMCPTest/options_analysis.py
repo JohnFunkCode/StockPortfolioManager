@@ -1536,6 +1536,9 @@ def price_vertical_spread(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    from quantcore.db import init_schema
+    init_schema()
+
     parser = argparse.ArgumentParser(description="Options analysis from watchlist.yaml")
     parser.add_argument(
         "--watchlist",

@@ -129,6 +129,9 @@ def _compute_expected_move(contracts: list[dict], current_price: float):
 # ---------------------------------------------------------------------------
 
 def create_app() -> Flask:
+    from quantcore.db import init_schema
+    init_schema()
+
     app = Flask(__name__)
     app.json = app.json_provider_class(app)
     app.json.ensure_ascii = False

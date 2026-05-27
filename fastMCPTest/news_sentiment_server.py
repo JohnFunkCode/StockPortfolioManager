@@ -221,4 +221,6 @@ def list_news_symbols() -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

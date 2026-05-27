@@ -517,4 +517,6 @@ def get_bid_ask_spread(symbol: str, lookback: int = 20) -> dict:
 
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

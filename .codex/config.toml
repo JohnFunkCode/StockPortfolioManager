@@ -1,0 +1,130 @@
+[mcp_servers.company-fundamentals-server]
+args = [
+    "run",
+    "fastMCPTest/company_fundamentals_server.py",
+]
+command = ".venv/bin/fastmcp"
+
+[mcp_servers.company-fundamentals-server.tools.get_fundamental_scores_batch]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_cache_stats]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_top_fundamental_stocks]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_earnings_calendar]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_full_fundamental_profile]
+approval_mode = "approve"
+
+[mcp_servers.market-analysis-server]
+args = [
+    "run",
+    "fastMCPTest/market_analysis_server.py",
+]
+command = ".venv/bin/fastmcp"
+
+[mcp_servers.market-analysis-server.tools.get_short_interest]
+approval_mode = "approve"
+
+[mcp_servers.market-analysis-server.tools.get_bid_ask_spread]
+approval_mode = "approve"
+
+[mcp_servers.market-analysis-server.tools.get_dark_pool]
+approval_mode = "approve"
+
+[mcp_servers.news-sentiment-server]
+args = [
+    "run",
+    "fastMCPTest/news_sentiment_server.py",
+]
+command = ".venv/bin/fastmcp"
+
+[mcp_servers.news-sentiment-server.tools.get_news_sentiment]
+approval_mode = "approve"
+
+[mcp_servers.news-sentiment-server.tools.collect_news]
+approval_mode = "approve"
+
+[mcp_servers.news-sentiment-server.tools.get_sentiment_trend]
+approval_mode = "approve"
+
+[mcp_servers.options-analysis-server]
+args = [
+    "run",
+    "fastMCPTest/options_analysis.py",
+]
+command = ".venv/bin/fastmcp"
+
+[mcp_servers.options-analysis-server.tools.analyze_options_symbol]
+approval_mode = "approve"
+
+[mcp_servers.options-analysis-server.tools.price_vertical_spread]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server]
+args = [
+    "run",
+    "fastMCPTest/stock_price_server.py",
+]
+command = ".venv/bin/fastmcp"
+
+[mcp_servers.stock-price-server.tools.get_stop_loss_analysis]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_stock_price]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_historical_drawdown]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_trade_recommendation]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_rsi]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_vwap]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_macd]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_higher_lows]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_delta_adjusted_oi]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_candlestick_patterns]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_gap_analysis]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_full_options_chain]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_unusual_calls]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_relative_strength]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_stochastic]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_obv]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_volume_analysis]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.price_vertical_spread]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_option_contracts]
+approval_mode = "approve"

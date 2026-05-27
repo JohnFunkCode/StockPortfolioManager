@@ -15,13 +15,14 @@ Implemented a persistent SQLite-backed cache layer for the `company_fundamentals
 
 ### 1. Cache Layer (`fundamentals_cache.py`)
 
-**Location:** SQLite database at `fastMCPTest/fundamentals_history.db`
+**Location:** SQLite database table `fundamentals_history` in unified QuantCore database (`data/quantcore.sqlite`). Managed by `quantcore/db.get_connection()` connection factory.
 
 **Append-only design:** Each cache miss appends a new row, building a time series for trend analysis.
 
 **Configuration:**
+- `QUANTCORE_DB_PATH` env var (default: `data/quantcore.sqlite`)
 - `FUNDAMENTALS_CACHE_TTL_HOURS` env var (default: 24 hours)
-- Setting to 0 disables cache entirely (useful for testing)
+- Setting TTL to 0 disables cache entirely (useful for testing)
 - TTL is read on every call, so changes take effect without restart
 
 **Public API:**

@@ -2,23 +2,43 @@
   "mcpServers": {
     "stock-price-server": {
       "command": ".venv/bin/fastmcp",
-      "args": ["run", "fastMCPTest/stock_price_server.py"]
+      "args": ["run", "fastMCPTest/stock_price_server.py"],
+      "env": {
+        "PYTHONPATH": "/Users/johnfunk/Documents/code/StockPortfolioManager",
+        "QUANTCORE_DB_PATH": "data/quantcore.sqlite"
+      }
     },
     "market-analysis-server": {
       "command": ".venv/bin/fastmcp",
-      "args": ["run", "fastMCPTest/market_analysis_server.py"]
+      "args": ["run", "fastMCPTest/market_analysis_server.py"],
+      "env": {
+        "PYTHONPATH": "/Users/johnfunk/Documents/code/StockPortfolioManager",
+        "QUANTCORE_DB_PATH": "data/quantcore.sqlite"
+      }
     },
     "options-analysis-server": {
       "command": ".venv/bin/fastmcp",
-      "args": ["run", "fastMCPTest/options_analysis.py"]
+      "args": ["run", "fastMCPTest/options_analysis.py"],
+      "env": {
+        "PYTHONPATH": "/Users/johnfunk/Documents/code/StockPortfolioManager",
+        "QUANTCORE_DB_PATH": "data/quantcore.sqlite"
+      }
     },
     "company-fundamentals-server": {
       "command": ".venv/bin/fastmcp",
-      "args": ["run", "fastMCPTest/company_fundamentals_server.py"]
+      "args": ["run", "fastMCPTest/company_fundamentals_server.py"],
+      "env": {
+        "PYTHONPATH": "/Users/johnfunk/Documents/code/StockPortfolioManager",
+        "QUANTCORE_DB_PATH": "data/quantcore.sqlite"
+      }
     },
     "news-sentiment-server": {
       "command": ".venv/bin/fastmcp",
-      "args": ["run", "fastMCPTest/news_sentiment_server.py"]
+      "args": ["run", "fastMCPTest/news_sentiment_server.py"],
+      "env": {
+        "PYTHONPATH": "/Users/johnfunk/Documents/code/StockPortfolioManager",
+        "QUANTCORE_DB_PATH": "data/quantcore.sqlite"
+      }
     }
   }
 }

@@ -5,6 +5,7 @@ from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from time import time
 
 import pandas as pd
 import yfinance as yf
@@ -13,189 +14,16 @@ from dotenv import load_dotenv
 # Import your plan builder from HarvesterExperiment.py
 # Assumes HarvesterExperiment.py is in the same folder or on PYTHONPATH.
 from experiments.HarvesterExperiment import design_forward_ladder_from_history
+from quantcore.db import get_connection
 
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# -----------------------------
-# SQLite schema (OHLCV + adj_close + plans + rungs + alerts)
-# -----------------------------
-
-SCHEMA_SQL = """
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS symbols (
-  symbol_id     INTEGER PRIMARY KEY,
-  ticker        TEXT NOT NULL UNIQUE,
-  name          TEXT,
-  exchange      TEXT,
-  currency      TEXT,
-  created_at    TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS price_bars_daily (
-  symbol_id     INTEGER NOT NULL,
-  bar_date      TEXT NOT NULL,
-  open          REAL,
-  high          REAL,
-  low           REAL,
-  close         REAL NOT NULL,
-  adj_close     REAL NOT NULL,
-  volume        REAL,
-  data_vendor   TEXT NOT NULL DEFAULT 'yfinance',
-  ingested_at   TEXT NOT NULL,
-  PRIMARY KEY (symbol_id, bar_date),
-  FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE,
-  CHECK (close > 0),
-  CHECK (adj_close > 0),
-  CHECK (volume IS NULL OR volume >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_price_bars_symbol_date ON price_bars_daily(symbol_id, bar_date);
-
-CREATE TABLE IF NOT EXISTS plan_templates (
-  template_id         INTEGER PRIMARY KEY,
-  name                TEXT NOT NULL,
-  is_dynamic_h         INTEGER NOT NULL,
-  history_window_days  INTEGER NOT NULL,
-  n_iterations         INTEGER NOT NULL,
-  alpha               REAL,
-  min_h               REAL,
-  max_h               REAL,
-  fixed_h             REAL,
-  drift_method        TEXT NOT NULL DEFAULT 'CAGR',
-  vol_method          TEXT NOT NULL DEFAULT 'LOGRET_STD',
-  stats_price_series  TEXT NOT NULL DEFAULT 'adj_close',
-  created_at          TEXT NOT NULL,
-  notes               TEXT,
-  metadata_json       TEXT
-);
-
-CREATE TABLE IF NOT EXISTS positions (
-  position_id      INTEGER PRIMARY KEY,
-  symbol_id        INTEGER NOT NULL,
-  opened_at        TEXT NOT NULL,
-  entry_price      REAL NOT NULL,
-  shares           INTEGER NOT NULL,
-  cost_basis_total REAL NOT NULL,
-  account          TEXT,
-  notes            TEXT,
-  FOREIGN KEY(symbol_id) REFERENCES symbols(symbol_id),
-  CHECK (shares > 0),
-  CHECK (entry_price > 0),
-  CHECK (cost_basis_total >= 0)
-);
-
-CREATE TABLE IF NOT EXISTS plan_instances (
-  instance_id         INTEGER PRIMARY KEY,
-  template_id         INTEGER NOT NULL,
-  symbol_id           INTEGER NOT NULL,
-  position_id         INTEGER,
-  status              TEXT NOT NULL DEFAULT 'ACTIVE',
-  created_at          TEXT NOT NULL,
-  asof_date           TEXT NOT NULL,
-  price_asof          REAL NOT NULL,
-  shares_initial      INTEGER NOT NULL,
   v0_floor            REAL NOT NULL,
-  capital_at_risk     REAL NOT NULL,
-  history_end_date    TEXT NOT NULL,
-  history_window_days INTEGER NOT NULL,
-  r_daily             REAL NOT NULL,
-  annual_vol          REAL NOT NULL,
-  h_threshold         REAL NOT NULL,
-  n_iterations        INTEGER NOT NULL,
-  stats_price_series  TEXT NOT NULL DEFAULT 'adj_close',
-  supersedes_instance_id INTEGER,
-  notes               TEXT,
-  metadata_json       TEXT,
-  FOREIGN KEY(template_id) REFERENCES plan_templates(template_id),
-  FOREIGN KEY(symbol_id) REFERENCES symbols(symbol_id),
-  FOREIGN KEY(position_id) REFERENCES positions(position_id),
-  FOREIGN KEY(supersedes_instance_id) REFERENCES plan_instances(instance_id),
-  CHECK (shares_initial > 0),
-  CHECK (price_asof > 0),
-  CHECK (v0_floor > 0),
-  CHECK (capital_at_risk > 0),
-  CHECK (h_threshold > 0),
-  CHECK (n_iterations > 0),
-  CHECK (annual_vol >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_instances_symbol_status ON plan_instances(symbol_id, status);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_one_active_plan_per_symbol
-ON plan_instances(symbol_id)
-WHERE status = 'ACTIVE';
-
-CREATE TABLE IF NOT EXISTS plan_rungs (
-  rung_id                 INTEGER PRIMARY KEY,
-  instance_id             INTEGER NOT NULL,
-  rung_index              INTEGER NOT NULL,
-  target_price            REAL NOT NULL,
-  shares_before           INTEGER NOT NULL,
-  shares_sold_planned     INTEGER NOT NULL,
-  shares_after_planned    INTEGER NOT NULL,
-  expected_days_from_now  REAL,
-  expected_date           TEXT,
-  gross_harvest_planned       REAL NOT NULL,
-  cumulative_harvest_planned  REAL NOT NULL,
-  remaining_value_planned     REAL NOT NULL,
-  total_wealth_planned        REAL NOT NULL,
-  total_return_planned        REAL NOT NULL,
-  status                 TEXT NOT NULL DEFAULT 'PENDING',
-  triggered_at           TEXT,
-  trigger_price          REAL,
-  executed_at            TEXT,
-  executed_price         REAL,
-  shares_sold_actual     INTEGER,
-  gross_harvest_actual   REAL,
-  tax_paid_actual        REAL,
-  net_harvest_actual     REAL,
-  notes                  TEXT,
-  UNIQUE(instance_id, rung_index),
-  FOREIGN KEY(instance_id) REFERENCES plan_instances(instance_id) ON DELETE CASCADE,
-  CHECK (target_price > 0),
-  CHECK (shares_before > 0),
-  CHECK (shares_sold_planned > 0),
-  CHECK (shares_after_planned >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_rungs_instance_status ON plan_rungs(instance_id, status);
-
-CREATE TABLE IF NOT EXISTS alerts (
-  alert_id          INTEGER PRIMARY KEY,
-  rung_id           INTEGER NOT NULL,
-  symbol_id         INTEGER NOT NULL,
-  instance_id       INTEGER NOT NULL,
-  alert_type        TEXT NOT NULL DEFAULT 'PRICE_GE',
-  threshold_price   REAL NOT NULL,
-  status            TEXT NOT NULL DEFAULT 'ACTIVE',
-  created_at        TEXT NOT NULL,
-  last_checked_at   TEXT,
-  fired_at          TEXT,
-  fired_price       REAL,
-  cooldown_seconds  INTEGER,
-  channel           TEXT,
-  destination       TEXT,
-  message_template  TEXT,
-  FOREIGN KEY(rung_id) REFERENCES plan_rungs(rung_id) ON DELETE CASCADE,
-  FOREIGN KEY(symbol_id) REFERENCES symbols(symbol_id),
-  FOREIGN KEY(instance_id) REFERENCES plan_instances(instance_id) ON DELETE CASCADE,
-  CHECK (threshold_price > 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_alerts_symbol_status ON alerts(symbol_id, status);
-
-CREATE UNIQUE INDEX IF NOT EXISTS ux_alerts_one_per_rung
-ON alerts(rung_id);
-"""
-
-
-# -----------------------------
+# Schema is now managed by quantcore.db
 # SQL snippets (queries)
-# -----------------------------
 
 SQL_INSERT_SYMBOL = """
 INSERT INTO symbols (ticker, created_at)
@@ -208,16 +36,16 @@ SELECT symbol_id FROM symbols WHERE ticker = :ticker;
 """
 
 SQL_UPSERT_DAILY_BAR = """
-INSERT INTO price_bars_daily (
-  symbol_id, bar_date,
+INSERT INTO ohlcv (
+  symbol, interval, ts,
   open, high, low, close, adj_close, volume,
-  data_vendor, ingested_at
+  status, data_vendor, ingested_at
 ) VALUES (
-  :symbol_id, :bar_date,
+  :symbol, '1d', :ts,
   :open, :high, :low, :close, :adj_close, :volume,
-  :data_vendor, :ingested_at
+  'CLOSED', :data_vendor, :ingested_at
 )
-ON CONFLICT(symbol_id, bar_date) DO UPDATE SET
+ON CONFLICT(symbol, interval, ts) DO UPDATE SET
   open        = excluded.open,
   high        = excluded.high,
   low         = excluded.low,
@@ -439,23 +267,9 @@ class PlanBuildParams:
 
 class HarvesterPlanDB:
     def __init__(self, db_path: Optional[str] = None):
-        load_dotenv()
-        # get the database path from the .env file
-        self.db_path = db_path or os.getenv("HARVESTER_DB_PATH")
-        if not self.db_path:
-            raise ValueError("HARVESTER_DB_PATH is not set and no db_path was provided.")
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        return conn
-
-    def _init_db(self) -> None:
-        with closing(self._connect()) as conn:
-            conn.executescript(SCHEMA_SQL)
+        # Schema is initialized by quantcore.db
+        # db_path parameter kept for backward compatibility with tests
+        pass
 
     # -------------------------
     # Public API methods
@@ -479,7 +293,7 @@ class HarvesterPlanDB:
         now = _utc_now_iso()
 
         # 1) Ensure symbol row and get symbol_id
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute(SQL_INSERT_SYMBOL, {"ticker": symbol, "created_at": now})
             conn.commit()
             row = conn.execute(SQL_GET_SYMBOL_ID, {"ticker": symbol}).fetchone()
@@ -487,18 +301,22 @@ class HarvesterPlanDB:
                 raise RuntimeError(f"Failed to resolve symbol_id for {symbol}")
             symbol_id = int(row["symbol_id"])
 
-        # 2) Fetch bars and upsert into price_bars_daily
+        # 2) Fetch bars and upsert into ohlcv table
         bars = fetch_daily_history_ohlcv(symbol, days=max(params.history_window_days + 60, 420))
         if bars.empty:
             raise RuntimeError(f"No price history returned for {symbol}")
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute("BEGIN;")
             try:
                 for _, r in bars.iterrows():
+                    # Convert YYYY-MM-DD string to Unix timestamp (midnight UTC)
+                    bar_date_dt = pd.to_datetime(r["bar_date"])
+                    ts = int(bar_date_dt.timestamp())
+
                     conn.execute(SQL_UPSERT_DAILY_BAR, {
-                        "symbol_id": symbol_id,
-                        "bar_date": r["bar_date"],
+                        "symbol": symbol,
+                        "ts": ts,
                         "open": float(r["Open"]) if pd.notna(r["Open"]) else None,
                         "high": float(r["High"]) if pd.notna(r["High"]) else None,
                         "low": float(r["Low"]) if pd.notna(r["Low"]) else None,
@@ -506,7 +324,7 @@ class HarvesterPlanDB:
                         "adj_close": float(r["Adj Close"]),
                         "volume": float(r["Volume"]) if pd.notna(r["Volume"]) else None,
                         "data_vendor": "yfinance",
-                        "ingested_at": now,
+                        "ingested_at": int(time()),
                     })
                 conn.execute("COMMIT;")
             except Exception:
@@ -514,16 +332,16 @@ class HarvesterPlanDB:
                 raise
 
         # 3) Pull last N adj_close prices from the local DB (deterministic)
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             prices_rows = conn.execute(
                 """
-                SELECT bar_date, adj_close, close
-                FROM price_bars_daily
-                WHERE symbol_id = ?
-                ORDER BY bar_date DESC
+                SELECT ts, adj_close, close
+                FROM ohlcv
+                WHERE symbol = ? AND interval = '1d'
+                ORDER BY ts DESC
                 LIMIT ?;
                 """,
-                (symbol_id, params.history_window_days),
+                (symbol, params.history_window_days),
             ).fetchall()
 
         if len(prices_rows) < 2:
@@ -534,7 +352,9 @@ class HarvesterPlanDB:
         prices_adj = [float(r["adj_close"]) for r in prices_rows]
         prices_close = [float(r["close"]) for r in prices_rows]
 
-        history_end_date = prices_rows[-1]["bar_date"]
+        # Convert last ts back to date string for reporting
+        history_end_ts = prices_rows[-1]["ts"]
+        history_end_date = datetime.fromtimestamp(history_end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         # Use last close as "price_asof" for simplicity. Replace with live quote if you prefer.
         price_asof = prices_close[-1]
 
@@ -552,7 +372,7 @@ class HarvesterPlanDB:
             raise RuntimeError(f"No feasible forward ladder found for {symbol}")
 
         # 5) Create/find template
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             tmpl = conn.execute(
                 """
                 SELECT template_id FROM plan_templates
@@ -593,7 +413,7 @@ class HarvesterPlanDB:
                 conn.commit()
 
         # 6) Insert plan_instance (supersede any active plan for that symbol)
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute("BEGIN;")
             try:
                 prev = conn.execute(
@@ -735,7 +555,7 @@ class HarvesterPlanDB:
             )
             params = (status,)
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
@@ -752,7 +572,7 @@ class HarvesterPlanDB:
         results: List[Dict[str, Any]] = []
         now = _utc_now_iso()
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
 
         for row in active:
@@ -761,7 +581,7 @@ class HarvesterPlanDB:
             ticker = row["ticker"]
 
             next_rung = None
-            with closing(self._connect()) as conn:
+            with closing(get_connection()) as conn:
                 next_rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
 
             if not next_rung:
@@ -804,7 +624,7 @@ class HarvesterPlanDB:
             return []
         symbol = symbol.upper().strip()
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             instance = conn.execute(
                 SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
                 {"ticker": symbol},
@@ -854,7 +674,7 @@ class HarvesterPlanDB:
         ts = triggered_at or _utc_now_iso()
         updated = 0
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute("BEGIN;")
             try:
                 for rung_id in rung_ids:
@@ -908,7 +728,7 @@ class HarvesterPlanDB:
         ids_sql = f"SELECT instance_id FROM plan_instances WHERE {where_clause} ORDER BY created_at DESC;"
         delete_sql = f"DELETE FROM plan_instances WHERE {where_clause};"
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(count_sql, params).fetchone()
             matched = int(row["cnt"]) if row else 0
             ids: List[int] = []
@@ -933,7 +753,7 @@ class HarvesterPlanDB:
 
     def get_plan_by_id(self, instance_id: int) -> Optional[Dict[str, Any]]:
         """Get a single plan instance by ID, joined with symbol ticker."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 """
                 SELECT pi.*, s.ticker AS symbol
@@ -947,7 +767,7 @@ class HarvesterPlanDB:
 
     def get_rungs_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
         """Get all rungs for a plan instance, ordered by rung_index."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM plan_rungs
@@ -960,7 +780,7 @@ class HarvesterPlanDB:
 
     def get_rung_by_id(self, rung_id: int) -> Optional[Dict[str, Any]]:
         """Get a single rung by ID."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 "SELECT * FROM plan_rungs WHERE rung_id = ?;",
                 (rung_id,),
@@ -986,13 +806,13 @@ class HarvesterPlanDB:
             return False
         params.append(instance_id)
         sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ?;"
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             cur = conn.execute(sql, params)
             return cur.rowcount > 0
 
     def delete_plan(self, instance_id: int) -> bool:
         """Archive a plan by setting its status to SUPERSEDED. Returns True if updated."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             cur = conn.execute(
                 "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND status = 'ACTIVE';",
                 (instance_id,),
@@ -1001,7 +821,7 @@ class HarvesterPlanDB:
 
     def list_all_symbols(self) -> List[Dict[str, Any]]:
         """List all symbols with their active plan instance_id (if any)."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.symbol_id, s.ticker, s.name, s.currency,
@@ -1016,7 +836,7 @@ class HarvesterPlanDB:
 
     def get_alerts_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
         """Get all alerts for a plan instance."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 "SELECT * FROM alerts WHERE instance_id = ? ORDER BY alert_id;",
                 (instance_id,),
@@ -1026,7 +846,7 @@ class HarvesterPlanDB:
     def get_dashboard_stats(self) -> Dict[str, Any]:
         """Return aggregate statistics for the dashboard."""
         stats: Dict[str, Any] = {}
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             # Plan counts by status
             for row in conn.execute(
                 "SELECT status, COUNT(*) AS cnt FROM plan_instances GROUP BY status;"
@@ -1089,7 +909,7 @@ class HarvesterPlanDB:
         Create/refresh an alert for the next pending rung and disable others for the instance.
         """
         now = _utc_now_iso()
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 return

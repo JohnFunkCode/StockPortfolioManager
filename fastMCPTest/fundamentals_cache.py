@@ -12,32 +12,14 @@ import json
 import logging
 import os
 import sqlite3
-import threading
 import time
 from contextlib import closing
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
+from quantcore.db import get_connection, DB_PATH
+
 logger = logging.getLogger(__name__)
-
-CACHE_DB = Path(__file__).parent / "fundamentals_history.db"
-_SQLITE_TIMEOUT = 30
-_db_initialised = False
-_db_init_lock = threading.Lock()
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS fundamentals_history (
-    symbol      TEXT    NOT NULL,
-    data_type   TEXT    NOT NULL,
-    fetched_at  INTEGER NOT NULL,
-    payload     TEXT    NOT NULL,
-    PRIMARY KEY (symbol, data_type, fetched_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_fundamentals_latest
-    ON fundamentals_history (symbol, data_type, fetched_at DESC);
-"""
 
 
 def _get_ttl_seconds() -> float:
@@ -51,38 +33,6 @@ def _get_ttl_seconds() -> float:
         return 86400.0
 
 
-def _connect() -> sqlite3.Connection:
-    """Establish SQLite connection with WAL and NORMAL pragmas."""
-    try:
-        conn = sqlite3.connect(CACHE_DB, timeout=_SQLITE_TIMEOUT)
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        return conn
-    except sqlite3.Error as e:
-        logger.error(f"Failed to connect to cache DB at {CACHE_DB}: {e}")
-        raise
-
-
-def _init_db() -> None:
-    """Initialize DB schema with double-checked locking pattern."""
-    global _db_initialised
-    if _db_initialised:
-        return
-
-    with _db_init_lock:
-        if _db_initialised:
-            return
-        try:
-            with closing(_connect()) as conn:
-                conn.executescript(_DDL)
-                conn.commit()
-            _db_initialised = True
-            logger.info(f"Initialized fundamentals cache at {CACHE_DB}")
-        except sqlite3.Error as e:
-            logger.error(f"Failed to initialize fundamentals cache: {e}")
-            raise
-
-
 def cache_get(symbol: str, data_type: str) -> dict | None:
     """
     Retrieve most recent cached entry if fresh (within TTL).
@@ -94,7 +44,6 @@ def cache_get(symbol: str, data_type: str) -> dict | None:
     Returns:
         Cached payload dict if fresh, None otherwise
     """
-    _init_db()
     ttl_seconds = _get_ttl_seconds()
 
     # TTL=0 disables the cache
@@ -103,7 +52,7 @@ def cache_get(symbol: str, data_type: str) -> dict | None:
         return None
 
     try:
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             now = time.time()
             cutoff_ts = int(now - ttl_seconds)
 
@@ -144,7 +93,6 @@ def cache_set(symbol: str, data_type: str, payload: dict) -> None:
         data_type: Data type string
         payload: Dict to cache (must be JSON-serializable)
     """
-    _init_db()
 
     if payload is None:
         logger.debug(f"Skipping cache_set for {symbol}/{data_type}: payload is None")
@@ -158,7 +106,7 @@ def cache_set(symbol: str, data_type: str, payload: dict) -> None:
 
     try:
         fetched_at = int(time.time())
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute(
                 """
                 INSERT OR IGNORE INTO fundamentals_history (symbol, data_type, fetched_at, payload)
@@ -184,11 +132,10 @@ def cache_history(symbol: str, data_type: str, since_days: int = 365) -> list[di
     Returns:
         List of dicts, each with fetched_at (ISO string) + payload fields, oldest first
     """
-    _init_db()
 
     try:
         cutoff_ts = int(time.time()) - (since_days * 86400)
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             cursor = conn.execute(
                 """
                 SELECT fetched_at, payload FROM fundamentals_history
@@ -227,10 +174,9 @@ def cache_invalidate(symbol: str, data_type: str | None = None) -> None:
         symbol: Stock ticker
         data_type: Specific data_type to delete, or None to delete all for this symbol
     """
-    _init_db()
 
     try:
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             if data_type is None:
                 conn.execute(
                     "DELETE FROM fundamentals_history WHERE symbol = ?",
@@ -260,10 +206,9 @@ def cache_get_all_latest(data_type: str) -> list[dict]:
     Returns:
         List of dicts, each with symbol, fetched_at (ISO), _fetched_at_ts (integer), + payload fields
     """
-    _init_db()
 
     try:
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             # GROUP BY symbol, keep MAX(fetched_at) row for each
             cursor = conn.execute(
                 """
@@ -305,10 +250,9 @@ def cache_stats() -> dict:
     Returns:
         Dict with data_types list and db_size_bytes
     """
-    _init_db()
 
     try:
-        with closing(_connect()) as conn:
+        with closing(get_connection()) as conn:
             cursor = conn.execute(
                 """
                 SELECT data_type, COUNT(DISTINCT symbol) as symbol_count,
@@ -335,10 +279,10 @@ def cache_stats() -> dict:
                     "newest": newest_iso,
                 })
 
-            db_size_bytes = CACHE_DB.stat().st_size if CACHE_DB.exists() else 0
+            db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
 
             return {
-                "db_path": str(CACHE_DB),
+                "db_path": str(DB_PATH),
                 "db_size_bytes": db_size_bytes,
                 "data_types": data_types,
             }
@@ -346,7 +290,7 @@ def cache_stats() -> dict:
     except (sqlite3.Error, OSError) as e:
         logger.error(f"Error reading cache stats: {e}")
         return {
-            "db_path": str(CACHE_DB),
+            "db_path": str(DB_PATH),
             "db_size_bytes": 0,
             "data_types": [],
             "error": str(e),

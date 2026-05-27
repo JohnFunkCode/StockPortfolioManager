@@ -1168,7 +1168,8 @@ def create_app() -> Flask:
           macd_bearish  — '1' to require macd < macd_signal
           source        — 'portfolio' | 'watchlist' | 'all' (default all)
         """
-        import sqlite3 as _sqlite3
+        from contextlib import closing
+        from quantcore.db import get_connection
 
         rsi_max        = request.args.get("rsi_max",        type=float)
         rsi_min        = request.args.get("rsi_min",        type=float)
@@ -1220,23 +1221,20 @@ def create_app() -> Flask:
             return jsonify({"results": [], "count": 0})
 
         # Pull last 250 daily bars for each symbol in one SQL query
-        OHLCV_DB = FAST_MCP_DIR / "ohlcv_cache.db"
         try:
-            conn = _sqlite3.connect(str(OHLCV_DB))
-            conn.row_factory = _sqlite3.Row
-            placeholders = ",".join("?" for _ in symbols)
-            rows = conn.execute(
-                f"""
-                SELECT symbol, ts, close, volume, high, low, open
-                FROM ohlcv
-                WHERE interval = '1d'
-                  AND symbol IN ({placeholders})
-                  AND status != 'GAP'
-                ORDER BY symbol, ts ASC
-                """,
-                symbols,
-            ).fetchall()
-            conn.close()
+            with closing(get_connection()) as conn:
+                placeholders = ",".join("?" for _ in symbols)
+                rows = conn.execute(
+                    f"""
+                    SELECT symbol, ts, close, volume, high, low, open
+                    FROM ohlcv
+                    WHERE interval = '1d'
+                      AND symbol IN ({placeholders})
+                      AND status != 'GAP'
+                    ORDER BY symbol, ts ASC
+                    """,
+                    symbols,
+                ).fetchall()
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 

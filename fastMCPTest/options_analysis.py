@@ -1374,7 +1374,7 @@ def mcp_health_check() -> dict:
         "history_period": HISTORY_PERIOD,
         "bb_period": BB_PERIOD,
         "bb_std_dev": BB_STD_DEV,
-        "watchlist_default": str(Path(__file__).parent / "watchlist.yaml"),
+        "watchlist_default": str(PROJECT_ROOT / "watchlist.yaml"),
     }
 
 
@@ -1462,7 +1462,7 @@ def analyze_options_watchlist(
     include_non_us: bool = False,
 ) -> dict:
     """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
-    path = Path(watchlist_path) if watchlist_path else (Path(__file__).parent / "watchlist.yaml")
+    path = Path(watchlist_path) if watchlist_path else (PROJECT_ROOT / "watchlist.yaml")
     if not path.exists():
         raise FileNotFoundError(f"watchlist not found at {path}")
     entries = load_watchlist(path)
@@ -1540,7 +1540,7 @@ def main() -> None:
     parser.add_argument(
         "--watchlist",
         type=Path,
-        default=Path(__file__).parent / "watchlist.yaml",
+        default=PROJECT_ROOT / "watchlist.yaml",
         help="Path to watchlist YAML file",
     )
     parser.add_argument(

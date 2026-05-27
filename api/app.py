@@ -344,8 +344,8 @@ def create_app() -> Flask:
         return []
 
     def _load_watchlist() -> list[dict]:
-        """Load watchlist from fastMCPTest/watchlist.yaml."""
-        wl_path = FAST_MCP_DIR / "watchlist.yaml"
+        """Load watchlist from ./watchlist.yaml."""
+        wl_path = PROJECT_ROOT / "watchlist.yaml"
         if not wl_path.exists():
             return []
         with open(wl_path) as fh:
@@ -447,7 +447,7 @@ def create_app() -> Flask:
 
     @app.route("/api/watchlist", methods=["POST"])
     def add_to_watchlist():
-        """Append a new entry to fastMCPTest/watchlist.yaml."""
+        """Append a new entry to ./watchlist.yaml."""
         body   = request.get_json(silent=True) or {}
         symbol = body.get("symbol", "").strip().upper()
         if not symbol:
@@ -457,7 +457,7 @@ def create_app() -> Flask:
         if symbol in existing:
             return jsonify({"error": f"{symbol} is already in the watchlist"}), 409
 
-        wl_path = FAST_MCP_DIR / "watchlist.yaml"
+        wl_path = PROJECT_ROOT / "watchlist.yaml"
         name     = body.get("name", "").strip()
         currency = (body.get("currency") or "USD").strip().upper()
         tags     = [t.strip() for t in (body.get("tags") or []) if str(t).strip()]

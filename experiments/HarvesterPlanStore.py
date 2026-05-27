@@ -21,7 +21,6 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-  v0_floor            REAL NOT NULL,
 # Schema is now managed by quantcore.db
 # SQL snippets (queries)
 

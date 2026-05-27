@@ -166,7 +166,10 @@ def create_app() -> Flask:
     @app.route("/api/health")
     def health():
         try:
-            db._connect().execute("SELECT 1;")
+            from contextlib import closing
+            from quantcore.db import get_connection
+            with closing(get_connection()) as conn:
+                conn.execute("SELECT 1;")
             return jsonify({"status": "ok", "db_connected": True})
         except Exception as exc:
             return jsonify({"status": "error", "db_connected": False, "message": str(exc)}), 500
@@ -1644,4 +1647,4 @@ def create_app() -> Flask:
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="127.0.0.1", port=5001, debug=True)
+    app.run(host="127.0.0.1", port=5001, debug=True, use_reloader=False)

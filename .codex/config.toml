@@ -20,6 +20,9 @@ approval_mode = "approve"
 [mcp_servers.company-fundamentals-server.tools.get_full_fundamental_profile]
 approval_mode = "approve"
 
+[mcp_servers.company-fundamentals-server.tools.get_fundamental_history]
+approval_mode = "approve"
+
 [mcp_servers.market-analysis-server]
 args = [
     "run",

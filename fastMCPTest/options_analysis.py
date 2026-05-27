@@ -21,7 +21,12 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).parent))
+MCP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_DIR.parent
+for path in (PROJECT_ROOT, MCP_DIR):
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 import numpy as np
 import yaml

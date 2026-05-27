@@ -986,6 +986,14 @@
     - Storage
     - Memory
 
+- name: Western Digital Corporation
+  symbol: WDC
+  currency: USD
+  tags:
+    - Data Storage
+    - AI Factory
+    - Memory
+
 - name: KLA Corporation
   symbol: KLAC
   currency: USD

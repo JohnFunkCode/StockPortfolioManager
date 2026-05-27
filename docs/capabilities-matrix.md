@@ -279,7 +279,7 @@ These capabilities exist in only one surface, which can make them hard to find o
 
 ### Database Consolidation
 
-The project uses **1 unified SQLite database** (`data/quantcore.sqlite`), managed by a shared connection factory in `quantcore/db.py`:
+The project uses **1 unified SQLite database** (`data/quantcore.sqlite`), automatically created on startup via `quantcore/db.init_schema()` called from every application entry point (main.py, REST API, MCP servers). All database access uses a shared connection factory in `quantcore/db.py`:
 
 | Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|
@@ -289,7 +289,7 @@ The project uses **1 unified SQLite database** (`data/quantcore.sqlite`), manage
 | **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `fastMCPTest/news_store.py`, `sentiment_store.py` | Individual news articles with FinBERT scores; aggregated sentiment summaries |
 | **Fundamentals** | `fundamentals_history` | `fastMCPTest/fundamentals_cache.py` | Append-only cache for earnings/fundamentals data (TTL-based) |
 
-**All modules** use `from quantcore.db import get_connection()` instead of managing individual database connections.
+**All modules** use `from quantcore.db import get_connection()` instead of managing individual database connections. **Schema initialization is automatic** — the database and all 16 tables are created on-demand if the file doesn't exist.
 
 ### Unified Schema
 
@@ -323,17 +323,17 @@ All 16 tables live in `data/quantcore.sqlite`. All store modules use the shared 
 
 #### `collect_options.py` References Non-Existent Schema
 
-`collect_options.py` imports `OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, and `create_pricer` from `options_store.py` — but the current `options_store.py` only exports the `OptionsStore` class with the 4-table schema described above. These imported classes do not exist in the codebase.
+`collect_options.py` imports `OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, and `create_pricer` from `options_store.py` — but the current `options_store.py` only exports the `OptionsStore` class. These imported classes do not exist in the codebase.
 
-The CLI also defaults its `--db` path to `options_store.db`, while the live database is `options_chain.db`.
+The CLI also defaults its `--db` path to `options_store.db`, but all data now goes to the unified `data/quantcore.sqlite`.
 
 **Problem:** `collect_options.py` **cannot be run** without import errors. It appears to reference a refactored version of `options_store.py` that no longer exists.
 
-**Recommendation:** Fix imports in `collect_options.py` or refactor `options_store.py` to match the expected interface.
+**Recommendation:** Fix imports in `collect_options.py` and update the `--db` default to use `data/quantcore.sqlite` via `quantcore.db.get_connection()`.
 
 ### OHLCV Merge Completed
 
-**Status:** ✅ **RESOLVED** — The two separate OHLCV tables (`harvester.sqlite/price_bars_daily` and `ohlcv_cache.db/ohlcv`) have been merged into a single `ohlcv` table with unified schema:
+**Status:** ✅ **RESOLVED** — The two separate OHLCV tables have been merged into a single `ohlcv` table in `data/quantcore.sqlite` with unified schema:
 - **`symbol`** — TEXT (plain ticker, no FK)
 - **`interval`** — TEXT DEFAULT '1d' (supports 1d, 1h, 30m, 15m, 1wk, 1mo)
 - **`ts`** — INTEGER (Unix timestamp in seconds)
@@ -350,7 +350,7 @@ Both the Harvester (`HarvesterPlanStore.py`) and MCP servers (`ohlcv_cache.py`) 
 
 #### `options_positions` Table Has No REST, WebUI, or MCP Surface
 
-`options_chain.db/options_positions` stores active options positions (strike, expiration, contracts, purchase price, target price, status). There is **no REST endpoint, no WebUI page, and no MCP tool** that reads from or writes to this table. It can only be accessed by directly instantiating `OptionsPositionStore` in Python code.
+`data/quantcore.sqlite/options_positions` stores active options positions (strike, expiration, contracts, purchase price, target price, status). There is **no REST endpoint, no WebUI page, and no MCP tool** that reads from or writes to this table. It can only be accessed by directly instantiating `OptionsPositionStore` in Python code.
 
 **Recommendation:** Either add REST CRUD endpoints + WebUI form, or delete the table if it's not in use.
 
@@ -362,7 +362,7 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 #### Fundamentals Data Has No REST or WebUI Surface
 
-`fundamentals_history.db` is read **exclusively by MCP tools** in `company_fundamentals_server.py`. None of the 35+ REST endpoints in `api/app.py` query this database. The WebUI therefore cannot display fundamental scores, revenue growth, earnings acceleration, or sector breakdowns.
+The `fundamentals_history` table in `data/quantcore.sqlite` is read **exclusively by MCP tools** in `company_fundamentals_server.py`. None of the 35+ REST endpoints in `api/app.py` query this table. The WebUI therefore cannot display fundamental scores, revenue growth, earnings acceleration, or sector breakdowns.
 
 **Recommendation:** Add REST wrapper endpoints (e.g., `GET /api/securities/<ticker>/fundamentals`) to expose MCP tool results to the REST API and WebUI.
 
@@ -372,11 +372,15 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 **Recommendation:** Create a new table in one of the cache databases (e.g., `market_structure.db`) to store snapshots of these signals for historical trend analysis.
 
-#### Sentiment Trend Query Depends on `news_sentiment.db` But Screener Uses `sentiment.sqlite`
+#### Sentiment Data Sources Unified in QuantCore
 
-`get_sentiment_trend` (MCP) queries `news_sentiment.db/news_articles` for per-day counts. The REST screener queries `sentiment.sqlite/sentiment_snapshots`. These two sentiment sources can produce conflicting signals for the same symbol on the same day depending on which articles were captured by each path.
+Both sentiment data sources now use `data/quantcore.sqlite`:
+- `get_sentiment_trend` (MCP) queries `news_articles` table for per-day counts
+- Aggregated summaries stored in `sentiment_snapshots` table
 
-**Recommendation:** Standardize on a single sentiment data source, or explicitly document the difference.
+All writes and reads use the same unified database via `quantcore.db.get_connection()`.
+
+**Status:** ✅ **RESOLVED** — Single consolidated source of truth.
 
 ---
 
@@ -384,9 +388,10 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 ### What Works Well
 - **REST + WebUI integration:** Technical signals, options data, portfolio/watchlist management are well-surfaced via both REST and WebUI.
-- **OHLCV caching:** `ohlcv_cache.db` is shared across all MCP servers, eliminating redundant yfinance calls.
+- **OHLCV caching:** `data/quantcore.sqlite/ohlcv` table is shared across all MCP servers, eliminating redundant yfinance calls.
 - **Harvest ladder:** Fully accessible via REST + WebUI; no gaps.
 - **Options data flow:** MCP tools fetch & store, exact-contract tools can use cache-first/live-refresh, and REST reads from the store.
+- **Unified database:** All 16 tables consolidated into `data/quantcore.sqlite` with automatic schema initialization on startup.
 
 ### Completed Improvements
 - ✅ **OHLCV duplication resolved:** Merged `price_bars_daily` + `ohlcv` into single unified `ohlcv` table (symbol, interval, ts) with status tracking and adj_close support.

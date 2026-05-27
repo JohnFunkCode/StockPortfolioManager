@@ -68,6 +68,8 @@ All MCP store modules (`ohlcv_cache.py`, `options_store.py`, `news_store.py`, `s
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — Watchlist entries with `name`, `symbol`, `currency`, and optional `tags` list.
 
+**Database Initialization:** The unified `data/quantcore.sqlite` database and its 16-table schema are automatically created on startup by any application entry point (`main.py`, REST API, or MCP servers). No migration script is needed — `init_schema()` runs before any database operations.
+
 ## Key Dependencies
 
 pandas, yfinance, matplotlib, jinja2, python-dotenv, boto3, PyYAML, requests

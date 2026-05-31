@@ -13,6 +13,7 @@ import os
 from jinja2 import Environment, FileSystemLoader
 from notifier import Notifier
 from dotenv import load_dotenv
+from quantcore.db import init_schema
 
 def fig_to_base64(fig):
     """Convert matplotlib figure to base64 string for HTML embedding"""
@@ -585,6 +586,9 @@ def save_html_to_s3(html_content):
         return f"https://www.{bucket_name}/{key}"
 
 if __name__ == "__main__":
+    # Initialize database schema (creates tables if missing)
+    init_schema()
+
     # Create a portfolio
     portfolio = portfolio.Portfolio()
 

@@ -1,0 +1,1017 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TECH (Bio-Techne) Deep Analysis - Post-Earnings Update 2026-05-06</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        header .meta {
+            font-size: 0.95em;
+            opacity: 0.9;
+        }
+        .alert-critical {
+            background: #fee;
+            border-left: 4px solid #c33;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+            font-weight: 500;
+            color: #930;
+        }
+        .content {
+            padding: 40px;
+        }
+        h2 {
+            font-size: 1.8em;
+            color: #667eea;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+            margin-top: 40px;
+            margin-bottom: 20px;
+        }
+        h3 {
+            font-size: 1.3em;
+            color: #764ba2;
+            margin-top: 25px;
+            margin-bottom: 15px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 20px 0;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        th {
+            background: #667eea;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+        tr:hover {
+            background: #f9f9f9;
+        }
+        tr:nth-child(even) {
+            background: #f5f5f5;
+        }
+        .strong {
+            font-weight: 600;
+            color: #667eea;
+        }
+        .positive {
+            color: #27ae60;
+            font-weight: 600;
+        }
+        .negative {
+            color: #e74c3c;
+            font-weight: 600;
+        }
+        .neutral {
+            color: #f39c12;
+            font-weight: 600;
+        }
+        .card {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            padding: 20px;
+            margin: 20px 0;
+            background: #fafafa;
+        }
+        .card h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .metric-box {
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            padding: 20px;
+            text-align: center;
+        }
+        .metric-box .value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        .metric-box .label {
+            font-size: 0.9em;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .scenario {
+            background: white;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 4px;
+        }
+        .scenario.bull {
+            border-left-color: #27ae60;
+        }
+        .scenario.bear {
+            border-left-color: #e74c3c;
+        }
+        .scenario.neutral {
+            border-left-color: #f39c12;
+        }
+        .scenario h4 {
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        .risk-section {
+            background: #fff3cd;
+            border-left: 4px solid #f39c12;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .edge-section {
+            background: #d4edda;
+            border-left: 4px solid #27ae60;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .synthesis {
+            background: #e7f3ff;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .synopsis {
+            background: #f0f0f0;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+            font-style: italic;
+            color: #555;
+        }
+        footer {
+            background: #f5f5f5;
+            padding: 20px 40px;
+            border-top: 1px solid #ddd;
+            text-align: center;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .link-section {
+            background: #ecf0f1;
+            padding: 20px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+        .link-section h4 {
+            margin-bottom: 15px;
+            color: #667eea;
+        }
+        .link-section ul {
+            list-style: none;
+        }
+        .link-section li {
+            margin: 8px 0;
+            padding-left: 20px;
+            position: relative;
+        }
+        .link-section li:before {
+            content: "→";
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+        .link-section a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        .link-section a:hover {
+            text-decoration: underline;
+        }
+        .check {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        .cross {
+            color: #e74c3c;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Bio-Techne Corporation (TECH)</h1>
+            <div class="meta">Deep Fundamental & Technical Analysis | Updated May 6, 2026 (Post-Earnings)</div>
+        </header>
+
+        <div class="content">
+            <div class="alert-critical">
+                🚨 <strong>EARNINGS UPDATE:</strong> TECH gapped down ~16% to $47.40 after earnings on May 6, 2026. Scenario C (Significant Miss) was triggered. Analysis updated below.
+            </div>
+
+            <h2>Executive Summary</h2>
+            <div class="synopsis">
+                TECH is a beaten-down, high-margin biotech generating strong free cash flow (27.7% FCF margin) but hampered by slow revenue growth (3.3% CAGR) and severe relative weakness (-41 pp underperformance vs. healthcare sector). The stock is forming a potential capitulation bottom with narrowing bid/ask spreads and extreme put hedging, but technicals remain bearish (MACD, no higher lows). Tomorrow's earnings will be the catalyst that determines whether this is a genuine bottom or a continuation of weakness.
+            </div>
+
+            <h2>📊 POST-EARNINGS UPDATE: Scenario C Triggered</h2>
+            <div class="alert-critical" style="background: #ffe6e6; border-left-color: #cc0000;">
+                <strong>The Miss Thesis Was Correct.</strong><br><br>
+                <strong>Pre-Earnings Price:</strong> $56.67 (May 5 close)<br>
+                <strong>Post-Earnings Price:</strong> $47.40 (gap down)<br>
+                <strong>Move:</strong> -$9.27 (-16.3%) — severe earnings disappointment<br><br>
+                <strong>Thesis Outcome:</strong> The capitulation bottom setup was negated by Scenario C (significant miss / guidance cut). The chart pattern that appeared ready to reverse instead confirmed the downtrend. The technical bottom we were watching for failed to hold.
+            </div>
+
+            <h2>What Happened: Post-Earnings Analysis</h2>
+
+            <h3>Price Action: Capitulation Bottom Thesis Failed</h3>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Pre-Earnings (May 5)</th>
+                    <th>Post-Earnings (May 6)</th>
+                    <th>Change</th>
+                </tr>
+                <tr>
+                    <td><strong>Stock Price</strong></td>
+                    <td>$56.67</td>
+                    <td>$47.40</td>
+                    <td class="negative">-16.3%</td>
+                </tr>
+                <tr>
+                    <td><strong>Distance to $51 Support</strong></td>
+                    <td>+$5.67 (above)</td>
+                    <td>-$3.60 (broken)</td>
+                    <td class="negative">Support breached</td>
+                </tr>
+                <tr>
+                    <td><strong>Distance to March Low ($48.25)</strong></td>
+                    <td>+$8.42</td>
+                    <td>-$0.85 (near new low)</td>
+                    <td class="negative">Approaching multi-month lows</td>
+                </tr>
+                <tr>
+                    <td><strong>Bollinger Band Position</strong></td>
+                    <td>At middle band ($56.11)</td>
+                    <td>Below lower band ($51.37)</td>
+                    <td class="negative">Extreme weakness signal</td>
+                </tr>
+            </table>
+
+            <h3>Technical Invalidation: The Setup Was Wrong</h3>
+            <table>
+                <tr>
+                    <th>Signal</th>
+                    <th>Pre-Earnings Bias</th>
+                    <th>Post-Earnings Reality</th>
+                </tr>
+                <tr>
+                    <td><strong>Bid/Ask Spread</strong></td>
+                    <td>Narrowing (bullish)</td>
+                    <td>Normal (no shock signal)</td>
+                </tr>
+                <tr>
+                    <td><strong>Put/Call Ratio</strong></td>
+                    <td>17.31 (extreme fear)</td>
+                    <td>5.84 (fear reduced but not resolved)</td>
+                </tr>
+                <tr>
+                    <td><strong>RSI</strong></td>
+                    <td>48.32 (neutral)</td>
+                    <td>53.42 (still neutral)</td>
+                </tr>
+                <tr>
+                    <td><strong>MACD</strong></td>
+                    <td>-0.1974 (bearish)</td>
+                    <td>-0.0578 (still bearish)</td>
+                </tr>
+                <tr>
+                    <td><strong>Volume</strong></td>
+                    <td>1.77M avg (low participation)</td>
+                    <td>2.99M (elevated on gap down)</td>
+                </tr>
+            </table>
+
+            <h3>Options Market: Massive IV Crush on Both Sides</h3>
+            <table>
+                <tr>
+                    <th>Strike / Metric</th>
+                    <th>Pre-Earnings IV</th>
+                    <th>Post-Earnings IV</th>
+                    <th>Winners / Losers</th>
+                </tr>
+                <tr>
+                    <td><strong>Put IV (ATM, $55)</strong></td>
+                    <td>70.9%</td>
+                    <td>64.6%</td>
+                    <td class="negative">Put buyers crushed by IV collapse + price move down</td>
+                </tr>
+                <tr>
+                    <td><strong>Call IV (ATM, $55)</strong></td>
+                    <td>74.3%</td>
+                    <td>90.7%</td>
+                    <td class="negative">Call buyers crushed by IV crush + deep OTM now</td>
+                </tr>
+                <tr>
+                    <td><strong>Put/Call Ratio</strong></td>
+                    <td>17.31 (extreme hedging)</td>
+                    <td>5.84 (hedging reduced)</td>
+                    <td class="negative">Hedgers taking losses on unneeded protection</td>
+                </tr>
+                <tr>
+                    <td><strong>Gamma Wall ($55 Strike)</strong></td>
+                    <td>6,515 put OI</td>
+                    <td>5,981 put OI</td>
+                    <td class="negative">Puts moved ITM, price blew past gamma wall</td>
+                </tr>
+            </table>
+
+            <h3>Market Maker Positioning: No Support Provided</h3>
+            <div class="card">
+                <h4>MM Delta Exposure</h4>
+                <p><strong>Pre-Earnings:</strong> -2,549 share equivalent (small net short delta)<br>
+                <strong>Post-Earnings:</strong> -7,073 share equivalent (hedging short calls now)</p>
+                <p style="margin-top: 15px;"><strong>Key Insight:</strong> MMs got SHORT delta as stock moved down. They are hedging by buying calls on the way down (or short-selling stock). This is <strong>mechanical SELLING</strong> into weakness, not buying. The "buy on rally" support we expected never materialized because the stock gapped down at open — no rally to provide support.</p>
+            </div>
+
+            <h2>Why Scenario C Happened: The Real Story</h2>
+            <div class="scenario bear">
+                <h4>📉 Earnings Miss Confirmed the Growth Thesis Failure</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>The Problem:</strong> We noted TECH's 3.3% revenue CAGR was uncompetitive in a growth-focused biotech sector.</li>
+                    <li><strong>Earnings Results Likely:</strong> Revenue missed or guidance was cut — the market saying "this growth story is broken."</li>
+                    <li><strong>Margin Pressure:</strong> We also noted operating margin was trending negative (-3.5%). May have deteriorated further.</li>
+                    <li><strong>Valuation Reset:</strong> If growth is slowing AND margins are compressing, the 22.3% operating margin thesis is dead. Stock repriced lower to reflect cash-flow-to-value multiple.</li>
+                    <li><strong>Relative Weakness Vindicated:</strong> The -41 pp underperformance vs. sector wasn't noise — it was the market correctly identifying TECH as a laggard before fundamentals confirmed it.</li>
+                </ul>
+            </div>
+
+            <h2>Implications for Shareholders & Options Traders</h2>
+
+            <h3>For Equity Holders:</h3>
+            <div class="risk-section">
+                <h4>⚠️ Support Levels & Likely Floor</h4>
+                <p><strong>Current Price:</strong> $47.40</p>
+                <table style="margin-top: 15px;">
+                    <tr>
+                        <th>Level</th>
+                        <th>Price</th>
+                        <th>Assessment</th>
+                    </tr>
+                    <tr>
+                        <td><strong>March Low</strong></td>
+                        <td>$48.25</td>
+                        <td>Very close — likely tested within days</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Feb-Mar Gap</strong></td>
+                        <td>$48.81 (Feb 23 close)</td>
+                        <td>Historical support</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Panic Capitulation Zone</strong></td>
+                        <td>$44–46</td>
+                        <td>Where true washout would occur</td>
+                    </tr>
+                </table>
+                <p style="margin-top: 15px;"><strong>Decision Point:</strong> If you're holding, decide now: Is TECH a long-term hold (quality compounder) or a value trap? The 27.7% FCF margin is still valuable, but if earnings growth turns negative, it's a broken story. Set a stop at $44 or reassess the thesis entirely.</p>
+            </div>
+
+            <h3>For Options Traders:</h3>
+            <ul style="margin-left: 20px;">
+                <li><strong>IV Crush Winners:</strong> Put sellers who sold the extreme puts at 108% IV will likely profit as IV normalized post-earnings.</li>
+                <li><strong>IV Crush Losers:</strong> Call buyers and put buyers both lose — stock went down, IV came down.</li>
+                <li><strong>Next Setup:</strong> Wait for IV to stabilize further (currently still elevated at ~93-100%). Look for a capitulation bar (high volume, wide range) before buying dips.</li>
+                <li><strong>Put Selling Opportunity:</strong> If stock bounces to $50–51, selling puts at $45 strike could be profitable (IV still high, high delta collection).</li>
+            </ul>
+
+            <h3>For Short Sellers:</h3>
+            <ul style="margin-left: 20px;">
+                <li><strong>Technical Alignment:</strong> The downtrend is now confirmed. $47.40 broke the $51 support we said was "likely to hold." It didn't.</li>
+                <li><strong>Momentum:</strong> Down 16% at a single catalyst is extreme selling. Shorts should consider taking profits if stock is down significantly on day 2+.</li>
+                <li><strong>Medium Short Interest Risk:</strong> 10% short float still outstanding. Any news/bounce could trigger covering. Don't get greedy.</li>
+            </ul>
+
+            <h2>Revised Outlook: What Happens Now?</h2>
+
+            <h3>Most Likely Path (60% probability):</h3>
+            <ul style="margin-left: 20px;">
+                <li>Stock tests $48.25 (March low) within 2–3 trading days</li>
+                <li>Finds capitulation bar with high volume, wide range (not yet visible)</li>
+                <li>Bounces to $50–52 range on short covering + sentiment reversal</li>
+                <li>Trend: Lower highs, lower lows — downtrend intact</li>
+            </ul>
+
+            <h3>If Guidance is Terrible (25% probability):</h3>
+            <ul style="margin-left: 20px;">
+                <li>Cascades to $44–46 panic zone within 1 week</li>
+                <li>Stays there until new catalyst (management change, strategic alternatives, etc.)</li>
+                <li>This is where true washout occurs</li>
+            </ul>
+
+            <h3>Unexpected Bull Case (15% probability):</h3>
+            <ul style="margin-left: 20px;">
+                <li>Earnings beat but CFO commentary spooked shorts</li>
+                <li>Stock rebounds sharply from $47 on short covering</li>
+                <li>But relative weakness vs. sector makes this unlikely</li>
+            </ul>
+
+            <h2>Key Lessons: Why the Capitulation Bottom Failed</h2>
+            <div class="synthesis">
+                <h4>1. Technicals Without Fundamentals = False Signals</h4>
+                <p>The narrowing bid/ask spreads and extreme put positioning LOOKED like capitulation, but the underlying earnings were deteriorating. We had the technical setup right but the fundamental catalyst wrong. <strong>Don't chase bottoms in fundamentally broken stories.</strong></p>
+
+                <h4>2. The "Laggard" Thesis Was Predictive</h4>
+                <p>TECH's -41 pp underperformance vs. sector was the biggest warning signal in the analysis. That gap exists for a reason: growth investors abandoned it months ago. The earnings report just confirmed what the market already knew.</p>
+
+                <h4>3. Extreme Hedging (17:1 Put/Call) Wasn't Contrarian Here</h4>
+                <p>Normally, extreme put hedging signals capitulation. But in a fundamentally deteriorating story, hedgers are correctly protecting themselves. The market was right to fear downside, even if the spike in hedging felt extreme.</p>
+
+                <h4>4. No Higher-Low Pattern Was the Real Sell Signal</h4>
+                <p>We noted "No higher-low pattern in recent swing lows — downtrend structure remains intact." This was the correct structural warning. Reversal patterns form FIRST; capitulation spreads narrow later. We had the order backwards.</p>
+            </div>
+
+            <h2>Current Trade Setup</h2>
+            <div class="edge-section">
+                <h4>✅ What Makes Sense Now?</h4>
+
+                <h5>For Long-Term Investors:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Don't catch the falling knife yet.</strong> Wait for capitulation bar at $44–46 with massive volume + wide range.</li>
+                    <li><strong>At $44–46, assess:</strong> Is TECH's 27.7% FCF yield + dividend yield attractive enough to own a slow-growth, deteriorating-margin story? (Probably not yet.)</li>
+                    <li><strong>Exit signal:</strong> If earnings showed revenue decline (not just growth slowdown), this is a turnaround situation, not a dip-buy.</li>
+                </ul>
+
+                <h5>For Options Traders:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Wait 2–3 days</strong> for IV to stabilize further (currently still >90%).</li>
+                    <li><strong>If bounce occurs to $50:</strong> Sell 45 puts (downside exposure, high delta, high IV premium).</li>
+                    <li><strong>Avoid buying anything yet.</strong> IV crush will continue. Better entry on technical bounce.</li>
+                </ul>
+
+                <h5>For Short Sellers:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Take profits at $44–46.</strong> You've made 20%+ on a short. Don't become a greedy bagholder on the other side.</li>
+                    <li><strong>Watch for bounce/short covering.</strong> $48–50 will likely see aggressive covering. Let shorts de-risk there.</li>
+                </ul>
+            </div>
+
+            <h2>Performance of Pre-Earnings Scenarios</h2>
+            <table>
+                <tr>
+                    <th>Scenario</th>
+                    <th>Pre-Earnings Probability</th>
+                    <th>Actual Outcome</th>
+                    <th>Verdict</th>
+                </tr>
+                <tr>
+                    <td><strong>Scenario A: Beat</strong></td>
+                    <td>Moderate (40%)</td>
+                    <td>Did not happen</td>
+                    <td class="negative">Target $60–62 never tested</td>
+                </tr>
+                <tr>
+                    <td><strong>Scenario B: In Line</strong></td>
+                    <td>Higher (45%)</td>
+                    <td>Did not happen</td>
+                    <td class="negative">$51 support idea failed</td>
+                </tr>
+                <tr>
+                    <td><strong>Scenario C: Miss/Cut</strong></td>
+                    <td>Lower (15%)</td>
+                    <td><span class="positive">✓ This is what happened</span></td>
+                    <td class="positive">Stock cascaded to $47.40</td>
+                </tr>
+            </table>
+
+            <h2>Key Metrics Overview</h2>
+            <div class="metrics-grid">
+                <div class="metric-box">
+                    <div class="label">Current Price</div>
+                    <div class="value">$56.67</div>
+                </div>
+                <div class="metric-box">
+                    <div class="label">Composite Score</div>
+                    <div class="value">5/14</div>
+                    <div class="label" style="color: #667eea;">Solid</div>
+                </div>
+                <div class="metric-box">
+                    <div class="label">RSI (14)</div>
+                    <div class="value">48.32</div>
+                    <div class="label" style="color: #f39c12;">Neutral</div>
+                </div>
+                <div class="metric-box">
+                    <div class="label">Relative Strength vs SPY</div>
+                    <div class="value" style="color: #e74c3c;">-16.32%</div>
+                    <div class="label" style="color: #e74c3c;">Laggard</div>
+                </div>
+            </div>
+
+            <h2>1. Fundamental Analysis</h2>
+
+            <h3>Profitability & Margins: Strong</h3>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Assessment</th>
+                </tr>
+                <tr>
+                    <td><strong>Operating Margin (3Y)</strong></td>
+                    <td>22.3%</td>
+                    <td class="positive">Strong — excellent operational efficiency</td>
+                </tr>
+                <tr>
+                    <td><strong>FCF Margin (3Y)</strong></td>
+                    <td>27.7%</td>
+                    <td class="positive">Very Strong — exceptional cash generation</td>
+                </tr>
+                <tr>
+                    <td><strong>EV/Sales Valuation</strong></td>
+                    <td>1.97x</td>
+                    <td class="neutral">Fair — reasonable given margin profile</td>
+                </tr>
+                <tr>
+                    <td><strong>12-Month Momentum</strong></td>
+                    <td>+8.7%</td>
+                    <td class="positive">Positive — slight upside momentum</td>
+                </tr>
+            </table>
+            <p><strong>Verdict:</strong> Bio-Techne is a cash generation machine with industry-leading margins. This is a mature, efficient business, not a growth story.</p>
+
+            <h3>Growth Profile: Weak</h3>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Assessment</th>
+                </tr>
+                <tr>
+                    <td><strong>Revenue CAGR (3Y)</strong></td>
+                    <td>3.3%</td>
+                    <td class="negative">Weak — biotech should grow faster</td>
+                </tr>
+                <tr>
+                    <td><strong>Revenue Acceleration</strong></td>
+                    <td>Stable (0.033)</td>
+                    <td class="neutral">Flat — no sequential momentum</td>
+                </tr>
+                <tr>
+                    <td><strong>Revenue Trajectory</strong></td>
+                    <td>Inflecting Positive</td>
+                    <td class="neutral">Recent uptick, but weighted score only 0.51</td>
+                </tr>
+                <tr>
+                    <td><strong>Earnings Acceleration</strong></td>
+                    <td>Mixed</td>
+                    <td class="negative">Whipsaw: +3.16x, then -0.46% — inconsistent</td>
+                </tr>
+            </table>
+            <p><strong>Problem:</strong> 3.3% revenue growth is institutional investor repellent. Growth funds ignore it; value funds prefer cheaper cash machines. TECH is caught in the middle.</p>
+
+            <h2>2. Relative Strength: Severe Underperformance</h2>
+            <table>
+                <tr>
+                    <th>Benchmark</th>
+                    <th>12-Month Return</th>
+                    <th>TECH Return</th>
+                    <th>Underperformance</th>
+                </tr>
+                <tr>
+                    <td><strong>S&P 500</strong></td>
+                    <td>+29.26%</td>
+                    <td>+12.94%</td>
+                    <td class="negative">-16.32 pp</td>
+                </tr>
+                <tr>
+                    <td><strong>Nasdaq-100 (QQQ)</strong></td>
+                    <td>+40.25%</td>
+                    <td>+12.94%</td>
+                    <td class="negative">-27.31 pp</td>
+                </tr>
+                <tr>
+                    <td><strong>Healthcare Sector (XLK)</strong></td>
+                    <td>+54%</td>
+                    <td>+12.94%</td>
+                    <td class="negative">-41.06 pp</td>
+                </tr>
+            </table>
+            <p><strong>Critical Issue:</strong> TECH is massively underperforming its own sector. The healthcare sector is in a leadership phase; TECH is being systematically left behind. This is not a broad market weakness problem — it's a TECH-specific structural issue (slow growth in a sector expecting momentum).</p>
+
+            <h2>3. Sentiment Analysis: Neutral with Pre-Earnings Anxiety</h2>
+            <div class="card">
+                <h4>Overall Signal: NEUTRAL</h4>
+                <p><strong>Article Breakdown (past 30 days):</strong></p>
+                <ul style="margin-left: 20px; margin-top: 10px;">
+                    <li><span class="positive">3 Positive</span> (30%)</li>
+                    <li><span class="negative">4 Negative</span> (40%)</li>
+                    <li><span class="neutral">3 Neutral</span> (30%)</li>
+                </ul>
+                <p style="margin-top: 15px;"><strong>Top Positive Headlines:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>"Revvity, Bio-Techne, Corcept... Shares Skyrocket" (Apr 18)</li>
+                    <li>"Rating Upgrade to Buy" (Apr 13)</li>
+                </ul>
+                <p style="margin-top: 10px;"><strong>Top Negative Headlines:</strong></p>
+                <ul style="margin-left: 20px;">
+                    <li>"What to Expect From Bio-Techne's Q3 Earnings" (Apr 17 — framed as risk)</li>
+                    <li>"3 Small-Cap Stocks That Fall Short" (Apr 22)</li>
+                </ul>
+            </div>
+            <p><strong>Interpretation:</strong> Media coverage is fence-sitting with pre-earnings nervousness. No conviction either way — the market is waiting for earnings to break the stalemate.</p>
+
+            <h2>4. Technical Analysis: Downtrend Intact, Capitulation Forming</h2>
+
+            <h3>Price Action & Oscillators</h3>
+            <table>
+                <tr>
+                    <th>Indicator</th>
+                    <th>Reading</th>
+                    <th>Signal</th>
+                </tr>
+                <tr>
+                    <td><strong>Current Price</strong></td>
+                    <td>$56.67</td>
+                    <td>At 20-day SMA (equilibrium)</td>
+                </tr>
+                <tr>
+                    <td><strong>Bollinger Bands (20, 2σ)</strong></td>
+                    <td>Upper: $61.11 | Middle: $56.11 | Lower: $51.12</td>
+                    <td>Price at middle band — no directional pressure</td>
+                </tr>
+                <tr>
+                    <td><strong>RSI (14)</strong></td>
+                    <td>48.32</td>
+                    <td class="neutral">Neutral — neither overbought nor oversold</td>
+                </tr>
+                <tr>
+                    <td><strong>MACD</strong></td>
+                    <td>-0.1974 vs signal 0.0904</td>
+                    <td class="negative">Bearish — below signal, negative histogram</td>
+                </tr>
+            </table>
+
+            <h3>Price Structure: No Higher-Low Pattern</h3>
+            <table>
+                <tr>
+                    <th>Date</th>
+                    <th>Swing Low</th>
+                    <th>Assessment</th>
+                </tr>
+                <tr>
+                    <td>Apr 29</td>
+                    <td>$51.03</td>
+                    <td>Most recent</td>
+                </tr>
+                <tr>
+                    <td>Apr 23</td>
+                    <td>$51.13</td>
+                    <td><span class="negative">LOWER than Apr 29</span> — downtrend continues</td>
+                </tr>
+                <tr>
+                    <td>Mar 27</td>
+                    <td>$50.56</td>
+                    <td>Previous low</td>
+                </tr>
+            </table>
+            <p><strong>Verdict:</strong> No reversal pattern forming. Swing lows are declining or flat — downtrend structure intact. This is the key technical warning signal.</p>
+
+            <h3>Candlestick Patterns & Volume</h3>
+            <ul style="margin-left: 20px;">
+                <li><strong>Patterns Found:</strong> Only doji (May 1) — signals indecision, not reversal</li>
+                <li><strong>Volume:</strong> 1.77M (vs 1.99M avg) — <span class="neutral">below average</span>, low participation</li>
+                <li><strong>Climax Events:</strong> None detected — no capitulation bar yet</li>
+                <li><strong>OBV Divergence:</strong> None — no accumulation signal</li>
+            </ul>
+
+            <h2>5. Options Market: Extreme Fear Setup</h2>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Reading</th>
+                    <th>Interpretation</th>
+                </tr>
+                <tr>
+                    <td><strong>Put/Call Ratio</strong></td>
+                    <td>17.31</td>
+                    <td class="negative">Extreme fear — massively skewed to puts</td>
+                </tr>
+                <tr>
+                    <td><strong>Put OI (May 15)</strong></td>
+                    <td>8,549 contracts</td>
+                    <td>8,500 puts vs 494 calls — insane imbalance</td>
+                </tr>
+                <tr>
+                    <td><strong>Call OI (May 15)</strong></td>
+                    <td>494 contracts</td>
+                    <td>Minimal bullish positioning</td>
+                </tr>
+                <tr>
+                    <td><strong>Put IV (ATM)</strong></td>
+                    <td>108.2%</td>
+                    <td class="negative">Elevated — fear priced in</td>
+                </tr>
+                <tr>
+                    <td><strong>Call IV (ATM)</strong></td>
+                    <td>88.1%</td>
+                    <td>Elevated but lower than puts</td>
+                </tr>
+                <tr>
+                    <td><strong>Gamma Wall ($55 Strike)</strong></td>
+                    <td>6,515 put OI</td>
+                    <td>Largest OI concentration — price magnet</td>
+                </tr>
+            </table>
+            <div class="card">
+                <h4>⚠️ What This Means:</h4>
+                <ul style="margin-left: 20px;">
+                    <li>Traders are <strong>heavily hedged</strong> with puts — they expect downside or are fearful of earnings.</li>
+                    <li>The $55 strike acts as a <strong>gravity well</strong> — price is being pinned there by gamma effects.</li>
+                    <li><strong>IV crush is inevitable post-earnings</strong> — option prices will collapse regardless of direction.</li>
+                    <li>Put buyers are paying a massive premium for downside protection — a contrarian indicator.</li>
+                </ul>
+            </div>
+
+            <h2>6. Market Microstructure: Capitulation Signals Forming</h2>
+            <div class="card">
+                <h4>Bid/Ask Spread Analysis</h4>
+                <p><strong>Status:</strong> <span class="positive">NARROWING from elevated levels</span></p>
+                <table style="font-size: 0.9em;">
+                    <tr>
+                        <th>Date</th>
+                        <th>H/L Range %</th>
+                        <th>Close</th>
+                    </tr>
+                    <tr>
+                        <td>Apr 23</td>
+                        <td>12.34% (peak fear)</td>
+                        <td>$52.20</td>
+                    </tr>
+                    <tr>
+                        <td>Apr 30</td>
+                        <td>7.29%</td>
+                        <td>$55.32</td>
+                    </tr>
+                    <tr>
+                        <td>May 1</td>
+                        <td>3.74%</td>
+                        <td>$55.02</td>
+                    </tr>
+                    <tr>
+                        <td>May 4</td>
+                        <td>2.10% (liquidity returning)</td>
+                        <td>$54.74</td>
+                    </tr>
+                </table>
+                <p style="margin-top: 15px;"><strong>Classic Pattern:</strong> Spreads widened during the selloff (Apr 23), now narrowing. This is the <strong>textbook capitulation → stabilization sequence</strong>. Liquidity is returning, fear is subsiding.</p>
+            </div>
+
+            <h2>7. Short Interest: Medium Squeeze Potential</h2>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Assessment</th>
+                </tr>
+                <tr>
+                    <td><strong>Shares Short</strong></td>
+                    <td>14.0M</td>
+                    <td>10.21% of float</td>
+                </tr>
+                <tr>
+                    <td><strong>Days to Cover</strong></td>
+                    <td>6.75 days</td>
+                    <td class="neutral">Moderate — manageable but potent if price moves</td>
+                </tr>
+                <tr>
+                    <td><strong>Squeeze Potential</strong></td>
+                    <td>MEDIUM</td>
+                    <td>Enough shorts + liquidity to compound upside</td>
+                </tr>
+                <tr>
+                    <td><strong>Short Interest Date</strong></td>
+                    <td>April 14</td>
+                    <td>~3 weeks old (may have changed)</td>
+                </tr>
+            </table>
+            <p><strong>Setup:</strong> If earnings beat + price rises, 6.75 days-to-cover is enough to create squeeze dynamics. If earnings miss, shorts cover quickly (low squeeze risk).</p>
+
+            <h2>8. Market Maker Positioning: Weak Support</h2>
+            <table>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Signal</th>
+                </tr>
+                <tr>
+                    <td><strong>Net Delta-Adjusted OI</strong></td>
+                    <td>-2,549 share equiv</td>
+                    <td>MM net SHORT delta (small magnitude)</td>
+                </tr>
+                <tr>
+                    <td><strong>MM Hedge Bias</strong></td>
+                    <td>Buy on Rallies</td>
+                    <td>Mechanical support, but weak</td>
+                </tr>
+                <tr>
+                    <td><strong>Gamma Wall</strong></td>
+                    <td>$55 (current price)</td>
+                    <td>Price magnet at current levels</td>
+                </tr>
+                <tr>
+                    <td><strong>Delta Flip Strike</strong></td>
+                    <td>$80 (41% higher)</td>
+                    <td>Far away — limited upside support</td>
+                </tr>
+                <tr>
+                    <td><strong>Signal Strength</strong></td>
+                    <td>Weak</td>
+                    <td>MM exposure is minimal; no amplification</td>
+                </tr>
+            </table>
+
+            <h2>9. The Setup: Pre-Earnings Bottom Formation</h2>
+            <div class="synthesis">
+                <h3>Capitulation Checklist</h3>
+                <ul style="margin-left: 20px;">
+                    <li><span class="check">✓</span> <strong>Spreads narrowing:</strong> Fear subsiding, liquidity returning</li>
+                    <li><span class="check">✓</span> <strong>Extreme put hedging:</strong> 17:1 put/call ratio — terror priced in</li>
+                    <li><span class="check">✓</span> <strong>Volume declining:</strong> Participation dropping, disinterest rising</li>
+                    <li><span class="check">✓</span> <strong>Medium short interest:</strong> Fuel for a bounce if sentiment flips</li>
+                    <li><span class="cross">✗</span> <strong>Technical reversal:</strong> MACD bearish, no higher lows — pattern not yet complete</li>
+                    <li><span class="cross">✗</span> <strong>Accumulation signal:</strong> No OBV divergence or climax bar — smart money not yet visibly buying</li>
+                </ul>
+            </div>
+
+            <h2>10. Earnings Catalyst: Tomorrow @ May 6</h2>
+            <div class="alert-critical">
+                <strong>Risk Level: CRITICAL</strong><br>
+                Earnings: May 6, 2026 (1 day away)<br>
+                Historical Avg Move: Data unavailable<br>
+                <strong>IV Crush Impact:</strong> Both calls and puts will collapse in value post-earnings regardless of direction. Avoid initiating positions now.
+            </div>
+
+            <h2>Three Scenarios</h2>
+
+            <div class="scenario bull">
+                <h4>📈 Scenario A: Earnings Beat (Moderate Probability)</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Catalyst:</strong> Revenue/EPS beats + positive guidance</li>
+                    <li><strong>Market Reaction:</strong> Spreads narrowing + put overhang → fast squeeze upward</li>
+                    <li><strong>Shorts Cover:</strong> 6.75 days-to-cover forces covering; mechanical amplification</li>
+                    <li><strong>Target:</strong> $60–62 (upper Bollinger Band, then breakout)</li>
+                    <li><strong>Risk:</strong> Massive IV crush post-earnings destroys option premium</li>
+                </ul>
+            </div>
+
+            <div class="scenario neutral">
+                <h4>➡️ Scenario B: Earnings In Line / Slight Miss (Higher Probability)</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Catalyst:</strong> Guidance unchanged or slightly lower; growth concerns persist</li>
+                    <li><strong>Market Reaction:</strong> Puts get crushed by IV decline; stock struggles to hold $55</li>
+                    <li><strong>Price Action:</strong> Potential retest of $51 support (April low)</li>
+                    <li><strong>But:</strong> Capitulation signals suggest $51 holds; bounce likely contained 52–55 range</li>
+                    <li><strong>Risk:</strong> If guidance disappoints, cascade toward $48 (March low)</li>
+                </ul>
+            </div>
+
+            <div class="scenario bear">
+                <h4>📉 Scenario C: Significant Miss / Negative Surprise (Lower Probability)</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Catalyst:</strong> Guidance cut; growth outlook worsens</li>
+                    <li><strong>Market Reaction:</strong> Cascades below $51; targets $48 (March low)</li>
+                    <li><strong>Shorts Irrelevant:</strong> Capitulation doesn't matter; structural weakness takes over</li>
+                    <li><strong>Risk:</strong> But spreads narrowing suggests market has already priced in weakness</li>
+                </ul>
+            </div>
+
+            <h2>Key Risks & Headwinds</h2>
+            <div class="risk-section">
+                <h4>⚠️ Critical Risk Factors</h4>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Relative Weakness is Structural:</strong> Underperforming sector by 41 pp is not noise — it reflects real investor skepticism about low growth in a momentum market</li>
+                    <li><strong>Growth Story is Broken:</strong> 3.3% revenue CAGR will never attract growth investors; value investors prefer cheaper cash machines</li>
+                    <li><strong>Margin Compression Risk:</strong> Operating margin trended -3.5% — if margins start to compress, cash generation story unravels</li>
+                    <li><strong>Earnings Tomorrow:</strong> Any volatility surprise breaks the technical setup completely</li>
+                    <li><strong>IV Crush:</strong> Both calls and puts will crater post-earnings; options buyers will lose money regardless of direction</li>
+                </ul>
+            </div>
+
+            <h2>Edge & Recommendations</h2>
+            <div class="edge-section">
+                <h4>✅ Where the Edge Exists</h4>
+
+                <h5>For Equity Traders:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Wait for earnings tomorrow,</strong> then reassess price action + guidance. The technicals are neutral until that catalyst fires.</li>
+                    <li><strong>If stock holds above $54 post-earnings,</strong> the capitulation setup becomes valid. Target $58–60 on short covering.</li>
+                    <li><strong>If stock breaks below $51,</strong> structure is broken. Avoid longs until new support forms.</li>
+                </ul>
+
+                <h5>For Options Traders:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Avoid now.</strong> IV crush will destroy premium on both sides.</li>
+                    <li><strong>Better setup will be post-earnings once volatility reprices.</strong> Wait 2–3 days for IV to normalize.</li>
+                    <li><strong>If stock bounces to $58+:</strong> Short calls (sell calls at $60 strike) become attractive with lower IV.</li>
+                </ul>
+
+                <h5>For Short Sellers:</h5>
+                <ul style="margin-left: 20px;">
+                    <li><strong>Risky into earnings.</strong> 10.2% short float + 6.75 DTC = squeeze risk if beats.</li>
+                    <li><strong>Post-earnings with guidance cut:</strong> Short into any bounce above $56; target $51 support.</li>
+                </ul>
+            </div>
+
+            <h2>Summary: The Narrative</h2>
+            <div class="card">
+                <p><strong>Bio-Techne is a slow-growth, high-margin cash machine that's been systematically de-rated against a sector in leadership mode.</strong> The stock has hit a potential technical bottom with capitulation signals forming (narrowing spreads, extreme put hedging, declining volume). However, the downtrend structure remains intact (no higher-low reversal), and MACD is still bearish.</p>
+
+                <p style="margin-top: 15px;"><strong>Tomorrow's earnings are the event that breaks the stalemate.</strong> If the company beats and maintains guidance, the beaten-down setup + medium short interest could trigger a squeeze back to $60–62. If earnings disappoint or guidance weakens, the stock likely retests $51 support, and the "capitulation bottom" narrative fails.</p>
+
+                <p style="margin-top: 15px;"><strong>The real issue isn't volatility or technicals — it's the growth problem.</strong> TECH will remain a laggard until its revenue growth accelerates or the market reprices the cash machine more aggressively. Neither looks imminent.</p>
+            </div>
+
+            <h2>Links & Supporting Materials</h2>
+            <div class="link-section">
+                <h4>Relevant Analysis & Resources</h4>
+                <ul>
+                    <li><a href="https://finance.yahoo.com/quote/TECH" target="_blank">Yahoo Finance: TECH (Bio-Techne)</a></li>
+                    <li><a href="https://www.bloomberg.com/quote/TECH:US" target="_blank">Bloomberg: TECH Coverage</a></li>
+                    <li><a href="https://stockanalysis.com/stocks/TECH/financials/" target="_blank">StockAnalysis: TECH Financials</a> — 3-year history of margins & growth</li>
+                    <li><a href="https://www.tradingview.com/chart/?symbol=NASDAQ%3ATECH" target="_blank">TradingView: TECH Daily Chart</a> — monitor price action post-earnings</li>
+                    <li><a href="https://www.barchart.com/stocks/quotes/TECH/opinion" target="_blank">Barchart: TECH Analyst Opinions</a> — consensus ratings & price targets</li>
+                </ul>
+            </div>
+
+            <h2>Data Sources</h2>
+            <div class="link-section">
+                <h4>MCP Servers Used</h4>
+                <ul>
+                    <li><strong>company-fundamentals-server:</strong> Fundamental score, earnings acceleration, revenue growth, earnings calendar</li>
+                    <li><strong>news-sentiment-server:</strong> Article collection & sentiment analysis (FinBERT scoring)</li>
+                    <li><strong>stock-price-server:</strong> Price, RSI, MACD, relative strength, candlestick patterns, volume, delta-adjusted OI, bid/ask spread, higher lows</li>
+                    <li><strong>market-analysis-server:</strong> Short interest, bid/ask spread dynamics</li>
+                </ul>
+            </div>
+
+        </div>
+
+            <h2>Final Assessment: The Value Trap Question</h2>
+            <div class="card">
+                <p><strong>TECH is now trading at:</strong> $47.40 (-16.3% post-earnings)</p>
+                <p style="margin-top: 15px;"><strong>The Thesis Now:</strong> At $47.40, TECH trades at a lower absolute price but still carries the same fundamental problem: slow growth (3.3% CAGR) in a growth-driven sector. The 27.7% FCF margin is valuable, but if earnings growth turns negative, the margin of safety evaporates.</p>
+                <p style="margin-top: 15px;"><strong>The Decision:</strong> Is this a once-in-a-generation discount on a quality compounder, or a value trap? The answer depends on whether TECH's earnings stabilize and margins hold. If earnings continue to deteriorate, $47 is NOT the bottom. If earnings stabilize and the market re-rates the FCF yield, $47 could be the bottom.</p>
+                <p style="margin-top: 15px;"><strong>Recommended Action:</strong> Wait for a capitulation bar (high volume, wide range) at $44–46. At that point, reassess the earnings outlook with fresh guidance. Don't chase this falling knife.</p>
+            </div>
+
+        <footer>
+            <p><strong>Original Analysis Date:</strong> May 5, 2026 | <strong>Post-Earnings Update:</strong> May 6, 2026 | <strong>Analyst:</strong> Claude Code | <strong>Ticker:</strong> TECH (Bio-Techne Corporation)</p>
+            <p style="margin-top: 10px; font-size: 0.85em;">This analysis is for educational and informational purposes only. It is not financial advice. Conduct your own due diligence before making investment decisions. Post-earnings update reflects market action on earnings day (May 6, 2026).</p>
+        </footer>
+    </div>
+</body>
+</html>

@@ -277,92 +277,80 @@ These capabilities exist in only one surface, which can make them hard to find o
 
 ## Database Structure & Duplication Analysis
 
-### Database Inventory
+### Database Consolidation
 
-The project uses **6 independent SQLite databases** with no shared connections:
+The project uses **1 unified SQLite database** (`data/quantcore.sqlite`), automatically created on startup via `quantcore/db.init_schema()` called from every application entry point (main.py, REST API, MCP servers). All database access uses a shared connection factory in `quantcore/db.py`:
 
-| Database | Tables | Primary Writer | Purpose |
+| Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|
-| `harvester.sqlite` | 7 | `api/app.py`, `experiments/HarvesterPlanStore.py` | Harvest plans, rungs, alerts, positions, historical price bars for the Harvester strategy |
-| `fastMCPTest/options_chain.db` | 4 | `fastMCPTest/options_store.py`, `options_position_store.py` | Options chain snapshots (ATM + full) and active options positions |
-| `fastMCPTest/news_sentiment.db` | 1 | `fastMCPTest/news_store.py` | Individual news articles with per-article FinBERT sentiment scores |
-| `fastMCPTest/sentiment.sqlite` | 1 | `fastMCPTest/sentiment_store.py` | Aggregated sentiment summaries (with articles embedded as JSON blobs) |
-| `fastMCPTest/ohlcv_cache.db` | 2 | `fastMCPTest/ohlcv_cache.py` | Shared OHLCV bar cache for all MCP servers; tracks yfinance fetch times |
-| `fastMCPTest/fundamentals_history.db` | 1 | `fastMCPTest/fundamentals_cache.py` | Append-only cache for earnings/fundamentals data (TTL-based) |
+| **Price Data** | `ohlcv`, `fetch_log` | `fastMCPTest/ohlcv_cache.py` | Shared OHLCV bar cache for all MCP servers; supports daily/intraday intervals; tracks yfinance fetch times |
+| **Harvester** | `symbols`, `plan_templates`, `positions`, `plan_instances`, `plan_rungs`, `alerts` | `experiments/HarvesterPlanStore.py` | Harvest plans, rungs, alerts, positions for the Harvester strategy; shares symbol registry with OHLCV |
+| **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `gamma_wall_history`, `options_positions` | `fastMCPTest/options_store.py`, `options_position_store.py` | Options chain snapshots (ATM + full), active positions, gamma wall history |
+| **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `fastMCPTest/news_store.py`, `sentiment_store.py` | Individual news articles with FinBERT scores; aggregated sentiment summaries |
+| **Fundamentals** | `fundamentals_history` | `fastMCPTest/fundamentals_cache.py` | Append-only cache for earnings/fundamentals data (TTL-based) |
 
-### Schema Summaries
+**All modules** use `from quantcore.db import get_connection()` instead of managing individual database connections. **Schema initialization is automatic** — the database and all 16 tables are created on-demand if the file doesn't exist.
 
-#### `harvester.sqlite` (7 tables)
-- **`symbols`** — Ticker registry (ticker, name, exchange, currency, created_at)
-- **`price_bars_daily`** — OHLCV bars per symbol per date (yfinance sourced; used only by Harvester)
-- **`plan_templates`** — Algorithm templates (dynamic H, history window, n_iterations, volatility method, drift method)
-- **`positions`** — Brokerage positions (entry_price, shares, cost_basis, account)
-- **`plan_instances`** — Computed harvest plans (price_asof, volatility, h_threshold, status ACTIVE/SUPERSEDED)
-- **`plan_rungs`** — Individual price targets (target_price, shares_to_sell, status PENDING/ACHIEVED/EXECUTED, actuals)
-- **`alerts`** — One per pending rung (threshold_price, status, notification config, fired_price)
+### Unified Schema
 
-#### `fastMCPTest/options_chain.db` (4 tables)
-- **`options_snapshots`** — One row per (symbol, capture-time) with price and Bollinger Bands
-- **`options_expirations`** — Per-expiry aggregate OI, volume, IV, put/call ratio (FK → snapshots)
-- **`options_contracts`** — Individual strikes (kind, strike, bid/ask, IV, volume, OI, ITM)
-- **`options_positions`** — Active options positions (symbol, kind, strike, expiration, contracts, purchase_price, target, status)
+All 16 tables live in `data/quantcore.sqlite`. All store modules use the shared `quantcore/db.get_connection()` factory with standardized PRAGMA settings (WAL mode, NORMAL sync, FK ON, 30s timeout).
 
-#### `fastMCPTest/news_sentiment.db` (1 table)
-- **`news_articles`** — Article per row: title, summary, publisher, url, published_at, source ('rss'/'yfinance'), sentiment label, sentiment_score, raw FinBERT probabilities
-
-#### `fastMCPTest/sentiment.sqlite` (1 table)
-- **`sentiment_snapshots`** — Aggregated summary per (symbol, captured_at): article_count, positive/negative/neutral counts, overall_sentiment signal, **plus full articles list re-serialized as JSON blob**
-
-#### `fastMCPTest/ohlcv_cache.db` (2 tables)
-- **`ohlcv`** — OHLCV bars per (symbol, interval, timestamp): supports '1d', '1h', '30m', '15m', '1wk', '1mo'; status field ('OPEN', 'CLOSED', 'GAP', 'CORRECTED')
+#### Price Data (2 tables)
+- **`ohlcv`** — OHLCV bars per (symbol, interval, ts): supports '1d', '1h', '30m', '15m', '1wk', '1mo'; status field ('OPEN', 'CLOSED', 'GAP', 'CORRECTED'); primary key (symbol, interval, ts)
 - **`fetch_log`** — Last yfinance fetch time per (symbol, interval)
 
-#### `fastMCPTest/fundamentals_history.db` (1 table)
+#### Harvester (6 tables)
+- **`symbols`** — Ticker registry (ticker, name, exchange, currency, created_at)
+- **`plan_templates`** — Algorithm templates (dynamic H, history window, n_iterations, volatility method, drift method)
+- **`positions`** — Brokerage positions (entry_price, shares, cost_basis, account; FK → symbols)
+- **`plan_instances`** — Computed harvest plans (price_asof, volatility, h_threshold, status ACTIVE/SUPERSEDED; FK → template, symbol, position)
+- **`plan_rungs`** — Individual price targets (target_price, shares_to_sell, status PENDING/ACHIEVED/EXECUTED, actuals; FK → instance)
+- **`alerts`** — One per pending rung (threshold_price, status, notification config, fired_price; FK → rung, symbol, instance)
+
+#### Options (5 tables)
+- **`options_snapshots`** — One row per (symbol, capture-time) with price and Bollinger Bands
+- **`options_expirations`** — Per-expiry aggregate OI, volume, IV, put/call ratio (FK → snapshots)
+- **`options_contracts`** — Individual strikes (kind, strike, bid/ask, IV, volume, OI, ITM; FK → expiration)
+- **`gamma_wall_history`** — Daily snapshots of gamma wall strike and MM hedge bias
+- **`options_positions`** — Active options positions (symbol, kind, strike, expiration, contracts, purchase_price, target, status)
+
+#### News & Sentiment (2 tables)
+- **`news_articles`** — Article per row: title, summary, publisher, url, published_at, source ('rss'/'yfinance'), sentiment label, sentiment_score, raw FinBERT probabilities; unique (symbol, url)
+- **`sentiment_snapshots`** — Aggregated summary per (symbol, captured_at): article_count, positive/negative/neutral counts, overall_sentiment signal
+
+#### Fundamentals (1 table)
 - **`fundamentals_history`** — Append-only rows per (symbol, data_type, fetched_at); data_type is one of 'earnings_calendar', 'fundamental_score', 'revenue_growth', 'earnings_acceleration'; payload is JSON; TTL-based freshness
-
-### Critical Database Duplications
-
-#### OHLCV Price Data Stored in Two Separate Databases
-
-| Aspect | `harvester.sqlite/price_bars_daily` | `ohlcv_cache.db/ohlcv` |
-|---|---|---|
-| Intervals | Daily only | 1d, 1h, 30m, 15m, 1wk, 1mo |
-| Adjusted close | Yes (stored) | No |
-| Status tracking | No | Yes (OPEN/CLOSED/GAP/CORRECTED) |
-| Symbol registry | Foreign key to `symbols` table | Plain TEXT key |
-| Primary writer | `HarvesterPlanStore.py` | `ohlcv_cache.py` (shared by all MCP servers) |
-| Primary readers | Harvester, REST API | All MCP tools via `get_history()` |
-
-**Problem:** The Harvester never reads from `ohlcv_cache.db`, and the MCP servers never read from `price_bars_daily`. When both track the same symbol, price history is fetched and stored twice independently. This is redundant and creates a maintenance burden.
-
-**Recommendation:** Merge into a single OHLCV table, or have the Harvester use `ohlcv_cache.db` with a migration to back-fill `price_bars_daily`.
-
-#### News Articles Stored in Two Databases
-
-- **`news_sentiment.db/news_articles`** — One row per article, with per-article FinBERT scores (normalized columns)
-- **`sentiment.sqlite/sentiment_snapshots`** — Aggregated summary rows where the **full article list is re-embedded as a `articles_json` blob**
-
-Every time a sentiment snapshot is saved, the underlying articles are serialized as JSON again inside the snapshot, even though the canonical per-article records already exist in `news_sentiment.db`. The two stores are written by different classes (`NewsStore` vs `SentimentStore`) and never cross-reference each other.
-
-**Problem:** Data duplication; increased storage; higher risk of inconsistency.
-
-**Recommendation:** Use `news_sentiment.db` as the canonical source and have `sentiment.sqlite` store only aggregated counts and a foreign key to the articles, not re-embedded JSON.
 
 #### `collect_options.py` References Non-Existent Schema
 
-`collect_options.py` imports `OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, and `create_pricer` from `options_store.py` — but the current `options_store.py` only exports the `OptionsStore` class with the 4-table schema described above. These imported classes do not exist in the codebase.
+`collect_options.py` imports `OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, and `create_pricer` from `options_store.py` — but the current `options_store.py` only exports the `OptionsStore` class. These imported classes do not exist in the codebase.
 
-The CLI also defaults its `--db` path to `options_store.db`, while the live database is `options_chain.db`.
+The CLI also defaults its `--db` path to `options_store.db`, but all data now goes to the unified `data/quantcore.sqlite`.
 
 **Problem:** `collect_options.py` **cannot be run** without import errors. It appears to reference a refactored version of `options_store.py` that no longer exists.
 
-**Recommendation:** Fix imports in `collect_options.py` or refactor `options_store.py` to match the expected interface.
+**Recommendation:** Fix imports in `collect_options.py` and update the `--db` default to use `data/quantcore.sqlite` via `quantcore.db.get_connection()`.
 
-### Critical Database Gaps
+### OHLCV Merge Completed
+
+**Status:** ✅ **RESOLVED** — The two separate OHLCV tables have been merged into a single `ohlcv` table in `data/quantcore.sqlite` with unified schema:
+- **`symbol`** — TEXT (plain ticker, no FK)
+- **`interval`** — TEXT DEFAULT '1d' (supports 1d, 1h, 30m, 15m, 1wk, 1mo)
+- **`ts`** — INTEGER (Unix timestamp in seconds)
+- **`open`, `high`, `low`, `close`, `volume`** — Standard OHLCV columns
+- **`adj_close`** — REAL (NULL for intraday; from original `price_bars_daily`)
+- **`status`** — TEXT DEFAULT 'CLOSED' (supports OPEN/CLOSED/GAP/CORRECTED for split detection)
+- **`data_vendor`** — TEXT DEFAULT 'yfinance'
+- **`ingested_at`** — INTEGER (Unix timestamp when row was written)
+- **PRIMARY KEY** — (symbol, interval, ts)
+
+Both the Harvester (`HarvesterPlanStore.py`) and MCP servers (`ohlcv_cache.py`) now write to the same table. Historical data has been migrated via `scripts/migrate_to_unified_db.py`.
+
+### Remaining Critical Database Gaps
 
 #### `options_positions` Table Has No REST, WebUI, or MCP Surface
 
-`options_chain.db/options_positions` stores active options positions (strike, expiration, contracts, purchase price, target price, status). There is **no REST endpoint, no WebUI page, and no MCP tool** that reads from or writes to this table. It can only be accessed by directly instantiating `OptionsPositionStore` in Python code.
+`data/quantcore.sqlite/options_positions` stores active options positions (strike, expiration, contracts, purchase price, target price, status). There is **no REST endpoint, no WebUI page, and no MCP tool** that reads from or writes to this table. It can only be accessed by directly instantiating `OptionsPositionStore` in Python code.
 
 **Recommendation:** Either add REST CRUD endpoints + WebUI form, or delete the table if it's not in use.
 
@@ -374,7 +362,7 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 #### Fundamentals Data Has No REST or WebUI Surface
 
-`fundamentals_history.db` is read **exclusively by MCP tools** in `company_fundamentals_server.py`. None of the 35+ REST endpoints in `api/app.py` query this database. The WebUI therefore cannot display fundamental scores, revenue growth, earnings acceleration, or sector breakdowns.
+The `fundamentals_history` table in `data/quantcore.sqlite` is read **exclusively by MCP tools** in `company_fundamentals_server.py`. None of the 35+ REST endpoints in `api/app.py` query this table. The WebUI therefore cannot display fundamental scores, revenue growth, earnings acceleration, or sector breakdowns.
 
 **Recommendation:** Add REST wrapper endpoints (e.g., `GET /api/securities/<ticker>/fundamentals`) to expose MCP tool results to the REST API and WebUI.
 
@@ -384,11 +372,15 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 **Recommendation:** Create a new table in one of the cache databases (e.g., `market_structure.db`) to store snapshots of these signals for historical trend analysis.
 
-#### Sentiment Trend Query Depends on `news_sentiment.db` But Screener Uses `sentiment.sqlite`
+#### Sentiment Data Sources Unified in QuantCore
 
-`get_sentiment_trend` (MCP) queries `news_sentiment.db/news_articles` for per-day counts. The REST screener queries `sentiment.sqlite/sentiment_snapshots`. These two sentiment sources can produce conflicting signals for the same symbol on the same day depending on which articles were captured by each path.
+Both sentiment data sources now use `data/quantcore.sqlite`:
+- `get_sentiment_trend` (MCP) queries `news_articles` table for per-day counts
+- Aggregated summaries stored in `sentiment_snapshots` table
 
-**Recommendation:** Standardize on a single sentiment data source, or explicitly document the difference.
+All writes and reads use the same unified database via `quantcore.db.get_connection()`.
+
+**Status:** ✅ **RESOLVED** — Single consolidated source of truth.
 
 ---
 
@@ -396,16 +388,22 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 
 ### What Works Well
 - **REST + WebUI integration:** Technical signals, options data, portfolio/watchlist management are well-surfaced via both REST and WebUI.
-- **OHLCV caching:** `ohlcv_cache.db` is shared across all MCP servers, eliminating redundant yfinance calls.
+- **OHLCV caching:** `data/quantcore.sqlite/ohlcv` table is shared across all MCP servers, eliminating redundant yfinance calls.
 - **Harvest ladder:** Fully accessible via REST + WebUI; no gaps.
 - **Options data flow:** MCP tools fetch & store, exact-contract tools can use cache-first/live-refresh, and REST reads from the store.
+- **Unified database:** All 16 tables consolidated into `data/quantcore.sqlite` with automatic schema initialization on startup.
 
-### Critical Gaps
+### Completed Improvements
+- ✅ **OHLCV duplication resolved:** Merged `price_bars_daily` + `ohlcv` into single unified `ohlcv` table (symbol, interval, ts) with status tracking and adj_close support.
+- ✅ **Single database:** Consolidated 6 separate databases into unified `data/quantcore.sqlite` with shared connection factory (`quantcore/db.get_connection()`).
+- ✅ **Standardized PRAGMA settings:** All connections use WAL mode, NORMAL sync, FK ON, Row factory, 30s timeout.
+
+### Remaining Critical Gaps
 1. **Fundamentals are MCP-only.** All 12 fundamentals MCP tools (scores, revenue, earnings, cache) lack REST endpoints and WebUI panels. The dashboard cannot display fundamental analysis.
 2. **Market microstructure is MCP-only.** Short interest, dark pool, bid/ask spread are powerful signals with zero REST or WebUI exposure.
 3. **Most powerful MCP tools are not surfaced to REST.** `get_trade_recommendation`, `get_stop_loss_analysis`, `get_relative_strength` are LLM-accessible only.
 4. **Exact spread tools are MCP-only.** `get_option_contracts` and `price_vertical_spread` solve tactical contract lookup for agents, but REST/WebUI still cannot price exact spreads.
-5. **Database duplication.** OHLCV bars stored twice; news articles stored twice (normalized + JSON blobs).
+5. **News articles still duplicated.** `news_articles` (per-article) and `sentiment_snapshots` (JSON blobs) both store article data; no FK cross-reference.
 6. **`collect_options.py` is broken.** Imports non-existent classes; references wrong database file.
 7. **Two parallel position registries.** Harvester's `positions` table and `portfolio.csv` have no sync mechanism.
 
@@ -413,8 +411,7 @@ The Harvester's `positions` table stores brokerage positions (entry_price, share
 1. Delete legacy experiments (`RevenueGrowthExperiment.py`, `EarningsAccelerationExperiment.py`, `MaxDrawDownAnalyzer.py`, etc.). They are fully superseded by MCP tools.
 2. Wrap MCP tools with REST endpoints (e.g., `GET /api/securities/<ticker>/fundamentals`, `GET /api/securities/<ticker>/microstructure`). This surfaces them to the WebUI with minimal effort.
 3. Fix `collect_options.py` imports or refactor `options_store.py` to match the expected interface.
-4. Consolidate news articles: use `news_sentiment.db` as canonical; have `sentiment.sqlite` reference it instead of re-embedding JSON.
-5. Consolidate OHLCV: have the Harvester read from `ohlcv_cache.db` instead of maintaining its own `price_bars_daily`.
+4. Consolidate news articles: refactor `sentiment_snapshots` to store only aggregated counts + FK to articles, not re-embedded JSON.
 
 ---
 

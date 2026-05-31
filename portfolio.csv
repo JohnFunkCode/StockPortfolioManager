@@ -1,10 +1,13 @@
 name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price
 Nvidia,NVDA,5.41,27,2024-06-15,USD,,,
 Caterpillar,CAT,590.2965,4,2025-07-25,USD,,,
-Micron Technology,MU,725.16,2,2026-05-20,USD,,,
-GE Vernova,GEV,1019.00,3,2026-05-20,USD,,,
 Teradyne,TER,337.98,5,2026-05-20,USD,,,
-Credo Technology Group,CRDO,179.1899,8,2026-05-20,USD,,,
-Corning,GLW,182.625,8,2026-05-20,USD,,,
+Credo Technology Group,CRDO,179.19,8,2026-05-20,USD,,,
+Broadcom,AVGO,423.39,3,2026-05-26,USD,,,
+GE Vernova,GEV,999.93,3,2026-05-28,USD,,,
+Micron Technology,MU,922.23,2,2026-05-28,USD,,,
+Corning,GLW,188.72,8,2026-05-28,USD,,,
+Marvell Technology,MRVL,200.30,8,2026-05-28,USD,,,
+Zscaler,ZS,124.65,10,2026-05-28,USD,,,
 
 

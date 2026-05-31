@@ -103,7 +103,7 @@ CREATE TABLE options_contracts (
 ```python
 from options_store import OptionsStore
 
-store = OptionsStore()                           # default: options_chain.db next to script
+store = OptionsStore()                           # default: data/quantcore.sqlite (unified database)
 store = OptionsStore("/path/to/custom.db")       # custom path
 
 # Save a snapshot (returns snapshot_id, or None if duplicate)
@@ -156,7 +156,7 @@ python collect_options.py --log-level DEBUG      # verbose per-contract logging
 
 ## Options Position Tracker (`options_position_store.py`)
 
-Tracks active options positions in SQLite (stored in `options_chain.db`) and surfaces alerts for crossing into the money, approaching expiration, and reaching the profit target. The notifier (`notifier.py`) calls this store automatically on each run and sends colour-coded Discord embeds per alert.
+Tracks active options positions in SQLite (stored in `data/quantcore.sqlite`) and surfaces alerts for crossing into the money, approaching expiration, and reaching the profit target. The notifier (`notifier.py`) calls this store automatically on each run and sends colour-coded Discord embeds per alert.
 
 ### Alert types
 
@@ -246,7 +246,7 @@ Fetches financial news from RSS and yfinance, scores each article with [FinBERT]
 | `NEUTRAL` | No dominant sentiment |
 | `INSUFFICIENT_DATA` | Fewer than 3 scored articles |
 
-### Schema (`news_sentiment.db`)
+### Schema (unified `data/quantcore.sqlite`)
 
 ```sql
 CREATE TABLE news_articles (
@@ -1013,7 +1013,7 @@ Non-US-listed symbols (suffixes `.PA`, `.OL`, `.AS`, `.SG`, `.KS`, `.ST`, `.DE`)
 | Source | Limitation |
 |--------|-----------|
 | All tools | Yahoo Finance data; options may lag up to 15 min |
-| `ohlcv_cache.db` | Delete the file to force a full re-fetch |
+| `data/quantcore.sqlite` | Delete the file to force a full re-fetch of OHLCV data (schema will be auto-recreated) |
 | `options_store.py` | ATM contracts only (5 strikes per side); nearest expiration only per snapshot |
 | `get_short_interest` | FINRA bi-monthly update; lags up to 2 weeks |
 | `get_dark_pool` | Proxy only — true dark pool requires paid feed (FINRA ATS, Bloomberg) |

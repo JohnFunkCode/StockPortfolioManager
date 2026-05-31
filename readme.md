@@ -77,6 +77,24 @@ YAML file entries:
 
 3. Create a `stocks.csv` file with your portfolio data following the format in the example above.
 
+## Configuration
+
+### Database
+
+The application uses a unified SQLite database (`data/quantcore.sqlite`) to store:
+- Portfolio holdings and historical OHLCV data (daily, intraday)
+- Options chain snapshots, Greeks, and gamma wall history
+- News articles and sentiment analysis
+- Fundamental metrics and earnings dates
+- Harvester plan instances and alert logs
+
+**The database is automatically created** when any application component starts (main.py, REST API, or MCP servers). You don't need to run a migration script — the schema is initialized on-demand if the database file is missing.
+
+**Environment Variables:**
+- `QUANTCORE_DB_PATH` — Location of the unified database (default: `data/quantcore.sqlite`)
+- `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
+- `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
+
 ## Usage
 
 ### Basic Portfolio Analysis
@@ -241,7 +259,7 @@ The `company-fundamentals-server` now features a persistent SQLite cache layer t
 
 **Configuration:**
 - Cache TTL controlled via `FUNDAMENTALS_CACHE_TTL_HOURS` env var (default 24 hours)
-- Database location: `fastMCPTest/fundamentals_history.db`
+- Database location: `data/quantcore.sqlite` (unified database, auto-created on startup)
 - Setting TTL to 0 disables caching (useful for testing)
 - TTL checked on every call, so changes take effect without server restart
 
@@ -253,9 +271,9 @@ Three MCP tools expose historical views of key technical metrics to support mult
 
 | Tool | Source | Backfill |
 |------|--------|----------|
-| `get_vwap_history(symbol, since_days=90)` | Computed from `ohlcv_cache.db` | Up to 2 years |
-| `get_relative_strength_history(symbol, since_days=90)` | Computed from `ohlcv_cache.db` | Up to 2 years |
-| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in `options_chain.db` | Forward-only from first call |
+| `get_vwap_history(symbol, since_days=90)` | Computed from OHLCV data in `data/quantcore.sqlite` | Up to 2 years |
+| `get_relative_strength_history(symbol, since_days=90)` | Computed from OHLCV data in `data/quantcore.sqlite` | Up to 2 years |
+| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in `data/quantcore.sqlite` | Forward-only from first call |
 
 #### VWAP History
 

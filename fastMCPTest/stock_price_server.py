@@ -3,7 +3,12 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+MCP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_DIR.parent
+for path in (PROJECT_ROOT, MCP_DIR):
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 import yfinance as yf
 from fastmcp import FastMCP
@@ -3533,4 +3538,6 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
 
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

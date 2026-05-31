@@ -19,62 +19,18 @@ Usage:
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime, timezone, timedelta
-from pathlib import Path
 from typing import Optional
 
-DEFAULT_DB_PATH = Path(__file__).parent / "news_sentiment.db"
-
-_DDL = """
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS news_articles (
-    article_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol          TEXT    NOT NULL,
-    title           TEXT    NOT NULL,
-    summary         TEXT,
-    publisher       TEXT,
-    url             TEXT    NOT NULL,
-    published_at    TEXT,           -- ISO-8601 (best-effort from source)
-    source          TEXT    NOT NULL,  -- 'rss' or 'yfinance'
-    fetched_at      TEXT    NOT NULL,  -- ISO-8601 UTC timestamp of fetch
-    sentiment       TEXT    CHECK(sentiment IN ('positive','negative','neutral')),
-    sentiment_score REAL,           -- confidence 0–1 for the predicted label
-    positive_score  REAL,           -- raw FinBERT positive probability
-    negative_score  REAL,           -- raw FinBERT negative probability
-    neutral_score   REAL,           -- raw FinBERT neutral probability
-    UNIQUE (symbol, url)
-);
-
-CREATE INDEX IF NOT EXISTS idx_news_symbol_time
-    ON news_articles (symbol, published_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_news_unscored
-    ON news_articles (symbol)
-    WHERE sentiment IS NULL;
-"""
+from quantcore.db import get_connection
 
 
 class NewsStore:
-    """
-    Stores financial news articles and their FinBERT sentiment scores in SQLite.
-    The default database (news_sentiment.db) lives next to this file.
-    """
+    """Stores financial news articles and their FinBERT sentiment scores in SQLite."""
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
-        self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
-
-    def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(_DDL)
+    def __init__(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Write
@@ -92,7 +48,7 @@ class NewsStore:
         symbol = symbol.upper()
         now    = datetime.now(timezone.utc).isoformat()
         inserted = 0
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             for art in articles:
                 url = (art.get("url") or "").strip()
                 if not url:
@@ -128,7 +84,7 @@ class NewsStore:
         neutral_score: float,
     ) -> None:
         """Write FinBERT scores back to an existing article row."""
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             conn.execute(
                 """
                 UPDATE news_articles
@@ -171,7 +127,7 @@ class NewsStore:
         """
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         scored_clause = "AND sentiment IS NOT NULL" if scored_only else ""
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 f"""
                 SELECT * FROM news_articles
@@ -190,7 +146,7 @@ class NewsStore:
         sym_clause = "AND symbol = ?" if symbol else ""
         params = [symbol.upper()] if symbol else []
         params.append(limit)
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 f"""
                 SELECT * FROM news_articles
@@ -215,7 +171,7 @@ class NewsStore:
             top_positive (list of titles), top_negative (list of titles)
         """
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT sentiment, sentiment_score, positive_score, negative_score,
@@ -285,7 +241,7 @@ class NewsStore:
                   net_score (positive% - negative%), article_count
         """
         since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT DATE(COALESCE(published_at, fetched_at)) AS day,
@@ -322,14 +278,14 @@ class NewsStore:
     def article_count(self, symbol: Optional[str] = None) -> int:
         clause = "WHERE symbol = ?" if symbol else ""
         params = [symbol.upper()] if symbol else []
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 f"SELECT COUNT(*) FROM news_articles {clause}", params
             ).fetchone()
             return row[0]
 
     def get_symbols(self) -> list[str]:
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 "SELECT DISTINCT symbol FROM news_articles ORDER BY symbol"
             ).fetchall()

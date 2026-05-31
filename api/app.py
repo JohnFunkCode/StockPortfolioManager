@@ -129,6 +129,9 @@ def _compute_expected_move(contracts: list[dict], current_price: float):
 # ---------------------------------------------------------------------------
 
 def create_app() -> Flask:
+    from quantcore.db import init_schema
+    init_schema()
+
     app = Flask(__name__)
     app.json = app.json_provider_class(app)
     app.json.ensure_ascii = False
@@ -166,7 +169,10 @@ def create_app() -> Flask:
     @app.route("/api/health")
     def health():
         try:
-            db._connect().execute("SELECT 1;")
+            from contextlib import closing
+            from quantcore.db import get_connection
+            with closing(get_connection()) as conn:
+                conn.execute("SELECT 1;")
             return jsonify({"status": "ok", "db_connected": True})
         except Exception as exc:
             return jsonify({"status": "error", "db_connected": False, "message": str(exc)}), 500
@@ -341,8 +347,8 @@ def create_app() -> Flask:
         return []
 
     def _load_watchlist() -> list[dict]:
-        """Load watchlist from fastMCPTest/watchlist.yaml."""
-        wl_path = FAST_MCP_DIR / "watchlist.yaml"
+        """Load watchlist from ./watchlist.yaml."""
+        wl_path = PROJECT_ROOT / "watchlist.yaml"
         if not wl_path.exists():
             return []
         with open(wl_path) as fh:
@@ -444,7 +450,7 @@ def create_app() -> Flask:
 
     @app.route("/api/watchlist", methods=["POST"])
     def add_to_watchlist():
-        """Append a new entry to fastMCPTest/watchlist.yaml."""
+        """Append a new entry to ./watchlist.yaml."""
         body   = request.get_json(silent=True) or {}
         symbol = body.get("symbol", "").strip().upper()
         if not symbol:
@@ -454,7 +460,7 @@ def create_app() -> Flask:
         if symbol in existing:
             return jsonify({"error": f"{symbol} is already in the watchlist"}), 409
 
-        wl_path = FAST_MCP_DIR / "watchlist.yaml"
+        wl_path = PROJECT_ROOT / "watchlist.yaml"
         name     = body.get("name", "").strip()
         currency = (body.get("currency") or "USD").strip().upper()
         tags     = [t.strip() for t in (body.get("tags") or []) if str(t).strip()]
@@ -1168,7 +1174,8 @@ def create_app() -> Flask:
           macd_bearish  — '1' to require macd < macd_signal
           source        — 'portfolio' | 'watchlist' | 'all' (default all)
         """
-        import sqlite3 as _sqlite3
+        from contextlib import closing
+        from quantcore.db import get_connection
 
         rsi_max        = request.args.get("rsi_max",        type=float)
         rsi_min        = request.args.get("rsi_min",        type=float)
@@ -1220,23 +1227,20 @@ def create_app() -> Flask:
             return jsonify({"results": [], "count": 0})
 
         # Pull last 250 daily bars for each symbol in one SQL query
-        OHLCV_DB = FAST_MCP_DIR / "ohlcv_cache.db"
         try:
-            conn = _sqlite3.connect(str(OHLCV_DB))
-            conn.row_factory = _sqlite3.Row
-            placeholders = ",".join("?" for _ in symbols)
-            rows = conn.execute(
-                f"""
-                SELECT symbol, ts, close, volume, high, low, open
-                FROM ohlcv
-                WHERE interval = '1d'
-                  AND symbol IN ({placeholders})
-                  AND status != 'GAP'
-                ORDER BY symbol, ts ASC
-                """,
-                symbols,
-            ).fetchall()
-            conn.close()
+            with closing(get_connection()) as conn:
+                placeholders = ",".join("?" for _ in symbols)
+                rows = conn.execute(
+                    f"""
+                    SELECT symbol, ts, close, volume, high, low, open
+                    FROM ohlcv
+                    WHERE interval = '1d'
+                      AND symbol IN ({placeholders})
+                      AND status != 'GAP'
+                    ORDER BY symbol, ts ASC
+                    """,
+                    symbols,
+                ).fetchall()
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
@@ -1646,4 +1650,4 @@ def create_app() -> Flask:
 
 if __name__ == "__main__":
     app = create_app()
-    app.run(host="127.0.0.1", port=5001, debug=True)
+    app.run(host="127.0.0.1", port=5001, debug=True, use_reloader=False)

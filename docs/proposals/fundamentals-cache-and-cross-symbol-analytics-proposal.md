@@ -31,7 +31,7 @@ The current `company_fundamentals_server.py` has four tools — `get_earnings_ca
 
 ```
 fundamentals_cache.py               [NEW]
-  SQLite — fastMCPTest/fundamentals_history.db
+  SQLite — data/quantcore.sqlite (unified database)
   append-only schema: (symbol, data_type, fetched_at, payload)
   TTL-based staleness (default 24h, env-var configurable)
   Public API:
@@ -47,7 +47,7 @@ company_fundamentals_server.py      [MODIFIED]
   8 new tools built on cache layer
 ```
 
-The cache follows the same implementation pattern as `ohlcv_cache.py`: WAL journal mode, NORMAL synchronous, double-checked locking for one-time schema init, `closing()` on every connection, 30-second lock timeout. The DB file lives in `fastMCPTest/` alongside all other project databases.
+The cache follows the same implementation pattern as `ohlcv_cache.py`: WAL journal mode, NORMAL synchronous, shared connection factory (`quantcore.db.get_connection()`), 30-second lock timeout. All data is stored in the unified `data/quantcore.sqlite` database.
 
 The append-only design means every cache miss inserts a new row rather than updating an existing one. The primary key `(symbol, data_type, fetched_at)` prevents duplicates. Old rows are never deleted — they accumulate into a daily time series that can be queried for trend analysis, score change detection, and historical snapshots.
 
@@ -59,10 +59,10 @@ The TTL is controlled by an environment variable and read on every call so chang
 
 ```
 FUNDAMENTALS_CACHE_TTL_HOURS   default: 24
-FUNDAMENTALS_CACHE_DB          default: fastMCPTest/fundamentals_history.db
+QUANTCORE_DB_PATH              default: data/quantcore.sqlite
 ```
 
-Setting `FUNDAMENTALS_CACHE_TTL_HOURS=0` disables the cache entirely, useful for testing.
+Setting `FUNDAMENTALS_CACHE_TTL_HOURS=0` disables the cache entirely, useful for testing. The database location is controlled via `QUANTCORE_DB_PATH`, shared with all other MCP servers and the REST API.
 
 ---
 

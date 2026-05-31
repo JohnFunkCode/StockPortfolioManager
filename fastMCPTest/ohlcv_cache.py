@@ -15,24 +15,23 @@ from __future__ import annotations
 import datetime
 import enum
 import logging
-import threading
 from contextlib import closing
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional
 import sqlite3
+from time import time
 
 import pandas as pd
 import pytz
 import yfinance as yf
+
+from quantcore.db import get_connection
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-CACHE_DB = Path(__file__).parent / "ohlcv_cache.db"
 
 _ET = pytz.timezone("America/New_York")
 
@@ -97,60 +96,8 @@ class OHLCV:
         return self.status != BarStatus.GAP
 
 
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS ohlcv (
-    symbol   TEXT    NOT NULL,
-    interval TEXT    NOT NULL,
-    ts       INTEGER NOT NULL,
-    open     REAL    NOT NULL,
-    high     REAL    NOT NULL,
-    low      REAL    NOT NULL,
-    close    REAL    NOT NULL,
-    volume   INTEGER NOT NULL,
-    status   TEXT    NOT NULL CHECK(status IN ('OPEN','CLOSED','GAP','CORRECTED')),
-    PRIMARY KEY (symbol, interval, ts)
-);
-CREATE INDEX IF NOT EXISTS idx_ohlcv_lookup
-    ON ohlcv (symbol, interval, ts DESC);
-CREATE INDEX IF NOT EXISTS idx_ohlcv_needs_action
-    ON ohlcv (symbol, interval)
-    WHERE status IN ('OPEN','CORRECTED');
-
-CREATE TABLE IF NOT EXISTS fetch_log (
-    symbol     TEXT    NOT NULL,
-    interval   TEXT    NOT NULL,
-    fetched_at INTEGER NOT NULL,
-    PRIMARY KEY (symbol, interval)
-);
-"""
-
-_db_initialised = False
-_db_init_lock = threading.Lock()
-
-_SQLITE_TIMEOUT = 30  # seconds to wait for a write lock before raising
-
-
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(CACHE_DB, timeout=_SQLITE_TIMEOUT)
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
-
-
-def _init_db() -> None:
-    global _db_initialised
-    if _db_initialised:
-        return
-    with _db_init_lock:
-        if _db_initialised:
-            return
-        with closing(_connect()) as conn:
-            conn.executescript(_DDL)
-        _db_initialised = True
+# Schema is now managed by quantcore.db
+# ohlcv and fetch_log tables are in the unified database
 
 
 # ---------------------------------------------------------------------------
@@ -193,7 +140,7 @@ def _ts_to_int(ts: object) -> int:
 
 
 def _count_cached(symbol: str, interval: str) -> int:
-    with closing(_connect()) as conn:
+    with closing(get_connection()) as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM ohlcv WHERE symbol=? AND interval=?",
             (symbol, interval),
@@ -202,7 +149,7 @@ def _count_cached(symbol: str, interval: str) -> int:
 
 
 def _latest_closed_ts(symbol: str, interval: str) -> Optional[int]:
-    with closing(_connect()) as conn:
+    with closing(get_connection()) as conn:
         row = conn.execute(
             "SELECT MAX(ts) FROM ohlcv WHERE symbol=? AND interval=? AND status='CLOSED'",
             (symbol, interval),
@@ -211,7 +158,7 @@ def _latest_closed_ts(symbol: str, interval: str) -> Optional[int]:
 
 
 def _has_open_bar(symbol: str, interval: str) -> bool:
-    with closing(_connect()) as conn:
+    with closing(get_connection()) as conn:
         row = conn.execute(
             "SELECT 1 FROM ohlcv WHERE symbol=? AND interval=? AND status='OPEN' LIMIT 1",
             (symbol, interval),
@@ -227,7 +174,7 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     if df.empty:
         return
 
-    with closing(_connect()) as conn:
+    with closing(get_connection()) as conn:
         for ts_idx, row in df.iterrows():
             ts_int     = _ts_to_int(ts_idx)
             bar_date   = pd.Timestamp(ts_idx).date()
@@ -254,8 +201,8 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO ohlcv
-                    (symbol, interval, ts, open, high, low, close, volume, status)
-                VALUES (?,?,?,?,?,?,?,?,?)
+                    (symbol, interval, ts, open, high, low, close, volume, status, adj_close, data_vendor, ingested_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     symbol, interval, ts_int,
@@ -263,6 +210,9 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
                     float(row["Low"]),  new_close,
                     int(row["Volume"]) if row["Volume"] is not None else 0,
                     status.value,
+                    None,  # adj_close: not available from yfinance with auto_adjust=True
+                    "yfinance",
+                    int(time()),
                 ),
             )
 
@@ -281,7 +231,7 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
     cutoff = int(
         (datetime.datetime.utcnow() - datetime.timedelta(days=days)).timestamp()
     )
-    with closing(_connect()) as conn:
+    with closing(get_connection()) as conn:
         rows = conn.execute(
             """
             SELECT ts, open, high, low, close, volume
@@ -380,7 +330,6 @@ def get_history(symbol: str, interval: str, days: int) -> pd.DataFrame:
         raise ValueError(f"Invalid interval '{interval}'. Valid: {_VALID_INTERVALS}")
 
     symbol = symbol.upper()
-    _init_db()
 
     needs_fetch = False
     if _count_cached(symbol, interval) == 0:

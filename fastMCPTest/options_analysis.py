@@ -21,7 +21,12 @@ from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Optional
 
-sys.path.insert(0, str(Path(__file__).parent))
+MCP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_DIR.parent
+for path in (PROJECT_ROOT, MCP_DIR):
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 import numpy as np
 import yaml
@@ -1369,7 +1374,7 @@ def mcp_health_check() -> dict:
         "history_period": HISTORY_PERIOD,
         "bb_period": BB_PERIOD,
         "bb_std_dev": BB_STD_DEV,
-        "watchlist_default": str(Path(__file__).parent / "watchlist.yaml"),
+        "watchlist_default": str(PROJECT_ROOT / "watchlist.yaml"),
     }
 
 
@@ -1457,7 +1462,7 @@ def analyze_options_watchlist(
     include_non_us: bool = False,
 ) -> dict:
     """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
-    path = Path(watchlist_path) if watchlist_path else (Path(__file__).parent / "watchlist.yaml")
+    path = Path(watchlist_path) if watchlist_path else (PROJECT_ROOT / "watchlist.yaml")
     if not path.exists():
         raise FileNotFoundError(f"watchlist not found at {path}")
     entries = load_watchlist(path)
@@ -1531,11 +1536,14 @@ def price_vertical_spread(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    from quantcore.db import init_schema
+    init_schema()
+
     parser = argparse.ArgumentParser(description="Options analysis from watchlist.yaml")
     parser.add_argument(
         "--watchlist",
         type=Path,
-        default=Path(__file__).parent / "watchlist.yaml",
+        default=PROJECT_ROOT / "watchlist.yaml",
         help="Path to watchlist YAML file",
     )
     parser.add_argument(

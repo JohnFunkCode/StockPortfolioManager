@@ -30,6 +30,15 @@ Requires:
 """
 
 import logging
+import sys
+from pathlib import Path
+
+MCP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = MCP_DIR.parent
+for path in (PROJECT_ROOT, MCP_DIR):
+    path_str = str(path)
+    if path_str not in sys.path:
+        sys.path.insert(0, path_str)
 
 from fastmcp import FastMCP
 
@@ -212,4 +221,6 @@ def list_news_symbols() -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    from quantcore.db import init_schema
+    init_schema()
     mcp.run()

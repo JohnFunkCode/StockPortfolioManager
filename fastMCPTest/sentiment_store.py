@@ -13,42 +13,13 @@ import json
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
-from pathlib import Path
 
-_DB_PATH = Path(__file__).parent / "sentiment.sqlite"
-
-_DDL = """
-CREATE TABLE IF NOT EXISTS sentiment_snapshots (
-    id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol           TEXT    NOT NULL,
-    captured_at      TEXT    NOT NULL,
-    article_count    INTEGER NOT NULL DEFAULT 0,
-    positive_count   INTEGER NOT NULL DEFAULT 0,
-    negative_count   INTEGER NOT NULL DEFAULT 0,
-    neutral_count    INTEGER NOT NULL DEFAULT 0,
-    scored_count     INTEGER NOT NULL DEFAULT 0,
-    overall_sentiment TEXT,
-    articles_json    TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sentiment_symbol_ts
-    ON sentiment_snapshots (symbol, captured_at DESC);
-"""
+from quantcore.db import get_connection
 
 
 class SentimentStore:
-    def __init__(self, db_path: Path | None = None):
-        self._db = db_path or _DB_PATH
-        self._init_db()
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(str(self._db))
-        conn.row_factory = sqlite3.Row
-        return conn
-
-    def _init_db(self) -> None:
-        with closing(self._connect()) as conn:
-            conn.executescript(_DDL)
-            conn.commit()
+    def __init__(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Write
@@ -63,7 +34,7 @@ class SentimentStore:
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         articles_json = json.dumps(news_response.get("articles", []))
 
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             conn.execute(
                 """
                 INSERT INTO sentiment_snapshots
@@ -95,7 +66,7 @@ class SentimentStore:
 
     def get_latest(self, symbol: str) -> dict | None:
         """Return the most recent snapshot for a symbol, or None."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 """
                 SELECT * FROM sentiment_snapshots
@@ -109,7 +80,7 @@ class SentimentStore:
 
     def get_prior(self, symbol: str) -> dict | None:
         """Return the second-most-recent snapshot (for flip detection)."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM sentiment_snapshots
@@ -123,7 +94,7 @@ class SentimentStore:
 
     def get_history(self, symbol: str, days: int = 30) -> list[dict]:
         """Return up to `days` days of snapshots for a symbol, oldest first."""
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT id, symbol, captured_at, article_count,
@@ -143,7 +114,7 @@ class SentimentStore:
         Return the most recent snapshot for every symbol in the store.
         Result: {symbol: snapshot_dict}
         """
-        with closing(self._connect()) as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.*

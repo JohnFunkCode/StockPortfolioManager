@@ -39,9 +39,7 @@ class Notifier:
         #     raise ValueError("DISCORD_WEBHOOK_URL environment variable not set.")
         self.portfolio = portfolio
         self.notification = None
-        self._options_positions = OptionsPositionStore(
-            Path(options_db_path) if options_db_path else None
-        )
+        self._options_positions = OptionsPositionStore()
 
     
     def calculate_and_send_notifications(self):

@@ -27,113 +27,10 @@ Usage:
 import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
+from pathlib import Path
 
-# Default DB lives next to this file
-DEFAULT_DB_PATH = Path(__file__).parent / "options_chain.db"
-
-# ---------------------------------------------------------------------------
-# Schema
-# ---------------------------------------------------------------------------
-
-_DDL = """
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
--- One row per (symbol, point-in-time fetch).
--- Stores price and Bollinger Band context so we can reconstruct what the
--- scoring model saw at the time of the snapshot.
-CREATE TABLE IF NOT EXISTS options_snapshots (
-    snapshot_id  INTEGER PRIMARY KEY,
-    symbol       TEXT    NOT NULL,
-    captured_at  TEXT    NOT NULL,   -- ISO-8601 UTC, e.g. "2026-04-08T14:32:00Z"
-    price        REAL    NOT NULL,
-    bb_upper     REAL,
-    bb_middle    REAL,
-    bb_lower     REAL,
-    bb_period    INTEGER DEFAULT 20,
-    chain_type   TEXT    NOT NULL DEFAULT 'atm',  -- 'atm' (nearest exp, ATM only) or 'full' (all exps, all strikes)
-    UNIQUE (symbol, captured_at)
-);
-
-CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_time
-    ON options_snapshots (symbol, captured_at DESC);
-
--- One row per expiration date within a snapshot.
--- put_call_ratio here is computed from aggregate OI across all strikes
--- (same calculation used by get_stock_price and options_analysis.py).
-CREATE TABLE IF NOT EXISTS options_expirations (
-    expiration_id  INTEGER PRIMARY KEY,
-    snapshot_id    INTEGER NOT NULL
-                       REFERENCES options_snapshots (snapshot_id)
-                       ON DELETE CASCADE,
-    expiration     TEXT    NOT NULL,  -- "YYYY-MM-DD"
-    put_call_ratio REAL,
-    total_call_oi  INTEGER,
-    total_put_oi   INTEGER,
-    total_call_vol INTEGER,
-    total_put_vol  INTEGER,
-    avg_call_iv    REAL,
-    avg_put_iv     REAL,
-    UNIQUE (snapshot_id, expiration)
-);
-
-CREATE INDEX IF NOT EXISTS idx_expirations_snapshot
-    ON options_expirations (snapshot_id);
-
--- Individual option contracts within an expiration.
--- Stores both call and put sides.  Only ATM contracts (nearest 5 strikes)
--- are persisted — full-chain storage is deferred until needed.
-CREATE TABLE IF NOT EXISTS options_contracts (
-    contract_id   INTEGER PRIMARY KEY,
-    expiration_id INTEGER NOT NULL
-                      REFERENCES options_expirations (expiration_id)
-                      ON DELETE CASCADE,
-    kind          TEXT    NOT NULL CHECK (kind IN ('call', 'put')),
-    strike        REAL    NOT NULL,
-    last_price    REAL,
-    bid           REAL,
-    ask           REAL,
-    implied_vol   REAL,   -- as a percentage (e.g. 61.5 means 61.5%)
-    volume        INTEGER,
-    open_interest INTEGER,
-    in_the_money  INTEGER CHECK (in_the_money IN (0, 1)),
-    UNIQUE (expiration_id, kind, strike)
-);
-
-CREATE INDEX IF NOT EXISTS idx_contracts_expiration
-    ON options_contracts (expiration_id, kind);
-
--- Gamma Wall History
--- Stores one row per symbol per calendar date, auto-written by get_delta_adjusted_oi().
--- Gamma wall is an intraday/weekly metric driven by options open interest concentration.
--- Use this table for post-hoc analysis (e.g., did price pin at gamma wall on OpEx Fridays?)
--- NOT for driving multi-week equity hold/sell decisions — see VWAP and relative strength for that.
--- OI only settles once per day; for best accuracy capture after 4:15pm ET (INSERT OR REPLACE
--- means a post-close call overwrites any earlier intraday call for the same date).
-CREATE TABLE IF NOT EXISTS gamma_wall_history (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol              TEXT    NOT NULL,
-    date_only           TEXT    NOT NULL,         -- YYYY-MM-DD format (date part of captured_at)
-    captured_at         TEXT    NOT NULL,         -- ISO-8601 UTC
-    price               REAL    NOT NULL,
-    gamma_wall_strike   REAL,
-    delta_flip_strike   REAL,
-    dist_to_flip_pct    REAL,
-    net_daoi_shares     REAL,
-    call_daoi_shares    REAL,
-    put_daoi_shares     REAL,
-    mm_hedge_bias       TEXT,
-    signal              TEXT,
-    expirations_scanned TEXT,                     -- JSON array string
-    payload             TEXT,                     -- full JSON blob
-    UNIQUE(symbol, date_only)                     -- one row per symbol per calendar day
-);
-
-CREATE INDEX IF NOT EXISTS idx_gamma_wall_symbol_date
-    ON gamma_wall_history (symbol, date_only DESC);
-"""
+from quantcore.db import get_connection
 
 
 # ---------------------------------------------------------------------------
@@ -146,35 +43,95 @@ class OptionsStore:
 
     Thread-safety: Each method opens its own connection, so the store is
     safe to use from multiple threads (WAL mode handles concurrent readers).
+
+    Constructor supports optional db_path for testing; uses quantcore.db.get_connection() by default.
     """
 
-    def __init__(self, db_path: Path | str = DEFAULT_DB_PATH) -> None:
-        self.db_path = Path(db_path)
-        self._ensure_schema()
+    def __init__(self, db_path: Optional[Path] = None) -> None:
+        self._db_path = db_path
+        if db_path:
+            # Initialize test database
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA foreign_keys = ON")
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            self._init_db(conn)
+            conn.close()
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """Get connection from quantcore factory or test db."""
+        if self._db_path:
+            conn = sqlite3.connect(str(self._db_path))
+            conn.row_factory = sqlite3.Row
+            return conn
+        return get_connection()
+
+    @staticmethod
+    def _init_db(conn: sqlite3.Connection) -> None:
+        """Initialize schema for test database."""
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS options_snapshots (
+                snapshot_id INTEGER PRIMARY KEY,
+                symbol TEXT NOT NULL,
+                captured_at TEXT NOT NULL,
+                price REAL NOT NULL,
+                bb_upper REAL,
+                bb_middle REAL,
+                bb_lower REAL,
+                bb_period INTEGER DEFAULT 20,
+                chain_type TEXT NOT NULL DEFAULT 'atm',
+                UNIQUE(symbol, captured_at)
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_time
+                ON options_snapshots(symbol, captured_at DESC)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS options_expirations (
+                expiration_id INTEGER PRIMARY KEY,
+                snapshot_id INTEGER NOT NULL,
+                expiration TEXT NOT NULL,
+                put_call_ratio REAL,
+                total_call_oi INTEGER,
+                total_put_oi INTEGER,
+                total_call_vol INTEGER,
+                total_put_vol INTEGER,
+                avg_call_iv REAL,
+                avg_put_iv REAL,
+                UNIQUE(snapshot_id, expiration),
+                FOREIGN KEY(snapshot_id) REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_expirations_snapshot ON options_expirations(snapshot_id)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS options_contracts (
+                contract_id INTEGER PRIMARY KEY,
+                expiration_id INTEGER NOT NULL,
+                kind TEXT NOT NULL CHECK (kind IN ('call', 'put')),
+                strike REAL NOT NULL,
+                last_price REAL,
+                bid REAL,
+                ask REAL,
+                implied_vol REAL,
+                volume INTEGER,
+                open_interest INTEGER,
+                in_the_money INTEGER CHECK (in_the_money IN (0, 1)),
+                UNIQUE(expiration_id, kind, strike),
+                FOREIGN KEY(expiration_id) REFERENCES options_expirations(expiration_id) ON DELETE CASCADE
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_contracts_expiration ON options_contracts(expiration_id)
+        """)
+        conn.commit()
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=30)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        conn.execute("PRAGMA journal_mode = WAL")
-        conn.execute("PRAGMA synchronous = NORMAL")
-        return conn
-
-    def _ensure_schema(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(self._connect()) as conn:
-            conn.executescript(_DDL)
-            # Migration: add chain_type column to existing databases
-            try:
-                conn.execute(
-                    "ALTER TABLE options_snapshots ADD COLUMN chain_type TEXT NOT NULL DEFAULT 'atm'"
-                )
-            except sqlite3.OperationalError:
-                pass  # Column already exists
 
     @staticmethod
     def _now_utc() -> str:
@@ -215,7 +172,7 @@ class OptionsStore:
 
         bb = bollinger_bands or {}
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             # --- options_snapshots ---
             try:
                 cur = conn.execute(
@@ -342,7 +299,7 @@ class OptionsStore:
         symbol = symbol.upper()
         bb = bollinger_bands or {}
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             try:
                 cur = conn.execute(
                     """
@@ -446,7 +403,7 @@ class OptionsStore:
         captured_at = self._now_utc()
         date_only = captured_at[:10]  # Extract YYYY-MM-DD
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO gamma_wall_history
                 (symbol, date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
@@ -487,7 +444,7 @@ class OptionsStore:
         symbol = symbol.upper()
         cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%d")
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute("""
                 SELECT date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
                        dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
@@ -526,7 +483,7 @@ class OptionsStore:
         """
         symbol = symbol.upper()
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
@@ -578,7 +535,7 @@ class OptionsStore:
         symbol = symbol.upper()
         cutoff = datetime.now(timezone.utc) - timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT DISTINCT captured_at
@@ -609,7 +566,7 @@ class OptionsStore:
         cutoff -= timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT s.captured_at, s.price, e.put_call_ratio,
@@ -637,7 +594,7 @@ class OptionsStore:
         """
         symbol = symbol.upper()
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             # Prefer the most recent full-chain snapshot
             snap = conn.execute(
                 """
@@ -733,7 +690,7 @@ class OptionsStore:
         query += " ORDER BY s.captured_at DESC LIMIT ?"
         params.append(limit)
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute(query, params).fetchall()
 
         return [dict(r) for r in rows]
@@ -758,7 +715,7 @@ class OptionsStore:
         ) - timedelta(days=days)
         cutoff_str = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT
@@ -788,7 +745,7 @@ class OptionsStore:
 
     def get_symbols(self) -> list[str]:
         """Return all symbols that have at least one snapshot."""
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             rows = conn.execute(
                 "SELECT DISTINCT symbol FROM options_snapshots ORDER BY symbol"
             ).fetchall()
@@ -796,7 +753,7 @@ class OptionsStore:
 
     def snapshot_count(self, symbol: Optional[str] = None) -> int:
         """Return total number of snapshots, optionally for one symbol."""
-        with closing(self._connect()) as conn:
+        with closing(self._get_connection()) as conn:
             if symbol:
                 row = conn.execute(
                     "SELECT COUNT(*) FROM options_snapshots WHERE symbol = ?",

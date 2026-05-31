@@ -26,11 +26,11 @@ Usage:
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
-from pathlib import Path
 from typing import Optional
 
-DEFAULT_DB_PATH = Path(__file__).parent / "options_chain.db"
+from quantcore.db import get_connection
 
 # Alert type constants
 ALERT_ITM           = "ITM"
@@ -41,59 +41,12 @@ ALERT_PROFIT_TARGET = "PROFIT_TARGET"
 # Profit target multiplier — alert when intrinsic value reaches this × purchase cost
 PROFIT_TARGET_MULTIPLIER = 2.0
 
-_DDL = """
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-
-CREATE TABLE IF NOT EXISTS options_positions (
-    position_id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol         TEXT    NOT NULL,
-    kind           TEXT    NOT NULL CHECK(kind IN ('call', 'put')),
-    strike         REAL    NOT NULL,
-    expiration     TEXT    NOT NULL,   -- YYYY-MM-DD
-    contracts      INTEGER NOT NULL DEFAULT 1,
-    purchase_price REAL    NOT NULL,   -- per-share ask paid (cost per contract = × 100)
-    purchase_date  TEXT    NOT NULL,   -- YYYY-MM-DD
-    target_price   REAL,               -- expected stock price at target (for ROI calc)
-    status         TEXT    NOT NULL DEFAULT 'ACTIVE'
-                           CHECK(status IN ('ACTIVE', 'CLOSED', 'EXPIRED')),
-    closed_at      TEXT,               -- ISO timestamp when status changed from ACTIVE
-    notes          TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_positions_symbol
-    ON options_positions (symbol, status);
-
-CREATE INDEX IF NOT EXISTS idx_positions_expiration
-    ON options_positions (expiration, status);
-"""
-
 
 class OptionsPositionStore:
-    """
-    Manages active options positions and computes pending alerts.
+    """Manages active options positions and computes pending alerts."""
 
-    Pass a custom db_path to share the same database file as OptionsStore
-    (options_chain.db by default).
-    """
-
-    def __init__(self, db_path: Optional[Path] = None) -> None:
-        self.db_path = Path(db_path) if db_path else DEFAULT_DB_PATH
-        self._init_db()
-
-    # ------------------------------------------------------------------
-    # Initialisation
-    # ------------------------------------------------------------------
-
-    def _init_db(self) -> None:
-        with self._connect() as conn:
-            conn.executescript(_DDL)
-
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA foreign_keys = ON")
-        return conn
+    def __init__(self) -> None:
+        pass
 
     # ------------------------------------------------------------------
     # Position management
@@ -132,7 +85,7 @@ class OptionsPositionStore:
         if kind not in ("call", "put"):
             raise ValueError(f"kind must be 'call' or 'put', got {kind!r}")
 
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             cur = conn.execute(
                 """
                 INSERT INTO options_positions
@@ -147,7 +100,7 @@ class OptionsPositionStore:
 
     def close_position(self, position_id: int, reason: str = "closed") -> None:
         """Mark a position as CLOSED (manually sold or closed out)."""
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             conn.execute(
                 """
                 UPDATE options_positions
@@ -165,7 +118,7 @@ class OptionsPositionStore:
 
     def expire_position(self, position_id: int) -> None:
         """Mark a position as EXPIRED (option expiration date passed)."""
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             conn.execute(
                 """
                 UPDATE options_positions
@@ -181,7 +134,7 @@ class OptionsPositionStore:
         Returns the list of positions that were expired.
         """
         today_str = date.today().isoformat()
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM options_positions
@@ -203,7 +156,7 @@ class OptionsPositionStore:
 
     def get_active_positions(self) -> list[dict]:
         """Return all ACTIVE positions ordered by expiration date."""
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM options_positions
@@ -214,7 +167,7 @@ class OptionsPositionStore:
             return [dict(r) for r in rows]
 
     def get_position(self, position_id: int) -> Optional[dict]:
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 "SELECT * FROM options_positions WHERE position_id = ?",
                 (position_id,),
@@ -355,7 +308,7 @@ class OptionsPositionStore:
     # ------------------------------------------------------------------
 
     def position_count(self, status: str = "ACTIVE") -> int:
-        with self._connect() as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(
                 "SELECT COUNT(*) FROM options_positions WHERE status = ?",
                 (status,),

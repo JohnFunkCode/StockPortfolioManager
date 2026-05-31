@@ -21,7 +21,7 @@ fastMCPTest/options_analysis.py
 
 fastMCPTest/fundamentals_cache.py            [NEW]
   SQLite-backed append-only historical store (TTL for freshness, full history retained)
-  fundamentals_history.db stored at project root
+  fundamentals_history table in unified QuantCore database (data/quantcore.sqlite)
 
 fastMCPTest/company_fundamentals_server.py   [NEW]
   FastMCP("company-fundamentals-server")
@@ -59,14 +59,13 @@ Mirrors the structure of `ohlcv_cache.py`. Single SQLite file at project root (n
 ### Configuration
 
 ```python
+from quantcore.db import get_connection
 import os
-from pathlib import Path
 
-_DB_PATH = Path(os.environ.get(
-    "FUNDAMENTALS_CACHE_DB",
-    str(Path(__file__).parent.parent / "fundamentals_history.db")  # project root
-))
 _CACHE_TTL_HOURS = int(os.environ.get("FUNDAMENTALS_CACHE_TTL_HOURS", "24"))
+
+# Database connection via shared factory:
+# get_connection() → data/quantcore.sqlite (from QUANTCORE_DB_PATH env var)
 ```
 
 ### Schema
@@ -492,7 +491,7 @@ Max net_score rises from ~22 to ~29. Existing SKIP/BUY/SELL thresholds (−2 to 
    - `get_fundamental_score("NVDA")` — `rev_cagr_3y` should be large positive (NVDA ~120% CAGR in recent years); `composite_score` should be strongly positive.
    - `get_revenue_growth("NVDA")` — `weighted_qoq_score` near 1.0 (nearly all positive quarters).
    - `get_relative_strength("NVDA")` — `alpha_12m` strongly positive vs SPY, `rs_label = "leader"`.
-3. **Cache verification:** Call `get_fundamental_score("NVDA")` twice — second call should return instantly (no yfinance network request). Confirm `fundamentals_history.db` exists at project root with rows in `fundamentals_history` table. Set `FUNDAMENTALS_CACHE_TTL_HOURS=0` and confirm the second call re-fetches and adds a second row. Call `get_fundamental_history("NVDA", "fundamental_score")` — should return both snapshots with `snapshot_count: 2`.
+3. **Cache verification:** Call `get_fundamental_score("NVDA")` twice — second call should return instantly (no yfinance network request). Confirm `data/quantcore.sqlite` exists with rows in `fundamentals_history` table with rows in `fundamentals_history` table. Set `FUNDAMENTALS_CACHE_TTL_HOURS=0` and confirm the second call re-fetches and adds a second row. Call `get_fundamental_history("NVDA", "fundamental_score")` — should return both snapshots with `snapshot_count: 2`.
 4. Call `get_trade_recommendation("AMZN", 5000)` — verify `signals_collected` is now 18 (was 13).
 5. Call `get_trade_recommendation` on a stock within 7 days of earnings — confirm `EARNINGS BLACKOUT` warning and `trade_type: SKIP`.
 6. Run `python -m unittest discover` from repo root — all existing tests must still pass.

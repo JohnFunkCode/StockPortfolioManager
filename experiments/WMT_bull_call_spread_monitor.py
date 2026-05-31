@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Monitor a hypothetical INTC 125/135 bear call spread.
+Monitor a hypothetical WMT 120/125 bull call spread.
 
 Position:
-    Sell to open 1x INTC 125 Call expiring 2026-05-29
-    Buy  to open 1x INTC 135 Call expiring 2026-05-29
+    Buy  to open 25x WMT 120 Call expiring 2026-06-12
+    Sell to open 25x WMT 125 Call expiring 2026-06-12
 
 Data source:
     yfinance / Yahoo Finance
@@ -33,33 +33,43 @@ import yfinance as yf
 # Trade configuration
 # ---------------------------------------------------------------------
 
-SYMBOL = "INTC"
-EXPIRATION = "2026-05-29"
+SYMBOL = "WMT"
+EXPIRATION = "2026-06-12"
 
+LONG_CALL_STRIKE = 120.0
 SHORT_CALL_STRIKE = 125.0
-LONG_CALL_STRIKE = 135.0
-CONTRACTS = 1
+CONTRACTS = 25
 MULTIPLIER = 100
 
-# Fixed simulated credit per share for the hypothetical trade.
-# Example: 2.25 means the spread generated $225 when opened.
-HYPOTHETICAL_ENTRY_CREDIT = 2.25
+# Fixed simulated debit per share for the hypothetical trade.
+# 0.58 means the spread cost $58 per contract, or $1,450 for 25 contracts.
+HYPOTHETICAL_ENTRY_DEBIT = 0.58
 
-STATE_FILE = "intc_bear_call_spread_state.pkl"
+PLANNED_LONG_CALL_MID = 0.87
+PLANNED_SHORT_CALL_MID = 0.29
+
+STATE_FILE = "wmt_bull_call_spread_state.pkl"
 
 
 # ---------------------------------------------------------------------
 # Risk thresholds
 # ---------------------------------------------------------------------
 
-WARNING_DISTANCE_TO_SHORT_STRIKE = 2.00
-DANGER_DISTANCE_TO_SHORT_STRIKE = 0.00
+# Bull call: want stock to rise. Below long strike means less profitable.
+# Above short strike means max profit achieved.
+WARNING_DISTANCE_BELOW_LONG_STRIKE = 1.00   # Alert when price is within $1 below long strike
+COMFORT_DISTANCE_ABOVE_LONG_STRIKE = 2.50   # Comfortably above long strike
+
+# Entry debit validation thresholds
+TARGET_DEBIT_LOW = 0.55
+TARGET_DEBIT_HIGH = 0.65
+DO_NOT_CHASE_ABOVE = 0.75
 
 PROFIT_TAKE_PERCENT = 0.60        # Alert when 60% of max profit is available.
 LOSS_ALERT_PERCENT_OF_MAX = 0.50  # Alert when loss reaches 50% of max loss.
 
 WIDE_MARKET_THRESHOLD = 0.50      # Alert if bid/ask spread on either leg > $0.50.
-LOW_EXTRINSIC_THRESHOLD = 0.25    # Assignment-risk alert if short call extrinsic < $0.25.
+LOW_EXTRINSIC_THRESHOLD = 0.25    # Risk alert if long call extrinsic < $0.25 (worthless).
 
 
 # ---------------------------------------------------------------------
@@ -87,13 +97,13 @@ class SpreadSnapshot:
     expiration: str
     stock_price: float
 
-    short_strike: float
     long_strike: float
-    entry_credit: float
-    opening_cash_generated: float
+    short_strike: float
+    entry_debit: float
+    opening_cash_required: float
 
-    short_call: Dict[str, Any]
     long_call: Dict[str, Any]
+    short_call: Dict[str, Any]
 
     mark_to_close_mid: float
     mark_to_close_conservative: float
@@ -108,9 +118,10 @@ class SpreadSnapshot:
     percent_max_profit_captured_mid: float
     percent_max_loss_used_mid: float
 
+    distance_to_long_strike: float
     distance_to_short_strike: float
-    intrinsic_value_short_call: float
-    extrinsic_value_short_call_mid: float
+    intrinsic_value_long_call: float
+    extrinsic_value_long_call_mid: float
 
     status: str
     alerts: list[str]
@@ -149,6 +160,8 @@ def format_money(value: float) -> str:
     Format dollar amounts with the minus sign before the dollar sign.
     Example: -23.0 becomes -$23.00 instead of $-23.00.
     """
+    if abs(value) < 0.005:
+        value = 0.0
     if value < 0:
         return f"-${abs(value):,.2f}"
     return f"${value:,.2f}"
@@ -196,10 +209,35 @@ def days_to_expiration(expiration: str) -> int:
 
 def play_is_over(expiration: str = EXPIRATION) -> bool:
     """
-    The monitor should stop fetching current option-chain marks after expiration.
+    Stop fetching current option-chain marks after expiration.
     Expired options often disappear from Yahoo, but the saved history is still useful.
     """
     return days_to_expiration(expiration) < 0
+
+
+def spread_width() -> float:
+    return SHORT_CALL_STRIKE - LONG_CALL_STRIKE
+
+
+def opening_cash_required() -> float:
+    return HYPOTHETICAL_ENTRY_DEBIT * MULTIPLIER * CONTRACTS
+
+
+def max_profit_amount() -> float:
+    return (spread_width() - HYPOTHETICAL_ENTRY_DEBIT) * MULTIPLIER * CONTRACTS
+
+
+def max_loss_amount() -> float:
+    return opening_cash_required()
+
+
+def breakeven_price() -> float:
+    return LONG_CALL_STRIKE + HYPOTHETICAL_ENTRY_DEBIT
+
+
+def max_profit_roi() -> float:
+    max_loss = max_loss_amount()
+    return max_profit_amount() / max_loss if max_loss > 0 else float("nan")
 
 
 def latest_stock_price(ticker: yf.Ticker) -> float:
@@ -241,7 +279,7 @@ def get_call_quote(calls: Any, strike: float) -> OptionQuote:
 
     if matches.empty:
         available = sorted(calls["strike"].astype(float).unique().tolist())
-        nearby = [s for s in available if abs(s - strike) <= 10]
+        nearby = [s for s in available if abs(s - strike) <= 50]
         raise RuntimeError(
             f"Could not find call strike {strike} for expiration {EXPIRATION}. "
             f"Nearby strikes: {nearby}"
@@ -282,47 +320,66 @@ def quote_to_dict(q: OptionQuote) -> Dict[str, Any]:
 
 
 def classify_status(stock_price: float) -> str:
-    if stock_price < SHORT_CALL_STRIKE - 5:
+    """Bull call status: want price above long strike."""
+    if stock_price >= SHORT_CALL_STRIKE:
+        return "MAX-PROFIT ZONE"
+    if stock_price >= LONG_CALL_STRIKE + COMFORT_DISTANCE_ABOVE_LONG_STRIKE:
         return "COMFORTABLE"
-    if stock_price < SHORT_CALL_STRIKE - WARNING_DISTANCE_TO_SHORT_STRIKE:
+    if stock_price >= LONG_CALL_STRIKE:
         return "WATCH"
-    if stock_price < SHORT_CALL_STRIKE:
+    if stock_price >= LONG_CALL_STRIKE - WARNING_DISTANCE_BELOW_LONG_STRIKE:
         return "WARNING"
-    if stock_price < LONG_CALL_STRIKE:
-        return "DEFENSIVE"
-    return "MAX-LOSS ZONE"
+    return "DEFENSIVE"
 
 
 def build_alerts(
     stock_price: float,
-    short_call: OptionQuote,
     long_call: OptionQuote,
+    short_call: OptionQuote,
     mark_to_close_mid: float,
     current_pnl_mid: float,
     max_profit: float,
     max_loss: float,
-    extrinsic_short_mid: float,
+    entry_debit: float,
+    extrinsic_long_mid: float,
 ) -> list[str]:
     alerts: list[str] = []
 
-    distance = SHORT_CALL_STRIKE - stock_price
+    distance_to_long = stock_price - LONG_CALL_STRIKE
+    distance_to_short = SHORT_CALL_STRIKE - stock_price
 
-    if distance <= DANGER_DISTANCE_TO_SHORT_STRIKE:
+    # Entry debit quality check
+    if entry_debit > DO_NOT_CHASE_ABOVE:
         alerts.append(
-            f"SHORT STRIKE BREACHED: INTC is at ${stock_price:.2f}, "
-            f"above/equal to the ${SHORT_CALL_STRIKE:.2f} short call."
+            f"ENTRY DEBIT TOO HIGH: Entry debit of ${entry_debit:.2f} exceeds "
+            f"do-not-chase threshold of ${DO_NOT_CHASE_ABOVE:.2f}."
         )
-    elif distance <= WARNING_DISTANCE_TO_SHORT_STRIKE:
+    elif entry_debit > TARGET_DEBIT_HIGH:
         alerts.append(
-            f"WARNING ZONE: INTC is ${distance:.2f} below the short strike."
-        )
-
-    if stock_price >= LONG_CALL_STRIKE:
-        alerts.append(
-            f"MAX-LOSS ZONE: INTC is above/equal to the long strike "
-            f"(${LONG_CALL_STRIKE:.2f})."
+            f"ENTRY DEBIT ABOVE TARGET: Entry debit of ${entry_debit:.2f} is above "
+            f"target range ${TARGET_DEBIT_LOW:.2f}-${TARGET_DEBIT_HIGH:.2f}."
         )
 
+    # Price vs long strike
+    if stock_price < LONG_CALL_STRIKE:
+        alerts.append(
+            f"BELOW LONG STRIKE: {SYMBOL} is at ${stock_price:.2f}, "
+            f"${abs(distance_to_long):.2f} below the ${LONG_CALL_STRIKE:.2f} long call."
+        )
+    elif distance_to_long < WARNING_DISTANCE_BELOW_LONG_STRIKE:
+        alerts.append(
+            f"NEAR LONG STRIKE: {SYMBOL} is ${distance_to_long:.2f} above the long strike "
+            f"(${LONG_CALL_STRIKE:.2f}). Limited profit potential."
+        )
+
+    # Price vs short strike (max profit zone)
+    if stock_price >= SHORT_CALL_STRIKE:
+        alerts.append(
+            f"MAX-PROFIT ZONE: {SYMBOL} is at or above the short strike "
+            f"(${SHORT_CALL_STRIKE:.2f}). Max profit is achieved."
+        )
+
+    # Profit target
     if max_profit > 0:
         captured = current_pnl_mid / max_profit
         if captured >= PROFIT_TAKE_PERCENT:
@@ -331,6 +388,7 @@ def build_alerts(
                 f"using midpoint marks."
             )
 
+    # Loss alert
     if max_loss > 0 and current_pnl_mid < 0:
         loss_used = abs(current_pnl_mid) / max_loss
         if loss_used >= LOSS_ALERT_PERCENT_OF_MAX:
@@ -338,28 +396,31 @@ def build_alerts(
                 f"LOSS ALERT: About {loss_used:.0%} of max loss is currently marked."
             )
 
-    short_width = short_call.ask - short_call.bid
+    # Wide markets
     long_width = long_call.ask - long_call.bid
-
-    if short_width > WIDE_MARKET_THRESHOLD:
-        alerts.append(
-            f"WIDE SHORT-CALL MARKET: 125 call bid/ask width is ${short_width:.2f}."
-        )
+    short_width = short_call.ask - short_call.bid
 
     if long_width > WIDE_MARKET_THRESHOLD:
         alerts.append(
-            f"WIDE LONG-CALL MARKET: 135 call bid/ask width is ${long_width:.2f}."
+            f"WIDE LONG-CALL MARKET: {LONG_CALL_STRIKE:.0f} call bid/ask width is ${long_width:.2f}."
         )
 
-    if stock_price > SHORT_CALL_STRIKE and extrinsic_short_mid <= LOW_EXTRINSIC_THRESHOLD:
+    if short_width > WIDE_MARKET_THRESHOLD:
         alerts.append(
-            f"ASSIGNMENT RISK: Short call is ITM and estimated extrinsic value is "
-            f"only ${extrinsic_short_mid:.2f}."
+            f"WIDE SHORT-CALL MARKET: {SHORT_CALL_STRIKE:.0f} call bid/ask width is ${short_width:.2f}."
         )
 
-    if mark_to_close_mid >= (LONG_CALL_STRIKE - SHORT_CALL_STRIKE) * 0.90:
+    # Long call extrinsic value (if sinking toward zero, spread approaches worthlessness)
+    if stock_price < LONG_CALL_STRIKE and extrinsic_long_mid <= LOW_EXTRINSIC_THRESHOLD:
         alerts.append(
-            "SPREAD NEAR MAX VALUE: The spread is marked close to full width."
+            f"LONG CALL LOSING VALUE: Long call is OTM and estimated extrinsic value is "
+            f"only ${extrinsic_long_mid:.2f}."
+        )
+
+    # Spread near zero value means the long call is not carrying enough value.
+    if mark_to_close_mid <= 0.10:
+        alerts.append(
+            "SPREAD NEAR ZERO: The spread is marked close to worthless. This is near the max-loss area."
         )
 
     return alerts
@@ -413,7 +474,7 @@ def build_historical_summary(
         last = day_snapshots[-1]
         max_profit = safe_float(last.get("max_profit"))
         if math.isnan(max_profit) or max_profit <= 0:
-            max_profit = HYPOTHETICAL_ENTRY_CREDIT * MULTIPLIER * CONTRACTS
+            max_profit = max_profit_amount()
 
         def profit_capture(item: Dict[str, Any]) -> float:
             pnl = safe_float(item.get("current_pnl_mid"))
@@ -466,91 +527,6 @@ def build_historical_summary(
     }
 
 
-def print_historical_summary(historical_summary: Dict[str, Any]) -> None:
-    print("Historical summary")
-    print("-" * 72)
-    print(f"Runs recorded:              {historical_summary['run_count']}")
-    print(f"Days to expiration:         {historical_summary['days_to_expiration']}")
-    print(f"Best midpoint P/L seen:     {format_money(historical_summary['best_pnl_mid'])}")
-    print(f"Worst midpoint P/L seen:    {format_money(historical_summary['worst_pnl_mid'])}")
-    print(f"Highest stock price seen:   ${historical_summary['highest_stock_price']:,.2f}")
-    print(f"Lowest stock price seen:    ${historical_summary['lowest_stock_price']:,.2f}")
-    print(f"Lowest close debit seen:    ${historical_summary['lowest_close_debit_mid']:,.2f}")
-    print(f"Highest close debit seen:   ${historical_summary['highest_close_debit_mid']:,.2f}")
-    print()
-
-    daily_rows = historical_summary.get("daily_rows", [])
-    if daily_rows:
-        print("Historical profit table")
-        print("-" * 112)
-        print(
-            f"{'Date':<12} {'Runs':>4} {'Stock':>9} {'Close':>8} "
-            f"{'Last P/L':>11} {'Last %':>8} {'Best P/L':>11} {'Best %':>8}  Flag"
-        )
-        print("-" * 112)
-
-        for row in daily_rows:
-            flag = row.get("flag", "")
-            print(
-                f"{row['date']:<12} "
-                f"{row['runs']:>4} "
-                f"${row['last_stock_price']:>8.2f} "
-                f"${row['last_close_debit_mid']:>7.2f} "
-                f"{format_money(row['last_pnl_mid']):>11} "
-                f"{row['last_profit_capture']:>7.1%} "
-                f"{format_money(row['best_pnl_mid']):>11} "
-                f"{row['best_profit_capture']:>7.1%}  "
-                f"{flag}"
-            )
-
-        print()
-        print("Flag legend: !! = best daily profit exceeded 50%; >>> = best daily profit exceeded 60%.")
-        print()
-
-
-def print_completed_play_report(historical_summary: Dict[str, Any], state_path: Path) -> None:
-    spread_width = LONG_CALL_STRIKE - SHORT_CALL_STRIKE
-    opening_cash_generated = HYPOTHETICAL_ENTRY_CREDIT * MULTIPLIER * CONTRACTS
-    max_profit = opening_cash_generated
-    max_loss = (spread_width - HYPOTHETICAL_ENTRY_CREDIT) * MULTIPLIER * CONTRACTS
-    breakeven = SHORT_CALL_STRIKE + HYPOTHETICAL_ENTRY_CREDIT
-
-    print()
-    print("=" * 72)
-    print(f"{SYMBOL} BEAR CALL SPREAD MONITOR")
-    print("=" * 72)
-    print(f"Expiration:          {EXPIRATION}")
-    print("Play status:         OVER")
-    print()
-    print("Current calculations skipped.")
-    print(
-        f"The {EXPIRATION} option chain has expired, so this run reports only "
-        "the saved historical findings."
-    )
-    print()
-
-    print("Trade setup")
-    print("-" * 72)
-    print("Strategy:            Bear call spread / short call vertical")
-    print(f"Action:              Sell 1 {SYMBOL} {SHORT_CALL_STRIKE:.0f}C, buy 1 {SYMBOL} {LONG_CALL_STRIKE:.0f}C")
-    print(f"Expiration:          {EXPIRATION}")
-    print(f"Spread width:        ${spread_width:.2f}")
-    print(
-        f"Initial credit:      ${HYPOTHETICAL_ENTRY_CREDIT:.2f} per share / "
-        f"{format_money(opening_cash_generated)} total"
-    )
-    print(f"Max profit:          {format_money(max_profit)}")
-    print(f"Max loss:            {format_money(max_loss)}")
-    print(f"Breakeven:           ${breakeven:,.2f}")
-    print(f"Basic thesis:        Profit if {SYMBOL} stayed below ${SHORT_CALL_STRIKE:.2f} through expiration")
-    print()
-
-    print_historical_summary(historical_summary)
-    print(f"Historical state:    {state_path}")
-    print("=" * 72)
-    print()
-
-
 def make_snapshot() -> SpreadSnapshot:
     ticker = yf.Ticker(SYMBOL)
 
@@ -566,29 +542,27 @@ def make_snapshot() -> SpreadSnapshot:
     chain = ticker.option_chain(EXPIRATION)
     calls = chain.calls
 
-    short_call = get_call_quote(calls, SHORT_CALL_STRIKE)
     long_call = get_call_quote(calls, LONG_CALL_STRIKE)
+    short_call = get_call_quote(calls, SHORT_CALL_STRIKE)
 
-    spread_width = LONG_CALL_STRIKE - SHORT_CALL_STRIKE
-    entry_credit = HYPOTHETICAL_ENTRY_CREDIT
-    opening_cash_generated = entry_credit * MULTIPLIER * CONTRACTS
+    entry_debit = HYPOTHETICAL_ENTRY_DEBIT
+    opening_cash = opening_cash_required()
 
-    # To close a bear call spread:
-    #   Buy back the short call.
-    #   Sell the long call.
-    mark_to_close_mid = max(0.0, short_call.mid - long_call.mid)
+    # A bull call spread's value is the long call value minus the short call value.
+    # If closed, you sell the long call and buy back the short call.
+    mark_to_close_mid = max(0.0, long_call.mid - short_call.mid)
 
     # Conservative estimate:
-    #   Buy short at ask, sell long at bid.
-    mark_to_close_conservative = max(0.0, short_call.ask - long_call.bid)
+    #   Sell long at bid, buy short at ask.
+    mark_to_close_conservative = max(0.0, long_call.bid - short_call.ask)
 
-    max_profit = entry_credit * MULTIPLIER * CONTRACTS
-    max_loss = (spread_width - entry_credit) * MULTIPLIER * CONTRACTS
-    breakeven = SHORT_CALL_STRIKE + entry_credit
+    max_profit = max_profit_amount()
+    max_loss = max_loss_amount()
+    breakeven = breakeven_price()
 
-    current_pnl_mid = (entry_credit - mark_to_close_mid) * MULTIPLIER * CONTRACTS
+    current_pnl_mid = (mark_to_close_mid - entry_debit) * MULTIPLIER * CONTRACTS
     current_pnl_conservative = (
-        entry_credit - mark_to_close_conservative
+        mark_to_close_conservative - entry_debit
     ) * MULTIPLIER * CONTRACTS
 
     percent_max_profit_captured_mid = (
@@ -601,22 +575,24 @@ def make_snapshot() -> SpreadSnapshot:
         else 0.0
     )
 
+    distance_to_long_strike = stock_price - LONG_CALL_STRIKE
     distance_to_short_strike = SHORT_CALL_STRIKE - stock_price
 
-    intrinsic_short = max(0.0, stock_price - SHORT_CALL_STRIKE)
-    extrinsic_short_mid = max(0.0, short_call.mid - intrinsic_short)
+    intrinsic_long = max(0.0, stock_price - LONG_CALL_STRIKE)
+    extrinsic_long_mid = max(0.0, long_call.mid - intrinsic_long)
 
     status = classify_status(stock_price)
 
     alerts = build_alerts(
         stock_price=stock_price,
-        short_call=short_call,
         long_call=long_call,
+        short_call=short_call,
         mark_to_close_mid=mark_to_close_mid,
         current_pnl_mid=current_pnl_mid,
         max_profit=max_profit,
         max_loss=max_loss,
-        extrinsic_short_mid=extrinsic_short_mid,
+        entry_debit=entry_debit,
+        extrinsic_long_mid=extrinsic_long_mid,
     )
 
     return SpreadSnapshot(
@@ -625,13 +601,13 @@ def make_snapshot() -> SpreadSnapshot:
         expiration=EXPIRATION,
         stock_price=stock_price,
 
-        short_strike=SHORT_CALL_STRIKE,
         long_strike=LONG_CALL_STRIKE,
-        entry_credit=entry_credit,
-        opening_cash_generated=opening_cash_generated,
+        short_strike=SHORT_CALL_STRIKE,
+        entry_debit=entry_debit,
+        opening_cash_required=opening_cash,
 
-        short_call=quote_to_dict(short_call),
         long_call=quote_to_dict(long_call),
+        short_call=quote_to_dict(short_call),
 
         mark_to_close_mid=mark_to_close_mid,
         mark_to_close_conservative=mark_to_close_conservative,
@@ -646,151 +622,221 @@ def make_snapshot() -> SpreadSnapshot:
         percent_max_profit_captured_mid=percent_max_profit_captured_mid,
         percent_max_loss_used_mid=percent_max_loss_used_mid,
 
+        distance_to_long_strike=distance_to_long_strike,
         distance_to_short_strike=distance_to_short_strike,
-        intrinsic_value_short_call=intrinsic_short,
-        extrinsic_value_short_call_mid=extrinsic_short_mid,
+        intrinsic_value_long_call=intrinsic_long,
+        extrinsic_value_long_call_mid=extrinsic_long_mid,
 
         status=status,
         alerts=alerts,
     )
 
 
-def print_snapshot(
-    snapshot: SpreadSnapshot,
-    prior: Optional[Dict[str, Any]],
-    historical_summary: Dict[str, Any],
-) -> None:
-    print()
-    print("=" * 72)
-    print(f"{snapshot.symbol} BEAR CALL SPREAD MONITOR")
-    print("=" * 72)
+def build_comparison_table(snapshot: SpreadSnapshot) -> Dict[str, Any]:
+    """
+    Compare bull call spread P/L vs. buy-and-hold shares at various price targets.
+    """
+    stock_entry = snapshot.stock_price
+    spread_entry = snapshot.entry_debit
+    spread_capital = spread_entry * MULTIPLIER * CONTRACTS
 
-    print(f"Timestamp UTC:       {snapshot.timestamp_utc}")
-    print(f"Expiration:          {snapshot.expiration}")
-    print(f"Stock price:         ${snapshot.stock_price:,.2f}")
-    print(f"Status:              {snapshot.status}")
-    print()
+    # How many shares could you buy with the same capital?
+    shares_bought = spread_capital / stock_entry
 
-    print("Order setup")
+    # Define price targets: current, long strike, breakeven, short strike, and above
+    price_targets = [
+        stock_entry,
+        LONG_CALL_STRIKE - 2,
+        LONG_CALL_STRIKE,
+        snapshot.breakeven,
+        SHORT_CALL_STRIKE,
+        SHORT_CALL_STRIKE + 2,
+    ]
+
+    rows = []
+    for target_price in price_targets:
+        # Bull call spread P/L
+        if target_price < LONG_CALL_STRIKE:
+            spread_pnl = -spread_capital
+        elif target_price >= SHORT_CALL_STRIKE:
+            spread_pnl = snapshot.max_profit
+        else:
+            # Between long and short strikes: long call ITM, short call OTM
+            spread_pnl = ((target_price - LONG_CALL_STRIKE) * MULTIPLIER * CONTRACTS) - spread_capital
+
+        # Buy-and-hold stock P/L
+        stock_pnl = shares_bought * (target_price - stock_entry)
+
+        # Compare: which is better? Calculate difference and winner
+        pnl_diff = spread_pnl - stock_pnl
+        winner = "SPREAD" if spread_pnl > stock_pnl else ("STOCK" if stock_pnl > spread_pnl else "TIE")
+
+        rows.append({
+            "target_price": target_price,
+            "spread_pnl": spread_pnl,
+            "stock_pnl": stock_pnl,
+            "pnl_diff": pnl_diff,
+            "winner": winner,
+        })
+
+    return {
+        "shares_bought": shares_bought,
+        "spread_capital": spread_capital,
+        "stock_entry": stock_entry,
+        "rows": rows,
+    }
+
+
+def print_trade_setup() -> None:
+    print("Trade setup")
     print("-" * 72)
-    print(f"Strategy:            Bear call spread / short call vertical")
-    print(f"Action:              Sell 1 {snapshot.symbol} {SHORT_CALL_STRIKE:.0f}C, buy 1 {snapshot.symbol} {LONG_CALL_STRIKE:.0f}C")
-    print(f"Expiration:          {snapshot.expiration}")
-    print(f"Spread width:        ${LONG_CALL_STRIKE - SHORT_CALL_STRIKE:.2f}")
-    print(f"Initial credit:      ${snapshot.entry_credit:.2f} per share / {format_money(snapshot.opening_cash_generated)} total")
-    print(f"Basic thesis:        Profit if {snapshot.symbol} stays below ${SHORT_CALL_STRIKE:.2f} through expiration")
+    print("Strategy:            Bull call spread, also called a long call vertical")
+    print(f"Action:              Buy {CONTRACTS} {SYMBOL} {LONG_CALL_STRIKE:.0f}C and sell {CONTRACTS} {SYMBOL} {SHORT_CALL_STRIKE:.0f}C")
+    print(f"Expiration:          {EXPIRATION}")
+    print(f"Planned leg mids:    Buy ${PLANNED_LONG_CALL_MID:.2f}, sell ${PLANNED_SHORT_CALL_MID:.2f}")
+    print(f"Net debit paid:      ${HYPOTHETICAL_ENTRY_DEBIT:.2f} per share / {format_money(opening_cash_required())} total")
+    print(f"Spread width:        ${spread_width():.2f} between the two strikes")
+    print(f"Max loss:            {format_money(max_loss_amount())}, the debit paid if the spread expires worthless")
+    print(f"Max profit:          {format_money(max_profit_amount())}, if {SYMBOL} closes at or above ${SHORT_CALL_STRIKE:.2f}")
+    print(f"Breakeven:           ${breakeven_price():.2f}, the long strike plus the ${HYPOTHETICAL_ENTRY_DEBIT:.2f} debit")
+    print(f"Max profit ROI:      {max_profit_roi():.1%} on the {format_money(max_loss_amount())} at risk")
+    print()
+    print("Why the trade is structured this way:")
+    print(f"  - Buying the ${LONG_CALL_STRIKE:.0f} call gives upside exposure if {SYMBOL} rises.")
+    print(f"  - Selling the ${SHORT_CALL_STRIKE:.0f} call lowers the cost, but caps profit above ${SHORT_CALL_STRIKE:.0f}.")
+    print("  - This is a defined-risk trade: the most you can lose is the debit paid.")
     print()
 
-    print("Plain-English summary")
+
+def print_payoff_guide() -> None:
+    print("How this trade wins or loses")
     print("-" * 72)
-    print(
-        f"You collected {format_money(snapshot.opening_cash_generated)} "
-        f"to open this hypothetical spread."
-    )
-    print(
-        f"To close it now, the midpoint estimate is "
-        f"{format_money(snapshot.mark_to_close_mid * MULTIPLIER * CONTRACTS)}."
-    )
-    print(
-        f"Estimated P/L is {format_money(snapshot.current_pnl_mid)}; "
-        f"conservative P/L is {format_money(snapshot.current_pnl_conservative)}."
-    )
-    print(
-        f"INTC is ${snapshot.distance_to_short_strike:,.2f} below the short strike "
-        f"(${snapshot.short_strike:.2f})."
-    )
+    print(f"If {SYMBOL} closes below ${LONG_CALL_STRIKE:.2f}: both calls expire worthless; loss is {format_money(max_loss_amount())}.")
+    print(f"If {SYMBOL} closes at ${breakeven_price():.2f}: the spread value equals the debit; P/L is about $0.")
+    print(f"If {SYMBOL} closes between ${LONG_CALL_STRIKE:.2f} and ${SHORT_CALL_STRIKE:.2f}: P/L rises dollar-for-dollar after breakeven.")
+    print(f"If {SYMBOL} closes at or above ${SHORT_CALL_STRIKE:.2f}: profit is capped at {format_money(max_profit_amount())}.")
+    print()
+    print("Expiration scenario table")
+    print("-" * 72)
+    print(f"{'WMT close':<22} {'Outcome':<24} {'P/L':>12}")
+    print("-" * 72)
+    print(f"{'Below $120.00':<22} {'Spread expires worthless':<24} {format_money(-max_loss_amount()):>12}")
+    print(f"{'$120.58 breakeven':<22} {'No gain or loss':<24} {format_money(0):>12}")
+    print(f"{'$125.00 or higher':<22} {'Maximum profit':<24} {format_money(max_profit_amount()):>12}")
     print()
 
-    print("Position")
+
+def print_probability_notes() -> None:
+    print("Probability notes")
     print("-" * 72)
-    print(f"Short call:          {CONTRACTS}x {snapshot.symbol} {SHORT_CALL_STRIKE:.0f}C")
-    print(f"Long call:           {CONTRACTS}x {snapshot.symbol} {LONG_CALL_STRIKE:.0f}C")
-    print(f"Entry credit:        ${snapshot.entry_credit:.2f} per share")
-    print(f"Opening cash:        {format_money(snapshot.opening_cash_generated)}")
-    print(f"Max profit:          {format_money(snapshot.max_profit)}")
-    print(f"Max loss:            {format_money(snapshot.max_loss)}")
-    print(f"Breakeven:           ${snapshot.breakeven:,.2f}")
+    print("These are rough setup estimates, not live model outputs from this script.")
+    print(f"Chance {SYMBOL} closes above breakeven (${breakeven_price():.2f}): about 50-55%.")
+    print(f"Chance {SYMBOL} closes at or above ${SHORT_CALL_STRIKE:.2f}: about 35-40%.")
+    print("Chance of max profit: about 35-40%.")
+    print("Chance of total loss: about 45-50%.")
     print()
 
-    print("Current option quotes, for reference")
+
+def print_live_option_quotes(snapshot: SpreadSnapshot) -> None:
+    print("Current option quotes")
     print("-" * 72)
-    sc = snapshot.short_call
     lc = snapshot.long_call
-
+    sc = snapshot.short_call
+    print("Bid is what buyers currently offer; ask is what sellers want; mid is halfway between them.")
     print(
-        f"125C short leg:      bid ${sc['bid']:.2f} / ask ${sc['ask']:.2f} / "
-        f"mid ${sc['mid']:.2f} / last ${sc['last']:.2f}"
-    )
-    print(
-        f"135C long leg:       bid ${lc['bid']:.2f} / ask ${lc['ask']:.2f} / "
+        f"{snapshot.long_strike:.0f}C long leg:       bid ${lc['bid']:.2f} / ask ${lc['ask']:.2f} / "
         f"mid ${lc['mid']:.2f} / last ${lc['last']:.2f}"
     )
     print(
-        "Learner note: the spread close cost is roughly short-call value minus "
-        "long-call value."
+        f"{snapshot.short_strike:.0f}C short leg:      bid ${sc['bid']:.2f} / ask ${sc['ask']:.2f} / "
+        f"mid ${sc['mid']:.2f} / last ${sc['last']:.2f}"
+    )
+    print(
+        f"Planned entry mids were ${PLANNED_LONG_CALL_MID:.2f} for the long call and "
+        f"${PLANNED_SHORT_CALL_MID:.2f} for the short call."
     )
     print()
 
+
+def print_current_value(snapshot: SpreadSnapshot) -> None:
     print("Current spread value and P/L")
     print("-" * 72)
-    print(f"Estimated cost to close:    ${snapshot.mark_to_close_mid:.2f} per share")
+    print("For a bull call spread, current value is long-call value minus short-call value.")
+    print(f"Estimated spread value:     ${snapshot.mark_to_close_mid:.2f} per share")
     print(
-        f"Estimated close cost:       "
+        f"Estimated value if closed:  "
         f"{format_money(snapshot.mark_to_close_mid * MULTIPLIER * CONTRACTS)} total"
     )
-    print(f"Conservative close cost:    ${snapshot.mark_to_close_conservative:.2f} per share")
+    print(f"Conservative value:         ${snapshot.mark_to_close_conservative:.2f} per share")
     print(
-        f"Conservative close cost:    "
+        f"Conservative close value:   "
         f"{format_money(snapshot.mark_to_close_conservative * MULTIPLIER * CONTRACTS)} total"
     )
     print(f"Estimated current P/L:      {format_money(snapshot.current_pnl_mid)}")
     print(f"Conservative current P/L:   {format_money(snapshot.current_pnl_conservative)}")
 
     if snapshot.max_profit > 0:
-        print(
-            f"Max profit captured:        "
-            f"{snapshot.percent_max_profit_captured_mid:.1%}"
-        )
+        print(f"Max profit captured:        {snapshot.percent_max_profit_captured_mid:.1%}")
 
     if snapshot.current_pnl_mid < 0:
+        print(f"Max loss currently used:    {snapshot.percent_max_loss_used_mid:.1%}")
+
+    print()
+
+
+def print_risk_checks(snapshot: SpreadSnapshot) -> None:
+    print("Risk checks")
+    print("-" * 72)
+    print(f"Current {SYMBOL} price:       ${snapshot.stock_price:,.2f}")
+    print(f"Distance from long strike:  {format_money(snapshot.distance_to_long_strike)}")
+    print(f"Distance from short strike: {format_money(snapshot.distance_to_short_strike)}")
+    print(f"Long-call intrinsic value:  ${snapshot.intrinsic_value_long_call:,.2f}")
+    print(f"Long-call time value est.:  ${snapshot.extrinsic_value_long_call_mid:,.2f}")
+    print("Intrinsic value is what the option is worth if exercised now; time value is the extra market premium.")
+    print()
+
+
+def print_comparison(snapshot: SpreadSnapshot) -> None:
+    print("Comparison: spread vs. buying WMT stock")
+    print("-" * 72)
+    comparison = build_comparison_table(snapshot)
+    print(f"Capital in spread:          {format_money(comparison['spread_capital'])}")
+    print(f"Current stock price:        ${comparison['stock_entry']:,.2f}")
+    print(f"Same cash could buy:        {comparison['shares_bought']:.2f} shares")
+    print()
+    print("Profit/loss at selected expiration prices:")
+    print("-" * 112)
+    print(f"{'WMT Price':>12} {'Spread P/L':>15} {'Stock P/L':>15} {'Difference':>15} {'Winner':>12}")
+    print("-" * 112)
+
+    for row in comparison["rows"]:
         print(
-            f"Max loss currently used:    "
-            f"{snapshot.percent_max_loss_used_mid:.1%}"
+            f"${row['target_price']:>11,.2f} "
+            f"{format_money(row['spread_pnl']):>15} "
+            f"{format_money(row['stock_pnl']):>15} "
+            f"{format_money(row['pnl_diff']):>15} "
+            f"{row['winner']:>12}"
         )
 
     print()
-
-    profit_target_50 = snapshot.entry_credit * (1 - 0.50)
-    profit_target_80 = snapshot.entry_credit * (1 - 0.80)
-
-    print("Learning milestones")
-    print("-" * 72)
-    print(f"50% profit target:          close cost near ${profit_target_50:.2f} per share")
-    print(f"80% profit target:          close cost near ${profit_target_80:.2f} per share")
-    print(
-        f"Warning zone starts near:   "
-        f"${SHORT_CALL_STRIKE - WARNING_DISTANCE_TO_SHORT_STRIKE:.2f} stock price"
-    )
-    print(f"Defensive zone starts at:   ${SHORT_CALL_STRIKE:.2f} stock price")
+    print("Beginner note:")
+    print("  - The spread uses less cash and has defined risk, but upside stops at the short strike.")
+    print("  - Stock has uncapped upside, but it requires more cash for similar exposure.")
     print()
 
-    print("Risk checks")
-    print("-" * 72)
-    print(f"Distance to short strike:   ${snapshot.distance_to_short_strike:,.2f}")
-    print(f"Short-call intrinsic:       ${snapshot.intrinsic_value_short_call:,.2f}")
-    print(f"Short-call extrinsic est.:  ${snapshot.extrinsic_value_short_call_mid:,.2f}")
-    print()
 
+def print_historical_summary(historical_summary: Dict[str, Any]) -> None:
     print("Historical summary")
     print("-" * 72)
+    print("These are local snapshots from previous script runs, not brokerage records.")
     print(f"Runs recorded:              {historical_summary['run_count']}")
     print(f"Days to expiration:         {historical_summary['days_to_expiration']}")
-    print(f"Best midpoint P/L seen:     {format_money(historical_summary['best_pnl_mid'])}")
-    print(f"Worst midpoint P/L seen:    {format_money(historical_summary['worst_pnl_mid'])}")
+    print(f"Best P/L recorded:          {format_money(historical_summary['best_pnl_mid'])}")
+    print(f"Worst P/L recorded:         {format_money(historical_summary['worst_pnl_mid'])}")
     print(f"Highest stock price seen:   ${historical_summary['highest_stock_price']:,.2f}")
     print(f"Lowest stock price seen:    ${historical_summary['lowest_stock_price']:,.2f}")
-    print(f"Lowest close debit seen:    ${historical_summary['lowest_close_debit_mid']:,.2f}")
-    print(f"Highest close debit seen:   ${historical_summary['highest_close_debit_mid']:,.2f}")
+    print(f"Lowest spread value seen:   ${historical_summary['lowest_close_debit_mid']:,.2f}")
+    print(f"Highest spread value seen:  ${historical_summary['highest_close_debit_mid']:,.2f}")
     print()
 
     daily_rows = historical_summary.get("daily_rows", [])
@@ -798,7 +844,7 @@ def print_snapshot(
         print("Historical profit table")
         print("-" * 112)
         print(
-            f"{'Date':<12} {'Runs':>4} {'Stock':>9} {'Close':>8} "
+            f"{'Date':<12} {'Runs':>4} {'Stock':>9} {'Value':>8} "
             f"{'Last P/L':>11} {'Last %':>8} {'Best P/L':>11} {'Best %':>8}  Flag"
         )
         print("-" * 112)
@@ -821,6 +867,44 @@ def print_snapshot(
         print("Flag legend: !! = best daily profit exceeded 50%; >>> = best daily profit exceeded 60%.")
         print()
 
+
+def status_interpretation(status: str) -> str:
+    if status == "MAX-PROFIT ZONE":
+        return "WMT is at or above the short strike; the spread is in its maximum-profit area."
+    if status == "COMFORTABLE":
+        return "WMT is above the long strike with some cushion, but it still needs to hold up."
+    if status == "WATCH":
+        return "WMT is above the long strike, but not yet near the max-profit strike."
+    if status == "WARNING":
+        return "WMT is close to the long strike; a small drop could leave the spread losing money."
+    return "WMT is below the long strike; the spread needs a recovery before expiration."
+
+
+def print_snapshot(
+    snapshot: SpreadSnapshot,
+    prior: Optional[Dict[str, Any]],
+    historical_summary: Dict[str, Any],
+) -> None:
+    print()
+    print("=" * 72)
+    print(f"{snapshot.symbol} BULL CALL SPREAD MONITOR")
+    print("=" * 72)
+    print(f"Timestamp UTC:       {snapshot.timestamp_utc}")
+    print(f"Expiration:          {snapshot.expiration}")
+    print(f"Stock price:         ${snapshot.stock_price:,.2f}")
+    print(f"Status:              {snapshot.status}")
+    print(f"Meaning:             {status_interpretation(snapshot.status)}")
+    print()
+
+    print_trade_setup()
+    print_payoff_guide()
+    print_probability_notes()
+    print_live_option_quotes(snapshot)
+    print_current_value(snapshot)
+    print_risk_checks(snapshot)
+    print_comparison(snapshot)
+    print_historical_summary(historical_summary)
+
     if prior:
         prior_price = safe_float(prior.get("stock_price"))
         prior_pnl = safe_float(prior.get("current_pnl_mid"))
@@ -828,43 +912,46 @@ def print_snapshot(
         if not math.isnan(prior_price):
             print("Change since previous run")
             print("-" * 72)
-            print(
-                f"Stock change:              "
-                f"{format_money(snapshot.stock_price - prior_price)}"
-            )
+            print(f"Stock change:              {format_money(snapshot.stock_price - prior_price)}")
 
             if not math.isnan(prior_pnl):
-                print(
-                    f"P/L change, midpoint:      "
-                    f"{format_money(snapshot.current_pnl_mid - prior_pnl)}"
-                )
+                print(f"P/L change, midpoint:      {format_money(snapshot.current_pnl_mid - prior_pnl)}")
 
             print()
 
     print("Alerts")
     print("-" * 72)
-
     if snapshot.alerts:
         for alert in snapshot.alerts:
             print(f"!! {alert}")
     else:
         print("No major alerts from the configured rules.")
-
     print()
-    print("Suggested interpretation")
-    print("-" * 72)
 
-    if snapshot.status == "COMFORTABLE":
-        print("Stock is comfortably below the short strike. Main question: take profit or hold.")
-    elif snapshot.status == "WATCH":
-        print("Stock is below the short strike but close enough to monitor actively.")
-    elif snapshot.status == "WARNING":
-        print("Stock is near the short strike. Gamma and assignment risk are becoming more relevant.")
-    elif snapshot.status == "DEFENSIVE":
-        print("Short strike is breached. Decide whether to close, roll, or accept defined loss.")
-    else:
-        print("Stock is at or above the long strike. The spread is near its max-loss region.")
+    print("=" * 72)
+    print()
 
+
+def print_completed_play_report(historical_summary: Dict[str, Any], state_path: Path) -> None:
+    print()
+    print("=" * 72)
+    print(f"{SYMBOL} BULL CALL SPREAD MONITOR")
+    print("=" * 72)
+    print(f"Expiration:          {EXPIRATION}")
+    print("Play status:         OVER")
+    print()
+    print("Current calculations skipped.")
+    print(
+        f"The {EXPIRATION} option chain has expired, so this run reports the "
+        "trade setup and saved historical findings only."
+    )
+    print()
+
+    print_trade_setup()
+    print_payoff_guide()
+    print_probability_notes()
+    print_historical_summary(historical_summary)
+    print(f"Historical state:    {state_path}")
     print("=" * 72)
     print()
 

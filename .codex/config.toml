@@ -131,3 +131,9 @@ approval_mode = "approve"
 
 [mcp_servers.stock-price-server.tools.get_option_contracts]
 approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_relative_strength_history]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_vwap_history]
+approval_mode = "approve"

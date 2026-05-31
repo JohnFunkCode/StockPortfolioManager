@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Top 20 Watchlist May High Pullback and MCP Rebound Analysis</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --text: #1f2937;
+      --muted: #667085;
+      --border: #d8dee9;
+      --header: #111827;
+      --blue: #1f6feb;
+      --green: #0f8a4b;
+      --amber: #a15c00;
+      --red: #b42318;
+      --purple: #6f42c1;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.45;
+    }
+
+    main {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 28px 24px 44px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      color: var(--header);
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      margin: 32px 0 12px;
+      color: var(--header);
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      margin: 20px 0 8px;
+      color: var(--header);
+      font-size: 17px;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 8px 0;
+    }
+
+    .note {
+      color: var(--muted);
+      max-width: 1040px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(180px, 1fr));
+      gap: 12px;
+      margin: 18px 0 22px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    .metric-value {
+      margin-top: 4px;
+      color: var(--header);
+      font-size: 21px;
+      font-weight: 700;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 9px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef2f7;
+      color: var(--header);
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    td.num, th.num {
+      text-align: right;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ticker {
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .ticker a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    .ticker a:hover {
+      text-decoration: underline;
+    }
+
+    .off {
+      color: var(--red);
+      font-weight: 700;
+    }
+
+    .positive {
+      color: var(--green);
+      font-weight: 700;
+    }
+
+    .negative {
+      color: var(--red);
+      font-weight: 700;
+    }
+
+    .mixed {
+      color: var(--amber);
+      font-weight: 700;
+    }
+
+    .tag {
+      display: inline-block;
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .tag-rebound {
+      background: #e7f6ed;
+      color: var(--green);
+    }
+
+    .tag-sink {
+      background: #fdeaea;
+      color: var(--red);
+    }
+
+    .tag-watch {
+      background: #fff4df;
+      color: var(--amber);
+    }
+
+    .tag-gamma {
+      background: #efe7fb;
+      color: var(--purple);
+    }
+
+    .section {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 14px 0;
+    }
+
+    ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+
+    li {
+      margin: 6px 0;
+    }
+
+    @media (max-width: 900px) {
+      main {
+        padding: 20px 14px 34px;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+      }
+
+      table {
+        display: block;
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Top 20 Watchlist May High Pullback and MCP Rebound Analysis</h1>
+  <p class="note">
+    Source universe: the 20 highest 30-day return stocks from
+    <code>docs/analysis results/Watchlist_Returns_Fundamentals_2026-05-29.html</code>.
+    Pullback values use May intraday highs and latest cached daily closes from local QuantCore OHLCV data.
+    Latest cached date for all 20 symbols was 2026-05-28. MCP analysis was run on 2026-05-30.
+  </p>
+
+  <div class="summary-grid">
+    <div class="metric">
+      <div class="metric-label">Universe</div>
+      <div class="metric-value">20 stocks</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Largest pullback</div>
+      <div class="metric-value">POET -36.28%</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Best rebound group</div>
+      <div class="metric-value">POET, NVTS, DOCN, WOLF</div>
+    </div>
+    <div class="metric">
+      <div class="metric-label">Gamma signal</div>
+      <div class="metric-value">Sell on rally</div>
+    </div>
+  </div>
+
+  <h2>1. May High Pullback Ranking</h2>
+  <p class="note">
+    Ranked by percent below each stock's May intraday high. Negative values mean the latest cached close is below the May high.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th class="num">Rank</th>
+        <th>Symbol</th>
+        <th>Name</th>
+        <th class="num">30 Day Return</th>
+        <th class="num">May High</th>
+        <th>High Date</th>
+        <th class="num">Latest Close</th>
+        <th>Latest Date</th>
+        <th class="num">$ Off High</th>
+        <th class="num">% Off High</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="num">1</td><td class="ticker"><a href="https://finance.yahoo.com/quote/POET/" target="_blank" rel="noopener">POET</a></td><td>POET Technologies Inc.</td><td class="num">90.24%</td><td class="num">20.81</td><td>2026-05-14</td><td class="num">13.26</td><td>2026-05-28</td><td class="num off">-7.55</td><td class="num off">-36.28%</td></tr>
+      <tr><td class="num">2</td><td class="ticker"><a href="https://finance.yahoo.com/quote/WOLF/" target="_blank" rel="noopener">WOLF</a></td><td>Wolfspeed, Inc.</td><td class="num">172.18%</td><td class="num">80.82</td><td>2026-05-22</td><td class="num">65.05</td><td>2026-05-28</td><td class="num off">-15.77</td><td class="num off">-19.51%</td></tr>
+      <tr><td class="num">3</td><td class="ticker"><a href="https://finance.yahoo.com/quote/NVTS/" target="_blank" rel="noopener">NVTS</a></td><td>Navitas Semiconductor Corporation</td><td class="num">177.88%</td><td class="num">33.82</td><td>2026-05-26</td><td class="num">28.51</td><td>2026-05-28</td><td class="num off">-5.31</td><td class="num off">-15.70%</td></tr>
+      <tr><td class="num">4</td><td class="ticker"><a href="https://finance.yahoo.com/quote/HEXI.ST/" target="_blank" rel="noopener">HEXI.ST</a></td><td>Hexicon AB</td><td class="num">112.50%</td><td class="num">0.29</td><td>2026-05-28</td><td class="num">0.25</td><td>2026-05-28</td><td class="num off">-0.04</td><td class="num off">-12.67%</td></tr>
+      <tr><td class="num">5</td><td class="ticker"><a href="https://finance.yahoo.com/quote/INTC/" target="_blank" rel="noopener">INTC</a></td><td>Intel Corporation</td><td class="num">86.16%</td><td class="num">132.75</td><td>2026-05-11</td><td class="num">120.89</td><td>2026-05-28</td><td class="num off">-11.86</td><td class="num off">-8.93%</td></tr>
+      <tr><td class="num">6</td><td class="ticker"><a href="https://finance.yahoo.com/quote/DOCN/" target="_blank" rel="noopener">DOCN</a></td><td>DigitalOcean Holdings, Inc.</td><td class="num">95.48%</td><td class="num">165.99</td><td>2026-05-26</td><td class="num">151.91</td><td>2026-05-28</td><td class="num off">-14.08</td><td class="num off">-8.48%</td></tr>
+      <tr><td class="num">7</td><td class="ticker"><a href="https://finance.yahoo.com/quote/HSYDF/" target="_blank" rel="noopener">HSYDF</a></td><td>Harmonic Drive Systems Inc.</td><td class="num">81.03%</td><td class="num">53.65</td><td>2026-05-26</td><td class="num">49.15</td><td>2026-05-28</td><td class="num off">-4.50</td><td class="num off">-8.39%</td></tr>
+      <tr><td class="num">8</td><td class="ticker"><a href="https://finance.yahoo.com/quote/MXL/" target="_blank" rel="noopener">MXL</a></td><td>MaxLinear, Inc.</td><td class="num">344.16%</td><td class="num">106.28</td><td>2026-05-26</td><td class="num">97.76</td><td>2026-05-28</td><td class="num off">-8.52</td><td class="num off">-8.02%</td></tr>
+      <tr><td class="num">9</td><td class="ticker"><a href="https://finance.yahoo.com/quote/QCOM/" target="_blank" rel="noopener">QCOM</a></td><td>Qualcomm</td><td class="num">82.86%</td><td class="num">258.00</td><td>2026-05-26</td><td class="num">243.29</td><td>2026-05-28</td><td class="num off">-14.71</td><td class="num off">-5.70%</td></tr>
+      <tr><td class="num">10</td><td class="ticker"><a href="https://finance.yahoo.com/quote/UMC/" target="_blank" rel="noopener">UMC</a></td><td>United Microelectronics Corporation</td><td class="num">127.94%</td><td class="num">23.69</td><td>2026-05-27</td><td class="num">22.68</td><td>2026-05-28</td><td class="num off">-1.01</td><td class="num off">-4.26%</td></tr>
+      <tr><td class="num">11</td><td class="ticker"><a href="https://finance.yahoo.com/quote/SIMO/" target="_blank" rel="noopener">SIMO</a></td><td>Silicon Motion Technologies</td><td class="num">103.57%</td><td class="num">294.99</td><td>2026-05-28</td><td class="num">282.44</td><td>2026-05-28</td><td class="num off">-12.55</td><td class="num off">-4.25%</td></tr>
+      <tr><td class="num">12</td><td class="ticker"><a href="https://finance.yahoo.com/quote/ARM/" target="_blank" rel="noopener">ARM</a></td><td>Arm Holdings plc</td><td class="num">110.41%</td><td class="num">349.42</td><td>2026-05-28</td><td class="num">335.27</td><td>2026-05-28</td><td class="num off">-14.15</td><td class="num off">-4.05%</td></tr>
+      <tr><td class="num">13</td><td class="ticker"><a href="https://finance.yahoo.com/quote/MU/" target="_blank" rel="noopener">MU</a></td><td>Micron Technology, Inc.</td><td class="num">102.42%</td><td class="num">956.16</td><td>2026-05-27</td><td class="num">923.52</td><td>2026-05-28</td><td class="num off">-32.64</td><td class="num off">-3.41%</td></tr>
+      <tr><td class="num">14</td><td class="ticker"><a href="https://finance.yahoo.com/quote/SNDK/" target="_blank" rel="noopener">SNDK</a></td><td>Sandisk Corporation</td><td class="num">84.10%</td><td class="num">1,697.96</td><td>2026-05-28</td><td class="num">1,641.64</td><td>2026-05-28</td><td class="num off">-56.32</td><td class="num off">-3.32%</td></tr>
+      <tr><td class="num">15</td><td class="ticker"><a href="https://finance.yahoo.com/quote/000660.KS/" target="_blank" rel="noopener">000660.KS</a></td><td>SK hynix Inc.</td><td class="num">120.13%</td><td class="num">2,357,605.77</td><td>2026-05-27</td><td class="num">2,289,000.00</td><td>2026-05-28</td><td class="num off">-68,605.77</td><td class="num off">-2.91%</td></tr>
+      <tr><td class="num">16</td><td class="ticker"><a href="https://finance.yahoo.com/quote/LUNR/" target="_blank" rel="noopener">LUNR</a></td><td>Intuitive Machines Inc.</td><td class="num">91.37%</td><td class="num">46.75</td><td>2026-05-28</td><td class="num">45.70</td><td>2026-05-28</td><td class="num off">-1.05</td><td class="num off">-2.25%</td></tr>
+      <tr><td class="num">17</td><td class="ticker"><a href="https://finance.yahoo.com/quote/RKLB/" target="_blank" rel="noopener">RKLB</a></td><td>Rocket Labs Corporation</td><td class="num">101.13%</td><td class="num">151.00</td><td>2026-05-27</td><td class="num">148.03</td><td>2026-05-28</td><td class="num off">-2.97</td><td class="num off">-1.97%</td></tr>
+      <tr><td class="num">18</td><td class="ticker"><a href="https://finance.yahoo.com/quote/AMD/" target="_blank" rel="noopener">AMD</a></td><td>Advanced Micro Devices</td><td class="num">100.72%</td><td class="num">527.20</td><td>2026-05-28</td><td class="num">518.09</td><td>2026-05-28</td><td class="num off">-9.11</td><td class="num off">-1.73%</td></tr>
+      <tr><td class="num">19</td><td class="ticker"><a href="https://finance.yahoo.com/quote/ALAB/" target="_blank" rel="noopener">ALAB</a></td><td>Astera Labs, Inc.</td><td class="num">102.90%</td><td class="num">354.53</td><td>2026-05-28</td><td class="num">349.17</td><td>2026-05-28</td><td class="num off">-5.36</td><td class="num off">-1.51%</td></tr>
+      <tr><td class="num">20</td><td class="ticker"><a href="https://finance.yahoo.com/quote/ACMR/" target="_blank" rel="noopener">ACMR</a></td><td>ACM Research, Inc.</td><td class="num">86.50%</td><td class="num">93.90</td><td>2026-05-28</td><td class="num">92.86</td><td>2026-05-28</td><td class="num off">-1.04</td><td class="num off">-1.11%</td></tr>
+    </tbody>
+  </table>
+
+  <h2>2. MCP Tool Recommendation Summary</h2>
+  <div class="section">
+    <h3>Best rebound candidates</h3>
+    <p>
+      <span class="tag tag-rebound">POET</span>
+      <span class="tag tag-rebound">NVTS</span>
+      <span class="tag tag-rebound">DOCN</span>
+      <span class="tag tag-rebound">WOLF</span>
+    </p>
+    <ul>
+      <li><strong>POET</strong>: strongest composite rebound score from the MCP stack, with strong call activity, narrowing spreads, positive news, dragonfly-doji reversal evidence, rising OBV, and moderate higher-low structure. Risk: still below VWAP and dealer hedge bias is sell-on-rally.</li>
+      <li><strong>NVTS</strong>: strong higher-low structure, rising OBV, positive news, call-delta support, and narrowing spreads. Risk: very extended above VWAP, so the setup favors confirmation or pullback entries rather than chasing.</li>
+      <li><strong>DOCN</strong>: strong call activity, narrowing spreads, solid fundamentals, positive news, above VWAP, and rising OBV. Risk: MACD bearish and recent exhaustion-top signal.</li>
+      <li><strong>WOLF</strong>: strong VWAP reclaim, strong higher-low pattern, rising OBV, bullish MACD, and positive news. Risk: exhaustion-top volume and sell-on-rally gamma positioning.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Likely to continue sinking or avoid long entry</h3>
+    <p>
+      <span class="tag tag-sink">HEXI.ST</span>
+      <span class="tag tag-sink">LUNR</span>
+      <span class="tag tag-sink">MXL</span>
+      <span class="tag tag-sink">SIMO</span>
+      <span class="tag tag-sink">ACMR</span>
+      <span class="tag tag-sink">RKLB</span>
+    </p>
+    <ul>
+      <li><strong>HEXI.ST</strong>: most bearish MCP read, with deeply overbought conditions, spread widening, exhaustion-top volume, weak relative strength, and EPS deceleration.</li>
+      <li><strong>LUNR</strong>: bearish despite strong trend structure. Shooting-star candle, deeply overbought momentum, strongly negative news, and sell-on-rally dealer positioning argue for downside risk.</li>
+      <li><strong>MXL</strong>: bearish reversal risk from MACD, hanging-man candle, revenue and EPS deceleration, and no recent higher-low pattern.</li>
+      <li><strong>SIMO</strong>: downside bias from bearish MACD, hanging-man candle, deeply overbought RSI/stochastic, and sell-on-rally gamma positioning.</li>
+      <li><strong>ACMR</strong>: vulnerable due to deeply overbought momentum, exhaustion-top volume, sell-on-rally dealer positioning, and no clear directional edge.</li>
+      <li><strong>RKLB</strong>: conflicting setup. Strong call activity and VWAP support conflict with overbought momentum, exhaustion-top volume, moderately negative news, and sell-on-rally positioning.</li>
+    </ul>
+  </div>
+
+  <div class="section">
+    <h3>Mixed or watch-list only</h3>
+    <p>
+      <span class="tag tag-watch">INTC</span>
+      <span class="tag tag-watch">QCOM</span>
+      <span class="tag tag-watch">UMC</span>
+      <span class="tag tag-watch">000660.KS</span>
+      <span class="tag tag-watch">ALAB</span>
+      <span class="tag tag-watch">ARM</span>
+      <span class="tag tag-watch">AMD</span>
+      <span class="tag tag-watch">HSYDF</span>
+      <span class="tag tag-watch">MU</span>
+      <span class="tag tag-watch">SNDK</span>
+    </p>
+    <ul>
+      <li><strong>INTC</strong>: bullish options flow and improving liquidity, but MACD bearish with revenue and EPS deceleration.</li>
+      <li><strong>QCOM</strong>: quality name and bullish flow, but overbought with poor MCP risk/reward.</li>
+      <li><strong>UMC</strong>: bullish flow, but RSI was extremely extended.</li>
+      <li><strong>000660.KS</strong>: strong fundamentals and momentum, but deeply overbought.</li>
+      <li><strong>ALAB</strong>: positive news and momentum, but overbought with poor risk/reward.</li>
+      <li><strong>ARM</strong>: positive news, but deeply overbought with spread widening and low confidence.</li>
+      <li><strong>AMD</strong>: bullish flow, but low confidence with revenue/EPS headwinds and overbought technicals.</li>
+      <li><strong>HSYDF</strong>: weak-long profile only, with bullish candle/MACD offset by negative news and low confidence.</li>
+      <li><strong>MU and SNDK</strong>: bullish continuation profiles, but stretched and not clean rebound entries.</li>
+    </ul>
+  </div>
+
+  <h2>3. Gamma Wall and Dealer Positioning Overlay</h2>
+  <p class="note">
+    The gamma-wall pass weakened the rebound case across most optionable names. Every optionable stock returned
+    <span class="tag tag-gamma">sell_on_rally</span>, meaning dealer positioning is likely to add supply into rallies rather than provide a mechanical bounce tailwind.
+  </p>
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Prior Read</th>
+        <th class="num">Price</th>
+        <th class="num">Gamma Wall</th>
+        <th>MM Hedge Bias</th>
+        <th>Gamma Interpretation</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/POET/" target="_blank" rel="noopener">POET</a></td><td>Rebound candidate</td><td class="num">12.29</td><td class="num">8.00</td><td class="negative">sell_on_rally</td><td>Wall is far below price; no gamma bounce signal. Rally resistance from dealer hedging.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/NVTS/" target="_blank" rel="noopener">NVTS</a></td><td>Strong but extended</td><td class="num">26.60</td><td class="num">23.00</td><td class="negative">sell_on_rally</td><td>Wall below price; possible downside magnet/support, not upside fuel.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/DOCN/" target="_blank" rel="noopener">DOCN</a></td><td>Good rebound setup</td><td class="num">155.95</td><td class="num">95.00</td><td class="negative">sell_on_rally</td><td>Wall far below; gamma does not confirm rebound.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/WOLF/" target="_blank" rel="noopener">WOLF</a></td><td>Rebound structure real</td><td class="num">59.28</td><td class="num">50.00</td><td class="negative">sell_on_rally</td><td>Wall below price; potential deeper pullback support zone.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/MU/" target="_blank" rel="noopener">MU</a></td><td>Bullish but stretched</td><td class="num">971.00</td><td class="num">400.00</td><td class="negative">sell_on_rally</td><td>Wall far below; gamma does not support chasing.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/SNDK/" target="_blank" rel="noopener">SNDK</a></td><td>Bullish continuation, stretched</td><td class="num">1,694.98</td><td class="num">830.00</td><td class="negative">sell_on_rally</td><td>Wall far below; rally faces dealer supply.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/MXL/" target="_blank" rel="noopener">MXL</a></td><td>Bearish reversal risk</td><td class="num">92.93</td><td class="num">95.00</td><td class="negative">sell_on_rally</td><td>Wall slightly above price; near-term upside magnet, but also likely resistance.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/LUNR/" target="_blank" rel="noopener">LUNR</a></td><td>Bearish despite trend</td><td class="num">43.83</td><td class="num">30.00</td><td class="negative">sell_on_rally</td><td>Wall below price; aligns with downside-risk view.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/SIMO/" target="_blank" rel="noopener">SIMO</a></td><td>Downside bias</td><td class="num">276.87</td><td class="num">140.00</td><td class="negative">sell_on_rally</td><td>Wall far below; supports caution.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/ACMR/" target="_blank" rel="noopener">ACMR</a></td><td>Vulnerable</td><td class="num">86.56</td><td class="num">75.00</td><td class="negative">sell_on_rally</td><td>Wall below price; downside magnet risk.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/RKLB/" target="_blank" rel="noopener">RKLB</a></td><td>Conflicted / avoid</td><td class="num">143.48</td><td class="num">150.00</td><td class="negative">sell_on_rally</td><td>Wall just above price; possible pin or pull upward, but overall signals remain split.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/INTC/" target="_blank" rel="noopener">INTC</a></td><td>Mixed bullish</td><td class="num">114.68</td><td class="num">50.00</td><td class="negative">sell_on_rally</td><td>Wall far below; gamma does not support rebound thesis.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/QCOM/" target="_blank" rel="noopener">QCOM</a></td><td>Mixed bullish</td><td class="num">251.02</td><td class="num">220.00</td><td class="negative">sell_on_rally</td><td>Wall below price; mild downside magnet risk.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/UMC/" target="_blank" rel="noopener">UMC</a></td><td>Mixed bullish, very extended</td><td class="num">22.18</td><td class="num">14.00</td><td class="negative">sell_on_rally</td><td>Wall far below; no bounce support.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/ARM/" target="_blank" rel="noopener">ARM</a></td><td>Mixed, low confidence</td><td class="num">353.29</td><td class="num">120.00</td><td class="negative">sell_on_rally</td><td>Wall far below; gamma reinforces caution.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/AMD/" target="_blank" rel="noopener">AMD</a></td><td>Weak long only</td><td class="num">516.10</td><td class="num">320.00</td><td class="negative">sell_on_rally</td><td>Wall far below; gamma does not help rebound case.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/ALAB/" target="_blank" rel="noopener">ALAB</a></td><td>Mixed bullish</td><td class="num">342.85</td><td class="num">250.00</td><td class="negative">sell_on_rally</td><td>Wall below price; downside magnet risk.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/HEXI.ST/" target="_blank" rel="noopener">HEXI.ST</a></td><td>Bearish</td><td class="num">0.25</td><td class="num">N/A</td><td>N/A</td><td>No options data available.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/HSYDF/" target="_blank" rel="noopener">HSYDF</a></td><td>Weak long only</td><td class="num">51.01</td><td class="num">N/A</td><td>N/A</td><td>No options data available.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/000660.KS/" target="_blank" rel="noopener">000660.KS</a></td><td>Bullish but overbought</td><td class="num">2,333,000.00</td><td class="num">N/A</td><td>N/A</td><td>No options data available.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. Final Read</h2>
+  <div class="section">
+    <p>
+      <strong>Best rebound candidates remain POET, NVTS, DOCN, and WOLF</strong>, but the gamma-wall overlay says these are technical, news, liquidity, and flow rebound setups, not dealer-supported gamma-bounce setups. Entries should require price confirmation.
+    </p>
+    <p>
+      <strong>Highest continuation-down risk remains HEXI.ST, LUNR, MXL, SIMO, ACMR, and RKLB.</strong>
+      Gamma adds downside concern for LUNR, SIMO, and ACMR because their gamma walls sit meaningfully below current price. MXL and RKLB are exceptions with nearby upside gamma walls, but MXL still has bearish trend signals and RKLB remains too conflicted.
+    </p>
+    <p>
+      <strong>Most important gamma conclusion:</strong> none of the optionable names produced a positive DAOI bounce signal. All optionable names showed <code>sell_on_rally</code>.
+    </p>
+  </div>
+
+  <h2>5. Methodology and Reproducibility Notes</h2>
+  <div class="section">
+    <h3>Source universe</h3>
+    <p>
+      The 20-stock universe was selected from
+      <code>docs/analysis results/Watchlist_Returns_Fundamentals_2026-05-29.html</code>.
+      The HTML table was parsed with <code>pandas.read_html</code>, the <code>30 Day Return</code>
+      column was converted from percent text to a numeric value, and the rows were sorted descending.
+      The top 20 symbols were:
+      <code>MXL, NVTS, WOLF, UMC, 000660.KS, HEXI.ST, ARM, SIMO, ALAB, MU, RKLB, AMD, DOCN, LUNR, POET, ACMR, INTC, SNDK, QCOM, HSYDF</code>.
+    </p>
+
+    <h3>May high pullback calculation</h3>
+    <p>
+      Daily OHLCV data came from the local QuantCore SQLite cache at <code>data/quantcore.sqlite</code>,
+      table <code>ohlcv</code>, filtered to <code>interval = '1d'</code> and dates from
+      <code>2026-05-01</code> through <code>2026-05-31</code>. The cache had daily bars through
+      <code>2026-05-28</code> for all 20 symbols, so the pullback ranking is as of the latest cached close,
+      not a live market refresh.
+    </p>
+    <p>
+      For each symbol, <code>May High</code> is the maximum daily <code>high</code> in May,
+      <code>Latest Close</code> is the latest cached May daily <code>close</code>, and the pullback metrics are:
+      <code>$ Off High = Latest Close - May High</code> and
+      <code>% Off High = (Latest Close - May High) / May High * 100</code>.
+      The table is ranked from most negative <code>% Off High</code> to least negative.
+    </p>
+
+    <h3>MCP tools used</h3>
+    <p>
+      The rebound and sink classifications were based on MCP tool outputs for the same 20 symbols.
+      The primary composite tool was <code>mcp__stock_price_server.get_trade_recommendation</code>
+      with <code>capital = 5000</code>. It synthesized RSI, MACD, stochastic oscillator, Bollinger Bands,
+      volume analysis, candlestick patterns, dark-pool proxy, short interest, bid/ask spread,
+      unusual call activity, delta-adjusted open interest, options positioning, stop-loss analysis,
+      and news sentiment where available.
+    </p>
+    <p>
+      Additional confirmation tools were run on the clearest rebound and downside candidates:
+      <code>get_vwap</code>, <code>get_higher_lows</code>, and <code>get_obv</code>.
+      These were used to distinguish real rebound structure from names that were merely extended or experiencing
+      a short-term bounce inside a weaker setup.
+    </p>
+    <p>
+      The gamma-wall overlay used <code>mcp__stock_price_server.get_delta_adjusted_oi</code>
+      with <code>max_expirations = 3</code>. The report records each symbol's current MCP price,
+      gamma wall strike, and market-maker hedge bias. Symbols without usable options data were marked
+      as <code>N/A</code> rather than inferred.
+    </p>
+
+    <h3>Interpretation rules</h3>
+    <ul>
+      <li><strong>Rebound candidates</strong> required a positive MCP composite read plus supporting evidence such as narrowing spreads, bullish call activity, positive news, VWAP support or reclaim, higher-low structure, and rising OBV.</li>
+      <li><strong>Likely sink or avoid-long names</strong> had negative or conflicted MCP composites plus bearish momentum/candle signals, overbought exhaustion, weak or negative news, spread stress, deteriorating fundamentals, or no higher-low support.</li>
+      <li><strong>Mixed/watch names</strong> had bullish components but poor entry quality, overbought momentum, weak risk/reward, or conflicting technical and sentiment signals.</li>
+      <li><strong>Gamma interpretation</strong> treated <code>sell_on_rally</code> as a rally-resistance warning. A gamma wall below current price was interpreted as possible downside magnet/support, while a nearby wall above current price was interpreted as possible pin/resistance rather than automatic upside confirmation.</li>
+    </ul>
+
+    <h3>Important limitations</h3>
+    <p>
+      This report is based on local cached OHLCV data and MCP tool snapshots available at creation time.
+      The May high table does not include a live refresh beyond the cached <code>2026-05-28</code> close.
+      MCP outputs can change as prices, options open interest, spreads, news, and cached fundamentals update.
+      To recreate the analysis exactly, use the same source report, the same local QuantCore cache state,
+      and the same MCP tool parameters listed above.
+    </p>
+  </div>
+
+  <h2>6. John's Special Interest Stocks</h2>
+  <p class="note">
+    This addendum applies the same May-high pullback, MCP recommendation, VWAP, higher-low, OBV, and gamma-wall framework
+    to <code>GEV</code>, <code>GLW</code>, and <code>VRT</code>. Local OHLCV pullback values use the latest cached daily close
+    from <code>2026-05-28</code>. MCP current prices differed slightly from cached closes: <code>GEV 968.32</code>,
+    <code>GLW 181.16</code>, and <code>VRT 315.71</code>.
+  </p>
+
+  <h3>May high pullback</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th class="num">May High</th>
+        <th>High Date</th>
+        <th class="num">Latest Cached Close</th>
+        <th>Latest Date</th>
+        <th class="num">$ Off High</th>
+        <th class="num">% Off High</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/VRT/" target="_blank" rel="noopener">VRT</a></td><td class="num">379.93</td><td>2026-05-14</td><td class="num">314.18</td><td>2026-05-28</td><td class="num off">-65.76</td><td class="num off">-17.31%</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/GLW/" target="_blank" rel="noopener">GLW</a></td><td class="num">211.79</td><td>2026-05-13</td><td class="num">182.97</td><td>2026-05-28</td><td class="num off">-28.82</td><td class="num off">-13.61%</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/GEV/" target="_blank" rel="noopener">GEV</a></td><td class="num">1,125.43</td><td>2026-05-06</td><td class="num">996.00</td><td>2026-05-28</td><td class="num off">-129.43</td><td class="num off">-11.50%</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MCP summary</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Trade Read</th>
+        <th class="num">Net Score</th>
+        <th>Confidence</th>
+        <th class="num">Gamma Wall</th>
+        <th>Gamma Bias</th>
+        <th>Rebound Quality</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/GEV/" target="_blank" rel="noopener">GEV</a></td><td><code>BULL_CALL_SPREAD</code></td><td class="num positive">+7</td><td>High</td><td class="num">1,000</td><td class="negative">sell_on_rally</td><td>Good oversold rebound candidate, but not yet technically confirmed.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/GLW/" target="_blank" rel="noopener">GLW</a></td><td><code>BULL_CALL_SPREAD</code></td><td class="num positive">+5</td><td>High</td><td class="num">180</td><td class="negative">sell_on_rally</td><td>Best risk/reward of the three; near gamma wall.</td></tr>
+      <tr><td class="ticker"><a href="https://finance.yahoo.com/quote/VRT/" target="_blank" rel="noopener">VRT</a></td><td><code>LONG_STOCK</code></td><td class="num positive">+4</td><td>Medium</td><td class="num">320</td><td class="negative">sell_on_rally</td><td>Oversold, but weakest confirmation structure.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="section">
+    <h3>Individual reads</h3>
+    <p>
+      <strong>GLW</strong> looks like the best setup of the three. It is 13.6% off its May high, has a high-confidence MCP
+      <code>BULL_CALL_SPREAD</code> recommendation, strong-compounder fundamentals, market-leading relative strength,
+      moderate call activity, and a dragonfly-doji reversal hint. Its gamma wall is almost exactly at current price:
+      <code>180</code> versus MCP price <code>181.16</code>, which can create near-term pin/support behavior. The caution is
+      that MACD is still bearish, revenue and EPS trends are weakening, and dealer bias is still <code>sell_on_rally</code>.
+    </p>
+    <p>
+      <strong>GEV</strong> is also a credible rebound candidate, but needs confirmation. MCP scored it higher at <code>+7</code>,
+      driven by oversold Bollinger/stochastic conditions, positive news, solid fundamentals, relative strength, and call activity.
+      The problem is structure: price is below VWAP, higher-low structure is absent, and OBV is falling with price. Gamma wall is
+      <code>1000</code>, near but above the MCP price of <code>968.32</code>, so it may act as a magnet/resistance zone.
+      Treat <code>1000</code> as the first confirmation level.
+    </p>
+    <p>
+      <strong>VRT</strong> is the weakest rebound setup despite a positive MCP score. It is the furthest off its May high at
+      <code>-17.31%</code>, has oversold stochastic and strong fundamentals, but price is still 7.4% below VWAP, there is no
+      higher-low structure, and OBV confirms the downtrend. Gamma wall is <code>320</code>, just above MCP price
+      <code>315.71</code>, so there may be a short-term magnet toward <code>320</code>, but broader structure does not yet show
+      accumulation.
+    </p>
+  </div>
+
+  <div class="section">
+    <h3>Special interest ranking</h3>
+    <ol>
+      <li><strong>GLW</strong>: best rebound setup now; gamma wall is nearby and risk/reward is strongest.</li>
+      <li><strong>GEV</strong>: strong oversold candidate, but wait for reclaim or confirmation near <code>1000</code>.</li>
+      <li><strong>VRT</strong>: possible bounce to gamma wall, but most likely of the three to keep drifting lower unless it reclaims VWAP.</li>
+    </ol>
+    <p>
+      <strong>Common warning:</strong> all three showed <code>sell_on_rally</code> gamma positioning, so none has a true
+      dealer-supported bounce signal.
+    </p>
+  </div>
+</main>
+</body>
+</html>

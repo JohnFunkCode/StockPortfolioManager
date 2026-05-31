@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+w#!/usr/bin/env python3
 """
 Migrate all 6 separate SQLite databases into a single unified QuantCore database.
 

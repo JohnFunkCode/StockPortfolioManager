@@ -2,7 +2,7 @@
 
 ## Overview
 
-Implemented a persistent SQLite-backed cache layer for the `company_fundamentals_server.py` MCP server, plus 8 new cross-symbol analytics tools. This converts the fundamentals server from a single-symbol lookup tool into a portfolio-wide analysis surface.
+Implemented a persistent database-backed cache layer for the `company_fundamentals_server.py` MCP server, plus 8 new cross-symbol analytics tools. This converts the fundamentals server from a single-symbol lookup tool into a portfolio-wide analysis surface. (Originally built on SQLite; the unified QuantCore database has since been migrated to PostgreSQL — see [docs/postgres_migration_plan.md](postgres_migration_plan.md) — and this cache layer now runs on PostgreSQL via the same `quantcore/db.get_connection()` factory with no API changes.)
 
 **Date Completed:** 2026-05-09  
 **Files Modified:**
@@ -15,12 +15,12 @@ Implemented a persistent SQLite-backed cache layer for the `company_fundamentals
 
 ### 1. Cache Layer (`fundamentals_cache.py`)
 
-**Location:** SQLite database table `fundamentals_history` in unified QuantCore database (`data/quantcore.sqlite`). Managed by `quantcore/db.get_connection()` connection factory.
+**Location:** `fundamentals_history` table in the unified QuantCore PostgreSQL database. Managed by the `quantcore/db.get_connection()` connection factory (`psycopg2`, connection string from `QUANTCORE_DB_DSN`).
 
 **Append-only design:** Each cache miss appends a new row, building a time series for trend analysis.
 
 **Configuration:**
-- `QUANTCORE_DB_PATH` env var (default: `data/quantcore.sqlite`)
+- `QUANTCORE_DB_DSN` env var — PostgreSQL connection string for the unified database
 - `FUNDAMENTALS_CACHE_TTL_HOURS` env var (default: 24 hours)
 - Setting TTL to 0 disables cache entirely (useful for testing)
 - TTL is read on every call, so changes take effect without restart
@@ -35,10 +35,9 @@ Implemented a persistent SQLite-backed cache layer for the `company_fundamentals
 
 **Professional features:**
 - Double-checked locking for thread-safe schema initialization
-- WAL (Write-Ahead Logging) mode for safe concurrent reads
-- NORMAL synchronous pragma for balanced safety/performance
+- Connection-level transactions with explicit commit/rollback for safe concurrent writes
 - Comprehensive exception handling with logging at all layers
-- 30-second SQLite timeout for lock contention
+- 30-second connection timeout for lock contention (standardized in `quantcore/db.py`)
 - Graceful degradation: missing yfinance data returns null fields, not errors
 
 ---

@@ -25,7 +25,6 @@ Usage:
     store.close_position(pos_id, reason="sold")
 """
 
-import sqlite3
 from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
@@ -91,12 +90,15 @@ class OptionsPositionStore:
                 INSERT INTO options_positions
                     (symbol, kind, strike, expiration, contracts,
                      purchase_price, purchase_date, target_price, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING position_id
                 """,
                 (symbol.upper(), kind, strike, expiration, contracts,
                  purchase_price, purchase_date, target_price, notes),
             )
-            return cur.lastrowid
+            pos_id = cur.fetchone()[0]
+            conn.commit()
+            return pos_id
 
     def close_position(self, position_id: int, reason: str = "closed") -> None:
         """Mark a position as CLOSED (manually sold or closed out)."""
@@ -105,9 +107,9 @@ class OptionsPositionStore:
                 """
                 UPDATE options_positions
                 SET status = 'CLOSED',
-                    closed_at = ?,
-                    notes = COALESCE(notes || ' | ', '') || ?
-                WHERE position_id = ?
+                    closed_at = %s,
+                    notes = COALESCE(notes || ' | ', '') || %s
+                WHERE position_id = %s
                 """,
                 (
                     datetime.now(timezone.utc).isoformat(),
@@ -115,6 +117,7 @@ class OptionsPositionStore:
                     position_id,
                 ),
             )
+            conn.commit()
 
     def expire_position(self, position_id: int) -> None:
         """Mark a position as EXPIRED (option expiration date passed)."""
@@ -122,11 +125,12 @@ class OptionsPositionStore:
             conn.execute(
                 """
                 UPDATE options_positions
-                SET status = 'EXPIRED', closed_at = ?
-                WHERE position_id = ?
+                SET status = 'EXPIRED', closed_at = %s
+                WHERE position_id = %s
                 """,
                 (datetime.now(timezone.utc).isoformat(), position_id),
             )
+            conn.commit()
 
     def auto_expire_past_positions(self) -> list[dict]:
         """
@@ -145,13 +149,14 @@ class OptionsPositionStore:
             if rows:
                 ids = [r["position_id"] for r in rows]
                 conn.execute(
-                    f"""
+                    """
                     UPDATE options_positions
-                    SET status = 'EXPIRED', closed_at = ?
-                    WHERE position_id IN ({','.join('?' * len(ids))})
+                    SET status = 'EXPIRED', closed_at = %s
+                    WHERE position_id = ANY(%s)
                     """,
-                    [datetime.now(timezone.utc).isoformat()] + ids,
+                    [datetime.now(timezone.utc).isoformat(), ids],
                 )
+                conn.commit()
             return [dict(r) for r in rows]
 
     def get_active_positions(self) -> list[dict]:

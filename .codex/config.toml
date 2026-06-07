@@ -23,6 +23,24 @@ approval_mode = "approve"
 [mcp_servers.company-fundamentals-server.tools.get_fundamental_history]
 approval_mode = "approve"
 
+[mcp_servers.company-fundamentals-server.tools.get_earnings_acceleration]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_revenue_growth]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_sector_fundamental_breakdown]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_upcoming_earnings]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_fundamental_score]
+approval_mode = "approve"
+
+[mcp_servers.company-fundamentals-server.tools.get_fundamental_score_changes]
+approval_mode = "approve"
+
 [mcp_servers.market-analysis-server]
 args = [
     "run",
@@ -55,6 +73,9 @@ approval_mode = "approve"
 [mcp_servers.news-sentiment-server.tools.get_sentiment_trend]
 approval_mode = "approve"
 
+[mcp_servers.news-sentiment-server.tools.list_news_symbols]
+approval_mode = "approve"
+
 [mcp_servers.options-analysis-server]
 args = [
     "run",
@@ -66,6 +87,12 @@ command = ".venv/bin/fastmcp"
 approval_mode = "approve"
 
 [mcp_servers.options-analysis-server.tools.price_vertical_spread]
+approval_mode = "approve"
+
+[mcp_servers.options-analysis-server.tools.mcp_health_check]
+approval_mode = "approve"
+
+[mcp_servers.options-analysis-server.tools.get_option_contracts]
 approval_mode = "approve"
 
 [mcp_servers.stock-price-server]
@@ -136,4 +163,10 @@ approval_mode = "approve"
 approval_mode = "approve"
 
 [mcp_servers.stock-price-server.tools.get_vwap_history]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_news]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_gamma_wall_history]
 approval_mode = "approve"

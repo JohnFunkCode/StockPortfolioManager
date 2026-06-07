@@ -18,7 +18,6 @@ Usage:
     trend    = store.get_sentiment_trend("AAPL", days=30)  # per-day breakdown
 """
 
-import sqlite3
 from contextlib import closing
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -55,10 +54,11 @@ class NewsStore:
                     continue
                 cur = conn.execute(
                     """
-                    INSERT OR IGNORE INTO news_articles
+                    INSERT INTO news_articles
                         (symbol, title, summary, publisher, url,
                          published_at, source, fetched_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, url) DO NOTHING
                     """,
                     (
                         symbol,
@@ -72,6 +72,7 @@ class NewsStore:
                     ),
                 )
                 inserted += cur.rowcount
+            conn.commit()
         return inserted
 
     def update_sentiment(
@@ -88,12 +89,12 @@ class NewsStore:
             conn.execute(
                 """
                 UPDATE news_articles
-                SET sentiment       = ?,
-                    sentiment_score = ?,
-                    positive_score  = ?,
-                    negative_score  = ?,
-                    neutral_score   = ?
-                WHERE article_id = ?
+                SET sentiment       = %s,
+                    sentiment_score = %s,
+                    positive_score  = %s,
+                    negative_score  = %s,
+                    neutral_score   = %s
+                WHERE article_id = %s
                 """,
                 (
                     sentiment,
@@ -104,6 +105,7 @@ class NewsStore:
                     article_id,
                 ),
             )
+            conn.commit()
 
     # ------------------------------------------------------------------
     # Read

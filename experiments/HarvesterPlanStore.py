@@ -1,5 +1,4 @@
 import json
-import sqlite3
 import os
 from contextlib import closing
 from dataclasses import dataclass
@@ -306,7 +305,6 @@ class HarvesterPlanDB:
             raise RuntimeError(f"No price history returned for {symbol}")
 
         with closing(get_connection()) as conn:
-            conn.execute("BEGIN;")
             try:
                 for _, r in bars.iterrows():
                     # Convert YYYY-MM-DD string to Unix timestamp (midnight UTC)
@@ -325,9 +323,9 @@ class HarvesterPlanDB:
                         "data_vendor": "yfinance",
                         "ingested_at": int(time()),
                     })
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
 
         # 3) Pull last N adj_close prices from the local DB (deterministic)
@@ -396,7 +394,8 @@ class HarvesterPlanDB:
                       :alpha, :min_h, :max_h, NULL,
                       'CAGR', 'LOGRET_STD', 'adj_close',
                       :created_at
-                    );
+                    )
+                    RETURNING template_id
                     """,
                     {
                         "name": template_name,
@@ -408,12 +407,11 @@ class HarvesterPlanDB:
                         "created_at": now,
                     },
                 )
-                template_id = cur.lastrowid
+                template_id = cur.fetchone()[0]
                 conn.commit()
 
         # 6) Insert plan_instance (supersede any active plan for that symbol)
         with closing(get_connection()) as conn:
-            conn.execute("BEGIN;")
             try:
                 prev = conn.execute(
                     "SELECT instance_id FROM plan_instances WHERE symbol_id=? AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1;",
@@ -449,7 +447,8 @@ class HarvesterPlanDB:
                       :r_daily, :annual_vol, :h_threshold, :n_iterations,
                       'adj_close',
                       :supersedes_instance_id
-                    );
+                    )
+                    RETURNING instance_id
                     """,
                     {
                         "template_id": template_id,
@@ -469,7 +468,7 @@ class HarvesterPlanDB:
                         "supersedes_instance_id": supersedes,
                     },
                 )
-                instance_id = int(cur.lastrowid)
+                instance_id = int(cur.fetchone()[0])
 
                 # Insert rungs
                 for rung in forward_plan["ladder"]:
@@ -517,9 +516,9 @@ class HarvesterPlanDB:
                         }
                     )
 
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
 
         # 7) Create/refresh alert for the next pending rung only
@@ -674,7 +673,6 @@ class HarvesterPlanDB:
         updated = 0
 
         with closing(get_connection()) as conn:
-            conn.execute("BEGIN;")
             try:
                 for rung_id in rung_ids:
                     cur = conn.execute(
@@ -682,9 +680,9 @@ class HarvesterPlanDB:
                         {"rung_id": rung_id, "ts": ts, "price": trigger_price},
                     )
                     updated += cur.rowcount
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
         return updated
 
@@ -737,12 +735,11 @@ class HarvesterPlanDB:
             if dry_run or matched == 0:
                 return {"count": matched, "instance_ids": ids} if return_ids else matched
 
-            conn.execute("BEGIN;")
             try:
                 conn.execute(delete_sql, params)
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
         return {"count": matched, "instance_ids": ids} if return_ids else matched
 
@@ -807,6 +804,7 @@ class HarvesterPlanDB:
         sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ?;"
         with closing(get_connection()) as conn:
             cur = conn.execute(sql, params)
+            conn.commit()
             return cur.rowcount > 0
 
     def delete_plan(self, instance_id: int) -> bool:
@@ -816,6 +814,7 @@ class HarvesterPlanDB:
                 "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND status = 'ACTIVE';",
                 (instance_id,),
             )
+            conn.commit()
             return cur.rowcount > 0
 
     def list_all_symbols(self) -> List[Dict[str, Any]]:
@@ -917,7 +916,6 @@ class HarvesterPlanDB:
             symbol_id = int(rung["symbol_id"])
             threshold_price = float(rung["target_price"])
 
-            conn.execute("BEGIN;")
             try:
                 conn.execute(SQL_UPSERT_ALERT_FOR_RUNG, {
                     "rung_id": rung_id,
@@ -930,9 +928,9 @@ class HarvesterPlanDB:
                     "instance_id": instance_id,
                     "rung_id": rung_id,
                 })
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
 
 
@@ -945,12 +943,12 @@ class HarvesterController:
         Return the next pending rung for each ACTIVE plan.
         """
         actions: List[Dict[str, Any]] = []
-        with self.db._connect() as conn:
+        with closing(get_connection()) as conn:
             active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
 
         for row in active:
             instance_id = int(row["instance_id"])
-            with closing(self.db._connect()) as conn:
+            with closing(get_connection()) as conn:
                 rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 continue
@@ -971,14 +969,14 @@ class HarvesterController:
         fired: List[Dict[str, Any]] = []
         now = _utc_now_iso()
 
-        with self.db._connect() as conn:
+        with closing(get_connection()) as conn:
             active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
 
         for row in active:
             instance_id = int(row["instance_id"])
             ticker = row["ticker"]
 
-            with closing(self.db._connect()) as conn:
+            with closing(get_connection()) as conn:
                 rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
             if not rung:
                 continue
@@ -991,8 +989,7 @@ class HarvesterController:
             if current_price is None or current_price < target_price:
                 continue
 
-            with closing(self.db._connect()) as conn:
-                conn.execute("BEGIN;")
+            with closing(get_connection()) as conn:
                 try:
                     alert = conn.execute(
                         SQL_GET_ACTIVE_ALERT_FOR_RUNG,
@@ -1009,9 +1006,9 @@ class HarvesterController:
                         "ts": now,
                         "price": current_price,
                     })
-                    conn.execute("COMMIT;")
+                    conn.commit()
                 except Exception:
-                    conn.execute("ROLLBACK;")
+                    conn.rollback()
                     raise
 
             fired.append({
@@ -1041,8 +1038,7 @@ class HarvesterController:
         gross = executed_price * shares_sold
         net = gross - tax_paid
 
-        with self.db._connect() as conn:
-            conn.execute("BEGIN;")
+        with closing(get_connection()) as conn:
             try:
                 conn.execute(SQL_MARK_RUNG_EXECUTED, {
                     "rung_id": rung_id,
@@ -1057,12 +1053,12 @@ class HarvesterController:
                         "UPDATE plan_rungs SET notes = :notes WHERE rung_id = :rung_id;",
                         {"notes": notes, "rung_id": rung_id},
                     )
-                conn.execute("COMMIT;")
+                conn.commit()
             except Exception:
-                conn.execute("ROLLBACK;")
+                conn.rollback()
                 raise
 
-        with self.db._connect() as conn:
+        with closing(get_connection()) as conn:
             row = conn.execute(SQL_GET_RUNG_INSTANCE, {"rung_id": rung_id}).fetchone()
         if row:
             self.db._ensure_next_rung_alert(int(row["instance_id"]))

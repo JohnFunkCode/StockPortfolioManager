@@ -10,9 +10,8 @@ is saved here so we can:
 """
 
 import json
-import sqlite3
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from quantcore.db import get_connection
 
@@ -94,6 +93,7 @@ class SentimentStore:
 
     def get_history(self, symbol: str, days: int = 30) -> list[dict]:
         """Return up to `days` days of snapshots for a symbol, oldest first."""
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
@@ -101,11 +101,11 @@ class SentimentStore:
                        positive_count, negative_count, neutral_count,
                        scored_count, overall_sentiment
                 FROM sentiment_snapshots
-                WHERE symbol = ?
-                  AND captured_at >= datetime('now', ? || ' days')
+                WHERE symbol = %s
+                  AND captured_at >= %s
                 ORDER BY captured_at ASC
                 """,
-                (symbol.upper(), f"-{days}"),
+                (symbol.upper(), since),
             ).fetchall()
         return [dict(r) for r in rows]
 

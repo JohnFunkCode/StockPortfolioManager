@@ -81,19 +81,25 @@ YAML file entries:
 
 ### Database
 
-The application uses a unified SQLite database (`data/quantcore.sqlite`) to store:
+The application uses a unified **PostgreSQL** database (codename **QuantCore**, accessed via `psycopg2`) to store:
 - Portfolio holdings and historical OHLCV data (daily, intraday)
 - Options chain snapshots, Greeks, and gamma wall history
 - News articles and sentiment analysis
 - Fundamental metrics and earnings dates
 - Harvester plan instances and alert logs
 
-**The database is automatically created** when any application component starts (main.py, REST API, or MCP servers). You don't need to run a migration script — the schema is initialized on-demand if the database file is missing.
+**The schema is automatically created** when any application component starts (main.py, REST API, or MCP servers) — `init_schema()` runs before any database operations. The PostgreSQL server, database, and `quantcore` user must already exist; point the app at any reachable PostgreSQL instance via the DSN below — a local server, or a managed service such as Cloud SQL connected through the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) (which exposes the remote database as a local `host:port`, so no code changes are needed to switch targets).
 
 **Environment Variables:**
-- `QUANTCORE_DB_PATH` — Location of the unified database (default: `data/quantcore.sqlite`)
+- `QUANTCORE_DB_DSN` — PostgreSQL connection string for the unified database, e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`
+- `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database, used to run the app or test suite against a separate copy of the data without touching the primary database
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
+
+**Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:
+```bash
+python scripts/migrate_sqlite_to_postgres.py --sqlite data/quantcore.sqlite --dsn "$QUANTCORE_DB_DSN"
+```
 
 ## Usage
 
@@ -127,7 +133,7 @@ A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the 
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/health` | Health check — confirms the API and SQLite database are reachable |
+| GET | `/api/health` | Health check — confirms the API and PostgreSQL database are reachable |
 | GET | `/api/plans` | List harvest plans; filter by `?status=ACTIVE\|SUPERSEDED\|ALL` |
 | POST | `/api/plans` | Create a new harvest plan for a symbol |
 | GET | `/api/plans/<id>` | Get a single plan with its rungs |
@@ -230,16 +236,16 @@ The stock-price and options-analysis MCP servers both expose exact contract look
 **Tools:**
 - `get_option_contracts(symbol, expirations, strikes, kind="call")` — returns specific call or put contracts by expiration and strike, including bid, ask, mid, IV, volume, open interest, moneyness, and bid/ask spread percentage.
 - `price_vertical_spread(symbol, expiration, long_strike, short_strike, kind="call")` — prices a two-leg vertical spread using exact contracts. Returns conservative debit (`long ask - short bid`), mid-debit estimate, max profit, max loss, breakeven, risk/reward, leg details, liquidity label, cache source, and warnings.
-- `get_full_options_chain(symbol)` — still fetches and persists all strikes/all expirations, and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the SQLite cache was updated.
+- `get_full_options_chain(symbol)` — still fetches and persists all strikes/all expirations, and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the database cache was updated.
 
 **Data flow:**
-- Exact-contract tools use the latest full-chain SQLite snapshot first.
+- Exact-contract tools use the latest full-chain database snapshot first.
 - If the cache is missing, stale, or incomplete, they can fetch the live chain from Yahoo Finance, persist it, and retry the lookup.
 - Full-chain writes are explicitly committed, so snapshots fetched by MCP are immediately queryable by later MCP calls and REST/WebUI readers.
 
 ### Fundamentals Cache & Cross-Symbol Analytics
 
-The `company-fundamentals-server` now features a persistent SQLite cache layer that enables portfolio-wide fundamental analysis. The cache stores earnings calendar, composite scores, revenue growth, and EPS acceleration data — building a time series for trend detection.
+The `company-fundamentals-server` now features a persistent database cache layer that enables portfolio-wide fundamental analysis. The cache stores earnings calendar, composite scores, revenue growth, and EPS acceleration data — building a time series for trend detection.
 
 **Wrapped tools (cache-transparent):**
 - `get_earnings_calendar(symbol)` — earnings dates and options risk profile
@@ -259,7 +265,7 @@ The `company-fundamentals-server` now features a persistent SQLite cache layer t
 
 **Configuration:**
 - Cache TTL controlled via `FUNDAMENTALS_CACHE_TTL_HOURS` env var (default 24 hours)
-- Database location: `data/quantcore.sqlite` (unified database, auto-created on startup)
+- Storage: unified QuantCore PostgreSQL database (schema auto-created on startup)
 - Setting TTL to 0 disables caching (useful for testing)
 - TTL checked on every call, so changes take effect without server restart
 
@@ -271,9 +277,9 @@ Three MCP tools expose historical views of key technical metrics to support mult
 
 | Tool | Source | Backfill |
 |------|--------|----------|
-| `get_vwap_history(symbol, since_days=90)` | Computed from OHLCV data in `data/quantcore.sqlite` | Up to 2 years |
-| `get_relative_strength_history(symbol, since_days=90)` | Computed from OHLCV data in `data/quantcore.sqlite` | Up to 2 years |
-| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in `data/quantcore.sqlite` | Forward-only from first call |
+| `get_vwap_history(symbol, since_days=90)` | Computed from OHLCV data in the unified QuantCore database | Up to 2 years |
+| `get_relative_strength_history(symbol, since_days=90)` | Computed from OHLCV data in the unified QuantCore database | Up to 2 years |
+| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in the unified QuantCore database | Forward-only from first call |
 
 #### VWAP History
 

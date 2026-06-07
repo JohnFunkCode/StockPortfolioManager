@@ -11,13 +11,14 @@ Every cache miss appends a new row, building a time series for trend analysis.
 import json
 import logging
 import os
-import sqlite3
 import time
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Any
 
-from quantcore.db import get_connection, DB_PATH
+import psycopg2
+
+from quantcore.db import get_connection, DB_DSN
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +80,7 @@ def cache_get(symbol: str, data_type: str) -> dict | None:
                 logger.warning(f"Corrupt cache entry for {symbol}/{data_type}: {e}")
                 return None
 
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         logger.error(f"DB error reading cache for {symbol}/{data_type}: {e}")
         return None
 
@@ -109,14 +110,15 @@ def cache_set(symbol: str, data_type: str, payload: dict) -> None:
         with closing(get_connection()) as conn:
             conn.execute(
                 """
-                INSERT OR IGNORE INTO fundamentals_history (symbol, data_type, fetched_at, payload)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO fundamentals_history (symbol, data_type, fetched_at, payload)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (symbol, data_type, fetched_at) DO NOTHING
                 """,
                 (symbol.upper(), data_type, fetched_at, payload_json)
             )
             conn.commit()
             logger.debug(f"Cached {symbol}/{data_type} at ts={fetched_at}")
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         logger.error(f"DB error writing cache for {symbol}/{data_type}: {e}")
 
 
@@ -161,7 +163,7 @@ def cache_history(symbol: str, data_type: str, since_days: int = 365) -> list[di
             logger.debug(f"Retrieved {len(results)} history entries for {symbol}/{data_type}")
             return results
 
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         logger.error(f"DB error reading history for {symbol}/{data_type}: {e}")
         return []
 
@@ -190,7 +192,7 @@ def cache_invalidate(symbol: str, data_type: str | None = None) -> None:
                 )
                 logger.info(f"Invalidated cache entries for {symbol}/{data_type}")
             conn.commit()
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         logger.error(f"DB error invalidating cache for {symbol}/{data_type}: {e}")
 
 
@@ -238,7 +240,7 @@ def cache_get_all_latest(data_type: str) -> list[dict]:
             logger.debug(f"Retrieved {len(results)} latest entries for data_type={data_type}")
             return results
 
-    except sqlite3.Error as e:
+    except psycopg2.Error as e:
         logger.error(f"DB error reading latest entries for data_type={data_type}: {e}")
         return []
 
@@ -279,19 +281,15 @@ def cache_stats() -> dict:
                     "newest": newest_iso,
                 })
 
-            db_size_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
-
             return {
-                "db_path": str(DB_PATH),
-                "db_size_bytes": db_size_bytes,
+                "db_path": DB_DSN,
                 "data_types": data_types,
             }
 
-    except (sqlite3.Error, OSError) as e:
+    except psycopg2.Error as e:
         logger.error(f"Error reading cache stats: {e}")
         return {
-            "db_path": str(DB_PATH),
-            "db_size_bytes": 0,
+            "db_path": DB_DSN,
             "data_types": [],
             "error": str(e),
         }

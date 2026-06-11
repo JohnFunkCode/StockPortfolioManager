@@ -1,19 +1,17 @@
 import os
-import sqlite3
-from pathlib import Path
+import re
 
-DB_PATH = Path(os.getenv(
-    "QUANTCORE_DB_PATH",
-    Path(__file__).parent.parent / "data" / "quantcore.sqlite"
-))
+import psycopg2
+import psycopg2.extras
+
+DB_DSN = os.getenv(
+    "QUANTCORE_DB_DSN",
+    "postgresql://quantcore:changeme@localhost:5432/quantcore",
+)
 
 _SCHEMA = """
-PRAGMA foreign_keys = ON;
-PRAGMA journal_mode = WAL;
-PRAGMA synchronous = NORMAL;
-
 CREATE TABLE IF NOT EXISTS symbols (
-    symbol_id INTEGER PRIMARY KEY,
+    symbol_id SERIAL PRIMARY KEY,
     ticker TEXT NOT NULL UNIQUE,
     name TEXT,
     exchange TEXT,
@@ -51,7 +49,7 @@ CREATE TABLE IF NOT EXISTS fetch_log (
 );
 
 CREATE TABLE IF NOT EXISTS plan_templates (
-    template_id INTEGER PRIMARY KEY,
+    template_id SERIAL PRIMARY KEY,
     name TEXT NOT NULL,
     is_dynamic_h INTEGER NOT NULL,
     history_window_days INTEGER NOT NULL,
@@ -69,7 +67,7 @@ CREATE TABLE IF NOT EXISTS plan_templates (
 );
 
 CREATE TABLE IF NOT EXISTS positions (
-    position_id INTEGER PRIMARY KEY,
+    position_id SERIAL PRIMARY KEY,
     symbol_id INTEGER NOT NULL,
     opened_at TEXT NOT NULL,
     entry_price REAL NOT NULL,
@@ -84,7 +82,7 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 
 CREATE TABLE IF NOT EXISTS plan_instances (
-    instance_id INTEGER PRIMARY KEY,
+    instance_id SERIAL PRIMARY KEY,
     template_id INTEGER NOT NULL,
     symbol_id INTEGER NOT NULL,
     position_id INTEGER,
@@ -118,7 +116,7 @@ CREATE INDEX IF NOT EXISTS idx_instances_symbol_status
     ON plan_instances(symbol_id, status);
 
 CREATE TABLE IF NOT EXISTS plan_rungs (
-    rung_id INTEGER PRIMARY KEY,
+    rung_id SERIAL PRIMARY KEY,
     instance_id INTEGER NOT NULL,
     rung_index INTEGER NOT NULL,
     target_price REAL NOT NULL,
@@ -149,7 +147,7 @@ CREATE TABLE IF NOT EXISTS plan_rungs (
 CREATE INDEX IF NOT EXISTS idx_rungs_instance_status ON plan_rungs(instance_id, status);
 
 CREATE TABLE IF NOT EXISTS alerts (
-    alert_id INTEGER PRIMARY KEY,
+    alert_id SERIAL PRIMARY KEY,
     rung_id INTEGER NOT NULL,
     symbol_id INTEGER NOT NULL,
     instance_id INTEGER NOT NULL,
@@ -173,7 +171,7 @@ CREATE TABLE IF NOT EXISTS alerts (
 CREATE INDEX IF NOT EXISTS idx_alerts_symbol_status ON alerts(symbol_id, status);
 
 CREATE TABLE IF NOT EXISTS options_snapshots (
-    snapshot_id INTEGER PRIMARY KEY,
+    snapshot_id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     captured_at TEXT NOT NULL,
     price REAL NOT NULL,
@@ -189,7 +187,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_time
     ON options_snapshots(symbol, captured_at DESC);
 
 CREATE TABLE IF NOT EXISTS options_expirations (
-    expiration_id INTEGER PRIMARY KEY,
+    expiration_id SERIAL PRIMARY KEY,
     snapshot_id INTEGER NOT NULL,
     expiration TEXT NOT NULL,
     put_call_ratio REAL,
@@ -206,7 +204,7 @@ CREATE TABLE IF NOT EXISTS options_expirations (
 CREATE INDEX IF NOT EXISTS idx_expirations_snapshot ON options_expirations(snapshot_id);
 
 CREATE TABLE IF NOT EXISTS options_contracts (
-    contract_id INTEGER PRIMARY KEY,
+    contract_id SERIAL PRIMARY KEY,
     expiration_id INTEGER NOT NULL,
     kind TEXT NOT NULL CHECK (kind IN ('call', 'put')),
     strike REAL NOT NULL,
@@ -224,7 +222,7 @@ CREATE TABLE IF NOT EXISTS options_contracts (
 CREATE INDEX IF NOT EXISTS idx_contracts_expiration ON options_contracts(expiration_id);
 
 CREATE TABLE IF NOT EXISTS gamma_wall_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     date_only TEXT NOT NULL,
     captured_at TEXT NOT NULL,
@@ -245,7 +243,7 @@ CREATE TABLE IF NOT EXISTS gamma_wall_history (
 CREATE INDEX IF NOT EXISTS idx_gamma_wall_symbol_date ON gamma_wall_history(symbol, date_only DESC);
 
 CREATE TABLE IF NOT EXISTS options_positions (
-    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    position_id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     kind TEXT NOT NULL CHECK(kind IN ('call', 'put')),
     strike REAL NOT NULL,
@@ -265,7 +263,7 @@ CREATE INDEX IF NOT EXISTS idx_positions_symbol ON options_positions(symbol);
 CREATE INDEX IF NOT EXISTS idx_positions_expiration ON options_positions(expiration);
 
 CREATE TABLE IF NOT EXISTS news_articles (
-    article_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     title TEXT NOT NULL,
     summary TEXT,
@@ -288,7 +286,7 @@ CREATE INDEX IF NOT EXISTS idx_news_symbol_time ON news_articles(symbol, publish
 CREATE INDEX IF NOT EXISTS idx_news_unscored ON news_articles(symbol) WHERE sentiment IS NULL;
 
 CREATE TABLE IF NOT EXISTS sentiment_snapshots (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,
     captured_at TEXT NOT NULL,
     article_count INTEGER NOT NULL DEFAULT 0,
@@ -315,21 +313,78 @@ CREATE INDEX IF NOT EXISTS idx_fundamentals_latest
 """
 
 
-def get_connection() -> sqlite3.Connection:
-    """Get a connection to the QuantCore database with standard settings."""
-    conn = sqlite3.connect(str(DB_PATH), timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")
-    conn.execute("PRAGMA synchronous = NORMAL")
-    return conn
+def _adapt_sql(sql: str, params):
+    """Convert SQLite ? or :name params to psycopg2 %s / %(name)s."""
+    if params is None:
+        return sql, params
+    if isinstance(params, dict):
+        sql = re.sub(r':(\w+)', r'%(\1)s', sql)
+    else:
+        sql = sql.replace('?', '%s')
+    return sql, params
 
 
-def init_schema() -> None:
-    """Initialize the database schema if it doesn't exist."""
-    conn = get_connection()
+class _PGConn:
+    """
+    Thin sqlite3-compatible wrapper around a psycopg2 connection.
+
+    Provides conn.execute(sql, params).fetchone()/fetchall() so call sites
+    written for sqlite3 work without modification, while automatically
+    converting ? and :name parameter styles to psycopg2's %s / %(name)s.
+    """
+
+    def __init__(self, pg_conn):
+        self._c = pg_conn
+
+    def execute(self, sql: str, params=None):
+        sql, params = _adapt_sql(sql, params)
+        cur = self._c.cursor(cursor_factory=psycopg2.extras.DictCursor)
+        cur.execute(sql, params)
+        return cur
+
+    def executemany(self, sql: str, seq):
+        if seq and isinstance(seq[0], dict):
+            sql = re.sub(r':(\w+)', r'%(\1)s', sql)
+        else:
+            sql = sql.replace('?', '%s')
+        cur = self._c.cursor()
+        cur.executemany(sql, seq)
+        return cur
+
+    def commit(self):
+        self._c.commit()
+
+    def rollback(self):
+        self._c.rollback()
+
+    def close(self):
+        self._c.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._c.__exit__(exc_type, exc_val, exc_tb)
+
+
+def get_connection() -> _PGConn:
+    """Get a connection to the QuantCore PostgreSQL database."""
+    return _PGConn(psycopg2.connect(DB_DSN))
+
+
+def _split_schema(schema: str) -> list[str]:
+    stmts = [s.strip() for s in schema.split(';')]
+    return [s + ';' for s in stmts if s]
+
+
+def init_schema(dsn: str = None) -> None:
+    """Initialize the database schema if tables don't exist."""
+    target_dsn = dsn or DB_DSN
+    conn = psycopg2.connect(target_dsn)
     try:
-        conn.executescript(_SCHEMA)
+        with conn.cursor() as cur:
+            for stmt in _split_schema(_SCHEMA):
+                cur.execute(stmt)
         conn.commit()
     finally:
         conn.close()

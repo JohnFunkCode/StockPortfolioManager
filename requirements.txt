@@ -13,3 +13,4 @@ fastmcp>=2.0.0
 feedparser>=6.0.0
 transformers>=4.30.0
 torch>=2.0.0
+psycopg2-binary>=2.9

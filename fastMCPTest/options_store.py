@@ -1,5 +1,5 @@
 """
-options_store.py — SQLite persistence for options chain snapshots.
+options_store.py — PostgreSQL persistence for options chain snapshots.
 
 Addresses GitHub issue #10: "Persist options chain info so we can use it
 in future back testing."
@@ -15,8 +15,8 @@ that can be replayed for backtesting the scoring rules in options_analysis.py.
 
 Usage:
     from options_store import OptionsStore
-    store = OptionsStore()                        # uses default path
-    store = OptionsStore("/path/to/options.db")   # custom path
+    store = OptionsStore()                                          # uses default DSN
+    store = OptionsStore("postgresql://quantcore:pw@host/testdb")  # custom DSN
 
     store.save_snapshot(symbol, price, bands_dict, options_dict)
     history = store.get_pc_history("NVDA", days=30)
@@ -24,13 +24,13 @@ Usage:
     snaps   = store.get_snapshots("NVDA", since="2026-01-01")
 """
 
-import sqlite3
+import psycopg2
+import psycopg2.errors
 from contextlib import closing
 from datetime import datetime, timezone
 from typing import Optional
-from pathlib import Path
 
-from quantcore.db import get_connection
+from quantcore.db import get_connection, init_schema
 
 
 # ---------------------------------------------------------------------------
@@ -39,95 +39,23 @@ from quantcore.db import get_connection
 
 class OptionsStore:
     """
-    Thin persistence wrapper around the options SQLite database.
+    Thin persistence wrapper around the options PostgreSQL tables.
 
-    Thread-safety: Each method opens its own connection, so the store is
-    safe to use from multiple threads (WAL mode handles concurrent readers).
+    Thread-safety: Each method opens its own connection.
 
-    Constructor supports optional db_path for testing; uses quantcore.db.get_connection() by default.
+    Constructor supports optional dsn for testing; uses quantcore.db.get_connection() by default.
     """
 
-    def __init__(self, db_path: Optional[Path] = None) -> None:
-        self._db_path = db_path
-        if db_path:
-            # Initialize test database
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA foreign_keys = ON")
-            conn.execute("PRAGMA journal_mode = WAL")
-            conn.execute("PRAGMA synchronous = NORMAL")
-            self._init_db(conn)
-            conn.close()
+    def __init__(self, dsn: Optional[str] = None) -> None:
+        self._dsn = dsn
+        if dsn:
+            init_schema(dsn)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get connection from quantcore factory or test db."""
-        if self._db_path:
-            conn = sqlite3.connect(str(self._db_path))
-            conn.row_factory = sqlite3.Row
-            return conn
+    def _get_connection(self):
+        if self._dsn:
+            from quantcore.db import _PGConn
+            return _PGConn(psycopg2.connect(self._dsn))
         return get_connection()
-
-    @staticmethod
-    def _init_db(conn: sqlite3.Connection) -> None:
-        """Initialize schema for test database."""
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS options_snapshots (
-                snapshot_id INTEGER PRIMARY KEY,
-                symbol TEXT NOT NULL,
-                captured_at TEXT NOT NULL,
-                price REAL NOT NULL,
-                bb_upper REAL,
-                bb_middle REAL,
-                bb_lower REAL,
-                bb_period INTEGER DEFAULT 20,
-                chain_type TEXT NOT NULL DEFAULT 'atm',
-                UNIQUE(symbol, captured_at)
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_time
-                ON options_snapshots(symbol, captured_at DESC)
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS options_expirations (
-                expiration_id INTEGER PRIMARY KEY,
-                snapshot_id INTEGER NOT NULL,
-                expiration TEXT NOT NULL,
-                put_call_ratio REAL,
-                total_call_oi INTEGER,
-                total_put_oi INTEGER,
-                total_call_vol INTEGER,
-                total_put_vol INTEGER,
-                avg_call_iv REAL,
-                avg_put_iv REAL,
-                UNIQUE(snapshot_id, expiration),
-                FOREIGN KEY(snapshot_id) REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_expirations_snapshot ON options_expirations(snapshot_id)
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS options_contracts (
-                contract_id INTEGER PRIMARY KEY,
-                expiration_id INTEGER NOT NULL,
-                kind TEXT NOT NULL CHECK (kind IN ('call', 'put')),
-                strike REAL NOT NULL,
-                last_price REAL,
-                bid REAL,
-                ask REAL,
-                implied_vol REAL,
-                volume INTEGER,
-                open_interest INTEGER,
-                in_the_money INTEGER CHECK (in_the_money IN (0, 1)),
-                UNIQUE(expiration_id, kind, strike),
-                FOREIGN KEY(expiration_id) REFERENCES options_expirations(expiration_id) ON DELETE CASCADE
-            )
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_contracts_expiration ON options_contracts(expiration_id)
-        """)
-        conn.commit()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -179,7 +107,8 @@ class OptionsStore:
                     """
                     INSERT INTO options_snapshots
                         (symbol, captured_at, price, bb_upper, bb_middle, bb_lower, bb_period)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING snapshot_id
                     """,
                     (
                         symbol,
@@ -191,9 +120,9 @@ class OptionsStore:
                         bb.get("period", 20),
                     ),
                 )
-                snapshot_id = cur.lastrowid
-            except sqlite3.IntegrityError:
-                # Duplicate (symbol, captured_at) — skip silently
+                snapshot_id = cur.fetchone()[0]
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
                 return None
 
             if options is None:
@@ -216,8 +145,10 @@ class OptionsStore:
                      total_call_oi, total_put_oi,
                      total_call_vol, total_put_vol,
                      avg_call_iv, avg_put_iv)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (snapshot_id, expiration) DO NOTHING
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (snapshot_id, expiration) DO UPDATE SET
+                    put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
+                RETURNING expiration_id
                 """,
                 (
                     snapshot_id,
@@ -231,7 +162,7 @@ class OptionsStore:
                     puts.get("avg_iv_pct"),
                 ),
             )
-            expiration_id = cur.lastrowid
+            expiration_id = cur.fetchone()[0]
 
             # --- options_contracts (ATM calls + puts) ---
             rows = []
@@ -255,7 +186,7 @@ class OptionsStore:
                 INSERT INTO options_contracts
                     (expiration_id, kind, strike, last_price, bid, ask,
                      implied_vol, volume, open_interest, in_the_money)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (expiration_id, kind, strike) DO NOTHING
                 """,
                 rows,
@@ -305,7 +236,8 @@ class OptionsStore:
                     """
                     INSERT INTO options_snapshots
                         (symbol, captured_at, price, bb_upper, bb_middle, bb_lower, bb_period, chain_type)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'full')
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 'full')
+                    RETURNING snapshot_id
                     """,
                     (
                         symbol,
@@ -317,8 +249,9 @@ class OptionsStore:
                         bb.get("period", 20),
                     ),
                 )
-                snapshot_id = cur.lastrowid
-            except sqlite3.IntegrityError:
+                snapshot_id = cur.fetchone()[0]
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
                 return None
 
             for exp_entry in expirations_data:
@@ -336,8 +269,10 @@ class OptionsStore:
                          total_call_oi, total_put_oi,
                          total_call_vol, total_put_vol,
                          avg_call_iv, avg_put_iv)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT (snapshot_id, expiration) DO NOTHING
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (snapshot_id, expiration) DO UPDATE SET
+                        put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
+                    RETURNING expiration_id
                     """,
                     (
                         snapshot_id,
@@ -351,7 +286,7 @@ class OptionsStore:
                         puts.get("avg_iv_pct"),
                     ),
                 )
-                expiration_id = cur.lastrowid
+                expiration_id = cur.fetchone()[0]
 
                 rows = []
                 for kind, side in (("call", calls), ("put", puts)):
@@ -375,7 +310,7 @@ class OptionsStore:
                         INSERT INTO options_contracts
                             (expiration_id, kind, strike, last_price, bid, ask,
                              implied_vol, volume, open_interest, in_the_money)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (expiration_id, kind, strike) DO NOTHING
                         """,
                         rows,
@@ -387,7 +322,7 @@ class OptionsStore:
 
     def save_gamma_wall(self, symbol: str, result: dict) -> None:
         """
-        Persist one daily gamma wall snapshot. Last write of the day wins (INSERT OR REPLACE)
+        Persist one daily gamma wall snapshot. Last write of the day wins
         so a post-close capture (4:15pm+ ET) overwrites any earlier intraday call.
 
         Parameters
@@ -404,28 +339,44 @@ class OptionsStore:
         date_only = captured_at[:10]  # Extract YYYY-MM-DD
 
         with closing(self._get_connection()) as conn:
-            conn.execute("""
-                INSERT OR REPLACE INTO gamma_wall_history
+            conn.execute(
+                """
+                INSERT INTO gamma_wall_history
                 (symbol, date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
                  dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
                  mm_hedge_bias, signal, expirations_scanned, payload)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                symbol,
-                date_only,
-                captured_at,
-                result.get("price"),
-                result.get("gamma_wall_strike"),
-                result.get("delta_flip_strike"),
-                result.get("dist_to_flip_pct"),
-                result.get("net_daoi_shares"),
-                result.get("call_daoi_shares"),
-                result.get("put_daoi_shares"),
-                result.get("mm_hedge_bias"),
-                result.get("signal"),
-                json.dumps(result.get("expirations_scanned", [])),
-                json.dumps(result),
-            ))
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, date_only) DO UPDATE SET
+                    captured_at          = EXCLUDED.captured_at,
+                    price                = EXCLUDED.price,
+                    gamma_wall_strike    = EXCLUDED.gamma_wall_strike,
+                    delta_flip_strike    = EXCLUDED.delta_flip_strike,
+                    dist_to_flip_pct     = EXCLUDED.dist_to_flip_pct,
+                    net_daoi_shares      = EXCLUDED.net_daoi_shares,
+                    call_daoi_shares     = EXCLUDED.call_daoi_shares,
+                    put_daoi_shares      = EXCLUDED.put_daoi_shares,
+                    mm_hedge_bias        = EXCLUDED.mm_hedge_bias,
+                    signal               = EXCLUDED.signal,
+                    expirations_scanned  = EXCLUDED.expirations_scanned,
+                    payload              = EXCLUDED.payload
+                """,
+                (
+                    symbol,
+                    date_only,
+                    captured_at,
+                    result.get("price"),
+                    result.get("gamma_wall_strike"),
+                    result.get("delta_flip_strike"),
+                    result.get("dist_to_flip_pct"),
+                    result.get("net_daoi_shares"),
+                    result.get("call_daoi_shares"),
+                    result.get("put_daoi_shares"),
+                    result.get("mm_hedge_bias"),
+                    result.get("signal"),
+                    json.dumps(result.get("expirations_scanned", [])),
+                    json.dumps(result),
+                ),
+            )
             conn.commit()
 
     def get_gamma_wall_history(self, symbol: str, since_days: int = 90) -> list[dict]:
@@ -445,29 +396,32 @@ class OptionsStore:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%d")
 
         with closing(self._get_connection()) as conn:
-            rows = conn.execute("""
+            rows = conn.execute(
+                """
                 SELECT date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
                        dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
                        mm_hedge_bias, signal, expirations_scanned
                 FROM gamma_wall_history
-                WHERE symbol = ? AND date_only >= ?
+                WHERE symbol = %s AND date_only >= %s
                 ORDER BY date_only ASC
-            """, (symbol, cutoff)).fetchall()
+                """,
+                (symbol, cutoff),
+            ).fetchall()
 
         return [
             {
-                "date": r[0],
-                "captured_at": r[1],
-                "price": r[2],
-                "gamma_wall_strike": r[3],
-                "delta_flip_strike": r[4],
-                "dist_to_flip_pct": r[5],
-                "net_daoi_shares": r[6],
-                "call_daoi_shares": r[7],
-                "put_daoi_shares": r[8],
-                "mm_hedge_bias": r[9],
-                "signal": r[10],
-                "expirations_scanned": json.loads(r[11]) if r[11] else [],
+                "date":               r["date_only"],
+                "captured_at":        r["captured_at"],
+                "price":              r["price"],
+                "gamma_wall_strike":  r["gamma_wall_strike"],
+                "delta_flip_strike":  r["delta_flip_strike"],
+                "dist_to_flip_pct":   r["dist_to_flip_pct"],
+                "net_daoi_shares":    r["net_daoi_shares"],
+                "call_daoi_shares":   r["call_daoi_shares"],
+                "put_daoi_shares":    r["put_daoi_shares"],
+                "mm_hedge_bias":      r["mm_hedge_bias"],
+                "signal":             r["signal"],
+                "expirations_scanned": json.loads(r["expirations_scanned"]) if r["expirations_scanned"] else [],
             }
             for r in rows
         ]
@@ -487,7 +441,7 @@ class OptionsStore:
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
-                WHERE  symbol = ? AND chain_type = 'full'
+                WHERE  symbol = %s AND chain_type = 'full'
                 ORDER  BY captured_at DESC
                 LIMIT  1
                 """,
@@ -502,7 +456,7 @@ class OptionsStore:
             exps = conn.execute(
                 """
                 SELECT * FROM options_expirations
-                WHERE  snapshot_id = ?
+                WHERE  snapshot_id = %s
                 ORDER  BY expiration ASC
                 """,
                 (snap_dict["snapshot_id"],),
@@ -516,7 +470,7 @@ class OptionsStore:
                 contracts = conn.execute(
                     """
                     SELECT * FROM options_contracts
-                    WHERE  expiration_id = ?
+                    WHERE  expiration_id = %s
                     ORDER  BY kind, strike
                     """,
                     (exp_dict["expiration_id"],),
@@ -540,8 +494,8 @@ class OptionsStore:
                 """
                 SELECT DISTINCT captured_at
                 FROM   options_snapshots
-                WHERE  symbol      = ?
-                  AND  captured_at >= ?
+                WHERE  symbol      = %s
+                  AND  captured_at >= %s
                 """,
                 (symbol, cutoff_str),
             ).fetchall()
@@ -573,8 +527,8 @@ class OptionsStore:
                        s.bb_upper, s.bb_middle, s.bb_lower
                 FROM   options_snapshots   s
                 JOIN   options_expirations e ON e.snapshot_id = s.snapshot_id
-                WHERE  s.symbol      = ?
-                  AND  s.captured_at >= ?
+                WHERE  s.symbol      = %s
+                  AND  s.captured_at >= %s
                 ORDER  BY s.captured_at ASC
                 """,
                 (symbol, cutoff_str),
@@ -599,7 +553,7 @@ class OptionsStore:
             snap = conn.execute(
                 """
                 SELECT * FROM options_snapshots
-                WHERE  symbol = ?
+                WHERE  symbol = %s
                   AND  chain_type = 'full'
                 ORDER  BY captured_at DESC
                 LIMIT  1
@@ -612,7 +566,7 @@ class OptionsStore:
                 snap = conn.execute(
                     """
                     SELECT * FROM options_snapshots
-                    WHERE  symbol = ?
+                    WHERE  symbol = %s
                     ORDER  BY captured_at DESC
                     LIMIT  1
                     """,
@@ -627,7 +581,7 @@ class OptionsStore:
             exps = conn.execute(
                 """
                 SELECT * FROM options_expirations
-                WHERE  snapshot_id = ?
+                WHERE  snapshot_id = %s
                 ORDER  BY expiration ASC
                 """,
                 (snap["snapshot_id"],),
@@ -641,7 +595,7 @@ class OptionsStore:
                 contracts = conn.execute(
                     """
                     SELECT * FROM options_contracts
-                    WHERE  expiration_id = ?
+                    WHERE  expiration_id = %s
                     ORDER  BY kind, strike
                     """,
                     (exp_dict["expiration_id"],),
@@ -679,15 +633,15 @@ class OptionsStore:
                    e.avg_call_iv, e.avg_put_iv
             FROM   options_snapshots   s
             LEFT JOIN options_expirations e ON e.snapshot_id = s.snapshot_id
-            WHERE  s.symbol = ?
+            WHERE  s.symbol = %s
         """
         params: list = [symbol]
 
         if since:
-            query += " AND s.captured_at >= ?"
+            query += " AND s.captured_at >= %s"
             params.append(since)
 
-        query += " ORDER BY s.captured_at DESC LIMIT ?"
+        query += " ORDER BY s.captured_at DESC LIMIT %s"
         params.append(limit)
 
         with closing(self._get_connection()) as conn:
@@ -732,10 +686,18 @@ class OptionsStore:
                     ) AS composite_iv
                 FROM   options_snapshots   s
                 JOIN   options_expirations e ON e.snapshot_id = s.snapshot_id
-                WHERE  s.symbol      = ?
-                  AND  s.captured_at >= ?
-                GROUP  BY s.snapshot_id
-                HAVING composite_iv IS NOT NULL
+                WHERE  s.symbol      = %s
+                  AND  s.captured_at >= %s
+                GROUP  BY s.snapshot_id, s.captured_at
+                HAVING AVG(
+                    CASE
+                      WHEN e.avg_call_iv IS NOT NULL AND e.avg_put_iv IS NOT NULL
+                        THEN (e.avg_call_iv + e.avg_put_iv) / 2.0
+                      WHEN e.avg_call_iv IS NOT NULL THEN e.avg_call_iv
+                      WHEN e.avg_put_iv  IS NOT NULL THEN e.avg_put_iv
+                      ELSE NULL
+                    END
+                ) IS NOT NULL
                 ORDER  BY s.captured_at ASC
                 """,
                 (symbol, cutoff_str),
@@ -756,7 +718,7 @@ class OptionsStore:
         with closing(self._get_connection()) as conn:
             if symbol:
                 row = conn.execute(
-                    "SELECT COUNT(*) FROM options_snapshots WHERE symbol = ?",
+                    "SELECT COUNT(*) FROM options_snapshots WHERE symbol = %s",
                     (symbol.upper(),),
                 ).fetchone()
             else:

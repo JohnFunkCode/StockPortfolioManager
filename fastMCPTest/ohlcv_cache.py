@@ -18,7 +18,6 @@ import logging
 from contextlib import closing
 from dataclasses import dataclass
 from typing import Optional
-import sqlite3
 from time import time
 
 import pandas as pd
@@ -200,9 +199,19 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
 
             conn.execute(
                 """
-                INSERT OR REPLACE INTO ohlcv
+                INSERT INTO ohlcv
                     (symbol, interval, ts, open, high, low, close, volume, status, adj_close, data_vendor, ingested_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (symbol, interval, ts) DO UPDATE SET
+                    open        = EXCLUDED.open,
+                    high        = EXCLUDED.high,
+                    low         = EXCLUDED.low,
+                    close       = EXCLUDED.close,
+                    volume      = EXCLUDED.volume,
+                    status      = EXCLUDED.status,
+                    adj_close   = EXCLUDED.adj_close,
+                    data_vendor = EXCLUDED.data_vendor,
+                    ingested_at = EXCLUDED.ingested_at
                 """,
                 (
                     symbol, interval, ts_int,
@@ -217,7 +226,10 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
             )
 
         conn.execute(
-            "INSERT OR REPLACE INTO fetch_log (symbol, interval, fetched_at) VALUES (?,?,?)",
+            """
+            INSERT INTO fetch_log (symbol, interval, fetched_at) VALUES (%s,%s,%s)
+            ON CONFLICT (symbol, interval) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
+            """,
             (symbol, interval, int(datetime.datetime.utcnow().timestamp())),
         )
         conn.commit()

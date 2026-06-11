@@ -34,19 +34,19 @@ uses the repo virtualenv at `../.venv/bin/fastmcp`.
 | `market_analysis_server.py` | MCP Server | Market microstructure: short interest, dark pool, bid/ask spreads |
 | `news_sentiment_server.py` | MCP Server | Financial news collection, FinBERT scoring, and sentiment querying |
 | `options_analysis.py` | CLI Script | Watchlist-level put/call scoring, trade recommendations, news-aware guardrails |
-| `options_store.py` | Library | SQLite persistence for options chain snapshots |
+| `options_store.py` | Library | PostgreSQL persistence for options chain snapshots |
 | `options_position_store.py` | Library | Tracks active options positions; drives ITM, expiration, and profit-target alerts |
-| `news_store.py` | Library | SQLite persistence for news articles and FinBERT sentiment scores |
+| `news_store.py` | Library | PostgreSQL persistence for news articles and FinBERT sentiment scores |
 | `news_collector.py` | Library | RSS + yfinance news fetcher with lazy-loaded FinBERT scoring pipeline |
 | `collect_options.py` | CLI / Cron | EOD snapshot collector; designed to run daily at 4:10 PM ET via cron or launchd |
-| `ohlcv_cache.py` | Library | SQLite-backed OHLCV bar cache; eliminates redundant yfinance calls |
+| `ohlcv_cache.py` | Library | PostgreSQL-backed OHLCV bar cache; eliminates redundant yfinance calls |
 | `.mcp.json` | Config | Registers the FastMCP servers in this directory for auto-start |
 
 ---
 
 ## Options Chain Persistence (`options_store.py`)
 
-Saves a full options chain snapshot to SQLite on every `options_analysis.py` run and every `get_stock_price` MCP call. Snapshots accumulate passively and enable backtesting of P/C ratio trends, IV rank history, and trade outcomes. Duplicate `(symbol, captured_at)` pairs are silently ignored.
+Saves a full options chain snapshot to the database on every `options_analysis.py` run and every `get_stock_price` MCP call. Snapshots accumulate passively and enable backtesting of P/C ratio trends, IV rank history, and trade outcomes. Duplicate `(symbol, captured_at)` pairs are silently ignored.
 
 Each snapshot captures: price, Bollinger Bands, nearest-expiration call/put chains (5 ATM strikes each side), and aggregate metrics (P/C ratio, total OI, total volume, average IV).
 
@@ -103,7 +103,7 @@ CREATE TABLE options_contracts (
 ```python
 from options_store import OptionsStore
 
-store = OptionsStore()                           # default: data/quantcore.sqlite (unified database)
+store = OptionsStore()                           # default: unified QuantCore PostgreSQL database (QUANTCORE_DB_DSN)
 store = OptionsStore("/path/to/custom.db")       # custom path
 
 # Save a snapshot (returns snapshot_id, or None if duplicate)
@@ -156,7 +156,7 @@ python collect_options.py --log-level DEBUG      # verbose per-contract logging
 
 ## Options Position Tracker (`options_position_store.py`)
 
-Tracks active options positions in SQLite (stored in `data/quantcore.sqlite`) and surfaces alerts for crossing into the money, approaching expiration, and reaching the profit target. The notifier (`notifier.py`) calls this store automatically on each run and sends colour-coded Discord embeds per alert.
+Tracks active options positions in the unified QuantCore PostgreSQL database and surfaces alerts for crossing into the money, approaching expiration, and reaching the profit target. The notifier (`notifier.py`) calls this store automatically on each run and sends colour-coded Discord embeds per alert.
 
 ### Alert types
 
@@ -197,7 +197,7 @@ store.position_count(status="ACTIVE")
 
 ## OHLCV Cache (`ohlcv_cache.py`)
 
-Caches `ticker.history()` results in SQLite to avoid redundant yfinance calls. On cold start, pre-populates the maximum useful history so subsequent runs are fully cache-served.
+Caches `ticker.history()` results in the unified QuantCore PostgreSQL database to avoid redundant yfinance calls. On cold start, pre-populates the maximum useful history so subsequent runs are fully cache-served.
 
 | Interval | Warm-up window |
 |----------|---------------|
@@ -246,7 +246,7 @@ Fetches financial news from RSS and yfinance, scores each article with [FinBERT]
 | `NEUTRAL` | No dominant sentiment |
 | `INSUFFICIENT_DATA` | Fewer than 3 scored articles |
 
-### Schema (unified `data/quantcore.sqlite`)
+### Schema (unified QuantCore PostgreSQL database)
 
 ```sql
 CREATE TABLE news_articles (
@@ -307,7 +307,7 @@ store.get_symbols()             # → ["AAPL", "AMD", ...]
 
 ### `collect_news(symbol, score=True)`
 
-Fetches the latest news for `symbol` from Yahoo Finance RSS and yfinance, stores articles in SQLite, and optionally runs FinBERT scoring on all unscored articles.
+Fetches the latest news for `symbol` from Yahoo Finance RSS and yfinance, stores articles in the database, and optionally runs FinBERT scoring on all unscored articles.
 
 **Parameters:**
 - `symbol` — ticker symbol, e.g. `"AAPL"`
@@ -1013,7 +1013,7 @@ Non-US-listed symbols (suffixes `.PA`, `.OL`, `.AS`, `.SG`, `.KS`, `.ST`, `.DE`)
 | Source | Limitation |
 |--------|-----------|
 | All tools | Yahoo Finance data; options may lag up to 15 min |
-| `data/quantcore.sqlite` | Delete the file to force a full re-fetch of OHLCV data (schema will be auto-recreated) |
+| `ohlcv` table (QuantCore database) | Truncate the table to force a full re-fetch of OHLCV data (schema persists; rows are repopulated on demand) |
 | `options_store.py` | ATM contracts only (5 strikes per side); nearest expiration only per snapshot |
 | `get_short_interest` | FINRA bi-monthly update; lags up to 2 weeks |
 | `get_dark_pool` | Proxy only — true dark pool requires paid feed (FINRA ATS, Bloomberg) |

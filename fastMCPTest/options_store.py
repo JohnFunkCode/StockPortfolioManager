@@ -400,7 +400,7 @@ class OptionsStore:
                 """
                 SELECT date_only, captured_at, price, gamma_wall_strike, delta_flip_strike,
                        dist_to_flip_pct, net_daoi_shares, call_daoi_shares, put_daoi_shares,
-                       mm_hedge_bias, signal, expirations_scanned
+                       mm_hedge_bias, signal, expirations_scanned, payload
                 FROM gamma_wall_history
                 WHERE symbol = %s AND date_only >= %s
                 ORDER BY date_only ASC
@@ -422,6 +422,10 @@ class OptionsStore:
                 "mm_hedge_bias":      r["mm_hedge_bias"],
                 "signal":             r["signal"],
                 "expirations_scanned": json.loads(r["expirations_scanned"]) if r["expirations_scanned"] else [],
+                # Rows captured before the Black-Scholes gamma migration have no
+                # method key in their payload — those used the |delta × OI| proxy.
+                "gamma_wall_method":  (json.loads(r["payload"]).get("gamma_wall_method", "abs_daoi")
+                                       if r["payload"] else "abs_daoi"),
             }
             for r in rows
         ]

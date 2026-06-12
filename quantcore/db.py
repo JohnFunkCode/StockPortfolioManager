@@ -1,8 +1,15 @@
 import os
 import re
+import threading
 
 import psycopg2
 import psycopg2.extras
+from dotenv import load_dotenv
+
+# Load .env from the project root so every entry point (main.py, REST API,
+# MCP servers) resolves QUANTCORE_DB_DSN consistently. Existing environment
+# variables are not overridden.
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
 DB_DSN = os.getenv(
     "QUANTCORE_DB_DSN",
@@ -367,8 +374,23 @@ class _PGConn:
         self._c.__exit__(exc_type, exc_val, exc_tb)
 
 
+# Schema is ensured once per process on first connection, so callers never
+# see a missing table regardless of which entry point started the process.
+# Entry points may still call init_schema() explicitly; it sets the flag too,
+# so the DDL is not re-run on the first connection afterwards. The lock keeps
+# concurrent first connections (threaded Flask / MCP servers) from running the
+# DDL in parallel — PostgreSQL's CREATE ... IF NOT EXISTS can fail under
+# concurrent execution.
+_schema_ready = False
+_schema_lock = threading.Lock()
+
+
 def get_connection() -> _PGConn:
     """Get a connection to the QuantCore PostgreSQL database."""
+    if not _schema_ready:
+        with _schema_lock:
+            if not _schema_ready:
+                init_schema()
     return _PGConn(psycopg2.connect(DB_DSN))
 
 
@@ -379,6 +401,7 @@ def _split_schema(schema: str) -> list[str]:
 
 def init_schema(dsn: str = None) -> None:
     """Initialize the database schema if tables don't exist."""
+    global _schema_ready
     target_dsn = dsn or DB_DSN
     conn = psycopg2.connect(target_dsn)
     try:
@@ -388,3 +411,5 @@ def init_schema(dsn: str = None) -> None:
         conn.commit()
     finally:
         conn.close()
+    if target_dsn == DB_DSN:
+        _schema_ready = True

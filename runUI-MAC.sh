@@ -9,28 +9,35 @@ set -a
 source "$SCRIPT_DIR/.env"
 set +a
 
-# Clean up any old processes
+# Clean up any old processes (the proxy is reused if already running)
 echo "Cleaning up old processes..."
 pkill -f "python -m api.app" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
-pkill -f "cloud-sql-proxy" 2>/dev/null || true
 sleep 1
 
-echo "Starting Cloud SQL Auth Proxy... (logs: cloud-sql-proxy.log)"
-cloud-sql-proxy "$CLOUDSQL_CONNECTION_NAME" \
-    --port="$CLOUDSQL_PORT" \
-    --quota-project="$CLOUDSQL_QUOTA_PROJECT" \
-    > "$SCRIPT_DIR/cloud-sql-proxy.log" 2>&1 &
-PROXY_PID=$!
+# Reuse the proxy only if something is actually listening on the configured
+# port — a process-name match alone can't tell a healthy proxy from a stale
+# one bound to a different port, or an unrelated process (e.g. tail on its log).
+if nc -z 127.0.0.1 "$CLOUDSQL_PORT" 2>/dev/null; then
+    PROXY_PID="$(pgrep -f cloud-sql-proxy | head -1)"
+    echo "Cloud SQL Auth Proxy already listening on port $CLOUDSQL_PORT${PROXY_PID:+ (PID $PROXY_PID)} — not starting a second copy."
+else
+    echo "Starting Cloud SQL Auth Proxy... (logs: cloud-sql-proxy.log)"
+    cloud-sql-proxy "$CLOUDSQL_CONNECTION_NAME" \
+        --port="$CLOUDSQL_PORT" \
+        --quota-project="$CLOUDSQL_QUOTA_PROJECT" \
+        > "$SCRIPT_DIR/cloud-sql-proxy.log" 2>&1 &
+    PROXY_PID=$!
 
-echo "Waiting for proxy to start listening on port $CLOUDSQL_PORT..."
-for i in $(seq 1 30); do
-    if nc -z 127.0.0.1 "$CLOUDSQL_PORT" 2>/dev/null; then
-        echo "Proxy is ready."
-        break
-    fi
-    sleep 1
-done
+    echo "Waiting for proxy to start listening on port $CLOUDSQL_PORT..."
+    for i in $(seq 1 30); do
+        if nc -z 127.0.0.1 "$CLOUDSQL_PORT" 2>/dev/null; then
+            echo "Proxy is ready."
+            break
+        fi
+        sleep 1
+    done
+fi
 
 echo "Starting API server... (logs: api.log)"
 source "$SCRIPT_DIR/.venv/bin/activate"

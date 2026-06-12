@@ -1880,8 +1880,49 @@ def _norm_cdf(x: float) -> float:
     return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
 
 
+def _norm_pdf(x: float) -> float:
+    """Standard normal PDF — no scipy required."""
+    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
+
+
+def _bs_d1(S: float, K: float, T: float, sigma: float, r: float):
+    """
+    Black-Scholes d1 term, shared by delta and gamma.
+
+    Returns None for degenerate inputs so callers can apply their own fallback.
+    """
+    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+        return None
+    try:
+        return (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return None
+
+
+def _bs_gamma(S: float, K: float, T: float, sigma: float, r: float,
+              d1: float = None) -> float:
+    """
+    Black-Scholes gamma for a European option (identical for calls and puts).
+
+    Gamma peaks at the money and decays toward zero for deep ITM/OTM strikes,
+    so gamma × OI correctly identifies hedging concentration near spot —
+    unlike |delta| × OI, which saturates at OI for every deep-ITM strike.
+
+    Pass a precomputed d1 to avoid recomputing it when delta was already
+    derived for the same contract. Returns 0.0 for degenerate inputs.
+    """
+    if d1 is None:
+        d1 = _bs_d1(S, K, T, sigma, r)
+    if d1 is None:
+        return 0.0
+    try:
+        return _norm_pdf(d1) / (S * sigma * math.sqrt(T))
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 0.0
+
+
 def _bs_delta(S: float, K: float, T: float, sigma: float,
-              r: float, is_call: bool) -> float:
+              r: float, is_call: bool, d1: float = None) -> float:
     """
     Black-Scholes delta for a European option.
 
@@ -1891,19 +1932,18 @@ def _bs_delta(S: float, K: float, T: float, sigma: float,
     sigma — implied volatility (decimal, e.g. 0.40 for 40%)
     r     — risk-free rate (decimal)
     is_call — True for call, False for put
+    d1    — optional precomputed _bs_d1 value to avoid recomputing it
 
     Returns delta in [-1, 1].  Returns ±0.5 for degenerate inputs.
     """
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
+    if d1 is None:
+        d1 = _bs_d1(S, K, T, sigma, r)
+    if d1 is None:
         return 0.5 if is_call else -0.5
-    try:
-        d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-        if is_call:
-            return _norm_cdf(d1)
-        else:
-            return _norm_cdf(d1) - 1.0
-    except (ValueError, ZeroDivisionError):
-        return 0.5 if is_call else -0.5
+    if is_call:
+        return _norm_cdf(d1)
+    else:
+        return _norm_cdf(d1) - 1.0
 
 
 @mcp.tool()
@@ -1931,7 +1971,7 @@ def get_delta_adjusted_oi(
     Bounce-bottom signals:
       • Negative net DAOI + price BELOW the delta flip → MM short gamma, forced to
         buy stock as price recovers → mechanical amplification of any bounce
-      • Gamma wall (highest |gamma × OI| strike) acting as a price magnet
+      • Gamma wall (highest Black-Scholes gamma × OI strike) acting as a price magnet
       • Net DAOI shifting toward zero as price approaches the flip → hedging flow
         accelerating
 
@@ -1940,7 +1980,7 @@ def get_delta_adjusted_oi(
       call_daoi_shares  — calls contribution (always positive)
       put_daoi_shares   — puts contribution (always negative)
       delta_flip_strike — strike nearest to zero net delta (price magnet)
-      gamma_wall        — strike with highest aggregate |delta × OI| across calls+puts
+      gamma_wall        — strike with highest aggregate gamma × OI across calls+puts
       mm_hedge_bias     — 'buy_on_rally' or 'sell_on_rally' (direction MM must trade)
       signal            — bounce signal strength
 
@@ -1975,7 +2015,7 @@ def get_delta_adjusted_oi(
 
     # Per-strike aggregation for flip and gamma-wall detection
     strike_net_daoi: dict[float, float] = {}   # strike → net delta × OI
-    strike_abs_daoi: dict[float, float] = {}   # strike → |delta| × OI (gamma proxy)
+    strike_gamma_oi: dict[float, float] = {}   # strike → BS gamma × OI
 
     expiry_summaries = []
 
@@ -2004,7 +2044,8 @@ def get_delta_adjusted_oi(
                 if K <= 0 or oi <= 0:
                     continue
 
-                delta  = _bs_delta(price, K, T, sigma, risk_free_rate, is_call)
+                d1     = _bs_d1(price, K, T, sigma, risk_free_rate)
+                delta  = _bs_delta(price, K, T, sigma, risk_free_rate, is_call, d1=d1)
                 daoi   = delta * oi
 
                 if is_call:
@@ -2014,7 +2055,8 @@ def get_delta_adjusted_oi(
 
                 # Aggregate by strike for flip/wall detection
                 strike_net_daoi[K] = strike_net_daoi.get(K, 0.0) + daoi
-                strike_abs_daoi[K] = strike_abs_daoi.get(K, 0.0) + abs(daoi)
+                gamma = _bs_gamma(price, K, T, sigma, risk_free_rate, d1=d1)
+                strike_gamma_oi[K] = strike_gamma_oi.get(K, 0.0) + gamma * oi
 
         total_call_daoi += exp_call_daoi
         total_put_daoi  += exp_put_daoi
@@ -2061,9 +2103,9 @@ def get_delta_adjusted_oi(
             break
 
     # ------------------------------------------------------------------ #
-    # Gamma wall — strike with highest |delta × OI| (most hedging activity)
+    # Gamma wall — strike with highest gamma × OI (most hedging activity)
     # ------------------------------------------------------------------ #
-    gamma_wall = max(strike_abs_daoi, key=strike_abs_daoi.get) if strike_abs_daoi else None
+    gamma_wall = max(strike_gamma_oi, key=strike_gamma_oi.get) if strike_gamma_oi else None
 
     # ------------------------------------------------------------------ #
     # Market maker hedge bias
@@ -2122,6 +2164,10 @@ def get_delta_adjusted_oi(
         "delta_flip_crossing": flip_crossing,
         "dist_to_flip_pct":    dist_to_flip_pct,
         "gamma_wall_strike":   gamma_wall,
+        # Methodology marker persisted with each gamma_wall_history row so
+        # consumers can separate rows from the legacy |delta × OI| proxy era
+        # ("abs_daoi") from Black-Scholes gamma × OI rows ("bs_gamma_oi").
+        "gamma_wall_method":   "bs_gamma_oi",
         "signal":              signal,
         "signal_note":         signal_note,
         "by_expiration":       expiry_summaries,
@@ -2149,8 +2195,11 @@ def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
       - Making hold/sell decisions on multi-week equity positions
       - Replacing VWAP or relative-strength trend analysis
 
-    Note: this implementation uses |delta × OI| as a GEX proxy, not true Black-Scholes
-    gamma. It provides directional intuition but is not institutional-grade precision.
+    Note: the gamma wall is computed from Black-Scholes gamma × OI. Each history
+    row carries a `gamma_wall_method` field: "bs_gamma_oi" for current rows, or
+    "abs_daoi" for rows captured before the migration, which used a |delta × OI|
+    proxy biased toward deep-ITM high-OI strikes. Wall levels are only comparable
+    across rows with the same method — filter on it before cross-date analysis.
 
     Args:
         symbol: Ticker symbol (e.g. "MSFT")

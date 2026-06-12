@@ -1,6 +1,6 @@
 import sys
-import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "fastMCPTest"))
@@ -10,6 +10,11 @@ from options_contract_tools import (  # noqa: E402
     price_vertical_spread_data,
 )
 from options_store import OptionsStore  # noqa: E402
+from quantcore.db import get_connection  # noqa: E402
+
+# Synthetic ticker that won't collide with real cached snapshots — keeps these
+# tests isolated from whatever data already lives in the configured QuantCore database.
+TEST_SYMBOL = "ZZTEST"
 
 
 def _sample_expirations_data():
@@ -76,14 +81,21 @@ def _sample_expirations_data():
 
 
 class OptionsContractToolsTest(unittest.TestCase):
+    def _purge_test_symbol(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM options_snapshots WHERE symbol = %s", (TEST_SYMBOL,)
+            )
+            conn.commit()
+
     def _store(self):
-        tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(tmp.cleanup)
-        return OptionsStore(Path(tmp.name) / "options_chain.db")
+        self._purge_test_symbol()
+        self.addCleanup(self._purge_test_symbol)
+        return OptionsStore()
 
     def _seed_store(self, store, captured_at="2026-05-19T12:00:00Z"):
         return store.save_full_chain(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             price=166.6,
             bollinger_bands=None,
             expirations_data=_sample_expirations_data(),
@@ -95,9 +107,9 @@ class OptionsContractToolsTest(unittest.TestCase):
         snapshot_id = self._seed_store(store)
 
         self.assertIsNotNone(snapshot_id)
-        snapshot = store.get_full_chain("CRDO")
+        snapshot = store.get_full_chain(TEST_SYMBOL)
         self.assertIsNotNone(snapshot)
-        self.assertEqual(snapshot["symbol"], "CRDO")
+        self.assertEqual(snapshot["symbol"], TEST_SYMBOL)
         self.assertEqual(len(snapshot["expirations"]), 1)
         self.assertEqual(len(snapshot["expirations"][0]["contracts"]), 4)
 
@@ -108,7 +120,7 @@ class OptionsContractToolsTest(unittest.TestCase):
 
         self.assertIsNotNone(first)
         self.assertIsNone(duplicate)
-        snapshot = store.get_full_chain("CRDO")
+        snapshot = store.get_full_chain(TEST_SYMBOL)
         self.assertEqual(len(snapshot["expirations"][0]["contracts"]), 4)
 
     def test_get_option_contracts_uses_fresh_cache(self):
@@ -116,7 +128,7 @@ class OptionsContractToolsTest(unittest.TestCase):
         self._seed_store(store)
 
         result = get_option_contracts_data(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             expirations=["2026-05-22"],
             strikes=[150.0, 170.0],
             kind="call",
@@ -134,7 +146,7 @@ class OptionsContractToolsTest(unittest.TestCase):
         self._seed_store(store)
 
         result = get_option_contracts_data(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             expirations=["2026-05-22"],
             strikes=[150.0, 190.0],
             kind="call",
@@ -167,7 +179,7 @@ class OptionsContractToolsTest(unittest.TestCase):
             }
 
         result = get_option_contracts_data(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             expirations=["2026-05-22"],
             strikes=[150.0, 170.0],
             kind="call",
@@ -186,7 +198,7 @@ class OptionsContractToolsTest(unittest.TestCase):
         self._seed_store(store)
 
         result = price_vertical_spread_data(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             expiration="2026-05-22",
             long_strike=150.0,
             short_strike=170.0,
@@ -208,7 +220,7 @@ class OptionsContractToolsTest(unittest.TestCase):
         self._seed_store(store)
 
         result = price_vertical_spread_data(
-            symbol="CRDO",
+            symbol=TEST_SYMBOL,
             expiration="2026-05-22",
             long_strike=170.0,
             short_strike=150.0,

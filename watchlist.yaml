@@ -1439,3 +1439,15 @@
   tags:
     - REIT
     - Industrial Real Estate
+- currency: USD
+  name: Antero Midstream Corporation
+  symbol: AM
+  tags:
+  - Energy
+  - Oil & Gas Midstream
+- currency: USD
+  name: Antero Resources Corporation
+  symbol: AR
+  tags:
+  - Energy
+  - Oil & Gas E&P

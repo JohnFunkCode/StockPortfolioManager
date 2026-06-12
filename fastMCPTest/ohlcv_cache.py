@@ -156,6 +156,18 @@ def _latest_closed_ts(symbol: str, interval: str) -> Optional[int]:
     return row[0] if row and row[0] is not None else None
 
 
+_REFRESH_TTL_SECONDS = 300
+
+
+def _recently_fetched(symbol: str, interval: str) -> bool:
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            "SELECT fetched_at FROM fetch_log WHERE symbol=? AND interval=?",
+            (symbol, interval),
+        ).fetchone()
+    return row is not None and time() - row[0] < _REFRESH_TTL_SECONDS
+
+
 def _has_open_bar(symbol: str, interval: str) -> bool:
     with closing(get_connection()) as conn:
         row = conn.execute(
@@ -280,8 +292,11 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
 def _fetch_yfinance(symbol: str, interval: str, days: int) -> pd.DataFrame:
     """Download from yfinance, capped at _MAX_FETCH_DAYS."""
     fetch_days = min(days, _MAX_FETCH_DAYS)
-    end   = datetime.datetime.utcnow()
-    start = end - datetime.timedelta(days=fetch_days)
+    now   = datetime.datetime.utcnow()
+    # yfinance treats a date-only `end` as midnight (exclusive), which silently
+    # drops the current session's bars; push it a day forward to include today.
+    end   = now + datetime.timedelta(days=1)
+    start = now - datetime.timedelta(days=fetch_days)
     logger.debug("yfinance fetch: %s %s start=%s end=%s", symbol, interval, start.date(), end.date())
     df = yf.download(
         symbol,
@@ -371,6 +386,12 @@ def get_history(symbol: str, interval: str, days: int) -> pd.DataFrame:
                     symbol, interval, last_date, session,
                 )
                 needs_fetch = True
+
+    # Throttle refreshes: an OPEN or stale-looking cache only goes back to
+    # yfinance when the last fetch is older than the TTL, so a burst of
+    # indicator calls doesn't pay one network round-trip each.
+    if needs_fetch and _count_cached(symbol, interval) > 0 and _recently_fetched(symbol, interval):
+        needs_fetch = False
 
     if needs_fetch:
         fresh = _fetch_yfinance(symbol, interval, days)

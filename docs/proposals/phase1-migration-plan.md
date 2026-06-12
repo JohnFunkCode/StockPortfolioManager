@@ -7,7 +7,7 @@ Update this table as part of every step-commit. Any dev machine can resume by re
 | Step | Description | Status | Commit | Date | Notes |
 |---|---|---|---|---|---|
 | A | Capabilities matrix refresh | DONE | d14b885 | 2026-06-12 | Evidence base updated |
-| -1 | Safety setup (prod backup, tag, test DB seed, DSN guard, flyway) | IN PROGRESS | — | 2026-06-12 | Prod backup awaiting user-run pg_dump |
+| -1 | Safety setup (prod backup, tag, test DB seed, DSN guard, flyway) | MOSTLY DONE | — | 2026-06-12 | Prod backup taken (backups/quantcore_prod_2026-06-12.dump, 5.6 MB) + restore-verified into local scratch DB quantcore_restore_check (16 tables, ~297k rows). Flyway 12.8.1 installed (brew). Worktree skipped per user — working in main checkout. REMAINING: test Cloud SQL instance (quantcore-test-20260606) is STOPPED — user must start it + proxy on 5434; then seed test DB from dump + run flyway info |
 | 0 | Scaffolding (packages, repositories move, registry) | PENDING | — | — | |
 | 1 | Microstructure service | PENDING | — | — | Template step |
 | 2 | Sentiment/News service | PENDING | — | — | |

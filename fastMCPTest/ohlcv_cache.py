@@ -356,11 +356,19 @@ def get_history(symbol: str, interval: str, days: int) -> pd.DataFrame:
         latest_ts = _latest_closed_ts(symbol, interval)
         if latest_ts is not None:
             last_date = datetime.datetime.utcfromtimestamp(latest_ts).date()
-            today     = datetime.datetime.now(tz=_ET).date()
-            days_gap  = (today - last_date).days
-            if days_gap >= 1 and datetime.datetime.now(tz=_ET).weekday() < 5:
+            # Compare against the most recent session that has started, not
+            # calendar today: overnight (midnight–9:30 ET) and on weekends no
+            # newer bar can exist, so refetching would never close the gap.
+            now_et  = datetime.datetime.now(tz=_ET)
+            session = now_et.date()
+            if now_et.weekday() >= 5 or now_et.time() < datetime.time(9, 30):
+                session -= datetime.timedelta(days=1)
+            while session.weekday() >= 5:
+                session -= datetime.timedelta(days=1)
+            if last_date < session:
                 logger.debug(
-                    "Stale cache for %s/%s (gap=%d days) — refreshing", symbol, interval, days_gap
+                    "Stale cache for %s/%s (last bar %s < session %s) — refreshing",
+                    symbol, interval, last_date, session,
                 )
                 needs_fetch = True
 

@@ -211,13 +211,17 @@ def cache_get_all_latest(data_type: str) -> list[dict]:
 
     try:
         with closing(get_connection()) as conn:
-            # GROUP BY symbol, keep MAX(fetched_at) row for each
+            # Latest row per symbol. DISTINCT ON is the PostgreSQL idiom; the
+            # SQLite-era "GROUP BY symbol with bare payload" query is rejected
+            # by PostgreSQL, which silently emptied every cache-ranking tool.
             cursor = conn.execute(
                 """
-                SELECT symbol, payload, MAX(fetched_at) as fetched_at
-                FROM fundamentals_history
-                WHERE data_type = ?
-                GROUP BY symbol
+                SELECT symbol, payload, fetched_at FROM (
+                    SELECT DISTINCT ON (symbol) symbol, payload, fetched_at
+                    FROM fundamentals_history
+                    WHERE data_type = ?
+                    ORDER BY symbol, fetched_at DESC
+                ) latest
                 ORDER BY fetched_at DESC
                 """,
                 (data_type,)

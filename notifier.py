@@ -18,7 +18,7 @@ if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
 from experiments.HarvesterPlanStore import HarvesterPlanDB
-from options_position_store import (
+from quantcore.repositories.options_position_repository import (
     OptionsPositionStore,
     ALERT_ITM,
     ALERT_EXPIRATION_1D,
@@ -249,10 +249,10 @@ class Notifier:
         symbols with fewer entries or if sentiment_store is unavailable.
         """
         try:
-            from sentiment_store import SentimentStore
+            from quantcore.repositories.sentiment_repository import SentimentStore
             store = SentimentStore()
         except Exception:
-            return  # non-fatal — sentiment_store may not be installed
+            return  # non-fatal — sentiment store may not be installed
 
         symbols = list(self.portfolio.stocks.keys())
         for symbol in symbols:

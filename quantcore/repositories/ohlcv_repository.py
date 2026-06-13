@@ -378,3 +378,18 @@ def get_history(symbol: str, interval: str, days: int) -> pd.DataFrame:
             _store_bars(symbol, interval, fresh)
 
     return _query_cache(symbol, interval, days)
+
+
+class OhlcvRepository:
+    """OO facade over the module-level cache functions.
+
+    Services depend on this class (constructor-injected via
+    quantcore.services.registry) rather than on the module functions, so the
+    cache internals can evolve without touching callers.
+    """
+
+    def get_history(self, symbol: str, interval: str, days: int) -> pd.DataFrame:
+        return get_history(symbol, interval, days)
+
+    def period_to_days(self, period: str) -> int:
+        return period_to_days(period)

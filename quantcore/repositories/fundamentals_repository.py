@@ -293,3 +293,30 @@ def cache_stats() -> dict:
             "data_types": [],
             "error": str(e),
         }
+
+
+class FundamentalsRepository:
+    """OO facade over the module-level cache functions.
+
+    Services depend on this class (constructor-injected via
+    quantcore.services.registry) rather than on the module functions, so the
+    cache internals can evolve without touching callers.
+    """
+
+    def get(self, symbol: str, data_type: str) -> dict | None:
+        return cache_get(symbol, data_type)
+
+    def set(self, symbol: str, data_type: str, payload: dict) -> None:
+        cache_set(symbol, data_type, payload)
+
+    def history(self, symbol: str, data_type: str, since_days: int = 365) -> list[dict]:
+        return cache_history(symbol, data_type, since_days)
+
+    def invalidate(self, symbol: str, data_type: str | None = None) -> None:
+        cache_invalidate(symbol, data_type)
+
+    def get_all_latest(self, data_type: str) -> list[dict]:
+        return cache_get_all_latest(data_type)
+
+    def stats(self) -> dict:
+        return cache_stats()

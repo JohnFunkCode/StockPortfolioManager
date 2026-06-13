@@ -324,3 +324,6 @@ class FundamentalsRepository:
 
     def stats(self) -> dict:
         return cache_stats()
+
+    def ttl_seconds(self) -> float:
+        return _get_ttl_seconds()

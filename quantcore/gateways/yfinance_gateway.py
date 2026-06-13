@@ -44,3 +44,40 @@ class YFinanceGateway:
     def news(self, symbol: str) -> list:
         """Recent news items for a symbol (raw yfinance dicts)."""
         return yf.Ticker(symbol).news
+
+    def info(self, symbol: str) -> dict:
+        """Raw ticker.info without the watchdog timeout.
+
+        Fundamentals scoring tolerates a slow/failed fetch (it scores "no data"
+        metrics as 0), so it keeps yfinance's native blocking behavior rather
+        than ticker_info()'s 15s TimeoutError contract.
+        """
+        return yf.Ticker(symbol).info
+
+    def financials(self, symbol: str):
+        """Annual income statement DataFrame (rows = line items)."""
+        return yf.Ticker(symbol).financials
+
+    def cashflow(self, symbol: str):
+        """Annual cash-flow statement DataFrame."""
+        return yf.Ticker(symbol).cashflow
+
+    def quarterly_financials(self, symbol: str):
+        """Quarterly income statement DataFrame."""
+        return yf.Ticker(symbol).quarterly_financials
+
+    def quarterly_income_stmt(self, symbol: str):
+        """Quarterly income statement DataFrame (income_stmt variant)."""
+        return yf.Ticker(symbol).quarterly_income_stmt
+
+    def calendar(self, symbol: str):
+        """Upcoming events calendar (dict or DataFrame depending on yfinance version)."""
+        return yf.Ticker(symbol).calendar
+
+    def earnings_dates(self, symbol: str):
+        """Past + scheduled earnings dates DataFrame (tz-aware index)."""
+        return yf.Ticker(symbol).earnings_dates
+
+    def history(self, symbol: str, period: str = "1y", auto_adjust: bool = True):
+        """Per-ticker OHLCV history DataFrame via ticker.history()."""
+        return yf.Ticker(symbol).history(period=period, auto_adjust=auto_adjust)

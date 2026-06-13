@@ -19,12 +19,6 @@ from options_contract_tools import (
     price_vertical_spread_data,
 )
 from quantcore.services.registry import get_services
-from company_fundamentals_server import (
-    get_earnings_calendar,
-    get_fundamental_score,
-    get_revenue_growth,
-    get_earnings_acceleration,
-)
 
 # Shared store — persists every get_stock_price call for backtesting (issue #10)
 _options_store = OptionsStore()
@@ -3179,7 +3173,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     earnings_risk = "UNKNOWN"
     pre_earnings_setup = False
     try:
-        ec_data = get_earnings_calendar(sym)
+        ec_data = get_services().fundamentals.get_earnings_calendar(sym)
         earnings_days_out = ec_data.get("days_to_earnings")
         earnings_risk = ec_data.get("risk_level", "UNKNOWN")
         pre_earnings_setup = ec_data.get("pre_earnings_setup", False)
@@ -3208,7 +3202,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     # ── 15. Fundamental Score ─────────────────────────────────────────────
     fund_composite = None
     try:
-        fund_data = get_fundamental_score(sym)
+        fund_data = get_services().fundamentals.get_fundamental_score(sym)
         fund_composite = fund_data.get("composite_score", 0)
         fund_label = fund_data.get("fundamental_label", "average")
 
@@ -3231,7 +3225,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
 
     # ── 16. Revenue Growth Trajectory ────────────────────────────────────
     try:
-        rev_data = get_revenue_growth(sym)
+        rev_data = get_services().fundamentals.get_revenue_growth(sym)
         trajectory = rev_data.get("trajectory", "")
 
         if trajectory in ("accelerating", "inflecting_positive"):
@@ -3247,7 +3241,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
 
     # ── 17. Earnings Acceleration (CAN SLIM 'A') ─────────────────────────
     try:
-        ea_data = get_earnings_acceleration(sym)
+        ea_data = get_services().fundamentals.get_earnings_acceleration(sym)
         ea_score = ea_data.get("acceleration_score", 0)
         ea_label = ea_data.get("acceleration_label", "")
 

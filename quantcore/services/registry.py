@@ -23,6 +23,7 @@ from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_position_repository import OptionsPositionStore
 from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
+from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.sentiment import SentimentService
 
@@ -41,6 +42,7 @@ class Services:
     # Services
     microstructure: MicrostructureService
     sentiment: SentimentService
+    fundamentals: FundamentalsService
 
 
 @lru_cache(maxsize=1)
@@ -49,6 +51,7 @@ def get_services() -> Services:
     ohlcv_repository = OhlcvRepository()
     news_repository = NewsStore()
     sentiment_repository = SentimentStore()
+    fundamentals_repository = FundamentalsRepository()
     return Services(
         yfinance_gateway=yfinance_gateway,
         ohlcv_repository=ohlcv_repository,
@@ -56,7 +59,7 @@ def get_services() -> Services:
         options_position_repository=OptionsPositionStore(),
         news_repository=news_repository,
         sentiment_repository=sentiment_repository,
-        fundamentals_repository=FundamentalsRepository(),
+        fundamentals_repository=fundamentals_repository,
         microstructure=MicrostructureService(
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
@@ -64,6 +67,10 @@ def get_services() -> Services:
         sentiment=SentimentService(
             news_repository=news_repository,
             sentiment_repository=sentiment_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
+        fundamentals=FundamentalsService(
+            fundamentals_repository=fundamentals_repository,
             yfinance_gateway=yfinance_gateway,
         ),
     )

@@ -33,6 +33,7 @@ from experiments.HarvesterPlanStore import (  # noqa: E402
     HarvesterPlanDB,
     PlanBuildParams,
 )
+from quantcore.services.registry import get_services  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -845,39 +846,7 @@ def create_app() -> Flask:
     @app.route("/api/securities/<ticker>/earnings", methods=["GET"])
     def get_earnings_dates(ticker: str):
         """Return past and upcoming earnings dates for a ticker (yfinance calendar)."""
-        ticker = ticker.upper()
-        import yfinance as yf
-        dates: list[str] = []
-        try:
-            t = yf.Ticker(ticker)
-            # earnings_dates: DataFrame with DatetimeTZDtype index (past + future)
-            try:
-                ed = t.earnings_dates
-                if ed is not None and not ed.empty:
-                    for ts in ed.index:
-                        try:
-                            dates.append(str(ts.date())[:10])
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-            # calendar: may have next "Earnings Date" key
-            try:
-                cal = t.calendar
-                if isinstance(cal, dict):
-                    next_ed = cal.get("Earnings Date")
-                    if next_ed is not None:
-                        candidates = next_ed if hasattr(next_ed, "__iter__") and not isinstance(next_ed, str) else [next_ed]
-                        for d in candidates:
-                            s = str(d)[:10]
-                            if s and len(s) == 10:
-                                dates.append(s)
-            except Exception:
-                pass
-            dates = sorted(set(d for d in dates if d and len(d) == 10))
-        except Exception as exc:
-            return jsonify({"ticker": ticker, "earnings_dates": [], "error": str(exc)})
-        return jsonify({"ticker": ticker, "earnings_dates": dates})
+        return jsonify(get_services().fundamentals.get_earnings_dates(ticker))
 
     # -----------------------------------------------------------------------
     # Securities — signals  (#4)
@@ -985,7 +954,6 @@ def create_app() -> Flask:
         ticker = ticker.upper()
         max_articles = int(request.args.get("max_articles", 10))
         try:
-            from quantcore.services.registry import get_services
             result = get_services().sentiment.get_security_news(ticker, max_articles=max_articles)
         except Exception as exc:
             return jsonify({"ticker": ticker, "error": str(exc), "articles": []}), 500
@@ -1005,7 +973,6 @@ def create_app() -> Flask:
         src_filter = request.args.get("source", "all")
 
         try:
-            from quantcore.services.registry import get_services
             result = get_services().sentiment.get_sentiment_dashboard(
                 _load_portfolio(), _load_watchlist(), source_filter=src_filter
             )

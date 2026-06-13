@@ -985,17 +985,10 @@ def create_app() -> Flask:
         ticker = ticker.upper()
         max_articles = int(request.args.get("max_articles", 10))
         try:
-            from stock_price_server import get_news
-            result = get_news(ticker, max_articles=max_articles)
+            from quantcore.services.registry import get_services
+            result = get_services().sentiment.get_security_news(ticker, max_articles=max_articles)
         except Exception as exc:
             return jsonify({"ticker": ticker, "error": str(exc), "articles": []}), 500
-
-        # Persist aggregate sentiment for trend/flip tracking
-        try:
-            from sentiment_store import SentimentStore
-            SentimentStore().save_snapshot(ticker, result)
-        except Exception:
-            pass  # non-fatal — never block the news response
 
         return jsonify(result)
 
@@ -1011,55 +1004,15 @@ def create_app() -> Flask:
         """
         src_filter = request.args.get("source", "all")
 
-        portfolio = {s["symbol"]: s for s in _load_portfolio()}
-        watchlist = {s["symbol"]: s for s in _load_watchlist()}
-        combined: dict[str, dict] = {}
-        for sym, s in portfolio.items():
-            combined[sym] = s
-        for sym, s in watchlist.items():
-            if sym in combined:
-                combined[sym]["source"] = "both"
-                combined[sym]["tags"] = s.get("tags", [])
-            else:
-                combined[sym] = s
-
         try:
-            from sentiment_store import SentimentStore
-            latest = SentimentStore().get_all_latest()
+            from quantcore.services.registry import get_services
+            result = get_services().sentiment.get_sentiment_dashboard(
+                _load_portfolio(), _load_watchlist(), source_filter=src_filter
+            )
         except Exception as exc:
             return jsonify({"error": str(exc), "items": []}), 500
 
-        _ORDER = {"negative": 0, "neutral": 1, "positive": 2}
-
-        items = []
-        for sym, snap in latest.items():
-            sec = combined.get(sym, {})
-            src = sec.get("source", "watchlist")
-            if src_filter == "portfolio" and src not in ("portfolio", "both"):
-                continue
-            if src_filter == "watchlist" and src not in ("watchlist", "both"):
-                continue
-
-            items.append({
-                "symbol":            sym,
-                "name":              sec.get("name", sym),
-                "source":            src,
-                "tags":              sec.get("tags", []),
-                "captured_at":       snap["captured_at"],
-                "overall_sentiment": snap["overall_sentiment"],
-                "positive_count":    snap["positive_count"],
-                "negative_count":    snap["negative_count"],
-                "neutral_count":     snap["neutral_count"],
-                "scored_count":      snap["scored_count"],
-                "article_count":     snap["article_count"],
-            })
-
-        items.sort(key=lambda x: (
-            _ORDER.get(x["overall_sentiment"] or "neutral", 1),
-            -(x["negative_count"] or 0),
-        ))
-
-        return jsonify({"items": items, "count": len(items)})
+        return jsonify(result)
 
     # -----------------------------------------------------------------------
     # Portfolio — delta exposure from stored full chains  (#5)

@@ -24,6 +24,7 @@ from quantcore.repositories.options_position_repository import OptionsPositionSt
 from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.services.microstructure import MicrostructureService
+from quantcore.services.sentiment import SentimentService
 
 
 @dataclass(frozen=True)
@@ -39,22 +40,30 @@ class Services:
     fundamentals_repository: FundamentalsRepository
     # Services
     microstructure: MicrostructureService
+    sentiment: SentimentService
 
 
 @lru_cache(maxsize=1)
 def get_services() -> Services:
     yfinance_gateway = YFinanceGateway()
     ohlcv_repository = OhlcvRepository()
+    news_repository = NewsStore()
+    sentiment_repository = SentimentStore()
     return Services(
         yfinance_gateway=yfinance_gateway,
         ohlcv_repository=ohlcv_repository,
         options_repository=OptionsStore(),
         options_position_repository=OptionsPositionStore(),
-        news_repository=NewsStore(),
-        sentiment_repository=SentimentStore(),
+        news_repository=news_repository,
+        sentiment_repository=sentiment_repository,
         fundamentals_repository=FundamentalsRepository(),
         microstructure=MicrostructureService(
             ohlcv_repository=ohlcv_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
+        sentiment=SentimentService(
+            news_repository=news_repository,
+            sentiment_repository=sentiment_repository,
             yfinance_gateway=yfinance_gateway,
         ),
     )

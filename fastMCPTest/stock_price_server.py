@@ -26,49 +26,6 @@ from company_fundamentals_server import (
     get_earnings_acceleration,
 )
 
-# ---------------------------------------------------------------------------
-# FinBERT — lazy-loaded on first news request so the server starts fast
-# ---------------------------------------------------------------------------
-
-_finbert_pipeline = None
-
-
-def _get_finbert():
-    """Return the FinBERT pipeline, initialising it on first call."""
-    global _finbert_pipeline
-    if _finbert_pipeline is None:
-        try:
-            from transformers import pipeline as hf_pipeline
-            _finbert_pipeline = hf_pipeline(
-                "text-classification",
-                model="ProsusAI/finbert",
-                tokenizer="ProsusAI/finbert",
-                max_length=512,
-                truncation=True,
-            )
-        except Exception:
-            _finbert_pipeline = None  # transformers not installed — degrade gracefully
-    return _finbert_pipeline
-
-
-def _score_sentiment(text: str) -> dict | None:
-    """Score a text snippet with FinBERT.
-
-    Returns {"sentiment": "positive"|"negative"|"neutral", "sentiment_score": float}
-    or None if the model is unavailable.
-    """
-    pipe = _get_finbert()
-    if pipe is None or not text.strip():
-        return None
-    try:
-        result = pipe(text[:1000], truncation=True)[0]
-        return {
-            "sentiment": result["label"].lower(),
-            "sentiment_score": round(float(result["score"]), 4),
-        }
-    except Exception:
-        return None
-
 # Shared store — persists every get_stock_price call for backtesting (issue #10)
 _options_store = OptionsStore()
 
@@ -135,60 +92,7 @@ def get_news(symbol: str, max_articles: int = 10) -> dict:
         symbol:       Stock ticker symbol (e.g. 'AAPL')
         max_articles: Maximum number of articles to return (default: 10)
     """
-    ticker = yf.Ticker(symbol.upper())
-    raw = ticker.news or []
-
-    finbert_available = _get_finbert() is not None
-
-    articles = []
-    for item in raw[:max_articles]:
-        content = item.get("content", {})
-        title   = content.get("title", "")
-        summary = content.get("summary", "")
-
-        article = {
-            "title":     title,
-            "publisher": content.get("provider", {}).get("displayName", ""),
-            "published": content.get("pubDate", ""),
-            "summary":   summary,
-            "url":       content.get("canonicalUrl", {}).get("url", ""),
-        }
-
-        if finbert_available:
-            scored = _score_sentiment(f"{title}. {summary}".strip())
-            if scored:
-                article["sentiment"]       = scored["sentiment"]
-                article["sentiment_score"] = scored["sentiment_score"]
-
-        articles.append(article)
-
-    result: dict = {
-        "symbol":        symbol.upper(),
-        "article_count": len(articles),
-        "articles":      articles,
-    }
-
-    if finbert_available:
-        scored_articles = [a for a in articles if "sentiment" in a]
-        pos = sum(1 for a in scored_articles if a["sentiment"] == "positive")
-        neg = sum(1 for a in scored_articles if a["sentiment"] == "negative")
-        neu = sum(1 for a in scored_articles if a["sentiment"] == "neutral")
-        counts = {"positive": pos, "negative": neg, "neutral": neu}
-        overall = max(counts, key=lambda k: counts[k]) if scored_articles else "neutral"
-        result["sentiment_summary"] = {
-            "overall":        overall,
-            "positive_count": pos,
-            "negative_count": neg,
-            "neutral_count":  neu,
-            "scored_count":   len(scored_articles),
-        }
-    else:
-        result["sentiment_note"] = (
-            "FinBERT sentiment scoring unavailable — install transformers and torch: "
-            "pip install transformers torch"
-        )
-
-    return result
+    return get_services().sentiment.get_news(symbol, max_articles)
 
 
 @mcp.tool()
@@ -3391,7 +3295,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     # ── 19. News Sentiment (FinBERT) ──────────────────────────────────────
     news_sentiment = None
     try:
-        news_data = get_news(sym)
+        news_data = get_services().sentiment.get_news(sym)
         sentiment_summary = news_data.get("sentiment_summary")
         if sentiment_summary:
             scored_count = sentiment_summary.get("scored_count", 0)

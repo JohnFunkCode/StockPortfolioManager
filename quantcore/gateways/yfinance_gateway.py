@@ -40,3 +40,7 @@ class YFinanceGateway:
     def option_chain(self, symbol: str, expiration: str):
         """Option chain (calls/puts DataFrames) for one expiration."""
         return yf.Ticker(symbol).option_chain(expiration)
+
+    def news(self, symbol: str) -> list:
+        """Recent news items for a symbol (raw yfinance dicts)."""
+        return yf.Ticker(symbol).news

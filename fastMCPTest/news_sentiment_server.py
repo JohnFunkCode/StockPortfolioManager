@@ -7,8 +7,8 @@ items with Finbert, then surface it as an MCP server."
 Tools exposed
 -------------
   collect_news(symbol, score)
-      Fetch RSS + yfinance news for a ticker, store in SQLite, and optionally
-      score with FinBERT.  Returns a summary of new articles inserted.
+      Fetch RSS + yfinance news for a ticker, store in the database, and
+      optionally score with FinBERT.  Returns a summary of new articles inserted.
 
   get_news_sentiment(symbol, days, scored_only)
       Return recent articles and an aggregate sentiment signal for a symbol.
@@ -22,14 +22,11 @@ Tools exposed
 Usage (standalone):
     fastmcp run news_sentiment_server.py
 
-Requires:
-    feedparser      — for RSS fetching   (pip install feedparser)
-    transformers    — for FinBERT scoring (pip install transformers torch)
-    torch           — required by transformers
-    (all optional — server still works without them; sentiment will be NULL)
+Thin adapter (architectural standard v2): all business logic lives in
+quantcore.services.sentiment.SentimentService; each tool here is exactly one
+service call deep.
 """
 
-import logging
 import sys
 from pathlib import Path
 
@@ -42,16 +39,9 @@ for path in (PROJECT_ROOT, MCP_DIR):
 
 from fastmcp import FastMCP
 
-from news_collector import NewsCollector
-from news_store import NewsStore
-
-log = logging.getLogger(__name__)
+from quantcore.services.registry import get_services
 
 mcp = FastMCP("news-sentiment-server")
-
-# Shared instances — one DB connection pool per server process
-_store     = NewsStore()
-_collector = NewsCollector(store=_store)
 
 
 # ---------------------------------------------------------------------------
@@ -80,30 +70,7 @@ def collect_news(symbol: str, score: bool = True) -> dict:
       finbert_available : bool
     }
     """
-    sym = symbol.upper()
-
-    try:
-        import feedparser as _fp  # noqa
-        rss_ok = True
-    except ImportError:
-        rss_ok = False
-
-    totals = _collector.collect([sym], score=score)
-    new_count = totals.get(sym, 0)
-
-    try:
-        from transformers import AutoTokenizer  # noqa
-        finbert_ok = True
-    except ImportError:
-        finbert_ok = False
-
-    return {
-        "symbol":            sym,
-        "new_articles":      new_count,
-        "total_articles":    _store.article_count(sym),
-        "rss_available":     rss_ok,
-        "finbert_available": finbert_ok,
-    }
+    return get_services().sentiment.collect_news(symbol, score)
 
 
 @mcp.tool()
@@ -143,26 +110,7 @@ def get_news_sentiment(
                             sentiment, sentiment_score }]
     }
     """
-    sym = symbol.upper()
-
-    summary  = _store.get_sentiment_summary(sym, days=days)
-    articles = _store.get_articles(sym, days=days, limit=50, scored_only=scored_only)
-
-    # Trim article fields for a compact MCP response
-    slim_articles = [
-        {
-            "article_id":      a["article_id"],
-            "title":           a["title"],
-            "publisher":       a["publisher"],
-            "published_at":    a["published_at"],
-            "url":             a["url"],
-            "sentiment":       a["sentiment"],
-            "sentiment_score": a["sentiment_score"],
-        }
-        for a in articles
-    ]
-
-    return {**summary, "articles": slim_articles}
+    return get_services().sentiment.get_news_sentiment(symbol, days, scored_only)
 
 
 @mcp.tool()
@@ -194,9 +142,7 @@ def get_sentiment_trend(symbol: str, days: int = 30) -> dict:
       ]
     }
     """
-    sym   = symbol.upper()
-    trend = _store.get_sentiment_trend(sym, days=days)
-    return {"symbol": sym, "days": days, "trend": trend}
+    return get_services().sentiment.get_sentiment_trend(symbol, days)
 
 
 @mcp.tool()
@@ -212,8 +158,7 @@ def list_news_symbols() -> dict:
       total_symbols : int
     }
     """
-    syms = _store.get_symbols()
-    return {"symbols": syms, "total_symbols": len(syms)}
+    return get_services().sentiment.list_news_symbols()
 
 
 # ---------------------------------------------------------------------------

@@ -1352,6 +1352,28 @@ class PricesService:
             })
         return {"ticker": ticker, "bars": bars}
 
+    def get_risk_signals(self, ticker: str) -> dict:
+        """Historical drawdown metrics for stop-loss calibration, plus VWAP context.
+
+        Composes get_historical_drawdown + get_vwap. Mirrors the
+        /api/securities/<ticker>/signals/risk route: drawdown failure degrades
+        to ``{"drawdown": None, "error": ...}`` (HTTP 200), and the VWAP enrich
+        is best-effort (swallowed on failure).
+        """
+        ticker = ticker.upper()
+        try:
+            dd = self.get_historical_drawdown(ticker)
+        except Exception as exc:
+            return {"ticker": ticker, "drawdown": None, "error": str(exc)}
+        # Derive a simple stop-loss recommendation from drawdown stats
+        price_data: dict = {}
+        try:
+            vd = self.get_vwap(ticker)
+            price_data = {"vwap": vd.get("vwap"), "vwap_position": vd.get("position")}
+        except Exception:
+            pass
+        return {"ticker": ticker, "drawdown": dd, **price_data}
+
     def get_technicals_table(self, ticker: str, days: int = 365) -> dict:
         ticker = ticker.upper()
         df = self._ohlcv.get_history(ticker, "1d", max(days, 400))

@@ -1,4 +1,3 @@
-import datetime
 import math
 import sys
 from pathlib import Path
@@ -13,59 +12,9 @@ for path in (PROJECT_ROOT, MCP_DIR):
 import yfinance as yf
 from fastmcp import FastMCP
 from ohlcv_cache import get_history, period_to_days
-from options_store import OptionsStore
-from options_contract_tools import (
-    get_option_contracts_data,
-    price_vertical_spread_data,
-)
 from quantcore.services.registry import get_services
 
-# Shared store — persists every get_stock_price call for backtesting (issue #10)
-_options_store = OptionsStore()
-
 mcp = FastMCP("stock-price-server")
-
-
-def _safe_int(val):
-    try:
-        f = float(val) if val is not None else 0.0
-        return 0 if math.isnan(f) else int(f)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _summarize_options(chain_df, price, kind):
-    """Return ATM-nearest strikes and aggregate stats for calls or puts."""
-    df = chain_df.copy()
-    df = df[df["strike"] > 0].copy()
-    df["moneyness"] = abs(df["strike"] - price)
-
-    # 5 strikes nearest to ATM
-    atm = df.nsmallest(5, "moneyness")
-
-    contracts = []
-    for _, row in atm.iterrows():
-        contracts.append({
-            "strike": round(float(row["strike"]), 2),
-            "last": round(float(row.get("lastPrice", 0)), 2),
-            "bid": round(float(row.get("bid", 0)), 2),
-            "ask": round(float(row.get("ask", 0)), 2),
-            "iv": round(float(row.get("impliedVolatility", 0)) * 100, 1),
-            "volume": _safe_int(row.get("volume")),
-            "open_interest": _safe_int(row.get("openInterest")),
-            "in_the_money": bool(row.get("inTheMoney", False)),
-        })
-
-    total_oi = int(df["openInterest"].fillna(0).sum())
-    total_vol = int(df["volume"].fillna(0).sum())
-    avg_iv = round(float(df["impliedVolatility"].fillna(0).mean()) * 100, 1)
-
-    return {
-        "atm_contracts": sorted(contracts, key=lambda x: x["strike"]),
-        "total_open_interest": total_oi,
-        "total_volume": total_vol,
-        "avg_iv_pct": avg_iv,
-    }
 
 
 @mcp.tool()
@@ -94,116 +43,10 @@ def get_stock_price(symbol: str) -> dict:
     """Get the current stock price, Bollinger Bands (20-day, 2σ), and options chain summary for a given ticker symbol."""
     return get_services().prices.get_stock_price(symbol)
 
-def _chain_side_full(chain_df, price):
-    """Return all contracts + aggregate stats for one side (calls or puts)."""
-    df = chain_df.copy()
-    df = df[df["strike"] > 0].copy()
-
-    contracts = []
-    for _, row in df.iterrows():
-        contracts.append({
-            "strike":        round(float(row["strike"]), 2),
-            "last":          round(float(row.get("lastPrice", 0) or 0), 2),
-            "bid":           round(float(row.get("bid", 0) or 0), 2),
-            "ask":           round(float(row.get("ask", 0) or 0), 2),
-            "iv":            round(float(row.get("impliedVolatility", 0) or 0) * 100, 1),
-            "volume":        _safe_int(row.get("volume")),
-            "open_interest": _safe_int(row.get("openInterest")),
-            "in_the_money":  bool(row.get("inTheMoney", False)),
-        })
-
-    total_oi  = int(df["openInterest"].fillna(0).sum())
-    total_vol = int(df["volume"].fillna(0).sum())
-    avg_iv    = round(float(df["impliedVolatility"].fillna(0).mean()) * 100, 1)
-
-    return {
-        "contracts":          sorted(contracts, key=lambda x: x["strike"]),
-        "total_open_interest": total_oi,
-        "total_volume":        total_vol,
-        "avg_iv_pct":          avg_iv,
-    }
-
-
 @mcp.tool()
 def get_full_options_chain(symbol: str) -> dict:
     """Fetch the full options chain (all strikes, all expirations) for a ticker and persist to DB."""
-    ticker = yf.Ticker(symbol.upper())
-    info   = ticker.fast_info
-    price  = info.last_price
-    if price is None:
-        raise ValueError(f"Could not retrieve price for symbol: {symbol}")
-
-    # Bollinger Bands for context
-    hist  = get_history(symbol.upper(), "1d", 90)
-    close = hist["Close"].dropna()
-    if len(close) >= 20:
-        sma20 = float(close.rolling(window=20).mean().iloc[-1])
-        std20 = float(close.rolling(window=20).std().iloc[-1])
-        bollinger_bands: dict | None = {
-            "upper":   round(sma20 + 2 * std20, 2),
-            "middle":  round(sma20, 2),
-            "lower":   round(sma20 - 2 * std20, 2),
-            "period":  20,
-            "std_dev": 2,
-        }
-    else:
-        bollinger_bands = None
-
-    expirations = ticker.options
-    if not expirations:
-        return {
-            "symbol":           symbol.upper(),
-            "price":            round(price, 2),
-            "bollinger_bands":  bollinger_bands,
-            "expiration_count": 0,
-            "total_contracts":  0,
-            "expirations":      [],
-        }
-
-    expirations_data = []
-    total_contracts  = 0
-
-    for exp_date in expirations:
-        try:
-            chain = ticker.option_chain(exp_date)
-        except Exception:
-            continue
-
-        calls_data = _chain_side_full(chain.calls, price)
-        puts_data  = _chain_side_full(chain.puts,  price)
-
-        total_call_oi  = calls_data["total_open_interest"]
-        total_put_oi   = puts_data["total_open_interest"]
-        put_call_ratio = round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None
-
-        expirations_data.append({
-            "expiration":      exp_date,
-            "put_call_ratio":  put_call_ratio,
-            "calls":           calls_data,
-            "puts":            puts_data,
-        })
-        total_contracts += len(calls_data["contracts"]) + len(puts_data["contracts"])
-
-    snapshot_id = _options_store.save_full_chain(
-        symbol=symbol.upper(),
-        price=price,
-        bollinger_bands=bollinger_bands,
-        expirations_data=expirations_data,
-    )
-    persisted = snapshot_id is not None
-
-    return {
-        "symbol":           symbol.upper(),
-        "price":            round(price, 2),
-        "currency":         getattr(info, "currency", "USD"),
-        "bollinger_bands":  bollinger_bands,
-        "expiration_count": len(expirations_data),
-        "total_contracts":  total_contracts,
-        "expirations":      [e["expiration"] for e in expirations_data],
-        "snapshot_id":      snapshot_id,
-        "persisted":        persisted,
-        "storage_warning":  None if persisted else "Snapshot was not inserted; a duplicate timestamp may already exist.",
-    }
+    return get_services().options.get_full_options_chain(symbol)
 
 
 @mcp.tool()
@@ -229,14 +72,13 @@ def get_option_contracts(
         max_snapshot_age_minutes: Cache freshness window before live refresh
         allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
     """
-    return get_option_contracts_data(
+    return get_services().options.get_option_contracts(
         symbol=symbol,
         expirations=expirations,
         strikes=strikes,
         kind=kind,
         max_snapshot_age_minutes=max_snapshot_age_minutes,
         allow_live_fetch=allow_live_fetch,
-        store=_options_store,
     )
 
 
@@ -264,7 +106,7 @@ def price_vertical_spread(
         max_snapshot_age_minutes: Cache freshness window before live refresh
         allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
     """
-    return price_vertical_spread_data(
+    return get_services().options.price_vertical_spread(
         symbol=symbol,
         expiration=expiration,
         long_strike=long_strike,
@@ -272,7 +114,6 @@ def price_vertical_spread(
         kind=kind,
         max_snapshot_age_minutes=max_snapshot_age_minutes,
         allow_live_fetch=allow_live_fetch,
-        store=_options_store,
     )
 
 
@@ -564,236 +405,9 @@ def get_unusual_calls(
         min_vol_oi_ratio: Minimum volume/OI ratio to flag (default: 0.5)
         max_expirations:  Number of nearest expirations to scan (default: 3)
     """
-    ticker     = yf.Ticker(symbol.upper())
-    info       = ticker.fast_info
-    price      = getattr(info, "last_price", None)
-    if price is None or math.isnan(float(price)):
-        raise ValueError(f"Could not retrieve price for {symbol}")
-    price = float(price)
-
-    expirations = ticker.options
-    if not expirations:
-        return {
-            "symbol": symbol.upper(),
-            "price": round(price, 2),
-            "sweep_signal": "none",
-            "unusual_calls": [],
-            "interpretation": "No options data available.",
-        }
-
-    unusual_calls = []
-
-    for exp in expirations[:max_expirations]:
-        try:
-            chain    = ticker.option_chain(exp)
-            calls_df = chain.calls.copy()
-        except Exception:
-            continue
-
-        if calls_df.empty:
-            continue
-
-        for _, row in calls_df.iterrows():
-            volume = _safe_int(row.get("volume"))
-            if volume < min_volume:
-                continue
-
-            oi = _safe_int(row.get("openInterest"))
-            if oi == 0:
-                oi = 1   # avoid /0; vol/OI will be large, which is correct
-
-            vol_oi = round(volume / oi, 2)
-            if vol_oi < min_vol_oi_ratio:
-                continue
-
-            strike  = round(float(row.get("strike", 0)), 2)
-            last    = round(float(row.get("lastPrice", 0) or 0), 2)
-            bid     = round(float(row.get("bid", 0) or 0), 2)
-            ask     = round(float(row.get("ask", 0) or 0), 2)
-            iv      = round(float(row.get("impliedVolatility", 0) or 0) * 100, 1)
-            itm     = bool(row.get("inTheMoney", False))
-            mid     = round((bid + ask) / 2, 2) if ask > 0 else 0.0
-            otm_pct = round((strike - price) / price * 100, 1) if price > 0 else 0.0
-
-            # --- Sweep score ---
-            score = 0
-
-            if   vol_oi >= 2.0: score += 3
-            elif vol_oi >= 1.0: score += 2
-            else:               score += 1   # already ≥ min_vol_oi_ratio
-
-            if ask > 0 and last >= ask:
-                score += 2   # paid at or above ask — aggressive fill
-            elif mid > 0 and last >= mid:
-                score += 1   # paid above midpoint
-
-            if 5.0 <= otm_pct <= 15.0:
-                score += 2   # pure directional bet
-            elif 1.0 <= otm_pct < 5.0:
-                score += 1   # near-money directional
-            elif itm:
-                score -= 1   # likely a hedge, not a sweep
-
-            # Interpretation per contract
-            if score >= 7:
-                conviction = "very high"
-            elif score >= 5:
-                conviction = "high"
-            elif score >= 3:
-                conviction = "moderate"
-            else:
-                conviction = "low"
-
-            notes = []
-            if vol_oi >= 1.0:
-                notes.append(f"vol/OI {vol_oi:.1f}× — more contracts traded than exist in OI")
-            if ask > 0 and last >= ask:
-                notes.append("paid AT or ABOVE ask — aggressive sweep fill")
-            elif mid > 0 and last >= mid:
-                notes.append("paid above mid — motivated buyer")
-            if 5.0 <= otm_pct <= 15.0:
-                notes.append(f"{otm_pct:+.1f}% OTM — pure directional bet")
-            elif 1.0 <= otm_pct < 5.0:
-                notes.append(f"{otm_pct:+.1f}% OTM — near-money directional")
-            elif itm:
-                notes.append(f"{otm_pct:+.1f}% ITM — possible hedge/spread leg")
-
-            unusual_calls.append({
-                "expiration":  exp,
-                "strike":      strike,
-                "last":        last,
-                "bid":         bid,
-                "ask":         ask,
-                "mid":         mid,
-                "iv":          iv,
-                "volume":      volume,
-                "open_interest": oi if oi > 1 else 0,
-                "vol_oi_ratio": vol_oi,
-                "otm_pct":     otm_pct,
-                "in_the_money": itm,
-                "sweep_score": score,
-                "conviction":  conviction,
-                "notes":       notes,
-            })
-
-    # Sort by sweep score descending, then volume
-    unusual_calls.sort(key=lambda x: (x["sweep_score"], x["volume"]), reverse=True)
-
-    # --- Overall signal ---
-    if not unusual_calls:
-        sweep_signal  = "none"
-        interpretation = (
-            f"No unusual call activity detected above the volume ({min_volume}) "
-            f"and vol/OI ({min_vol_oi_ratio}) thresholds."
-        )
-    else:
-        top = unusual_calls[0]
-        high_conviction = [c for c in unusual_calls if c["conviction"] in ("very high", "high")]
-        aggressive_fills = [c for c in unusual_calls if "paid AT or ABOVE ask" in " ".join(c["notes"])]
-
-        if len(high_conviction) >= 3 or (top["sweep_score"] >= 7 and aggressive_fills):
-            sweep_signal = "strong"
-            interpretation = (
-                f"{len(unusual_calls)} unusual call(s) detected across "
-                f"{len(set(c['expiration'] for c in unusual_calls))} expiry(ies). "
-                f"Strong sweep signal — {len(high_conviction)} high-conviction contract(s), "
-                f"{len(aggressive_fills)} aggressive fill(s) at/above ask. "
-                "Institutional buyers are positioning bullishly."
-            )
-        elif len(high_conviction) >= 1 or len(aggressive_fills) >= 1:
-            sweep_signal = "moderate"
-            interpretation = (
-                f"{len(unusual_calls)} unusual call(s) detected. "
-                f"Moderate sweep signal — {len(aggressive_fills)} aggressive fill(s). "
-                "Smart money showing interest; watch for follow-through volume."
-            )
-        else:
-            sweep_signal = "weak"
-            interpretation = (
-                f"{len(unusual_calls)} elevated-volume call(s) detected but no confirmed "
-                "aggressive fills at/above ask. Possible sweep activity — monitor for confirmation."
-            )
-
-    return {
-        "symbol":          symbol.upper(),
-        "price":           round(price, 2),
-        "expirations_scanned": list(expirations[:max_expirations]),
-        "sweep_signal":    sweep_signal,
-        "unusual_call_count": len(unusual_calls),
-        "unusual_calls":   unusual_calls[:20],   # cap output at top 20
-        "interpretation":  interpretation,
-    }
-
-
-def _norm_cdf(x: float) -> float:
-    """Standard normal CDF using math.erf — no scipy required."""
-    return (1.0 + math.erf(x / math.sqrt(2.0))) / 2.0
-
-
-def _norm_pdf(x: float) -> float:
-    """Standard normal PDF — no scipy required."""
-    return math.exp(-0.5 * x * x) / math.sqrt(2.0 * math.pi)
-
-
-def _bs_d1(S: float, K: float, T: float, sigma: float, r: float):
-    """
-    Black-Scholes d1 term, shared by delta and gamma.
-
-    Returns None for degenerate inputs so callers can apply their own fallback.
-    """
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-        return None
-    try:
-        return (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
-    except (ValueError, ZeroDivisionError, OverflowError):
-        return None
-
-
-def _bs_gamma(S: float, K: float, T: float, sigma: float, r: float,
-              d1: float = None) -> float:
-    """
-    Black-Scholes gamma for a European option (identical for calls and puts).
-
-    Gamma peaks at the money and decays toward zero for deep ITM/OTM strikes,
-    so gamma × OI correctly identifies hedging concentration near spot —
-    unlike |delta| × OI, which saturates at OI for every deep-ITM strike.
-
-    Pass a precomputed d1 to avoid recomputing it when delta was already
-    derived for the same contract. Returns 0.0 for degenerate inputs.
-    """
-    if d1 is None:
-        d1 = _bs_d1(S, K, T, sigma, r)
-    if d1 is None:
-        return 0.0
-    try:
-        return _norm_pdf(d1) / (S * sigma * math.sqrt(T))
-    except (ValueError, ZeroDivisionError, OverflowError):
-        return 0.0
-
-
-def _bs_delta(S: float, K: float, T: float, sigma: float,
-              r: float, is_call: bool, d1: float = None) -> float:
-    """
-    Black-Scholes delta for a European option.
-
-    S     — current underlying price
-    K     — strike price
-    T     — time to expiry in years
-    sigma — implied volatility (decimal, e.g. 0.40 for 40%)
-    r     — risk-free rate (decimal)
-    is_call — True for call, False for put
-    d1    — optional precomputed _bs_d1 value to avoid recomputing it
-
-    Returns delta in [-1, 1].  Returns ±0.5 for degenerate inputs.
-    """
-    if d1 is None:
-        d1 = _bs_d1(S, K, T, sigma, r)
-    if d1 is None:
-        return 0.5 if is_call else -0.5
-    if is_call:
-        return _norm_cdf(d1)
-    else:
-        return _norm_cdf(d1) - 1.0
+    return get_services().options.get_unusual_calls(
+        symbol, min_volume, min_vol_oi_ratio, max_expirations
+    )
 
 
 @mcp.tool()
@@ -839,192 +453,10 @@ def get_delta_adjusted_oi(
         max_expirations: Number of nearest expirations to analyse (default: 3)
         risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
     """
-    ticker = yf.Ticker(symbol.upper())
-    info   = ticker.fast_info
-    price  = getattr(info, "last_price", None)
-    if price is None or math.isnan(float(price)):
-        raise ValueError(f"Could not retrieve price for {symbol}")
-    price = float(price)
+    return get_services().options.get_delta_adjusted_oi(
+        symbol, max_expirations, risk_free_rate
+    )
 
-    expirations = ticker.options
-    if not expirations:
-        return {
-            "symbol": symbol.upper(),
-            "price": round(price, 2),
-            "signal": "none",
-            "interpretation": "No options data available.",
-        }
-
-    today = datetime.date.today()
-
-    # ------------------------------------------------------------------ #
-    # Accumulate DAOI across all scanned expirations
-    # ------------------------------------------------------------------ #
-    total_call_daoi = 0.0
-    total_put_daoi  = 0.0
-
-    # Per-strike aggregation for flip and gamma-wall detection
-    strike_net_daoi: dict[float, float] = {}   # strike → net delta × OI
-    strike_gamma_oi: dict[float, float] = {}   # strike → BS gamma × OI
-
-    expiry_summaries = []
-
-    for exp in expirations[:max_expirations]:
-        try:
-            exp_date = datetime.date.fromisoformat(exp)
-            T = max((exp_date - today).days / 365.0, 1 / 365.0)
-            chain    = ticker.option_chain(exp)
-            calls_df = chain.calls.copy()
-            puts_df  = chain.puts.copy()
-        except Exception:
-            continue
-
-        exp_call_daoi = 0.0
-        exp_put_daoi  = 0.0
-
-        for df, is_call in [(calls_df, True), (puts_df, False)]:
-            if df.empty:
-                continue
-            for _, row in df.iterrows():
-                K   = float(row.get("strike", 0) or 0)
-                oi  = _safe_int(row.get("openInterest"))
-                raw_iv = float(row.get("impliedVolatility", 0) or 0)
-                sigma = raw_iv if raw_iv > 0 else 0.30   # fallback 30% if IV missing
-
-                if K <= 0 or oi <= 0:
-                    continue
-
-                d1     = _bs_d1(price, K, T, sigma, risk_free_rate)
-                delta  = _bs_delta(price, K, T, sigma, risk_free_rate, is_call, d1=d1)
-                daoi   = delta * oi
-
-                if is_call:
-                    exp_call_daoi += daoi
-                else:
-                    exp_put_daoi += daoi
-
-                # Aggregate by strike for flip/wall detection
-                strike_net_daoi[K] = strike_net_daoi.get(K, 0.0) + daoi
-                gamma = _bs_gamma(price, K, T, sigma, risk_free_rate, d1=d1)
-                strike_gamma_oi[K] = strike_gamma_oi.get(K, 0.0) + gamma * oi
-
-        total_call_daoi += exp_call_daoi
-        total_put_daoi  += exp_put_daoi
-
-        expiry_summaries.append({
-            "expiration":      exp,
-            "days_to_expiry":  (datetime.date.fromisoformat(exp) - today).days,
-            "call_daoi_shares": round(exp_call_daoi, 0),
-            "put_daoi_shares":  round(exp_put_daoi, 0),
-            "net_daoi_shares":  round(exp_call_daoi + exp_put_daoi, 0),
-        })
-
-    if not expiry_summaries:
-        return {
-            "symbol": symbol.upper(),
-            "price": round(price, 2),
-            "signal": "none",
-            "interpretation": "Could not compute delta-adjusted OI — check symbol or options availability.",
-        }
-
-    net_daoi = total_call_daoi + total_put_daoi
-
-    # ------------------------------------------------------------------ #
-    # Delta flip strike — nearest strike where net DAOI crosses zero
-    # ------------------------------------------------------------------ #
-    sorted_strikes = sorted(strike_net_daoi.keys())
-
-    delta_flip_strike = None
-    min_abs_net = float("inf")
-    for k in sorted_strikes:
-        abs_net = abs(strike_net_daoi[k])
-        if abs_net < min_abs_net:
-            min_abs_net       = abs_net
-            delta_flip_strike = k
-
-    # Also find where cumulative net DAOI changes sign (true crossing)
-    flip_crossing = None
-    cum = 0.0
-    for k in sorted_strikes:
-        prev = cum
-        cum += strike_net_daoi[k]
-        if prev * cum < 0:   # sign change
-            flip_crossing = round(k, 2)
-            break
-
-    # ------------------------------------------------------------------ #
-    # Gamma wall — strike with highest gamma × OI (most hedging activity)
-    # ------------------------------------------------------------------ #
-    gamma_wall = max(strike_gamma_oi, key=strike_gamma_oi.get) if strike_gamma_oi else None
-
-    # ------------------------------------------------------------------ #
-    # Market maker hedge bias
-    # ------------------------------------------------------------------ #
-    # MM net delta = negative of their customer book delta
-    # If customers net bought calls (positive customer delta) → MM short delta
-    # → MM must BUY stock as price rises to hedge
-    mm_net_delta = -net_daoi
-    if mm_net_delta < 0:
-        mm_hedge_bias = "sell_on_rally"   # MM long delta, sells as price rises
-        mm_note       = "MM are net LONG delta — they sell stock on rallies (resistance)"
-    else:
-        mm_hedge_bias = "buy_on_rally"    # MM short delta, buys as price rises
-        mm_note       = "MM are net SHORT delta — they buy stock on rallies (support / amplifies bounce)"
-
-    dist_to_flip_pct = None
-    if delta_flip_strike:
-        dist_to_flip_pct = round((delta_flip_strike - price) / price * 100, 2)
-
-    # ------------------------------------------------------------------ #
-    # Bounce signal
-    # ------------------------------------------------------------------ #
-    # Strong bounce: MM short delta (buy_on_rally) + price below flip + large magnitude
-    magnitude = abs(net_daoi)
-    near_flip  = dist_to_flip_pct is not None and abs(dist_to_flip_pct) <= 5.0
-
-    if mm_hedge_bias == "buy_on_rally" and near_flip and magnitude > 10_000:
-        signal = "strong"
-        signal_note = (
-            "MM are net short delta and price is within 5% of the delta flip. "
-            "Mechanical buy pressure will amplify any bounce."
-        )
-    elif mm_hedge_bias == "buy_on_rally" and magnitude > 5_000:
-        signal = "moderate"
-        signal_note = (
-            "MM net short delta — hedging flows will support a rally, "
-            "but price is not yet near the delta flip level."
-        )
-    elif mm_hedge_bias == "buy_on_rally":
-        signal = "weak"
-        signal_note = "MM net short delta but magnitude is small — limited mechanical support."
-    else:
-        signal = "none"
-        signal_note = "MM net long delta — selling pressure on rallies. Not a bounce setup."
-
-    result = {
-        "symbol":              symbol.upper(),
-        "price":               round(price, 2),
-        "expirations_scanned": [s["expiration"] for s in expiry_summaries],
-        "net_daoi_shares":     round(net_daoi, 0),
-        "call_daoi_shares":    round(total_call_daoi, 0),
-        "put_daoi_shares":     round(total_put_daoi, 0),
-        "mm_hedge_bias":       mm_hedge_bias,
-        "mm_note":             mm_note,
-        "delta_flip_strike":   delta_flip_strike,
-        "delta_flip_crossing": flip_crossing,
-        "dist_to_flip_pct":    dist_to_flip_pct,
-        "gamma_wall_strike":   gamma_wall,
-        # Methodology marker persisted with each gamma_wall_history row so
-        # consumers can separate rows from the legacy |delta × OI| proxy era
-        # ("abs_daoi") from Black-Scholes gamma × OI rows ("bs_gamma_oi").
-        "gamma_wall_method":   "bs_gamma_oi",
-        "signal":              signal,
-        "signal_note":         signal_note,
-        "by_expiration":       expiry_summaries,
-    }
-
-    _options_store.save_gamma_wall(symbol.upper(), result)
-    return result
 
 @mcp.tool()
 def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
@@ -1058,15 +490,8 @@ def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
     Returns:
         dict with keys: symbol, since_days, data_points, history (list of daily rows), note
     """
-    symbol = symbol.upper().strip()
-    rows = _options_store.get_gamma_wall_history(symbol, since_days)
-    return {
-        "symbol": symbol,
-        "since_days": since_days,
-        "data_points": len(rows),
-        "history": rows,
-        "note": "One row per calendar day. Data accumulates from first call after tracking was enabled." if rows else "No history yet — call get_delta_adjusted_oi() daily to build history.",
-    }
+    return get_services().options.get_gamma_wall_history(symbol, since_days)
+
 
 @mcp.tool()
 def get_historical_drawdown(

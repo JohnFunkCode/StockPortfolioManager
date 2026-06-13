@@ -16,6 +16,7 @@ repositories directly.
 from dataclasses import dataclass
 from functools import lru_cache
 
+from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 from quantcore.repositories.news_repository import NewsStore
@@ -25,6 +26,7 @@ from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.microstructure import MicrostructureService
+from quantcore.services.options import OptionsService
 from quantcore.services.prices import PricesService
 from quantcore.services.sentiment import SentimentService
 
@@ -33,6 +35,7 @@ from quantcore.services.sentiment import SentimentService
 class Services:
     # Gateways
     yfinance_gateway: YFinanceGateway
+    polygon_gateway: PolygonGateway
     # Repositories (wired Step 0). Service objects are added in Steps 1-8.
     ohlcv_repository: OhlcvRepository
     options_repository: OptionsStore
@@ -45,18 +48,29 @@ class Services:
     sentiment: SentimentService
     fundamentals: FundamentalsService
     prices: PricesService
+    options: OptionsService
 
 
 @lru_cache(maxsize=1)
 def get_services() -> Services:
     yfinance_gateway = YFinanceGateway()
+    polygon_gateway = PolygonGateway()
     ohlcv_repository = OhlcvRepository()
     news_repository = NewsStore()
     sentiment_repository = SentimentStore()
     fundamentals_repository = FundamentalsRepository()
     options_repository = OptionsStore()
+    # PricesService is constructed first: OptionsService composes it for the
+    # ATM-snapshot refresh path (acyclic — Prices never references Options).
+    prices = PricesService(
+        ohlcv_repository=ohlcv_repository,
+        yfinance_gateway=yfinance_gateway,
+        options_repository=options_repository,
+        sentiment_repository=sentiment_repository,
+    )
     return Services(
         yfinance_gateway=yfinance_gateway,
+        polygon_gateway=polygon_gateway,
         ohlcv_repository=ohlcv_repository,
         options_repository=options_repository,
         options_position_repository=OptionsPositionStore(),
@@ -76,10 +90,12 @@ def get_services() -> Services:
             fundamentals_repository=fundamentals_repository,
             yfinance_gateway=yfinance_gateway,
         ),
-        prices=PricesService(
+        prices=prices,
+        options=OptionsService(
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
             options_repository=options_repository,
-            sentiment_repository=sentiment_repository,
+            polygon_gateway=polygon_gateway,
+            prices=prices,
         ),
     )

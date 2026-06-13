@@ -52,80 +52,6 @@ class _JSONEncoder(json.JSONEncoder):
 
 
 # ---------------------------------------------------------------------------
-# Options analytics helpers
-# ---------------------------------------------------------------------------
-
-def _compute_max_pain(contracts: list[dict]):
-    """
-    Return (max_pain_strike, pain_by_strike) where pain_by_strike maps
-    strike → total dollar pain if the stock settled at that strike.
-    """
-    calls: dict[float, int] = {}
-    puts:  dict[float, int] = {}
-    for c in contracts:
-        oi = int(c.get("open_interest") or 0)
-        s  = float(c.get("strike") or 0)
-        if s <= 0 or oi <= 0:
-            continue
-        if c["kind"] == "call":
-            calls[s] = calls.get(s, 0) + oi
-        else:
-            puts[s]  = puts.get(s, 0)  + oi
-
-    all_strikes = sorted(set(list(calls) + list(puts)))
-    if not all_strikes:
-        return None, {}
-
-    min_pain = float("inf")
-    max_pain_strike = all_strikes[0]
-    pain_by_strike: dict[float, float] = {}
-
-    for test_s in all_strikes:
-        pain  = sum((test_s - k) * oi * 100 for k, oi in calls.items() if test_s > k)
-        pain += sum((k - test_s) * oi * 100 for k, oi in puts.items()  if test_s < k)
-        pain_by_strike[test_s] = pain
-        if pain < min_pain:
-            min_pain = pain
-            max_pain_strike = test_s
-
-    return max_pain_strike, pain_by_strike
-
-
-def _bs_delta_local(S: float, K: float, T: float, sigma: float,
-                    r: float, is_call: bool) -> float:
-    """Black-Scholes delta — mirror of stock_price_server._bs_delta (no import needed)."""
-    if T <= 0 or sigma <= 0 or S <= 0 or K <= 0:
-        return 0.5 if is_call else -0.5
-    try:
-        import math as _math
-        d1 = (_math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * _math.sqrt(T))
-        cdf = lambda x: (1.0 + _math.erf(x / _math.sqrt(2.0))) / 2.0  # noqa: E731
-        return cdf(d1) if is_call else cdf(d1) - 1.0
-    except (ValueError, ZeroDivisionError):
-        return 0.5 if is_call else -0.5
-
-
-def _compute_expected_move(contracts: list[dict], current_price: float):
-    """
-    Estimate expected move as the ATM straddle price (call last + put last).
-    Returns (em_dollar, em_pct, atm_strike).
-    """
-    calls = {float(c["strike"]): c for c in contracts if c["kind"] == "call"}
-    puts  = {float(c["strike"]): c for c in contracts if c["kind"] == "put"}
-
-    all_strikes = sorted(set(list(calls) + list(puts)))
-    if not all_strikes or current_price <= 0:
-        return 0.0, 0.0, None
-
-    atm_strike = min(all_strikes, key=lambda s: abs(s - current_price))
-    call_last  = float((calls.get(atm_strike) or {}).get("last_price") or 0)
-    put_last   = float((puts.get(atm_strike)  or {}).get("last_price") or 0)
-    straddle   = call_last + put_last
-    em_pct     = (straddle / current_price * 100) if current_price > 0 else 0.0
-    return straddle, em_pct, atm_strike
-
-
-# ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
 
@@ -552,17 +478,10 @@ def create_app() -> Flask:
 
     @app.route("/api/securities/<ticker>/options/latest", methods=["GET"])
     def get_options_latest(ticker: str):
-        ticker = ticker.upper()
         try:
-            from options_store import OptionsStore
-            store = OptionsStore()
-            snap = store.get_latest_snapshot(ticker)
+            return jsonify(get_services().options.get_options_latest(ticker))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        if snap is None:
-            return jsonify({"ticker": ticker, "snapshot": None})
-        return jsonify({"ticker": ticker, "snapshot": snap})
 
     @app.route("/api/securities/<ticker>/options/history", methods=["GET"])
     def get_options_history(ticker: str):
@@ -574,40 +493,11 @@ def create_app() -> Flask:
         We deduplicate by grouping on captured_at and averaging the P/C ratio
         across all expirations for that snapshot.
         """
-        ticker = ticker.upper()
         days = int(request.args.get("days", 30))
         try:
-            from options_store import OptionsStore
-            store = OptionsStore()
-            raw = store.get_pc_history(ticker, days=days)
+            return jsonify(get_services().options.get_options_history(ticker, days=days))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        # Aggregate: one entry per captured_at (group by date prefix to collapse
-        # intra-day duplicates from full-chain snapshots with many expirations).
-        from collections import defaultdict
-        groups: dict[str, list] = defaultdict(list)
-        for row in raw:
-            date_key = row["captured_at"][:10]   # YYYY-MM-DD
-            groups[date_key].append(row)
-
-        history = []
-        for date_key in sorted(groups):
-            rows = groups[date_key]
-            # Use the latest captured_at for this date
-            latest_row = max(rows, key=lambda r: r["captured_at"])
-            pc_values = [r["put_call_ratio"] for r in rows if r.get("put_call_ratio") is not None]
-            avg_pc = round(sum(pc_values) / len(pc_values), 4) if pc_values else None
-            history.append({
-                "captured_at":    latest_row["captured_at"],
-                "price":          latest_row["price"],
-                "put_call_ratio": avg_pc,
-                "bb_upper":       latest_row.get("bb_upper"),
-                "bb_middle":      latest_row.get("bb_middle"),
-                "bb_lower":       latest_row.get("bb_lower"),
-            })
-
-        return jsonify({"ticker": ticker, "history": history})
 
     @app.route("/api/securities/<ticker>/options/analytics", methods=["GET"])
     def get_options_analytics(ticker: str):
@@ -615,50 +505,10 @@ def create_app() -> Flask:
         Per-expiration max pain and expected move computed from the most recent
         full-chain snapshot stored by get_full_options_chain.
         """
-        ticker = ticker.upper()
         try:
-            from options_store import OptionsStore
-            store = OptionsStore()
-            chain = store.get_full_chain(ticker)
+            return jsonify(get_services().options.get_options_analytics(ticker))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        if chain is None:
-            return jsonify({
-                "ticker":    ticker,
-                "analytics": None,
-                "message":   "No full chain data. Run get_full_options_chain via MCP first.",
-            })
-
-        price  = float(chain.get("price") or 0)
-        result = []
-
-        for exp in chain.get("expirations", []):
-            contracts = exp.get("contracts", [])
-            if not contracts:
-                continue
-
-            max_pain_strike, pain_by_strike = _compute_max_pain(contracts)
-            em_dollar, em_pct, atm_strike   = _compute_expected_move(contracts, price)
-
-            result.append({
-                "expiration":           exp["expiration"],
-                "max_pain":             max_pain_strike,
-                "expected_move_dollar": round(em_dollar, 2),
-                "expected_move_pct":    round(em_pct, 2),
-                "atm_strike":           atm_strike,
-                "upper_bound":          round(price + em_dollar, 2),
-                "lower_bound":          round(price - em_dollar, 2),
-                "total_call_oi":        exp.get("total_call_oi") or 0,
-                "total_put_oi":         exp.get("total_put_oi") or 0,
-                "put_call_ratio":       exp.get("put_call_ratio"),
-                "pain_curve": [
-                    {"strike": s, "pain": round(p)}
-                    for s, p in sorted(pain_by_strike.items())
-                ],
-            })
-
-        return jsonify({"ticker": ticker, "price": price, "analytics": result})
 
     @app.route("/api/securities/<ticker>/options/chain", methods=["GET"])
     def get_options_chain(ticker: str):
@@ -669,29 +519,12 @@ def create_app() -> Flask:
         Query params:
           expiration  — filter to a single expiration date (YYYY-MM-DD), optional
         """
-        ticker = ticker.upper()
         expiration_filter = request.args.get("expiration")
         try:
-            from options_store import OptionsStore
-            store = OptionsStore()
-            chain = store.get_full_chain(ticker)
+            return jsonify(get_services().options.get_options_chain(
+                ticker, expiration=expiration_filter))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        if chain is None:
-            return jsonify({
-                "ticker":  ticker,
-                "chain":   None,
-                "message": "No full chain data found. Call get_full_options_chain via MCP first.",
-            })
-
-        if expiration_filter:
-            chain["expirations"] = [
-                e for e in chain.get("expirations", [])
-                if e["expiration"] == expiration_filter
-            ]
-
-        return jsonify({"ticker": ticker, "chain": chain})
 
     @app.route("/api/securities/<ticker>/options/iv-rank", methods=["GET"])
     def get_iv_rank(ticker: str):
@@ -704,46 +537,10 @@ def create_app() -> Flask:
         Composite IV per snapshot = average of avg_call_iv and avg_put_iv
         across all stored expirations for that snapshot.
         """
-        ticker = ticker.upper()
         try:
-            from options_store import OptionsStore
-            store = OptionsStore()
-            history = store.get_iv_history(ticker, days=365)
+            return jsonify(get_services().options.get_iv_rank(ticker))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        iv_values = [row["composite_iv"] for row in history if row["composite_iv"] is not None]
-
-        if len(iv_values) < 2:
-            return jsonify({
-                "ticker":        ticker,
-                "current_iv":    iv_values[-1] if iv_values else None,
-                "iv_rank":       None,
-                "iv_percentile": None,
-                "iv_52w_high":   max(iv_values) if iv_values else None,
-                "iv_52w_low":    min(iv_values) if iv_values else None,
-                "data_points":   len(iv_values),
-                "history":       history,
-            })
-
-        current_iv   = iv_values[-1]
-        iv_52w_high  = max(iv_values)
-        iv_52w_low   = min(iv_values)
-        iv_range     = iv_52w_high - iv_52w_low
-        iv_rank      = round((current_iv - iv_52w_low) / iv_range * 100, 1) if iv_range > 0 else 0.0
-        past         = iv_values[:-1]
-        iv_percentile = round(sum(1 for v in past if v < current_iv) / len(past) * 100, 1) if past else None
-
-        return jsonify({
-            "ticker":        ticker,
-            "current_iv":    round(current_iv, 2),
-            "iv_rank":       iv_rank,
-            "iv_percentile": iv_percentile,
-            "iv_52w_high":   round(iv_52w_high, 2),
-            "iv_52w_low":    round(iv_52w_low, 2),
-            "data_points":   len(iv_values),
-            "history":       history,
-        })
 
     # -----------------------------------------------------------------------
     # Securities — earnings dates  (#3)
@@ -770,47 +567,12 @@ def create_app() -> Flask:
     @app.route("/api/securities/<ticker>/signals/options-flow", methods=["GET"])
     def get_signals_options_flow(ticker: str):
         """Unusual call sweeps and delta-adjusted OI (market maker positioning)."""
-        ticker = ticker.upper()
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from stock_price_server import get_unusual_calls, get_delta_adjusted_oi
-
-        tasks = {
-            "unusual_calls":      lambda: get_unusual_calls(ticker),
-            "delta_adjusted_oi":  lambda: get_delta_adjusted_oi(ticker),
-        }
-
-        results: dict = {}
-        errors: dict = {}
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = {executor.submit(fn): key for key, fn in tasks.items()}
-            for future in as_completed(futures):
-                key = futures[future]
-                try:
-                    results[key] = future.result()
-                except Exception as e:
-                    results[key] = None
-                    errors[key] = str(e)
-
-        return jsonify({"ticker": ticker, "_errors": errors if errors else None, **results})
+        return jsonify(get_services().options.get_options_flow_signals(ticker))
 
     @app.route("/api/securities/<ticker>/signals/risk", methods=["GET"])
     def get_signals_risk(ticker: str):
         """Historical drawdown metrics for stop-loss calibration."""
-        ticker = ticker.upper()
-        from stock_price_server import get_historical_drawdown
-        try:
-            dd = get_historical_drawdown(ticker)
-        except Exception as exc:
-            return jsonify({"ticker": ticker, "drawdown": None, "error": str(exc)})
-        # Derive a simple stop-loss recommendation from drawdown stats
-        price_data: dict = {}
-        try:
-            from stock_price_server import get_vwap
-            vd = get_vwap(ticker)
-            price_data = {"vwap": vd.get("vwap"), "vwap_position": vd.get("position")}
-        except Exception:
-            pass
-        return jsonify({"ticker": ticker, "drawdown": dd, **price_data})
+        return jsonify(get_services().prices.get_risk_signals(ticker))
 
     # -----------------------------------------------------------------------
     # Securities — news with FinBERT sentiment
@@ -869,85 +631,11 @@ def create_app() -> Flask:
         compute the net delta-adjusted OI (market maker share-equivalent exposure)
         using Black-Scholes delta on the stored contract data.
         """
-        import datetime as _dt
-        from options_store import OptionsStore
-
-        portfolio = _load_portfolio()
-        store = OptionsStore()
-        today = _dt.date.today()
-        RISK_FREE = 0.045
-
-        exposure_list = []
-        total_net_daoi = 0.0
-
-        for sec in portfolio:
-            sym = sec["symbol"]
-            chain = store.get_full_chain(sym)
-            if chain is None:
-                continue
-
-            price = float(chain.get("price") or 0)
-            if price <= 0:
-                continue
-
-            net_call_daoi = 0.0
-            net_put_daoi  = 0.0
-
-            for exp in chain.get("expirations", []):
-                exp_str = exp.get("expiration")
-                if not exp_str:
-                    continue
-                try:
-                    exp_date = _dt.date.fromisoformat(exp_str)
-                    T = max((exp_date - today).days / 365.0, 1 / 365.0)
-                except Exception:
-                    continue
-
-                for c in exp.get("contracts", []):
-                    K      = float(c.get("strike") or 0)
-                    oi     = int(c.get("open_interest") or 0)
-                    raw_iv = float(c.get("implied_vol") or 0)
-                    sigma  = raw_iv / 100.0 if raw_iv > 1 else raw_iv  # stored as pct or decimal
-                    if sigma <= 0:
-                        sigma = 0.30
-                    is_call = c.get("kind") == "call"
-
-                    if K <= 0 or oi <= 0:
-                        continue
-
-                    delta = _bs_delta_local(price, K, T, sigma, RISK_FREE, is_call)
-                    daoi  = delta * oi
-                    if is_call:
-                        net_call_daoi += daoi
-                    else:
-                        net_put_daoi  += daoi
-
-            net_daoi = net_call_daoi + net_put_daoi
-            total_net_daoi += net_daoi
-
-            # Stock position delta (1.0 per share)
-            shares = sec.get("quantity") or 0
-            stock_delta = float(shares)
-
-            mm_hedge_bias = "buy_on_rally" if (-net_daoi) > 0 else "sell_on_rally"
-
-            exposure_list.append({
-                "symbol":          sym,
-                "name":            sec.get("name", sym),
-                "price":           round(price, 2),
-                "shares":          shares,
-                "stock_delta":     stock_delta,
-                "net_daoi_shares": round(net_daoi, 0),
-                "call_daoi":       round(net_call_daoi, 0),
-                "put_daoi":        round(net_put_daoi, 0),
-                "mm_hedge_bias":   mm_hedge_bias,
-                "captured_at":     chain.get("captured_at"),
-            })
-
-        return jsonify({
-            "portfolio_net_daoi": round(total_net_daoi, 0),
-            "positions":          exposure_list,
-        })
+        try:
+            return jsonify(get_services().options.get_portfolio_delta_exposure(
+                _load_portfolio()))
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
 
     # -----------------------------------------------------------------------
     # Securities — technical screener  (#6)
@@ -1017,195 +705,14 @@ def create_app() -> Flask:
         Plan requirement: Polygon Starter ($29/mo) includes 2+ years of options
         history. The free tier does NOT include historical options snapshots.
         """
-        import os
-        import requests as _requests
-
-        ticker = ticker.upper()
-        days_back     = min(int(request.args.get("days", 90)), 730)
+        days = int(request.args.get("days", 90))
         skip_existing = request.args.get("skip_existing", "true").lower() != "false"
-
-        api_key = os.environ.get("POLYGON_API_KEY", "").strip()
-        if not api_key:
-            return jsonify({
-                "error": "POLYGON_API_KEY not set in environment. "
-                         "Sign up at polygon.io and add POLYGON_API_KEY=... to your .env file."
-            }), 400
-
-        from options_store import OptionsStore
-        from datetime import timedelta
-        store = OptionsStore()
-
-        # Determine which dates to fetch (weekdays only)
-        today = date.today()
-        existing_dates = store.get_snapshot_dates(ticker, days=days_back + 7) if skip_existing else set()
-
-        trading_days: list[date] = []
-        for offset in range(days_back, 0, -1):
-            d = today - timedelta(days=offset)
-            if d.weekday() >= 5:          # skip Sat/Sun
-                continue
-            if d.isoformat() in existing_dates:
-                continue
-            trading_days.append(d)
-
-        if not trading_days:
-            return jsonify({
-                "ticker":   ticker,
-                "skipped":  0,
-                "fetched":  0,
-                "stored":   0,
-                "failed":   0,
-                "results":  [],
-                "note":     "All dates in range already have snapshots.",
-            })
-
-        BASE_URL = "https://api.polygon.io/v3/snapshot/options/{ticker}"
-        results: list[dict] = []
-        stored = 0
-
-        for d in trading_days:
-            date_str = d.isoformat()   # YYYY-MM-DD
-            contracts_all: list[dict] = []
-
-            # Paginate through all contracts for this date
-            url: str | None = (
-                f"https://api.polygon.io/v3/snapshot/options/{ticker}"
-                f"?date={date_str}&limit=250&apiKey={api_key}"
-            )
-            try:
-                while url:
-                    resp = _requests.get(url, timeout=30)
-                    if resp.status_code == 403:
-                        return jsonify({
-                            "error": "Polygon API key is invalid or the account plan does not "
-                                     "include historical options snapshots. "
-                                     "A Starter plan ($29/mo) or higher is required.",
-                            "polygon_status": resp.status_code,
-                        }), 402
-                    if resp.status_code == 404:
-                        # No data for this date (holiday, pre-listing, etc.)
-                        results.append({"date": date_str, "status": "no_data"})
-                        url = None
-                        continue
-                    resp.raise_for_status()
-                    body = resp.json()
-                    contracts_all.extend(body.get("results") or [])
-                    # Follow pagination cursor — Polygon returns next_url directly
-                    next_url = body.get("next_url")
-                    url = f"{next_url}&apiKey={api_key}" if next_url else None
-            except _requests.RequestException as exc:
-                results.append({"date": date_str, "status": "error", "error": str(exc)})
-                continue
-
-            if not contracts_all:
-                results.append({"date": date_str, "status": "no_data"})
-                continue
-
-            # Group contracts by expiration and compute aggregates
-            from collections import defaultdict
-            exps: dict[str, dict] = defaultdict(lambda: {
-                "calls": {"oi": 0, "vol": 0, "iv_sum": 0.0, "iv_count": 0},
-                "puts":  {"oi": 0, "vol": 0, "iv_sum": 0.0, "iv_count": 0},
-                "price": 0.0,
-            })
-
-            underlying_price: float = 0.0
-            for c in contracts_all:
-                details = c.get("details") or {}
-                kind    = (details.get("contract_type") or "").lower()   # "call" | "put"
-                exp     = details.get("expiration_date") or ""
-                if kind not in ("call", "put") or not exp:
-                    continue
-
-                oi  = int(c.get("open_interest") or 0)
-                iv  = c.get("implied_volatility")          # Polygon: decimal (0.25 = 25%)
-                day = c.get("day") or {}
-                vol = int(day.get("volume") or 0)
-
-                side = exps[exp][kind + "s"]
-                side["oi"]  += oi
-                side["vol"] += vol
-                if iv is not None and iv > 0:
-                    side["iv_sum"]   += float(iv) * 100   # convert to pct
-                    side["iv_count"] += 1
-
-                ua = c.get("underlying_asset") or {}
-                if ua.get("price"):
-                    underlying_price = float(ua["price"])
-
-            # Build expirations_data for save_full_chain
-            expirations_data = []
-            for exp, sides in sorted(exps.items()):
-                call_side = sides["calls"]
-                put_side  = sides["puts"]
-                call_oi   = call_side["oi"]
-                put_oi    = put_side["oi"]
-                pc_ratio  = round(put_oi / call_oi, 4) if call_oi > 0 else None
-                avg_call_iv = (
-                    round(call_side["iv_sum"] / call_side["iv_count"], 2)
-                    if call_side["iv_count"] > 0 else None
-                )
-                avg_put_iv = (
-                    round(put_side["iv_sum"] / put_side["iv_count"], 2)
-                    if put_side["iv_count"] > 0 else None
-                )
-                expirations_data.append({
-                    "expiration":     exp,
-                    "put_call_ratio": pc_ratio,
-                    "calls": {
-                        "total_open_interest": call_oi,
-                        "total_volume":        call_side["vol"],
-                        "avg_iv_pct":          avg_call_iv,
-                        "contracts":           [],   # contracts not stored for backfill
-                    },
-                    "puts": {
-                        "total_open_interest": put_oi,
-                        "total_volume":        put_side["vol"],
-                        "avg_iv_pct":          avg_put_iv,
-                        "contracts":           [],
-                    },
-                })
-
-            if not expirations_data:
-                results.append({"date": date_str, "status": "no_expirations"})
-                continue
-
-            # Use 16:00 ET close timestamp for the backfilled snapshot
-            captured_at = f"{date_str}T21:00:00Z"   # 16:00 ET = 21:00 UTC
-            snap_id = store.save_full_chain(
-                symbol          = ticker,
-                price           = underlying_price,
-                bollinger_bands = None,
-                expirations_data= expirations_data,
-                captured_at     = captured_at,
-            )
-
-            if snap_id is not None:
-                stored += 1
-                results.append({
-                    "date":        date_str,
-                    "status":      "stored",
-                    "expirations": len(expirations_data),
-                    "contracts":   len(contracts_all),
-                    "price":       round(underlying_price, 2),
-                })
-            else:
-                results.append({"date": date_str, "status": "duplicate"})
-
-        skipped = sum(1 for r in results if r.get("status") == "duplicate")
-        failed  = sum(1 for r in results if r.get("status") == "error")
-        no_data = sum(1 for r in results if r.get("status") in ("no_data", "no_expirations"))
-
-        return jsonify({
-            "ticker":          ticker,
-            "days_requested":  days_back,
-            "dates_attempted": len(trading_days),
-            "stored":          stored,
-            "skipped":         skipped,
-            "no_data":         no_data,
-            "failed":          failed,
-            "results":         results,
-        })
+        try:
+            payload, status = get_services().options.backfill_options_history(
+                ticker, days=days, skip_existing=skip_existing)
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+        return jsonify(payload), status
 
     # -----------------------------------------------------------------------
     # Options snapshots — bulk refresh for all tracked securities
@@ -1227,95 +734,21 @@ def create_app() -> Flask:
         snapshots. Running this endpoint daily is the only way to build a P/C
         ratio trend over time.
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        import time as _time
-
         source      = request.args.get("source", "portfolio")
         chain_type  = request.args.get("chain_type", "atm")
         batch_size  = int(request.args.get("batch_size", 10))
         max_workers = int(request.args.get("max_workers", 4))
         batch_delay = float(request.args.get("batch_delay", 1.5))  # seconds between batches
 
-        portfolio  = _load_portfolio()
-        watchlist  = _load_watchlist()
-
-        if source == "portfolio":
-            securities = portfolio
-        elif source == "watchlist":
-            securities = watchlist
-        else:  # "all"
-            seen = {s["symbol"] for s in portfolio}
-            securities = list(portfolio)
-            for s in watchlist:
-                if s["symbol"] not in seen:
-                    securities.append(s)
-                    seen.add(s["symbol"])
-
-        symbols = [s["symbol"] for s in securities if s.get("symbol")]
-
-        if chain_type == "full":
-            from stock_price_server import get_full_options_chain as _fetch
-        else:
-            from stock_price_server import get_stock_price as _fetch
-
-        start = _time.monotonic()
-        results_list = []
-
-        def _fetch_one(sym: str) -> dict:
-            """Fetch with one automatic retry on failure."""
-            for attempt in range(2):
-                try:
-                    _fetch(sym)
-                    return {"symbol": sym, "status": "ok"}
-                except Exception as exc:
-                    last_exc = exc
-                    if attempt == 0:
-                        _time.sleep(2)  # brief pause before retry
-            return {"symbol": sym, "status": "error", "error": str(last_exc)}
-
-        # Use a single executor for the entire run so threads are reused across
-        # batches.  Creating a new executor per batch spawns fresh threads each
-        # time, and yfinance's peewee cache opens one DB connection per thread
-        # (tkr-tz.db, cookies.db) that is never closed — exhausting file
-        # descriptors after enough batches.
-        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
-        try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                for idx, batch in enumerate(batches):
-                    futures = {executor.submit(_fetch_one, sym): sym for sym in batch}
-                    for future in as_completed(futures):
-                        results_list.append(future.result())
-                    # Pause between batches (skip delay after the last batch)
-                    if idx < len(batches) - 1:
-                        _time.sleep(batch_delay)
-        finally:
-            # Close yfinance's peewee cache DB connections that are held open
-            # in each worker thread's thread-local storage.
-            try:
-                from yfinance.cache import _TzDBManager, _CookieDBManager
-                _TzDBManager.close_db()
-                _CookieDBManager.close_db()
-            except Exception:
-                pass
-
-        elapsed = round(_time.monotonic() - start, 1)
-        results_list.sort(key=lambda r: r["symbol"])
-        succeeded = sum(1 for r in results_list if r["status"] == "ok")
-        failed    = len(results_list) - succeeded
-
-        return jsonify({
-            "source":           source,
-            "chain_type":       chain_type,
-            "total":            len(symbols),
-            "succeeded":        succeeded,
-            "failed":           failed,
-            "duration_seconds": elapsed,
-            "results":          results_list,
-            "note": (
-                "yfinance provides the current options chain only — not historical snapshots. "
-                "Run this endpoint once per trading day to build a P/C ratio trend over time."
-            ),
-        })
+        return jsonify(get_services().options.refresh_options_snapshots(
+            _load_portfolio(),
+            _load_watchlist(),
+            source=source,
+            chain_type=chain_type,
+            batch_size=batch_size,
+            max_workers=max_workers,
+            batch_delay=batch_delay,
+        ))
 
     return app
 

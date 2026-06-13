@@ -528,117 +528,23 @@ def create_app() -> Flask:
 
     @app.route("/api/securities/<ticker>/ohlcv", methods=["GET"])
     def get_ohlcv(ticker: str):
-        ticker = ticker.upper()
         days = int(request.args.get("days", 180))
         try:
-            from ohlcv_cache import get_history
-            df = get_history(ticker, "1d", days)
+            return jsonify(get_services().prices.get_ohlcv_bars(ticker, days))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        if df.empty:
-            return jsonify({"ticker": ticker, "bars": []})
-
-        df = df.tail(days)
-        bars = []
-        for ts, row in df.iterrows():
-            ts_str = pd.Timestamp(ts).strftime("%Y-%m-%d")
-            bars.append({
-                "date": ts_str,
-                "open": round(float(row["Open"]), 4),
-                "high": round(float(row["High"]), 4),
-                "low":  round(float(row["Low"]),  4),
-                "close": round(float(row["Close"]), 4),
-                "volume": int(row["Volume"]),
-            })
-        return jsonify({"ticker": ticker, "bars": bars})
 
     # -----------------------------------------------------------------------
     # Securities — technical indicators
     # -----------------------------------------------------------------------
 
-    def _safe_float(val) -> Optional[float]:
-        if val is None:
-            return None
-        try:
-            f = float(val)
-            return None if (math.isnan(f) or math.isinf(f)) else round(f, 4)
-        except (TypeError, ValueError):
-            return None
-
-    def _compute_rsi(closes: pd.Series, period: int = 14) -> pd.Series:
-        delta = closes.diff()
-        gain = delta.where(delta > 0, 0.0)
-        loss = -delta.where(delta < 0, 0.0)
-        avg_gain = gain.ewm(com=period - 1, min_periods=period).mean()
-        avg_loss = loss.ewm(com=period - 1, min_periods=period).mean()
-        rs = avg_gain / avg_loss.replace(0, float("nan"))
-        return 100 - (100 / (1 + rs))
-
-    def _compute_macd(closes: pd.Series):
-        ema12 = closes.ewm(span=12, min_periods=12).mean()
-        ema26 = closes.ewm(span=26, min_periods=26).mean()
-        macd_line = ema12 - ema26
-        signal_line = macd_line.ewm(span=9, min_periods=9).mean()
-        histogram = macd_line - signal_line
-        return macd_line, signal_line, histogram
-
     @app.route("/api/securities/<ticker>/technicals", methods=["GET"])
     def get_technicals(ticker: str):
-        ticker = ticker.upper()
         days = int(request.args.get("days", 365))
         try:
-            from ohlcv_cache import get_history
-            df = get_history(ticker, "1d", max(days, 400))
+            return jsonify(get_services().prices.get_technicals_table(ticker, days))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        if df.empty:
-            return jsonify({"ticker": ticker, "indicators": []})
-
-        closes = df["Close"]
-
-        # Moving averages
-        ma10  = closes.rolling(10).mean()
-        ma30  = closes.rolling(30).mean()
-        ma50  = closes.rolling(50).mean()
-        ma100 = closes.rolling(100).mean()
-        ma200 = closes.rolling(200).mean()
-
-        # Bollinger Bands (20-day)
-        sma20 = closes.rolling(20).mean()
-        std20 = closes.rolling(20).std()
-        bb_upper = sma20 + 2 * std20
-        bb_lower = sma20 - 2 * std20
-
-        # RSI (14-day)
-        rsi = _compute_rsi(closes)
-
-        # MACD
-        macd_line, signal_line, histogram = _compute_macd(closes)
-
-        df_out = df.tail(days)
-        indicators = []
-        for ts, row in df_out.iterrows():
-            idx = closes.index.get_loc(ts)
-            indicators.append({
-                "date":      pd.Timestamp(ts).strftime("%Y-%m-%d"),
-                "close":     _safe_float(row["Close"]),
-                "volume":    int(row["Volume"]),
-                "ma10":      _safe_float(ma10.iloc[idx]),
-                "ma30":      _safe_float(ma30.iloc[idx]),
-                "ma50":      _safe_float(ma50.iloc[idx]),
-                "ma100":     _safe_float(ma100.iloc[idx]),
-                "ma200":     _safe_float(ma200.iloc[idx]),
-                "bb_upper":  _safe_float(bb_upper.iloc[idx]),
-                "bb_middle": _safe_float(sma20.iloc[idx]),
-                "bb_lower":  _safe_float(bb_lower.iloc[idx]),
-                "rsi":       _safe_float(rsi.iloc[idx]),
-                "macd":      _safe_float(macd_line.iloc[idx]),
-                "macd_signal": _safe_float(signal_line.iloc[idx]),
-                "macd_hist": _safe_float(histogram.iloc[idx]),
-            })
-        return jsonify({"ticker": ticker, "indicators": indicators})
 
     # -----------------------------------------------------------------------
     # Securities — options data
@@ -859,36 +765,7 @@ def create_app() -> Flask:
         stochastic, VWAP, OBV, volume analysis, candlestick patterns,
         higher lows, gap analysis.
         """
-        ticker = ticker.upper()
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        from stock_price_server import (
-            get_stochastic, get_vwap, get_obv, get_volume_analysis,
-            get_candlestick_patterns, get_higher_lows, get_gap_analysis,
-        )
-
-        tasks = {
-            "stochastic":           lambda: get_stochastic(ticker),
-            "vwap":                 lambda: get_vwap(ticker),
-            "obv":                  lambda: get_obv(ticker),
-            "volume_analysis":      lambda: get_volume_analysis(ticker),
-            "candlestick_patterns": lambda: get_candlestick_patterns(ticker),
-            "higher_lows":          lambda: get_higher_lows(ticker, interval="1d"),
-            "gap_analysis":         lambda: get_gap_analysis(ticker),
-        }
-
-        results: dict = {}
-        errors: dict = {}
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            futures = {executor.submit(fn): key for key, fn in tasks.items()}
-            for future in as_completed(futures):
-                key = futures[future]
-                try:
-                    results[key] = future.result()
-                except Exception as e:
-                    results[key] = None
-                    errors[key] = str(e)
-
-        return jsonify({"ticker": ticker, "_errors": errors if errors else None, **results})
+        return jsonify(get_services().prices.get_technical_signals(ticker))
 
     @app.route("/api/securities/<ticker>/signals/options-flow", methods=["GET"])
     def get_signals_options_flow(ticker: str):
@@ -1094,146 +971,25 @@ def create_app() -> Flask:
           macd_bearish  — '1' to require macd < macd_signal
           source        — 'portfolio' | 'watchlist' | 'all' (default all)
         """
-        from contextlib import closing
-        from quantcore.db import get_connection
-
-        rsi_max        = request.args.get("rsi_max",        type=float)
-        rsi_min        = request.args.get("rsi_min",        type=float)
-        above_ma50     = request.args.get("above_ma50")     == "1"
-        below_ma50     = request.args.get("below_ma50")     == "1"
-        above_ma200    = request.args.get("above_ma200")    == "1"
-        below_ma200    = request.args.get("below_ma200")    == "1"
-        near_bb_low    = request.args.get("near_bb_lower")  == "1"
-        near_bb_high   = request.args.get("near_bb_upper")  == "1"
-        macd_bull      = request.args.get("macd_bullish")   == "1"
-        macd_bear      = request.args.get("macd_bearish")   == "1"
-        news_sentiment = request.args.get("news_sentiment")  # 'positive'|'negative'|'neutral'
-        src_filter     = request.args.get("source", "all")
-
-        # Always pre-load sentiment so results carry news_sentiment even when
-        # the filter is not active.  Cheap SQLite read — non-fatal if missing.
-        _sentiment_map: dict[str, str] = {}
+        filters = {
+            "rsi_max":        request.args.get("rsi_max",  type=float),
+            "rsi_min":        request.args.get("rsi_min",  type=float),
+            "above_ma50":     request.args.get("above_ma50")    == "1",
+            "below_ma50":     request.args.get("below_ma50")    == "1",
+            "above_ma200":    request.args.get("above_ma200")   == "1",
+            "below_ma200":    request.args.get("below_ma200")   == "1",
+            "near_bb_lower":  request.args.get("near_bb_lower") == "1",
+            "near_bb_upper":  request.args.get("near_bb_upper") == "1",
+            "macd_bullish":   request.args.get("macd_bullish")  == "1",
+            "macd_bearish":   request.args.get("macd_bearish")  == "1",
+            "news_sentiment": request.args.get("news_sentiment"),
+            "source":         request.args.get("source", "all"),
+        }
         try:
-            from sentiment_store import SentimentStore
-            _sentiment_map = {
-                sym: snap["overall_sentiment"]
-                for sym, snap in SentimentStore().get_all_latest().items()
-                if snap.get("overall_sentiment")
-            }
-        except Exception:
-            pass
-
-        # Load all securities
-        portfolio = {s["symbol"]: s for s in _load_portfolio()}
-        watchlist = {s["symbol"]: s for s in _load_watchlist()}
-        combined: dict[str, dict] = {}
-        for sym, s in portfolio.items():
-            combined[sym] = s
-        for sym, s in watchlist.items():
-            if sym in combined:
-                combined[sym]["source"] = "both"
-                combined[sym]["tags"] = s["tags"]
-            else:
-                combined[sym] = s
-
-        if src_filter == "portfolio":
-            symbols = [s for s in combined if combined[s]["source"] in ("portfolio", "both")]
-        elif src_filter == "watchlist":
-            symbols = [s for s in combined if combined[s]["source"] in ("watchlist", "both")]
-        else:
-            symbols = list(combined.keys())
-
-        if not symbols:
-            return jsonify({"results": [], "count": 0})
-
-        # Pull last 250 daily bars for each symbol in one SQL query
-        try:
-            with closing(get_connection()) as conn:
-                placeholders = ",".join("?" for _ in symbols)
-                rows = conn.execute(
-                    f"""
-                    SELECT symbol, ts, close, volume, high, low, open
-                    FROM ohlcv
-                    WHERE interval = '1d'
-                      AND symbol IN ({placeholders})
-                      AND status != 'GAP'
-                    ORDER BY symbol, ts ASC
-                    """,
-                    symbols,
-                ).fetchall()
+            return jsonify(get_services().prices.screen_securities(
+                filters, _load_portfolio(), _load_watchlist()))
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
-
-        # Group rows by symbol and compute indicators
-        from collections import defaultdict
-        bars_by_sym: dict[str, list] = defaultdict(list)
-        for r in rows:
-            bars_by_sym[r["symbol"]].append(r)
-
-        results = []
-        for sym in symbols:
-            bars = bars_by_sym.get(sym, [])
-            if len(bars) < 30:
-                continue
-
-            closes  = np.array([b["close"] for b in bars], dtype=float)
-            volumes = np.array([b["volume"] for b in bars], dtype=float)
-
-            # Use pandas Series for rolling computation
-            cs = pd.Series(closes)
-            ma50  = cs.rolling(50).mean().iloc[-1]   if len(closes) >= 50  else None
-            ma200 = cs.rolling(200).mean().iloc[-1]  if len(closes) >= 200 else None
-            sma20 = cs.rolling(20).mean()
-            std20 = cs.rolling(20).std()
-            bb_upper_s = (sma20 + 2 * std20).iloc[-1]
-            bb_lower_s = (sma20 - 2 * std20).iloc[-1]
-
-            # RSI
-            rsi_val = _compute_rsi(cs).iloc[-1]
-
-            # MACD
-            macd_line, signal_line, _ = _compute_macd(cs)
-            macd_val   = float(macd_line.iloc[-1])   if not pd.isna(macd_line.iloc[-1])   else None
-            macd_sig   = float(signal_line.iloc[-1]) if not pd.isna(signal_line.iloc[-1]) else None
-
-            last_close = float(closes[-1])
-            rsi        = float(rsi_val)   if rsi_val is not None and not pd.isna(rsi_val) else None
-            ma50_f     = float(ma50)      if ma50 is not None and not pd.isna(ma50)       else None
-            ma200_f    = float(ma200)     if ma200 is not None and not pd.isna(ma200)     else None
-            bb_upper_f = float(bb_upper_s) if not pd.isna(bb_upper_s)                    else None
-            bb_lower_f = float(bb_lower_s) if not pd.isna(bb_lower_s)                    else None
-
-            # Apply filters
-            if rsi_max  is not None and (rsi is None or rsi > rsi_max):       continue
-            if rsi_min  is not None and (rsi is None or rsi < rsi_min):       continue
-            if above_ma50  and (ma50_f  is None or last_close <= ma50_f):     continue
-            if below_ma50  and (ma50_f  is None or last_close >= ma50_f):     continue
-            if above_ma200 and (ma200_f is None or last_close <= ma200_f):    continue
-            if below_ma200 and (ma200_f is None or last_close >= ma200_f):    continue
-            if near_bb_low and (bb_lower_f is None or
-                                abs(last_close - bb_lower_f) / bb_lower_f > 0.03): continue
-            if near_bb_high and (bb_upper_f is None or
-                                 abs(last_close - bb_upper_f) / bb_upper_f > 0.03): continue
-            if macd_bull and (macd_val is None or macd_sig is None or macd_val <= macd_sig): continue
-            if macd_bear and (macd_val is None or macd_sig is None or macd_val >= macd_sig): continue
-            if news_sentiment and _sentiment_map.get(sym) != news_sentiment:                 continue
-
-            sec = combined[sym]
-            results.append({
-                **sec,
-                "last_close":      round(last_close, 4),
-                "rsi":             round(rsi, 1) if rsi is not None else None,
-                "ma50":            round(ma50_f, 2) if ma50_f is not None else None,
-                "ma200":           round(ma200_f, 2) if ma200_f is not None else None,
-                "bb_upper":        round(bb_upper_f, 2) if bb_upper_f is not None else None,
-                "bb_lower":        round(bb_lower_f, 2) if bb_lower_f is not None else None,
-                "macd":            round(macd_val, 4) if macd_val is not None else None,
-                "macd_signal":     round(macd_sig, 4) if macd_sig is not None else None,
-                "news_sentiment":  _sentiment_map.get(sym),
-            })
-
-        results.sort(key=lambda x: x["rsi"] if x["rsi"] is not None else 50)
-        return jsonify({"results": results, "count": len(results)})
 
     # -----------------------------------------------------------------------
     # Options history — Polygon.io historical backfill

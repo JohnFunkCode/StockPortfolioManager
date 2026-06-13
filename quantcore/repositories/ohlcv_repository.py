@@ -393,3 +393,21 @@ class OhlcvRepository:
 
     def period_to_days(self, period: str) -> int:
         return period_to_days(period)
+
+    def daily_bars_for_symbols(self, symbols: list[str]) -> list:
+        """All cached daily bars for the given symbols, ordered by symbol, ts."""
+        if not symbols:
+            return []
+        with closing(get_connection()) as conn:
+            placeholders = ",".join("?" for _ in symbols)
+            return conn.execute(
+                f"""
+                SELECT symbol, ts, close, volume, high, low, open
+                FROM ohlcv
+                WHERE interval = '1d'
+                  AND symbol IN ({placeholders})
+                  AND status != 'GAP'
+                ORDER BY symbol, ts ASC
+                """,
+                symbols,
+            ).fetchall()

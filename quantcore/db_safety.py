@@ -9,6 +9,7 @@ to make that failure mode impossible.
 """
 
 import os
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -50,4 +51,15 @@ def assert_not_production(env_path: str | Path | None = None) -> None:
             "Refusing to run: the effective QUANTCORE_DB_DSN matches the "
             f"production database recorded in {env_file}. Export the test DSN "
             "(QUANTCORE_TEST_DB_DSN) for this process instead."
+        )
+
+    # quantcore.db freezes DB_DSN at import time. If it was imported before
+    # the env override took effect, the env check above passes while
+    # get_connection() still targets production — catch that too.
+    db_module = sys.modules.get("quantcore.db")
+    if db_module is not None and prod_dsn and _endpoint(db_module.DB_DSN) == _endpoint(prod_dsn):
+        raise SystemExit(
+            "Refusing to run: quantcore.db was imported before the test DSN "
+            "override, so its frozen DB_DSN still points at production. "
+            "Ensure the override runs before any quantcore.db import."
         )

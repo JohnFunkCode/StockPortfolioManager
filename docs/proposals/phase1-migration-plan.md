@@ -7,7 +7,7 @@ Update this table as part of every step-commit. Any dev machine can resume by re
 | Step | Description | Status | Commit | Date | Notes |
 |---|---|---|---|---|---|
 | A | Capabilities matrix refresh | DONE | d14b885 | 2026-06-12 | Evidence base updated |
-| -1 | Safety setup (prod backup, tag, test DB seed, DSN guard, flyway) | MOSTLY DONE | — | 2026-06-12 | Prod backup taken (backups/quantcore_prod_2026-06-12.dump, 5.6 MB) + restore-verified into local scratch DB quantcore_restore_check (16 tables, ~297k rows). Flyway 12.8.1 installed (brew). Worktree skipped per user — working in main checkout. REMAINING: test Cloud SQL instance (quantcore-test-20260606) is STOPPED — user must start it + proxy on 5434; then seed test DB from dump + run flyway info |
+| -1 | Safety setup (prod backup, tag, test DB seed, DSN guard, flyway) | DONE | — | 2026-06-12 | Prod backup backups/quantcore_prod_2026-06-12.dump (5.6 MB) restore-verified into local scratch DB quantcore_restore_check AND used to reseed the test DB (exact prod parity: 16 tables, 176,998 options_contracts, 114,221 ohlcv). Test Cloud SQL instance quantcore-test-20260606 started; proxy on 5434. Flyway 12.8.1 installed; db/flyway.conf + db/migrations/ created; flyway info connects (baseline V1 on first migrate). db_safety guard hardened (also catches quantcore.db imported pre-override) and wired into test_options_contract_tools.py — NOTE: bare `python -m unittest discover` previously hit PROD via default DSN; guard now redirects/refuses. Worktree skipped per user — working in main checkout |
 | 0 | Scaffolding (packages, repositories move, registry) | PENDING | — | — | |
 | 1 | Microstructure service | PENDING | — | — | Template step |
 | 2 | Sentiment/News service | PENDING | — | — | |

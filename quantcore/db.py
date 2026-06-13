@@ -88,6 +88,28 @@ CREATE TABLE IF NOT EXISTS positions (
     CHECK(cost_basis_total >= 0)
 );
 
+-- V2 (Phase 1 Step 6): multi-owner positions + CSV-parity columns. Mirrors
+-- db/migrations/V2__positions_multi_owner.sql so fresh/test databases created
+-- by init_schema() converge to the same shape Flyway applies to existing ones.
+-- Additive only -- the IF NOT EXISTS guards make this idempotent.
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT 'john';
+ALTER TABLE positions ALTER COLUMN opened_at DROP NOT NULL;
+ALTER TABLE positions ALTER COLUMN entry_price DROP NOT NULL;
+ALTER TABLE positions ALTER COLUMN shares DROP NOT NULL;
+ALTER TABLE positions ALTER COLUMN cost_basis_total DROP NOT NULL;
+ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_entry_price_check;
+ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_shares_check;
+ALTER TABLE positions DROP CONSTRAINT IF EXISTS positions_cost_basis_total_check;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS name TEXT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS purchase_price REAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS quantity INTEGER;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS purchase_date TEXT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS currency TEXT;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS sale_price REAL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS sale_date TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_owner_symbol_date
+    ON positions(owner, symbol_id, purchase_date);
+
 CREATE TABLE IF NOT EXISTS plan_instances (
     instance_id SERIAL PRIMARY KEY,
     template_id INTEGER NOT NULL,

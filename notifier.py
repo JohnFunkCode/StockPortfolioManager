@@ -17,7 +17,7 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
-from experiments.HarvesterPlanStore import HarvesterPlanDB
+from quantcore.services.registry import get_services
 from quantcore.repositories.options_position_repository import (
     OptionsPositionStore,
     ALERT_ITM,
@@ -43,15 +43,15 @@ class Notifier:
 
     
     def calculate_and_send_notifications(self):
-        harvester_db = HarvesterPlanDB()
+        harvester = get_services().harvester
         for stock in self.portfolio.stocks.values():
-            hits = harvester_db.harvest_hit_for_symbol(
+            hits = harvester.harvest_hit_for_symbol(
                 symbol=stock.symbol,
                 current_price=float(stock.current_price.amount),
             )
             if hits:
                 rung_ids = [hit["rung_id"] for hit in hits if hit.get("rung_id") is not None]
-                harvester_db.mark_rungs_achieved(
+                harvester.mark_rungs_achieved(
                     rung_ids=rung_ids,
                     trigger_price=float(stock.current_price.amount),
                 )

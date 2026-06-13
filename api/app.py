@@ -4,7 +4,6 @@ Flask REST API for the Harvester Plan Store and Securities Dashboard.
 Run with:  python -m api.app
 """
 
-import csv
 import json
 import math
 import sys
@@ -28,11 +27,8 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
-from experiments.HarvesterPlanStore import (  # noqa: E402
-    HarvesterController,
-    HarvesterPlanDB,
-    PlanBuildParams,
-)
+from quantcore.repositories.harvester_repository import PlanBuildParams  # noqa: E402
+from quantcore.services.portfolio import DuplicateSymbolError  # noqa: E402
 from quantcore.services.registry import get_services  # noqa: E402
 
 
@@ -67,11 +63,10 @@ def create_app() -> Flask:
     # CORS – allow React dev servers
     CORS(app, resources={r"/api/*": {"origins": "*"}})
 
-    # Initialise a single HarvesterPlanDB instance shared across requests.
-    db = HarvesterPlanDB()
-    controller = HarvesterController(db)
-    app.config["db"] = db
-    app.config["controller"] = controller
+    # Harvester plan/rung logic now lives in the services layer; routes are thin
+    # adapters over the shared, lazily-constructed HarvesterService.
+    db = get_services().harvester
+    controller = get_services().harvester
 
     # -----------------------------------------------------------------------
     # Error handlers
@@ -232,7 +227,7 @@ def create_app() -> Flask:
 
     @app.route("/api/symbols/<ticker>/price", methods=["GET"])
     def get_symbol_price(ticker):
-        price = db._poll_latest_close(ticker.upper())
+        price = db.poll_latest_close(ticker.upper())
         if price is None:
             return jsonify({"error": f"Could not fetch price for {ticker}", "status": 404}), 404
         return jsonify({"ticker": ticker.upper(), "price": price})
@@ -250,28 +245,9 @@ def create_app() -> Flask:
     # Securities — portfolio & watchlist
     # -----------------------------------------------------------------------
 
-    def _load_portfolio() -> list[dict]:
-        """Load portfolio positions from portfolio.csv (or sample_stocks.csv)."""
-        for candidate in ("portfolio.csv", "sample_stocks.csv"):
-            csv_path = PROJECT_ROOT / candidate
-            if csv_path.exists():
-                rows = []
-                with open(csv_path, newline="") as fh:
-                    for row in csv.DictReader(fh):
-                        rows.append({
-                            "name": row.get("name", "").strip(),
-                            "symbol": row.get("symbol", "").strip().upper(),
-                            "purchase_price": float(row["purchase_price"]) if row.get("purchase_price") else None,
-                            "quantity": int(row["quantity"]) if row.get("quantity") else None,
-                            "purchase_date": row.get("purchase_date") or None,
-                            "currency": (row.get("currency") or "USD").strip().upper(),
-                            "sale_price": float(row["sale_price"]) if row.get("sale_price") else None,
-                            "sale_date": row.get("sale_date") or None,
-                            "source": "portfolio",
-                            "tags": [],
-                        })
-                return rows
-        return []
+    def _load_portfolio(owner: str = "john") -> list[dict]:
+        """Load an owner's portfolio positions from the DB-backed positions table."""
+        return get_services().portfolio.list_positions(owner)
 
     def _load_watchlist() -> list[dict]:
         """Load watchlist from ./watchlist.yaml."""
@@ -298,78 +274,70 @@ def create_app() -> Flask:
 
     @app.route("/api/portfolio", methods=["GET"])
     def get_portfolio():
-        return jsonify({"securities": _load_portfolio()})
+        owner = request.args.get("owner", "john")
+        return jsonify({"securities": _load_portfolio(owner)})
 
     @app.route("/api/portfolio", methods=["POST"])
     def add_to_portfolio():
-        """Append a new position to portfolio.csv (or sample_stocks.csv)."""
+        """Add a new position to the owner's DB-backed portfolio."""
+        owner  = request.args.get("owner", "john")
         body   = request.get_json(silent=True) or {}
         symbol = body.get("symbol", "").strip().upper()
         if not symbol:
             return jsonify({"error": "symbol is required"}), 400
 
-        existing = {s["symbol"] for s in _load_portfolio()}
-        if symbol in existing:
-            return jsonify({"error": f"{symbol} is already in the portfolio"}), 409
-
-        # Resolve write target (portfolio.csv preferred, else sample_stocks.csv)
-        for candidate in ("portfolio.csv", "sample_stocks.csv"):
-            csv_path = PROJECT_ROOT / candidate
-            if csv_path.exists():
-                break
-        else:
-            csv_path = PROJECT_ROOT / "portfolio.csv"
-
-        name           = body.get("name", "").strip()
-        purchase_price = body.get("purchase_price") or ""
-        quantity       = body.get("quantity") or ""
-        purchase_date  = body.get("purchase_date") or ""
-        currency       = (body.get("currency") or "USD").strip().upper()
-
-        write_header = not csv_path.exists()
-        with open(csv_path, "a", newline="") as fh:
-            writer = csv.writer(fh)
-            if write_header:
-                writer.writerow([
-                    "name", "symbol", "purchase_price", "quantity",
-                    "purchase_date", "currency", "sale_price", "sale_date", "current_price",
-                ])
-            writer.writerow([name, symbol, purchase_price, quantity,
-                             purchase_date, currency, "", "", ""])
+        try:
+            get_services().portfolio.add_position(
+                owner,
+                name=body.get("name", "").strip(),
+                symbol=symbol,
+                purchase_price=body.get("purchase_price"),
+                quantity=body.get("quantity"),
+                purchase_date=body.get("purchase_date"),
+                currency=body.get("currency"),
+            )
+        except DuplicateSymbolError as exc:
+            return jsonify({"error": str(exc)}), 409
 
         return jsonify({"symbol": symbol, "destination": "portfolio"}), 201
 
     @app.route("/api/portfolio/<ticker>", methods=["DELETE"])
     def remove_from_portfolio(ticker: str):
-        """Remove a position from portfolio.csv (or sample_stocks.csv) by symbol."""
+        """Remove a position from the owner's DB-backed portfolio by symbol."""
+        owner  = request.args.get("owner", "john")
         ticker = ticker.upper()
 
-        for candidate in ("portfolio.csv", "sample_stocks.csv"):
-            csv_path = PROJECT_ROOT / candidate
-            if csv_path.exists():
-                break
-        else:
-            return jsonify({"error": "Portfolio file not found"}), 404
-
-        rows: list[dict] = []
-        with open(csv_path, newline="") as fh:
-            reader = csv.DictReader(fh)
-            fieldnames = reader.fieldnames or []
-            for row in reader:
-                rows.append(row)
-
-        original_count = len(rows)
-        rows = [r for r in rows if r.get("symbol", "").strip().upper() != ticker]
-
-        if len(rows) == original_count:
+        removed = get_services().portfolio.remove_position(owner, ticker)
+        if removed == 0:
             return jsonify({"error": f"{ticker} not found in portfolio"}), 404
 
-        with open(csv_path, "w", newline="") as fh:
-            writer = csv.DictWriter(fh, fieldnames=fieldnames)
-            writer.writeheader()
-            writer.writerows(rows)
-
         return jsonify({"symbol": ticker, "removed": True}), 200
+
+    @app.route("/api/portfolio/import", methods=["POST"])
+    def import_portfolio():
+        """Full-sync replace of the owner's positions from an uploaded CSV.
+
+        Accepts either a multipart file upload (form field ``file``) or a JSON
+        body with a server-side ``path``.
+        """
+        import tempfile
+
+        owner = request.args.get("owner", "john")
+
+        upload = request.files.get("file")
+        if upload is not None:
+            with tempfile.NamedTemporaryFile("wb", suffix=".csv", delete=True) as tmp:
+                upload.save(tmp.name)
+                count = get_services().portfolio.import_csv(tmp.name, owner)
+        else:
+            path = (request.get_json(silent=True) or {}).get("path")
+            if not path:
+                return jsonify({"error": "a CSV file upload or 'path' is required"}), 400
+            if not Path(path).exists():
+                return jsonify({"error": f"CSV not found: {path}"}), 404
+            count = get_services().portfolio.import_csv(path, owner)
+
+        return jsonify({"owner": owner, "imported": count}), 200
 
     @app.route("/api/watchlist", methods=["GET"])
     def get_watchlist():

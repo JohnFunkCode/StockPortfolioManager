@@ -176,3 +176,38 @@ class Portfolio:
             print(f"Error parsing CSV data: {e}")
             return []
 
+    def read_stocks_from_records(self, records) -> Dict[str, Stock]:
+        """
+        Build Stock objects from already-parsed position records.
+
+        Keeps the domain layer decoupled from the persistence/services layer:
+        callers pass plain dicts (the shape PortfolioService.list_positions
+        returns) and this method does the same field coercion as
+        read_stocks_from_csv. ``current_price`` is intentionally left unset —
+        it is fetched live by update_all_prices().
+        """
+        for row in records:
+            purchase_date = row.get('purchase_date')
+            if isinstance(purchase_date, str):
+                purchase_date = datetime.strptime(purchase_date, '%Y-%m-%d').date()
+
+            sale_date = row.get('sale_date')
+            if isinstance(sale_date, str) and sale_date.strip():
+                sale_date = datetime.strptime(sale_date, '%Y-%m-%d').date()
+            elif not sale_date:
+                sale_date = None
+
+            stock = Stock(
+                name=row.get('name'),
+                symbol=row['symbol'],
+                purchase_price=float(row['purchase_price']),
+                quantity=int(row['quantity']),
+                purchase_date=purchase_date,
+                currency=row.get('currency', 'USD'),
+                sale_price=row.get('sale_price'),
+                sale_date=sale_date,
+                current_price=None,
+            )
+            self.add_stock(stock)
+        return self.stocks
+

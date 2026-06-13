@@ -19,14 +19,18 @@ from functools import lru_cache
 from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
+from quantcore.repositories.harvester_repository import HarvesterPlanDB
 from quantcore.repositories.news_repository import NewsStore
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_position_repository import OptionsPositionStore
 from quantcore.repositories.options_repository import OptionsStore
+from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.services.fundamentals import FundamentalsService
+from quantcore.services.harvester import HarvesterService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
+from quantcore.services.portfolio import PortfolioService
 from quantcore.services.prices import PricesService
 from quantcore.services.sentiment import SentimentService
 
@@ -43,12 +47,16 @@ class Services:
     news_repository: NewsStore
     sentiment_repository: SentimentStore
     fundamentals_repository: FundamentalsRepository
+    harvester_repository: HarvesterPlanDB
+    portfolio_repository: PortfolioRepository
     # Services
     microstructure: MicrostructureService
     sentiment: SentimentService
     fundamentals: FundamentalsService
     prices: PricesService
     options: OptionsService
+    harvester: HarvesterService
+    portfolio: PortfolioService
 
 
 @lru_cache(maxsize=1)
@@ -60,6 +68,8 @@ def get_services() -> Services:
     sentiment_repository = SentimentStore()
     fundamentals_repository = FundamentalsRepository()
     options_repository = OptionsStore()
+    harvester_repository = HarvesterPlanDB()
+    portfolio_repository = PortfolioRepository()
     # PricesService is constructed first: OptionsService composes it for the
     # ATM-snapshot refresh path (acyclic — Prices never references Options).
     prices = PricesService(
@@ -77,6 +87,8 @@ def get_services() -> Services:
         news_repository=news_repository,
         sentiment_repository=sentiment_repository,
         fundamentals_repository=fundamentals_repository,
+        harvester_repository=harvester_repository,
+        portfolio_repository=portfolio_repository,
         microstructure=MicrostructureService(
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
@@ -98,4 +110,6 @@ def get_services() -> Services:
             polygon_gateway=polygon_gateway,
             prices=prices,
         ),
+        harvester=HarvesterService(harvester_repository=harvester_repository),
+        portfolio=PortfolioService(portfolio_repository=portfolio_repository),
     )

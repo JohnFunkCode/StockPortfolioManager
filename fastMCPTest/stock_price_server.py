@@ -18,7 +18,7 @@ from options_contract_tools import (
     get_option_contracts_data,
     price_vertical_spread_data,
 )
-from market_analysis_server import get_short_interest, get_dark_pool, get_bid_ask_spread
+from quantcore.services.registry import get_services
 from company_fundamentals_server import (
     get_earnings_calendar,
     get_fundamental_score,
@@ -3176,7 +3176,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     # ── 9. Short Interest ─────────────────────────────────────────────────
     squeeze_potential = "LOW"
     try:
-        si_data           = get_short_interest(sym)
+        si_data           = get_services().microstructure.get_short_interest(sym)
         squeeze_potential = si_data.get("squeeze_potential", "LOW")
 
         if squeeze_potential == "HIGH":
@@ -3192,7 +3192,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     # ── 10. Dark Pool ─────────────────────────────────────────────────────
     dark_pool_signal = "none"
     try:
-        dp_data          = get_dark_pool(sym)
+        dp_data          = get_services().microstructure.get_dark_pool(sym)
         dark_pool_signal = dp_data.get("net_signal", "none")
 
         if dark_pool_signal == "accumulation":
@@ -3209,7 +3209,7 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
     # ── 11. Bid/Ask Spread ────────────────────────────────────────────────
     spread_vs_norm = "unknown"
     try:
-        bas_data       = get_bid_ask_spread(sym)
+        bas_data       = get_services().microstructure.get_bid_ask_spread(sym)
         spread_vs_norm = bas_data.get("spread_vs_norm", "unknown")
 
         if spread_vs_norm == "narrowing":

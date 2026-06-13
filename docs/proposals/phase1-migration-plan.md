@@ -4,6 +4,17 @@
 
 Update this table as part of every step-commit. Any dev machine can resume by reading the last DONE row.
 
+### Resume after restart (next: Step 5 — Options)
+
+Last DONE: **Step 4** (commit `a1285e8`, branch `feature/new-architecture-phase1`, pushed). To resume on any machine:
+
+1. `git checkout feature/new-architecture-phase1 && git pull`
+2. **Restart the test-DB proxy** (it does not survive a reboot) — Step 5 does DB-touching work and MUST run against the test DB, never prod:
+   `~/.local/bin/cloud-sql-proxy quantcore-test-20260606:us-central1:quantcore --port=5434 --quota-project=quantcore-test-20260606 &`
+   (Prod proxy is `quantcore-prod-...:5433` — leave it; do not run dev work against it.)
+3. All DB-touching commands use the test DSN: `TEST_DSN="$(grep '^QUANTCORE_TEST_DB_DSN=' .env | cut -d= -f2-)" && QUANTCORE_DB_DSN="$TEST_DSN" PYTHONPATH=. .venv/bin/python ...`
+4. Continue at **Step 5 (Options)**: +PolygonGateway; extract `get_full_options_chain`/contracts/`get_unusual_calls`/`get_delta_adjusted_oi`/`get_gamma_wall_history` + REST options routes into OptionsService; move `_bs_delta_local`/`_compute_max_pain`/`_compute_expected_move`/dup `_chain_side_full` → `quantcore/analytics/options_math.py`. `_safe_int`/`_options_store`/`_chain_side_full` in stock_price_server.py were deliberately kept in Step 4 for these tools.
+
 | Step | Description | Status | Commit | Date | Notes |
 |---|---|---|---|---|---|
 | A | Capabilities matrix refresh | DONE | d14b885 | 2026-06-12 | Evidence base updated |

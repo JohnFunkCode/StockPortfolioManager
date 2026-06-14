@@ -30,6 +30,7 @@ from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.harvester import HarvesterService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
+from quantcore.services.options_screening import OptionsScreeningService
 from quantcore.services.portfolio import PortfolioService
 from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
@@ -56,6 +57,7 @@ class Services:
     fundamentals: FundamentalsService
     prices: PricesService
     options: OptionsService
+    options_screening: OptionsScreeningService
     harvester: HarvesterService
     portfolio: PortfolioService
     recommendations: RecommendationsService
@@ -118,6 +120,10 @@ def get_services() -> Services:
         fundamentals=fundamentals,
         prices=prices,
         options=options,
+        options_screening=OptionsScreeningService(
+            ohlcv_repository=ohlcv_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
         harvester=HarvesterService(harvester_repository=harvester_repository),
         portfolio=PortfolioService(portfolio_repository=portfolio_repository),
         recommendations=RecommendationsService(

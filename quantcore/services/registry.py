@@ -32,6 +32,7 @@ from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
 from quantcore.services.portfolio import PortfolioService
 from quantcore.services.prices import PricesService
+from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
 
 
@@ -57,6 +58,7 @@ class Services:
     options: OptionsService
     harvester: HarvesterService
     portfolio: PortfolioService
+    recommendations: RecommendationsService
 
 
 @lru_cache(maxsize=1)
@@ -78,6 +80,28 @@ def get_services() -> Services:
         options_repository=options_repository,
         sentiment_repository=sentiment_repository,
     )
+    options = OptionsService(
+        ohlcv_repository=ohlcv_repository,
+        yfinance_gateway=yfinance_gateway,
+        options_repository=options_repository,
+        polygon_gateway=polygon_gateway,
+        prices=prices,
+    )
+    # The leaf domain services are hoisted to locals so RecommendationsService
+    # (the cross-domain synthesis layer) can compose the live instances.
+    microstructure = MicrostructureService(
+        ohlcv_repository=ohlcv_repository,
+        yfinance_gateway=yfinance_gateway,
+    )
+    sentiment = SentimentService(
+        news_repository=news_repository,
+        sentiment_repository=sentiment_repository,
+        yfinance_gateway=yfinance_gateway,
+    )
+    fundamentals = FundamentalsService(
+        fundamentals_repository=fundamentals_repository,
+        yfinance_gateway=yfinance_gateway,
+    )
     return Services(
         yfinance_gateway=yfinance_gateway,
         polygon_gateway=polygon_gateway,
@@ -89,27 +113,20 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         harvester_repository=harvester_repository,
         portfolio_repository=portfolio_repository,
-        microstructure=MicrostructureService(
-            ohlcv_repository=ohlcv_repository,
-            yfinance_gateway=yfinance_gateway,
-        ),
-        sentiment=SentimentService(
-            news_repository=news_repository,
-            sentiment_repository=sentiment_repository,
-            yfinance_gateway=yfinance_gateway,
-        ),
-        fundamentals=FundamentalsService(
-            fundamentals_repository=fundamentals_repository,
-            yfinance_gateway=yfinance_gateway,
-        ),
+        microstructure=microstructure,
+        sentiment=sentiment,
+        fundamentals=fundamentals,
         prices=prices,
-        options=OptionsService(
-            ohlcv_repository=ohlcv_repository,
-            yfinance_gateway=yfinance_gateway,
-            options_repository=options_repository,
-            polygon_gateway=polygon_gateway,
-            prices=prices,
-        ),
+        options=options,
         harvester=HarvesterService(harvester_repository=harvester_repository),
         portfolio=PortfolioService(portfolio_repository=portfolio_repository),
+        recommendations=RecommendationsService(
+            prices=prices,
+            options=options,
+            microstructure=microstructure,
+            sentiment=sentiment,
+            fundamentals=fundamentals,
+            ohlcv_repository=ohlcv_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
     )

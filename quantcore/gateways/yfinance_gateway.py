@@ -81,3 +81,13 @@ class YFinanceGateway:
     def history(self, symbol: str, period: str = "1y", auto_adjust: bool = True):
         """Per-ticker OHLCV history DataFrame via ticker.history()."""
         return yf.Ticker(symbol).history(period=period, auto_adjust=auto_adjust)
+
+    def download(self, tickers, period: str = "1y", auto_adjust: bool = True):
+        """Bulk multi-ticker OHLCV download via yf.download() (progress suppressed).
+
+        Used by relative-strength scoring, which fetches a symbol and its
+        benchmarks (SPY/QQQ/sector ETF) in a single call.
+        """
+        return yf.download(
+            tickers, period=period, auto_adjust=auto_adjust, progress=False
+        )

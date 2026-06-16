@@ -16,12 +16,13 @@ service's ``(payload, status)`` so long-running 202 semantics are preserved.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from ..deps import load_portfolio, load_watchlist, route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
+from ..schemas.options import VerticalSpreadRequest
 
 router = APIRouter(prefix="/api", tags=["options"])
 
@@ -67,6 +68,44 @@ def get_options_chain(ticker: str, expiration: Optional[str] = None) -> QuantCor
 def get_iv_rank(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_iv_rank(ticker))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+# --------------------------------------------------------------------------- #
+# Step 7 surface-gap endpoints (previously MCP-only) — contract/spread pricing
+# --------------------------------------------------------------------------- #
+@router.get("/securities/{ticker}/options/contracts")
+def get_option_contracts(
+    ticker: str,
+    expirations: List[str] = Query(..., description="Expiration dates, YYYY-MM-DD (repeatable)"),
+    strikes: List[float] = Query(..., description="Option strikes to retrieve (repeatable)"),
+    kind: str = "call",
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_option_contracts(
+                ticker, expirations=expirations, strikes=strikes, kind=kind
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — plain-error parity with the other GETs
+        return route_error_plain(str(exc), 500)
+
+
+@router.post("/securities/{ticker}/options/vertical-spread")
+def price_vertical_spread(ticker: str, body: VerticalSpreadRequest) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.price_vertical_spread(
+                ticker,
+                expiration=body.expiration,
+                long_strike=body.long_strike,
+                short_strike=body.short_strike,
+                kind=body.kind,
+                max_snapshot_age_minutes=body.max_snapshot_age_minutes,
+                allow_live_fetch=body.allow_live_fetch,
+            )
+        )
     except Exception as exc:  # noqa: BLE001
         return route_error_plain(str(exc), 500)
 

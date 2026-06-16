@@ -59,13 +59,13 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Candlestick patterns (hammer, doji, shooting star, gravestone) | `get_candlestick_patterns` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | Higher-low swing structure (reversal signal) | `get_higher_lows` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | Gap detection (gap-up/gap-down, fill status) | `get_gap_analysis` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
-| Relative strength vs SPY/QQQ/sector ETF | `get_relative_strength` (stock_price) | — | — | — | — |
-| Relative strength history (trend over time) | `get_relative_strength_history` (stock_price) **NEW** | — | — | — | — |
+| Relative strength vs SPY/QQQ/sector ETF | `get_relative_strength` (stock_price) | `GET /api/securities/<ticker>/relative-strength` | — | — | — |
+| Relative strength history (trend over time) | `get_relative_strength_history` (stock_price) **NEW** | `GET /api/securities/<ticker>/relative-strength/history` | — | — | — |
 | Historical drawdown (worst 1d/5d, trailing stop %) | `get_historical_drawdown` (stock_price) | `GET /api/securities/<ticker>/signals/risk` | Securities Detail → Signals tab | — | `experiments/MaxDrawDownAnalyzer.py` |
-| Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | — | — | — | — |
-| Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | — | — | — | — |
+| Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | `GET /api/securities/<ticker>/recommendation?capital=` | — | — | — |
+| Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | `GET /api/securities/<ticker>/stop-loss` | — | — | — |
 
-**MCP-Only Observations:** `get_relative_strength`, `get_trade_recommendation`, and `get_stop_loss_analysis` are not exposed to REST or WebUI, limiting their accessibility in dashboards.
+**REST-exposed (Phase 2 Step 7):** `get_relative_strength`, `get_relative_strength_history`, `get_trade_recommendation`, and `get_stop_loss_analysis` now have thin REST endpoints (still no dedicated WebUI page).
 
 ---
 
@@ -75,8 +75,8 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 |---|---|---|---|---|---|
 | Latest options snapshot (price, P/C ratio, nearest-expiry chains) | `get_stock_price` (embedded) | `GET /api/securities/<ticker>/options/latest` | Securities Detail → Options Chain tab | — | — |
 | Full options chain (all strikes, all expirations; returns persistence status) | `get_full_options_chain` (stock_price) | `GET /api/securities/<ticker>/options/chain` | Securities Detail → Options Chain tab | `collect_options.py --symbols AAPL,MSFT` | — |
-| Exact option contract lookup by expiry/strike | `get_option_contracts` (stock_price, options_analysis) | — | — | — | — |
-| Vertical spread pricing (debit, max profit/loss, breakeven, liquidity) | `price_vertical_spread` (stock_price, options_analysis) | — | — | — | — |
+| Exact option contract lookup by expiry/strike | `get_option_contracts` (stock_price, options_analysis) | `GET /api/securities/<ticker>/options/contracts?expirations=&strikes=&kind=` | — | — | — |
+| Vertical spread pricing (debit, max profit/loss, breakeven, liquidity) | `price_vertical_spread` (stock_price, options_analysis) | `POST /api/securities/<ticker>/options/vertical-spread` | — | — | — |
 | Unusual call sweep detection (vol/OI, aggressive fill, OTM scoring) | `get_unusual_calls` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Delta-Adjusted Open Interest (DAOI, gamma wall, delta flip) | `get_delta_adjusted_oi` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Gamma wall history (daily snapshots, MM hedge bias trend) | `get_gamma_wall_history` (stock_price) **NEW** | — | — | — | — |
@@ -91,7 +91,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | MCP server health check (DB + watchlist readability) | `mcp_health_check` (options_analysis) **NEW** | — | — | — | — |
 | Portfolio delta exposure (aggregated across positions) | — | `GET /api/portfolio/delta-exposure` | Dashboard → market maker delta table | — | — |
 
-**Gaps:** No WebUI page or REST endpoint for `get_relative_strength`, `get_delta_adjusted_oi` standalone, `get_option_contracts`, or `price_vertical_spread`.
+**Gaps:** `get_option_contracts` and `price_vertical_spread` are now REST-exposed (Phase 2 Step 7); `get_delta_adjusted_oi` standalone still has no REST endpoint, and none of these have a dedicated WebUI page yet.
 
 ---
 
@@ -100,16 +100,16 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Capability | MCP Tool | REST Endpoint | WebUI | CLI | Standalone |
 |---|---|---|---|---|---|
 | Earnings calendar (next date, days to earnings, risk level, historical avg move) | `get_earnings_calendar` (fundamentals) | `GET /api/securities/<ticker>/earnings` | Securities Detail (earnings column) | — | — |
-| Composite fundamental score (-14 to +14, 7 metrics) | `get_fundamental_score` (fundamentals) | — | — | — | `experiments/CompositScoreExperiment.py` |
+| Composite fundamental score (-14 to +14, 7 metrics) | `get_fundamental_score` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/score` | — | — | `experiments/CompositScoreExperiment.py` |
 | Batch fundamental scoring (multiple symbols, ranked) | `get_fundamental_scores_batch` (fundamentals) | — | — | — | — |
-| Full fundamental profile (earnings + score + revenue + acceleration + signal) | `get_full_fundamental_profile` (fundamentals) | — | — | — | — |
-| Revenue growth (5 quarters, QoQ rates, CAGR, trajectory label) | `get_revenue_growth` (fundamentals) | — | — | — | `experiments/RevenueGrowthExperiment.py`, `RevenueGrowthExperiment1.py` |
-| Earnings acceleration (CAN SLIM "A" criterion, 5 quarters net income) | `get_earnings_acceleration` (fundamentals) | — | — | — | `experiments/EarningsAccelerationExperiment.py` |
+| Full fundamental profile (earnings + score + revenue + acceleration + signal) | `get_full_fundamental_profile` (fundamentals) | `GET /api/securities/<ticker>/fundamentals` | — | — | — |
+| Revenue growth (5 quarters, QoQ rates, CAGR, trajectory label) | `get_revenue_growth` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/revenue-growth` | — | — | `experiments/RevenueGrowthExperiment.py`, `RevenueGrowthExperiment1.py` |
+| Earnings acceleration (CAN SLIM "A" criterion, 5 quarters net income) | `get_earnings_acceleration` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/earnings-acceleration` | — | — | `experiments/EarningsAccelerationExperiment.py` |
 | Top-N stocks by fundamental score (from cache, per sector) | `get_top_fundamental_stocks` (fundamentals) | — | — | — | — |
 | Upcoming earnings within N days (from cache) | `get_upcoming_earnings` (fundamentals) | — | — | — | — |
 | Sector fundamental breakdown | `get_sector_fundamental_breakdown` (fundamentals) | — | — | — | — |
 | Fundamental score change tracking (improving/deteriorating over 90 days) | `get_fundamental_score_changes` (fundamentals) | — | — | — | — |
-| Historical fundamental score snapshots + trend | `get_fundamental_history` (fundamentals) | — | — | — | — |
+| Historical fundamental score snapshots + trend | `get_fundamental_history` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/history?data_type=&since_days=` | — | — | — |
 | Cache statistics (symbols, date ranges, DB size) | `get_cache_stats` (fundamentals) | — | — | — | — |
 
 **Critical Gap:** **All fundamental analysis is MCP-only.** Zero REST endpoints, zero WebUI panels. The React dashboard cannot display fundamental scores, revenue growth, or earnings acceleration. This is a significant feature gap if fundamentals-based screening is desired in the WebUI.
@@ -136,9 +136,9 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 
 | Capability | MCP Tool | REST Endpoint | WebUI | CLI | Standalone |
 |---|---|---|---|---|---|
-| Short interest metrics (shares short, float %, days-to-cover) + squeeze potential (HIGH/MEDIUM/LOW) | `get_short_interest` (market_analysis) | — | — | — | — |
-| Dark pool / block trade activity (price-volume divergence proxy, accumulation/distribution) | `get_dark_pool` (market_analysis) | — | — | — | — |
-| Bid/ask spread signal (widening vs norm, fear gauge) | `get_bid_ask_spread` (market_analysis) | — | — | — | — |
+| Short interest metrics (shares short, float %, days-to-cover) + squeeze potential (HIGH/MEDIUM/LOW) | `get_short_interest` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
+| Dark pool / block trade activity (price-volume divergence proxy, accumulation/distribution) | `get_dark_pool` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
+| Bid/ask spread signal (widening vs norm, fear gauge) | `get_bid_ask_spread` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
 
 **Critical Gap:** All 3 market microstructure signals are **MCP-only, with zero REST or WebUI presence.** These are valuable indicators for institutional activity detection but are completely unavailable in the dashboard.
 
@@ -419,10 +419,12 @@ All writes and reads use the same unified database via `quantcore.db.get_connect
 - ✅ **Standardized PRAGMA settings:** All connections use WAL mode, NORMAL sync, FK ON, Row factory, 30s timeout.
 
 ### Remaining Critical Gaps
-1. **Fundamentals are MCP-only.** All 12 fundamentals MCP tools (scores, revenue, earnings, cache) lack REST endpoints and WebUI panels. The dashboard cannot display fundamental analysis.
-2. **Market microstructure is MCP-only.** Short interest, dark pool, bid/ask spread are powerful signals with zero REST or WebUI exposure.
-3. **Most powerful MCP tools are not surfaced to REST.** `get_trade_recommendation`, `get_stop_loss_analysis`, `get_relative_strength` are LLM-accessible only.
-4. **Exact spread tools are MCP-only.** `get_option_contracts` and `price_vertical_spread` solve tactical contract lookup for agents, but REST/WebUI still cannot price exact spreads.
+> **Phase 2 Step 7 update (2026-06-15):** Gaps 1–4 below are now **REST-exposed** — the FastAPI tier added thin endpoints for the 5 core fundamentals tools (`/fundamentals`, `/fundamentals/score`, `/fundamentals/revenue-growth`, `/fundamentals/earnings-acceleration`, `/fundamentals/history`), microstructure (`/microstructure`, fanning the 3 signals), `recommendation`, `stop-loss`, `relative-strength` (+`/history`), and exact contract/spread pricing (`/options/contracts`, `POST /options/vertical-spread`). What remains open is **WebUI** surfacing (no dashboard panels yet) and the few cache/batch fundamentals tools (`get_top_fundamental_stocks`, `get_upcoming_earnings`, `get_sector_fundamental_breakdown`, `get_fundamental_score_changes`, `get_fundamental_scores_batch`, `get_cache_stats`) that remain MCP-only by design.
+
+1. ~~**Fundamentals are MCP-only.**~~ The 5 core fundamentals tools are now REST-exposed; the dashboard still lacks fundamental-analysis panels (WebUI gap).
+2. ~~**Market microstructure is MCP-only.**~~ Short interest, dark pool, and bid/ask spread are now served by `GET /api/securities/<ticker>/microstructure`; WebUI panels remain.
+3. ~~**Most powerful MCP tools are not surfaced to REST.**~~ `get_trade_recommendation`, `get_stop_loss_analysis`, and `get_relative_strength` now have REST endpoints (WebUI still pending).
+4. ~~**Exact spread tools are MCP-only.**~~ `get_option_contracts` and `price_vertical_spread` are now REST-exposed (`/options/contracts`, `POST /options/vertical-spread`).
 5. **News articles still duplicated.** `news_articles` (per-article) and `sentiment_snapshots` (JSON blobs) both store article data; no FK cross-reference.
 6. **`collect_options.py` is broken.** Imports non-existent classes (`OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, `create_pricer` — `options_store.py` exports only `OptionsStore`); references wrong database file.
 7. **Position registry.** Harvester's `positions` table is dead schema (zero readers/writers); `portfolio.csv` is the only live registry. Phase 1 plan migrates positions to the DB with multi-owner support and CSV import.

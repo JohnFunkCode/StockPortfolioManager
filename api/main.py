@@ -56,10 +56,12 @@ def create_app() -> FastAPI:
     from .routers import (
         dashboard,
         fundamentals,
+        microstructure,
         options,
         plans,
         portfolio,
         prices,
+        recommendations,
         rungs,
         sentiment,
         symbols,
@@ -76,6 +78,8 @@ def create_app() -> FastAPI:
     app.include_router(options.router)
     app.include_router(fundamentals.router)
     app.include_router(sentiment.router)
+    app.include_router(microstructure.router)
+    app.include_router(recommendations.router)
 
     return app
 

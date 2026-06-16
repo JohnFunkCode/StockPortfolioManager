@@ -5,12 +5,21 @@ and prints ranked long candidates and put trade setups.
 
 No LLM required — all scoring logic is rule-based.
 
-This module is an *adapter* (architectural standard v2 §5.2): the analytics live
-in ``quantcore.services.options_screening.OptionsScreeningService`` (reached via
-the registry). What remains here is presentation/transport only —
-  - the FastMCP server and its 5 thin tools,
-  - the ``print_*`` console presentation helpers, and
-  - the CLI ``main()`` entry point.
+This module is a *dual-purpose adapter* (architectural standard v2 §5.2, §11):
+
+  - **The MCP tools are HTTP gateway wrappers** (Rule 6 —
+    ``AI Agent → MCP wrapper → REST tier → Service``): each service-backed
+    ``@mcp.tool()`` translates its call into a single HTTP request against the
+    FastAPI front door via ``mcp_gateway.rest_client``. ``mcp_health_check`` is
+    the one exception — it returns local version/config only and makes no
+    service call.
+
+  - **The CLI ``main()`` + ``print_*`` console helpers stay in-process** and call
+    ``get_services()`` directly. The CLI is a local batch entry point, NOT an AI
+    agent, so it correctly bypasses the HTTP tier (Rule 6 applies to agents; the
+    report/CLI paths call services in-process — anti-pattern 5 forbids the
+    reverse). Hence this module imports *both* ``rest_client`` (tools) and
+    ``get_services`` (CLI).
 
 Usage:
     python options_analysis.py
@@ -35,6 +44,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 
 from fastmcp import FastMCP
 
+from mcp_gateway import rest_client
 from quantcore.services.registry import get_services
 from quantcore.services.options_screening import (
     SecurityAnalysis,
@@ -86,8 +96,11 @@ def analyze_options_watchlist(
     include_non_us: bool = False,
 ) -> dict:
     """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
-    return get_services().options_screening.analyze_watchlist(
-        watchlist_path=watchlist_path,
+    # ``watchlist_path`` is not exposed over HTTP (Step 1 curation — the REST tier
+    # screens the server-side watchlist.yaml) and is accepted here for signature
+    # stability; the parameter is intentionally not forwarded.
+    return rest_client.get(
+        "/api/options/screen-watchlist",
         puts_budget=puts_budget,
         top_n=top_n,
         include_non_us=include_non_us,
@@ -97,8 +110,8 @@ def analyze_options_watchlist(
 @mcp.tool()
 def analyze_options_symbol(symbol: str, puts_budget: float = 1000.0, top_n: int = 10) -> dict:
     """Analyze a single symbol using the same scoring rules as the watchlist run."""
-    return get_services().options_screening.analyze_symbol(
-        symbol, puts_budget=puts_budget, top_n=top_n
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/screen", puts_budget=puts_budget, top_n=top_n
     )
 
 
@@ -117,13 +130,13 @@ def get_option_contracts(
     stale, or incomplete and allow_live_fetch is True, fetches the live full
     chain, persists it, and returns the requested contracts.
     """
-    return get_services().options.get_option_contracts(
-        symbol=symbol,
+    # ``max_snapshot_age_minutes`` / ``allow_live_fetch`` are not exposed over HTTP
+    # (Step 1 curation) and are accepted here for signature stability.
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/contracts",
         expirations=expirations,
         strikes=strikes,
         kind=kind,
-        max_snapshot_age_minutes=max_snapshot_age_minutes,
-        allow_live_fetch=allow_live_fetch,
     )
 
 
@@ -142,14 +155,16 @@ def price_vertical_spread(
     Returns conservative bid/ask debit, mid-debit estimate, max profit/loss,
     breakeven, risk/reward, leg liquidity, source, and cache/persistence status.
     """
-    return get_services().options.price_vertical_spread(
-        symbol=symbol,
-        expiration=expiration,
-        long_strike=long_strike,
-        short_strike=short_strike,
-        kind=kind,
-        max_snapshot_age_minutes=max_snapshot_age_minutes,
-        allow_live_fetch=allow_live_fetch,
+    return rest_client.post(
+        f"/api/securities/{symbol}/options/vertical-spread",
+        json={
+            "expiration": expiration,
+            "long_strike": long_strike,
+            "short_strike": short_strike,
+            "kind": kind,
+            "max_snapshot_age_minutes": max_snapshot_age_minutes,
+            "allow_live_fetch": allow_live_fetch,
+        },
     )
 
 

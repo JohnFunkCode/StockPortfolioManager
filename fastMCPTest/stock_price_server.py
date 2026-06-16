@@ -1,3 +1,17 @@
+"""
+stock_price_server.py — MCP server for prices, technicals, options chains, and
+trade synthesis (the largest tool surface: price/RSI/MACD/stochastic/volume/OBV/
+VWAP/candlesticks/higher-lows/gaps/drawdown, full options chain + contract/spread
+pricing, unusual calls, delta-adjusted OI, gamma-wall + VWAP + relative-strength
+history, stop-loss, and the composite trade recommendation).
+
+HTTP gateway wrapper (architectural standard v2 §11, Rule 6 —
+``AI Agent → MCP wrapper → REST tier → Service``): each tool translates its call
+into a single HTTP request against the FastAPI front door via
+``mcp_gateway.rest_client``; no business logic or DB access lives here.
+"""
+
+import os
 import sys
 from pathlib import Path
 
@@ -9,7 +23,8 @@ for path in (PROJECT_ROOT, MCP_DIR):
         sys.path.insert(0, path_str)
 
 from fastmcp import FastMCP
-from quantcore.services.registry import get_services
+
+from mcp_gateway import rest_client
 
 mcp = FastMCP("stock-price-server")
 
@@ -32,18 +47,18 @@ def get_news(symbol: str, max_articles: int = 10) -> dict:
         symbol:       Stock ticker symbol (e.g. 'AAPL')
         max_articles: Maximum number of articles to return (default: 10)
     """
-    return get_services().sentiment.get_news(symbol, max_articles)
+    return rest_client.get(f"/api/securities/{symbol}/news", max_articles=max_articles)
 
 
 @mcp.tool()
 def get_stock_price(symbol: str) -> dict:
     """Get the current stock price, Bollinger Bands (20-day, 2σ), and options chain summary for a given ticker symbol."""
-    return get_services().prices.get_stock_price(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/price-summary")
 
 @mcp.tool()
 def get_full_options_chain(symbol: str) -> dict:
     """Fetch the full options chain (all strikes, all expirations) for a ticker and persist to DB."""
-    return get_services().options.get_full_options_chain(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/options/full-chain")
 
 
 @mcp.tool()
@@ -69,13 +84,14 @@ def get_option_contracts(
         max_snapshot_age_minutes: Cache freshness window before live refresh
         allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
     """
-    return get_services().options.get_option_contracts(
-        symbol=symbol,
+    # The REST route uses the service's default cache-freshness / live-fetch
+    # behaviour; max_snapshot_age_minutes & allow_live_fetch are not exposed
+    # over HTTP (Step 1 curation) and are accepted here for signature stability.
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/contracts",
         expirations=expirations,
         strikes=strikes,
         kind=kind,
-        max_snapshot_age_minutes=max_snapshot_age_minutes,
-        allow_live_fetch=allow_live_fetch,
     )
 
 
@@ -103,14 +119,16 @@ def price_vertical_spread(
         max_snapshot_age_minutes: Cache freshness window before live refresh
         allow_live_fetch: Whether to fetch yfinance when cache is stale/missing
     """
-    return get_services().options.price_vertical_spread(
-        symbol=symbol,
-        expiration=expiration,
-        long_strike=long_strike,
-        short_strike=short_strike,
-        kind=kind,
-        max_snapshot_age_minutes=max_snapshot_age_minutes,
-        allow_live_fetch=allow_live_fetch,
+    return rest_client.post(
+        f"/api/securities/{symbol}/options/vertical-spread",
+        json={
+            "expiration": expiration,
+            "long_strike": long_strike,
+            "short_strike": short_strike,
+            "kind": kind,
+            "max_snapshot_age_minutes": max_snapshot_age_minutes,
+            "allow_live_fetch": allow_live_fetch,
+        },
     )
 
 
@@ -123,7 +141,7 @@ def get_rsi(symbol: str, period: int = 14, interval: str = "1d") -> dict:
         period: Number of periods for RSI calculation (default: 14)
         interval: Price interval — '1d' for daily (default), '1wk' for weekly, '1mo' for monthly
     """
-    return get_services().prices.get_rsi(symbol, period, interval)
+    return rest_client.get(f"/api/securities/{symbol}/rsi", period=period, interval=interval)
 
 
 @mcp.tool()
@@ -136,7 +154,7 @@ def get_macd(symbol: str, interval: str = "1d") -> dict:
         symbol: Stock ticker symbol (e.g. 'AAPL')
         interval: Price interval — '1d' for daily (default), '1wk' for weekly, '1mo' for monthly
     """
-    return get_services().prices.get_macd(symbol, interval)
+    return rest_client.get(f"/api/securities/{symbol}/macd", interval=interval)
 
 
 @mcp.tool()
@@ -156,7 +174,12 @@ def get_stochastic(symbol: str, k_period: int = 14, d_period: int = 3, interval:
         d_period: SMA period for %D signal line (default: 3)
         interval: Price interval — '1d' daily (default), '1wk' weekly, '1mo' monthly
     """
-    return get_services().prices.get_stochastic(symbol, k_period, d_period, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/stochastic",
+        k_period=k_period,
+        d_period=d_period,
+        interval=interval,
+    )
 
 
 @mcp.tool()
@@ -184,7 +207,9 @@ def get_volume_analysis(symbol: str, lookback: int = 20, interval: str = "1d") -
         lookback:  Number of bars for rolling average and divergence check (default: 20)
         interval:  '1d' daily (default), '1wk' weekly, '1mo' monthly
     """
-    return get_services().prices.get_volume_analysis(symbol, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/volume", lookback=lookback, interval=interval
+    )
 
 
 @mcp.tool()
@@ -211,7 +236,9 @@ def get_obv(symbol: str, lookback: int = 20, interval: str = "1d") -> dict:
         lookback: Number of bars to evaluate trend and divergence (default: 20)
         interval: '1d' daily (default), '1wk' weekly, '1mo' monthly
     """
-    return get_services().prices.get_obv(symbol, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/obv", lookback=lookback, interval=interval
+    )
 
 
 @mcp.tool()
@@ -242,7 +269,9 @@ def get_vwap(symbol: str, lookback: int = 20, interval: str = "1d") -> dict:
         lookback: Rolling window for VWAP calculation (default: 20)
         interval: '1d' daily (default), '1wk' weekly, '1mo' monthly
     """
-    return get_services().prices.get_vwap(symbol, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/vwap", lookback=lookback, interval=interval
+    )
 
 
 @mcp.tool()
@@ -280,7 +309,9 @@ def get_candlestick_patterns(symbol: str, lookback: int = 10, interval: str = "1
         lookback: Number of recent bars to scan for patterns (default: 10)
         interval: '1d' daily (default), '1wk' weekly, '1mo' monthly
     """
-    return get_services().prices.get_candlestick_patterns(symbol, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/candlestick", lookback=lookback, interval=interval
+    )
 
 
 @mcp.tool()
@@ -318,7 +349,12 @@ def get_higher_lows(symbol: str, swing_bars: int = 3, lookback_swings: int = 6,
         lookback_swings: Number of recent swing lows to analyse (default: 6)
         interval:       Bar interval — '15m', '30m', '1h' (default), or '1d'
     """
-    return get_services().prices.get_higher_lows(symbol, swing_bars, lookback_swings, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/higher-lows",
+        swing_bars=swing_bars,
+        lookback_swings=lookback_swings,
+        interval=interval,
+    )
 
 
 @mcp.tool()
@@ -352,7 +388,12 @@ def get_gap_analysis(symbol: str, min_gap_pct: float = 0.5, lookback: int = 60,
         lookback:    Number of bars to scan for gaps (default: 60)
         interval:    '1d' daily (default), '1h' hourly
     """
-    return get_services().prices.get_gap_analysis(symbol, min_gap_pct, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/gaps",
+        min_gap_pct=min_gap_pct,
+        lookback=lookback,
+        interval=interval,
+    )
 
 
 @mcp.tool()
@@ -402,8 +443,11 @@ def get_unusual_calls(
         min_vol_oi_ratio: Minimum volume/OI ratio to flag (default: 0.5)
         max_expirations:  Number of nearest expirations to scan (default: 3)
     """
-    return get_services().options.get_unusual_calls(
-        symbol, min_volume, min_vol_oi_ratio, max_expirations
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/unusual-calls",
+        min_volume=min_volume,
+        min_vol_oi_ratio=min_vol_oi_ratio,
+        max_expirations=max_expirations,
     )
 
 
@@ -450,8 +494,10 @@ def get_delta_adjusted_oi(
         max_expirations: Number of nearest expirations to analyse (default: 3)
         risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
     """
-    return get_services().options.get_delta_adjusted_oi(
-        symbol, max_expirations, risk_free_rate
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/delta-adjusted-oi",
+        max_expirations=max_expirations,
+        risk_free_rate=risk_free_rate,
     )
 
 
@@ -487,7 +533,9 @@ def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
     Returns:
         dict with keys: symbol, since_days, data_points, history (list of daily rows), note
     """
-    return get_services().options.get_gamma_wall_history(symbol, since_days)
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/gamma-wall-history", since_days=since_days
+    )
 
 
 @mcp.tool()
@@ -522,7 +570,9 @@ def get_historical_drawdown(
         symbol:        Stock ticker symbol (e.g. 'AAPL')
         lookback_days: Trading days to analyse (default: 252 ≈ 1 year)
     """
-    return get_services().prices.get_historical_drawdown(symbol, lookback_days)
+    return rest_client.get(
+        f"/api/securities/{symbol}/drawdown", lookback_days=lookback_days
+    )
 
 
 @mcp.tool()
@@ -558,8 +608,11 @@ def get_stop_loss_analysis(
         shares:          Number of shares held (optional — enables total P&L output)
         max_expirations: Options expirations to scan for gamma wall (default: 4)
     """
-    return get_services().recommendations.get_stop_loss_analysis(
-        symbol, cost_basis, shares, max_expirations
+    return rest_client.get(
+        f"/api/securities/{symbol}/stop-loss",
+        cost_basis=cost_basis,
+        shares=shares,
+        max_expirations=max_expirations,
     )
 
 
@@ -589,7 +642,12 @@ def get_vwap_history(symbol: str, since_days: int = 90, lookback: int = 20, inte
     Returns:
         dict with keys: symbol, lookback_bars, data_points, history (list of daily rows)
     """
-    return get_services().prices.get_vwap_history(symbol, since_days, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/vwap/history",
+        since_days=since_days,
+        lookback=lookback,
+        interval=interval,
+    )
 
 
 @mcp.tool()
@@ -621,8 +679,11 @@ def get_relative_strength_history(symbol: str, since_days: int = 90, rs_period: 
     Returns:
         dict with keys: symbol, rs_period_bars, sector_etf, data_points, history
     """
-    return get_services().recommendations.get_relative_strength_history(
-        symbol, since_days, rs_period, interval
+    return rest_client.get(
+        f"/api/securities/{symbol}/relative-strength/history",
+        since_days=since_days,
+        rs_period=rs_period,
+        interval=interval,
     )
 
 
@@ -651,7 +712,7 @@ def get_relative_strength(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'AAPL')
     """
-    return get_services().recommendations.get_relative_strength(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/relative-strength")
 
 
 @mcp.tool()
@@ -694,10 +755,11 @@ def get_trade_recommendation(symbol: str, capital: float = 5000.0) -> dict:
         symbol:  Stock ticker symbol (e.g. 'AAPL')
         capital: Total capital available for this trade (default: $5,000)
     """
-    return get_services().recommendations.get_trade_recommendation(symbol, capital)
+    return rest_client.get(f"/api/securities/{symbol}/recommendation", capital=capital)
 
 
 if __name__ == "__main__":
-    from quantcore.db import init_schema
-    init_schema()
-    mcp.run()
+    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
+    # can be reused per wrapper in docker-compose / Cloud Run; default is this
+    # server's assigned port.
+    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6001")))

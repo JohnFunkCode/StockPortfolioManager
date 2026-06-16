@@ -55,11 +55,13 @@ def create_app() -> FastAPI:
     # Route groups are registered incrementally across Phase 2 steps.
     from .routers import (
         dashboard,
+        fundamentals,
         options,
         plans,
         portfolio,
         prices,
         rungs,
+        sentiment,
         symbols,
         system,
     )
@@ -72,6 +74,8 @@ def create_app() -> FastAPI:
     app.include_router(portfolio.router)
     app.include_router(prices.router)
     app.include_router(options.router)
+    app.include_router(fundamentals.router)
+    app.include_router(sentiment.router)
 
     return app
 

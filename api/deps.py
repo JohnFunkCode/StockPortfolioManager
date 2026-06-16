@@ -35,6 +35,16 @@ def route_error(message: str, status: int) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"error": message, "status": status}, status_code=status)
 
 
+def route_error_plain(message: str, status: int) -> QuantCoreJSONResponse:
+    """Build the bare ``{"error": message}`` body (no ``status`` key).
+
+    The portfolio / watchlist / securities Flask routes returned this simpler
+    shape for in-handler validation/not-found cases (the harvester routes used
+    ``route_error`` with the extra ``status`` key). Preserved verbatim.
+    """
+    return QuantCoreJSONResponse({"error": message}, status_code=status)
+
+
 def load_portfolio(owner: str = "john") -> list[dict]:
     """Load an owner's positions from the DB-backed positions table."""
     return get_services().portfolio.list_positions(owner)

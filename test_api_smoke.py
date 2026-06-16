@@ -201,6 +201,71 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json(), {"error": "Plan not found", "status": 404})
 
+    # --- Step 2: portfolio / watchlist / securities ---------------------
+
+    def test_portfolio_get_shape(self):
+        resp = self.client.get("/api/portfolio")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("securities", resp.json())
+        self.assertIsInstance(resp.json()["securities"], list)
+
+    def test_watchlist_get_shape(self):
+        resp = self.client.get("/api/watchlist")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsInstance(resp.json()["securities"], list)
+
+    def test_securities_combined_shape(self):
+        resp = self.client.get("/api/securities")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsInstance(resp.json()["securities"], list)
+
+    def test_add_position_missing_symbol_returns_plain_400(self):
+        # Note the bare {"error": ...} body (no "status" key) — distinct from
+        # the harvester routes.
+        resp = self.client.post("/api/portfolio", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "symbol is required"})
+
+    def test_add_watchlist_missing_symbol_returns_plain_400(self):
+        resp = self.client.post("/api/watchlist", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "symbol is required"})
+
+    def test_lookup_missing_symbol_returns_plain_400(self):
+        resp = self.client.get("/api/securities/lookup")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "symbol is required"})
+
+    def test_remove_missing_position_returns_404(self):
+        resp = self.client.delete("/api/portfolio/ZZNOSUCH?owner=zz_api_import_test")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "ZZNOSUCH not found in portfolio"})
+
+    def test_import_missing_path_returns_400(self):
+        resp = self.client.post("/api/portfolio/import", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "a CSV file upload or 'path' is required"})
+
+    def test_import_multipart_round_trip(self):
+        owner = "zz_api_import_test"
+        csv = (
+            "name,symbol,purchase_price,quantity,purchase_date,currency,"
+            "sale_price,sale_date,current_price\n"
+            "Smoke Co,ZZSMOKE,10.0,3,2026-06-01,USD,,,\n"
+        )
+        try:
+            resp = self.client.post(
+                f"/api/portfolio/import?owner={owner}",
+                files={"file": ("p.csv", csv, "text/csv")},
+            )
+            self.assertEqual(resp.status_code, 200)
+            self.assertEqual(resp.json(), {"owner": owner, "imported": 1})
+
+            got = self.client.get(f"/api/portfolio?owner={owner}").json()["securities"]
+            self.assertEqual([s["symbol"] for s in got], ["ZZSMOKE"])
+        finally:
+            self.client.delete(f"/api/portfolio/ZZSMOKE?owner={owner}")
+
 
 if __name__ == "__main__":
     unittest.main()

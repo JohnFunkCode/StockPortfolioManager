@@ -53,13 +53,14 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # Route groups are registered incrementally across Phase 2 steps.
-    from .routers import dashboard, plans, rungs, symbols, system
+    from .routers import dashboard, plans, portfolio, rungs, symbols, system
 
     app.include_router(system.router)
     app.include_router(plans.router)
     app.include_router(rungs.router)
     app.include_router(symbols.router)
     app.include_router(dashboard.router)
+    app.include_router(portfolio.router)
 
     return app
 

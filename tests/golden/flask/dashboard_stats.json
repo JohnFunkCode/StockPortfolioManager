@@ -1,0 +1,10 @@
+{
+  "json": {
+    "active_alerts": 0,
+    "symbols_tracked": 0,
+    "total_plans": 0
+  },
+  "method": "GET",
+  "path": "/api/dashboard/stats",
+  "status": 200
+}

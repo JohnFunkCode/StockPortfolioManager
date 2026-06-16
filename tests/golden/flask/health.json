@@ -1,0 +1,9 @@
+{
+  "json": {
+    "db_connected": true,
+    "status": "ok"
+  },
+  "method": "GET",
+  "path": "/api/health",
+  "status": 200
+}

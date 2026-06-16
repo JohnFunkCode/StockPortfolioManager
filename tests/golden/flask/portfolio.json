@@ -1,0 +1,8 @@
+{
+  "json": {
+    "securities": []
+  },
+  "method": "GET",
+  "path": "/api/portfolio",
+  "status": 200
+}

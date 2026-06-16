@@ -1,0 +1,100 @@
+{
+  "json": {
+    "symbols": [
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 4,
+        "ticker": "AVGO"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 2,
+        "ticker": "CAT"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 3,
+        "ticker": "CRDO"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 10,
+        "ticker": "GEV"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 5,
+        "ticker": "MRVL"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 8,
+        "ticker": "MU"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 1,
+        "ticker": "NVDA"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 7,
+        "ticker": "PATH"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 9,
+        "ticker": "POET"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 6,
+        "ticker": "ZS"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 21,
+        "ticker": "ZZTEST"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 34,
+        "ticker": "ZZTST2"
+      },
+      {
+        "active_plan_id": null,
+        "currency": null,
+        "name": null,
+        "symbol_id": 35,
+        "ticker": "ZZTST3"
+      }
+    ]
+  },
+  "method": "GET",
+  "path": "/api/symbols",
+  "status": 200
+}

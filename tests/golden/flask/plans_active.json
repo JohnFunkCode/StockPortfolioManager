@@ -1,0 +1,8 @@
+{
+  "json": {
+    "plans": []
+  },
+  "method": "GET",
+  "path": "/api/plans?status=ACTIVE",
+  "status": 200
+}

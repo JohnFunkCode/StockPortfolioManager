@@ -12,3 +12,4 @@ __pycache__/
 api.log
 frontend.log
 backups/
+.env.docker

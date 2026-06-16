@@ -125,9 +125,9 @@ python main.py
 
 ## REST API (`api/`)
 
-A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the React frontend or other clients.
+A FastAPI REST API that exposes the Harvester Plan Store and Securities Dashboard over HTTP for use by the React frontend or other clients. Interactive OpenAPI docs are served at `/docs` and the spec at `/openapi.json`.
 
-**Entry point:** `api/app.py`
+**Entry point:** `api/main.py` (the FastAPI `app`)
 
 ### Endpoints
 
@@ -152,16 +152,18 @@ A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the 
 ```bash
 # From the project root, with the virtualenv active:
 source .venv/bin/activate
-python -m api.app
+uvicorn api.main:app --host 127.0.0.1 --port 5001
+# or, equivalently:
+python -m api.main
 ```
 
-The server starts on `http://127.0.0.1:5000`. CORS is enabled for all origins on `/api/*` routes so the React dev server can connect without a proxy.
+The server starts on `http://127.0.0.1:5001`. CORS is enabled for all origins on `/api/*` routes so the React dev server can connect without a proxy.
 
 ---
 
 ## React Frontend (`frontend/`)
 
-A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the Flask API above.
+A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the FastAPI service above.
 
 ### Pages
 
@@ -187,7 +189,7 @@ npm install        # first time only
 npm run dev
 ```
 
-The dev server starts on `http://localhost:5173` and hot-reloads on file changes. It expects the Flask API to be running on `http://127.0.0.1:5000`.
+The dev server starts on `http://localhost:5173` and hot-reloads on file changes. It expects the FastAPI service to be running on `http://127.0.0.1:5001` (the Vite dev server proxies `/api/*` to that port).
 
 To build a production bundle:
 
@@ -208,7 +210,7 @@ npm run build      # output goes to frontend/dist/
 
 What it does:
 - Activates the Python virtualenv (`.venv/`)
-- Starts the Flask API server in the background — output logged to `api.log`
+- Starts the FastAPI (uvicorn) server in the background — output logged to `api.log`
 - Starts the Vite frontend dev server in the background — output logged to `frontent.log`
 - Prints the PID of each process and the URLs for both servers
 

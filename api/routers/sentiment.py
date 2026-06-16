@@ -33,6 +33,13 @@ def get_sentiment_summary(source: str = "all") -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(result)
 
 
+# Phase 3 Step 1 surface-gap endpoint — collection-level, declared before the
+# /{ticker}/news templates so the literal "news/symbols" path is never shadowed.
+@router.get("/news/symbols")
+def list_news_symbols() -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(services().sentiment.list_news_symbols())
+
+
 @router.get("/{ticker}/news")
 def get_security_news(ticker: str, max_articles: int = 10) -> QuantCoreJSONResponse:
     ticker = ticker.upper()
@@ -43,3 +50,27 @@ def get_security_news(ticker: str, max_articles: int = 10) -> QuantCoreJSONRespo
             {"ticker": ticker, "error": str(exc), "articles": []}, status_code=500
         )
     return QuantCoreJSONResponse(result)
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3 Step 1 surface-gap endpoints (previously MCP-only) — collect/score,
+# windowed sentiment signal, and per-day trend. One SentimentService call deep.
+# --------------------------------------------------------------------------- #
+@router.post("/{ticker}/news/collect")
+def collect_news(ticker: str, score: bool = True) -> QuantCoreJSONResponse:
+    """Fetch RSS + yfinance news, persist, and (if score) FinBERT-score new articles."""
+    return QuantCoreJSONResponse(services().sentiment.collect_news(ticker, score))
+
+
+@router.get("/{ticker}/news/sentiment")
+def get_news_sentiment(
+    ticker: str, days: int = 7, scored_only: bool = False
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().sentiment.get_news_sentiment(ticker, days, scored_only)
+    )
+
+
+@router.get("/{ticker}/news/trend")
+def get_sentiment_trend(ticker: str, days: int = 30) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(services().sentiment.get_sentiment_trend(ticker, days))

@@ -4,7 +4,7 @@
 
 Update this table as part of every step-commit. Any dev machine can resume by reading the last DONE row, running `git pull`, and continuing with the next step.
 
-### Status: Phase 3 IN PROGRESS — Step 0 DONE (scaffolding + HTTP toolkit; 2026-06-16)
+### Status: Phase 3 IN PROGRESS — Step 1 DONE (tool→endpoint coverage closed; 2026-06-16)
 
 Phase 3 of [`architectural-standard-v2.md`](architectural-standard-v2.md) §11 inverts the five MCP servers onto the REST tier (Rule 6 — `AI Agent → MCP wrapper → REST tier → Service`) and containerizes the whole system — first **locally via docker-compose** (the team's daily driver + GCP fallback), then on **GCP Cloud Run** with JWT auth, a scheduled report job, and CI/CD. The services layer (`quantcore/services/`), the `get_services()` composition root, and the FastAPI tier (`api/`) are reused **unchanged** — wrappers now reach them only through the HTTP front door.
 
@@ -24,7 +24,7 @@ Phase 3 of [`architectural-standard-v2.md`](architectural-standard-v2.md) §11 i
 | Step | Description | Status | Commit | Date | Notes |
 |---|---|---|---|---|---|
 | 0 | Scaffolding + HTTP toolkit | DONE | — | 2026-06-16 | `httpx>=0.27.0` added to requirements.txt (already installed 0.28.1). `mcp_gateway/` package NEW: `rest_client.py` — the single HTTP seam every wrapper uses: `get(path, *, auth_token=None, **params)` / `post(path, *, json=None, auth_token=None, **params)`, base URL from `QUANTCORE_REST_URL` (default `http://127.0.0.1:5001`), `QUANTCORE_REST_TIMEOUT` (default 60s), `None`-params dropped, repeatable list params pass through to httpx (matches the REST tier's `List[...] = Query(...)`), optional `Authorization: Bearer` (Step 6 wires identity passthrough), and `RestError(status_code, payload)` carrying the front door's parsed JSON error body so a wrapper can `except RestError: return e.payload` to mirror a service's error-dict return. No wrapper rewrites yet — all 5 servers still stdio/in-process and untouched. Tag `pre-phase3`. |
-| 1 | Tool→endpoint coverage audit + close residual gaps | TODO | | | enumerate every @mcp.tool() in the 5 servers; map to REST endpoint via capabilities-matrix; add thin routes for service-backed gaps or drop from curation; commit coverage table |
+| 1 | Tool→endpoint coverage audit + close residual gaps | DONE | — | 2026-06-16 | All 49 tools across the 5 servers mapped (see coverage tables below). User chose **full capability parity — add every thin route, drop nothing**. **32 new routes + 3 param-gap fixes** added, each one service-call deep (Phase 2 pass-through idiom): prices.py +12 granular indicators; options.py +6 (full-chain/unusual/delta-OI/gamma-wall/2 screeners); fundamentals.py +7 (6 collection-level + earnings-calendar) + `api/schemas/fundamentals.py` (batch body); sentiment.py +4; microstructure.py +3 per-signal; recommendations.py params (stop-loss `max_expirations`, RS-history `rs_period`/`interval`). Route ordering: literal `news/symbols`, `fundamentals/*`, `vwap/history` declared before their `/{ticker}/...` templates. Security: options screen-watchlist does **not** expose `watchlist_path`. New offline test class `Phase3SurfaceGapRouteTest` (registration via OpenAPI spec + shadow-ordering via router decl order). Suite **97 green** (95 + 2). No wrapper rewrites yet. |
 | 2 | Convert 3 small wrappers (market_analysis, company_fundamentals, news_sentiment) | TODO | | | bodies → rest_client; streamable HTTP transport + distinct ports; drop get_services/init_schema; listTools + 1 call each vs uvicorn |
 | 3 | Convert 2 large wrappers (stock_price, options_analysis) | TODO | | | same; options_analysis keeps CLI main()/print_* in-process (imports both rest_client + get_services) |
 | 4 | Dockerfiles (api / mcp / report) | TODO | | | slim non-root multi-stage; .dockerignore; isolate torch/transformers to sentiment+report images |
@@ -34,6 +34,90 @@ Phase 3 of [`architectural-standard-v2.md`](architectural-standard-v2.md) §11 i
 | 8 | Deploy Cloud Run services | TODO | | | api public+JWT+Cloud SQL connector; 5 wrappers internal ingress; health gating; listTools smoke |
 | 9 | Report job + Cloud Scheduler | TODO | | | main.py as Cloud Run Job (in-process, not HTTP); daily trigger; one manual run |
 | 10 | CI/CD + point clients + docs/audit | TODO | | | **Phase 3 exit** — deploy.yml; repoint .mcp.json; CLAUDE.md/matrix/standard → done; grep-audit; prod-flip last |
+
+---
+
+## Step 1 — Tool → endpoint coverage map
+
+Every `@mcp.tool()` across the 5 servers, mapped to the REST endpoint its converted wrapper body (Steps 2–3) will call. Decision: **full capability parity — every service-backed tool gets a route; nothing dropped from curation.** Routes marked **NEW** were added in this step; the rest were ported in Phase 2 / Phase 2 Step 7. Every route is one `services().<svc>.<method>(...)` call deep and ships the service dict verbatim (`QuantCoreJSONResponse`).
+
+### stock-price server → `prices` / `options` / `recommendations` / `sentiment` routers
+
+| Tool | REST endpoint | Service method | Status |
+|---|---|---|---|
+| `get_stock_price` | `GET /api/securities/{t}/price-summary` | `prices.get_stock_price` | **NEW** |
+| `get_rsi` | `GET /api/securities/{t}/rsi` | `prices.get_rsi` | **NEW** |
+| `get_macd` | `GET /api/securities/{t}/macd` | `prices.get_macd` | **NEW** |
+| `get_stochastic` | `GET /api/securities/{t}/stochastic` | `prices.get_stochastic` | **NEW** |
+| `get_volume_analysis` | `GET /api/securities/{t}/volume` | `prices.get_volume_analysis` | **NEW** |
+| `get_obv` | `GET /api/securities/{t}/obv` | `prices.get_obv` | **NEW** |
+| `get_vwap` | `GET /api/securities/{t}/vwap` | `prices.get_vwap` | **NEW** |
+| `get_vwap_history` | `GET /api/securities/{t}/vwap/history` | `prices.get_vwap_history` | **NEW** |
+| `get_candlestick_patterns` | `GET /api/securities/{t}/candlestick` | `prices.get_candlestick_patterns` | **NEW** |
+| `get_higher_lows` | `GET /api/securities/{t}/higher-lows` | `prices.get_higher_lows` | **NEW** |
+| `get_gap_analysis` | `GET /api/securities/{t}/gaps` | `prices.get_gap_analysis` | **NEW** |
+| `get_historical_drawdown` | `GET /api/securities/{t}/drawdown` | `prices.get_historical_drawdown` | **NEW** |
+| `get_full_options_chain` | `GET /api/securities/{t}/options/full-chain` | `options.get_full_options_chain` | **NEW** |
+| `get_unusual_calls` | `GET /api/securities/{t}/options/unusual-calls` | `options.get_unusual_calls` | **NEW** |
+| `get_delta_adjusted_oi` | `GET /api/securities/{t}/options/delta-adjusted-oi` | `options.get_delta_adjusted_oi` | **NEW** |
+| `get_gamma_wall_history` | `GET /api/securities/{t}/options/gamma-wall-history` | `options.get_gamma_wall_history` | **NEW** |
+| `get_option_contracts` | `GET /api/securities/{t}/options/contracts` | `options.get_option_contracts` | Phase 2 §7 |
+| `price_vertical_spread` | `POST /api/securities/{t}/options/vertical-spread` | `options.price_vertical_spread` | Phase 2 §7 |
+| `get_news` | `GET /api/securities/{t}/news` | `sentiment.get_security_news` (= `get_news` + persist) | Phase 2 |
+| `get_relative_strength` | `GET /api/securities/{t}/relative-strength` | `recommendations.get_relative_strength` | Phase 2 §7 |
+| `get_relative_strength_history` | `GET /api/securities/{t}/relative-strength/history` | `recommendations.get_relative_strength_history` | Phase 2 §7 (**+`rs_period`/`interval`**) |
+| `get_stop_loss_analysis` | `GET /api/securities/{t}/stop-loss` | `recommendations.get_stop_loss_analysis` | Phase 2 §7 (**+`max_expirations`**) |
+| `get_trade_recommendation` | `GET /api/securities/{t}/recommendation` | `recommendations.get_trade_recommendation` | Phase 2 §7 |
+
+### options-analysis server → `options` router
+
+| Tool | REST endpoint | Service method | Status |
+|---|---|---|---|
+| `mcp_health_check` | — (local; no service call) | — | wrapper-local, no route |
+| `analyze_options_symbol` | `GET /api/securities/{t}/options/screen` | `options_screening.analyze_symbol` | **NEW** |
+| `analyze_options_watchlist` | `GET /api/options/screen-watchlist` | `options_screening.analyze_watchlist` | **NEW** (`watchlist_path` not exposed) |
+| `get_option_contracts` | `GET /api/securities/{t}/options/contracts` | `options.get_option_contracts` | Phase 2 §7 |
+| `price_vertical_spread` | `POST /api/securities/{t}/options/vertical-spread` | `options.price_vertical_spread` | Phase 2 §7 |
+
+### company-fundamentals server → `fundamentals` router
+
+| Tool | REST endpoint | Service method | Status |
+|---|---|---|---|
+| `get_full_fundamental_profile` | `GET /api/securities/{t}/fundamentals` | `fundamentals.get_full_fundamental_profile` | Phase 2 §7 |
+| `get_fundamental_score` | `GET /api/securities/{t}/fundamentals/score` | `fundamentals.get_fundamental_score` | Phase 2 §7 |
+| `get_revenue_growth` | `GET /api/securities/{t}/fundamentals/revenue-growth` | `fundamentals.get_revenue_growth` | Phase 2 §7 |
+| `get_earnings_acceleration` | `GET /api/securities/{t}/fundamentals/earnings-acceleration` | `fundamentals.get_earnings_acceleration` | Phase 2 §7 |
+| `get_fundamental_history` | `GET /api/securities/{t}/fundamentals/history` | `fundamentals.get_fundamental_history` | Phase 2 §7 |
+| `get_earnings_calendar` | `GET /api/securities/{t}/earnings-calendar` | `fundamentals.get_earnings_calendar` | **NEW** |
+| `get_fundamental_scores_batch` | `POST /api/securities/fundamentals/scores-batch` | `fundamentals.get_fundamental_scores_batch` | **NEW** |
+| `get_top_fundamental_stocks` | `GET /api/securities/fundamentals/top` | `fundamentals.get_top_fundamental_stocks` | **NEW** |
+| `get_upcoming_earnings` | `GET /api/securities/fundamentals/upcoming-earnings` | `fundamentals.get_upcoming_earnings` | **NEW** |
+| `get_cache_stats` | `GET /api/securities/fundamentals/cache-stats` | `fundamentals.get_cache_stats` | **NEW** |
+| `get_sector_fundamental_breakdown` | `GET /api/securities/fundamentals/sector-breakdown` | `fundamentals.get_sector_fundamental_breakdown` | **NEW** |
+| `get_fundamental_score_changes` | `GET /api/securities/fundamentals/score-changes` | `fundamentals.get_fundamental_score_changes` | **NEW** |
+
+(The pre-existing `GET /{t}/earnings` = `get_earnings_dates`, distinct from `earnings-calendar`.)
+
+### news-sentiment server → `sentiment` router
+
+| Tool | REST endpoint | Service method | Status |
+|---|---|---|---|
+| `collect_news` | `POST /api/securities/{t}/news/collect` | `sentiment.collect_news` | **NEW** |
+| `get_news_sentiment` | `GET /api/securities/{t}/news/sentiment` | `sentiment.get_news_sentiment` | **NEW** |
+| `get_sentiment_trend` | `GET /api/securities/{t}/news/trend` | `sentiment.get_sentiment_trend` | **NEW** |
+| `list_news_symbols` | `GET /api/securities/news/symbols` | `sentiment.list_news_symbols` | **NEW** |
+
+### market-analysis server → `microstructure` router
+
+| Tool | REST endpoint | Service method | Status |
+|---|---|---|---|
+| `get_short_interest` | `GET /api/securities/{t}/short-interest` | `microstructure.get_short_interest` | **NEW** |
+| `get_dark_pool` | `GET /api/securities/{t}/dark-pool` | `microstructure.get_dark_pool` | **NEW** |
+| `get_bid_ask_spread` | `GET /api/securities/{t}/bid-ask-spread` | `microstructure.get_bid_ask_spread` | **NEW** |
+
+(The Phase 2 §7 fan-out `GET /{t}/microstructure` stays for the dashboard view; the three per-signal routes above give the wrappers the full parameter sets — `dark_pool` `lookback`/`interval`, `bid_ask_spread` `lookback`.)
+
+**Tally:** 32 new routes + 3 param-gap extensions; `mcp_health_check` stays wrapper-local. Every other tool was already covered by Phase 2. Coverage is now complete — Steps 2–3 can convert each wrapper body to a single `rest_client` call with no payload drift.
 
 ---
 

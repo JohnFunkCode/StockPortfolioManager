@@ -267,5 +267,104 @@ class ApiSmokeTest(unittest.TestCase):
             self.client.delete(f"/api/portfolio/ZZSMOKE?owner={owner}")
 
 
+class Phase3SurfaceGapRouteTest(unittest.TestCase):
+    """Phase 3 Step 1 — assert every tool→endpoint coverage-gap route is
+    registered on the app (offline; proves assembly + route ordering without
+    hitting yfinance/Polygon). The MCP wrappers (Steps 2-3) rewrite their bodies
+    to call exactly these paths, so a missing registration would silently break a
+    tool after conversion.
+    """
+
+    # (method, path) pairs added in Step 1 to close the granular-tool gaps.
+    EXPECTED = [
+        # prices.py — granular per-indicator analytics
+        ("GET", "/api/securities/{ticker}/price-summary"),
+        ("GET", "/api/securities/{ticker}/rsi"),
+        ("GET", "/api/securities/{ticker}/macd"),
+        ("GET", "/api/securities/{ticker}/stochastic"),
+        ("GET", "/api/securities/{ticker}/volume"),
+        ("GET", "/api/securities/{ticker}/obv"),
+        ("GET", "/api/securities/{ticker}/vwap/history"),
+        ("GET", "/api/securities/{ticker}/vwap"),
+        ("GET", "/api/securities/{ticker}/candlestick"),
+        ("GET", "/api/securities/{ticker}/higher-lows"),
+        ("GET", "/api/securities/{ticker}/gaps"),
+        ("GET", "/api/securities/{ticker}/drawdown"),
+        # options.py — full-chain / unusual / delta-OI / gamma-wall / screeners
+        ("GET", "/api/securities/{ticker}/options/full-chain"),
+        ("GET", "/api/securities/{ticker}/options/unusual-calls"),
+        ("GET", "/api/securities/{ticker}/options/delta-adjusted-oi"),
+        ("GET", "/api/securities/{ticker}/options/gamma-wall-history"),
+        ("GET", "/api/securities/{ticker}/options/screen"),
+        ("GET", "/api/options/screen-watchlist"),
+        # fundamentals.py — collection-level rankings/cache + batch + calendar
+        ("POST", "/api/securities/fundamentals/scores-batch"),
+        ("GET", "/api/securities/fundamentals/top"),
+        ("GET", "/api/securities/fundamentals/upcoming-earnings"),
+        ("GET", "/api/securities/fundamentals/cache-stats"),
+        ("GET", "/api/securities/fundamentals/sector-breakdown"),
+        ("GET", "/api/securities/fundamentals/score-changes"),
+        ("GET", "/api/securities/{ticker}/earnings-calendar"),
+        # sentiment.py — symbols list + collect/score + windowed signal + trend
+        ("GET", "/api/securities/news/symbols"),
+        ("POST", "/api/securities/{ticker}/news/collect"),
+        ("GET", "/api/securities/{ticker}/news/sentiment"),
+        ("GET", "/api/securities/{ticker}/news/trend"),
+        # microstructure.py — three signals exposed individually
+        ("GET", "/api/securities/{ticker}/short-interest"),
+        ("GET", "/api/securities/{ticker}/dark-pool"),
+        ("GET", "/api/securities/{ticker}/bid-ask-spread"),
+    ]
+
+    @classmethod
+    def setUpClass(cls):
+        # The OpenAPI spec is the authoritative registered-route list. (Iterating
+        # app.routes is unreliable here: FastAPI's include_router consumes the
+        # source routers by reference, so only the module-level create_app() at
+        # import time carries the full set — a second call yields a bare app.)
+        spec = TestClient(create_app()).get("/openapi.json").json()
+        cls.registered = {
+            (method.upper(), path)
+            for path, ops in spec["paths"].items()
+            for method in ops
+        }
+
+    def test_all_surface_gap_routes_registered(self):
+        missing = [(m, p) for (m, p) in self.EXPECTED if (m, p) not in self.registered]
+        self.assertEqual(missing, [], f"unregistered Step 1 routes: {missing}")
+
+    def test_literal_subpaths_precede_templated_routes(self):
+        # /vwap/history must be declared before /vwap, and the literal news/
+        # fundamentals collection paths before /{ticker}/... — otherwise the
+        # template would shadow them. FastAPI matches in declaration order, so
+        # verify the order each route was registered on its own router.
+        from api.routers import fundamentals, prices, sentiment
+
+        def _order(router, path):
+            for i, r in enumerate(router.routes):
+                if getattr(r, "path", None) == path:
+                    return i
+            self.fail(f"{path} not declared on {router}")
+
+        def _before(router, a, b):
+            self.assertLess(_order(router, a), _order(router, b), f"{a} must precede {b}")
+
+        _before(
+            prices.router,
+            "/api/securities/{ticker}/vwap/history",
+            "/api/securities/{ticker}/vwap",
+        )
+        _before(
+            sentiment.router,
+            "/api/securities/news/symbols",
+            "/api/securities/{ticker}/news",
+        )
+        _before(
+            fundamentals.router,
+            "/api/securities/fundamentals/top",
+            "/api/securities/{ticker}/earnings",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

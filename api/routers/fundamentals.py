@@ -16,14 +16,71 @@ from fastapi import APIRouter
 
 from ..deps import services
 from ..json_response import QuantCoreJSONResponse
+from ..schemas.fundamentals import ScoresBatchRequest
 
 router = APIRouter(prefix="/api/securities", tags=["fundamentals"])
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3 Step 1 surface-gap endpoints (previously MCP-only) — collection-level
+# rankings/cache + the batch scorer. Declared BEFORE the templated /{ticker}/...
+# routes so the literal "fundamentals/" sub-paths are never shadowed.
+# --------------------------------------------------------------------------- #
+@router.post("/fundamentals/scores-batch")
+def get_fundamental_scores_batch(body: ScoresBatchRequest) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().fundamentals.get_fundamental_scores_batch(body.symbols)
+    )
+
+
+@router.get("/fundamentals/top")
+def get_top_fundamental_stocks(n: int = 10, min_coverage: float = 0.5) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().fundamentals.get_top_fundamental_stocks(n, min_coverage)
+    )
+
+
+@router.get("/fundamentals/upcoming-earnings")
+def get_upcoming_earnings(days: int = 14, include_stale: bool = False) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().fundamentals.get_upcoming_earnings(days, include_stale)
+    )
+
+
+@router.get("/fundamentals/cache-stats")
+def get_cache_stats() -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(services().fundamentals.get_cache_stats())
+
+
+@router.get("/fundamentals/sector-breakdown")
+def get_sector_fundamental_breakdown(
+    sector: str | None = None, top_n: int = 5
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().fundamentals.get_sector_fundamental_breakdown(sector, top_n)
+    )
+
+
+@router.get("/fundamentals/score-changes")
+def get_fundamental_score_changes(
+    min_delta: int = 2, since_days: int = 90, direction: str = "both"
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().fundamentals.get_fundamental_score_changes(min_delta, since_days, direction)
+    )
 
 
 @router.get("/{ticker}/earnings")
 def get_earnings_dates(ticker: str) -> QuantCoreJSONResponse:
     # No try/except — matches Flask; errors fall through to the framework handler.
     return QuantCoreJSONResponse(services().fundamentals.get_earnings_dates(ticker))
+
+
+@router.get("/{ticker}/earnings-calendar")
+def get_earnings_calendar(ticker: str) -> QuantCoreJSONResponse:
+    """Next earnings date + options-risk profile (distinct from /earnings, which
+    returns the raw earnings dates via get_earnings_dates)."""
+    return QuantCoreJSONResponse(services().fundamentals.get_earnings_calendar(ticker))
 
 
 # --------------------------------------------------------------------------- #

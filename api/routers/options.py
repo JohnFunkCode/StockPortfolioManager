@@ -130,6 +130,90 @@ def get_portfolio_delta_exposure() -> QuantCoreJSONResponse:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 3 Step 1 surface-gap endpoints (previously MCP-only) — full-chain fetch,
+# unusual-call sweeps, delta-adjusted OI, gamma-wall history, and the
+# OptionsScreeningService watchlist/symbol scorers. Each is one service call deep
+# and ships the dict verbatim, mirroring the MCP tool signatures.
+# --------------------------------------------------------------------------- #
+@router.get("/securities/{ticker}/options/full-chain")
+def get_full_options_chain(ticker: str) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(services().options.get_full_options_chain(ticker))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/securities/{ticker}/options/unusual-calls")
+def get_unusual_calls(
+    ticker: str,
+    min_volume: int = 100,
+    min_vol_oi_ratio: float = 0.5,
+    max_expirations: int = 3,
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_unusual_calls(
+                ticker, min_volume, min_vol_oi_ratio, max_expirations
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/securities/{ticker}/options/delta-adjusted-oi")
+def get_delta_adjusted_oi(
+    ticker: str, max_expirations: int = 3, risk_free_rate: float = 0.045
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_delta_adjusted_oi(ticker, max_expirations, risk_free_rate)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/securities/{ticker}/options/gamma-wall-history")
+def get_gamma_wall_history(ticker: str, since_days: int = 90) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_gamma_wall_history(ticker, since_days)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/securities/{ticker}/options/screen")
+def screen_options_symbol(
+    ticker: str, puts_budget: float = 1000.0, top_n: int = 10
+) -> QuantCoreJSONResponse:
+    """Rule-based long/put scoring for a single symbol (OptionsScreeningService)."""
+    try:
+        return QuantCoreJSONResponse(
+            services().options_screening.analyze_symbol(
+                ticker, puts_budget=puts_budget, top_n=top_n
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/options/screen-watchlist")
+def screen_options_watchlist(
+    puts_budget: float = 1000.0, top_n: int = 10, include_non_us: bool = False
+) -> QuantCoreJSONResponse:
+    """Score the server-side watchlist.yaml. The MCP tool's ``watchlist_path`` arg is
+    intentionally not exposed over REST (no arbitrary server filesystem paths)."""
+    try:
+        return QuantCoreJSONResponse(
+            services().options_screening.analyze_watchlist(
+                puts_budget=puts_budget, top_n=top_n, include_non_us=include_non_us
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+# --------------------------------------------------------------------------- #
 # Long-running POSTs (preserve 202 / service-internal threading)
 # --------------------------------------------------------------------------- #
 @router.post("/securities/{ticker}/options/history/backfill")

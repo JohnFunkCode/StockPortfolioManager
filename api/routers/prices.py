@@ -47,6 +47,136 @@ def get_signals_risk(ticker: str) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(services().prices.get_risk_signals(ticker))
 
 
+# --------------------------------------------------------------------------- #
+# Phase 3 Step 1 surface-gap endpoints (previously MCP-only) — granular
+# per-indicator analytics. Each route is one PricesService call deep and ships
+# the service dict verbatim, mirroring the stock-price MCP tool signatures so the
+# wrappers convert to a single rest_client call with no payload drift.
+# --------------------------------------------------------------------------- #
+@router.get("/{ticker}/price-summary")
+def get_price_summary(ticker: str) -> QuantCoreJSONResponse:
+    """Current price, Bollinger Bands (20d, 2σ), and options-chain summary."""
+    try:
+        return QuantCoreJSONResponse(services().prices.get_stock_price(ticker))
+    except Exception as exc:  # noqa: BLE001 — parity with the other analytics GETs
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/rsi")
+def get_rsi(ticker: str, period: int = 14, interval: str = "1d") -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(services().prices.get_rsi(ticker, period, interval))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/macd")
+def get_macd(ticker: str, interval: str = "1d") -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(services().prices.get_macd(ticker, interval))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/stochastic")
+def get_stochastic(
+    ticker: str, k_period: int = 14, d_period: int = 3, interval: str = "1d"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_stochastic(ticker, k_period, d_period, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/volume")
+def get_volume_analysis(
+    ticker: str, lookback: int = 20, interval: str = "1d"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_volume_analysis(ticker, lookback, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/obv")
+def get_obv(ticker: str, lookback: int = 20, interval: str = "1d") -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(services().prices.get_obv(ticker, lookback, interval))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+# /vwap/history is declared before /vwap so the literal sub-path is never shadowed.
+@router.get("/{ticker}/vwap/history")
+def get_vwap_history(
+    ticker: str, since_days: int = 90, lookback: int = 20, interval: str = "1d"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_vwap_history(ticker, since_days, lookback, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/vwap")
+def get_vwap(ticker: str, lookback: int = 20, interval: str = "1d") -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(services().prices.get_vwap(ticker, lookback, interval))
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/candlestick")
+def get_candlestick_patterns(
+    ticker: str, lookback: int = 10, interval: str = "1d"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_candlestick_patterns(ticker, lookback, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/higher-lows")
+def get_higher_lows(
+    ticker: str, swing_bars: int = 3, lookback_swings: int = 6, interval: str = "1h"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_higher_lows(ticker, swing_bars, lookback_swings, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/gaps")
+def get_gap_analysis(
+    ticker: str, min_gap_pct: float = 0.5, lookback: int = 60, interval: str = "1d"
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_gap_analysis(ticker, min_gap_pct, lookback, interval)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/{ticker}/drawdown")
+def get_historical_drawdown(ticker: str, lookback_days: int = 252) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_historical_drawdown(ticker, lookback_days)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
 @router.get("/screen")
 def screen_securities(
     rsi_max: Optional[float] = None,

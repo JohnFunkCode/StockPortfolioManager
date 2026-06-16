@@ -31,11 +31,11 @@ def get_trade_recommendation(ticker: str, capital: float = 5000.0) -> QuantCoreJ
 
 @router.get("/{ticker}/stop-loss")
 def get_stop_loss_analysis(
-    ticker: str, cost_basis: float = 0.0, shares: int = 0
+    ticker: str, cost_basis: float = 0.0, shares: int = 0, max_expirations: int = 4
 ) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
         services().recommendations.get_stop_loss_analysis(
-            ticker, cost_basis=cost_basis, shares=shares
+            ticker, cost_basis=cost_basis, shares=shares, max_expirations=max_expirations
         )
     )
 
@@ -43,9 +43,13 @@ def get_stop_loss_analysis(
 # The literal /relative-strength/history sub-path is declared before the bare
 # /relative-strength route so it is never shadowed.
 @router.get("/{ticker}/relative-strength/history")
-def get_relative_strength_history(ticker: str, since_days: int = 90) -> QuantCoreJSONResponse:
+def get_relative_strength_history(
+    ticker: str, since_days: int = 90, rs_period: int = 21, interval: str = "1d"
+) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
-        services().recommendations.get_relative_strength_history(ticker, since_days=since_days)
+        services().recommendations.get_relative_strength_history(
+            ticker, since_days=since_days, rs_period=rs_period, interval=interval
+        )
     )
 
 

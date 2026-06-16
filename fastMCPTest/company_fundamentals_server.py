@@ -6,12 +6,14 @@ trajectory, EPS acceleration (CAN SLIM 'A'), batch scoring, full profiles, and
 cache-backed rankings (top stocks, upcoming earnings, sector breakdown, score
 changes, history).
 
-Thin adapter (architectural standard v2): all business logic lives in
-quantcore.services.fundamentals.FundamentalsService; each tool here is exactly
-one service call deep.
+HTTP gateway wrapper (architectural standard v2 §11, Rule 6 —
+``AI Agent → MCP wrapper → REST tier → Service``): each tool translates its call
+into a single HTTP request against the FastAPI front door via
+``mcp_gateway.rest_client``; no business logic or DB access lives here.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -24,7 +26,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 
 from fastmcp import FastMCP
 
-from quantcore.services.registry import get_services
+from mcp_gateway import rest_client
 
 logging.basicConfig(level=logging.INFO)
 
@@ -54,7 +56,7 @@ def get_earnings_calendar(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'AAPL')
     """
-    return get_services().fundamentals.get_earnings_calendar(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/earnings-calendar")
 
 
 @mcp.tool()
@@ -76,7 +78,7 @@ def get_fundamental_score(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'NVDA')
     """
-    return get_services().fundamentals.get_fundamental_score(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/fundamentals/score")
 
 
 @mcp.tool()
@@ -97,7 +99,7 @@ def get_revenue_growth(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'NVDA')
     """
-    return get_services().fundamentals.get_revenue_growth(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/fundamentals/revenue-growth")
 
 
 @mcp.tool()
@@ -121,7 +123,7 @@ def get_earnings_acceleration(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'NVDA')
     """
-    return get_services().fundamentals.get_earnings_acceleration(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/fundamentals/earnings-acceleration")
 
 
 @mcp.tool()
@@ -134,7 +136,9 @@ def get_fundamental_scores_batch(symbols: list[str]) -> dict:
     Args:
         symbols: List of ticker symbols (e.g. ['NVDA', 'AAPL', 'MSFT'])
     """
-    return get_services().fundamentals.get_fundamental_scores_batch(symbols)
+    return rest_client.post(
+        "/api/securities/fundamentals/scores-batch", json={"symbols": symbols}
+    )
 
 
 @mcp.tool()
@@ -147,7 +151,7 @@ def get_full_fundamental_profile(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'NVDA')
     """
-    return get_services().fundamentals.get_full_fundamental_profile(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/fundamentals")
 
 
 @mcp.tool()
@@ -163,7 +167,9 @@ def get_top_fundamental_stocks(n: int = 10, min_coverage: float = 0.5) -> dict:
         min_coverage: Minimum data coverage fraction to include (default 0.5,
                       meaning at least 50% of the 7 metrics had data)
     """
-    return get_services().fundamentals.get_top_fundamental_stocks(n, min_coverage)
+    return rest_client.get(
+        "/api/securities/fundamentals/top", n=n, min_coverage=min_coverage
+    )
 
 
 @mcp.tool()
@@ -187,7 +193,9 @@ def get_upcoming_earnings(days: int = 14, include_stale: bool = False) -> dict:
         include_stale: If True, include entries beyond the TTL window
                        (flagged as stale=True in the response)
     """
-    return get_services().fundamentals.get_upcoming_earnings(days, include_stale)
+    return rest_client.get(
+        "/api/securities/fundamentals/upcoming-earnings", days=days, include_stale=include_stale
+    )
 
 
 @mcp.tool()
@@ -197,7 +205,7 @@ def get_cache_stats() -> dict:
     Reports symbol counts, date ranges, and DB file size per data type.
     Zero network calls — reads only from the local SQLite database.
     """
-    return get_services().fundamentals.get_cache_stats()
+    return rest_client.get("/api/securities/fundamentals/cache-stats")
 
 
 @mcp.tool()
@@ -212,7 +220,9 @@ def get_sector_fundamental_breakdown(sector: str | None = None, top_n: int = 5) 
         sector: Sector name to filter (e.g. 'Technology'), or None for all sectors
         top_n:  Number of top stocks to return per sector (default 5)
     """
-    return get_services().fundamentals.get_sector_fundamental_breakdown(sector, top_n)
+    return rest_client.get(
+        "/api/securities/fundamentals/sector-breakdown", sector=sector, top_n=top_n
+    )
 
 
 @mcp.tool()
@@ -232,7 +242,12 @@ def get_fundamental_score_changes(
         since_days:  How far back to look for snapshots (default 90)
         direction:   "improving" | "deteriorating" | "both" (default "both")
     """
-    return get_services().fundamentals.get_fundamental_score_changes(min_delta, since_days, direction)
+    return rest_client.get(
+        "/api/securities/fundamentals/score-changes",
+        min_delta=min_delta,
+        since_days=since_days,
+        direction=direction,
+    )
 
 
 @mcp.tool()
@@ -246,10 +261,15 @@ def get_fundamental_history(symbol: str, data_type: str, since_days: int = 365) 
         data_type: One of: fundamental_score, revenue_growth, earnings_acceleration, earnings_calendar
         since_days: How many days back to look (default 365)
     """
-    return get_services().fundamentals.get_fundamental_history(symbol, data_type, since_days)
+    return rest_client.get(
+        f"/api/securities/{symbol}/fundamentals/history",
+        data_type=data_type,
+        since_days=since_days,
+    )
 
 
 if __name__ == "__main__":
-    from quantcore.db import init_schema
-    init_schema()
-    mcp.run()
+    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
+    # can be reused per wrapper in docker-compose / Cloud Run; default is this
+    # server's assigned port.
+    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6003")))

@@ -22,11 +22,13 @@ Tools exposed
 Usage (standalone):
     fastmcp run news_sentiment_server.py
 
-Thin adapter (architectural standard v2): all business logic lives in
-quantcore.services.sentiment.SentimentService; each tool here is exactly one
-service call deep.
+HTTP gateway wrapper (architectural standard v2 §11, Rule 6 —
+``AI Agent → MCP wrapper → REST tier → Service``): each tool translates its call
+into a single HTTP request against the FastAPI front door via
+``mcp_gateway.rest_client``; no business logic or DB access lives here.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -39,7 +41,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 
 from fastmcp import FastMCP
 
-from quantcore.services.registry import get_services
+from mcp_gateway import rest_client
 
 mcp = FastMCP("news-sentiment-server")
 
@@ -70,7 +72,7 @@ def collect_news(symbol: str, score: bool = True) -> dict:
       finbert_available : bool
     }
     """
-    return get_services().sentiment.collect_news(symbol, score)
+    return rest_client.post(f"/api/securities/{symbol}/news/collect", score=score)
 
 
 @mcp.tool()
@@ -110,7 +112,9 @@ def get_news_sentiment(
                             sentiment, sentiment_score }]
     }
     """
-    return get_services().sentiment.get_news_sentiment(symbol, days, scored_only)
+    return rest_client.get(
+        f"/api/securities/{symbol}/news/sentiment", days=days, scored_only=scored_only
+    )
 
 
 @mcp.tool()
@@ -142,7 +146,7 @@ def get_sentiment_trend(symbol: str, days: int = 30) -> dict:
       ]
     }
     """
-    return get_services().sentiment.get_sentiment_trend(symbol, days)
+    return rest_client.get(f"/api/securities/{symbol}/news/trend", days=days)
 
 
 @mcp.tool()
@@ -158,7 +162,7 @@ def list_news_symbols() -> dict:
       total_symbols : int
     }
     """
-    return get_services().sentiment.list_news_symbols()
+    return rest_client.get("/api/securities/news/symbols")
 
 
 # ---------------------------------------------------------------------------
@@ -166,6 +170,7 @@ def list_news_symbols() -> dict:
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    from quantcore.db import init_schema
-    init_schema()
-    mcp.run()
+    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
+    # can be reused per wrapper in docker-compose / Cloud Run; default is this
+    # server's assigned port.
+    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6004")))

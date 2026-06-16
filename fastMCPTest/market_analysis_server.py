@@ -10,13 +10,15 @@ Provides three market microstructure tools to help identify bounce bottoms:
 Usage (standalone):
     fastmcp run market_analysis_server.py
 
-Data source: Yahoo Finance via yfinance.
+Data source: Yahoo Finance via yfinance (reached through the REST tier).
 
-Thin adapter (architectural standard v2): all business logic lives in
-quantcore.services.microstructure.MicrostructureService; each tool here is
-exactly one service call deep.
+HTTP gateway wrapper (architectural standard v2 §11, Rule 6 —
+``AI Agent → MCP wrapper → REST tier → Service``): each tool translates its call
+into a single HTTP request against the FastAPI front door via
+``mcp_gateway.rest_client``; no business logic or DB access lives here.
 """
 
+import os
 import sys
 from pathlib import Path
 
@@ -29,7 +31,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 
 from fastmcp import FastMCP
 
-from quantcore.services.registry import get_services
+from mcp_gateway import rest_client
 
 mcp = FastMCP("market-analysis-server")
 
@@ -64,7 +66,7 @@ def get_short_interest(symbol: str) -> dict:
     Args:
         symbol: Stock ticker symbol (e.g. 'AAPL')
     """
-    return get_services().microstructure.get_short_interest(symbol)
+    return rest_client.get(f"/api/securities/{symbol}/short-interest")
 
 
 @mcp.tool()
@@ -103,7 +105,9 @@ def get_dark_pool(symbol: str, lookback: int = 20, interval: str = "1d") -> dict
         lookback: Bars to scan for anomalies (default: 20)
         interval: '1d' daily (default), '1h' hourly
     """
-    return get_services().microstructure.get_dark_pool(symbol, lookback, interval)
+    return rest_client.get(
+        f"/api/securities/{symbol}/dark-pool", lookback=lookback, interval=interval
+    )
 
 
 @mcp.tool()
@@ -140,10 +144,11 @@ def get_bid_ask_spread(symbol: str, lookback: int = 20) -> dict:
         symbol:   Stock ticker symbol (e.g. 'AAPL')
         lookback: Rolling window for spread norm calculation (default: 20)
     """
-    return get_services().microstructure.get_bid_ask_spread(symbol, lookback)
+    return rest_client.get(f"/api/securities/{symbol}/bid-ask-spread", lookback=lookback)
 
 
 if __name__ == "__main__":
-    from quantcore.db import init_schema
-    init_schema()
-    mcp.run()
+    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
+    # can be reused per wrapper in docker-compose / Cloud Run; default is this
+    # server's assigned port.
+    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6005")))

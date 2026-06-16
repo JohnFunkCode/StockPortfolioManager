@@ -209,7 +209,7 @@ The matrix's current gap lists (fundamentals, microstructure, trade recommendati
 | REST framework | **FastAPI** (replaces Flask) | Same idiom as FastMCP: type hints + docstrings → schemas |
 | Contracts | **Pydantic models** | Single source of truth for OpenAPI, validation, and MCP tool schemas; replaces hand-rolled JSON encoders |
 | MCP wrappers | **FastMCP**, generated from OpenAPI where sensible | Tool selection and descriptions hand-curated (§5.5) |
-| ASGI server | uvicorn | `uvicorn api.app:app` locally; container CMD in Cloud Run |
+| ASGI server | uvicorn | `uvicorn api.main:app --port 5001` locally; container CMD in Cloud Run |
 | Database | PostgreSQL (QuantCore) via `quantcore/db.py` | Unchanged; Cloud SQL in production, Auth Proxy locally |
 | Async | Prefer `async def` routes/services for I/O-bound work | Replaces ad-hoc `ThreadPoolExecutor` fan-out in route handlers |
 
@@ -251,13 +251,13 @@ graph LR
 
 **Exit criteria:** no analytics logic in any `@mcp.tool()` body or route handler; `python -m unittest discover` green; local MCP and REST behavior unchanged.
 
-### Phase 2 — FastAPI REST tier
+### Phase 2 — FastAPI REST tier ✅ *(complete — see [`phase2-fastapi-plan.md`](phase2-fastapi-plan.md))*
 
-1. Rebuild the REST tier on FastAPI with Pydantic models, **preserving existing route paths and JSON shapes** so the front end is unaffected.
-2. Close the matrix's surface gaps with new endpoints: fundamentals (`GET /api/securities/<ticker>/fundamentals`), microstructure, trade recommendation, stop-loss analysis, relative strength, contract lookup / vertical-spread pricing.
-3. Add auth (JWT) and per-user audit to the front door.
+1. ✅ Rebuild the REST tier on FastAPI with Pydantic models, **preserving existing route paths and JSON shapes** so the front end is unaffected. (App factory `api/main.py`; route groups `api/routers/*`; request/response schemas `api/schemas/*`; `QuantCoreJSONResponse` preserves `Decimal→float` / `datetime→ISO` for byte-for-byte parity on pass-through analytics dicts.)
+2. ✅ Close the matrix's surface gaps with new endpoints: fundamentals (`GET /api/securities/<ticker>/fundamentals` + score/revenue-growth/earnings-acceleration/history), microstructure, trade recommendation, stop-loss analysis, relative strength (+ history), contract lookup / vertical-spread pricing.
+3. ⏭️ Add auth (JWT) and per-user audit to the front door. **Deferred to Phase 3** alongside the GCP/multi-user deployment it serves; Phase 2 preserves today's no-auth contract.
 
-**Exit criteria:** front end runs unmodified against the FastAPI tier; OpenAPI spec published; Flask app retired.
+**Exit criteria (met):** front end runs unmodified against the FastAPI tier; OpenAPI spec published (`/openapi.json`, `/docs`); Flask app (`api/app.py`) retired.
 
 ### Phase 3 — AI Gateway + GCP deployment
 

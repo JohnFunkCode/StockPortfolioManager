@@ -61,13 +61,13 @@ All persistence is consolidated into a single **QuantCore** PostgreSQL database,
 - **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 16 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
 - **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history.
 
-All repositories under `quantcore/repositories/` and the REST API (`api/app.py`) use the shared factory instead of managing individual database connections.
+All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 
 ### Services Layer (`quantcore/`)
 
-Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and Flask routes (`api/app.py`) are thin adapters that are **exactly one service call deep**.
+Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and FastAPI routes (`api/routers/*`, app assembled in `api/main.py`) are thin adapters that are **exactly one service call deep**.
 
 - **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`.
 - **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`.
@@ -77,7 +77,7 @@ Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural
 
 Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.
 
-**Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic; consolidating `portfolio/yfinance_gateway.py` into the shared gateway) is not yet started.
+**Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — the Flask app (`api/app.py`) has been retired and rebuilt on FastAPI (app factory `api/main.py`, route groups under `api/routers/*`, Pydantic request/response schemas under `api/schemas/*`), preserving every route path and JSON shape so the React front end runs unmodified; OpenAPI docs are served at `/docs` and the spec at `/openapi.json`. See [`docs/proposals/phase2-fastapi-plan.md`](docs/proposals/phase2-fastapi-plan.md) for the checkpoint log. Run it with `uvicorn api.main:app --host 127.0.0.1 --port 5001` (or `python -m api.main`). Remaining deferred items (JWT auth + per-user audit, consolidating `portfolio/yfinance_gateway.py` into the shared gateway) move to Phase 3.
 
 ## Configuration
 

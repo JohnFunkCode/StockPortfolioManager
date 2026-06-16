@@ -2,10 +2,10 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-06-12  
-**MCP Tools:** 47 | **REST Endpoints:** 37 | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
+**Last Updated:** 2026-06-15  
+**MCP Tools:** 47 | **REST Endpoints:** 50 | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
 
-> **Refactor status (2026-06-15):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 of that standard (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md` for the full checkpoint log. Phase 2 (FastAPI/Pydantic) is not yet started.
+> **Refactor status (2026-06-15):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md`. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — see `proposals/phase2-fastapi-plan.md`: the Flask app (`api/app.py`) was rebuilt on FastAPI (`api/main.py`) preserving every route path and JSON shape, then retired; OpenAPI is published at `/docs`; and 12 previously MCP-only capabilities were exposed over REST (50 method-distinct operations across 45 paths).
 
 ---
 
@@ -16,8 +16,8 @@ The project exposes capabilities through five distinct surfaces:
 | Surface | How to Access | Protocol | Live Server | Notes |
 |---|---|---|---|---|
 | **MCP Tool** | Claude Code / LLM integration via fastMCP | Model Context Protocol | `fastmcp run server.py` | Tools available to an LLM as callable functions |
-| **REST Endpoint** | HTTP request to Flask API | JSON over HTTP | `python api/app.py` → port 5001 | Programmatic access; enables the WebUI and external integrations |
-| **WebUI** | Browser at `http://localhost:5173` | React SPA | `npm run dev` (in `frontend/`) | Interactive dashboards, DataGrids, charts; Vite proxies `/api/*` to Flask |
+| **REST Endpoint** | HTTP request to FastAPI tier | JSON over HTTP (OpenAPI at `/docs`) | `uvicorn api.main:app --port 5001` | Programmatic access; enables the WebUI and external integrations |
+| **WebUI** | Browser at `http://localhost:5173` | React SPA | `npm run dev` (in `frontend/`) | Interactive dashboards, DataGrids, charts; Vite proxies `/api/*` to the FastAPI tier |
 | **CLI Tool** | `python script.py --flags` | Command-line arguments (argparse) | N/A | Two full-featured tools: `collect_options.py` (currently broken — see below), `options_analysis.py` (hybrid: also runs as an MCP server) |
 | **Standalone Script** | `python script.py` | Direct Python execution; hardcoded symbols | N/A | No arguments; experiments, legacy reports, prototypes; often with hardcoded tickers |
 
@@ -28,7 +28,7 @@ The project exposes capabilities through five distinct surfaces:
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (5 servers) | 47 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
-| REST Endpoints | 37 | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen` |
+| REST Endpoints | 50 | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/<ticker>/fundamentals`, `GET /api/securities/<ticker>/microstructure` |
 | WebUI Pages | 6 | Dashboard, Securities, Security Detail (6 tabs), Plans, Plan Detail, Symbols |
 | CLI Tools | 2 | `collect_options.py` (EOD snapshot; broken), `options_analysis.py` (strategy analysis; hybrid CLI + MCP) |
 | Standalone Scripts | 8 | Portfolio reports, watchlist fundamentals report, spread monitors (6 superseded experiments deleted in Phase 1 Step 10) |

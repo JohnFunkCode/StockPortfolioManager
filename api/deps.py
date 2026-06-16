@@ -14,12 +14,25 @@ import yaml
 
 from quantcore.services.registry import Services, get_services
 
+from .json_response import QuantCoreJSONResponse
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def services() -> Services:
     """FastAPI dependency returning the shared, lazily-built ``Services``."""
     return get_services()
+
+
+def route_error(message: str, status: int) -> QuantCoreJSONResponse:
+    """Build the legacy route-level error body ``{"error", "status"}``.
+
+    The Flask routes returned this shape for in-handler validation/not-found
+    cases (distinct from the framework error handler's ``{"error","message",
+    "status"}``). Preserved verbatim so the front end's error parsing is
+    unchanged.
+    """
+    return QuantCoreJSONResponse({"error": message, "status": status}, status_code=status)
 
 
 def load_portfolio(owner: str = "john") -> list[dict]:

@@ -1,0 +1,51 @@
+# --- VCS / tooling ---
+.git
+.gitignore
+.github
+*.md
+docs/
+
+# --- Python caches / build ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Virtualenvs (never copy host venv into the image) ---
+.venv/
+venv/
+env/
+
+# --- Node / frontend (separate app; no backend image serves it) ---
+node_modules/
+frontend/
+
+# --- Tests (not needed at runtime) ---
+tests/
+test_*.py
+
+# --- Local data / databases / fixtures (containers use Cloud SQL via the proxy) ---
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# --- Secrets / local config (injected at runtime, never baked into images) ---
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+gcp-key*.json
+
+# --- OS / editor cruft ---
+.DS_Store
+.idea/
+.vscode/
+
+# --- Generated reports / analysis output ---
+portfolio_report.html
+docs/analysis results/
+*.png

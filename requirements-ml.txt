@@ -1,0 +1,15 @@
+# requirements-ml.txt — base + the heavy FinBERT ML stack.
+#
+# Used ONLY by the API image (Dockerfile.api): post-inversion, the news_sentiment
+# wrapper is a thin HTTP client, so FinBERT scoring executes in the service tier
+# inside the FastAPI process. Wrapper + report images install requirements-base.txt
+# instead and keep FinBERT lazily-unavailable (graceful degradation).
+#
+# Prefer CPU-only torch wheels (smaller, no CUDA) — on linux/amd64 the default
+# PyPI torch bundles CUDA; the pytorch CPU index avoids that. On linux/arm64
+# (Apple Silicon) torch is CPU-only regardless. Step 7 pins the +cpu build for
+# the amd64 Cloud Run push.
+--extra-index-url https://download.pytorch.org/whl/cpu
+-r requirements-base.txt
+transformers>=4.30.0
+torch>=2.0.0

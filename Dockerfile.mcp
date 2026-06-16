@@ -1,0 +1,50 @@
+# Dockerfile.mcp — one image for ALL FIVE MCP wrapper servers.
+#
+# The wrappers are thin HTTP gateways (Rule 6): each tool calls the REST tier via
+# mcp_gateway.rest_client. None of them score sentiment in-process, so this image
+# installs the LEAN dependency set (requirements-base.txt) — no torch/transformers.
+#
+# The specific server + port are chosen at run time by environment variables
+# (SERVER_MODULE / PORT), consumed by mcp_gateway/serve.py — so the same image is
+# reused per wrapper with no rebuild. Defaults below pick stock-price on 6001.
+
+# ---- builder ----
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements-base.txt ./
+RUN pip install --upgrade pip && pip install -r requirements-base.txt
+
+# ---- final ----
+FROM python:3.12-slim
+
+# Per-wrapper selection (override at run time / in docker-compose / Cloud Run).
+ARG SERVER_MODULE=fastMCPTest.stock_price_server
+ARG PORT=6001
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    SERVER_MODULE=${SERVER_MODULE} \
+    PORT=${PORT}
+
+RUN useradd --create-home --uid 1000 appuser
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY . .
+
+USER appuser
+EXPOSE ${PORT}
+
+# Env-driven launcher serves <SERVER_MODULE>.mcp over streamable HTTP on $PORT.
+CMD ["python", "-m", "mcp_gateway.serve"]

@@ -27,7 +27,7 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
-from quantcore.repositories.harvester_repository import PlanBuildParams  # noqa: E402
+from quantcore.services.harvester import PlanBuildParams  # noqa: E402
 from quantcore.services.portfolio import DuplicateSymbolError  # noqa: E402
 from quantcore.services.registry import get_services  # noqa: E402
 
@@ -397,13 +397,11 @@ def create_app() -> Flask:
 
     @app.route("/api/securities/lookup", methods=["GET"])
     def lookup_security():
-        import yfinance as yf
         symbol = request.args.get("symbol", "").strip().upper()
         if not symbol:
             return jsonify({"error": "symbol is required"}), 400
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info or {}
+            info = get_services().yfinance_gateway.ticker_info(symbol) or {}
             name = info.get("longName") or info.get("shortName") or ""
             sector = info.get("sector") or ""
             industry = info.get("industry") or ""

@@ -22,7 +22,7 @@ for _path in (ROOT, FAST_MCP_DIR):
         sys.path.insert(0, str(_path))
 
 from quantcore.services.registry import get_services  # noqa: E402
-from ohlcv_cache import get_history  # noqa: E402
+from quantcore.repositories.ohlcv_repository import get_history  # noqa: E402
 
 
 SORT_TABLE_JS = """

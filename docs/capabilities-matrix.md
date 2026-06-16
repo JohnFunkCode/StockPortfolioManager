@@ -3,9 +3,9 @@
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
 **Last Updated:** 2026-06-12  
-**MCP Tools:** 47 (+1 demo) | **REST Endpoints:** 37 | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 14
+**MCP Tools:** 47 | **REST Endpoints:** 37 | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
 
-> **Refactor status (2026-06-12):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 of that standard (extraction of all business logic into `quantcore/services/`) is in progress; see `proposals/phase1-migration-plan.md` for the checkpoint log.
+> **Refactor status (2026-06-15):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 of that standard (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md` for the full checkpoint log. Phase 2 (FastAPI/Pydantic) is not yet started.
 
 ---
 
@@ -27,13 +27,13 @@ The project exposes capabilities through five distinct surfaces:
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (5 servers + 1 demo) | 47 (+1 demo) | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
+| MCP Tools (5 servers) | 47 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
 | REST Endpoints | 37 | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen` |
 | WebUI Pages | 6 | Dashboard, Securities, Security Detail (6 tabs), Plans, Plan Detail, Symbols |
 | CLI Tools | 2 | `collect_options.py` (EOD snapshot; broken), `options_analysis.py` (strategy analysis; hybrid CLI + MCP) |
-| Standalone Scripts | 14 | Portfolio reports, experiment runners, watchlist fundamentals report, spread monitors |
+| Standalone Scripts | 8 | Portfolio reports, watchlist fundamentals report, spread monitors (6 superseded experiments deleted in Phase 1 Step 10) |
 
-**MCP tool count by server:** stock-price 23 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4 (· `server.py` 1 demo). `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `options_contract_tools.py`).
+**MCP tool count by server:** stock-price 23 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
 
 **New since 2026-05-19:** `get_vwap_history`, `get_relative_strength_history`, `get_gamma_wall_history` (stock-price); `analyze_options_watchlist`, `analyze_options_symbol`, `mcp_health_check` (options-analysis — the `options_analysis.py` CLI is now also a FastMCP server); REST `GET /api/rungs/<rung_id>`; scripts `scripts/generate_watchlist_fundamentals_report.py`, `experiments/INTC_bear_call_spread_monitor.py`, `experiments/WMT_bull_call_spread_monitor.py`, `scripts/migrate_sqlite_to_postgres.py`.
 
@@ -212,7 +212,6 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Dashboard stats (plan counts, rung counts, symbol counts) | — | `GET /api/dashboard/stats` | Dashboard page (stats cards) | — | — |
 | Symbol list from Harvester DB | — | `GET /api/symbols` | Symbols page (DataGrid) | — | — |
 | Latest price for a tracked symbol | — | `GET /api/symbols/<ticker>/price` | — | — | — |
-| Square root (MCP prototype demo) | `sqrt` (server.py) | — | — | — | — |
 | Unit tests (Money, Portfolio) | — | — | — | — | `test_money.py`, `test_stock_portfolio_manager.py` |
 
 ---
@@ -263,7 +262,7 @@ These standalone scripts hardcode specific tickers and are likely intended as de
 
 | Script | Purpose | Status |
 |---|---|---|
-| `scripts/generate_watchlist_fundamentals_report.py` | HTML report of watchlist returns + fundamentals (outputs to `docs/analysis results/`) | Active; uses fundamentals analytics — repoint at services layer during Phase 1 |
+| `scripts/generate_watchlist_fundamentals_report.py` | HTML report of watchlist returns + fundamentals (outputs to `docs/analysis results/`) | Active; repointed at the services layer (`get_services()`) in Phase 1 |
 | `experiments/INTC_bear_call_spread_monitor.py` | Monitors an open INTC bear call spread position (pickled state) | Active position monitor — keep |
 | `experiments/WMT_bull_call_spread_monitor.py` | Monitors an open WMT bull call spread position (pickled state) | Active position monitor — keep |
 | `scripts/migrate_sqlite_to_postgres.py` | One-shot legacy SQLite → PostgreSQL migration (16 tables) | Operational utility — keep |

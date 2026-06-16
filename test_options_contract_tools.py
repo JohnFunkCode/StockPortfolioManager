@@ -18,7 +18,7 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
-from options_contract_tools import (  # noqa: E402
+from quantcore.services.options_contracts import (  # noqa: E402
     get_option_contracts_data,
     price_vertical_spread_data,
 )

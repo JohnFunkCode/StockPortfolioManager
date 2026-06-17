@@ -19,9 +19,14 @@ __pycache__/
 venv/
 env/
 
-# --- Node / frontend (separate app; no backend image serves it) ---
+# --- Node deps (heavy; reinstalled in-image, never uploaded) ---
 node_modules/
-frontend/
+
+# --- Frontend: the SOURCE tree IS needed for the quantcore-ui build (Dockerfile.ui,
+#     build context = frontend/), so don't exclude the whole tree — only its build
+#     output. node_modules/ and .env* are already excluded by the rules above/below. ---
+frontend/dist/
+*.tsbuildinfo
 
 # --- Local data / databases / logs (containers use Cloud SQL via the connector) ---
 *.sqlite

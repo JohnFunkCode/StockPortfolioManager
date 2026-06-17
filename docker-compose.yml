@@ -130,3 +130,26 @@ services:
         condition: service_healthy
     restart: on-failure
     networks: [quantcore]
+
+  # --- QuantUI: React/Vite SPA served + /api reverse-proxied to quantcore-api ---
+  # Build context is ./frontend (the repo-root .dockerignore excludes frontend/),
+  # so the Dockerfile lives one level up at ../Dockerfile.ui. No QUANTCORE_API_TOKEN
+  # here: the compose api runs AUTH_DISABLED=1, so the proxy sends no bearer (the
+  # token is a Cloud Run / Secret Manager concern only — see Dockerfile.ui).
+  quantui:
+    build: { context: ./frontend, dockerfile: ../Dockerfile.ui }
+    environment:
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+      PORT: "8080"
+    ports: ["8080:8080"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/healthz', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    networks: [quantcore]

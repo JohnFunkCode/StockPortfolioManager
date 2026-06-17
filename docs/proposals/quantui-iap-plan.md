@@ -8,8 +8,8 @@
 
 | Step | What | Status | Commit |
 |------|------|--------|--------|
-| 1 | Express serve+proxy (`frontend/server/`), `Dockerfile.ui`, `frontend/.dockerignore` | ☐ in progress | — |
-| 2 | Optional `quantui` service in `docker-compose.yml` (local stack parity) | ☐ | — |
+| 1 | Express serve+proxy (`frontend/server/`), `Dockerfile.ui`, `frontend/.dockerignore` | ☑ done | PR `feature/quantui-iap-deploy` |
+| 2 | Optional `quantui` service in `docker-compose.yml` (local stack parity) | ☑ done | (same branch) |
 | 3 | Wire `build-ui` into `cloudbuild.yaml` + Deploy step in `deploy.yml` | ☐ | — |
 | 4 | Secret Manager `quantui-api-token` (test) + accessor grant | ☐ (user/GCP) | — |
 | 5 | First Cloud Run deploy with `--iap` (test) | ☐ (user/GCP) | — |

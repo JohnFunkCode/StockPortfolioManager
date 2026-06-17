@@ -123,7 +123,18 @@ done
 sleep 10  # extra settle so add-iam-policy-binding sees the new member
 
 # --- 5. Project-level roles the deploy SA needs ----------------------------
-for ROLE in roles/run.developer roles/cloudbuild.builds.editor roles/artifactregistry.writer; do
+# run.developer            — deploy Cloud Run services/jobs
+# cloudbuild.builds.editor — submit Cloud Build builds
+# artifactregistry.writer  — push the built images
+# serviceusage.serviceUsageConsumer — `gcloud builds submit` needs serviceusage.services.use
+# storage.admin            — `gcloud builds submit` uploads source to the gs://<proj>_cloudbuild
+#                            staging bucket (cloudbuild.builds.editor does NOT grant GCS access)
+for ROLE in \
+    roles/run.developer \
+    roles/cloudbuild.builds.editor \
+    roles/artifactregistry.writer \
+    roles/serviceusage.serviceUsageConsumer \
+    roles/storage.admin; do
   gcloud projects add-iam-policy-binding "$PROJECT_ID" \
     --member "serviceAccount:${DEPLOY_SA_EMAIL}" \
     --role "$ROLE" --condition None >/dev/null

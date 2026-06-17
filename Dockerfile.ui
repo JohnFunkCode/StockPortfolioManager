@@ -1,0 +1,41 @@
+# Dockerfile.ui — QuantUI (React/Vite SPA) served on Cloud Run behind IAP.
+#
+# BUILD CONTEXT IS ./frontend (NOT the repo root): the repo-root .dockerignore
+# excludes frontend/ from the python images, so the UI build uses the frontend
+# directory as its own context (frontend/.dockerignore applies). Build with:
+#
+#   docker build -f Dockerfile.ui -t quantcore-ui ./frontend
+#
+# Stage 1 compiles the SPA to static assets; stage 2 serves them from a tiny
+# Express server (server/server.mjs) that reverse-proxies /api/* to quantcore-api,
+# injecting the bearer token server-side. No VITE_* secrets are baked at build
+# time — the app calls /api same-origin and the token is added at runtime.
+
+# ---- builder: compile the Vite SPA ----
+FROM node:22-slim AS builder
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build           # -> /app/dist
+
+# ---- runtime: serve dist/ + proxy /api ----
+FROM node:22-slim
+ENV NODE_ENV=production \
+    PORT=8080
+WORKDIR /app
+
+# Server deps only (express + http-proxy-middleware), installed reproducibly.
+COPY server/package.json server/package-lock.json ./server/
+RUN cd server && npm ci --omit=dev
+
+COPY server/ ./server/
+COPY --from=builder /app/dist ./dist
+
+# node:22-slim already ships a non-root `node` user (uid 1000); reuse it.
+RUN chown -R node:node /app
+USER node
+EXPOSE 8080
+
+# Exec form (proper signal handling); PORT is read from the env inside server.mjs.
+CMD ["node", "server/server.mjs"]

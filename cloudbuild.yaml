@@ -1,4 +1,4 @@
-# cloudbuild.yaml — Phase 3 Step 7: build + push the three QuantCore images.
+# cloudbuild.yaml — Phase 3 Step 7: build + push the QuantCore images.
 #
 # Built natively on linux/amd64 in Cloud Build (the local dev host is arm64, so a
 # local build would need slow QEMU emulation — especially for the torch-bearing api
@@ -6,11 +6,12 @@
 # invoked from CI/the helper) and a moving :latest. The `images:` block pushes them
 # to Artifact Registry after the steps succeed.
 #
-# Three images (one mcp image is reused by all five wrappers — server + port are
+# Images (one mcp image is reused by all five wrappers — server + port are
 # selected at run time via SERVER_MODULE/PORT env, see mcp_gateway/serve.py):
 #   quantcore-api     FastAPI front door + services in-process (carries FinBERT/torch)
 #   quantcore-mcp     the shared thin MCP wrapper image
 #   quantcore-report  main.py once-and-exit (Cloud Run Job)
+#   quantcore-ui      React/Vite SPA + /api proxy (built from the frontend/ context)
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
@@ -68,6 +69,20 @@ steps:
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
       - .
 
+  # --- ui (Dockerfile.ui) — React/Vite SPA + /api proxy; build context is frontend/
+  #     (the repo-root .dockerignore excludes frontend/ from the python images). ---
+  - name: gcr.io/cloud-builders/docker
+    id: build-ui
+    args:
+      - build
+      - -f
+      - Dockerfile.ui
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
+      - frontend
+
 images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:latest
@@ -75,3 +90,5 @@ images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest

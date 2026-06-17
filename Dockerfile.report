@@ -30,13 +30,19 @@ FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/opt/venv/bin:$PATH" \
-    MPLBACKEND=Agg
+    MPLBACKEND=Agg \
+    MPLCONFIGDIR=/tmp/matplotlib
 
 RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /opt/venv /opt/venv
 
 WORKDIR /app
 COPY . .
+
+# main.py writes portfolio_report.html into the workdir; COPY leaves /app root-owned,
+# so give appuser ownership of the dir (the job runs unprivileged). matplotlib's cache
+# goes to the writable MPLCONFIGDIR above (HOME isn't guaranteed on Cloud Run Jobs).
+RUN chown appuser:appuser /app
 
 USER appuser
 

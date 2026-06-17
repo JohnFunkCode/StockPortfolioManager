@@ -1,0 +1,132 @@
+# docker-compose.yml — Phase 3 local container stack (the team's daily driver + GCP fallback).
+#
+# Topology (mirrors the Cloud Run target, one bridge network):
+#
+#   AI agents ──HTTP──► 5 MCP wrappers ──HTTP(QUANTCORE_REST_URL)──► quantcore-api
+#                                                                         │ services in-process
+#                                                                         ▼
+#                                                            cloud-sql-proxy ──► Cloud SQL (TEST)
+#
+# DB SAFETY — this stack talks ONLY to the TEST instance
+# (quantcore-test-20260606:us-central1:quantcore). It must NEVER touch the prod
+# database in .env's QUANTCORE_DB_DSN / CLOUDSQL_CONNECTION_NAME. To guarantee
+# that, this file is driven by an AUTO-GENERATED, git-ignored .env.docker that
+# runUI-CONTAINERS.sh derives from QUANTCORE_TEST_DB_DSN — and the launcher runs
+# `docker compose --env-file .env.docker`, which SUPPRESSES Compose's default
+# load of ./.env (the one holding prod values). Do not add `${QUANTCORE_DB_DSN}`
+# or `${CLOUDSQL_CONNECTION_NAME}` references here.
+#
+# Bring it up with:  ./runUI-CONTAINERS.sh up --build      (NOT plain `docker compose up`)
+
+name: quantcore-phase3
+
+networks:
+  quantcore:
+    driver: bridge
+
+services:
+  # --- Cloud SQL Auth Proxy: exposes the TEST Postgres instance on the bridge net ---
+  cloud-sql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.14.1
+    command:
+      - "${CLOUDSQL_INSTANCE}"
+      - "--address=0.0.0.0"          # reachable by peer containers (not just localhost)
+      - "--port=5432"
+      - "--quota-project=${CLOUDSQL_QUOTA_PROJECT}"
+      - "--credentials-file=/gcloud/adc.json"
+    volumes:
+      - "${GCLOUD_ADC}:/gcloud/adc.json:ro"   # host ADC, read-only
+    networks: [quantcore]
+    expose:
+      - "5432"
+
+  # --- FastAPI front door: the single REST enforcement tier + service-execution process ---
+  quantcore-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      # DSN points at the proxy CONTAINER (TEST instance) — password injected from .env.docker.
+      QUANTCORE_DB_DSN: "postgresql://${QUANTCORE_DB_USER}:${QUANTCORE_DB_PASSWORD}@cloud-sql-proxy:5432/${QUANTCORE_DB_NAME}"
+      AUTH_DISABLED: "1"            # local stays open; JWT lands in Step 6 for GCP only
+      PORT: "5001"
+    ports:
+      - "5001:5001"                # frontend (npm run dev) and curl hit http://localhost:5001
+    depends_on:
+      cloud-sql-proxy:
+        condition: service_started
+    restart: on-failure            # self-heals if it boots before the proxy is ready
+    healthcheck:
+      # python is present in the slim image (no curl); hit the real health route.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 90s            # torch/transformers import makes first boot slow
+    networks: [quantcore]
+
+  # --- 5 MCP wrapper servers (thin HTTP gateways over quantcore-api; Rule 6) ---
+  stock-price:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.stock_price_server
+      PORT: "6001"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6001:6001"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
+  options-analysis:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.options_analysis
+      PORT: "6002"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6002:6002"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
+  company-fundamentals:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.company_fundamentals_server
+      PORT: "6003"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6003:6003"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
+  news-sentiment:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.news_sentiment_server
+      PORT: "6004"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6004:6004"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
+  market-analysis:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.market_analysis_server
+      PORT: "6005"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6005:6005"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]

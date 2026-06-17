@@ -1,0 +1,109 @@
+# Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
+#
+# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff). Pushes to
+# main additionally build the 3 images (Cloud Build, native amd64) and roll them out to
+# the Cloud Run services + the report Job in the TEST project. Deploys carry ONLY the
+# image tag — every service's env/secrets/Cloud-SQL binding is preserved from its last
+# manual deploy (Steps 8–9), so CI never needs the DB DSN or JWT secret.
+#
+# One-time setup (see docs/proposals/phase3-gateway-plan.md Step 10): configure Workload
+# Identity Federation and set repo secrets GCP_WIF_PROVIDER + GCP_DEPLOY_SA. The deploy
+# SA needs roles/run.developer, roles/cloudbuild.builds.editor, roles/artifactregistry.writer,
+# and iam.serviceAccountUser on the runtime SA. PROD-FLIP is deliberately NOT automated —
+# it stays a manual, supervised config change (QUANTCORE_DB_DSN / Cloud SQL connector).
+#
+# TRIGGER STATUS — workflow_dispatch-ONLY (auto-run disabled): the test-project WIF and the
+# GCP_WIF_PROVIDER / GCP_DEPLOY_SA secrets do not exist yet, so the `deploy` job below would
+# fail auth on any `main` push. To keep the feature->main merge green, the `push`/`pull_request`
+# triggers are commented out until the test CI is wired. Image builds remain manual
+# (gcloud/Cloud Build) in the meantime — exactly as during P7–P9.
+# TODO(P9-followup): create the test WIF pool/provider + quantcore-deployer SA, set the two
+# repo secrets, then restore the `push: branches:[main]` and `pull_request` triggers below.
+
+name: deploy
+
+on:
+  workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
+
+env:
+  PROJECT_ID: quantcore-test-20260606
+  REGION: us-central1
+  AR_REPO: quantcore
+
+jobs:
+  gate:
+    name: Tests + wrapper smoke + OpenAPI surface
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantcore
+          POSTGRES_PASSWORD: quantcore
+          POSTGRES_DB: quantcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # init_schema() creates all 16 tables on a blank Postgres; AUTH stays inert.
+      QUANTCORE_DB_DSN: postgresql://quantcore:quantcore@localhost:5432/quantcore
+      AUTH_DISABLED: "1"
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install lean deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-base.txt
+      - name: Unit tests
+        run: python -m unittest discover -v
+      - name: Wrapper smoke (boot each server, assert listTools schemas)
+        run: python scripts/ci_wrapper_smoke.py
+      - name: OpenAPI surface diff
+        run: python scripts/check_openapi_snapshot.py
+
+  deploy:
+    name: Build + roll out to Cloud Run (test project)
+    needs: gate
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation
+    steps:
+      - uses: actions/checkout@v4
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build + push the 3 images (Cloud Build, amd64)
+        run: |
+          gcloud builds submit --project "$PROJECT_ID" \
+            --config cloudbuild.yaml \
+            --substitutions _TAG="${GITHUB_SHA::7}"
+      - name: Deploy quantcore-api
+        run: |
+          gcloud run deploy quantcore-api --project "$PROJECT_ID" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-api:${GITHUB_SHA::7}"
+      - name: Deploy the 5 wrappers (shared mcp image; per-service env preserved)
+        run: |
+          for s in stock-price options-analysis company-fundamentals news-sentiment market-analysis; do
+            gcloud run deploy "quantcore-$s" --project "$PROJECT_ID" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
+          done
+      - name: Update report Job image
+        run: |
+          gcloud run jobs update quantcore-report --project "$PROJECT_ID" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-report:${GITHUB_SHA::7}"

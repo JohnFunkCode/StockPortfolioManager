@@ -1,5 +1,5 @@
 #!/bin/bash
-# Starts the Cloud SQL Auth Proxy, Flask API, and React frontend servers in the background.
+# Starts the Cloud SQL Auth Proxy, FastAPI (uvicorn) API, and React frontend servers in the background.
 # Logs are written to cloud-sql-proxy.log, api.log, and frontend.log in the project root.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -11,7 +11,8 @@ set +a
 
 # Clean up any old processes (the proxy is reused if already running)
 echo "Cleaning up old processes..."
-pkill -f "python -m api.app" 2>/dev/null || true
+pkill -f "uvicorn api.main:app" 2>/dev/null || true
+pkill -f "python -m api.main" 2>/dev/null || true
 pkill -f "vite" 2>/dev/null || true
 sleep 1
 
@@ -41,7 +42,7 @@ fi
 
 echo "Starting API server... (logs: api.log)"
 source "$SCRIPT_DIR/.venv/bin/activate"
-python -m api.app > "$SCRIPT_DIR/api.log" 2>&1 &
+uvicorn api.main:app --host 127.0.0.1 --port 5001 > "$SCRIPT_DIR/api.log" 2>&1 &
 API_PID=$!
 
 echo "Starting frontend server... (logs: frontend.log)"
@@ -60,4 +61,4 @@ echo ""
 echo "API:      http://127.0.0.1:5001"
 echo "Frontend: http://localhost:5173"
 echo ""
-echo "To stop:  pkill -f 'python -m api.app' && pkill -f 'vite' && pkill -f 'cloud-sql-proxy'"
+echo "To stop:  pkill -f 'uvicorn api.main:app' && pkill -f 'vite' && pkill -f 'cloud-sql-proxy'"

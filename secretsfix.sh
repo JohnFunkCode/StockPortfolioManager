@@ -1,0 +1,1 @@
+ gcloud iam workload-identity-pools providers describe github --project "$PROD_PROJECT" --location global --workload-identity-pool github-prod --format='value(name)'

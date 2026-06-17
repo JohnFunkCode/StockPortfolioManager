@@ -1,0 +1,43 @@
+# Dockerfile.api — the FastAPI front door (api/main.py).
+#
+# This is the single REST enforcement tier and the service-execution process.
+# Post-inversion (Phase 3), FinBERT sentiment scoring runs HERE (the
+# news_sentiment wrapper is now a thin HTTP client), so this is the ONLY image
+# that carries the heavy ML stack (requirements-ml.txt). Multi-stage + non-root.
+
+# ---- builder: install deps into an isolated venv ----
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Build toolchain (discarded with this stage) for any sdist-only deps.
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY requirements-base.txt requirements-ml.txt ./
+RUN pip install --upgrade pip && pip install -r requirements-ml.txt
+
+# ---- final: slim runtime with only the venv + app source ----
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PORT=5001
+
+RUN useradd --create-home --uid 1000 appuser
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY . .
+
+USER appuser
+EXPOSE 5001
+
+# Shell form so $PORT is expanded (Cloud Run injects its own PORT).
+CMD uvicorn api.main:app --host 0.0.0.0 --port ${PORT}

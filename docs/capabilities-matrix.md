@@ -2,8 +2,10 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-05-19  
-**MCP Tools:** 42 | **REST Endpoints:** 35+ | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 12
+**Last Updated:** 2026-06-15  
+**MCP Tools:** 47 | **REST Endpoints:** 50 | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
+
+> **Refactor status (2026-06-17):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md`. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — see `proposals/phase2-fastapi-plan.md`: the Flask app (`api/app.py`) was rebuilt on FastAPI (`api/main.py`) preserving every route path and JSON shape, then retired; OpenAPI is published at `/docs`; and 12 previously MCP-only capabilities were exposed over REST (50 method-distinct operations across 45 paths). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see `proposals/phase3-gateway-plan.md`: Step 1 closed the residual tool→endpoint gaps (32 thin routes + 3 param fixes, the surface is now 82 method+path operations), then all five MCP servers were inverted into thin HTTP gateway wrappers calling the REST tier through `mcp_gateway/rest_client.py` (Rule 6), JWT auth was added (`api/auth.py`, inert until configured), and the whole system was containerized and deployed to GCP Cloud Run (`quantcore-api` + 5 wrappers + a daily report Cloud Run Job) with CI/CD in `.github/workflows/deploy.yml`. Prod cutover (test→prod DSN) stays a supervised manual step.
 
 ---
 
@@ -14,9 +16,9 @@ The project exposes capabilities through five distinct surfaces:
 | Surface | How to Access | Protocol | Live Server | Notes |
 |---|---|---|---|---|
 | **MCP Tool** | Claude Code / LLM integration via fastMCP | Model Context Protocol | `fastmcp run server.py` | Tools available to an LLM as callable functions |
-| **REST Endpoint** | HTTP request to Flask API | JSON over HTTP | `python api/app.py` → port 5001 | Programmatic access; enables the WebUI and external integrations |
-| **WebUI** | Browser at `http://localhost:5173` | React SPA | `npm run dev` (in `frontend/`) | Interactive dashboards, DataGrids, charts; Vite proxies `/api/*` to Flask |
-| **CLI Tool** | `python script.py --flags` | Command-line arguments (argparse) | N/A | Two full-featured tools: `collect_options.py`, `options_analysis.py` |
+| **REST Endpoint** | HTTP request to FastAPI tier | JSON over HTTP (OpenAPI at `/docs`) | `uvicorn api.main:app --port 5001` | Programmatic access; enables the WebUI and external integrations |
+| **WebUI** | Browser at `http://localhost:5173` | React SPA | `npm run dev` (in `frontend/`) | Interactive dashboards, DataGrids, charts; Vite proxies `/api/*` to the FastAPI tier |
+| **CLI Tool** | `python script.py --flags` | Command-line arguments (argparse) | N/A | Two full-featured tools: `collect_options.py` (currently broken — see below), `options_analysis.py` (hybrid: also runs as an MCP server) |
 | **Standalone Script** | `python script.py` | Direct Python execution; hardcoded symbols | N/A | No arguments; experiments, legacy reports, prototypes; often with hardcoded tickers |
 
 ---
@@ -25,11 +27,15 @@ The project exposes capabilities through five distinct surfaces:
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (5 servers) | 42 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest` |
-| REST Endpoints | 35+ | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen` |
-| WebUI Pages | 6 | Dashboard, Securities, Security Detail, Plans, Plan Detail, Symbols |
-| CLI Tools | 2 | `collect_options.py` (EOD snapshot), `options_analysis.py` (strategy analysis) |
-| Standalone Scripts | 12 | Portfolio reports, experiment runners, metrics smoke tests |
+| MCP Tools (5 servers) | 47 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
+| REST Endpoints | 50 | `GET /api/securities/<ticker>/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/<ticker>/fundamentals`, `GET /api/securities/<ticker>/microstructure` |
+| WebUI Pages | 6 | Dashboard, Securities, Security Detail (6 tabs), Plans, Plan Detail, Symbols |
+| CLI Tools | 2 | `collect_options.py` (EOD snapshot; broken), `options_analysis.py` (strategy analysis; hybrid CLI + MCP) |
+| Standalone Scripts | 8 | Portfolio reports, watchlist fundamentals report, spread monitors (6 superseded experiments deleted in Phase 1 Step 10) |
+
+**MCP tool count by server:** stock-price 23 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
+
+**New since 2026-05-19:** `get_vwap_history`, `get_relative_strength_history`, `get_gamma_wall_history` (stock-price); `analyze_options_watchlist`, `analyze_options_symbol`, `mcp_health_check` (options-analysis — the `options_analysis.py` CLI is now also a FastMCP server); REST `GET /api/rungs/<rung_id>`; scripts `scripts/generate_watchlist_fundamentals_report.py`, `experiments/INTC_bear_call_spread_monitor.py`, `experiments/WMT_bull_call_spread_monitor.py`, `scripts/migrate_sqlite_to_postgres.py`.
 
 ---
 
@@ -49,15 +55,17 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Volume climax / capitulation / OBV divergence | `get_volume_analysis` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | On-Balance Volume trend + divergence detection | `get_obv` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | VWAP + reclaim signal strength | `get_vwap` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
+| VWAP history (multi-day series) | `get_vwap_history` (stock_price) **NEW** | — | — | — | — |
 | Candlestick patterns (hammer, doji, shooting star, gravestone) | `get_candlestick_patterns` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | Higher-low swing structure (reversal signal) | `get_higher_lows` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
 | Gap detection (gap-up/gap-down, fill status) | `get_gap_analysis` (stock_price) | `GET /api/securities/<ticker>/signals/technical` | Securities Detail → Signals tab | — | — |
-| Relative strength vs SPY/QQQ/sector ETF | `get_relative_strength` (stock_price) | — | — | — | — |
+| Relative strength vs SPY/QQQ/sector ETF | `get_relative_strength` (stock_price) | `GET /api/securities/<ticker>/relative-strength` | — | — | — |
+| Relative strength history (trend over time) | `get_relative_strength_history` (stock_price) **NEW** | `GET /api/securities/<ticker>/relative-strength/history` | — | — | — |
 | Historical drawdown (worst 1d/5d, trailing stop %) | `get_historical_drawdown` (stock_price) | `GET /api/securities/<ticker>/signals/risk` | Securities Detail → Signals tab | — | `experiments/MaxDrawDownAnalyzer.py` |
-| Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | — | — | — | — |
-| Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | — | — | — | — |
+| Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | `GET /api/securities/<ticker>/recommendation?capital=` | — | — | — |
+| Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | `GET /api/securities/<ticker>/stop-loss` | — | — | — |
 
-**MCP-Only Observations:** `get_relative_strength`, `get_trade_recommendation`, and `get_stop_loss_analysis` are not exposed to REST or WebUI, limiting their accessibility in dashboards.
+**REST-exposed (Phase 2 Step 7):** `get_relative_strength`, `get_relative_strength_history`, `get_trade_recommendation`, and `get_stop_loss_analysis` now have thin REST endpoints (still no dedicated WebUI page).
 
 ---
 
@@ -67,20 +75,23 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 |---|---|---|---|---|---|
 | Latest options snapshot (price, P/C ratio, nearest-expiry chains) | `get_stock_price` (embedded) | `GET /api/securities/<ticker>/options/latest` | Securities Detail → Options Chain tab | — | — |
 | Full options chain (all strikes, all expirations; returns persistence status) | `get_full_options_chain` (stock_price) | `GET /api/securities/<ticker>/options/chain` | Securities Detail → Options Chain tab | `collect_options.py --symbols AAPL,MSFT` | — |
-| Exact option contract lookup by expiry/strike | `get_option_contracts` (stock_price, options_analysis) | — | — | — | — |
-| Vertical spread pricing (debit, max profit/loss, breakeven, liquidity) | `price_vertical_spread` (stock_price, options_analysis) | — | — | — | — |
+| Exact option contract lookup by expiry/strike | `get_option_contracts` (stock_price, options_analysis) | `GET /api/securities/<ticker>/options/contracts?expirations=&strikes=&kind=` | — | — | — |
+| Vertical spread pricing (debit, max profit/loss, breakeven, liquidity) | `price_vertical_spread` (stock_price, options_analysis) | `POST /api/securities/<ticker>/options/vertical-spread` | — | — | — |
 | Unusual call sweep detection (vol/OI, aggressive fill, OTM scoring) | `get_unusual_calls` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Delta-Adjusted Open Interest (DAOI, gamma wall, delta flip) | `get_delta_adjusted_oi` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
+| Gamma wall history (daily snapshots, MM hedge bias trend) | `get_gamma_wall_history` (stock_price) **NEW** | — | — | — | — |
 | IV Rank + IV Percentile (365-day) | — | `GET /api/securities/<ticker>/options/iv-rank` | Securities Detail → Options Analytics tab | — | — |
 | Max pain + expected move per expiration | — | `GET /api/securities/<ticker>/options/analytics` | Securities Detail → Options Analytics tab | — | — |
 | P/C ratio history (daily aggregated) | — | `GET /api/securities/<ticker>/options/history` | Securities Detail → Options Performance tab | — | — |
 | Backfill historical P/C via Polygon.io | — | `POST /api/securities/<ticker>/options/history/backfill` | — | — | — |
 | Bulk options snapshot refresh (all watchlist symbols) | — | `POST /api/securities/refresh-options-snapshots` | Securities page → bulk controls | — | — |
-| Covered call / put candidate screening | — | — | — | `options_analysis.py --puts-budget 1000` | — |
-| Long call setup analysis | — | — | — | `options_analysis.py --puts-budget 1000` | — |
+| Covered call / put candidate screening (full watchlist) | `analyze_options_watchlist` (options_analysis) **NEW** | — | — | `options_analysis.py --puts-budget 1000` | — |
+| Covered call / put / long setup analysis (single symbol) | `analyze_options_symbol` (options_analysis) **NEW** | — | — | `options_analysis.py` | — |
+| Long call setup analysis | `analyze_options_watchlist` (options_analysis) **NEW** | — | — | `options_analysis.py --puts-budget 1000` | — |
+| MCP server health check (DB + watchlist readability) | `mcp_health_check` (options_analysis) **NEW** | — | — | — | — |
 | Portfolio delta exposure (aggregated across positions) | — | `GET /api/portfolio/delta-exposure` | Dashboard → market maker delta table | — | — |
 
-**Gaps:** No WebUI page or REST endpoint for `get_relative_strength`, `get_delta_adjusted_oi` standalone, `get_option_contracts`, or `price_vertical_spread`.
+**Gaps:** `get_option_contracts` and `price_vertical_spread` are now REST-exposed (Phase 2 Step 7); `get_delta_adjusted_oi` standalone still has no REST endpoint, and none of these have a dedicated WebUI page yet.
 
 ---
 
@@ -89,16 +100,16 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Capability | MCP Tool | REST Endpoint | WebUI | CLI | Standalone |
 |---|---|---|---|---|---|
 | Earnings calendar (next date, days to earnings, risk level, historical avg move) | `get_earnings_calendar` (fundamentals) | `GET /api/securities/<ticker>/earnings` | Securities Detail (earnings column) | — | — |
-| Composite fundamental score (-14 to +14, 7 metrics) | `get_fundamental_score` (fundamentals) | — | — | — | `experiments/CompositScoreExperiment.py` |
+| Composite fundamental score (-14 to +14, 7 metrics) | `get_fundamental_score` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/score` | — | — | `experiments/CompositScoreExperiment.py` |
 | Batch fundamental scoring (multiple symbols, ranked) | `get_fundamental_scores_batch` (fundamentals) | — | — | — | — |
-| Full fundamental profile (earnings + score + revenue + acceleration + signal) | `get_full_fundamental_profile` (fundamentals) | — | — | — | — |
-| Revenue growth (5 quarters, QoQ rates, CAGR, trajectory label) | `get_revenue_growth` (fundamentals) | — | — | — | `experiments/RevenueGrowthExperiment.py`, `RevenueGrowthExperiment1.py` |
-| Earnings acceleration (CAN SLIM "A" criterion, 5 quarters net income) | `get_earnings_acceleration` (fundamentals) | — | — | — | `experiments/EarningsAccelerationExperiment.py` |
+| Full fundamental profile (earnings + score + revenue + acceleration + signal) | `get_full_fundamental_profile` (fundamentals) | `GET /api/securities/<ticker>/fundamentals` | — | — | — |
+| Revenue growth (5 quarters, QoQ rates, CAGR, trajectory label) | `get_revenue_growth` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/revenue-growth` | — | — | `experiments/RevenueGrowthExperiment.py`, `RevenueGrowthExperiment1.py` |
+| Earnings acceleration (CAN SLIM "A" criterion, 5 quarters net income) | `get_earnings_acceleration` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/earnings-acceleration` | — | — | `experiments/EarningsAccelerationExperiment.py` |
 | Top-N stocks by fundamental score (from cache, per sector) | `get_top_fundamental_stocks` (fundamentals) | — | — | — | — |
 | Upcoming earnings within N days (from cache) | `get_upcoming_earnings` (fundamentals) | — | — | — | — |
 | Sector fundamental breakdown | `get_sector_fundamental_breakdown` (fundamentals) | — | — | — | — |
 | Fundamental score change tracking (improving/deteriorating over 90 days) | `get_fundamental_score_changes` (fundamentals) | — | — | — | — |
-| Historical fundamental score snapshots + trend | `get_fundamental_history` (fundamentals) | — | — | — | — |
+| Historical fundamental score snapshots + trend | `get_fundamental_history` (fundamentals) | `GET /api/securities/<ticker>/fundamentals/history?data_type=&since_days=` | — | — | — |
 | Cache statistics (symbols, date ranges, DB size) | `get_cache_stats` (fundamentals) | — | — | — | — |
 
 **Critical Gap:** **All fundamental analysis is MCP-only.** Zero REST endpoints, zero WebUI panels. The React dashboard cannot display fundamental scores, revenue growth, or earnings acceleration. This is a significant feature gap if fundamentals-based screening is desired in the WebUI.
@@ -125,9 +136,9 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 
 | Capability | MCP Tool | REST Endpoint | WebUI | CLI | Standalone |
 |---|---|---|---|---|---|
-| Short interest metrics (shares short, float %, days-to-cover) + squeeze potential (HIGH/MEDIUM/LOW) | `get_short_interest` (market_analysis) | — | — | — | — |
-| Dark pool / block trade activity (price-volume divergence proxy, accumulation/distribution) | `get_dark_pool` (market_analysis) | — | — | — | — |
-| Bid/ask spread signal (widening vs norm, fear gauge) | `get_bid_ask_spread` (market_analysis) | — | — | — | — |
+| Short interest metrics (shares short, float %, days-to-cover) + squeeze potential (HIGH/MEDIUM/LOW) | `get_short_interest` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
+| Dark pool / block trade activity (price-volume divergence proxy, accumulation/distribution) | `get_dark_pool` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
+| Bid/ask spread signal (widening vs norm, fear gauge) | `get_bid_ask_spread` (market_analysis) | `GET /api/securities/<ticker>/microstructure` (fan-out) | — | — | — |
 
 **Critical Gap:** All 3 market microstructure signals are **MCP-only, with zero REST or WebUI presence.** These are valuable indicators for institutional activity detection but are completely unavailable in the dashboard.
 
@@ -143,6 +154,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Edit plan notes / metadata | — | `PATCH /api/plans/<instance_id>` | Plan Detail page → edit dialog | — | — |
 | Delete / deactivate an active plan | — | `DELETE /api/plans/<instance_id>` | Plans page → delete action | — | — |
 | Get rungs for a plan (price targets, status) | — | `GET /api/plans/<instance_id>/rungs` | Plan Detail page (rungs table) | — | — |
+| Get single rung detail | — | `GET /api/rungs/<rung_id>` **NEW** | Plan Detail page | — | — |
 | Mark rung as achieved (price hit the target) | — | `POST /api/rungs/<rung_id>/achieve` | Plan Detail page → achieve dialog | — | — |
 | Record rung execution (shares sold, actual price) | — | `POST /api/rungs/<rung_id>/execute` | Plan Detail page → execute dialog | — | — |
 | Scan all active plans for rung hits, fire alerts | — | — | — | — | `experiments/HarvesterPlanStore.py` (HarvesterController) |
@@ -200,7 +212,6 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Dashboard stats (plan counts, rung counts, symbol counts) | — | `GET /api/dashboard/stats` | Dashboard page (stats cards) | — | — |
 | Symbol list from Harvester DB | — | `GET /api/symbols` | Symbols page (DataGrid) | — | — |
 | Latest price for a tracked symbol | — | `GET /api/symbols/<ticker>/price` | — | — | — |
-| Square root (MCP prototype demo) | `sqrt` (server.py) | — | — | — | — |
 | Unit tests (Money, Portfolio) | — | — | — | — | `test_money.py`, `test_stock_portfolio_manager.py` |
 
 ---
@@ -247,6 +258,15 @@ These standalone scripts hardcode specific tickers and are likely intended as de
 | `MaxDrawDownAnalyzer.py` | 15 hardcoded tickers from Jan 2025 | `get_historical_drawdown` (MCP) | Delete; analytics now available in MCP |
 | `YahooNewsReader/RSSReaderExperiment.py` | N/A (RSS feed) | `collect_news` (MCP) | Delete; RSS collection now available in MCP with FinBERT scoring |
 
+### Active Standalone Scripts (added since 2026-05-19)
+
+| Script | Purpose | Status |
+|---|---|---|
+| `scripts/generate_watchlist_fundamentals_report.py` | HTML report of watchlist returns + fundamentals (outputs to `docs/analysis results/`) | Active; repointed at the services layer (`get_services()`) in Phase 1 |
+| `experiments/INTC_bear_call_spread_monitor.py` | Monitors an open INTC bear call spread position (pickled state) | Active position monitor — keep |
+| `experiments/WMT_bull_call_spread_monitor.py` | Monitors an open WMT bull call spread position (pickled state) | Active position monitor — keep |
+| `scripts/migrate_sqlite_to_postgres.py` | One-shot legacy SQLite → PostgreSQL migration (16 tables) | Operational utility — keep |
+
 ---
 
 ### Capabilities Accessible Via Only One Surface (No Duplication, But Limited Discoverability)
@@ -262,7 +282,7 @@ These capabilities exist in only one surface, which can make them hard to find o
 | Short interest + squeeze potential | MCP only | No REST or WebUI equivalent |
 | Bid/ask spread signal | MCP only | No REST or WebUI equivalent |
 | Exact contract lookup and vertical spread pricing | MCP only | No REST or WebUI equivalent; exposed on both stock-price and options-analysis MCP servers |
-| Covered call / put / long setup analysis | CLI only (`options_analysis.py`) | Not exposed to REST or WebUI |
+| Covered call / put / long setup analysis | CLI + MCP (`options_analysis.py`, `analyze_options_watchlist`/`analyze_options_symbol`) | Not exposed to REST or WebUI |
 | Sentiment trend (30-day per-day breakdown) | MCP only | No REST or WebUI equivalent |
 | List symbols with news in DB | MCP only | No REST equivalent |
 | IV Rank + IV Percentile (365-day) | REST only | No MCP equivalent; WebUI-only |
@@ -356,9 +376,9 @@ The `options_positions` table (in the unified QuantCore database) stores active 
 
 #### Harvester `positions` Table vs `portfolio.csv` — Two Parallel Representations
 
-The Harvester's `positions` table stores brokerage positions (entry_price, shares, cost_basis). The REST API does not expose any CRUD for this table — `POST/DELETE /api/portfolio` read/write `portfolio.csv`, not the database table. The Harvester's `positions` table and `portfolio.csv` are two parallel representations of the same data with **no sync mechanism**.
+The Harvester's `positions` table stores brokerage positions (entry_price, shares, cost_basis). **Code scan (2026-06-12): the table is dead schema — no code reads from or writes to it.** All live position data flows through `portfolio.csv` (`main.py`, the report, `POST/DELETE /api/portfolio`, the Harvester scan). The table exists only in `init_schema()` DDL.
 
-**Recommendation:** Consolidate to a single source of truth (database or CSV), or implement a two-way sync.
+**Resolution (adopted in Phase 1 plan):** Migrate to the database as the source of truth with multi-owner support; `portfolio.csv` becomes a per-owner import format with full-sync/replace semantics (`scripts/import_portfolio.py --csv <file> --owner <name>`).
 
 #### Fundamentals Data Has No REST or WebUI Surface
 
@@ -399,13 +419,15 @@ All writes and reads use the same unified database via `quantcore.db.get_connect
 - ✅ **Standardized PRAGMA settings:** All connections use WAL mode, NORMAL sync, FK ON, Row factory, 30s timeout.
 
 ### Remaining Critical Gaps
-1. **Fundamentals are MCP-only.** All 12 fundamentals MCP tools (scores, revenue, earnings, cache) lack REST endpoints and WebUI panels. The dashboard cannot display fundamental analysis.
-2. **Market microstructure is MCP-only.** Short interest, dark pool, bid/ask spread are powerful signals with zero REST or WebUI exposure.
-3. **Most powerful MCP tools are not surfaced to REST.** `get_trade_recommendation`, `get_stop_loss_analysis`, `get_relative_strength` are LLM-accessible only.
-4. **Exact spread tools are MCP-only.** `get_option_contracts` and `price_vertical_spread` solve tactical contract lookup for agents, but REST/WebUI still cannot price exact spreads.
+> **Phase 2 Step 7 update (2026-06-15):** Gaps 1–4 below are now **REST-exposed** — the FastAPI tier added thin endpoints for the 5 core fundamentals tools (`/fundamentals`, `/fundamentals/score`, `/fundamentals/revenue-growth`, `/fundamentals/earnings-acceleration`, `/fundamentals/history`), microstructure (`/microstructure`, fanning the 3 signals), `recommendation`, `stop-loss`, `relative-strength` (+`/history`), and exact contract/spread pricing (`/options/contracts`, `POST /options/vertical-spread`). What remains open is **WebUI** surfacing (no dashboard panels yet) and the few cache/batch fundamentals tools (`get_top_fundamental_stocks`, `get_upcoming_earnings`, `get_sector_fundamental_breakdown`, `get_fundamental_score_changes`, `get_fundamental_scores_batch`, `get_cache_stats`) that remain MCP-only by design.
+
+1. ~~**Fundamentals are MCP-only.**~~ The 5 core fundamentals tools are now REST-exposed; the dashboard still lacks fundamental-analysis panels (WebUI gap).
+2. ~~**Market microstructure is MCP-only.**~~ Short interest, dark pool, and bid/ask spread are now served by `GET /api/securities/<ticker>/microstructure`; WebUI panels remain.
+3. ~~**Most powerful MCP tools are not surfaced to REST.**~~ `get_trade_recommendation`, `get_stop_loss_analysis`, and `get_relative_strength` now have REST endpoints (WebUI still pending).
+4. ~~**Exact spread tools are MCP-only.**~~ `get_option_contracts` and `price_vertical_spread` are now REST-exposed (`/options/contracts`, `POST /options/vertical-spread`).
 5. **News articles still duplicated.** `news_articles` (per-article) and `sentiment_snapshots` (JSON blobs) both store article data; no FK cross-reference.
-6. **`collect_options.py` is broken.** Imports non-existent classes; references wrong database file.
-7. **Two parallel position registries.** Harvester's `positions` table and `portfolio.csv` have no sync mechanism.
+6. **`collect_options.py` is broken.** Imports non-existent classes (`OptionsRepository`, `SnapshotService`, `MarketDataFetcher`, `create_pricer` — `options_store.py` exports only `OptionsStore`); references wrong database file.
+7. **Position registry.** Harvester's `positions` table is dead schema (zero readers/writers); `portfolio.csv` is the only live registry. Phase 1 plan migrates positions to the DB with multi-owner support and CSV import.
 
 ### Recommended Quick Wins
 1. Delete legacy experiments (`RevenueGrowthExperiment.py`, `EarningsAccelerationExperiment.py`, `MaxDrawDownAnalyzer.py`, etc.). They are fully superseded by MCP tools.
@@ -415,6 +437,6 @@ All writes and reads use the same unified database via `quantcore.db.get_connect
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2026-05-15  
+**Document Version:** 1.1  
+**Last Updated:** 2026-06-12 (code-scan refresh: +6 MCP tools, +1 REST endpoint, +4 scripts, positions-table finding)  
 **Maintained By:** John Funk

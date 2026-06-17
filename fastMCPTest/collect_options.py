@@ -2,28 +2,35 @@
 """
 collect_options.py — EOD options snapshot collector.
 
-Intended to be run as a daily cron job at ~4:10 PM ET on trading days.
+Intended to be run as a daily cron job at ~4:10 PM ET on trading days. For each
+watchlist symbol it fetches the full options chain from yfinance and persists a
+snapshot to the unified QuantCore PostgreSQL database (via ``OptionsService``).
+Running it once per trading day builds the put/call-ratio and IV trend history
+that the options-analysis tooling reads back.
 
 Usage
 -----
     python collect_options.py                        # snapshot today, all watchlist symbols
-    python collect_options.py --date 2026-04-01      # snapshot a specific date
+    python collect_options.py --date 2026-04-01      # label the snapshot with a specific date
     python collect_options.py --symbols MU,WDC,GEV   # specific symbols only
-    python collect_options.py --dry-run              # validate config, skip DB writes
-    python collect_options.py --log-level DEBUG      # verbose per-contract logging
-    python collect_options.py --max-expirations 6    # capture 6 expirations instead of 4
+    python collect_options.py --dry-run              # validate config/connectivity, skip DB writes
+    python collect_options.py --log-level DEBUG      # verbose logging
+    python collect_options.py --force                # run even on a non-trading day
+
+Persistence is the unified QuantCore PostgreSQL database addressed by the
+``QUANTCORE_DB_DSN`` environment variable — there is no local SQLite file.
 
 Cron entry (4:10 PM ET, Mon–Fri):
-    10 16 * * 1-5  cd /path/to/fastMCPTest && /path/to/venv/python collect_options.py
+    10 16 * * 1-5  cd /path/to/repo && /path/to/venv/python fastMCPTest/collect_options.py
 
 Exit codes
 ----------
-    0 — all symbols succeeded
+    0 — all symbols succeeded (or non-trading day, nothing attempted)
     1 — one or more symbols failed
-    2 — market closed / configuration error (no snapshot attempted)
+    2 — configuration error (no snapshot attempted)
 
 To AutoRun it on MacOS, you can create a Launch Agent plist file like this:
-File Name: /Users/your_user/Library/LaunchAgents//com.stockportfolio.collect_options.plist
+File Name: /Users/your_user/Library/LaunchAgents/com.stockportfolio.collect_options.plist
 
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -39,12 +46,12 @@ File Name: /Users/your_user/Library/LaunchAgents//com.stockportfolio.collect_opt
     </array>
 
     <key>WorkingDirectory</key>
-    <string>/Users/you_user/Documents/code/StockPortfolioManager/fastMCPTest</string>
+    <string>/Users/you_user/Documents/code/StockPortfolioManager</string>
 
     <!--
-        Run at 4:10 PM every day.  The script itself exits cleanly (code 0) when
-        pandas_market_calendars detects a non-trading day (weekend or NYSE holiday),
-        so no data is written on those days.
+        Run at 4:10 PM every day.  The script exits cleanly (code 0) on weekends
+        (and NYSE holidays when pandas_market_calendars is installed), so no data
+        is written on non-trading days.
     -->
     <key>StartCalendarInterval</key>
     <dict>
@@ -77,31 +84,45 @@ import argparse
 import datetime
 import logging
 import sys
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# Ensure the package directory is importable when run directly
+# Ensure the project root is importable when run directly (for quantcore.*)
 # ---------------------------------------------------------------------------
 _HERE = Path(__file__).parent.resolve()
-if str(_HERE) not in sys.path:
-    sys.path.insert(0, str(_HERE))
+_PROJECT_ROOT = _HERE.parent
+for _p in (_PROJECT_ROOT, _HERE):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-from options_store import (
-    MarketDataFetcher,
-    MarketClosedError,
-    OptionsRepository,
-    SnapshotService,
-    configure_logging,
-    create_pricer,
-    get_logger,
-)
+from quantcore.services.registry import get_services
 
 # Default paths
-_DEFAULT_DB        = _HERE / "options_store.db"
-_DEFAULT_WATCHLIST = _HERE.parent / "watchlist.yaml"
+_DEFAULT_WATCHLIST = _PROJECT_ROOT / "watchlist.yaml"
 _DEFAULT_LOG_DIR   = _HERE / "logs"
 
-logger = get_logger("collect_options")
+logger = logging.getLogger("collect_options")
+
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+def _configure_logging(log_dir: Path | None, level: int) -> None:
+    """Console logging always; a rotating-free file handler when log_dir is set."""
+    handlers: list[logging.Handler] = [logging.StreamHandler(sys.stderr)]
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.date.today().isoformat()
+        handlers.append(logging.FileHandler(log_dir / f"collect_options_{stamp}.log"))
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+        handlers=handlers,
+        force=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +139,7 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument(
         "--date",
         metavar="YYYY-MM-DD",
-        help="Snapshot date (default: today)",
+        help="Snapshot date label (default: today)",
     )
     p.add_argument(
         "--symbols",
@@ -133,9 +154,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     )
     p.add_argument(
         "--db",
-        default=str(_DEFAULT_DB),
+        default=None,
         metavar="PATH",
-        help=f"Path to options_store.db (default: {_DEFAULT_DB})",
+        help="Deprecated/ignored. Persistence is the QuantCore PostgreSQL database "
+             "addressed by QUANTCORE_DB_DSN; there is no local SQLite file.",
     )
     p.add_argument(
         "--log-dir",
@@ -154,19 +176,21 @@ def _parse_args(argv=None) -> argparse.Namespace:
         type=int,
         default=4,
         metavar="N",
-        help="Number of nearest expirations to capture (default: 4)",
+        help="Deprecated/advisory. The service now captures every available "
+             "expiration in the chain (default kept for CLI compatibility).",
     )
     p.add_argument(
         "--tree-steps",
         type=int,
         default=100,
         metavar="N",
-        help="QuantLib binomial tree steps (default: 100, use 200 for higher accuracy)",
+        help="Deprecated/ignored. Greeks come from yfinance; the QuantLib pricer "
+             "is no longer used (kept for CLI compatibility).",
     )
     p.add_argument(
         "--dry-run",
         action="store_true",
-        help="Validate configuration and connectivity without writing to DB",
+        help="Validate configuration and connectivity without writing to the DB",
     )
     p.add_argument(
         "--force",
@@ -237,65 +261,41 @@ def _load_symbols(args: argparse.Namespace) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Dry-run wrapper
+# Trading-day check
 # ---------------------------------------------------------------------------
 
-class _DryRunRepository:
+def _is_trading_day(day: datetime.date) -> bool:
     """
-    Drop-in replacement for OptionsRepository that logs every write call
-    instead of executing it.  Used with --dry-run.
+    True if `day` is a NYSE trading day. Uses pandas_market_calendars for exact
+    holiday handling when it is installed; otherwise falls back to a weekday
+    check (Mon–Fri), which over-counts holidays but never under-counts.
     """
-    def __init__(self, db_path):
-        logger.info("[DRY-RUN] Would write to: %s", db_path)
-
-    def upsert_market_rate(self, *a, **kw):
-        logger.info("[DRY-RUN] upsert_market_rate: %s", a)
-
-    def upsert_contracts(self, contracts, **kw):
-        logger.info("[DRY-RUN] upsert_contracts: %d rows", len(contracts))
-        return len(contracts)
-
-    def upsert_snapshot(self, snap, **kw):
-        logger.info("[DRY-RUN] upsert_snapshot: %s  exp=%s", snap.symbol, snap.expiration)
-
-    def upsert_iv_snapshot(self, iv, **kw):
-        logger.info("[DRY-RUN] upsert_iv_snapshot: %s  iv_rank=%.1f",
-                    iv.symbol, iv.iv_rank or 0)
-
-    def upsert_sweeps(self, sweeps, **kw):
-        logger.info("[DRY-RUN] upsert_sweeps: %d rows", len(sweeps))
-        return len(sweeps)
-
-    def upsert_short_interest(self, si, **kw):
-        logger.info("[DRY-RUN] upsert_short_interest: %s", si.symbol)
-
-    def get_latest_short_interest_date(self, symbol):
-        return None
-
-    def get_iv_history(self, symbol, days=252):
-        return []
-
-    def count_snapshots(self, symbol):
-        return 0
-
-    @staticmethod
-    def transaction():
-        """Context manager stub — yields self."""
-        import contextlib
-
-        @contextlib.contextmanager
-        def _ctx():
-            yield _DryRunRepository.__new__(_DryRunRepository)
-
-        return _ctx()
+    try:
+        import pandas_market_calendars as mcal
+        sched = mcal.get_calendar("NYSE").schedule(start_date=day, end_date=day)
+        return not sched.empty
+    except Exception:
+        return day.weekday() < 5  # Mon=0 .. Fri=4
 
 
 # ---------------------------------------------------------------------------
-# Report printer
+# Per-symbol result + report
 # ---------------------------------------------------------------------------
+
+@dataclass
+class SymbolResult:
+    symbol: str
+    success: bool = False
+    expirations: int = 0
+    contracts: int = 0
+    duration_ms: int = 0
+    persisted: bool = False
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
 
 def _print_report(
-    results: list,
+    results: list[SymbolResult],
     snapshot_date: datetime.date,
     elapsed_s: float,
     dry_run: bool,
@@ -306,9 +306,8 @@ def _print_report(
         f"  Options Snapshot Report  —  {snapshot_date}"
         + ("  [DRY RUN]" if dry_run else "")
         + f"\n{'=' * 72}\n"
-        f"  {'Symbol':<8}  {'Status':<8}  {'Exp':>4}  {'Contracts':>10}  "
-        f"{'Sweeps':>7}  {'ms':>6}\n"
-        f"  {'─' * 66}"
+        f"  {'Symbol':<8}  {'Status':<8}  {'Exp':>4}  {'Contracts':>10}  {'ms':>7}\n"
+        f"  {'─' * 60}"
     )
     print(header)
 
@@ -316,24 +315,21 @@ def _print_report(
     for r in results:
         status = "OK" if r.success else "FAILED"
         print(
-            f"  {r.symbol:<8}  {status:<8}  {r.expirations_processed:>4}  "
-            f"{r.contracts_stored:>10}  {r.sweeps_detected:>7}  {r.duration_ms:>6}"
+            f"  {r.symbol:<8}  {status:<8}  {r.expirations:>4}  "
+            f"{r.contracts:>10}  {r.duration_ms:>7}"
         )
-        if r.errors:
-            for e in r.errors:
-                print(f"           ERROR: {e}")
-        if r.warnings:
-            for w in r.warnings:
-                print(f"           WARN:  {w}")
+        for e in r.errors:
+            print(f"           ERROR: {e}")
+        for w in r.warnings:
+            print(f"           WARN:  {w}")
         if not r.success:
             any_failed = True
 
-    total_contracts = sum(r.contracts_stored for r in results)
-    total_sweeps    = sum(r.sweeps_detected for r in results)
-    print(f"  {'─' * 66}")
+    total_contracts = sum(r.contracts for r in results)
+    print(f"  {'─' * 60}")
     print(
-        f"  {'TOTAL':<8}  {'':>8}  {len(results):>4}d  "
-        f"{total_contracts:>10}  {total_sweeps:>7}  {elapsed_s:.1f}s"
+        f"  {'TOTAL':<8}  {len(results):>8}  {'':>4}  "
+        f"{total_contracts:>10}  {elapsed_s:>6.1f}s"
     )
     print(f"{'=' * 72}\n")
 
@@ -349,18 +345,18 @@ def main(argv=None) -> int:
 
     # ── Logging ─────────────────────────────────────────────────────────────
     log_level = getattr(logging, args.log_level)
-    configure_logging(
+    _configure_logging(
         log_dir=None if args.dry_run else Path(args.log_dir),
         level=log_level,
-        console=True,
     )
 
     logger.info(
-        "collect_options  date=%s  dry_run=%s  max_exp=%d  tree_steps=%d",
-        args.date or "today", args.dry_run, args.max_expirations, args.tree_steps,
+        "collect_options  date=%s  dry_run=%s", args.date or "today", args.dry_run
     )
+    if args.db:
+        logger.warning("--db is ignored; persistence is PostgreSQL (QUANTCORE_DB_DSN).")
 
-    # ── Snapshot date ────────────────────────────────────────────────────────
+    # ── Snapshot date label ──────────────────────────────────────────────────
     if args.date:
         try:
             snapshot_date = datetime.date.fromisoformat(args.date)
@@ -370,48 +366,54 @@ def main(argv=None) -> int:
     else:
         snapshot_date = datetime.date.today()
 
+    # ── Trading-day gate ─────────────────────────────────────────────────────
+    if not args.force and not _is_trading_day(snapshot_date):
+        logger.info("%s is not a trading day — exiting. Use --force to override.", snapshot_date)
+        return 0
+
     # ── Symbol list ──────────────────────────────────────────────────────────
     symbols = _load_symbols(args)
     if not symbols:
         logger.error("No symbols to snapshot.")
         return 2
 
-    # ── Wire up dependencies ─────────────────────────────────────────────────
-    fetcher = MarketDataFetcher(
-        max_expirations=args.max_expirations,
-    )
-
-    # Trading day check (can be overridden with --force for testing)
-    if not args.force and not fetcher.is_trading_day(snapshot_date):
-        logger.info("%s is not a trading day — exiting. Use --force to override.", snapshot_date)
-        return 0
-
-    pricer = create_pricer(tree_steps=args.tree_steps)
-
-    if args.dry_run:
-        repository = _DryRunRepository(args.db)
-        logger.warning("DRY RUN mode — no data will be written to disk.")
-    else:
-        repository = OptionsRepository(db_path=Path(args.db))
-
-    service = SnapshotService(
-        repository=repository,
-        fetcher=fetcher,
-        pricer=pricer,
-    )
+    # ── Wire up services (lazy registry; ensures schema exists) ──────────────
+    from quantcore.db import init_schema
+    init_schema()
+    services = get_services()
 
     # ── Run snapshot ─────────────────────────────────────────────────────────
-    import time
     t0 = time.monotonic()
+    results: list[SymbolResult] = []
 
-    try:
-        results = service.run(symbols=symbols, snapshot_date=snapshot_date)
-    except MarketClosedError as exc:
-        logger.info("%s", exc)
-        return 0
-    except Exception as exc:
-        logger.exception("Fatal error during snapshot run: %s", exc)
-        return 2
+    for sym in symbols:
+        r = SymbolResult(symbol=sym)
+        s0 = time.monotonic()
+        try:
+            if args.dry_run:
+                # Connectivity check only — no chain fetch, no DB write.
+                info = services.yfinance_gateway.fast_info(sym)
+                price = getattr(info, "last_price", None)
+                if price is None:
+                    raise ValueError("no price available")
+                r.success = True
+                r.warnings.append("dry-run: chain not fetched, nothing written")
+            else:
+                # get_full_options_chain fetches every expiration and persists a
+                # snapshot to PostgreSQL via OptionsService -> OptionsStore.
+                chain = services.options.get_full_options_chain(sym)
+                r.expirations = chain.get("expiration_count", 0)
+                r.contracts   = chain.get("total_contracts", 0)
+                r.persisted   = bool(chain.get("persisted"))
+                r.success     = True
+                if not r.persisted and chain.get("storage_warning"):
+                    r.warnings.append(chain["storage_warning"])
+        except Exception as exc:
+            r.errors.append(str(exc))
+            logger.warning("%s failed: %s", sym, exc)
+        finally:
+            r.duration_ms = int((time.monotonic() - s0) * 1000)
+            results.append(r)
 
     elapsed = time.monotonic() - t0
     return _print_report(results, snapshot_date, elapsed, args.dry_run)

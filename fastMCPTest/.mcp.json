@@ -1,24 +1,29 @@
 {
   "mcpServers": {
     "stock-price-server": {
-      "command": "../.venv/bin/fastmcp",
-      "args": ["run", "stock_price_server.py"]
-    },
-    "market-analysis-server": {
-      "command": "../.venv/bin/fastmcp",
-      "args": ["run", "market_analysis_server.py"]
+      "type": "http",
+      "url": "https://quantcore-stock-price-uikpdb55ea-uc.a.run.app/mcp",
+      "headers": { "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}" }
     },
     "options-analysis-server": {
-      "command": "../.venv/bin/fastmcp",
-      "args": ["run", "options_analysis.py"]
+      "type": "http",
+      "url": "https://quantcore-options-analysis-uikpdb55ea-uc.a.run.app/mcp",
+      "headers": { "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}" }
     },
     "company-fundamentals-server": {
-      "command": "../.venv/bin/fastmcp",
-      "args": ["run", "company_fundamentals_server.py"]
+      "type": "http",
+      "url": "https://quantcore-company-fundamentals-uikpdb55ea-uc.a.run.app/mcp",
+      "headers": { "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}" }
     },
     "news-sentiment-server": {
-      "command": "../.venv/bin/fastmcp",
-      "args": ["run", "news_sentiment_server.py"]
+      "type": "http",
+      "url": "https://quantcore-news-sentiment-uikpdb55ea-uc.a.run.app/mcp",
+      "headers": { "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}" }
+    },
+    "market-analysis-server": {
+      "type": "http",
+      "url": "https://quantcore-market-analysis-uikpdb55ea-uc.a.run.app/mcp",
+      "headers": { "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}" }
     }
   }
 }

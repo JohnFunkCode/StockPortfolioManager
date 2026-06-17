@@ -17,11 +17,12 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 FAST_MCP_DIR = ROOT / "fastMCPTest"
-if str(FAST_MCP_DIR) not in sys.path:
-    sys.path.insert(0, str(FAST_MCP_DIR))
+for _path in (ROOT, FAST_MCP_DIR):
+    if str(_path) not in sys.path:
+        sys.path.insert(0, str(_path))
 
-from company_fundamentals_server import get_full_fundamental_profile  # noqa: E402
-from ohlcv_cache import get_history  # noqa: E402
+from quantcore.services.registry import get_services  # noqa: E402
+from quantcore.repositories.ohlcv_repository import get_history  # noqa: E402
 
 
 SORT_TABLE_JS = """
@@ -229,7 +230,7 @@ def collect_row(entry: dict[str, Any]) -> dict[str, Any]:
     fundamentals_error = ""
     profile: dict[str, Any] = {}
     try:
-        profile = get_full_fundamental_profile(symbol)
+        profile = get_services().fundamentals.get_full_fundamental_profile(symbol)
     except Exception as exc:  # noqa: BLE001
         fundamentals_error = str(exc)
 

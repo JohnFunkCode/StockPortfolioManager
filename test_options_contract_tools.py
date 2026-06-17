@@ -1,3 +1,4 @@
+import os
 import sys
 import unittest
 from contextlib import closing
@@ -5,11 +6,23 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent / "fastMCPTest"))
 
-from options_contract_tools import (  # noqa: E402
+# DB-backed tests run against the test database only. Swap the test DSN in
+# BEFORE quantcore.db is imported (it freezes DB_DSN at import time), then let
+# the guard abort if this process would still reach production.
+for _line in (Path(__file__).parent / ".env").read_text().splitlines():
+    if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
+        os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
+        break
+
+from quantcore.db_safety import assert_not_production  # noqa: E402
+
+assert_not_production()
+
+from quantcore.services.options_contracts import (  # noqa: E402
     get_option_contracts_data,
     price_vertical_spread_data,
 )
-from options_store import OptionsStore  # noqa: E402
+from quantcore.repositories.options_repository import OptionsStore  # noqa: E402
 from quantcore.db import get_connection  # noqa: E402
 
 # Synthetic ticker that won't collide with real cached snapshots — keeps these

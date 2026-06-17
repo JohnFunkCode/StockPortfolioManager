@@ -125,9 +125,9 @@ python main.py
 
 ## REST API (`api/`)
 
-A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the React frontend or other clients.
+A FastAPI REST API that exposes the Harvester Plan Store and Securities Dashboard over HTTP for use by the React frontend or other clients. Interactive OpenAPI docs are served at `/docs` and the spec at `/openapi.json`.
 
-**Entry point:** `api/app.py`
+**Entry point:** `api/main.py` (the FastAPI `app`)
 
 ### Endpoints
 
@@ -152,16 +152,18 @@ A Flask REST API that exposes the Harvester Plan Store over HTTP for use by the 
 ```bash
 # From the project root, with the virtualenv active:
 source .venv/bin/activate
-python -m api.app
+uvicorn api.main:app --host 127.0.0.1 --port 5001
+# or, equivalently:
+python -m api.main
 ```
 
-The server starts on `http://127.0.0.1:5000`. CORS is enabled for all origins on `/api/*` routes so the React dev server can connect without a proxy.
+The server starts on `http://127.0.0.1:5001`. CORS is enabled for all origins on `/api/*` routes so the React dev server can connect without a proxy.
 
 ---
 
 ## React Frontend (`frontend/`)
 
-A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the Flask API above.
+A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the FastAPI service above.
 
 ### Pages
 
@@ -187,7 +189,7 @@ npm install        # first time only
 npm run dev
 ```
 
-The dev server starts on `http://localhost:5173` and hot-reloads on file changes. It expects the Flask API to be running on `http://127.0.0.1:5000`.
+The dev server starts on `http://localhost:5173` and hot-reloads on file changes. It expects the FastAPI service to be running on `http://127.0.0.1:5001` (the Vite dev server proxies `/api/*` to that port).
 
 To build a production bundle:
 
@@ -208,11 +210,81 @@ npm run build      # output goes to frontend/dist/
 
 What it does:
 - Activates the Python virtualenv (`.venv/`)
-- Starts the Flask API server in the background — output logged to `api.log`
+- Starts the FastAPI (uvicorn) server in the background — output logged to `api.log`
 - Starts the Vite frontend dev server in the background — output logged to `frontent.log`
 - Prints the PID of each process and the URLs for both servers
 
 Both processes run independently; closing the terminal does not stop them. The script prints a `kill` command with both PIDs so you can shut them down when done.
+
+---
+
+## Local Container Stack (`docker-compose.yml`)
+
+The whole backend runs as containers locally — the team's daily driver and the
+fallback if the GCP deployment has issues. The topology mirrors the Cloud Run
+target: AI agents talk to the five **MCP wrapper** containers over streamable
+HTTP; each wrapper is a thin HTTP gateway that calls the **`quantcore-api`**
+FastAPI front door (`QUANTCORE_REST_URL=http://quantcore-api:5001`); the api runs
+the services in-process and reaches **Cloud SQL** through a `cloud-sql-proxy`
+sidecar — all on one bridge network.
+
+```text
+AI agents ──HTTP──► stock-price :6001 │ options-analysis :6002 │ company-fundamentals :6003
+                    news-sentiment :6004 │ market-analysis :6005
+                              │  QUANTCORE_REST_URL
+                              ▼
+                       quantcore-api :5001  (FastAPI; services in-process)
+                              │
+                              ▼
+                       cloud-sql-proxy ──► Cloud SQL (TEST instance)
+```
+
+### Bring it up
+
+Always use the launcher — **not** plain `docker compose up`:
+
+```bash
+./runUI-CONTAINERS.sh up --build     # build images + start (first run)
+./runUI-CONTAINERS.sh up -d          # start detached
+./runUI-CONTAINERS.sh ps             # status
+./runUI-CONTAINERS.sh logs -f quantcore-api
+./runUI-CONTAINERS.sh down           # stop + remove
+```
+
+Any arguments pass straight through to `docker compose`.
+
+**DB safety.** The stack talks **only** to the TEST Cloud SQL instance
+(`quantcore-test-20260606:us-central1:quantcore`). The launcher derives a
+git-ignored `.env.docker` (TEST connection name + credentials read from
+`QUANTCORE_TEST_DB_DSN`) and runs `docker compose --env-file .env.docker`, which
+**suppresses** Compose's default `./.env` load — so the prod `QUANTCORE_DB_DSN` /
+`CLOUDSQL_CONNECTION_NAME` in `.env` can never leak into the containers. Requires
+Google ADC on the host (`gcloud auth application-default login`).
+
+**Auth.** The api runs with `AUTH_DISABLED=1` locally (today's no-auth contract),
+so the team can test immediately. JWT validation is enabled only on Cloud Run.
+
+### Images
+
+| Image | Dockerfile | Deps | Role |
+|-------|-----------|------|------|
+| `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) | FastAPI front door + service execution |
+| MCP wrappers (×5) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
+| `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) |
+
+Only the api image carries the heavy ML stack — post-inversion FinBERT scoring
+runs in the api, and `main.py` never scores sentiment, so the wrapper and report
+images stay lean.
+
+### Verify
+
+```bash
+curl http://localhost:5001/api/health          # {"status":"ok","db_connected":true}
+# point Claude Desktop/Code at a wrapper, e.g. http://localhost:6001/mcp, and run a tool
+```
+
+The React frontend (`frontend/`, `npm run dev`) is a separate Vite app; point it
+at `http://localhost:5001` (the published api port) and it runs unchanged.
 
 ---
 

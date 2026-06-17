@@ -14,6 +14,7 @@ from jinja2 import Environment, FileSystemLoader
 from notifier import Notifier
 from dotenv import load_dotenv
 from quantcore.db import init_schema
+from quantcore.services.registry import get_services
 
 def fig_to_base64(fig):
     """Convert matplotlib figure to base64 string for HTML embedding"""
@@ -595,9 +596,10 @@ if __name__ == "__main__":
     # Get the directory where the script is located
     script_dir = Path(__file__).parent
 
-    # Read stocks from CSV file
-    csv_file = script_dir / "portfolio.csv"
-    portfolio.read_stocks_from_csv(csv_file)
+    # Load John's positions from the DB-backed source of truth (positions table).
+    # portfolio.csv remains John's import file; refresh it via
+    # scripts/import_portfolio.py --csv portfolio.csv --owner john.
+    portfolio.read_stocks_from_records(get_services().portfolio.list_positions("john"))
 
     # Update current prices
     portfolio.update_all_prices()

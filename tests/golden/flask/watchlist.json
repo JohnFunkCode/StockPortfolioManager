@@ -1,0 +1,3351 @@
+{
+  "json": {
+    "securities": [
+      {
+        "currency": "USD",
+        "name": "ZScaler",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ZS",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cloudflare",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NET",
+        "tags": [
+          "cybersecurity",
+          "cloud"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Box",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BOX",
+        "tags": [
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Amazon",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AMZN",
+        "tags": [
+          "eCommerce",
+          "Cloud",
+          "AI",
+          "Genesis"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Meta",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "META",
+        "tags": [
+          "eCommerce",
+          "Cloud",
+          "AI",
+          "Genesis",
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Apple",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AAPL",
+        "tags": [
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "GE Vernova",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GEV",
+        "tags": [
+          "Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Symbotics",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SYM",
+        "tags": [
+          "Robotics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Silicon Motion Technologies",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SIMO",
+        "tags": [
+          "Storage"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Palantir Technologies",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PLTR",
+        "tags": [
+          "AI Software",
+          "Genesis"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Qualcomm",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "QCOM",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Royal Caribbean Cruises",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RCL",
+        "tags": [
+          "Travel"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Super Micro Computer",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SMCI",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Abbot Laboratories",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ABT",
+        "tags": [
+          "Healthcare"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Nebius Group",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NBIS",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "EUR",
+        "name": "Schneider Electric SE",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SU.PA",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Credo Technologies",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CRDO",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Adobe",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ADBE",
+        "tags": [
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Advanced Micro Devices",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AMD",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "The Walt Disney Company",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DIS",
+        "tags": [
+          "Entertainment",
+          "Travel"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Carnival Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CRVL",
+        "tags": [
+          "Travel"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "International Business Machines",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "IBM",
+        "tags": [
+          "AI Factory",
+          "Quantum"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "RBC Bearing Incorporated",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RBC",
+        "tags": [
+          "Engineered Components",
+          null
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ESCO Industries",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ESE",
+        "tags": [
+          "Engineered Components"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Costco Wholesale Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "COST",
+        "tags": [
+          "Retail",
+          "Subscription"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "CBRE Group",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CBRE",
+        "tags": [
+          "Commercial Real Estate"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Oracle Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ORCL",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "The Timken Company",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TKR",
+        "tags": [
+          "Engineered Components"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Abbvie Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ABBV",
+        "tags": [
+          "Healthcare",
+          "Pharmaceuticals"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Crowdstrike Holdings",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CRWD",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Check Point Software Technologies LTD",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CHKP",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Fortinet Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "FTNT",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "SailPoint Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SAIL",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rapid 7 Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RPD",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Qualys Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "QLYS",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Tenable Holdings Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TENB",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Okta Inc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "OKTA",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Trimble Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TRMB",
+        "tags": [
+          "Scientific Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rocket Labs Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RKLB",
+        "tags": [
+          "Aerospace"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Firefly Aerospace",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "FLY",
+        "tags": [
+          "Aerospace"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Tesla Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TSLA",
+        "tags": [
+          "Robotics",
+          "Electric Vehicle"
+        ]
+      },
+      {
+        "currency": "DKK",
+        "name": "Vestas Wind Systems A/S",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VWS.CO",
+        "tags": [
+          "Energy",
+          "Wind Energy"
+        ]
+      },
+      {
+        "currency": "CNY",
+        "name": "Ming Yang Smart Energy Group",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "601615.SS",
+        "tags": [
+          "Energy",
+          "Wind Energy"
+        ]
+      },
+      {
+        "currency": "HKD",
+        "name": "Goldwind Science & Technology",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "2208.HK",
+        "tags": [
+          "Energy",
+          "Wind Energy"
+        ]
+      },
+      {
+        "currency": "EUR",
+        "name": "SBM Offshore",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SBMO.AS",
+        "tags": [
+          "Energy",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "EUR",
+        "name": "Saipem S.p.A.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SPM.MI",
+        "tags": [
+          "Energy",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "NOK",
+        "name": "Aker Solutions",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AKSO.OL",
+        "tags": [
+          "Energy",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "SEK",
+        "name": "Hexicon AB",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HEXI.ST",
+        "tags": [
+          "Energy",
+          "Offshore Wind"
+        ]
+      },
+      {
+        "currency": "HKD",
+        "name": "Shanghai Electric Group",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "2727.HK",
+        "tags": [
+          "Energy",
+          "Power Equipment"
+        ]
+      },
+      {
+        "currency": "KRW",
+        "name": "HD Hyundai Heavy Industries",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "329180.KS",
+        "tags": [
+          "Shipbuilding",
+          "Offshore Wind"
+        ]
+      },
+      {
+        "currency": "KRW",
+        "name": "Doosan Enerbility",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "034020.KS",
+        "tags": [
+          "Energy",
+          "Power Equipment"
+        ]
+      },
+      {
+        "currency": "CNY",
+        "name": "Dongfang Electric Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "600875.SS",
+        "tags": [
+          "Energy",
+          "Power Equipment"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "NOV Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NOV",
+        "tags": [
+          "Energy",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "KRW",
+        "name": "CS Wind Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "112610.KS",
+        "tags": [
+          "Energy",
+          "Wind Energy"
+        ]
+      },
+      {
+        "currency": "SGD",
+        "name": "Seatrium",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "5E2.SI",
+        "tags": [
+          "Shipbuilding",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "EUR",
+        "name": "Technip Energies",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TE.PA",
+        "tags": [
+          "Energy",
+          "Offshore Engineering"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rivian Technologies Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RIVN",
+        "tags": [
+          "Electric Vehicle"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "PTC Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PTC",
+        "tags": [
+          "Chip Design Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Digital Realty Trust Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DLR",
+        "tags": [
+          "Commercial Real Estate",
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Veronis Systems",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VRSN",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Recursion Pharmaceuticals",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RXRX",
+        "tags": [
+          "Pharmaceuticals"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Applied Digital Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "APLD",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Sound Hound AI",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SOUN",
+        "tags": [
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "HP Enterprise",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HPE",
+        "tags": [
+          "AI Factory",
+          "Genesis"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "IonQ Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "IONQ",
+        "tags": [
+          "Quantum"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Quantum Computing Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "QUBT",
+        "tags": [
+          "Quantum"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rigetti Computing",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RGTI",
+        "tags": [
+          "Quantum"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "D-Wave Systems Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "QBTS",
+        "tags": [
+          "Quantum"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Netflix",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NFLX",
+        "tags": [
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Domo Inc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DOMO",
+        "tags": [
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Snowflake",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SNOW",
+        "tags": [
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Gilead Sciences",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GILD",
+        "tags": [
+          "Pharmaceuticals"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Applied Materials Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AMAT",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Argan, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AGX",
+        "tags": [
+          "Engineering & Construction"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Public Service Enterprise Group, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PEG",
+        "tags": [
+          "Utilities"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Vertiv Holdings Co",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VRT",
+        "tags": [
+          "Data Center Infrastructure"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Constellation Energy Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CEG",
+        "tags": [
+          "Utilities",
+          "Nuclear Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Vistra Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VST",
+        "tags": [
+          "Utilities",
+          "Power Generation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Talen Energy Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TLN",
+        "tags": [
+          "Independent Power Producers"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "NextEra Energy, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NEE",
+        "tags": [
+          "Utilities",
+          "Renewable Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "NRG Energy, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NRG",
+        "tags": [
+          "Utilities",
+          "Power Generation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cameco Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CCJ",
+        "tags": [
+          "Uranium",
+          "Energy Materials"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Oklo Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "OKLO",
+        "tags": [
+          "Nuclear Energy",
+          "Advanced Reactors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "BWX Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BWXT",
+        "tags": [
+          "Nuclear Engineering",
+          "Defense"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cummins Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CMI",
+        "tags": [
+          "Industrial Manufacturing",
+          "Engines & Power Systems"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "EOG Resources, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "EOG",
+        "tags": [
+          "Oil & Gas",
+          "Exploration & Production"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Generac Holdings Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GNRC",
+        "tags": [
+          "Power Equipment",
+          "Energy Infrastructure"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Synopsys, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SNPS",
+        "tags": [
+          "Semiconductor Software",
+          "EDA"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cadence Design Systems, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CDNS",
+        "tags": [
+          "Semiconductor Software",
+          "EDA"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Everpure, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "P",
+        "tags": [
+          "Data Storage",
+          "Enterprise IT"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Taiwan Semiconductor Manufacturing Company",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TSM",
+        "tags": [
+          "Semiconductors",
+          "Foundry"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "DigitalOcean Holdings, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DOCN",
+        "tags": [
+          "Cloud Computing",
+          "Infrastructure as a Service"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Netskope, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NTSK",
+        "tags": [
+          "Cybersecurity",
+          "Cloud Security"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Kenvue Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "KVUE",
+        "tags": [
+          "Consumer Health",
+          "Consumer Staples"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Universal Technical Institute, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "UTI",
+        "tags": [
+          "Education Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cellebrite DI Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CLBT",
+        "tags": [
+          "Digital Forensics",
+          "Law Enforcement Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Prologis, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PLD",
+        "tags": [
+          "Real Estate",
+          "Industrial REIT"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rockwell Automation, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ROK",
+        "tags": [
+          "Industrial Automation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Siemens AG",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SIEGY",
+        "tags": [
+          "Industrial Conglomerate",
+          "Automation & Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Teradyne, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TER",
+        "tags": [
+          "Semiconductor Equipment",
+          "Test & Measurement"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ABB Ltd",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ABBNY",
+        "tags": [
+          "Industrial Automation",
+          "Electrification"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Elastic N.V.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ESTC",
+        "tags": [
+          "Software",
+          "Observability & Search"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "PayPal Holdings, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PYPL",
+        "tags": [
+          "Financial Technology",
+          "Digital Payments"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Wix.com Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WIX",
+        "tags": [
+          "Web Services",
+          "SaaS"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "GE Aerospace",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GE",
+        "tags": [
+          "Aerospace & Defense"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "C3.ai, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AI",
+        "tags": [
+          "Enterprise AI",
+          "Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "L3Harris Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LHX",
+        "tags": [
+          "Aerospace & Defense"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Thomson Reuters Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TRI",
+        "tags": [
+          "Information Services",
+          "Legal & Financial Data"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "RELX PLC",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RELX",
+        "tags": [
+          "Information Services",
+          "Analytics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "CACI International Inc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CACI",
+        "tags": [
+          "Government Services",
+          "Defense IT"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "The GEO Group, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GEO",
+        "tags": [
+          "Real Estate",
+          "Correctional Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Motorola Solutions, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MSI",
+        "tags": [
+          "Communications Equipment",
+          "Public Safety Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "General Dynamics Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GD",
+        "tags": [
+          "Aerospace & Defense"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Booz Allen Hamilton Holding Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BAH",
+        "tags": [
+          "Consulting",
+          "Government Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Rubrik, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "RBRK",
+        "tags": [
+          "Data Security",
+          "Cloud Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Joby Aviation, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "JOBY",
+        "tags": [
+          "Aerospace",
+          "Electric Aviation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Nutanix, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NTNX",
+        "tags": [
+          "Cloud Infrastructure",
+          "Enterprise Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Hitachi, Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HTHIY",
+        "tags": [
+          "Industrial Conglomerate"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Astera Labs, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ALAB",
+        "tags": [
+          "Semiconductors",
+          "Data Center Connectivity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Lowe\u2019s Companies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LOW",
+        "tags": [
+          "Retail",
+          "Home Improvement"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "AutoStore Holdings Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AUTO.OL",
+        "tags": [
+          "Warehouse Automation",
+          "Robotics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Maplebear Inc. (Instacart)",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CART",
+        "tags": [
+          "E-Commerce",
+          "Grocery Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "AppLovin Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "APP",
+        "tags": [
+          "Mobile Advertising",
+          "Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Seagate Technology Holdings plc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "STX",
+        "tags": [
+          "Data Storage",
+          "Hardware"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Dynex Capital, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DX",
+        "tags": [
+          "Mortgage REIT"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Clearway Energy, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CWEN",
+        "tags": [
+          "Renewable Energy",
+          "Power Generation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Vanguard S&P 500 ETF",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VOO",
+        "tags": [
+          "ETF",
+          "Broad Market"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Lumentum Holdings Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LITE",
+        "tags": [
+          "Optical Networking",
+          "Photonics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Celestica Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CLS",
+        "tags": [
+          "Electronics Manufacturing",
+          "Supply Chain Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "GitLab Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GTLB",
+        "tags": [
+          "Developer Tools",
+          "DevOps Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Marvell Technology, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MRVL",
+        "tags": [
+          "Semiconductors",
+          "Data Center Networking"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Intel Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "INTC",
+        "tags": [
+          "Semiconductors",
+          "Integrated Device Manufacturer"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Solstice Advanced Materials",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SOLS",
+        "tags": [
+          "Advanced Materials",
+          "Industrial Chemicals"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Powell Industries, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "POWL",
+        "tags": [
+          "Electrical Equipment",
+          "Power Infrastructure"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Planet Labs PBC",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PL",
+        "tags": [
+          "Geospatial Data",
+          "Satellite Imaging"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Open Text Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "OTEX",
+        "tags": [
+          "Enterprise Software",
+          "Information Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Comfort Systems USA, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "FIX",
+        "tags": [
+          "Building Systems",
+          "HVAC & Mechanical Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Duke Energy Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DUK",
+        "tags": [
+          "Utilities",
+          "Regulated Electric Power"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "SoFi Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SOFI",
+        "tags": [
+          "Financial Technology",
+          "Digital Banking"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ServiceNow, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NOW",
+        "tags": [
+          "Enterprise Software",
+          "IT Service Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Dell Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DELL",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Johnson Controls",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "JCI",
+        "tags": [
+          "AI Factory",
+          "Smart Locks"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ASSA ABLOY AB",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ASSA-B.ST",
+        "tags": [
+          "Smart Locks"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Ryder System, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "R",
+        "tags": [
+          "Logistics",
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Amphenol Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "APH",
+        "tags": [
+          "Engineered Components",
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Analog Devices, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ADI",
+        "tags": [
+          "AI Factory",
+          "Robotics Components",
+          "Inertial Measurement Units",
+          "Joint Position Sensors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Corweavest Systems, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CRWV",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Mitek Systems, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MITK",
+        "tags": [
+          "AI Software",
+          "Cybersecurity",
+          "Financial Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "IREN Limited",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "IREN",
+        "tags": [
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Lantronix, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LTRX",
+        "tags": [
+          "Robotics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "HUT 8 Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HUT",
+        "tags": [
+          "AI Factory",
+          "Bitcoin Mining"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Broadcom Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AVGO",
+        "tags": [
+          "AI Factory",
+          "Networking",
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Palo Alto Networks",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PANW",
+        "tags": [
+          "Cybersecurity"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Davita Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "DVA",
+        "tags": [
+          "Healthcare"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Intuitive Machines Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LUNR",
+        "tags": [
+          "Space"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "The AES Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AES",
+        "tags": [
+          "Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Ball Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BALL",
+        "tags": [
+          "Packaging"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Emerson Electric Co.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "EMR",
+        "tags": [
+          "Electronics"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "W.W. Grainger, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GWW",
+        "tags": [
+          "Parts"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Sandisk Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SNDK",
+        "tags": [
+          "Storage",
+          "Memory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Western Digital Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WDC",
+        "tags": [
+          "Data Storage",
+          "AI Factory",
+          "Memory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "KLA Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "KLAC",
+        "tags": [
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ASML Holding",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ASML",
+        "tags": [
+          "Memory",
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Fabrinet",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "FN",
+        "tags": [
+          "AI Factory",
+          "Optical Networking",
+          "Networking"
+        ]
+      },
+      {
+        "currency": "KRW",
+        "name": "SK hynix Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "000660.KS",
+        "tags": [
+          "Memory"
+        ]
+      },
+      {
+        "currency": "EUR",
+        "name": "BE Semiconductor Industries N.V.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BESI.AS",
+        "tags": [
+          "Semiconductor Equipment",
+          "Advanced Packaging"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Ormat Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ORA",
+        "tags": [
+          "Energy"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "TeraWulf Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WULF",
+        "tags": [
+          "Bitcoin Mining"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cipher Digital Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CIFR",
+        "tags": [
+          "Bitcoin Mining"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Zeta Global Holdings Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ZETA",
+        "tags": [
+          "Marketing Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Onto Innovation Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ONTO",
+        "tags": [
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Coherent Corp.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "COHR",
+        "tags": [
+          "Photonics",
+          "Semiconductors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Arm Holdings plc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ARM",
+        "tags": [
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Walmart Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WMT",
+        "tags": [
+          "Retail"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Procore Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PCOR",
+        "tags": [
+          "Construction Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "EPAM Systems, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "EPAM",
+        "tags": [
+          "IT Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Akamai Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AKAM",
+        "tags": [
+          "Cloud"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Waste Management, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WM",
+        "tags": [
+          "Waste Management",
+          "Industrials"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Lockheed Martin Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LMT",
+        "tags": [
+          "Aerospace & Defense"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Axcelis Technologies, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ACLS",
+        "tags": [
+          "Semiconductor Equipment"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ACM Research, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ACMR",
+        "tags": [
+          "Semiconductor Equipment"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Aehr Test Systems",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AEHR",
+        "tags": [
+          "Semiconductor Equipment",
+          "Test & Measurement",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "onsemi",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ON",
+        "tags": [
+          "Semiconductors",
+          "Power Management",
+          "Computer Vision"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Braze, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BRZE",
+        "tags": [
+          "Marketing Technology",
+          "SaaS"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Alphabet Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GOOG",
+        "tags": [
+          "AI Factory",
+          "AI Software",
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Micron Technology, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MU",
+        "tags": [
+          "Semiconductors",
+          "Memory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Microsoft Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MSFT",
+        "tags": [
+          "AI Factory",
+          "AI Software",
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "UiPath, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PATH",
+        "tags": [
+          "Robotics",
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Block, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "XYZ",
+        "tags": [
+          "Financial Technology",
+          "Digital Payments"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "NVIDIA Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NVDA",
+        "tags": [
+          "AI Factory",
+          "Semiconductors",
+          "Magnificent Seven"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Ciena Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CIEN",
+        "tags": [
+          "Optical Networking",
+          "Telecommunications"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Applied Optoelectronics, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AAOI",
+        "tags": [
+          "Optical Networking",
+          "Semiconductors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Lam Research Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LRCX",
+        "tags": [
+          "Semiconductor Equipment",
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Camtek Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CAMT",
+        "tags": [
+          "Semiconductor Equipment",
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Unity Software Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "U",
+        "tags": [
+          "Gaming",
+          "AI Software"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Tecogen Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TGEN",
+        "tags": [
+          "Energy",
+          "Industrial Manufacturing"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Power Solutions International, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PSIX",
+        "tags": [
+          "Energy",
+          "Power Generation"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Liberty Energy Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "LBRT",
+        "tags": [
+          "Oil & Gas",
+          "Energy Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Bloom Energy Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "BE",
+        "tags": [
+          "Renewable Energy",
+          "Fuel Cells"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Ouster, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "OUST",
+        "tags": [
+          "Sensors",
+          "Robotics",
+          "Autonomous Systems",
+          "Robotics Components",
+          "LiDAR"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Semtech Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SMTC",
+        "tags": [
+          "Semiconductors",
+          "IoT"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "The Trade Desk, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "TTD",
+        "tags": [
+          "Digital Advertising",
+          "AdTech"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "HubSpot, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HUBS",
+        "tags": [
+          "SaaS",
+          "Marketing Technology"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Skyworks Solutions, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SWKS",
+        "tags": [
+          "Semiconductors",
+          "RF Components"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "AIXTRON SE",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AIXXF",
+        "tags": [
+          "Semiconductor Equipment",
+          "Chips"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Schneider Electric SE ADR",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "SBGSY",
+        "tags": [
+          "Energy Management",
+          "Industrial Automation",
+          "AI Factory"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "MaxLinear, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MXL",
+        "tags": [
+          "Technology",
+          "Semiconductors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "POET Technologies Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "POET",
+        "tags": [
+          "Technology",
+          "Semiconductors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "ASE Technology Holding Co., Ltd.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ASX",
+        "tags": [
+          "Semiconductors",
+          "Semiconductor Manufacturing"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "United Microelectronics Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "UMC",
+        "tags": [
+          "Semiconductors",
+          "Semiconductor Foundry"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Infineon Technologies AG",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "IFNNY",
+        "tags": [
+          "Semiconductors",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "STMicroelectronics N.V.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "STM",
+        "tags": [
+          "Semiconductors",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "JPY",
+        "name": "Kyocera Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "6971.T",
+        "tags": [
+          "Electronic Components",
+          "Semiconductors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "GDS Holdings Limited",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "GDS",
+        "tags": [
+          "Data Centers",
+          "Cloud Infrastructure"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Kingsoft Cloud Holdings Limited",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "KC",
+        "tags": [
+          "Cloud Infrastructure",
+          "Cloud Services"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Vicor Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "VICR",
+        "tags": [
+          "Semiconductors",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cerebras Systems Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CBRS",
+        "tags": [
+          "Semiconductors",
+          "AI Hardware"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Cisco Systems, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "CSCO",
+        "tags": [
+          "Networking",
+          "AI Infrastructure"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Navitas Semiconductor Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NVTS",
+        "tags": [
+          "Semiconductors",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Wolfspeed, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "WOLF",
+        "tags": [
+          "Semiconductors",
+          "Power Management"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Harmonic Drive Systems Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "HSYDF",
+        "tags": [
+          "Robotics Components",
+          "Zero-Backlash Strain Wave Gears"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Nidec Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "NIB.F",
+        "tags": [
+          "Robotics Components",
+          "Electric Motors"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Moog Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "MOG-A",
+        "tags": [
+          "Robotics Components",
+          "High-Performance Servo Actuators"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Eaton Corporation plc",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "ETN",
+        "tags": [
+          "Robotics Components",
+          "Intelligent Power",
+          "Actuator Valves"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Postal Realty Trust, Inc.",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "PSTL",
+        "tags": [
+          "REIT",
+          "Industrial Real Estate"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Antero Midstream Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AM",
+        "tags": [
+          "Energy",
+          "Oil & Gas Midstream"
+        ]
+      },
+      {
+        "currency": "USD",
+        "name": "Antero Resources Corporation",
+        "purchase_date": null,
+        "purchase_price": null,
+        "quantity": null,
+        "sale_date": null,
+        "sale_price": null,
+        "source": "watchlist",
+        "symbol": "AR",
+        "tags": [
+          "Energy",
+          "Oil & Gas E&P"
+        ]
+      }
+    ]
+  },
+  "method": "GET",
+  "path": "/api/watchlist",
+  "status": 200
+}

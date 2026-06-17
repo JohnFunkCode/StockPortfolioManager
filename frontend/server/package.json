@@ -1,0 +1,14 @@
+{
+  "name": "quantui-server",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Static-SPA server + /api reverse proxy for QuantUI on Cloud Run (behind IAP).",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "http-proxy-middleware": "^2.0.7"
+  }
+}

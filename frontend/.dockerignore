@@ -1,0 +1,13 @@
+# Build context for Dockerfile.ui is THIS directory (frontend/), because the repo-root
+# .dockerignore deliberately excludes frontend/ from the python images. Keep secrets and
+# host build artifacts out of the UI image.
+node_modules
+server/node_modules
+dist
+.env
+.env.*
+.git
+.gitignore
+*.tsbuildinfo
+.DS_Store
+.claude

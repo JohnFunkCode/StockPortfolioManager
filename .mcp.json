@@ -2,21 +2,56 @@
   "mcpServers": {
     "stock-price-server": {
       "type": "http",
-      "url": "http://localhost:6001/mcp"
+      "url": "https://quantcore-stock-price-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
     },
     "options-analysis-server": {
       "type": "http",
-      "url": "http://localhost:6002/mcp"
+      "url": "https://quantcore-options-analysis-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
     },
     "company-fundamentals-server": {
       "type": "http",
-      "url": "http://localhost:6003/mcp"
+      "url": "https://quantcore-company-fundamentals-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
     },
     "news-sentiment-server": {
       "type": "http",
-      "url": "http://localhost:6004/mcp"
+      "url": "https://quantcore-news-sentiment-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
     },
     "market-analysis-server": {
+      "type": "http",
+      "url": "https://quantcore-market-analysis-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
+    },
+    "stock-price-server-local": {
+      "type": "http",
+      "url": "http://localhost:6001/mcp"
+    },
+    "options-analysis-server-local": {
+      "type": "http",
+      "url": "http://localhost:6002/mcp"
+    },
+    "company-fundamentals-server-local": {
+      "type": "http",
+      "url": "http://localhost:6003/mcp"
+    },
+    "news-sentiment-server-local": {
+      "type": "http",
+      "url": "http://localhost:6004/mcp"
+    },
+    "market-analysis-server-local": {
       "type": "http",
       "url": "http://localhost:6005/mcp"
     }

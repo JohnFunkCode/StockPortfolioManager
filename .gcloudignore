@@ -1,0 +1,48 @@
+# .gcloudignore — controls what `gcloud builds submit` uploads as the build context.
+#
+# Without this file gcloud falls back to .gitignore semantics; we declare it
+# explicitly so the heavy local-only trees (multi-GB venv, node_modules) are never
+# packed into the Cloud Build upload. The Dockerfiles COPY only what each image needs.
+
+# --- VCS / CI ---
+.git/
+.github/
+
+# --- Python caches / venvs (never ship the host venv) ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# --- Node / frontend (separate app; no backend image serves it) ---
+node_modules/
+frontend/
+
+# --- Local data / databases / logs (containers use Cloud SQL via the connector) ---
+*.sqlite
+*.sqlite3
+*.db
+*.log
+
+# --- Secrets / local config (injected at runtime, never baked into images) ---
+.env
+.env.*
+*.pem
+*.key
+service-account*.json
+gcp-key*.json
+
+# --- Generated reports / analysis output ---
+portfolio_report.html
+docs/analysis results/
+*.png
+
+# --- OS / editor cruft ---
+.DS_Store
+.idea/
+.vscode/

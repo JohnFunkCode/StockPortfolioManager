@@ -74,13 +74,17 @@ def _incoming_auth_token() -> Optional[str]:
     header so the same token the agent presented to the wrapper is forwarded to the REST
     tier's JWT check — making the front door the single enforcement point (Rule 6).
 
+    ``get_http_headers()`` strips ``authorization`` by default (it is normally unsafe to
+    forward downstream); we pass ``include={"authorization"}`` because that is exactly
+    this module's job — a proxy transport forwarding the caller's token upstream.
+
     Returns ``None`` outside an HTTP request (e.g. ``main.py``/CLI in-process callers, or
     stdio), so those paths simply send no token.
     """
     try:
         from fastmcp.server.dependencies import get_http_headers
 
-        headers = get_http_headers() or {}
+        headers = get_http_headers(include={"authorization"}) or {}
     except Exception:
         return None
     auth = headers.get("authorization") or headers.get("Authorization")

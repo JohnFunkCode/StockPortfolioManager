@@ -259,13 +259,13 @@ graph LR
 
 **Exit criteria (met):** front end runs unmodified against the FastAPI tier; OpenAPI spec published (`/openapi.json`, `/docs`); Flask app (`api/app.py`) retired.
 
-### Phase 3 — AI Gateway + GCP deployment
+### Phase 3 — AI Gateway + GCP deployment ✅ *(complete on the test project — see [`phase3-gateway-plan.md`](phase3-gateway-plan.md))*
 
-1. Convert the five MCP servers to thin gateway wrappers over the REST tier (generated + curated, §5.5), streamable HTTP transport.
-2. Containerize and deploy: `quantcore-api` + wrappers to Cloud Run, report run to Cloud Scheduler/Cloud Run job, CI/CD per §10.
-3. Point Claude Code/Desktop configs at the remote MCP endpoints.
+1. ✅ Converted the five MCP servers to thin gateway wrappers over the REST tier (hand-rewritten to preserve curated docstrings, §5.5), streamable HTTP transport. All 47 tool bodies now call `mcp_gateway/rest_client.py` (the single HTTP seam); `options_analysis.py`'s only `get_services` use is its in-process CLI.
+2. ✅ Containerized (`Dockerfile.{api,mcp,report}`, one shared mcp image) and deployed: `quantcore-api` (JWT-enforced) + 5 wrappers (app-JWT passthrough) to Cloud Run, `main.py` as a Cloud Run **Job** on a daily Cloud Scheduler trigger (in-process services, never HTTP — anti-pattern 5), CI/CD per §10 (`.github/workflows/deploy.yml`). Local `docker-compose.yml` stack remains the team's fallback daily driver.
+3. ✅ Pointed the remote MCP client config (`fastMCPTest/.mcp.json`) at the Cloud Run wrapper URLs with JWT header passthrough; the root `.mcp.json` stays on the local container stack for dev.
 
-**Exit criteria:** no MCP server contains business logic or DB access; everything runs on GCP; local machines are optional dev environments, not infrastructure.
+**Exit criteria (met on the test project):** no MCP server contains business logic or DB access (grep-audited); everything runs on GCP Cloud Run; local machines are optional dev environments. **Final operational step — prod cutover:** repoint `QUANTCORE_DB_DSN` / the Cloud SQL connector from the test instance to production and redeploy (a supervised config change, deliberately *not* automated in CI).
 
 ---
 

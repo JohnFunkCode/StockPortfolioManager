@@ -16,8 +16,17 @@ Run over to it, behind a gated, manually-approved GitHub workflow.
 
 The test CI ([`deploy.yml`](../../.github/workflows/deploy.yml)) builds the **three**
 images — `quantcore-api`, `quantcore-mcp` (all 5 wrappers share it), `quantcore-report`
-— on every push to `main` and tags each with the **7-char commit SHA**, deploying them
-to the **test** Cloud Run stack. Promotion takes one such already-built, already-tested
+— and tags each with the **7-char commit SHA**, deploying them to the **test** Cloud Run
+stack.
+
+> **Current state (P9):** `deploy.yml`'s automatic build-on-push is **disabled** —
+> the test-project WIF and the `GCP_WIF_PROVIDER`/`GCP_DEPLOY_SA` secrets aren't wired
+> yet, so the workflow is `workflow_dispatch`-only. Until that follow-up lands, test
+> images are built **manually** (`gcloud builds submit` / Cloud Build) and tagged by
+> hand, then promoted here exactly as below. The promotion path itself is unaffected —
+> it only needs tagged images in the test AR, however they got there.
+
+Promotion takes one such already-built, already-tested
 **tag**, copies all three images **by digest** test AR → prod AR (`docker buildx
 imagetools create`), and deploys prod **by the resolved original digest** (not the tag).
 A manual-approval gate (`prod` GitHub Environment + required reviewers) sits in front of

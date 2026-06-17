@@ -11,14 +11,22 @@
 # SA needs roles/run.developer, roles/cloudbuild.builds.editor, roles/artifactregistry.writer,
 # and iam.serviceAccountUser on the runtime SA. PROD-FLIP is deliberately NOT automated —
 # it stays a manual, supervised config change (QUANTCORE_DB_DSN / Cloud SQL connector).
+#
+# TRIGGER STATUS — workflow_dispatch-ONLY (auto-run disabled): the test-project WIF and the
+# GCP_WIF_PROVIDER / GCP_DEPLOY_SA secrets do not exist yet, so the `deploy` job below would
+# fail auth on any `main` push. To keep the feature->main merge green, the `push`/`pull_request`
+# triggers are commented out until the test CI is wired. Image builds remain manual
+# (gcloud/Cloud Build) in the meantime — exactly as during P7–P9.
+# TODO(P9-followup): create the test WIF pool/provider + quantcore-deployer SA, set the two
+# repo secrets, then restore the `push: branches:[main]` and `pull_request` triggers below.
 
 name: deploy
 
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 env:
   PROJECT_ID: quantcore-test-20260606

@@ -1,4 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+// Optional bearer token for talking to a JWT-enforced API (e.g. the prod Cloud Run
+// deployment). Left unset for local/compose, which run with AUTH_DISABLED.
+const API_TOKEN = import.meta.env.VITE_API_TOKEN || '';
 
 export class ApiError extends Error {
   status: number;
@@ -16,6 +19,7 @@ export async function apiRequest<T>(
     ...options,
     headers: {
       'Content-Type': 'application/json',
+      ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
       ...options?.headers,
     },
   });

@@ -1,0 +1,136 @@
+# Prod rollout — promote a tested image set into quantcore-prod-20260606 (Step P9 of
+# docs/proposals/prod-rollout-plan.md). This is the GATED, MANUAL counterpart to
+# deploy.yml: it is NEVER triggered by a push. An operator dispatches it (or it fires
+# on a release tag) to promote an already-built, already-tested image tag from the TEST
+# Artifact Registry into the PROD project and roll it out to the prod Cloud Run stack.
+#
+# Promotion model — Option B2 (prod-rollout-plan.md locked decision #1): images are
+# COPIED BY DIGEST from the test AR into a dedicated prod AR (never rebuilt), so prod
+# runs the exact bytes validated on test with no standing cross-project pull at runtime.
+# Deploys reference the prod-AR image BY DIGEST for certainty.
+#
+# First prod deploy is MANUAL (plan steps P5–P7): each service/job is created once with
+# its full config (Cloud SQL binding, --set-secrets prod DSN/JWT, ingress, resources).
+# This workflow then carries ONLY the new image digest on every subsequent rollout, so
+# that per-service config is preserved — CI never needs the prod DSN or JWT secret.
+#
+# One-time setup (see prod-rollout-plan.md):
+#   * Prod AR repo `quantcore` exists in us-central1 (plan P2).
+#   * A `prod` GitHub Environment with required reviewers (manual approval gate).
+#   * Separate WIF for prod: repo secrets GCP_PROD_WIF_PROVIDER + GCP_PROD_DEPLOY_SA.
+#     The prod deploy SA needs, in quantcore-prod-20260606: roles/run.developer,
+#     roles/artifactregistry.writer (on the prod AR), iam.serviceAccountUser on the prod
+#     runtime SA; and roles/artifactregistry.reader on the TEST AR (to read source digests).
+#
+# PROD-FLIP / first buildout (P1–P8) is deliberately NOT automated — it stays a
+# supervised manual sequence. This workflow only handles repeatable image promotion.
+
+name: prod-rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag in the TEST Artifact Registry to promote (e.g. a 7-char commit SHA, or 'latest')."
+        required: true
+        default: "latest"
+  release:
+    types: [published]
+
+env:
+  TEST_PROJECT: quantcore-test-20260606
+  PROD_PROJECT: quantcore-prod-20260606
+  REGION: us-central1
+  AR_REPO: quantcore
+
+jobs:
+  gate:
+    name: Tests + wrapper smoke + OpenAPI surface
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantcore
+          POSTGRES_PASSWORD: quantcore
+          POSTGRES_DB: quantcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      QUANTCORE_DB_DSN: postgresql://quantcore:quantcore@localhost:5432/quantcore
+      AUTH_DISABLED: "1"
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install lean deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-base.txt
+      - name: Unit tests
+        run: python -m unittest discover -v
+      - name: Wrapper smoke (boot each server, assert listTools schemas)
+        run: python scripts/ci_wrapper_smoke.py
+      - name: OpenAPI surface diff
+        run: python scripts/check_openapi_snapshot.py
+
+  promote-and-deploy:
+    name: Promote digests (test -> prod AR) + roll out prod Cloud Run
+    needs: gate
+    runs-on: ubuntu-latest
+    environment: prod # manual-approval gate (required reviewers)
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation (prod)
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_PROD_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_PROD_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Resolve source digests + copy by digest into the prod AR
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
+          echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
+          for img in quantcore-api quantcore-mcp quantcore-report; do
+            SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
+            # Resolve the immutable digest so the copy + deploy reference exact bytes.
+            DIGEST="$(gcloud artifacts docker images describe "$SRC_TAGGED" \
+              --format='value(image_summary.digest)')"
+            echo "$img @ $DIGEST"
+            # Copy by digest; the prod tag ends up pointing at the SAME digest.
+            gcloud artifacts docker images copy \
+              "$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img@$DIGEST" \
+              "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/$img:$TAG" \
+              --quiet
+            # Export the digest for the deploy steps (deploy by digest, not tag).
+            key="$(echo "$img" | tr 'a-z-' 'A-Z_')_DIGEST"
+            echo "$key=$DIGEST" >> "$GITHUB_ENV"
+          done
+
+      - name: Deploy quantcore-api (prod, image-only)
+        run: |
+          gcloud run deploy quantcore-api --project "$PROD_PROJECT" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-api@$QUANTCORE_API_DIGEST"
+
+      - name: Deploy the 5 wrappers (shared prod mcp image; per-service env preserved)
+        run: |
+          for s in stock-price options-analysis company-fundamentals news-sentiment market-analysis; do
+            gcloud run deploy "quantcore-$s" --project "$PROD_PROJECT" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
+          done
+
+      - name: Update report Job image (prod)
+        run: |
+          gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-report@$QUANTCORE_REPORT_DIGEST"

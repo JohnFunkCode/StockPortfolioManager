@@ -9,6 +9,13 @@
 # runs the exact bytes validated on test with no standing cross-project pull at runtime.
 # Deploys reference the prod-AR image BY DIGEST for certainty.
 #
+# Copy mechanism — `docker buildx imagetools create` (registry-to-registry manifest
+# copy). NB: `gcloud artifacts docker images copy` does NOT exist in the SDK; gcrane is
+# the other option but isn't on the runner. `imagetools create --tag` wraps the copied
+# manifest in a NEW OCI index under the prod tag (a different top-level digest), but the
+# ORIGINAL manifest is pushed verbatim and stays addressable in the prod AR by its
+# original digest — so we resolve that digest and DEPLOY BY IT, never by the prod tag.
+#
 # First prod deploy is MANUAL (plan steps P5–P7): each service/job is created once with
 # its full config (Cloud SQL binding, --set-secrets prod DSN/JWT, ingress, resources).
 # This workflow then carries ONLY the new image digest on every subsequent rollout, so
@@ -97,22 +104,31 @@ jobs:
           service_account: ${{ secrets.GCP_PROD_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v2
 
-      - name: Resolve source digests + copy by digest into the prod AR
+      - name: Resolve source digests + copy by digest into the prod AR (imagetools)
         run: |
           set -euo pipefail
+          # Wire docker to the AR registry using the WIF credentials from the auth step.
+          gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
           echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
           for img in quantcore-api quantcore-mcp quantcore-report; do
             SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
-            # Resolve the immutable digest so the copy + deploy reference exact bytes.
+            # Resolve the immutable source-manifest digest so the copy + deploy reference
+            # exact bytes.
             DIGEST="$(gcloud artifacts docker images describe "$SRC_TAGGED" \
               --format='value(image_summary.digest)')"
             echo "$img @ $DIGEST"
-            # Copy by digest; the prod tag ends up pointing at the SAME digest.
-            gcloud artifacts docker images copy \
-              "$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img@$DIGEST" \
-              "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/$img:$TAG" \
-              --quiet
+            # Registry-to-registry manifest copy. The prod tag ends up on a NEW OCI index
+            # (imagetools wraps it), but the original manifest is pushed verbatim and so is
+            # addressable in the prod AR by $DIGEST — which is what we deploy.
+            docker buildx imagetools create \
+              --tag "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/$img:$TAG" \
+              "$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img@$DIGEST"
+            # Verify the original digest resolves byte-identically in the prod AR before we
+            # roll anything out (fail fast if the copy didn't land the manifest).
+            gcloud artifacts docker images describe \
+              "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/$img@$DIGEST" \
+              --format='value(image_summary.digest)' >/dev/null
             # Export the digest for the deploy steps (deploy by digest, not tag).
             key="$(echo "$img" | tr 'a-z-' 'A-Z_')_DIGEST"
             echo "$key=$DIGEST" >> "$GITHUB_ENV"

@@ -66,10 +66,37 @@ class RestError(RuntimeError):
         super().__init__(f"REST tier returned {status_code}: {payload}")
 
 
+def _incoming_auth_token() -> Optional[str]:
+    """Pull the caller's bearer token off the active MCP request, if any (Step 6).
+
+    Identity passthrough: when a wrapper runs over HTTP transport, FastMCP exposes the
+    inbound request's headers via ``get_http_headers()``. We lift the ``Authorization``
+    header so the same token the agent presented to the wrapper is forwarded to the REST
+    tier's JWT check — making the front door the single enforcement point (Rule 6).
+
+    Returns ``None`` outside an HTTP request (e.g. ``main.py``/CLI in-process callers, or
+    stdio), so those paths simply send no token.
+    """
+    try:
+        from fastmcp.server.dependencies import get_http_headers
+
+        headers = get_http_headers() or {}
+    except Exception:
+        return None
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if not auth:
+        return None
+    auth = auth.strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return auth
+
+
 def _headers(auth_token: Optional[str]) -> dict[str, str]:
     headers = {"Accept": "application/json"}
-    if auth_token:
-        headers["Authorization"] = f"Bearer {auth_token}"
+    token = auth_token or _incoming_auth_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     return headers
 
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 # Ensure project root and fastMCPTest are importable (mirrors api/app.py).
@@ -25,6 +25,7 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
+from .auth import require_principal  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .json_response import QuantCoreJSONResponse  # noqa: E402
 
@@ -68,18 +69,27 @@ def create_app() -> FastAPI:
         system,
     )
 
+    # /api/health stays open (unauthenticated) for Cloud Run / compose liveness probes.
     app.include_router(system.router)
-    app.include_router(plans.router)
-    app.include_router(rungs.router)
-    app.include_router(symbols.router)
-    app.include_router(dashboard.router)
-    app.include_router(portfolio.router)
-    app.include_router(prices.router)
-    app.include_router(options.router)
-    app.include_router(fundamentals.router)
-    app.include_router(sentiment.router)
-    app.include_router(microstructure.router)
-    app.include_router(recommendations.router)
+
+    # Every business route is gated by the JWT dependency. Locally and in the
+    # docker-compose stack AUTH_DISABLED=1 makes the dependency a no-op (it injects a
+    # local principal), so this is inert until JWT is turned on for Cloud Run.
+    protected = Depends(require_principal)
+    for module in (
+        plans,
+        rungs,
+        symbols,
+        dashboard,
+        portfolio,
+        prices,
+        options,
+        fundamentals,
+        sentiment,
+        microstructure,
+        recommendations,
+    ):
+        app.include_router(module.router, dependencies=[protected])
 
     return app
 

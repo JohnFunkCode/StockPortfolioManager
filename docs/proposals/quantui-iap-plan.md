@@ -10,7 +10,7 @@
 |------|------|--------|--------|
 | 1 | Express serve+proxy (`frontend/server/`), `Dockerfile.ui`, `frontend/.dockerignore` | ☑ done | PR `feature/quantui-iap-deploy` |
 | 2 | Optional `quantui` service in `docker-compose.yml` (local stack parity) | ☑ done | (same branch) |
-| 3 | Wire `build-ui` into `cloudbuild.yaml` + Deploy step in `deploy.yml` | ☐ | — |
+| 3 | Wire `build-ui` into `cloudbuild.yaml` + Deploy step in `deploy.yml` | ☑ done | (same branch) |
 | 4 | Secret Manager `quantui-api-token` (test) + accessor grant | ☐ (user/GCP) | — |
 | 5 | First Cloud Run deploy with `--iap` (test) | ☐ (user/GCP) | — |
 | 6 | OAuth consent (External) + IAP IAM grants (test) | ☐ (user/GCP) | — |

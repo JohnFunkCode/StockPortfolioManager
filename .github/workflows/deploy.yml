@@ -1,7 +1,7 @@
 # Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
 #
 # PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff). Pushes to
-# main additionally build the 3 images (Cloud Build, native amd64) and roll them out to
+# main additionally build the 4 images (Cloud Build, native amd64) and roll them out to
 # the Cloud Run services + the report Job in the TEST project. Deploys carry ONLY the
 # image tag — every service's env/secrets/Cloud-SQL binding is preserved from its last
 # manual deploy (Steps 8–9), so CI never needs the DB DSN or JWT secret.
@@ -112,7 +112,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Build + push the 3 images (Cloud Build, amd64)
+      - name: Build + push the 4 images (Cloud Build, amd64)
         run: |
           gcloud builds submit --project "$PROJECT_ID" \
             --config cloudbuild.yaml \
@@ -131,3 +131,15 @@ jobs:
         run: |
           gcloud run jobs update quantcore-report --project "$PROJECT_ID" --region "$REGION" \
             --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-report:${GITHUB_SHA::7}"
+      - name: Deploy quantui (image-only; IAP + secret + REST URL preserved)
+        # quantui's FIRST deploy is the manual --iap step (see quantui-iap-plan.md Step 5),
+        # which also sets --no-allow-unauthenticated, the QUANTCORE_API_TOKEN secret, and
+        # QUANTCORE_REST_URL. Those persist across image-only redeploys. Until that one-time
+        # deploy exists, skip rather than fail (a fresh service can't be image-only deployed).
+        run: |
+          if gcloud run services describe quantui --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantui --project "$PROJECT_ID" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-ui:${GITHUB_SHA::7}"
+          else
+            echo "quantui service not found — first deploy is the manual --iap step; skipping image roll-out."
+          fi

@@ -12,21 +12,21 @@
 # and iam.serviceAccountUser on the runtime SA. PROD-FLIP is deliberately NOT automated —
 # it stays a manual, supervised config change (QUANTCORE_DB_DSN / Cloud SQL connector).
 #
-# TRIGGER STATUS — workflow_dispatch-ONLY (auto-run disabled): the test-project WIF and the
-# GCP_WIF_PROVIDER / GCP_DEPLOY_SA secrets do not exist yet, so the `deploy` job below would
-# fail auth on any `main` push. To keep the feature->main merge green, the `push`/`pull_request`
-# triggers are commented out until the test CI is wired. Image builds remain manual
-# (gcloud/Cloud Build) in the meantime — exactly as during P7–P9.
-# TODO(P9-followup): create the test WIF pool/provider + quantcore-deployer SA, set the two
-# repo secrets, then restore the `push: branches:[main]` and `pull_request` triggers below.
+# TRIGGER STATUS — push/PR triggers are RESTORED, but the `deploy` job is guarded by a
+# `preflight` job that only emits `has_creds=true` when the GCP_WIF_PROVIDER / GCP_DEPLOY_SA
+# repo secrets are present. Until the test-project WIF is wired (run scripts/setup_test_wif.sh),
+# those secrets are absent, so `deploy` is SKIPPED — it never fails auth on a `main` push. Once
+# the script has created the WIF pool/provider + quantcore-deployer SA and set the two secrets,
+# pushes to main auto-roll-out with no further workflow edit. The `gate` job always runs.
+# PROD-FLIP stays manual/supervised (QUANTCORE_DB_DSN / Cloud SQL connector) — never automated.
 
 name: deploy
 
 on:
   workflow_dispatch:
-  # push:
-  #   branches: [main]
-  # pull_request:
+  push:
+    branches: [main]
+  pull_request:
 
 env:
   PROJECT_ID: quantcore-test-20260606
@@ -72,10 +72,34 @@ jobs:
       - name: OpenAPI surface diff
         run: python scripts/check_openapi_snapshot.py
 
-  deploy:
-    name: Build + roll out to Cloud Run (test project)
+  preflight:
+    name: Check deploy credentials are configured
     needs: gate
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      has_creds: ${{ steps.check.outputs.has_creds }}
+    steps:
+      - id: check
+        # Secrets can't be referenced in a job-level `if`, so probe them here and
+        # publish a boolean output the `deploy` job gates on. Absent secrets ⇒ skip,
+        # never a hard auth failure.
+        env:
+          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+          DEPLOY_SA: ${{ secrets.GCP_DEPLOY_SA }}
+        run: |
+          if [ -n "$WIF_PROVIDER" ] && [ -n "$DEPLOY_SA" ]; then
+            echo "has_creds=true" >> "$GITHUB_OUTPUT"
+            echo "Deploy credentials present — deploy job will run."
+          else
+            echo "has_creds=false" >> "$GITHUB_OUTPUT"
+            echo "GCP_WIF_PROVIDER / GCP_DEPLOY_SA not set — skipping deploy (run scripts/setup_test_wif.sh)."
+          fi
+
+  deploy:
+    name: Build + roll out to Cloud Run (test project)
+    needs: [gate, preflight]
+    if: needs.preflight.outputs.has_creds == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read

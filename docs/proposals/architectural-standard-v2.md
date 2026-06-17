@@ -259,13 +259,13 @@ graph LR
 
 **Exit criteria (met):** front end runs unmodified against the FastAPI tier; OpenAPI spec published (`/openapi.json`, `/docs`); Flask app (`api/app.py`) retired.
 
-### Phase 3 — AI Gateway + GCP deployment ✅ *(complete on the test project — see [`phase3-gateway-plan.md`](phase3-gateway-plan.md))*
+### Phase 3 — AI Gateway + GCP deployment ✅ *(complete — test stack + production rollout; see [`phase3-gateway-plan.md`](phase3-gateway-plan.md) and [`prod-rollout-plan.md`](prod-rollout-plan.md))*
 
 1. ✅ Converted the five MCP servers to thin gateway wrappers over the REST tier (hand-rewritten to preserve curated docstrings, §5.5), streamable HTTP transport. All 47 tool bodies now call `mcp_gateway/rest_client.py` (the single HTTP seam); `options_analysis.py`'s only `get_services` use is its in-process CLI.
 2. ✅ Containerized (`Dockerfile.{api,mcp,report}`, one shared mcp image) and deployed: `quantcore-api` (JWT-enforced) + 5 wrappers (app-JWT passthrough) to Cloud Run, `main.py` as a Cloud Run **Job** on a daily Cloud Scheduler trigger (in-process services, never HTTP — anti-pattern 5), CI/CD per §10 (`.github/workflows/deploy.yml`). Local `docker-compose.yml` stack remains the team's fallback daily driver.
 3. ✅ Pointed the remote MCP client config (`fastMCPTest/.mcp.json`) at the Cloud Run wrapper URLs with JWT header passthrough; the root `.mcp.json` stays on the local container stack for dev.
 
-**Exit criteria (met on the test project):** no MCP server contains business logic or DB access (grep-audited); everything runs on GCP Cloud Run; local machines are optional dev environments. **Final operational step — prod cutover:** repoint `QUANTCORE_DB_DSN` / the Cloud SQL connector from the test instance to production and redeploy (a supervised config change, deliberately *not* automated in CI).
+**Exit criteria (met):** no MCP server contains business logic or DB access (grep-audited); everything runs on GCP Cloud Run; local machines are optional dev environments. **Production rollout ✅ complete (2026-06-17):** rather than a test-service DSN flip, the stronger isolation boundary was chosen — the same stack was stood up in a **dedicated prod project** `quantcore-prod-20260606` (project # `127961694257`, `us-central1`) reaching its own prod Cloud SQL, on images **copied by digest** test→prod (api `ac5cd17f…`, mcp `1b7da905…`, report `65d70659…`). Prod has its own least-privilege runtime SA, fresh HS256 JWT secret, gated CI/CD (`prod-rollout.yml`, `prod` Environment + required reviewers, separate WIF), and AI clients point at the prod wrapper `/mcp` URLs (`.mcp.json`). The test stack stays untouched on the test instance. See [`prod-rollout-plan.md`](prod-rollout-plan.md) for the full P0–P10 checkpoint log.
 
 ---
 

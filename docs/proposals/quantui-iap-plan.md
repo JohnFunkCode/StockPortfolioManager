@@ -1,6 +1,6 @@
 # QuantUI on Cloud Run behind Identity-Aware Proxy (IAP) — plan + checkpoint log
 
-> Status: **test project complete (Steps 1–7); prod promotion (Step 8) pending.** This doc is the
+> Status: **COMPLETE — QuantUI live in test and prod behind IAP (Steps 1–8).** This doc is the
 > canonical plan and checkpoint log for deploying the QuantUI front end to Cloud Run secured by Google
 > IAP — mirroring the cadence of `phase3-gateway-plan.md` / `prod-rollout-plan.md`. One commit per
 > step, pushed, logged below.
@@ -16,7 +16,7 @@
 | 5 | First Cloud Run deploy with `--iap` (test) | ☑ done | (user/GCP) |
 | 6 | OAuth consent (External) + custom OAuth client + IAP IAM grants (test) | ☑ done | (user/GCP) + `scripts/{grant,attach}_quantui_iap_*.sh` (PR #60) |
 | 7 | Verify IAP login + proxy end-to-end (test) | ☑ done | token-trim fix PR #60 (`quantui-00004-c5v`) |
-| 8 | Promote to prod (`quantcore-prod-20260606`, by digest, via `prod-rollout.yml`) | ☐ (user/GCP) | — |
+| 8 | Promote to prod (`quantcore-prod-20260606`, by digest, via `prod-rollout.yml`) | ☑ done | PR #62 (rollout wiring) + (user/GCP) |
 
 ### Step 4–7 results & findings (test project, 2026-06-17/18)
 
@@ -42,6 +42,41 @@
 - **Verified:** authorized Google account → IAP login → SPA loads → data grids populate end-to-end
   (`browser → IAP → quantui → quantcore-api → service → Cloud SQL`); no JWT in any browser-issued
   request (bearer added only on the server hop). **Test project complete.**
+
+### Step 8 results (prod promotion, `quantcore-prod-20260606`, 2026-06-18)
+
+Helper scripts parameterized to `[PROJECT [REGION [SERVICE]]]` (default test) and `quantcore-ui`
+added to `prod-rollout.yml` (promote-by-digest loop + image-only Deploy quantui step) in **PR #62**.
+Manual first-deploy sequence (full config; CI carries only the digest afterward):
+
+- **Secret:** minted a 1-yr HS256 token signed with the **prod** `quantcore-jwt-secret`
+  (`mint_prod_jwt.py … | tr -d '\n' | gcloud secrets create quantui-api-token …`) and granted the
+  prod runtime SA `quantcore-run@…` `secretAccessor`.
+- **Image:** promoted the **validated** test digest `sha256:90087b77…76446` (tag `4d26cb7`, the
+  `quantui-00004-c5v` image) test-AR → prod-AR by digest (`docker buildx imagetools create`); verified
+  it resolves byte-identically in the prod AR before deploy.
+- **Deploy:** `gcloud run deploy quantui --image <prod-AR>@sha256:90087b77… --no-allow-unauthenticated
+  --iap --ingress all --max-instances 20 --cpu-boost --set-env-vars
+  QUANTCORE_REST_URL=https://quantcore-api-swgixldxzq-uc.a.run.app --set-secrets
+  QUANTCORE_API_TOKEN=quantui-api-token:latest` → `quantui-00001-4np`,
+  `https://quantui-127961694257.us-central1.run.app`. (Deploy auto-enabled `cloudresourcemanager` +
+  `iap` APIs in the prod project.)
+- **IAP:** granted the prod IAP service agent `service-127961694257@gcp-sa-iap…` `run.invoker`;
+  created the prod **custom OAuth client** (own client id
+  `127961694257-2efn…apps.googleusercontent.com`) + consent screen (External) and attached it via
+  `scripts/attach_quantui_iap_oauth.sh quantcore-prod-20260606`; granted the team
+  `iap.httpsResourceAccessor` via `scripts/grant_quantui_iap_access.sh quantcore-prod-20260606`.
+- **One account quirk:** `thomasdfowler@gmail.com` could not be added to the Audience (Google webUI
+  error) and its IAM grant did not persist into the policy — so it is on **neither** list; the other
+  **6** accounts match on both. Re-run the grant script + add to Audience once that account is fixed.
+- **Verified:** incognito → IAP login → SPA loads → prod data grids populate; prod logs show clean
+  `200`s on `/api/*` (no `ERR_INVALID_CHAR` — hardened image + newline-free secret). **Prod complete.**
+
+### Deferred / follow-ups
+
+- Per-user identity (mint a per-request JWT from `x-goog-authenticated-user-email`) — see *Deferred*
+  under Security notes below; not in this baseline.
+- Unrelated: ship the yfinance hardening to the **prod report Job** (still on digest `65d70659…`).
 
 ---
 

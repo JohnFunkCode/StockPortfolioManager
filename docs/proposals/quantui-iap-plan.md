@@ -1,21 +1,47 @@
 # QuantUI on Cloud Run behind Identity-Aware Proxy (IAP) — plan + checkpoint log
 
-> Status: **in progress.** This doc is the canonical plan and checkpoint log for deploying the
-> QuantUI front end to Cloud Run secured by Google IAP — mirroring the cadence of
-> `phase3-gateway-plan.md` / `prod-rollout-plan.md`. One commit per step, pushed, logged below.
+> Status: **test project complete (Steps 1–7); prod promotion (Step 8) pending.** This doc is the
+> canonical plan and checkpoint log for deploying the QuantUI front end to Cloud Run secured by Google
+> IAP — mirroring the cadence of `phase3-gateway-plan.md` / `prod-rollout-plan.md`. One commit per
+> step, pushed, logged below.
 
 ## Checkpoint log
 
 | Step | What | Status | Commit |
 |------|------|--------|--------|
-| 1 | Express serve+proxy (`frontend/server/`), `Dockerfile.ui`, `frontend/.dockerignore` | ☑ done | PR `feature/quantui-iap-deploy` |
-| 2 | Optional `quantui` service in `docker-compose.yml` (local stack parity) | ☑ done | (same branch) |
-| 3 | Wire `build-ui` into `cloudbuild.yaml` + Deploy step in `deploy.yml` | ☑ done | (same branch) |
-| 4 | Secret Manager `quantui-api-token` (test) + accessor grant | ☐ (user/GCP) | — |
-| 5 | First Cloud Run deploy with `--iap` (test) | ☐ (user/GCP) | — |
-| 6 | OAuth consent (External) + IAP IAM grants (test) | ☐ (user/GCP) | — |
-| 7 | Verify IAP login + proxy end-to-end (test) | ☐ | — |
+| 1 | Express serve+proxy (`frontend/server/`), `Dockerfile.ui`, `frontend/.dockerignore` | ☑ done | PR #58 |
+| 2 | Optional `quantui` service in `docker-compose.yml` (local stack parity) | ☑ done | PR #58 |
+| 3 | Wire `build-ui` into `cloudbuild.yaml` + Deploy step in `deploy.yml` | ☑ done | PR #58 (+ `.gcloudignore` fix PR #59) |
+| 4 | Secret Manager `quantui-api-token` (test) + accessor grant | ☑ done | (user/GCP) |
+| 5 | First Cloud Run deploy with `--iap` (test) | ☑ done | (user/GCP) |
+| 6 | OAuth consent (External) + custom OAuth client + IAP IAM grants (test) | ☑ done | (user/GCP) + `scripts/{grant,attach}_quantui_iap_*.sh` (PR #60) |
+| 7 | Verify IAP login + proxy end-to-end (test) | ☑ done | token-trim fix PR #60 (`quantui-00004-c5v`) |
 | 8 | Promote to prod (`quantcore-prod-20260606`, by digest, via `prod-rollout.yml`) | ☐ (user/GCP) | — |
+
+### Step 4–7 results & findings (test project, 2026-06-17/18)
+
+- **Non-org project needs a custom OAuth client.** The IAP OAuth Admin APIs
+  (`gcloud iap oauth-brands`/`oauth-clients`) were **shut down 2026-03-19** and are org-gated anyway,
+  and a standalone (non-Organization) project's `--iap` deploy can **not** auto-provision a client —
+  symptom **502 "Empty Google Account OAuth client ID(s)/secret(s)"**. Fix: create the OAuth consent
+  screen + a **Web-application OAuth client** in the Console, add redirect URI
+  `https://iap.googleapis.com/v1/oauth/clientIds/<CLIENT_ID>:handleRedirect`, and attach it via
+  `gcloud iap settings set` (helper `scripts/attach_quantui_iap_oauth.sh`). Test client id
+  `493357101423-…apps.googleusercontent.com`.
+- **Two lists gate login** while the consent screen is in *Testing*: an account must be **both** a
+  consent-screen **test user** **and** hold **`roles/iap.httpsResourceAccessor`** on the service. Five
+  dev accounts granted via `scripts/grant_quantui_iap_access.sh`. (`--resource-type=cloud-run` +
+  `--region` is the correct shape for direct Cloud Run IAP; the brief's `web-types` was outdated.)
+- **Trailing-newline header crash (root-caused).** Piping `mint_prod_jwt.py` output into
+  `gcloud secrets versions add --data-file=-` stored a trailing `\n`; the proxy injecting
+  `Bearer <token>\n` threw `ERR_INVALID_CHAR` in `onProxyReq` and **crashed the whole process**, so
+  every request (even `favicon.ico`) 503'd. Fixed two ways: re-stored the secret without the newline
+  (`… | tr -d '\n' | gcloud secrets versions add …` + `services update` for a new revision), **and**
+  hardened the code — `server.mjs` now `.trim()`s `QUANTCORE_API_TOKEN` at read time (PR #60). CI then
+  rolled the hardened image; live revision **`quantui-00004-c5v`** (`quantcore-ui:4d26cb7`).
+- **Verified:** authorized Google account → IAP login → SPA loads → data grids populate end-to-end
+  (`browser → IAP → quantui → quantcore-api → service → Cloud SQL`); no JWT in any browser-issued
+  request (bearer added only on the server hop). **Test project complete.**
 
 ---
 

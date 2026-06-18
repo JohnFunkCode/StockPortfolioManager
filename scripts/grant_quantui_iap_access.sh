@@ -22,6 +22,8 @@ USERS=(
   "john@johnfunk.com"
   "musicalmacdonald@gmail.com"
   "superdavidabrown@gmail.com"
+  "thomasdfowler@gmail.com"
+  "thomas@zoidbergfolio.com"
 )
 
 for u in "${USERS[@]}"; do

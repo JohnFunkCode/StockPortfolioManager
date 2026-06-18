@@ -26,7 +26,10 @@ const DIST_DIR = process.env.DIST_DIR || path.resolve(__dirname, '..', 'dist');
 
 const PORT = Number(process.env.PORT) || 8080;
 const API_TARGET = process.env.QUANTCORE_REST_URL || 'http://127.0.0.1:5001';
-const API_TOKEN = process.env.QUANTCORE_API_TOKEN || '';
+// .trim() guards against a stray trailing newline in the secret value (e.g. when a
+// token is piped into `gcloud secrets versions add --data-file=-`): an Authorization
+// header with a newline throws ERR_INVALID_CHAR and would crash the proxy.
+const API_TOKEN = (process.env.QUANTCORE_API_TOKEN || '').trim();
 
 const app = express();
 

@@ -405,6 +405,41 @@ data tool returns `401: … Not enough segments`.
 `quantcore-prod-20260606` (the mint script fetches the signing secret from Secret Manager and never
 prints it).
 
+#### GCP access a team member needs (granted by the GCP admin)
+
+Minting a prod token and reaching the prod DB through the Cloud SQL Auth Proxy require **four IAM
+roles** in each project (`quantcore-prod-20260606` and, for dev/CI, `quantcore-test-20260606`).
+These are granted by the **GCP administrator (John)** — a team member cannot grant them to
+themselves:
+
+| Role | On | Why |
+|------|----|-----|
+| `roles/secretmanager.secretAccessor` | secret `quantcore-jwt-secret` | mint the prod MCP token (read the JWT signing secret) |
+| `roles/secretmanager.secretAccessor` | secret `quantcore-prod-db-dsn` (prod) / `quantcore-test-db-dsn` (test) | pull the DB DSN from Secret Manager (optional if the password was shared out-of-band) |
+| `roles/cloudsql.client` | the project | authenticate the Cloud SQL Auth Proxy to the DB instance |
+| `roles/browser` | the project | basic project visibility so `gcloud projects describe <project>` and Console browsing work |
+
+> **Why `roles/browser` matters:** the three functional roles above do **not** include
+> `resourcemanager.projects.get`, so without `roles/browser` a `gcloud projects describe` (and Console
+> browsing) fails with *"caller does not have permission"* even though token minting and the DB proxy
+> work fine. It's a visibility role, not an access path — don't mistake that error for a broken grant.
+
+**Use a real Google account.** IAM silently drops `user:` bindings for consumer email addresses that
+aren't backed by an actual, active Google account — the grant command reports success but the binding
+never persists. If your access isn't working and the admin confirms the grant "went through," verify
+the email you're using is a real Google account (and that it's the **active** one — see below).
+
+#### Hitting a permissions issue?
+
+1. **Check the active account first.** Most *"does not have permission"* errors are simply the wrong
+   identity selected: `gcloud auth list` shows the active account; switch with
+   `gcloud config set account <email>`. The mint script and proxy authenticate as whatever account is
+   active.
+2. **Confirm you're using a granted, real Google account** (see the caveat above).
+3. **Still stuck? Contact the GCP administrator (John).** All four grants are admin-only; John can
+   confirm the IAM bindings landed (`gcloud projects get-iam-policy …`) and re-grant if needed. Tell
+   him which account (email) and which project you're using so he can verify the exact bindings.
+
 Mint a **3-month** prod JWT for yourself and load it into the shell environment Claude Code launches
 from (the token is a live bearer — it's redirected straight to a file in `$HOME`, never printed to
 the terminal):

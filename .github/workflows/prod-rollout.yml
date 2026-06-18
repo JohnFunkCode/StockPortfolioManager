@@ -111,7 +111,7 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
           echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
-          for img in quantcore-api quantcore-mcp quantcore-report; do
+          for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui; do
             SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
             # Resolve the immutable source-manifest digest so the copy + deploy reference
             # exact bytes.
@@ -150,3 +150,12 @@ jobs:
         run: |
           gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-report@$QUANTCORE_REPORT_DIGEST"
+
+      - name: Deploy quantui (prod, image-only)
+        # First prod deploy of quantui is MANUAL with full config (--iap,
+        # --no-allow-unauthenticated, QUANTCORE_REST_URL, quantui-api-token secret) — see
+        # quantui-iap-plan.md Step 8. This image-only redeploy preserves that config, like
+        # the api/wrappers above; it only runs once the service already exists.
+        run: |
+          gcloud run deploy quantui --project "$PROD_PROJECT" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-ui@$QUANTCORE_UI_DIGEST"

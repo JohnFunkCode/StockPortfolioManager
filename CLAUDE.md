@@ -79,6 +79,39 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 
 **Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — the Flask app (`api/app.py`) has been retired and rebuilt on FastAPI (app factory `api/main.py`, route groups under `api/routers/*`, Pydantic request/response schemas under `api/schemas/*`), preserving every route path and JSON shape so the React front end runs unmodified; OpenAPI docs are served at `/docs` and the spec at `/openapi.json`. See [`docs/proposals/phase2-fastapi-plan.md`](docs/proposals/phase2-fastapi-plan.md) for the checkpoint log. Run it with `uvicorn api.main:app --host 127.0.0.1 --port 5001` (or `python -m api.main`). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see [`docs/proposals/phase3-gateway-plan.md`](docs/proposals/phase3-gateway-plan.md): the five MCP servers (`fastMCPTest/*_server.py`, `options_analysis.py`) were inverted into thin **HTTP gateway wrappers** that call the REST tier through the single seam `mcp_gateway/rest_client.py` (Rule 6 — `AI Agent → MCP wrapper → REST tier → Service`); `api/auth.py` adds JWT verification (inert until a key is configured, so local/compose stay open); everything is containerized (`Dockerfile.{api,mcp,report}`, `docker-compose.yml` local stack) and deployed to **GCP Cloud Run** — `quantcore-api` (JWT-enforced) + 5 wrapper services + `main.py` as a daily Cloud Run **Job** on Cloud Scheduler (in-process services, never HTTP). CI/CD is `.github/workflows/deploy.yml` (tests + wrapper smoke + OpenAPI surface diff, then build/roll-out; push/PR triggers are gated by a `preflight` job that skips the deploy when the test-WIF secrets are absent — wire them with `scripts/setup_test_wif.sh`). **Production rollout is COMPLETE** — see [`docs/proposals/prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md): rather than a test-service DSN flip, the same stack was stood up in a **dedicated prod project** `quantcore-prod-20260606` (project # `127961694257`, `us-central1`) reaching its own prod Cloud SQL — `quantcore-api` (JWT-enforced) + 5 wrapper services + the report Cloud Run Job on Cloud Scheduler, on images **copied by digest** test→prod (api `ac5cd17f…`, mcp `1b7da905…`, report `65d70659…`). Gated prod CI/CD is `.github/workflows/prod-rollout.yml` (`workflow_dispatch`/`release`, `prod` GitHub Environment with required reviewers, separate prod WIF). `.mcp.json` points AI clients at the prod wrapper `/mcp` URLs (`https://quantcore-<svc>-127961694257.us-central1.run.app`, bearer `${QUANTCORE_MCP_TOKEN}`); the 5 `*-local` entries remain for the docker-compose stack. The deferred `portfolio/yfinance_gateway.py` `get_latest_prices` fragility is now **hardened** (retry/back-off + graceful all-None degrade so a flaky Yahoo response no longer crashes the daily report); rebuilding/redeploying the prod report image with this fix is a pending user/CI step.
 
+### QuantUI front end on Cloud Run (behind IAP)
+
+The React SPA (`frontend/`) is deployed as the **QuantUI** Cloud Run service in both projects,
+gated by **Identity-Aware Proxy (IAP)** so the team reaches the real UI from anywhere with no auth
+code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/quantui-iap-plan.md)
+(status: **COMPLETE, Steps 1–8**). Live URLs:
+
+- **Test:** `https://quantui-uikpdb55ea-uc.a.run.app` (`quantcore-test-20260606`)
+- **Prod:** `https://quantui-swgixldxzq-uc.a.run.app` (`quantcore-prod-20260606`)
+
+**Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
+(`frontend/server/server.mjs`) that serves the static bundle (SPA fallback) and **reverse-proxies
+`/api/*` to `quantcore-api`, injecting the app JWT server-side** from the `quantui-api-token` Secret
+Manager secret. The browser stays same-origin (no CORS) and never sees the bearer — the production
+equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the app JWT authenticates the
+UI→API hop. Each project has its own `quantui-api-token` (signed with that project's
+`QUANTCORE_JWT_SECRET`) and its own custom OAuth client (standalone projects can't auto-provision
+one; attach via `scripts/attach_quantui_iap_oauth.sh`).
+
+**Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
+filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and image-only-rolls it onto
+the **test** `quantui` service automatically (IAP/secret/env config preserved). Verify on the test
+URL, then promote to **prod** by manually dispatching `prod-rollout.yml` (`workflow_dispatch`) with
+the commit's 7-char SHA — it copies the image **by digest** test→prod and image-only-deploys prod
+`quantui`. Prod is never auto-deployed.
+
+**Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
+(1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`
+on `quantui`. Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and
+run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
+`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
+Audience tab in Console. Both are required — only one results in a blocked login.
+
 ## Configuration
 
 - **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing; `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload.

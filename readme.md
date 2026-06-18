@@ -200,6 +200,85 @@ npm run build      # output goes to frontend/dist/
 
 ---
 
+## QuantUI on Cloud Run (behind IAP)
+
+The same React app is deployed as a hosted service (**QuantUI**) so the team can reach the real UI
+from anywhere, gated by their Google accounts via **Identity-Aware Proxy (IAP)** — no auth code in
+the app. It runs in both projects:
+
+| Environment | URL | Project | Auto-deploy? |
+|-------------|-----|---------|--------------|
+| **Test** | https://quantui-uikpdb55ea-uc.a.run.app | `quantcore-test-20260606` | **Yes** — every push to `main` |
+| **Prod** | https://quantui-swgixldxzq-uc.a.run.app | `quantcore-prod-20260606` | **No** — manual promotion only |
+
+### How it's served
+
+The SPA is *not* served by Vite in production. `Dockerfile.ui` builds `frontend/dist/` and runs a
+tiny Express server (`frontend/server/server.mjs`) that:
+
+- serves the static `dist/` bundle (with SPA `index.html` fallback), and
+- reverse-proxies `/api/*` to `quantcore-api`, injecting the app JWT **server-side** from Secret
+  Manager (`quantui-api-token`).
+
+So the browser stays same-origin (no CORS) and the bearer token **never reaches the client** — the
+production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the app JWT
+authenticates the UI→API hop. Each project has its own `quantui-api-token` secret (signed with that
+project's `QUANTCORE_JWT_SECRET`) and its own custom OAuth client.
+
+### Workflow for a UI change
+
+1. **Edit** under `frontend/` and open a PR against `main`.
+2. **Merge to `main`.** This triggers `.github/workflows/deploy.yml` (no path filters, so any push to
+   `main` qualifies). The `gate` job runs tests + smoke; then `cloudbuild.yaml`'s `build-ui` step
+   builds `quantcore-ui:<sha>` and the **Deploy quantui** step image-only-rolls it onto the **test**
+   service (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys).
+3. **Verify on test** — open the test URL above in the browser, confirm the data grids populate.
+4. **Promote to prod** — run the **`prod-rollout`** GitHub Action (`workflow_dispatch`) with that
+   commit's 7-char SHA as `image_tag`. It copies the validated image **by digest** test→prod and
+   image-only-deploys the prod `quantui` service. Prod is **never** auto-deployed; it requires this
+   manual, reviewer-gated dispatch.
+
+> Note: because `deploy.yml` has no path filters, *any* push to `main` (not just `frontend/` changes)
+> rebuilds and redeploys all services, including a fresh `quantui` revision. Harmless, just expect the
+> revision counter to climb on every merge.
+
+### Granting a new user access
+
+While the OAuth consent screen is in **Testing** status, an account needs to be on **two** lists for
+login to succeed:
+
+1. **OAuth consent test user** — Console → APIs & Services → OAuth consent screen → **Audience** →
+   *Add users* (add the account in the relevant project).
+2. **IAP accessor role** — `roles/iap.httpsResourceAccessor` on the `quantui` service.
+
+Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh`, then run it per
+project (defaults to test; pass the prod project to grant there):
+
+```bash
+./scripts/grant_quantui_iap_access.sh                          # test
+./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606  # prod
+```
+
+Both the Audience entry **and** the IAM grant must be present — having only one results in a blocked
+login. (One-time per project: attaching the custom OAuth client is done with
+`scripts/attach_quantui_iap_oauth.sh`.)
+
+### Running the serving container locally
+
+```bash
+docker build -f Dockerfile.ui -t quantui:dev .
+docker run --rm -p 8080:8080 \
+  -e QUANTCORE_REST_URL=http://host.docker.internal:5001 \
+  -e PORT=8080 \
+  quantui:dev
+# → UI at http://localhost:8080, proxying /api/* to a local uvicorn api.main:app
+```
+
+The `docker-compose.yml` stack also includes a `quantui` service for full local parity (no token,
+since the compose api runs `AUTH_DISABLED=1`).
+
+---
+
 ## Starting Both Servers Together (Mac)
 
 `runUI-MAC.sh` is a convenience script that launches both the API and frontend servers in the background from a single command.

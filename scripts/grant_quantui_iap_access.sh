@@ -7,13 +7,15 @@
 # (Console -> APIs & Services -> OAuth consent screen -> Audience -> Add users)
 # while the app is in "Testing" status. Both must match for login to succeed.
 #
-# Usage:  ./scripts/grant_quantui_iap_access.sh
+# Usage:  ./scripts/grant_quantui_iap_access.sh [PROJECT [REGION [SERVICE]]]
+#   Defaults to the TEST project; pass quantcore-prod-20260606 to grant in prod.
+#   e.g.  ./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606
 #
 set -euo pipefail
 
-PROJECT="quantcore-test-20260606"
-REGION="us-central1"
-SERVICE="quantui"
+PROJECT="${1:-quantcore-test-20260606}"
+REGION="${2:-us-central1}"
+SERVICE="${3:-quantui}"
 ROLE="roles/iap.httpsResourceAccessor"
 
 USERS=(

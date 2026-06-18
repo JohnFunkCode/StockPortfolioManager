@@ -12,13 +12,16 @@
 # The client secret is read interactively (hidden) and written only to a
 # temp YAML that is deleted on exit -- it never touches shell history.
 #
-# Usage:  ./scripts/attach_quantui_iap_oauth.sh
+# Usage:  ./scripts/attach_quantui_iap_oauth.sh [PROJECT [REGION [SERVICE]]]
+#   Defaults to the TEST project; pass quantcore-prod-20260606 to attach in prod
+#   (each project needs its OWN custom OAuth client).
+#   e.g.  ./scripts/attach_quantui_iap_oauth.sh quantcore-prod-20260606
 #
 set -euo pipefail
 
-PROJECT="quantcore-test-20260606"
-REGION="us-central1"
-SERVICE="quantui"
+PROJECT="${1:-quantcore-test-20260606}"
+REGION="${2:-us-central1}"
+SERVICE="${3:-quantui}"
 
 read -r -p "OAuth Client ID: " CLIENT_ID
 read -r -s -p "OAuth Client secret (hidden): " CLIENT_SECRET

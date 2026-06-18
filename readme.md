@@ -101,6 +101,21 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 python scripts/migrate_sqlite_to_postgres.py --sqlite data/quantcore.sqlite --dsn "$QUANTCORE_DB_DSN"
 ```
 
+### Environments (prod vs test)
+
+There are two GCP environments, and the rule is simple:
+
+| Environment | Project | Role |
+|-------------|---------|------|
+| **Prod** | `quantcore-prod-20260606` | **System of record.** All users and all analysis run against prod. |
+| **Test** | `quantcore-test-20260606` | **Development and CI only** — never the place to do real analysis. |
+
+Now that changes ship through a CI/CD pipeline (`deploy.yml` → test, `prod-rollout.yml` → prod),
+prod is the live system everyone reads from. The deployed `quantui` UI and the `.mcp.json` AI-client
+remotes both already target prod; connecting an AI client just needs a prod token (see
+[Connecting AI clients to prod](#connecting-ai-clients-to-prod-mcp-token)). Reserve test for
+developing and validating changes before they're promoted.
+
 ## Usage
 
 ### Basic Portfolio Analysis
@@ -200,6 +215,91 @@ npm run build      # output goes to frontend/dist/
 
 ---
 
+## QuantUI on Cloud Run (behind IAP)
+
+The same React app is deployed as a hosted service (**QuantUI**) so the team can reach the real UI
+from anywhere, gated by their Google accounts via **Identity-Aware Proxy (IAP)** — no auth code in
+the app. It runs in both projects:
+
+| Environment | URL | Project | Auto-deploy? |
+|-------------|-----|---------|--------------|
+| **Test** | https://quantui-uikpdb55ea-uc.a.run.app | `quantcore-test-20260606` | **Yes** — every push to `main` |
+| **Prod** | https://quantui-swgixldxzq-uc.a.run.app | `quantcore-prod-20260606` | **No** — manual promotion only |
+
+### How it's served
+
+The SPA is *not* served by Vite in production. `Dockerfile.ui` builds `frontend/dist/` and runs a
+tiny Express server (`frontend/server/server.mjs`) that:
+
+- serves the static `dist/` bundle (with SPA `index.html` fallback), and
+- reverse-proxies `/api/*` to `quantcore-api`, injecting the app JWT **server-side** from Secret
+  Manager (`quantui-api-token`).
+
+So the browser stays same-origin (no CORS) and the bearer token **never reaches the client** — the
+production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the app JWT
+authenticates the UI→API hop. Each project has its own `quantui-api-token` secret (signed with that
+project's `QUANTCORE_JWT_SECRET`) and its own custom OAuth client.
+
+### Workflow for a UI change
+
+1. **Edit** under `frontend/` and open a PR against `main`.
+2. **Merge to `main`.** This triggers `.github/workflows/deploy.yml` (no path filters, so any push to
+   `main` qualifies). The `gate` job runs tests + smoke; then `cloudbuild.yaml`'s `build-ui` step
+   builds `quantcore-ui:<sha>` and the **Deploy quantui** step image-only-rolls it onto the **test**
+   service (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys).
+3. **Verify on test** — open the test URL above in the browser, confirm the data grids populate.
+4. **Promote to prod** — run the **`prod-rollout`** GitHub Action (`workflow_dispatch`) with that
+   commit's 7-char SHA as `image_tag`. It copies the validated image **by digest** test→prod and
+   image-only-deploys the prod `quantui` service. Prod is **never** auto-deployed; it requires this
+   manual, reviewer-gated dispatch.
+
+> Note: because `deploy.yml` has no path filters, *any* push to `main` (not just `frontend/` changes)
+> rebuilds and redeploys all services, including a fresh `quantui` revision. Harmless, just expect the
+> revision counter to climb on every merge.
+
+### Granting a new user access
+
+While the OAuth consent screen is in **Testing** status, an account needs to be on **two** lists for
+login to succeed:
+
+1. **OAuth consent test user** — Console → APIs & Services → OAuth consent screen → **Audience** →
+   *Add users* (add the account in the relevant project).
+2. **IAP accessor role** — `roles/iap.httpsResourceAccessor` on the `quantui` service.
+
+Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh`, then run it per
+project (defaults to test; pass the prod project to grant there):
+
+```bash
+./scripts/grant_quantui_iap_access.sh                          # test
+./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606  # prod
+```
+
+Both the Audience entry **and** the IAM grant must be present — having only one results in a blocked
+login. (One-time per project: attaching the custom OAuth client is done with
+`scripts/attach_quantui_iap_oauth.sh`.)
+
+> **Full onboarding is now two things:** (a) **UI access** via the IAP grant above, **and** (b) an
+> AI-client **prod MCP token** so their Claude/agent can call the analysis tools — have them mint
+> their own as described in
+> [Connecting AI clients to prod](#connecting-ai-clients-to-prod-mcp-token). Remind them the token
+> expires after **90 days** and should be rotated quarterly (re-run the mint command).
+
+### Running the serving container locally
+
+```bash
+docker build -f Dockerfile.ui -t quantui:dev .
+docker run --rm -p 8080:8080 \
+  -e QUANTCORE_REST_URL=http://host.docker.internal:5001 \
+  -e PORT=8080 \
+  quantui:dev
+# → UI at http://localhost:8080, proxying /api/* to a local uvicorn api.main:app
+```
+
+The `docker-compose.yml` stack also includes a `quantui` service for full local parity (no token,
+since the compose api runs `AUTH_DISABLED=1`).
+
+---
+
 ## Starting Both Servers Together (Mac)
 
 `runUI-MAC.sh` is a convenience script that launches both the API and frontend servers in the background from a single command.
@@ -291,6 +391,39 @@ at `http://localhost:5001` (the published api port) and it runs unchanged.
 ## MCP Intelligence Layer (`fastMCPTest/`)
 
 A suite of **FastMCP servers** that expose real-time market analysis as tools consumable by AI agents (Claude Code, custom agents, or any MCP-compatible client). The servers provide the analytical backbone for the `get_trade_recommendation` tool described below.
+
+### Connecting AI clients to prod (MCP token)
+
+The repo's `.mcp.json` already points the five remote servers at the **prod** wrapper URLs
+(`https://quantcore-<svc>-swgixldxzq-uc.a.run.app/mcp`), each sending
+`Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`. The wrappers do **identity passthrough** — they
+forward that bearer to `quantcore-api`, which enforces an HS256 JWT (`api/auth.py`). So the only
+thing each team member supplies is their own prod token in `QUANTCORE_MCP_TOKEN`; without it every
+data tool returns `401: … Not enough segments`.
+
+**Prereq:** `gcloud auth login` with an account that can read the `quantcore-jwt-secret` secret in
+`quantcore-prod-20260606` (the mint script fetches the signing secret from Secret Manager and never
+prints it).
+
+Mint a **3-month** prod JWT for yourself and load it into the shell environment Claude Code launches
+from (the token is a live bearer — it's redirected straight to a file in `$HOME`, never printed to
+the terminal):
+
+```bash
+# --sub is your owner partition (use your name; defaults to john). 2160h = 90 days.
+python scripts/mint_prod_jwt.py --output export --expires-hours 2160 --sub <you> > ~/.quantcore_mcp.env
+chmod 600 ~/.quantcore_mcp.env
+echo 'source ~/.quantcore_mcp.env' >> ~/.zshrc   # so every new shell inherits it
+```
+
+Then **restart Claude Code from a fresh shell** — `.mcp.json` reads `${QUANTCORE_MCP_TOKEN}` from
+the process environment at startup, so a var exported in a child shell won't reach an
+already-running client. Verify by running any prod data tool (e.g. `get_short_interest AAPL`); you
+should get data, not a 401.
+
+> **Token lifetime:** this token expires after **90 days** — re-run the mint command to rotate it.
+> `~/.quantcore_mcp.env` is outside the repo and must **never** be committed. Each team member mints
+> their own with their own `--sub`; don't share tokens.
 
 ### Servers
 

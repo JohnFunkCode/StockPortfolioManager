@@ -112,6 +112,23 @@ run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
 `./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
 Audience tab in Console. Both are required — only one results in a blocked login.
 
+### Environments (prod is the system of record)
+
+**Prod (`quantcore-prod-20260606`) is the system of record for all analysis for all users; test
+(`quantcore-test-20260606`) is for development and CI only.** This supersedes the earlier "do
+analysis on test, treat prod as read-only" operating rule — now that changes ship through CI/CD
+(`deploy.yml` → test, `prod-rollout.yml` → prod), prod is the live system everyone reads from. The
+deployed `quantui` UI and the `.mcp.json` AI-client remotes both already target prod.
+
+The 5 remote MCP servers in `.mcp.json` send `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`, which
+the wrappers forward unchanged to `quantcore-api` (identity passthrough → HS256 JWT in
+`api/auth.py`). So real analysis requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the
+environment Claude Code launches from; if it's unset, every data tool returns `401: … Not enough
+segments` (the wrapper-local `mcp_health_check` still passes, which is misleading). Each user mints
+their own 3-month token with `scripts/mint_prod_jwt.py --output export --expires-hours 2160 --sub
+<you>` (see readme "Connecting AI clients to prod"). **When onboarding a user, remind them the token
+expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`).
+
 ## Configuration
 
 - **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing; `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload.

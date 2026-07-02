@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import enum
 import logging
+import threading
 from contextlib import closing
 from dataclasses import dataclass
 from typing import Optional
@@ -277,20 +278,29 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
 # yfinance fetch
 # ---------------------------------------------------------------------------
 
+# yf.download() is NOT thread-safe: results pass through module-global state
+# (yfinance.shared._DFS), so concurrent calls can hand one ticker's bars to
+# another ticker. Callers such as refresh_options_snapshots fetch from a
+# ThreadPoolExecutor, which corrupted the OHLCV table with cross-ticker rows
+# (2026-06-30 and 2026-07-02 prod incidents). Serialize every download.
+_YF_DOWNLOAD_LOCK = threading.Lock()
+
+
 def _fetch_yfinance(symbol: str, interval: str, days: int) -> pd.DataFrame:
     """Download from yfinance, capped at _MAX_FETCH_DAYS."""
     fetch_days = min(days, _MAX_FETCH_DAYS)
     end   = datetime.datetime.utcnow()
     start = end - datetime.timedelta(days=fetch_days)
     logger.debug("yfinance fetch: %s %s start=%s end=%s", symbol, interval, start.date(), end.date())
-    df = yf.download(
-        symbol,
-        start=start.strftime("%Y-%m-%d"),
-        end=end.strftime("%Y-%m-%d"),
-        interval=interval,
-        auto_adjust=True,
-        progress=False,
-    )
+    with _YF_DOWNLOAD_LOCK:
+        df = yf.download(
+            symbol,
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            interval=interval,
+            auto_adjust=True,
+            progress=False,
+        )
     if df.empty:
         logger.warning("yfinance returned no data for %s/%s", symbol, interval)
         return pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])

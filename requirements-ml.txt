@@ -13,3 +13,7 @@
 -r requirements-base.txt
 transformers>=4.30.0
 torch>=2.0.0
+
+# Chat sidekick: Anthropic SDK for the /api/chat conversational endpoint
+# (API image only — wrappers/report stay on requirements-base.txt)
+anthropic>=0.40.0

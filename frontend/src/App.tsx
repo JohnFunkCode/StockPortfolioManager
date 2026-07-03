@@ -9,6 +9,9 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
+import ChatIcon from '@mui/icons-material/Chat';
+import ChatRail from './components/chat/ChatRail';
+import { useChat } from './chat/ChatContext';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
@@ -20,6 +23,7 @@ import { useAppTheme } from './ThemeContext';
 function Layout() {
   const location = useLocation();
   const { themeName, setThemeName } = useAppTheme();
+  const { railOpen, setRailOpen } = useChat();
   const isLight = themeName === 'light';
 
   const navItems = [
@@ -88,8 +92,24 @@ function Layout() {
             })}
           </Stack>
 
-          {/* Theme toggle — pushed to the far right */}
-          <Box sx={{ ml: 'auto' }}>
+          {/* Sidekick + theme toggles — pushed to the far right */}
+          <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+            <Tooltip title={railOpen ? 'Hide Sidekick' : 'Show Sidekick'}>
+              <IconButton
+                onClick={() => setRailOpen(!railOpen)}
+                size="small"
+                data-testid="chat-toggle"
+                sx={{
+                  color: railOpen ? 'secondary.main' : 'primary.main',
+                  border: '1px solid',
+                  borderColor: (theme) => alpha(theme.palette.primary.main, 0.35),
+                  borderRadius: 1.5,
+                  p: 0.75,
+                }}
+              >
+                <ChatIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <Tooltip title={isLight ? 'Switch to Dark Synthwave' : 'Switch to Light Synthwave'}>
               <IconButton
                 onClick={() => setThemeName(isLight ? 'dark' : 'light')}
@@ -114,9 +134,12 @@ function Layout() {
           </Box>
         </Toolbar>
       </AppBar>
-      <Container maxWidth="xl" sx={{ py: 3, flex: 1 }}>
-        <Outlet />
-      </Container>
+      <Box sx={{ display: 'flex', flex: 1, minHeight: 0, alignItems: 'stretch' }}>
+        <Container maxWidth="xl" sx={{ py: 3, flex: 1, minWidth: 0 }}>
+          <Outlet />
+        </Container>
+        {railOpen && <ChatRail />}
+      </Box>
     </Box>
   );
 }

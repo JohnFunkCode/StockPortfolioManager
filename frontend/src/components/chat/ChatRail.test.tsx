@@ -131,6 +131,30 @@ describe('ChatRail', () => {
     expect(screen.getByTestId('chat-input')).toBeInTheDocument();
   });
 
+  it('expand toggle flips data-expanded and persists the preference', async () => {
+    renderRail();
+    const rail = () => screen.getByTestId('chat-rail');
+    expect(rail().dataset.expanded).toBe('false');
+
+    await userEvent.click(screen.getByTestId('chat-expand'));
+    expect(rail().dataset.expanded).toBe('true');
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('hl-chat-expanded') ?? 'false')).toBe(true),
+    );
+
+    await userEvent.click(screen.getByTestId('chat-expand'));
+    expect(rail().dataset.expanded).toBe('false');
+    await waitFor(() =>
+      expect(JSON.parse(localStorage.getItem('hl-chat-expanded') ?? 'true')).toBe(false),
+    );
+  });
+
+  it('restores the expanded preference on remount', () => {
+    localStorage.setItem('hl-chat-expanded', 'true');
+    renderRail();
+    expect(screen.getByTestId('chat-rail').dataset.expanded).toBe('true');
+  });
+
   it('serializes prior directives into the history sent to the API', async () => {
     renderRail();
     await sendPrompt('Show INTC signals');

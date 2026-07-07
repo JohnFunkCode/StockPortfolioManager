@@ -19,6 +19,8 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import BoltIcon from '@mui/icons-material/Bolt';
+import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
 import { useChat } from '../../chat/ChatContext';
 import type { ChatMessage, Segment } from '../../chat/types';
 import DirectiveRenderer from './DirectiveRenderer';
@@ -82,9 +84,13 @@ function MessageView({ message }: { message: ChatMessage }) {
 }
 
 export default function ChatRail() {
-  const { messages, isStreaming, error, sendMessage, clearConversation } = useChat();
+  const { messages, isStreaming, error, expanded, setExpanded, sendMessage, clearConversation } =
+    useChat();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // In fullscreen, keep the conversation at a readable width instead of
+  // stretching edge-to-edge; directive charts still get the wider parent.
+  const centered = expanded ? { maxWidth: 960, mx: 'auto', width: '100%' } : {};
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -103,21 +109,26 @@ export default function ChatRail() {
   return (
     <Box
       data-testid="chat-rail"
+      data-expanded={expanded}
       sx={{
-        width: RAIL_WIDTH,
-        flexShrink: 0,
+        ...(expanded ? { flex: 1, minWidth: 0 } : { width: RAIL_WIDTH, flexShrink: 0 }),
         display: 'flex',
         flexDirection: 'column',
-        borderLeft: 1,
+        borderLeft: expanded ? 0 : 1,
         borderColor: 'divider',
         height: '100%',
         minHeight: 0,
       }}
     >
-      <Stack direction="row" alignItems="center" sx={{ px: 1.5, py: 1 }} spacing={1}>
+      <Stack direction="row" alignItems="center" sx={{ px: 1.5, py: 1, ...centered }} spacing={1}>
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
           Sidekick
         </Typography>
+        <Tooltip title={expanded ? 'Collapse to side rail' : 'Expand to full screen'}>
+          <IconButton size="small" onClick={() => setExpanded(!expanded)} data-testid="chat-expand">
+            {expanded ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Clear conversation">
           <IconButton size="small" onClick={clearConversation} data-testid="chat-clear">
             <DeleteSweepIcon fontSize="small" />
@@ -127,7 +138,7 @@ export default function ChatRail() {
 
       <Box
         ref={scrollRef}
-        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 1.5, py: 1, display: 'flex', flexDirection: 'column', gap: 1 }}
+        sx={{ flex: 1, minHeight: 0, overflowY: 'auto', px: 1.5, py: 1, display: 'flex', flexDirection: 'column', gap: 1, ...centered }}
       >
         {messages.length === 0 && (
           <Typography variant="body2" color="text.secondary" sx={{ mt: 2, textAlign: 'center' }}>
@@ -141,12 +152,12 @@ export default function ChatRail() {
       </Box>
 
       {error && (
-        <Alert severity="error" data-testid="chat-error" sx={{ mx: 1.5, mb: 1 }}>
+        <Alert severity="error" data-testid="chat-error" sx={{ mx: 1.5, mb: 1, ...centered }}>
           {error}
         </Alert>
       )}
 
-      <Stack direction="row" spacing={1} sx={{ p: 1.5, pt: 0.5 }}>
+      <Stack direction="row" spacing={1} sx={{ p: 1.5, pt: 0.5, ...centered }}>
         <TextField
           data-testid="chat-input"
           size="small"

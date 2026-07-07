@@ -23,7 +23,8 @@ import { useAppTheme } from './ThemeContext';
 function Layout() {
   const location = useLocation();
   const { themeName, setThemeName } = useAppTheme();
-  const { railOpen, setRailOpen } = useChat();
+  const { railOpen, setRailOpen, expanded } = useChat();
+  const chatFullscreen = railOpen && expanded;
   const isLight = themeName === 'light';
 
   const navItems = [
@@ -135,7 +136,12 @@ function Layout() {
         </Toolbar>
       </AppBar>
       <Box sx={{ display: 'flex', flex: 1, minHeight: 0, alignItems: 'stretch' }}>
-        <Container maxWidth="xl" sx={{ py: 3, flex: 1, minWidth: 0 }}>
+        {/* Hidden (not unmounted) in chat fullscreen so page state survives. */}
+        <Container
+          maxWidth="xl"
+          data-testid="page-content"
+          sx={{ py: 3, flex: 1, minWidth: 0, display: chatFullscreen ? 'none' : 'block' }}
+        >
           <Outlet />
         </Container>
         {railOpen && <ChatRail />}

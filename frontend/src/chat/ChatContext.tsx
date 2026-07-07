@@ -18,6 +18,7 @@ import type { ApiChatMessage, ChatMessage, ChatStreamEvent, Segment } from './ty
 
 const MESSAGES_KEY = 'hl-chat-messages';
 const OPEN_KEY = 'hl-chat-open';
+const EXPANDED_KEY = 'hl-chat-expanded';
 
 /** Assistant segments -> the plain-text turn the model sees next time. */
 export function serializeForApi(messages: ChatMessage[]): ApiChatMessage[] {
@@ -80,6 +81,8 @@ interface ChatContextValue {
   error: string | null;
   railOpen: boolean;
   setRailOpen: (open: boolean) => void;
+  expanded: boolean;
+  setExpanded: (expanded: boolean) => void;
   sendMessage: (text: string) => Promise<void>;
   clearConversation: () => void;
 }
@@ -102,6 +105,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [railOpen, setRailOpenState] = useState<boolean>(() =>
     loadStored<boolean>(OPEN_KEY, false),
   );
+  const [expanded, setExpandedState] = useState<boolean>(() =>
+    loadStored<boolean>(EXPANDED_KEY, false),
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -118,6 +124,15 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setRailOpenState(open);
     try {
       localStorage.setItem(OPEN_KEY, JSON.stringify(open));
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const setExpanded = useCallback((next: boolean) => {
+    setExpandedState(next);
+    try {
+      localStorage.setItem(EXPANDED_KEY, JSON.stringify(next));
     } catch {
       /* ignore */
     }
@@ -186,7 +201,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
 
   return (
     <ChatContext.Provider
-      value={{ messages, isStreaming, error, railOpen, setRailOpen, sendMessage, clearConversation }}
+      value={{
+        messages,
+        isStreaming,
+        error,
+        railOpen,
+        setRailOpen,
+        expanded,
+        setExpanded,
+        sendMessage,
+        clearConversation,
+      }}
     >
       {children}
     </ChatContext.Provider>

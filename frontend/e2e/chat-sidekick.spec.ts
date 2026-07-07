@@ -43,6 +43,32 @@ test('core flow: open rail, send message, streamed text + live component render'
   );
 });
 
+test('fullscreen expand hides page content and still chats; collapse restores layout', async ({
+  page,
+}) => {
+  await page.getByTestId('chat-toggle').click();
+  await expect(page.getByTestId('page-content')).toBeVisible();
+
+  // Expand: rail fills the content area, page hidden (but still mounted).
+  await page.getByTestId('chat-expand').click();
+  await expect(page.getByTestId('chat-rail')).toHaveAttribute('data-expanded', 'true');
+  await expect(page.getByTestId('page-content')).toBeHidden();
+
+  // Chat works fullscreen.
+  const input = page.getByTestId('chat-input').locator('textarea').first();
+  await input.fill('Fullscreen check');
+  await input.press('Enter');
+  await expect(page.getByTestId('chat-message-assistant')).toContainText(
+    'the panel below is live',
+    { timeout: 15_000 },
+  );
+
+  // Collapse: side-by-side layout returns.
+  await page.getByTestId('chat-expand').click();
+  await expect(page.getByTestId('chat-rail')).toHaveAttribute('data-expanded', 'false');
+  await expect(page.getByTestId('page-content')).toBeVisible();
+});
+
 test('conversation persists across navigation and reload', async ({ page }) => {
   await page.getByTestId('chat-toggle').click();
   const input = page.getByTestId('chat-input').locator('textarea').first();

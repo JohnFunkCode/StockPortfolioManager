@@ -134,6 +134,54 @@ class TestValidateDirective(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestSpreadPayoffDirective(unittest.TestCase):
+    VALID = {
+        "ticker": "INTC",
+        "expiration": "2026-08-21",
+        "long_strike": 140,
+        "short_strike": 160.0,
+        "kind": "call",
+    }
+
+    def test_valid_full_props_accepted(self):
+        ok, reason = validate_directive("spread_payoff", dict(self.VALID))
+        self.assertTrue(ok, reason)
+
+    def test_int_and_float_strikes_both_accepted(self):
+        props = dict(self.VALID, long_strike=140.5, short_strike=160)
+        ok, reason = validate_directive("spread_payoff", props)
+        self.assertTrue(ok, reason)
+
+    def test_missing_strike_rejected(self):
+        props = dict(self.VALID)
+        del props["short_strike"]
+        ok, reason = validate_directive("spread_payoff", props)
+        self.assertFalse(ok)
+        self.assertIn("short_strike", reason)
+
+    def test_string_strike_rejected(self):
+        props = dict(self.VALID, long_strike="140")
+        ok, _ = validate_directive("spread_payoff", props)
+        self.assertFalse(ok)
+
+    def test_bool_strike_rejected(self):
+        # bool is an int subclass — must not slip through as a number.
+        props = dict(self.VALID, long_strike=True)
+        ok, _ = validate_directive("spread_payoff", props)
+        self.assertFalse(ok)
+
+    def test_empty_expiration_rejected(self):
+        props = dict(self.VALID, expiration="  ")
+        ok, _ = validate_directive("spread_payoff", props)
+        self.assertFalse(ok)
+
+    def test_extra_prop_rejected(self):
+        props = dict(self.VALID, leverage=10)
+        ok, reason = validate_directive("spread_payoff", props)
+        self.assertFalse(ok)
+        self.assertIn("leverage", reason)
+
+
 class TestToolSchemas(unittest.TestCase):
     EXPECTED_TOOLS = {
         "get_stock_price",
@@ -142,6 +190,7 @@ class TestToolSchemas(unittest.TestCase):
         "get_macd",
         "get_fundamental_score",
         "get_news_sentiment",
+        "price_vertical_spread",
         "show_component",
     }
 

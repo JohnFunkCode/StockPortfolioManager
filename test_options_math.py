@@ -106,3 +106,39 @@ class TestExpectedMove(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestBsPrice(unittest.TestCase):
+    """bs_price — reference implementation for the frontend spreadMath twin."""
+
+    def test_textbook_call_and_put(self):
+        # Classic fixture: S=100, K=100, T=1y, sigma=20%, r=5%
+        call = om.bs_price(100, 100, 1.0, 0.20, 0.05, "call")
+        put = om.bs_price(100, 100, 1.0, 0.20, 0.05, "put")
+        self.assertAlmostEqual(call, 10.4506, places=3)
+        self.assertAlmostEqual(put, 5.5735, places=3)
+
+    def test_put_call_parity(self):
+        S, K, T, sigma, r = 137.42, 150.0, 0.35, 0.61, 0.045
+        call = om.bs_price(S, K, T, sigma, r, "call")
+        put = om.bs_price(S, K, T, sigma, r, "put")
+        self.assertAlmostEqual(call - put, S - K * math.exp(-r * T), places=6)
+
+    def test_expiry_returns_intrinsic(self):
+        self.assertAlmostEqual(om.bs_price(110, 100, 0.0, 0.3, 0.05, "call"), 10.0)
+        self.assertAlmostEqual(om.bs_price(90, 100, 0.0, 0.3, 0.05, "call"), 0.0)
+        self.assertAlmostEqual(om.bs_price(90, 100, 0.0, 0.3, 0.05, "put"), 10.0)
+
+    def test_zero_vol_returns_intrinsic_floor(self):
+        self.assertGreaterEqual(om.bs_price(120, 100, 0.5, 0.0, 0.05, "call"), 20.0 - 1e-9)
+
+    def test_deep_itm_call_approaches_forward_intrinsic(self):
+        price = om.bs_price(500, 100, 0.25, 0.2, 0.045, "call")
+        self.assertAlmostEqual(price, 500 - 100 * math.exp(-0.045 * 0.25), places=2)
+
+    def test_deep_otm_near_zero(self):
+        self.assertLess(om.bs_price(50, 100, 0.1, 0.2, 0.045, "call"), 1e-6)
+
+    def test_invalid_kind_raises(self):
+        with self.assertRaises(ValueError):
+            om.bs_price(100, 100, 1.0, 0.2, 0.05, "straddle")

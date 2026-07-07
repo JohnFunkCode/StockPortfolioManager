@@ -7,13 +7,25 @@ function Dummy({ ticker }: { ticker: string }) {
   return <div data-testid="dummy">dummy:{ticker}</div>;
 }
 
+function MultiProp(props: { ticker: string; long_strike: number; kind: string }) {
+  return (
+    <div data-testid="multi">
+      {props.ticker}|{props.long_strike}|{props.kind}
+    </div>
+  );
+}
+
 function Bomb(_props: { ticker: string }): React.ReactNode {
   throw new Error('kaboom');
 }
 
 const stubRegistry: Record<string, RegistryEntry> = {
-  signals: { component: Dummy },
-  bomb: { component: Bomb },
+  signals: { component: Dummy, spec: { ticker: 'string' } },
+  bomb: { component: Bomb, spec: { ticker: 'string' } },
+  multi: {
+    component: MultiProp,
+    spec: { ticker: 'string', long_strike: 'number', kind: 'string' },
+  },
 };
 
 afterEach(cleanup);
@@ -28,6 +40,19 @@ describe('DirectiveRenderer', () => {
     );
     // Ticker is normalized to uppercase before reaching the component.
     expect(screen.getByTestId('dummy')).toHaveTextContent('dummy:INTC');
+  });
+
+  it('passes all validated props through (ticker uppercased, numbers intact)', () => {
+    render(
+      <DirectiveRenderer
+        directive={{
+          component: 'multi',
+          props: { ticker: 'intc', long_strike: 140.5, kind: 'call' },
+        }}
+        registry={stubRegistry}
+      />,
+    );
+    expect(screen.getByTestId('multi')).toHaveTextContent('INTC|140.5|call');
   });
 
   it('falls back to an alert with the raw JSON for unknown components', () => {

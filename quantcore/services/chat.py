@@ -28,14 +28,20 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are the QuantCore sidekick — a market-analysis assistant embedded in the
 QuantUI portfolio dashboard. You have data tools for prices, technical signals,
-RSI, MACD, fundamental scores, and news sentiment.
+RSI, MACD, fundamental scores, news sentiment, and vertical option spread
+pricing (price_vertical_spread — real contracts, real bid/ask).
 
 You can also render live UI components inline in the conversation with the
 show_component tool: 'signals' (full technical/options/risk signal panel),
-'live_price' (compact auto-refreshing price chip), and 'price_chart' (price
-history chart with moving averages). After discussing a ticker, prefer showing
-the relevant component so the user sees live data — the component fetches its
-own data; never restate numbers the component will display.
+'live_price' (compact auto-refreshing price chip), 'price_chart' (price
+history chart with moving averages), and 'spread_payoff' (interactive risk
+graph for a vertical spread — expiration payoff plus a value-today curve).
+After pricing a spread with price_vertical_spread, always render it with
+show_component('spread_payoff', {ticker, expiration, long_strike,
+short_strike, kind}) using the exact same parameters. After discussing a
+ticker, prefer showing the relevant component so the user sees live data —
+the component fetches its own data; never restate numbers the component will
+display.
 
 Numbers you state in prose must come from tool results in this conversation,
 never from memory. Be concise; this is a side rail, not a report."""
@@ -159,6 +165,7 @@ class ChatService:
         prices,
         fundamentals,
         sentiment,
+        options,
         model: str = "claude-fable-5",
         effort: str = "medium",
         max_iterations: int = 8,
@@ -167,6 +174,7 @@ class ChatService:
         self._prices = prices
         self._fundamentals = fundamentals
         self._sentiment = sentiment
+        self._options = options
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
@@ -187,6 +195,16 @@ class ChatService:
             ),
             "get_news_sentiment": lambda symbol, days=7: self._sentiment.get_news_sentiment(
                 symbol, days
+            ),
+            "price_vertical_spread": (
+                lambda symbol, expiration, long_strike, short_strike, kind="call":
+                self._options.price_vertical_spread(
+                    symbol,
+                    expiration=expiration,
+                    long_strike=long_strike,
+                    short_strike=short_strike,
+                    kind=kind,
+                )
             ),
         }
 

@@ -50,11 +50,14 @@ export default function DirectiveRenderer({ directive, registry = COMPONENT_REGI
     );
   }
   const Registered = registry[directive.component].component;
-  const ticker = String((directive.props as { ticker: string }).ticker).trim().toUpperCase();
+  const passProps: Record<string, unknown> = { ...directive.props };
+  if (typeof passProps.ticker === 'string') {
+    passProps.ticker = passProps.ticker.trim().toUpperCase();
+  }
   return (
     <DirectiveErrorBoundary>
       <Box data-testid={`directive-${directive.component}`} sx={{ my: 1 }}>
-        <Registered ticker={ticker} />
+        <Registered {...passProps} />
       </Box>
     </DirectiveErrorBoundary>
   );

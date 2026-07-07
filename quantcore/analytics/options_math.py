@@ -102,6 +102,32 @@ def bs_delta(S: float, K: float, T: float, sigma: float,
         return norm_cdf(d1) - 1.0
 
 
+def bs_price(S: float, K: float, T: float, sigma: float, r: float,
+             kind: str = "call") -> float:
+    """
+    Black-Scholes European option price.
+
+    Degenerate inputs (T <= 0, sigma <= 0, non-positive S/K) fall back to
+    (discounted) intrinsic value so expiry payoffs come out exact. This is the
+    reference implementation mirrored by the frontend spreadMath.ts twin used
+    to draw the spread-payoff "value today" curve.
+    """
+    kind = kind.lower()
+    if kind not in ("call", "put"):
+        raise ValueError("kind must be 'call' or 'put'")
+    d1 = bs_d1(S, K, T, sigma, r)
+    if d1 is None:
+        if T <= 0:
+            return max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
+        discounted_k = K * math.exp(-r * max(T, 0.0))
+        return max(S - discounted_k, 0.0) if kind == "call" else max(discounted_k - S, 0.0)
+    d2 = d1 - sigma * math.sqrt(T)
+    call = S * norm_cdf(d1) - K * math.exp(-r * T) * norm_cdf(d2)
+    if kind == "call":
+        return call
+    return call - S + K * math.exp(-r * T)  # put-call parity
+
+
 # ---------------------------------------------------------------------------
 # Full-chain side summary
 # ---------------------------------------------------------------------------

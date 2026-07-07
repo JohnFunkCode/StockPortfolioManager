@@ -66,12 +66,14 @@ class ChatServiceTestBase(unittest.TestCase):
         self.prices = Mock()
         self.fundamentals = Mock()
         self.sentiment = Mock()
+        self.options = Mock()
 
     def make_service(self, client, max_iterations=8):
         return ChatService(
             prices=self.prices,
             fundamentals=self.fundamentals,
             sentiment=self.sentiment,
+            options=self.options,
             max_iterations=max_iterations,
             client_factory=lambda: client,
         )
@@ -164,6 +166,68 @@ class TestToolTurn(ChatServiceTestBase):
         result_block = client.calls[1]["messages"][-1]["content"][0]
         self.assertTrue(result_block.get("is_error"))
         self.assertIn("yahoo down", result_block["content"])
+
+    def test_price_vertical_spread_dispatch(self):
+        self.options.price_vertical_spread.return_value = {"debit": 4.94, "max_profit": 15.06}
+        client = ScriptedClient(
+            [
+                {
+                    "final": final(
+                        "tool_use",
+                        tool_use(
+                            "tu_1",
+                            "price_vertical_spread",
+                            {
+                                "symbol": "INTC",
+                                "expiration": "2026-08-21",
+                                "long_strike": 140,
+                                "short_strike": 160,
+                                "kind": "call",
+                            },
+                        ),
+                    )
+                },
+                {"final": final("end_turn", text_block("Priced."))},
+            ]
+        )
+        events = self.run_chat(client)
+        statuses = [e for e in events if isinstance(e, ToolStatus)]
+        self.assertEqual([s.state for s in statuses], ["running", "done"])
+        self.options.price_vertical_spread.assert_called_once_with(
+            "INTC",
+            expiration="2026-08-21",
+            long_strike=140,
+            short_strike=160,
+            kind="call",
+        )
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertIn("4.94", result_block["content"])
+
+    def test_spread_payoff_directive_passes_numeric_props(self):
+        props = {
+            "ticker": "INTC",
+            "expiration": "2026-08-21",
+            "long_strike": 140,
+            "short_strike": 160.0,
+            "kind": "call",
+        }
+        client = ScriptedClient(
+            [
+                {
+                    "final": final(
+                        "tool_use",
+                        tool_use("tu_1", "show_component",
+                                 {"component": "spread_payoff", "props": dict(props)}),
+                    )
+                },
+                {"final": final("end_turn", text_block("Rendered."))},
+            ]
+        )
+        events = self.run_chat(client)
+        directives = [e for e in events if isinstance(e, Directive)]
+        self.assertEqual(len(directives), 1)
+        self.assertEqual(directives[0].component, "spread_payoff")
+        self.assertEqual(directives[0].props, props)
 
     def test_nan_in_tool_result_sanitized_to_null(self):
         self.prices.get_rsi.return_value = {
@@ -272,6 +336,7 @@ class TestFakeChatClient(unittest.TestCase):
             prices=Mock(),
             fundamentals=Mock(),
             sentiment=Mock(),
+            options=Mock(),
             client_factory=FakeChatClient,
         )
         events = list(

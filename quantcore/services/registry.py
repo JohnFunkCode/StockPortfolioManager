@@ -120,6 +120,7 @@ def get_services() -> Services:
         prices=prices,
         fundamentals=fundamentals,
         sentiment=sentiment,
+        options=options,
         model=os.environ.get("CHAT_MODEL", "claude-fable-5"),
         effort=os.environ.get("CHAT_EFFORT", "medium"),
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),

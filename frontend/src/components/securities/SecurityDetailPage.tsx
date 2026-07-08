@@ -1221,13 +1221,6 @@ export default function SecurityDetailPage() {
 
         return (
           <Stack spacing={2}>
-            {/* Which security this analysis belongs to */}
-            <Typography variant="h6" data-testid="options-analytics-title" sx={{ fontWeight: 700 }}>
-              {ticker}
-              {security?.name && security.name !== ticker ? ` — ${security.name}` : ''}
-              {' · Options Analysis'}
-            </Typography>
-
             {/* IV Rank / IV Percentile panel */}
             {ivRankData && ivRankData.current_iv != null && (
               <Paper sx={{ p: 2 }}>

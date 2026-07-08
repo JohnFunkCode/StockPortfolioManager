@@ -18,14 +18,20 @@ export interface RegistryEntry {
   component: ComponentType<any>;
   /** Required props and their kinds — extras are strictly rejected. */
   spec: Record<string, PropKind>;
+  /**
+   * Render a "TICKER — Name" header above the component in chat. Panels that
+   * carry no symbol of their own need this so multi-ticker conversations stay
+   * unambiguous; components with built-in titles (spread_payoff) skip it.
+   */
+  titled?: boolean;
 }
 
 const TICKER_ONLY: Record<string, PropKind> = { ticker: 'string' };
 
 export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
-  signals: { component: SignalsTab, spec: TICKER_ONLY },
+  signals: { component: SignalsTab, spec: TICKER_ONLY, titled: true },
   live_price: { component: LivePrice, spec: TICKER_ONLY },
-  price_chart: { component: PriceChartCard, spec: TICKER_ONLY },
+  price_chart: { component: PriceChartCard, spec: TICKER_ONLY, titled: true },
   spread_payoff: {
     component: SpreadPayoffCard,
     spec: {

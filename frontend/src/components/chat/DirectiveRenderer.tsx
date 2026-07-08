@@ -5,7 +5,8 @@
  * one bad chart can't take down the conversation.
  */
 import { Component, type ReactNode } from 'react';
-import { Alert, Box } from '@mui/material';
+import { Alert, Box, Typography } from '@mui/material';
+import { useSecurities } from '../../hooks/useSecurities';
 import {
   COMPONENT_REGISTRY,
   validateDirective,
@@ -32,6 +33,18 @@ class DirectiveErrorBoundary extends Component<{ children: ReactNode }, { failed
   }
 }
 
+/** "TICKER — Name" header so multi-ticker chats stay unambiguous. */
+function DirectiveTitle({ ticker }: { ticker: string }) {
+  const { data } = useSecurities();
+  const name = data?.securities.find((s) => s.symbol === ticker)?.name;
+  return (
+    <Typography variant="subtitle2" data-testid="directive-title" sx={{ fontWeight: 700, mb: 0.5 }}>
+      {ticker}
+      {name && name !== ticker ? ` — ${name}` : ''}
+    </Typography>
+  );
+}
+
 interface Props {
   directive: ChatDirective;
   registry?: Record<string, RegistryEntry>;
@@ -49,7 +62,8 @@ export default function DirectiveRenderer({ directive, registry = COMPONENT_REGI
       </Alert>
     );
   }
-  const Registered = registry[directive.component].component;
+  const entry = registry[directive.component];
+  const Registered = entry.component;
   const passProps: Record<string, unknown> = { ...directive.props };
   if (typeof passProps.ticker === 'string') {
     passProps.ticker = passProps.ticker.trim().toUpperCase();
@@ -57,6 +71,9 @@ export default function DirectiveRenderer({ directive, registry = COMPONENT_REGI
   return (
     <DirectiveErrorBoundary>
       <Box data-testid={`directive-${directive.component}`} sx={{ my: 1 }}>
+        {entry.titled && typeof passProps.ticker === 'string' && (
+          <DirectiveTitle ticker={passProps.ticker} />
+        )}
         <Registered {...passProps} />
       </Box>
     </DirectiveErrorBoundary>

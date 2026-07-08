@@ -131,6 +131,14 @@ describe('ChatRail', () => {
     expect(screen.getByTestId('chat-input')).toBeInTheDocument();
   });
 
+  it('scrolls the conversation bottom into view when a prompt is submitted', async () => {
+    const scrollSpy = vi.fn();
+    window.HTMLElement.prototype.scrollIntoView = scrollSpy;
+    renderRail();
+    await sendPrompt('scroll me down');
+    await waitFor(() => expect(scrollSpy).toHaveBeenCalled());
+  });
+
   it('expand toggle flips data-expanded and persists the preference', async () => {
     renderRail();
     const rail = () => screen.getByTestId('chat-rail');

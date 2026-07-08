@@ -88,6 +88,7 @@ export default function ChatRail() {
     useChat();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   // In fullscreen, give directive components (charts, signal panels) most of
   // the width while keeping comfortable side gutters.
   const centered = expanded ? { maxWidth: '80%', mx: 'auto', width: '100%' } : {};
@@ -104,6 +105,11 @@ export default function ChatRail() {
     if (!text || isStreaming) return;
     setDraft('');
     void sendMessage(text);
+    // Scroll every scrollable ancestor (message list AND the page itself) to
+    // the conversation bottom after the new message renders.
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+    });
   };
 
   return (
@@ -149,6 +155,7 @@ export default function ChatRail() {
         {messages.map((message, i) => (
           <MessageView key={i} message={message} />
         ))}
+        <div ref={bottomRef} data-testid="chat-bottom-sentinel" />
       </Box>
 
       {error && (

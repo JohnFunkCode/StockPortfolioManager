@@ -90,7 +90,7 @@ export default function ChatRail() {
   const scrollRef = useRef<HTMLDivElement>(null);
   // In fullscreen, give directive components (charts, signal panels) most of
   // the width while keeping comfortable side gutters.
-  const centered = expanded ? { maxWidth: '85%', mx: 'auto', width: '100%' } : {};
+  const centered = expanded ? { maxWidth: '80%', mx: 'auto', width: '100%' } : {};
 
   useEffect(() => {
     const el = scrollRef.current;

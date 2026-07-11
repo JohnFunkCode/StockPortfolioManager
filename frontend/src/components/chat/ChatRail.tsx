@@ -54,6 +54,9 @@ function SegmentView({ segment }: { segment: Segment }) {
 
 function MessageView({ message }: { message: ChatMessage }) {
   const isUser = message.role === 'user';
+  // Bubbles shrink to fit text, but rendered components (charts, panels)
+  // should span the rail — go full width once a directive is present.
+  const hasDirective = message.segments.some((s) => s.type === 'directive');
   return (
     <Box
       data-testid={`chat-message-${message.role}`}
@@ -61,10 +64,12 @@ function MessageView({ message }: { message: ChatMessage }) {
     >
       <Paper
         elevation={0}
+        data-fullwidth={hasDirective ? 'true' : undefined}
         sx={{
           px: 1.5,
           py: 1,
           maxWidth: '95%',
+          width: hasDirective ? '95%' : 'auto',
           bgcolor: isUser ? 'primary.dark' : 'background.paper',
           border: 1,
           borderColor: 'divider',

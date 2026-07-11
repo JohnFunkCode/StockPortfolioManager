@@ -84,6 +84,18 @@ describe('ChatRail', () => {
     finishStream();
   });
 
+  it('marks directive-bearing bubbles full width so charts can fill the rail', async () => {
+    renderRail();
+    await sendPrompt('Show INTC signals');
+    emit({ type: 'text', delta: 'plain text only' });
+    const assistant = () => screen.getByTestId('chat-message-assistant');
+    expect(assistant().querySelector('[data-fullwidth="true"]')).toBeNull();
+    emit({ type: 'directive', directive: { component: 'signals', props: { ticker: 'INTC' } } });
+    expect(assistant().querySelector('[data-fullwidth="true"]')).not.toBeNull();
+    emit({ type: 'done', stop_reason: 'end_turn' });
+    finishStream();
+  });
+
   it('shows a tool activity chip while running and marks it done', async () => {
     renderRail();
     await sendPrompt('RSI on AMD?');

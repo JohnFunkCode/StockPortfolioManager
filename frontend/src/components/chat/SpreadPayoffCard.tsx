@@ -4,7 +4,7 @@
  * "value today" P/L. Tradable numbers come from the backend pricing response;
  * curves are rendering-side math (see chat/spreadMath.ts).
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Alert, Box, Chip, CircularProgress, Stack, Typography } from '@mui/material';
 import { useVerticalSpread } from '../../hooks/useSecurities';
@@ -45,13 +45,29 @@ export default function SpreadPayoffCard({
   const { data: priceData } = usePricePolling(ticker);
   const spot = priceData?.price ?? 0;
   const svgRef = useRef<SVGSVGElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  // Track the container's real width (bubble sizing settles after first
+  // paint, and expand/collapse changes it) so the chart always fills it.
+  useEffect(() => {
+    const parent = svgRef.current?.parentElement;
+    if (!parent) return;
+    setContainerWidth(parent.clientWidth);
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver((entries) => {
+      const w = Math.floor(entries[0]?.contentRect.width ?? 0);
+      if (w > 0) setContainerWidth(w);
+    });
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, [data]);
 
   useEffect(() => {
     if (!svgRef.current || !data?.legs) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
-    const width = svgRef.current.parentElement?.clientWidth ?? 360;
+    const width = containerWidth || svgRef.current.parentElement?.clientWidth || 360;
     svg.attr('width', width).attr('height', HEIGHT);
 
     const debit = data.mid_debit || data.debit;
@@ -168,7 +184,7 @@ export default function SpreadPayoffCard({
     marker(data.legs.short.strike, '#f59e0b', `S ${data.legs.short.strike}`);
     marker(data.breakeven, '#a78bfa', `BE ${data.breakeven}`);
     if (spot > 0) marker(spot, '#ff2d78', `spot ${spot.toFixed(2)}`, '1,0');
-  }, [data, spot, expiration]);
+  }, [data, spot, expiration, containerWidth]);
 
   if (isLoading) {
     return (

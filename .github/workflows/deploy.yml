@@ -28,6 +28,15 @@ on:
     branches: [main]
   pull_request:
 
+# Serialize deploys per ref so back-to-back merges to main don't race on the same
+# Cloud Run services (concurrent `gcloud run deploy` on one service ABORTs with an
+# optimistic-lock "version was specified but current version is …" conflict). A new
+# run waits for the in-flight one to finish rather than cancelling it mid-rollout.
+# Keyed by ref, so PR gate runs (distinct refs) still run in parallel with main.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   PROJECT_ID: quantcore-test-20260606
   REGION: us-central1

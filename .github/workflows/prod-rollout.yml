@@ -44,6 +44,13 @@ on:
   release:
     types: [published]
 
+# Serialize prod rollouts so two dispatches/releases can't race on the same Cloud Run
+# services (concurrent `gcloud run deploy` ABORTs with an optimistic-lock conflict).
+# A new run waits for the in-flight one rather than cancelling a mid-rollout deploy.
+concurrency:
+  group: prod-rollout
+  cancel-in-progress: false
+
 env:
   TEST_PROJECT: quantcore-test-20260606
   PROD_PROJECT: quantcore-prod-20260606

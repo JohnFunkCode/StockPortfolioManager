@@ -55,6 +55,7 @@ def create_app() -> FastAPI:
 
     # Route groups are registered incrementally across Phase 2 steps.
     from .routers import (
+        chat,
         dashboard,
         fundamentals,
         microstructure,
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
         sentiment,
         microstructure,
         recommendations,
+        chat,
     ):
         app.include_router(module.router, dependencies=[protected])
 

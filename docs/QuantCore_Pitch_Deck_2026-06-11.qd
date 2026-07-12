@@ -1,0 +1,121 @@
+.docname {QuantCore Pitch Deck}
+.doctype {slides}
+.theme {darko} layout:{minimal}
+.autopagebreak maxdepth:{2}
+
+# QuantCore
+
+**Make Every Investment Decision With Institutional-Grade Intelligence**
+
+One platform that answers the four questions that matter:
+*What should I trade? When do I get in? When do I get out? How much do I risk?*
+
+|  |  |
+|---|---|
+| **Every signal that moves a stock** — in one place | **An AI analyst** that works the full process on demand |
+| **Disciplined, rule-driven exits** — no emotion | **Proven live**: +112% on the most recent closed trade |
+
+*June 2026*
+
+## The Problem
+
+Most investors lose to process, not to markets.
+
+- Market information is **scattered** — price action, options activity, company quality, and news each tell a different story in a different app
+- The synthesis institutions pay six figures for — *who is really buying, where the mechanical price magnets sit* — is invisible to individuals
+- Entries are researched for hours; **exits are improvised in seconds**
+- Emotion fills every gap that process leaves open
+
+**The cost isn't bad picks — it's giving back gains through undisciplined exits, oversized positions, and chased entries.**
+
+## What QuantCore Does
+
+Five capabilities, one workflow.
+
+```
+ DISCOVER         DECIDE          ENTER           MANAGE          EXIT
+    │               │               │                │              │
+ Screen the     One verdict     Timing signals   Daily checkups  Pre-planned
+ whole market   per stock:      + position size  on every        profit ladders
+ by quality,    buy / skip /    from a fixed     holding, with   + bail triggers
+ momentum,      watch — with    risk budget      alerts when     that fire
+ smart money    reasons         (never bet       anything        automatically
+                                the farm)        changes
+```
+
+- **Discover** — rank any list of companies by financial quality, growth, momentum
+- **Decide** — a single recommendation that weighs *everything*, reasoning shown
+- **Enter** — entry, target, and stop priced before a dollar moves
+- **Manage** — every position re-checked daily; alerts arrive instead of being sought
+- **Exit** — profit ladders and bail triggers defined at entry, executed without hesitation
+
+## The Decision Engine
+
+Every stock gets one honest verdict.
+
+The engine weighs **19 independent signals** — trend, real buying pressure, company quality, institutional options activity, momentum, fear gauges, news tone — and produces:
+
+| Output | What it means for the investor |
+|---|---|
+| **Verdict** | Buy stock, buy options, skip, or watch — structure chosen for conditions |
+| **Confidence** | How strongly the evidence agrees — sizing follows confidence |
+| **Entry / target / stop** | The full trade, priced before commitment |
+| **Position size** | Calculated from a fixed 2% risk budget per trade |
+| **The reasoning** | Every driver and warning listed — auditable, not a black box |
+
+**"Skip" and "watch" are first-class answers.** The engine prevents more losses by refusing ambiguous setups than it earns by finding good ones.
+
+## An Edge Most Individuals Never See
+
+Reading the market's plumbing.
+
+- **Where market makers must buy or sell** — hedging mechanics create predictable support and resistance, mapped daily
+- **What institutions are actually doing** — aggressive options buying detected and scored for conviction
+- **Whether real money agrees with the price** — volume-flow analysis reveals quiet accumulation before the chart shows it
+- **When fear is tradeable** — capitulation gauges flag bounce candidates, with confirmation rules against falling knives
+
+### This is the layer that turned WMT into +112%
+
+The engine spotted that a rally would stall at a mechanical resistance level — **the day before it happened**. Profits were taken into strength; the fade came on schedule.
+
+## Disciplined Exits, Automated
+
+The exit is designed at entry — then it runs itself.
+
+**Profit-taking ladders.** Sell targets calibrated to *each stock's own volatility* — not arbitrary round numbers. As price climbs each rung, an alert fires with the exact shares to sell.
+
+**Bail triggers.** Every position carries a pre-stated invalidation level requiring multi-signal confirmation — one bad tick doesn't shake the position; a broken thesis does.
+
+**Always-on monitoring.** Daily, automatically: portfolio health report, trend-violation and below-cost alerts, ladder-rung notifications — delivered to Discord. The system finds *you*.
+
+> **Result in practice:** selling 60% of a winning options position into strength — then exiting on the bail trigger — turned a +34% buy-and-hold outcome into **+112%**.
+
+## An AI Analyst On Staff
+
+The entire platform is operable by AI, conversationally.
+
+- *"Run a full analysis on NVDA"* → complete multi-signal workup with verdict, levels, and caveats — in about a minute
+- *"Find me construction companies worth buying"* → screened, ranked, added to the watchlist
+- *"How is my WMT spread doing?"* → live position mark, updated odds, concrete recommendation
+- Every analysis archived as a dated report — building an institutional memory
+
+**And the system learns.** Each closed trade is reviewed: which signals predicted, which misled. The playbook updates. The next decision starts smarter.
+
+## Proven In Live Use
+
+Real money, real exits, real calibration.
+
+| Trade | What the platform contributed | Outcome |
+|---|---|---|
+| **WMT** options spread | Called the rally cap; timed partial exit + bail | **+112%** in 5 days |
+| **IMSR** bounce entry | Confirmed real buying before entry | **+21%** in 4 sessions |
+| **MRVL** at $301 | "Watch, don't trade" — refused the chase | Avoided the -8% fade |
+| **TSLA** at $348 | "Do not buy" — distribution detected | Saved a bad entry |
+
+### What's next
+
+1. **Richer dashboards** — decision engine and quality scores, visual
+2. **Deeper history** — trend-tracking on institutional positioning
+3. **More automation** — scheduled AI deep-dives delivered before market open
+
+**QuantCore: one investor's edge, compounding.**

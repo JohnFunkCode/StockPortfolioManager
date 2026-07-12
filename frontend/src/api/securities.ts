@@ -35,7 +35,42 @@ export type {
   SymbolLookupResponse,
 };
 
+export interface SpreadLeg {
+  strike: number;
+  mid: number;
+  iv: number;
+  bid?: number;
+  ask?: number;
+}
+
+export interface VerticalSpreadResponse {
+  symbol: string;
+  expiration: string;
+  kind: string;
+  debit: number;
+  mid_debit: number;
+  max_profit: number;
+  max_loss: number;
+  breakeven: number;
+  risk_reward: number | null;
+  warnings?: string[];
+  legs: { long: SpreadLeg; short: SpreadLeg };
+}
+
+export interface VerticalSpreadRequestBody {
+  expiration: string;
+  long_strike: number;
+  short_strike: number;
+  kind: string;
+}
+
 export const securitiesApi = {
+  priceVerticalSpread: (ticker: string, body: VerticalSpreadRequestBody) =>
+    apiRequest<VerticalSpreadResponse>(
+      `/api/securities/${ticker}/options/vertical-spread`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
   getAll: (source?: 'portfolio' | 'watchlist') => {
     const endpoint = source === 'portfolio'
       ? '/api/portfolio'

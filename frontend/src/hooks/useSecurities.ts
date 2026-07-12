@@ -184,3 +184,25 @@ export function useSymbolLookup(symbol: string) {
     retry: false,
   });
 }
+
+export function useVerticalSpread(
+  ticker: string,
+  expiration: string,
+  longStrike: number,
+  shortStrike: number,
+  kind: string,
+) {
+  return useQuery({
+    queryKey: ['vertical-spread', ticker, expiration, longStrike, shortStrike, kind],
+    queryFn: () =>
+      securitiesApi.priceVerticalSpread(ticker, {
+        expiration,
+        long_strike: longStrike,
+        short_strike: shortStrike,
+        kind,
+      }),
+    enabled: !!ticker && !!expiration && longStrike > 0 && shortStrike > 0,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+}

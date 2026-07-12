@@ -13,6 +13,7 @@ Service fields are added step by step during the Phase 1 migration
 repositories directly.
 """
 
+import os
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -27,6 +28,7 @@ from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.services.fundamentals import FundamentalsService
+from quantcore.services.chat import ChatService
 from quantcore.services.harvester import HarvesterService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
@@ -61,6 +63,7 @@ class Services:
     harvester: HarvesterService
     portfolio: PortfolioService
     recommendations: RecommendationsService
+    chat: ChatService
 
 
 @lru_cache(maxsize=1)
@@ -104,6 +107,25 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         yfinance_gateway=yfinance_gateway,
     )
+    # CHAT_FAKE=1 swaps the Anthropic client for the deterministic scripted
+    # FakeChatClient (keyless route tests + Playwright E2E). The real client
+    # lazy-imports the anthropic SDK on first use, never at registry import.
+    if os.environ.get("CHAT_FAKE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        from quantcore.services.chat_fake import FakeChatClient
+
+        chat_client_factory = FakeChatClient
+    else:
+        chat_client_factory = None
+    chat = ChatService(
+        prices=prices,
+        fundamentals=fundamentals,
+        sentiment=sentiment,
+        options=options,
+        model=os.environ.get("CHAT_MODEL", "claude-fable-5"),
+        effort=os.environ.get("CHAT_EFFORT", "medium"),
+        max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
+        client_factory=chat_client_factory,
+    )
     return Services(
         yfinance_gateway=yfinance_gateway,
         polygon_gateway=polygon_gateway,
@@ -135,4 +157,5 @@ def get_services() -> Services:
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
         ),
+        chat=chat,
     )

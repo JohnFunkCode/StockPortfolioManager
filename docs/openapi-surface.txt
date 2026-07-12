@@ -69,6 +69,7 @@ GET    /api/symbols  ->  list_symbols_api_symbols_get
 GET    /api/symbols/{ticker}/price  ->  get_symbol_price_api_symbols__ticker__price_get
 GET    /api/watchlist  ->  get_watchlist_api_watchlist_get
 PATCH  /api/plans/{instance_id}  ->  update_plan_api_plans__instance_id__patch
+POST   /api/chat  ->  chat_api_chat_post
 POST   /api/plans  ->  create_plan_api_plans_post
 POST   /api/portfolio  ->  add_to_portfolio_api_portfolio_post
 POST   /api/portfolio/import  ->  import_portfolio_api_portfolio_import_post

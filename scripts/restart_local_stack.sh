@@ -45,6 +45,9 @@ pkill -f "uvicorn api.main:app" 2>/dev/null
 sleep 2
 source .venv/bin/activate
 KEY="$(grep '^ANTHROPIC_API_KEY=' .env | cut -d= -f2- || true)"
+# .env may quote the value (ANTHROPIC_API_KEY="sk-ant-..."); strip surrounding
+# quotes so they don't end up INSIDE the key and cause a 401 invalid x-api-key.
+KEY="${KEY%\"}"; KEY="${KEY#\"}"; KEY="${KEY%\'}"; KEY="${KEY#\'}"
 ANTHROPIC_API_KEY="$KEY" nohup uvicorn api.main:app --host 127.0.0.1 --port 5001 \
     > "$REPO/api.log" 2>&1 &
 echo "  API starting (slow first boot is normal)..."

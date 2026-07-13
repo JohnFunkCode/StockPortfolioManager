@@ -4,14 +4,102 @@ Architectural standard v2 §5.1: services never import yfinance directly; they
 receive this gateway via constructor injection. Methods are added as services
 migrate (Phase 1 Steps 1-8). The legacy portfolio/yfinance_gateway.py used by
 main.py's report path is separate and consolidates here in Phase 2.
+
+This module is the ONLY yf.download call site in the codebase (issue #74/#75):
+yf.download passes results through module-global state and is not thread-safe
+— concurrent calls can hand one ticker's bars to another (the July 2026 OHLCV
+corruption). Every download is serialized on _YF_DOWNLOAD_LOCK, enforced by
+test_architecture_guards.py.
 """
 
 import concurrent.futures
+import datetime
+import logging
+import threading
 
+import pandas as pd
 import yfinance as yf
+
+logger = logging.getLogger(__name__)
+
+_YF_DOWNLOAD_LOCK = threading.Lock()
+
+# Hard cap on a single fetch window (Yahoo practicality + payload sanity).
+_MAX_FETCH_DAYS = 730
+
+_OHLCV_COLS = ["Open", "High", "Low", "Close", "Volume"]
+_FIELD_NAMES = {"Open", "High", "Low", "Close", "Volume", "Adj Close",
+                "Dividends", "Stock Splits"}
+
+
+def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """yf.download returns MultiIndex columns in newer versions; flatten to
+    field names whichever level holds them."""
+    if isinstance(df.columns, pd.MultiIndex):
+        if df.columns.get_level_values(0)[0] in _FIELD_NAMES:
+            df.columns = df.columns.get_level_values(0)
+        else:
+            df.columns = df.columns.get_level_values(1)
+    return df
 
 
 class YFinanceGateway:
+    def fetch_history(
+        self,
+        symbol: str,
+        interval: str,
+        days: int,
+        auto_adjust: bool = True,
+        include_adj_close: bool = False,
+    ) -> pd.DataFrame:
+        """Single-symbol OHLCV download — the canonical history fetch seam.
+
+        Returns a DataFrame with Open/High/Low/Close/Volume (plus Adj Close
+        when requested and available), NaN-Close rows dropped; empty standard
+        frame when Yahoo returns nothing. Window capped at _MAX_FETCH_DAYS.
+        """
+        fetch_days = min(days, _MAX_FETCH_DAYS)
+        end = datetime.datetime.utcnow()
+        start = end - datetime.timedelta(days=fetch_days)
+        with _YF_DOWNLOAD_LOCK:
+            df = yf.download(
+                symbol,
+                start=start.strftime("%Y-%m-%d"),
+                end=end.strftime("%Y-%m-%d"),
+                interval=interval,
+                auto_adjust=auto_adjust,
+                progress=False,
+            )
+        if df is None or df.empty:
+            logger.warning("yfinance returned no data for %s/%s", symbol, interval)
+            return pd.DataFrame(columns=_OHLCV_COLS)
+        df = _flatten_columns(df)
+        if not set(_OHLCV_COLS).issubset(set(df.columns)):
+            logger.warning(
+                "yfinance columns unexpected for %s/%s: %s",
+                symbol, interval, list(df.columns),
+            )
+            return pd.DataFrame(columns=_OHLCV_COLS)
+        cols = list(_OHLCV_COLS)
+        if include_adj_close and "Adj Close" in df.columns:
+            cols.append("Adj Close")
+        return df[cols].dropna(subset=["Close"])
+
+    def close_thread_caches(self) -> None:
+        """Close yfinance's per-thread peewee cache DB connections.
+
+        yfinance opens one sqlite connection per thread (tkr-tz.db,
+        cookies.db) that is never closed; long-running batch work leaks file
+        descriptors without this. Safe no-op if yfinance internals change.
+        """
+        try:
+            from yfinance.cache import _CookieDBManager, _TzDBManager
+
+            _TzDBManager.close_db()
+            _CookieDBManager.close_db()
+        except Exception:  # noqa: BLE001 — provider internals, best-effort
+            pass
+
     def ticker_info(self, symbol: str, timeout: float = 15.0) -> dict:
         """Fetch ticker.info with a hard timeout to prevent callers from hanging.
 
@@ -86,8 +174,10 @@ class YFinanceGateway:
         """Bulk multi-ticker OHLCV download via yf.download() (progress suppressed).
 
         Used by relative-strength scoring, which fetches a symbol and its
-        benchmarks (SPY/QQQ/sector ETF) in a single call.
+        benchmarks (SPY/QQQ/sector ETF) in a single call. Serialized on the
+        same lock as fetch_history — yf.download is never thread-safe.
         """
-        return yf.download(
-            tickers, period=period, auto_adjust=auto_adjust, progress=False
-        )
+        with _YF_DOWNLOAD_LOCK:
+            return yf.download(
+                tickers, period=period, auto_adjust=auto_adjust, progress=False
+            )

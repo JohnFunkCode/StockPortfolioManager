@@ -22,7 +22,6 @@ from typing import Any, Dict, List, Optional
 from time import time
 
 import pandas as pd
-import yfinance as yf
 from dotenv import load_dotenv
 
 # Import the plan builder from HarvesterExperiment.py (kept as the pure planner).
@@ -200,44 +199,17 @@ WHERE status = 'SUPERSEDED';
 # Data ingestion (OHLCV + adj_close)
 # -----------------------------
 
-def fetch_daily_history_ohlcv(symbol: str, days: int = 400) -> pd.DataFrame:
+def normalize_daily_bars(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Fetch daily bars with yfinance: Open/High/Low/Close/Adj Close/Volume.
-
-    Notes:
-    - yfinance changed the default for auto_adjust; we set auto_adjust=False to reliably
-      receive an 'Adj Close' column.
-    - If 'Adj Close' is still unavailable for a symbol, we fall back to using 'Close'.
+    Normalize gateway-fetched daily bars for persistence: ensure Adj Close
+    (falling back to Close), require the standard column set, and reshape the
+    index into a bar_date string column. Pure — fetching happens in
+    YFinanceGateway, orchestrated by HarvesterService (issue #74).
     """
-    df = yf.download(
-        symbol,
-        period=f"{days}d",
-        interval="1d",
-        progress=False,
-        auto_adjust=False,
-    )
     if df is None or df.empty:
         return pd.DataFrame()
+    df = df.copy()
 
-    # Normalize MultiIndex (can happen for some yfinance outputs)
-    if isinstance(df.columns, pd.MultiIndex):
-        # Try common layouts. Prefer selecting the requested symbol if present.
-        lvl0 = df.columns.get_level_values(0)
-        lvl1 = df.columns.get_level_values(1)
-
-        if symbol in lvl0:
-            # symbol-first layout: (SYMBOL, Field)
-            df = df.xs(symbol, axis=1, level=0, drop_level=True)
-        elif symbol in lvl1:
-            # field-first layout: (Field, SYMBOL)
-            df = df.xs(symbol, axis=1, level=1, drop_level=True)
-        else:
-            # Fallback: take the first column block
-            df = df.droplevel(0, axis=1)
-
-    # Ensure we have the needed columns.
-    # With auto_adjust=False, yfinance typically provides: Open, High, Low, Close, Adj Close, Volume
-    # But some tickers/markets may omit Adj Close; if so, use Close.
     if "Adj Close" not in df.columns and "Close" in df.columns:
         df["Adj Close"] = df["Close"]
 
@@ -287,7 +259,7 @@ class HarvesterPlanDB:
     # Public API methods
     # -------------------------
 
-    def build_plan(self, symbol: str, template_name: str, params: PlanBuildParams) -> Dict[str, Any]:
+    def build_plan(self, symbol: str, template_name: str, params: PlanBuildParams, bars: pd.DataFrame = None) -> Dict[str, Any]:
         """
         Build a forward plan for `symbol` using the existing planner from HarvesterExperiment.py,
         persist it to SQLite, and return a summary.
@@ -313,10 +285,11 @@ class HarvesterPlanDB:
                 raise RuntimeError(f"Failed to resolve symbol_id for {symbol}")
             symbol_id = int(row["symbol_id"])
 
-        # 2) Fetch bars and upsert into ohlcv table
-        bars = fetch_daily_history_ohlcv(symbol, days=max(params.history_window_days + 60, 420))
+        # 2) Normalize caller-supplied bars and upsert into ohlcv table
+        # (HarvesterService fetches via YFinanceGateway — issue #74).
+        bars = normalize_daily_bars(bars)
         if bars.empty:
-            raise RuntimeError(f"No price history returned for {symbol}")
+            raise RuntimeError(f"No price history supplied for {symbol}")
 
         with closing(get_connection()) as conn:
             try:
@@ -571,7 +544,7 @@ class HarvesterPlanDB:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
-    def symbols_at_harvest_points(self) -> List[Dict[str, Any]]:
+    def symbols_at_harvest_points(self, price_lookup=None) -> List[Dict[str, Any]]:
         """
         Poll current prices and return a list of:
           { "symbol": <ticker>, "shares_to_sell": <int> }
@@ -603,8 +576,8 @@ class HarvesterPlanDB:
             shares_to_sell = int(next_rung["shares_sold_planned"])
             rung_id = int(next_rung["rung_id"])
 
-            # Poll current price (use last close)
-            current_price = self._poll_latest_close(ticker)
+            # Poll current price (last close), supplied by the service layer
+            current_price = price_lookup(ticker) if price_lookup else None
             if current_price is None:
                 continue
 
@@ -895,26 +868,6 @@ class HarvesterPlanDB:
     # -------------------------
     # Internal helpers
     # -------------------------
-
-    def _poll_latest_close(self, ticker: str) -> Optional[float]:
-        try:
-            df = yf.download(ticker, period="5d", interval="1d", progress=False)
-            if df is None or df.empty:
-                return None
-            # Handle MultiIndex similarly
-            if isinstance(df.columns, pd.MultiIndex):
-                if "Close" in df.columns.get_level_values(0):
-                    if ticker in df.columns.get_level_values(1):
-                        df = df.xs(ticker, axis=1, level=1, drop_level=True)
-                else:
-                    df = df.xs(ticker, axis=1, level=0, drop_level=True)
-
-            if "Close" not in df.columns:
-                return None
-            close = df["Close"].dropna().iloc[-1]
-            return float(close)
-        except Exception:
-            return None
 
     def _ensure_next_rung_alert(self, instance_id: int) -> None:
         """

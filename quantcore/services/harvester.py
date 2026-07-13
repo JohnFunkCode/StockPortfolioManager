@@ -33,8 +33,11 @@ from quantcore.repositories.harvester_repository import (
 
 
 class HarvesterService:
-    def __init__(self, harvester_repository: HarvesterPlanDB) -> None:
+    def __init__(self, harvester_repository: HarvesterPlanDB, yfinance_gateway=None) -> None:
         self._repo = harvester_repository
+        # Price fetching goes through the gateway (single fetch seam, #74);
+        # the repository only persists and queries.
+        self._yf = yfinance_gateway
 
     # ------------------------------------------------------------------
     # Plan CRUD / queries (passthrough to the repository)
@@ -45,7 +48,17 @@ class HarvesterService:
         template_name: str,
         params: PlanBuildParams,
     ) -> Dict[str, Any]:
-        return self._repo.build_plan(symbol=symbol, template_name=template_name, params=params)
+        symbol = symbol.upper().strip()
+        days = max(params.history_window_days + 60, 420)
+        bars = self._yf.fetch_history(
+            symbol, "1d", days, auto_adjust=False, include_adj_close=True
+        )
+        if not bars.empty and "Adj Close" not in bars.columns:
+            bars = bars.copy()
+            bars["Adj Close"] = bars["Close"]
+        return self._repo.build_plan(
+            symbol=symbol, template_name=template_name, params=params, bars=bars
+        )
 
     def display_all_plans(self, status: str = "ACTIVE") -> List[Dict[str, Any]]:
         return self._repo.display_all_plans(status=status)
@@ -88,10 +101,20 @@ class HarvesterService:
         return self._repo.get_dashboard_stats()
 
     def poll_latest_close(self, ticker: str) -> Optional[float]:
-        return self._repo._poll_latest_close(ticker)
+        return self._latest_close(ticker)
+
+    def _latest_close(self, ticker: str) -> Optional[float]:
+        try:
+            df = self._yf.fetch_history(ticker, "1d", 7)
+            if df is None or df.empty:
+                return None
+            closes = df["Close"].dropna()
+            return float(closes.iloc[-1]) if len(closes) else None
+        except Exception:
+            return None
 
     def symbols_at_harvest_points(self) -> List[Dict[str, Any]]:
-        return self._repo.symbols_at_harvest_points()
+        return self._repo.symbols_at_harvest_points(price_lookup=self._latest_close)
 
     # ------------------------------------------------------------------
     # Notifier integration (per-symbol hit checks)
@@ -163,7 +186,7 @@ class HarvesterService:
             rung_id = int(rung["rung_id"])
             shares_to_sell = int(rung["shares_sold_planned"])
 
-            current_price = self._repo._poll_latest_close(ticker)
+            current_price = self._latest_close(ticker)
             if current_price is None or current_price < target_price:
                 continue
 

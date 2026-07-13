@@ -22,7 +22,7 @@ for _path in (ROOT, FAST_MCP_DIR):
         sys.path.insert(0, str(_path))
 
 from quantcore.services.registry import get_services  # noqa: E402
-from quantcore.repositories.ohlcv_repository import get_history  # noqa: E402
+from quantcore.services.registry import get_services  # noqa: E402
 
 
 SORT_TABLE_JS = """
@@ -223,7 +223,7 @@ def collect_row(entry: dict[str, Any]) -> dict[str, Any]:
     price_error = ""
     history = pd.DataFrame()
     try:
-        history = get_history(symbol, "1d", 120)
+        history = get_services().prices.get_history(symbol, "1d", 120)
     except Exception as exc:  # noqa: BLE001
         price_error = str(exc)
 

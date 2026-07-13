@@ -4,7 +4,7 @@ A bulk ingest on 2026-06-30 ~20:10-20:13 UTC wrote misaligned price data to
 prod: groups of unrelated symbols received byte-identical OHLCV bars (e.g.
 INTC=MRVL=POWL=SOLS all got one ticker's bar). This re-fetches each affected
 symbol individually through the proven-correct single-symbol path
-(_fetch_yfinance -> _store_bars, ON CONFLICT DO UPDATE) and overwrites the bad
+(YFinanceGateway.fetch_history -> store_bars, ON CONFLICT DO UPDATE) and overwrites the bad
 rows in place. Re-fetching a healthy symbol is harmless (idempotent upsert).
 
 Usage:
@@ -24,7 +24,10 @@ from dotenv import load_dotenv
 load_dotenv("/Users/thomasfowler/source/com/thomasdfowler/StockPortfolioManager/.env")
 
 from quantcore.db import get_connection
-from quantcore.repositories.ohlcv_repository import _fetch_yfinance, _store_bars
+from quantcore.gateways.yfinance_gateway import YFinanceGateway
+from quantcore.repositories.ohlcv_repository import store_bars
+
+_gateway = YFinanceGateway()
 
 WARM_DAYS = 730
 
@@ -60,7 +63,7 @@ def main() -> int:
     ok = empty = failed = 0
     for i, sym in enumerate(symbols, 1):
         try:
-            df = _fetch_yfinance(sym, "1d", WARM_DAYS)
+            df = _gateway.fetch_history(sym, "1d", WARM_DAYS)
             if df.empty:
                 empty += 1
                 print(f"  [{i}/{len(symbols)}] {sym:8} EMPTY (yfinance returned nothing)")
@@ -73,7 +76,7 @@ def main() -> int:
                 print(f"  [{i}/{len(symbols)}] {sym:8} SKIP (non-positive close {last_close})")
                 continue
             if not args.dry_run:
-                _store_bars(sym, "1d", df)
+                store_bars(sym, "1d", df)
             ok += 1
             if i % 25 == 0 or i == len(symbols):
                 print(f"  [{i}/{len(symbols)}] {sym:8} {len(df)} bars  last={last_date} close={last_close:.2f}  (ok={ok})")

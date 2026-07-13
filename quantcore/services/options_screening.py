@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+
+from quantcore.analytics.market_time import period_to_days
 import yaml
 
 # Project root (…/StockPortfolioManager) — for resolving the default watchlist.
@@ -275,9 +277,11 @@ def _chain_pc(calls_df, puts_df, price: float, atm_only: bool = False):
 class OptionsScreeningService:
     """Rule-based options screener: fetch → score → build trades → rank."""
 
-    def __init__(self, ohlcv_repository, yfinance_gateway):
+    def __init__(self, ohlcv_repository, yfinance_gateway, prices=None):
         self._ohlcv = ohlcv_repository
         self._yf = yfinance_gateway
+        # History via PricesService — the single fetch seam (issue #74).
+        self._prices = prices
 
     # ------------------------------------------------------------------
     # Data fetching
@@ -285,7 +289,7 @@ class OptionsScreeningService:
 
     def fetch_bollinger_bands(self, symbol: str) -> Optional[BollingerBands]:
         try:
-            hist = self._ohlcv.get_history(symbol, "1d", self._ohlcv.period_to_days(HISTORY_PERIOD))
+            hist = self._prices.get_history(symbol, "1d", period_to_days(HISTORY_PERIOD))
             if hist.empty or len(hist) < BB_PERIOD:
                 return None
             close = hist["Close"]
@@ -439,7 +443,7 @@ class OptionsScreeningService:
         most recent HV30 value so rank/percentile still reflect the vol environment.
         """
         try:
-            hist = self._ohlcv.get_history(symbol, "1d", 365)
+            hist = self._prices.get_history(symbol, "1d", 365)
             if hist.empty or len(hist) < 31:
                 return None
 

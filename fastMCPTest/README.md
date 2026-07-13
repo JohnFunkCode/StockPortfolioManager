@@ -38,7 +38,6 @@ uses the repo virtualenv at `../.venv/bin/fastmcp`.
 | `options_position_store.py` | Library | Tracks active options positions; drives ITM, expiration, and profit-target alerts |
 | `news_store.py` | Library | PostgreSQL persistence for news articles and FinBERT sentiment scores |
 | `news_collector.py` | Library | RSS + yfinance news fetcher with lazy-loaded FinBERT scoring pipeline |
-| `collect_options.py` | CLI / Cron | EOD snapshot collector; designed to run daily at 4:10 PM ET via cron or launchd |
 | `ohlcv_cache.py` | Library | PostgreSQL-backed OHLCV bar cache; eliminates redundant yfinance calls |
 | `.mcp.json` | Config | Registers the FastMCP servers in this directory for auto-start |
 
@@ -130,27 +129,13 @@ Pass `--no-persist` to skip saving, or `--db /path/to/file.db` for a custom path
 
 ---
 
-## EOD Snapshot Collector (`collect_options.py`)
+## EOD Snapshot Collector (retired)
 
-Designed to run as a daily cron job at ~4:10 PM ET on trading days, automatically capturing an end-of-day options snapshot for every symbol in the watchlist. Exits cleanly (code 0) on non-trading days so no data is written on weekends or NYSE holidays.
-
-```bash
-python collect_options.py                        # all watchlist symbols, today
-python collect_options.py --symbols MU,WDC,GEV  # specific symbols only
-python collect_options.py --date 2026-04-01      # backfill a specific date
-python collect_options.py --dry-run              # validate config, no DB writes
-python collect_options.py --max-expirations 6    # capture 6 expirations (default 4)
-python collect_options.py --log-level DEBUG      # verbose per-contract logging
-```
-
-**Exit codes:** `0` = success; `1` = one or more symbols failed; `2` = market closed or config error.
-
-**Scheduling on macOS:** A launchd `.plist` template is embedded in the script header. Install it under `~/Library/LaunchAgents/` with `TZ=America/New_York` to fire at 4:10 PM ET.
-
-**Cron entry (4:10 PM ET, Mon–Fri):**
-```
-10 16 * * 1-5  cd /path/to/fastMCPTest && /path/to/venv/python collect_options.py
-```
+`collect_options.py` was retired in the yfinance-gateway consolidation (issues
+#74/#77): it fetched chains directly from yfinance, bypassing the gateway.
+Its capability lives in the services layer — use
+`POST /api/securities/refresh-options-snapshots?source=watchlist&chain_type=full`
+(or `OptionsService.refresh_options_snapshots` in-process) instead.
 
 ---
 

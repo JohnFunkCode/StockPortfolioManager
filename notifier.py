@@ -5,7 +5,6 @@ from pathlib import Path
 from datetime import date, datetime
 
 import requests
-import yfinance as yf
 from dotenv import load_dotenv
 from portfolio import portfolio as spm
 import portfolio.money as money
@@ -149,14 +148,15 @@ class Notifier:
         # Fetch live prices for all unique symbols in one batch
         symbols = list({p["symbol"] for p in active})
         current_prices: dict[str, float] = {}
+        # Prices via the services layer (issue #76) — adapters never import
+        # yfinance; the notifier runs in-process with main.py (Rule 6).
+        from quantcore.services.registry import get_services
+
+        prices_service = get_services().prices
         for sym in symbols:
-            try:
-                info = yf.Ticker(sym).fast_info
-                price = getattr(info, "last_price", None)
-                if price is not None and price > 0:
-                    current_prices[sym] = float(price)
-            except Exception:
-                pass
+            price = prices_service.get_fast_price(sym)
+            if price is not None:
+                current_prices[sym] = price
 
         alerts = self._options_positions.get_pending_alerts(current_prices)
 

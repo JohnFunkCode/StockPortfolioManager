@@ -75,7 +75,7 @@ class OptionsService:
             raise ValueError(f"Could not retrieve price for symbol: {symbol}")
 
         # Bollinger Bands for context
-        hist = self._ohlcv.get_history(symbol.upper(), "1d", 90)
+        hist = self._prices.get_history(symbol.upper(), "1d", 90)
         close = hist["Close"].dropna()
         if len(close) >= 20:
             sma20 = float(close.rolling(window=20).mean().iloc[-1])
@@ -1031,12 +1031,8 @@ class OptionsService:
         finally:
             # Close yfinance's peewee cache DB connections that are held open
             # in each worker thread's thread-local storage.
-            try:
-                from yfinance.cache import _TzDBManager, _CookieDBManager
-                _TzDBManager.close_db()
-                _CookieDBManager.close_db()
-            except Exception:
-                pass
+            # Provider-internal cache cleanup belongs to the gateway (#75).
+            self._yf.close_thread_caches()
 
         elapsed = round(_time.monotonic() - start, 1)
         results_list.sort(key=lambda r: r["symbol"])

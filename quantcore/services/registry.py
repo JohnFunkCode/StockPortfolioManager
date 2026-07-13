@@ -97,6 +97,7 @@ def get_services() -> Services:
     microstructure = MicrostructureService(
         ohlcv_repository=ohlcv_repository,
         yfinance_gateway=yfinance_gateway,
+        prices=prices,
     )
     sentiment = SentimentService(
         news_repository=news_repository,
@@ -145,8 +146,12 @@ def get_services() -> Services:
         options_screening=OptionsScreeningService(
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
+            prices=prices,
         ),
-        harvester=HarvesterService(harvester_repository=harvester_repository),
+        harvester=HarvesterService(
+            harvester_repository=harvester_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
         portfolio=PortfolioService(portfolio_repository=portfolio_repository),
         recommendations=RecommendationsService(
             prices=prices,

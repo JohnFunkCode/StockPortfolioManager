@@ -316,6 +316,28 @@ class TestFailureModes(ChatServiceTestBase):
         self.assertIsInstance(events[-1], ErrorEvent)
         self.assertFalse(any(isinstance(e, Done) for e in events))
 
+    def test_default_factory_builds_gateway_client_with_model_and_effort(self):
+        """Without an injected factory, ChatService must construct the provider
+        client from quantcore.gateways.anthropic_gateway (issue #78 wiring)."""
+        from unittest.mock import patch
+
+        with patch("quantcore.gateways.anthropic_gateway.AnthropicChatClient") as gateway_cls:
+            gateway_cls.return_value.stream_turn.return_value = iter(
+                [("final", final("end_turn", text_block("hi")))]
+            )
+            service = ChatService(
+                prices=Mock(),
+                fundamentals=Mock(),
+                sentiment=Mock(),
+                options=Mock(),
+                model="model-x",
+                effort="low",
+            )
+            events = list(service.stream_chat([{"role": "user", "content": "hey"}]))
+
+        gateway_cls.assert_called_once_with("model-x", "low")
+        self.assertIsInstance(events[-1], Done)
+
     def test_iteration_cap_terminates_with_error(self):
         looping_turn = {
             "final": final("tool_use", tool_use("tu_x", "get_rsi", {"symbol": "AMD"}))

@@ -4,9 +4,11 @@ Design notes:
   * The service depends on a minimal ChatClient protocol (``stream_turn``)
     rather than the Anthropic SDK directly, so unit tests drive the loop with
     scripted clients and CHAT_FAKE=1 swaps in FakeChatClient (chat_fake.py).
-  * IMPORTANT: never import ``anthropic`` at module top — this module is
-    reachable from quantcore.services.registry, which MCP stdio servers import
-    at startup. The SDK is lazy-imported inside AnthropicChatClient only.
+  * The real provider adapter (AnthropicChatClient) lives in
+    quantcore/gateways/anthropic_gateway.py per architectural-standard-v2
+    §5.3; it is loaded lazily via _default_client_factory so this module —
+    and the registry that imports it — never touches the SDK at import time
+    (MCP stdio servers and requirements-base images depend on that).
   * Model default is claude-fable-5: thinking is always on (the ``thinking``
     parameter must be omitted entirely), sampling params are not accepted, and
     depth is controlled via ``output_config.effort``. Server-side refusal
@@ -88,7 +90,8 @@ ChatEvent = TextDelta | ToolStatus | Directive | ErrorEvent | Done
 
 
 # ---------------------------------------------------------------------------
-# Client protocol + real Anthropic adapter
+# Client protocol (the provider adapter itself lives in
+# quantcore/gateways/anthropic_gateway.py per architectural-standard-v2 §5.3)
 # ---------------------------------------------------------------------------
 
 class ChatClient(Protocol):
@@ -99,37 +102,13 @@ class ChatClient(Protocol):
         ...
 
 
-class AnthropicChatClient:
-    """Real client: streams one model turn via the Anthropic SDK."""
+def _default_client_factory(model: str, effort: str) -> ChatClient:
+    # Late import + attribute lookup: keeps this module (and the registry that
+    # imports it) free of the SDK for requirements-base images, and lets tests
+    # patch quantcore.gateways.anthropic_gateway.AnthropicChatClient.
+    from quantcore.gateways import anthropic_gateway
 
-    def __init__(self, model: str, effort: str, max_tokens: int = 8192):
-        import anthropic  # lazy — see module docstring
-
-        self._client = anthropic.Anthropic()
-        self._model = model
-        self._effort = effort
-        self._max_tokens = max_tokens
-
-    def stream_turn(self, *, system, tools, messages):
-        # claude-fable-5: omit `thinking` entirely (always on); no sampling
-        # params. Refusal fallbacks are opt-in — include them by default.
-        with self._client.beta.messages.stream(
-            model=self._model,
-            max_tokens=self._max_tokens,
-            system=system,
-            tools=tools,
-            messages=messages,
-            output_config={"effort": self._effort},
-            betas=["server-side-fallback-2026-06-01"],
-            fallbacks=[{"model": "claude-opus-4-8"}],
-        ) as stream:
-            for event in stream:
-                if (
-                    event.type == "content_block_delta"
-                    and getattr(event.delta, "type", "") == "text_delta"
-                ):
-                    yield ("delta", event.delta.text)
-            yield ("final", stream.get_final_message())
+    return anthropic_gateway.AnthropicChatClient(model, effort)
 
 
 def _sanitize(value):
@@ -179,7 +158,7 @@ class ChatService:
         self._effort = effort
         self._max_iterations = max_iterations
         self._client_factory = client_factory or (
-            lambda: AnthropicChatClient(self._model, self._effort)
+            lambda: _default_client_factory(self._model, self._effort)
         )
         # Tool name -> bound dispatch. Positional args mirror the service
         # signatures so tests can assert exact calls.

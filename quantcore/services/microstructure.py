@@ -15,6 +15,7 @@ LIMITATIONS (inherited from the data source):
 import datetime
 import math
 
+from quantcore.analytics.market_time import period_to_days
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 
@@ -36,9 +37,12 @@ def _safe_int(val, default: int = 0) -> int:
 
 
 class MicrostructureService:
-    def __init__(self, ohlcv_repository: OhlcvRepository, yfinance_gateway: YFinanceGateway) -> None:
+    def __init__(self, ohlcv_repository: OhlcvRepository, yfinance_gateway: YFinanceGateway, prices=None) -> None:
         self._ohlcv = ohlcv_repository
         self._yf = yfinance_gateway
+        # History access goes through PricesService (single fetch seam, #74);
+        # injected by the registry like RecommendationsService's composition.
+        self._prices = prices
 
     # ------------------------------------------------------------------
     # Short Interest / Days-to-Cover
@@ -139,7 +143,7 @@ class MicrostructureService:
         fetch_period = {"1d": "6mo", "1h": "60d"}[interval]
         fmt          = "%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self._prices.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 10:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 10})")
@@ -298,7 +302,7 @@ class MicrostructureService:
             options_spread_pct = round(sum(atm_spreads) / len(atm_spreads), 2)
 
         # ---- 3. High-low range ratio (intraday spread proxy) ----
-        hist     = self._ohlcv.get_history(symbol.upper(), "1d", 90).copy()
+        hist     = self._prices.get_history(symbol.upper(), "1d", 90).copy()
         hl_ratio  = None
         spread_vs_norm = "unknown"
 

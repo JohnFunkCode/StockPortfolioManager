@@ -307,15 +307,15 @@ class RecommendationsService:
     ) -> dict:
         symbol = symbol.upper().strip()
         fetch_days = since_days + rs_period + 10
-        sym_df  = self._ohlcv.get_history(symbol, interval=interval, days=fetch_days)
-        spy_df  = self._ohlcv.get_history("SPY",  interval=interval, days=fetch_days)
-        qqq_df  = self._ohlcv.get_history("QQQ",  interval=interval, days=fetch_days)
+        sym_df  = self._prices.get_history(symbol, interval=interval, days=fetch_days)
+        spy_df  = self._prices.get_history("SPY",  interval=interval, days=fetch_days)
+        qqq_df  = self._prices.get_history("QQQ",  interval=interval, days=fetch_days)
         if sym_df is None or sym_df.empty or spy_df is None or spy_df.empty:
             return {"symbol": symbol, "error": "Insufficient OHLCV data in cache", "history": []}
 
         # Determine sector ETF
         sector_etf = self._get_sector_etf(symbol)
-        sec_df = self._ohlcv.get_history(sector_etf, interval=interval, days=fetch_days) if sector_etf else None
+        sec_df = self._prices.get_history(sector_etf, interval=interval, days=fetch_days) if sector_etf else None
 
         def rolling_return(df):
             closes = df["Close"]

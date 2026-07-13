@@ -12,6 +12,7 @@ screener's sentiment overlay through SentimentStore.
 
 from __future__ import annotations
 
+import datetime
 import math
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,10 +21,23 @@ import numpy as np
 import pandas as pd
 
 from quantcore.analytics.indicators import macd_series, rsi_series, safe_float
+from quantcore.analytics.market_time import latest_completed_session, period_to_days
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
+
+VALID_INTERVALS = {"1d", "1wk", "1mo", "1h", "30m", "15m"}
+
+# How many days of history to pre-populate on a cold start, per interval.
+WARM_DAYS: dict[str, int] = {
+    "1d":  730,
+    "1wk": 1825,
+    "1mo": 3650,
+    "1h":  59,
+    "30m": 59,
+    "15m": 59,
+}
 
 
 def _safe_int(val):
@@ -84,6 +98,56 @@ class PricesService:
         self._sentiment = sentiment_repository
 
     # ------------------------------------------------------------------
+    # OHLCV history — fetch-when-stale policy (issue #74; moved here from
+    # the repository per Rule 5: caching policy is a service concern).
+    # Other services reach history via a constructor-injected PricesService,
+    # keeping YFinanceGateway the single fetch seam.
+    # ------------------------------------------------------------------
+
+    def get_history(self, symbol: str, interval: str = "1d", days: int = 365) -> pd.DataFrame:
+        """Cached OHLCV history; fetches via the gateway only when: no cache
+        (cold start), an OPEN bar needs refreshing, or the latest CLOSED bar
+        predates the most recent started session."""
+        if interval not in VALID_INTERVALS:
+            raise ValueError(f"Invalid interval '{interval}'. Valid: {VALID_INTERVALS}")
+        symbol = symbol.upper()
+
+        needs_fetch = False
+        if self._ohlcv.count_cached(symbol, interval) == 0:
+            days = max(days, WARM_DAYS.get(interval, 730))
+            needs_fetch = True
+        elif self._ohlcv.has_open_bar(symbol, interval):
+            needs_fetch = True
+        else:
+            latest_ts = self._ohlcv.latest_closed_ts(symbol, interval)
+            if latest_ts is not None:
+                last_date = datetime.datetime.utcfromtimestamp(latest_ts).date()
+                if last_date < latest_completed_session():
+                    needs_fetch = True
+
+        if needs_fetch:
+            fresh = self._yf.fetch_history(symbol, interval, days)
+            if not fresh.empty:
+                self._ohlcv.store_bars(symbol, interval, fresh)
+
+        return self._ohlcv.get_bars(symbol, interval, days)
+
+    def get_fast_price(self, symbol: str):
+        """Lightweight last-trade price via fast_info; None when unavailable.
+
+        Used by the notifier's alert loop (issue #76) — adapters call this
+        instead of importing yfinance.
+        """
+        try:
+            info = self._yf.fast_info(symbol.upper())
+            price = getattr(info, "last_price", None)
+            if price is None or float(price) <= 0:
+                return None
+            return float(price)
+        except Exception:
+            return None
+
+    # ------------------------------------------------------------------
     # Quote + options summary
     # ------------------------------------------------------------------
 
@@ -95,7 +159,7 @@ class PricesService:
             raise ValueError(f"Could not retrieve price for symbol: {symbol}")
 
         # Bollinger Bands
-        hist = self._ohlcv.get_history(symbol.upper(), "1d", 90)
+        hist = self.get_history(symbol.upper(), "1d", 90)
         close = hist["Close"].dropna()
         if len(close) >= 20:
             sma20 = float(close.rolling(window=20).mean().iloc[-1])
@@ -158,7 +222,7 @@ class PricesService:
 
         fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period))
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
         closes = hist["Close"].dropna()
 
         if len(closes) < period + 1:
@@ -200,7 +264,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period))
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
         closes = hist["Close"].dropna()
 
         if len(closes) < 35:
@@ -243,7 +307,7 @@ class PricesService:
 
         fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period))
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
 
         if len(hist) < k_period + d_period:
             raise ValueError(
@@ -304,7 +368,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -410,7 +474,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -529,7 +593,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -659,7 +723,7 @@ class PricesService:
         symbol = symbol.upper().strip()
         # Fetch enough extra bars to seed the first rolling window
         fetch_days = since_days + lookback + 5
-        df = self._ohlcv.get_history(symbol, interval=interval, days=fetch_days)
+        df = self.get_history(symbol, interval=interval, days=fetch_days)
         if df is None or df.empty:
             return {"symbol": symbol, "error": "No OHLCV data in cache", "history": []}
 
@@ -690,7 +754,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 25:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 25})")
@@ -900,7 +964,7 @@ class PricesService:
 
         fetch_period = {"15m": "60d", "30m": "60d", "1h": "60d", "1d": "2y"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         min_bars = swing_bars * 2 + 10
         if len(hist) < min_bars:
@@ -1049,7 +1113,7 @@ class PricesService:
 
         fetch_period = {"1d": "2y", "1h": "60d"}[interval]
 
-        hist = self._ohlcv.get_history(symbol.upper(), interval, self._ohlcv.period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -1212,7 +1276,7 @@ class PricesService:
         # Request enough calendar days to cover the trading-day lookback.
         # ~252 trading days ≈ 365 calendar days; use 2× to be safe with the cache.
         calendar_days = max(lookback_days * 2, 365)
-        hist = self._ohlcv.get_history(symbol.upper(), "1d", calendar_days).copy()
+        hist = self.get_history(symbol.upper(), "1d", calendar_days).copy()
 
         if len(hist) < 10:
             raise ValueError(
@@ -1333,7 +1397,7 @@ class PricesService:
 
     def get_ohlcv_bars(self, ticker: str, days: int = 180) -> dict:
         ticker = ticker.upper()
-        df = self._ohlcv.get_history(ticker, "1d", days)
+        df = self.get_history(ticker, "1d", days)
 
         if df.empty:
             return {"ticker": ticker, "bars": []}
@@ -1376,7 +1440,7 @@ class PricesService:
 
     def get_technicals_table(self, ticker: str, days: int = 365) -> dict:
         ticker = ticker.upper()
-        df = self._ohlcv.get_history(ticker, "1d", max(days, 400))
+        df = self.get_history(ticker, "1d", max(days, 400))
 
         if df.empty:
             return {"ticker": ticker, "indicators": []}

@@ -66,12 +66,23 @@ for i in $(seq 1 30); do
 done
 
 # --- 4. Vite -----------------------------------------------------------------
-if pgrep -f vite >/dev/null; then
+if curl -s -o /dev/null http://localhost:5173; then
     echo "✓ vite already serving on :5173"
 else
+    # node/npm live under nvm and aren't on non-interactive PATHs.
+    if ! command -v npm >/dev/null 2>&1; then
+        NVM_NODE="$(ls -td "$HOME"/.nvm/versions/node/*/bin 2>/dev/null | head -1)"
+        [ -n "$NVM_NODE" ] && export PATH="$NVM_NODE:$PATH"
+    fi
     (cd frontend && nohup npm run dev > "$REPO/frontend.log" 2>&1 &)
     sleep 3
-    echo "✓ vite started on :5173"
+    if curl -s -o /dev/null http://localhost:5173; then
+        echo "✓ vite started on :5173"
+    else
+        echo "✗ vite failed to start — tail of frontend.log:"
+        tail -5 "$REPO/frontend.log"
+        exit 1
+    fi
 fi
 
 echo ""

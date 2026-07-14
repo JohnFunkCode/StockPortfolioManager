@@ -49,6 +49,16 @@ export default function SpreadPayoffCard({
   const [containerWidth, setContainerWidth] = useState(0);
   const interactions = useDirectiveInteractions();
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
+  // Once this instance's gesture has been sent, the mark is part of the
+  // answered conversation: render it from the consumed record, immutably.
+  const lockedStrike = (() => {
+    for (let i = interactions.consumed.length - 1; i >= 0; i--) {
+      const strike = interactions.consumed[i].payload.strike;
+      if (typeof strike === 'number') return strike;
+    }
+    return null;
+  })();
+  const shownStrike = interactions.locked ? lockedStrike : selectedStrike;
 
   // Track the container's real width (bubble sizing settles after first
   // paint, and expand/collapse changes it) so the chart always fills it.
@@ -187,7 +197,7 @@ export default function SpreadPayoffCard({
     marker(data.legs.short.strike, '#f59e0b', `S ${data.legs.short.strike}`);
     marker(data.breakeven, '#a78bfa', `BE ${data.breakeven}`);
     if (spot > 0) marker(spot, '#ff2d78', `spot ${spot.toFixed(2)}`, '1,0');
-    if (selectedStrike != null) marker(selectedStrike, '#22d3ee', `sel ${selectedStrike}`, '6,3');
+    if (shownStrike != null) marker(shownStrike, '#22d3ee', `sel ${shownStrike}`, '6,3');
 
     // Backchannel: click a price on the chart to select a strike — snapped to
     // $0.50 — and attach it to the next message (context mode).
@@ -200,7 +210,7 @@ export default function SpreadPayoffCard({
         interactions.interact('select_strike', { strike });
       });
     }
-  }, [data, spot, expiration, containerWidth, interactions, selectedStrike]);
+  }, [data, spot, expiration, containerWidth, interactions, shownStrike]);
 
   if (isLoading) {
     return (
@@ -254,6 +264,7 @@ export default function SpreadPayoffCard({
       <Typography variant="caption" color="text.secondary">
         Solid: P/L at expiration · Dashed: value today (BS, per-leg IV) · per contract (×100)
         {interactions.enabled && ' · Click the chart to select a strike'}
+        {interactions.locked && shownStrike != null && ' · Selection locked (answered)'}
       </Typography>
       {interactions.enabled && selectedStrike != null && (
         <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>

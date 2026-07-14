@@ -238,6 +238,11 @@ describe('ChatRail', () => {
       expect(streamChatMock.mock.calls[0][3]).toEqual([PENDING]);
       // One-shot context: the chip is gone after the send.
       expect(screen.queryByTestId('pending-interaction')).toBeNull();
+      // The instance is now on the consumed record — its card locks.
+      const consumed = JSON.parse(
+        localStorage.getItem('hl-chat-consumed-interactions') ?? '{}',
+      );
+      expect(consumed['inst-1']).toEqual([PENDING]);
       finishStream();
     });
 

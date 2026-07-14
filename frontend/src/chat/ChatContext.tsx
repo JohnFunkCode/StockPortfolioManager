@@ -26,6 +26,7 @@ const MESSAGES_KEY = 'hl-chat-messages';
 const OPEN_KEY = 'hl-chat-open';
 const EXPANDED_KEY = 'hl-chat-expanded';
 const PENDING_KEY = 'hl-chat-pending-interactions';
+const CONSUMED_KEY = 'hl-chat-consumed-interactions';
 
 /** Assistant segments -> the plain-text turn the model sees next time. */
 export function serializeForApi(messages: ChatMessage[]): ApiChatMessage[] {
@@ -96,6 +97,12 @@ interface ChatContextValue {
   pendingInteractions: ChatInteraction[];
   queueInteraction: (interaction: ChatInteraction) => void;
   removeInteraction: (index: number) => void;
+  /**
+   * Gestures already sent to the model, keyed by component_id. Once an
+   * instance appears here it is part of the conversational record — the
+   * rendered card locks and its mark becomes immutable.
+   */
+  consumedInteractions: Record<string, ChatInteraction[]>;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -122,6 +129,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [pendingInteractions, setPendingInteractions] = useState<ChatInteraction[]>(() =>
     loadStored<ChatInteraction[]>(PENDING_KEY, []),
   );
+  const [consumedInteractions, setConsumedInteractions] = useState<
+    Record<string, ChatInteraction[]>
+  >(() => loadStored<Record<string, ChatInteraction[]>>(CONSUMED_KEY, {}));
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -141,6 +151,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
   }, [pendingInteractions]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CONSUMED_KEY, JSON.stringify(consumedInteractions));
+    } catch {
+      /* ignore */
+    }
+  }, [consumedInteractions]);
 
   const queueInteraction = useCallback((interaction: ChatInteraction) => {
     setPendingInteractions((prev) => {
@@ -179,6 +197,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     abortRef.current?.abort();
     setMessages([]);
     setPendingInteractions([]);
+    setConsumedInteractions({});
     setError(null);
     setIsStreaming(false);
   }, []);
@@ -192,6 +211,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       // then clear the queue — interactions are one-shot context.
       const interactions = [...pendingInteractions, ...(extraInteractions ?? [])];
       setPendingInteractions([]);
+      // Sent gestures become part of the record: lock their card instances.
+      if (interactions.length > 0) {
+        setConsumedInteractions((prev) => {
+          const next = { ...prev };
+          for (const interaction of interactions) {
+            next[interaction.component_id] = [
+              ...(next[interaction.component_id] ?? []),
+              interaction,
+            ];
+          }
+          return next;
+        });
+      }
 
       const userMessage: ChatMessage = {
         role: 'user',
@@ -280,6 +312,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         pendingInteractions,
         queueInteraction,
         removeInteraction,
+        consumedInteractions,
       }}
     >
       {children}

@@ -129,6 +129,59 @@ class OptionsContractToolsTest(unittest.TestCase):
         self.assertEqual(len(snapshot["expirations"]), 1)
         self.assertEqual(len(snapshot["expirations"][0]["contracts"]), 4)
 
+    def test_save_full_chain_batches_across_page_boundaries(self):
+        """A MSTR-sized chain (>500 contracts per side) must survive the
+        execute_batch paging in _PGConn.executemany with every row intact —
+        pins the fix for the ~5-minute per-row persist over the proxy."""
+        n = 601  # crosses the 500-row page boundary within one executemany
+        contracts = [
+            {
+                "strike": 10.0 + i,
+                "last": 1.0,
+                "bid": 0.9,
+                "ask": 1.1,
+                "iv": 50.0,
+                "volume": i,
+                "open_interest": i,
+                "in_the_money": i % 2 == 0,
+            }
+            for i in range(n)
+        ]
+        big = [
+            {
+                "expiration": "2026-06-19",
+                "put_call_ratio": 1.0,
+                "calls": {
+                    "contracts": contracts,
+                    "total_open_interest": n,
+                    "total_volume": n,
+                    "avg_iv_pct": 50.0,
+                },
+                "puts": {
+                    "contracts": contracts,
+                    "total_open_interest": n,
+                    "total_volume": n,
+                    "avg_iv_pct": 50.0,
+                },
+            }
+        ]
+        store = self._store()
+        snapshot_id = store.save_full_chain(
+            symbol=TEST_SYMBOL,
+            price=100.0,
+            bollinger_bands=None,
+            expirations_data=big,
+            captured_at="2026-05-19T12:00:00Z",
+        )
+        self.assertIsNotNone(snapshot_id)
+        snapshot = store.get_full_chain(TEST_SYMBOL)
+        rows = snapshot["expirations"][0]["contracts"]
+        self.assertEqual(len(rows), 2 * n)
+        # Spot-check a row from the second page.
+        strikes = {(c["kind"], c["strike"]) for c in rows}
+        self.assertIn(("call", 10.0 + 550), strikes)
+        self.assertIn(("put", 10.0 + 600), strikes)
+
     def test_duplicate_snapshot_returns_none_without_corrupting_rows(self):
         store = self._store()
         first = self._seed_store(store)

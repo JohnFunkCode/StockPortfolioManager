@@ -13,6 +13,8 @@ interface Props {
   showBB?: boolean;
   height?: number;
   earningsDates?: string[]; // YYYY-MM-DD strings to mark on chart
+  /** Optional: click the chart to select the nearest bar (chat backchannel). */
+  onPointClick?: (point: { date: string; price: number }) => void;
 }
 
 const MARGIN = { top: 16, right: 16, bottom: 32, left: 60 };
@@ -29,6 +31,7 @@ export default function PriceChart({
   showBB = true,
   height = 300,
   earningsDates = [],
+  onPointClick,
 }: Props) {
   const ref = useRef<SVGSVGElement>(null);
 
@@ -201,6 +204,14 @@ export default function PriceChart({
       .attr('width', W).attr('height', H)
       .attr('fill', 'none')
       .attr('pointer-events', 'all')
+      .style('cursor', onPointClick ? 'crosshair' : 'default')
+      .on('click', (event) => {
+        if (!onPointClick) return;
+        const [mx] = d3.pointer(event);
+        const i = bisect(valid, xScale.invert(mx), 1);
+        const d = valid[Math.min(i, valid.length - 1)];
+        if (d?.close != null) onPointClick({ date: d.date, price: d.close });
+      })
       .on('mousemove', function (event) {
         const [mx] = d3.pointer(event);
         const x0 = xScale.invert(mx);
@@ -226,7 +237,7 @@ export default function PriceChart({
         focus.style('display', 'none');
         tooltip.style('display', 'none');
       });
-  }, [data, showMAs, showBB, height, earningsDates]);
+  }, [data, showMAs, showBB, height, earningsDates, onPointClick]);
 
   const latest = data[data.length - 1];
   const first  = data[0];

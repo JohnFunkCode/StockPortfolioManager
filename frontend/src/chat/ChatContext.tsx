@@ -14,11 +14,18 @@ import {
   type ReactNode,
 } from 'react';
 import { streamChat } from '../api/chatStream';
-import type { ApiChatMessage, ChatMessage, ChatStreamEvent, Segment } from './types';
+import type {
+  ApiChatMessage,
+  ChatInteraction,
+  ChatMessage,
+  ChatStreamEvent,
+  Segment,
+} from './types';
 
 const MESSAGES_KEY = 'hl-chat-messages';
 const OPEN_KEY = 'hl-chat-open';
 const EXPANDED_KEY = 'hl-chat-expanded';
+const PENDING_KEY = 'hl-chat-pending-interactions';
 
 /** Assistant segments -> the plain-text turn the model sees next time. */
 export function serializeForApi(messages: ChatMessage[]): ApiChatMessage[] {
@@ -83,8 +90,12 @@ interface ChatContextValue {
   setRailOpen: (open: boolean) => void;
   expanded: boolean;
   setExpanded: (expanded: boolean) => void;
-  sendMessage: (text: string) => Promise<void>;
+  sendMessage: (text: string, extraInteractions?: ChatInteraction[]) => Promise<void>;
   clearConversation: () => void;
+  /** Context-mode gestures waiting to ride along with the next message. */
+  pendingInteractions: ChatInteraction[];
+  queueInteraction: (interaction: ChatInteraction) => void;
+  removeInteraction: (index: number) => void;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -108,6 +119,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [expanded, setExpandedState] = useState<boolean>(() =>
     loadStored<boolean>(EXPANDED_KEY, false),
   );
+  const [pendingInteractions, setPendingInteractions] = useState<ChatInteraction[]>(() =>
+    loadStored<ChatInteraction[]>(PENDING_KEY, []),
+  );
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -119,6 +133,29 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       /* storage full/unavailable — history simply won't persist */
     }
   }, [messages]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PENDING_KEY, JSON.stringify(pendingInteractions));
+    } catch {
+      /* ignore */
+    }
+  }, [pendingInteractions]);
+
+  const queueInteraction = useCallback((interaction: ChatInteraction) => {
+    setPendingInteractions((prev) => {
+      // One pending gesture per (instance, action): re-clicking replaces.
+      const rest = prev.filter(
+        (p) =>
+          !(p.component_id === interaction.component_id && p.action === interaction.action),
+      );
+      return [...rest, interaction];
+    });
+  }, []);
+
+  const removeInteraction = useCallback((index: number) => {
+    setPendingInteractions((prev) => prev.filter((_, i) => i !== index));
+  }, []);
 
   const setRailOpen = useCallback((open: boolean) => {
     setRailOpenState(open);
@@ -141,15 +178,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const clearConversation = useCallback(() => {
     abortRef.current?.abort();
     setMessages([]);
+    setPendingInteractions([]);
     setError(null);
     setIsStreaming(false);
   }, []);
 
   const sendMessage = useCallback(
-    async (text: string) => {
+    async (text: string, extraInteractions?: ChatInteraction[]) => {
       const trimmed = text.trim();
       if (!trimmed || isStreaming) return;
       setError(null);
+      // Attach queued context-mode gestures plus any message-mode gesture,
+      // then clear the queue — interactions are one-shot context.
+      const interactions = [...pendingInteractions, ...(extraInteractions ?? [])];
+      setPendingInteractions([]);
 
       const userMessage: ChatMessage = {
         role: 'user',
@@ -186,6 +228,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
             }
           },
           controller.signal,
+          interactions,
         );
       } catch (exc) {
         if ((exc as Error).name !== 'AbortError') {
@@ -196,7 +239,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         abortRef.current = null;
       }
     },
-    [messages, isStreaming],
+    [messages, isStreaming, pendingInteractions],
   );
 
   return (
@@ -211,6 +254,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         setExpanded,
         sendMessage,
         clearConversation,
+        pendingInteractions,
+        queueInteraction,
+        removeInteraction,
       }}
     >
       {children}
@@ -222,4 +268,10 @@ export function useChat(): ChatContextValue {
   const value = useContext(ChatContext);
   if (!value) throw new Error('useChat must be used inside <ChatProvider>');
   return value;
+}
+
+/** Like useChat, but safe outside <ChatProvider> — returns null instead of
+ * throwing, so directive components stay renderable in isolation/tests. */
+export function useChatOptional(): ChatContextValue | null {
+  return useContext(ChatContext);
 }

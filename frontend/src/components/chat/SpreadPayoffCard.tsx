@@ -10,6 +10,7 @@ import { Alert, Box, Chip, CircularProgress, Stack, Typography } from '@mui/mate
 import { useVerticalSpread } from '../../hooks/useSecurities';
 import { usePricePolling } from '../../hooks/useSymbols';
 import { buildCurves, type SpreadInput } from '../../chat/spreadMath';
+import { useDirectiveInteractions } from '../../chat/DirectiveInteractions';
 
 const HEIGHT = 240;
 const MARGIN = { top: 12, right: 16, bottom: 28, left: 56 };
@@ -46,6 +47,8 @@ export default function SpreadPayoffCard({
   const spot = priceData?.price ?? 0;
   const svgRef = useRef<SVGSVGElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
+  const interactions = useDirectiveInteractions();
+  const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
 
   // Track the container's real width (bubble sizing settles after first
   // paint, and expand/collapse changes it) so the chart always fills it.
@@ -184,7 +187,20 @@ export default function SpreadPayoffCard({
     marker(data.legs.short.strike, '#f59e0b', `S ${data.legs.short.strike}`);
     marker(data.breakeven, '#a78bfa', `BE ${data.breakeven}`);
     if (spot > 0) marker(spot, '#ff2d78', `spot ${spot.toFixed(2)}`, '1,0');
-  }, [data, spot, expiration, containerWidth]);
+    if (selectedStrike != null) marker(selectedStrike, '#22d3ee', `sel ${selectedStrike}`, '6,3');
+
+    // Backchannel: click a price on the chart to select a strike — snapped to
+    // $0.50 — and attach it to the next message (context mode).
+    if (interactions.enabled) {
+      svg.style('cursor', 'crosshair').on('click', (event) => {
+        const [mx] = d3.pointer(event);
+        if (mx < MARGIN.left || mx > width - MARGIN.right) return;
+        const strike = Math.round(x.invert(mx) * 2) / 2;
+        setSelectedStrike(strike);
+        interactions.interact('select_strike', { strike });
+      });
+    }
+  }, [data, spot, expiration, containerWidth, interactions, selectedStrike]);
 
   if (isLoading) {
     return (
@@ -237,7 +253,30 @@ export default function SpreadPayoffCard({
       </Box>
       <Typography variant="caption" color="text.secondary">
         Solid: P/L at expiration · Dashed: value today (BS, per-leg IV) · per contract (×100)
+        {interactions.enabled && ' · Click the chart to select a strike'}
       </Typography>
+      {interactions.enabled && selectedStrike != null && (
+        <Stack direction="row" spacing={0.5} sx={{ mt: 0.5 }}>
+          {(['long', 'short'] as const).map((leg) => (
+            <Chip
+              key={leg}
+              size="small"
+              color="primary"
+              variant="outlined"
+              data-testid={`reprice-${leg}`}
+              label={`Move ${leg} leg → $${selectedStrike}`}
+              onClick={() =>
+                interactions.interact(
+                  'reprice_leg',
+                  { leg, strike: selectedStrike },
+                  `Reprice the ${ticker} ${expiration} ${kind} spread with the ${leg} leg moved to $${selectedStrike} (other leg unchanged), and compare it to the current ${long_strike}/${short_strike}.`,
+                )
+              }
+              sx={{ fontSize: 11 }}
+            />
+          ))}
+        </Stack>
+      )}
     </Box>
   );
 }

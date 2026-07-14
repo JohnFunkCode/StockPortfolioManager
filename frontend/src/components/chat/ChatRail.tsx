@@ -88,9 +88,26 @@ function MessageView({ message }: { message: ChatMessage }) {
   );
 }
 
+/** "select_strike: strike 120" — compact composer-chip label for a gesture. */
+function interactionLabel(action: string, payload: Record<string, unknown>): string {
+  const detail = Object.entries(payload)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(', ');
+  return `${action.replace(/_/g, ' ')}: ${detail}`;
+}
+
 export default function ChatRail() {
-  const { messages, isStreaming, error, expanded, setExpanded, sendMessage, clearConversation } =
-    useChat();
+  const {
+    messages,
+    isStreaming,
+    error,
+    expanded,
+    setExpanded,
+    sendMessage,
+    clearConversation,
+    pendingInteractions,
+    removeInteraction,
+  } = useChat();
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -167,6 +184,29 @@ export default function ChatRail() {
         <Alert severity="error" data-testid="chat-error" sx={{ mx: 1.5, mb: 1, ...centered }}>
           {error}
         </Alert>
+      )}
+
+      {pendingInteractions.length > 0 && (
+        <Stack
+          direction="row"
+          spacing={0.5}
+          flexWrap="wrap"
+          useFlexGap
+          sx={{ px: 1.5, pb: 0.5, ...centered }}
+        >
+          {pendingInteractions.map((interaction, i) => (
+            <Chip
+              key={`${interaction.component_id}-${interaction.action}-${i}`}
+              size="small"
+              color="info"
+              variant="outlined"
+              data-testid="pending-interaction"
+              label={interactionLabel(interaction.action, interaction.payload)}
+              onDelete={() => removeInteraction(i)}
+              sx={{ fontSize: 11 }}
+            />
+          ))}
+        </Stack>
       )}
 
       <Stack direction="row" spacing={1} sx={{ p: 1.5, pt: 0.5, ...centered }}>

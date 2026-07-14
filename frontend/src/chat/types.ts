@@ -3,6 +3,22 @@
 export interface ChatDirective {
   component: string;
   props: Record<string, unknown>;
+  /** Server-assigned instance id — interactions reference exactly this render. */
+  componentId?: string;
+}
+
+/**
+ * One user interaction inside a rendered component (the UI->model
+ * backchannel). Field names are the wire shape of POST /api/chat's
+ * `interactions` array (api/schemas/chat.py) — snake_case on purpose.
+ */
+export interface ChatInteraction {
+  component_id: string;
+  component: string;
+  action: string;
+  payload: Record<string, unknown>;
+  /** Props snapshot of the touched instance, so the envelope is self-describing. */
+  props?: Record<string, unknown>;
 }
 
 /** One decoded SSE event from POST /api/chat. */

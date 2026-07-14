@@ -12,6 +12,7 @@ import {
   validateDirective,
   type RegistryEntry,
 } from '../../chat/componentRegistry';
+import { DirectiveInteractionProvider } from '../../chat/DirectiveInteractions';
 import type { ChatDirective } from '../../chat/types';
 
 class DirectiveErrorBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -74,7 +75,9 @@ export default function DirectiveRenderer({ directive, registry = COMPONENT_REGI
         {entry.titled && typeof passProps.ticker === 'string' && (
           <DirectiveTitle ticker={passProps.ticker} />
         )}
-        <Registered {...passProps} />
+        <DirectiveInteractionProvider directive={directive} props={passProps}>
+          <Registered {...passProps} />
+        </DirectiveInteractionProvider>
       </Box>
     </DirectiveErrorBoundary>
   );

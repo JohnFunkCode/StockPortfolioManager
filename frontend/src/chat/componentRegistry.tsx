@@ -44,7 +44,57 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   },
 };
 
+/**
+ * The interaction vocabulary — which user gestures each component may send
+ * back into the conversation. Mirrors BACKEND_INTERACTION_REGISTRY in
+ * quantcore/services/chat_tools.py (both sides validate, like directives).
+ *
+ * mode 'context': the gesture attaches to the NEXT typed message.
+ * mode 'message': the gesture submits a structured turn immediately.
+ */
+export interface InteractionSpec {
+  payload: Record<string, PropKind>;
+  mode: 'context' | 'message';
+}
+
+export const INTERACTION_REGISTRY: Record<string, Record<string, InteractionSpec>> = {
+  spread_payoff: {
+    select_strike: { payload: { strike: 'number' }, mode: 'context' },
+    reprice_leg: { payload: { leg: 'string', strike: 'number' }, mode: 'message' },
+  },
+  price_chart: {
+    select_point: { payload: { date: 'string', price: 'number' }, mode: 'context' },
+  },
+};
+
 export type ValidationResult = { ok: true } | { ok: false; reason: string };
+
+export function validateInteractionPayload(
+  component: string,
+  action: string,
+  payload: Record<string, unknown>,
+  registry: Record<string, Record<string, InteractionSpec>> = INTERACTION_REGISTRY,
+): ValidationResult {
+  const spec = registry[component]?.[action];
+  if (!spec) {
+    return { ok: false, reason: `No interaction '${action}' on '${component}'` };
+  }
+  const extra = Object.keys(payload).filter((k) => !(k in spec.payload));
+  if (extra.length > 0) {
+    return { ok: false, reason: `Unexpected payload fields: ${extra.join(', ')}` };
+  }
+  for (const [name, kind] of Object.entries(spec.payload)) {
+    const value = payload[name];
+    if (kind === 'string') {
+      if (typeof value !== 'string' || value.trim().length === 0) {
+        return { ok: false, reason: `Payload '${name}' must be a non-empty string` };
+      }
+    } else if (typeof value !== 'number' || !Number.isFinite(value)) {
+      return { ok: false, reason: `Payload '${name}' must be a finite number` };
+    }
+  }
+  return { ok: true };
+}
 
 export function validateDirective(
   directive: ChatDirective,

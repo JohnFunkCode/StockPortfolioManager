@@ -24,7 +24,8 @@ _SSE_HEADERS = {
 @router.post("")
 def chat(body: ChatRequest) -> StreamingResponse:
     events = services().chat.stream_chat(
-        [{"role": m.role, "content": m.content} for m in body.messages]
+        [{"role": m.role, "content": m.content} for m in body.messages],
+        interactions=[i.model_dump(exclude_none=True) for i in body.interactions],
     )
     return StreamingResponse(
         event_stream(events),

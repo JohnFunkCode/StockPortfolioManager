@@ -51,6 +51,27 @@ describe('parseSSEChunk', () => {
     expect(events[1]).toEqual({ type: 'text', delta: 'ok' });
   });
 
+  it('surfaces the directive component_id as componentId when present', () => {
+    const { events } = parseSSEChunk(
+      '',
+      frame('directive', {
+        component: 'spread_payoff',
+        props: { ticker: 'WMT' },
+        component_id: 'abc123',
+      }),
+    );
+    expect(events).toEqual([
+      {
+        type: 'directive',
+        directive: {
+          component: 'spread_payoff',
+          props: { ticker: 'WMT' },
+          componentId: 'abc123',
+        },
+      },
+    ]);
+  });
+
   it('maps all wire event types', () => {
     const chunk =
       frame('text', { delta: 't' }) +
@@ -111,6 +132,27 @@ describe('streamChat', () => {
     expect(JSON.parse(init.body).messages).toEqual([{ role: 'user', content: 'hi' }]);
 
     expect(events.map((e) => e.type)).toEqual(['text', 'directive', 'done']);
+  });
+
+  it('includes interactions in the POST body only when non-empty', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () =>
+        sseResponse([frame('done', { stop_reason: 'end_turn' })]),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const interaction = {
+      component_id: 'abc123',
+      component: 'spread_payoff',
+      action: 'select_strike',
+      payload: { strike: 120 },
+    };
+    await streamChat([{ role: 'user', content: 'hi' }], () => {}, undefined, [interaction]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).interactions).toEqual([interaction]);
+
+    await streamChat([{ role: 'user', content: 'hi' }], () => {}, undefined, []);
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('interactions');
   });
 
   it('rejects with status on non-2xx', async () => {

@@ -377,7 +377,11 @@ class _PGConn:
         else:
             sql = sql.replace('?', '%s')
         cur = self._c.cursor()
-        cur.executemany(sql, seq)
+        # psycopg2's cursor.executemany() is one server round trip PER ROW.
+        # Against Cloud SQL through the auth proxy (~90ms RTT) that made a
+        # 3.2K-contract options snapshot take ~5 minutes; execute_batch sends
+        # pages of statements per round trip (500 rows ≈ 7 trips, <1s).
+        psycopg2.extras.execute_batch(cur, sql, seq, page_size=500)
         return cur
 
     def commit(self):

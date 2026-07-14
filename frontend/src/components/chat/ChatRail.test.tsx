@@ -199,6 +199,25 @@ describe('ChatRail', () => {
     expect(history[history.length - 1]).toEqual({ role: 'user', content: 'And AMD?' });
   });
 
+  it('flips running tool chips to error when the stream dies without a terminal frame', async () => {
+    renderRail();
+    await sendPrompt('Price an MSTR spread');
+    emit({ type: 'text', delta: 'Pricing…' });
+    emit({
+      type: 'tool_status',
+      tool: 'price_vertical_spread',
+      args: { symbol: 'MSTR' },
+      state: 'running',
+    });
+    expect(screen.getByTestId('tool-chip-price_vertical_spread').dataset.state).toBe('running');
+
+    // Server restarted mid-call: the stream just ends — no done, no error frame.
+    finishStream();
+    await waitFor(() =>
+      expect(screen.getByTestId('tool-chip-price_vertical_spread').dataset.state).toBe('error'),
+    );
+  });
+
   describe('pending interactions (backchannel composer chips)', () => {
     const PENDING = {
       component_id: 'inst-1',

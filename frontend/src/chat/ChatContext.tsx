@@ -215,6 +215,28 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         });
       };
 
+      // If the stream dies without a terminal frame (server restart, network
+      // drop), tool chips stuck in 'running' would spin forever — flip any
+      // survivors to 'error' once the stream is over, however it ended.
+      const finalizeInterruptedTools = () => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role !== 'assistant') return prev;
+          let changed = false;
+          const segments = last.segments.map((segment) => {
+            if (segment.type === 'tool_status' && segment.state === 'running') {
+              changed = true;
+              return { ...segment, state: 'error' as const };
+            }
+            return segment;
+          });
+          if (!changed) return prev;
+          next[next.length - 1] = { ...last, segments };
+          return next;
+        });
+      };
+
       try {
         await streamChat(
           history,
@@ -235,6 +257,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           setError((exc as Error).message || 'Chat request failed.');
         }
       } finally {
+        finalizeInterruptedTools();
         setIsStreaming(false);
         abortRef.current = null;
       }

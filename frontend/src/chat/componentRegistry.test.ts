@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { COMPONENT_REGISTRY, validateDirective } from './componentRegistry';
+import {
+  COMPONENT_REGISTRY,
+  INTERACTION_REGISTRY,
+  validateDirective,
+  validateInteractionPayload,
+} from './componentRegistry';
 
 // Keep this case table aligned with test_chat_protocol.py::TestValidateDirective —
 // the frontend re-validates independently of the backend.
@@ -8,6 +13,65 @@ describe('COMPONENT_REGISTRY', () => {
     for (const name of ['signals', 'live_price', 'price_chart', 'spread_payoff']) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
     }
+  });
+});
+
+// Keep aligned with test_chat_protocol.py::TestValidateInteraction — the
+// interaction vocabulary is dual-validated exactly like directive props.
+describe('INTERACTION_REGISTRY', () => {
+  it('declares gestures only for registered components', () => {
+    for (const name of Object.keys(INTERACTION_REGISTRY)) {
+      expect(COMPONENT_REGISTRY[name], name).toBeDefined();
+    }
+  });
+
+  it('declares the v1 vocabulary with modes', () => {
+    expect(INTERACTION_REGISTRY.spread_payoff.select_strike.mode).toBe('context');
+    expect(INTERACTION_REGISTRY.spread_payoff.reprice_leg.mode).toBe('message');
+    expect(INTERACTION_REGISTRY.price_chart.select_point.mode).toBe('context');
+  });
+});
+
+describe('validateInteractionPayload', () => {
+  it('accepts a valid select_strike payload', () => {
+    expect(
+      validateInteractionPayload('spread_payoff', 'select_strike', { strike: 120 }).ok,
+    ).toBe(true);
+  });
+
+  it('accepts a valid reprice_leg payload', () => {
+    expect(
+      validateInteractionPayload('spread_payoff', 'reprice_leg', {
+        leg: 'short',
+        strike: 122.5,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('rejects unknown actions and unknown components', () => {
+    expect(validateInteractionPayload('spread_payoff', 'explode', {}).ok).toBe(false);
+    expect(validateInteractionPayload('signals', 'select_strike', { strike: 1 }).ok).toBe(
+      false,
+    );
+  });
+
+  it('rejects missing, extra, non-finite and wrong-typed fields', () => {
+    expect(validateInteractionPayload('spread_payoff', 'select_strike', {}).ok).toBe(false);
+    expect(
+      validateInteractionPayload('spread_payoff', 'select_strike', {
+        strike: 120,
+        evil: 'x',
+      }).ok,
+    ).toBe(false);
+    expect(
+      validateInteractionPayload('spread_payoff', 'select_strike', { strike: NaN }).ok,
+    ).toBe(false);
+    expect(
+      validateInteractionPayload('spread_payoff', 'select_strike', { strike: '120' }).ok,
+    ).toBe(false);
+    expect(
+      validateInteractionPayload('price_chart', 'select_point', { date: ' ', price: 5 }).ok,
+    ).toBe(false);
   });
 });
 

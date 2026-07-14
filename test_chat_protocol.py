@@ -20,8 +20,10 @@ from quantcore.services.chat import (
 )
 from quantcore.services.chat_tools import (
     BACKEND_COMPONENT_REGISTRY,
+    BACKEND_INTERACTION_REGISTRY,
     TOOL_SCHEMAS,
     validate_directive,
+    validate_interaction,
 )
 
 
@@ -96,6 +98,13 @@ class TestEventStream(unittest.TestCase):
     def test_done_is_final_frame_on_clean_exit(self):
         frames = self._frames([TextDelta(delta="x"), Done(stop_reason="end_turn")])
         self.assertTrue(frames[-1].startswith("event: done\n"))
+
+    def test_directive_frame_carries_component_id(self):
+        frames = self._frames(
+            [Directive(component="signals", props={"ticker": "INTC"}, component_id="abc123")]
+        )
+        body = json.loads(frames[0].split("data: ", 1)[1])
+        self.assertEqual(body["component_id"], "abc123")
 
 
 class TestValidateDirective(unittest.TestCase):
@@ -180,6 +189,112 @@ class TestSpreadPayoffDirective(unittest.TestCase):
         ok, reason = validate_directive("spread_payoff", props)
         self.assertFalse(ok)
         self.assertIn("leverage", reason)
+
+
+def interaction(**overrides):
+    """A valid select_strike interaction; override fields per test."""
+    base = {
+        "component_id": "d1",
+        "component": "spread_payoff",
+        "action": "select_strike",
+        "payload": {"strike": 120.0},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestValidateInteraction(unittest.TestCase):
+    def test_valid_select_strike_accepted(self):
+        ok, reason = validate_interaction(interaction())
+        self.assertTrue(ok, reason)
+
+    def test_valid_with_props_snapshot_accepted(self):
+        ok, reason = validate_interaction(
+            interaction(
+                props={
+                    "ticker": "WMT",
+                    "expiration": "2026-12-18",
+                    "long_strike": 120,
+                    "short_strike": 125,
+                    "kind": "call",
+                }
+            )
+        )
+        self.assertTrue(ok, reason)
+
+    def test_valid_reprice_leg_accepted(self):
+        ok, reason = validate_interaction(
+            interaction(action="reprice_leg", payload={"leg": "short", "strike": 122.5})
+        )
+        self.assertTrue(ok, reason)
+
+    def test_valid_price_chart_select_point_accepted(self):
+        ok, reason = validate_interaction(
+            interaction(
+                component="price_chart",
+                action="select_point",
+                payload={"date": "2026-07-10", "price": 96.99},
+            )
+        )
+        self.assertTrue(ok, reason)
+
+    def test_unknown_component_rejected(self):
+        ok, reason = validate_interaction(interaction(component="nope"))
+        self.assertFalse(ok)
+        self.assertIn("nope", reason)
+
+    def test_component_without_interactions_rejected(self):
+        # 'signals' is registered but declares no interactions.
+        ok, reason = validate_interaction(
+            interaction(component="signals", action="select_strike")
+        )
+        self.assertFalse(ok)
+
+    def test_unknown_action_rejected_with_valid_actions_listed(self):
+        ok, reason = validate_interaction(interaction(action="explode"))
+        self.assertFalse(ok)
+        self.assertIn("select_strike", reason)
+
+    def test_payload_missing_key_rejected(self):
+        ok, _ = validate_interaction(interaction(payload={}))
+        self.assertFalse(ok)
+
+    def test_payload_extra_key_rejected(self):
+        ok, _ = validate_interaction(
+            interaction(payload={"strike": 120, "evil": "x"})
+        )
+        self.assertFalse(ok)
+
+    def test_payload_wrong_type_rejected(self):
+        ok, _ = validate_interaction(interaction(payload={"strike": "120"}))
+        self.assertFalse(ok)
+
+    def test_payload_bool_not_a_number(self):
+        ok, _ = validate_interaction(interaction(payload={"strike": True}))
+        self.assertFalse(ok)
+
+    def test_non_dict_payload_rejected(self):
+        ok, _ = validate_interaction(interaction(payload=[120]))
+        self.assertFalse(ok)
+
+    def test_invalid_props_snapshot_rejected(self):
+        ok, _ = validate_interaction(interaction(props={"ticker": ""}))
+        self.assertFalse(ok)
+
+    def test_missing_component_id_rejected(self):
+        bad = interaction()
+        del bad["component_id"]
+        ok, _ = validate_interaction(bad)
+        self.assertFalse(ok)
+
+    def test_non_dict_interaction_rejected(self):
+        ok, _ = validate_interaction("click")
+        self.assertFalse(ok)
+
+    def test_interaction_registry_components_exist(self):
+        # Every component declaring interactions must be a renderable component.
+        for component in BACKEND_INTERACTION_REGISTRY:
+            self.assertIn(component, BACKEND_COMPONENT_REGISTRY)
 
 
 class TestToolSchemas(unittest.TestCase):

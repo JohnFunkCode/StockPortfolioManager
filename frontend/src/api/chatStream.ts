@@ -6,7 +6,7 @@
  * reads the body incrementally via ReadableStream.
  */
 import { ApiError } from './client';
-import type { ApiChatMessage, ChatStreamEvent } from '../chat/types';
+import type { ApiChatMessage, ChatInteraction, ChatStreamEvent } from '../chat/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 const API_TOKEN = import.meta.env.VITE_API_TOKEN || '';
@@ -60,6 +60,8 @@ export function parseSSEChunk(
           directive: {
             component: String(data.component ?? ''),
             props: (data.props as Record<string, unknown>) ?? {},
+            // Only surface the instance id when the wire frame carries one.
+            ...(data.component_id ? { componentId: String(data.component_id) } : {}),
           },
         });
         break;
@@ -79,6 +81,7 @@ export async function streamChat(
   messages: ApiChatMessage[],
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
+  interactions?: ChatInteraction[],
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -86,7 +89,10 @@ export async function streamChat(
       'Content-Type': 'application/json',
       ...(API_TOKEN ? { Authorization: `Bearer ${API_TOKEN}` } : {}),
     },
-    body: JSON.stringify({ messages }),
+    body: JSON.stringify({
+      messages,
+      ...(interactions && interactions.length > 0 ? { interactions } : {}),
+    }),
     signal,
   });
 

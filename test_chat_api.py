@@ -6,6 +6,7 @@ exercised against the deterministic FakeChatClient — keyless and offline at th
 LLM layer. DB-safety preamble mirrors test_api_smoke.py.
 """
 
+import json
 import os
 import unittest
 from pathlib import Path
@@ -96,6 +97,71 @@ class ChatApiTest(unittest.TestCase):
         directive_data = next(d for k, d in frames if k == "directive")
         self.assertIn('"signals"', directive_data)
         self.assertIn('"INTC"', directive_data)
+
+    def test_directive_frame_carries_component_id(self):
+        resp = self.client.post("/api/chat", json=VALID_BODY)
+        directive_data = next(
+            d for k, d in parse_frames(resp.text) if k == "directive"
+        )
+        self.assertIn('"component_id"', directive_data)
+        payload = json.loads(directive_data)
+        self.assertTrue(payload["component_id"])
+
+    # -- interactions (the UI->model backchannel) ---------------------------
+
+    def test_valid_interaction_round_trips_to_ack(self):
+        body = {
+            "messages": [{"role": "user", "content": "What about this strike?"}],
+            "interactions": [
+                {
+                    "component_id": "abc123",
+                    "component": "spread_payoff",
+                    "action": "select_strike",
+                    "payload": {"strike": 120.0},
+                }
+            ],
+        }
+        resp = self.client.post("/api/chat", json=body)
+        self.assertEqual(resp.status_code, 200)
+        frames = parse_frames(resp.text)
+        kinds = [k for k, _ in frames]
+        self.assertEqual(kinds[-1], "done")
+        text = "".join(json.loads(d)["delta"] for k, d in frames if k == "text")
+        self.assertIn("120", text)
+        self.assertIn("selection", text.lower())
+
+    def test_unknown_action_streams_error_frame(self):
+        body = {
+            "messages": [{"role": "user", "content": "hi"}],
+            "interactions": [
+                {
+                    "component_id": "abc123",
+                    "component": "spread_payoff",
+                    "action": "explode",
+                    "payload": {},
+                }
+            ],
+        }
+        resp = self.client.post("/api/chat", json=body)
+        self.assertEqual(resp.status_code, 200)  # SSE stream carries the error
+        frames = parse_frames(resp.text)
+        self.assertEqual([k for k, _ in frames], ["error"])
+        self.assertIn("explode", frames[0][1])
+
+    def test_interaction_missing_component_id_422(self):
+        body = {
+            "messages": [{"role": "user", "content": "hi"}],
+            "interactions": [
+                {"component": "spread_payoff", "action": "select_strike", "payload": {}}
+            ],
+        }
+        resp = self.client.post("/api/chat", json=body)
+        self.assertEqual(resp.status_code, 422)
+
+    def test_interactions_default_to_empty(self):
+        # Old clients that never send the field keep working unchanged.
+        resp = self.client.post("/api/chat", json=VALID_BODY)
+        self.assertEqual(resp.status_code, 200)
 
     # -- validation --------------------------------------------------------
 

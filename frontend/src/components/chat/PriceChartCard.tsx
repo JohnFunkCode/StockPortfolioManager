@@ -5,9 +5,11 @@
 import { Alert, Box, CircularProgress, Typography } from '@mui/material';
 import PriceChart from '../securities/charts/PriceChart';
 import { useTechnicals } from '../../hooks/useSecurities';
+import { useDirectiveInteractions } from '../../chat/DirectiveInteractions';
 
 export default function PriceChartCard({ ticker }: { ticker: string }) {
   const { data, isLoading, error } = useTechnicals(ticker, 365);
+  const interactions = useDirectiveInteractions();
 
   if (isLoading) {
     return (
@@ -31,7 +33,20 @@ export default function PriceChartCard({ ticker }: { ticker: string }) {
       <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
         {ticker} — price &amp; moving averages
       </Typography>
-      <PriceChart data={indicators} height={220} />
+      <PriceChart
+        data={indicators}
+        height={220}
+        onPointClick={
+          interactions.enabled
+            ? (point) => interactions.interact('select_point', { ...point })
+            : undefined
+        }
+      />
+      {interactions.enabled && (
+        <Typography variant="caption" color="text.secondary">
+          Click the chart to attach a date/price to your next question
+        </Typography>
+      )}
     </Box>
   );
 }

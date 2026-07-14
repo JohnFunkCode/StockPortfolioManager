@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 
 const useVerticalSpreadMock = vi.fn();
 const usePricePollingMock = vi.fn();
@@ -10,7 +10,24 @@ vi.mock('../../hooks/useSymbols', () => ({
   usePricePolling: (...args: unknown[]) => usePricePollingMock(...args),
 }));
 
+// Fake chat context so DirectiveInteractionProvider is live without ChatProvider.
+const queueInteractionMock = vi.fn();
+const sendMessageMock = vi.fn();
+const chatState: {
+  queueInteraction: typeof queueInteractionMock;
+  sendMessage: typeof sendMessageMock;
+  consumedInteractions: Record<string, unknown[]>;
+} = {
+  queueInteraction: queueInteractionMock,
+  sendMessage: sendMessageMock,
+  consumedInteractions: {},
+};
+vi.mock('../../chat/ChatContext', () => ({
+  useChatOptional: () => chatState,
+}));
+
 import SpreadPayoffCard from './SpreadPayoffCard';
+import { DirectiveInteractionProvider } from '../../chat/DirectiveInteractions';
 
 const SPREAD_RESPONSE = {
   symbol: 'INTC',
@@ -41,6 +58,9 @@ afterEach(() => {
   cleanup();
   useVerticalSpreadMock.mockReset();
   usePricePollingMock.mockReset();
+  queueInteractionMock.mockReset();
+  sendMessageMock.mockReset();
+  chatState.consumedInteractions = {};
 });
 
 describe('SpreadPayoffCard', () => {
@@ -80,6 +100,19 @@ describe('SpreadPayoffCard', () => {
     expect(screen.getByTestId('spread-payoff-error')).toBeInTheDocument();
   });
 
+  it('is display-only without an interaction provider', () => {
+    useVerticalSpreadMock.mockReturnValue({
+      data: { ...SPREAD_RESPONSE, expiration: PROPS.expiration },
+      isLoading: false,
+      error: null,
+    });
+    usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
+    render(<SpreadPayoffCard {...PROPS} />);
+    fireEvent.click(screen.getByTestId('spread-payoff-chart'), { clientX: 120 });
+    expect(queueInteractionMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('reprice-long')).toBeNull();
+  });
+
   it('surfaces liquidity warnings from the service', () => {
     useVerticalSpreadMock.mockReturnValue({
       data: {
@@ -93,5 +126,97 @@ describe('SpreadPayoffCard', () => {
     usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
     render(<SpreadPayoffCard {...PROPS} />);
     expect(screen.getByTestId('spread-payoff-warning').textContent).toContain('wide bid/ask');
+  });
+});
+
+describe('SpreadPayoffCard interactions (backchannel)', () => {
+  const DIRECTIVE = {
+    component: 'spread_payoff',
+    componentId: 'inst-1',
+    props: PROPS as unknown as Record<string, unknown>,
+  };
+
+  function renderInteractive() {
+    useVerticalSpreadMock.mockReturnValue({
+      data: { ...SPREAD_RESPONSE, expiration: PROPS.expiration },
+      isLoading: false,
+      error: null,
+    });
+    usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
+    return render(
+      <DirectiveInteractionProvider directive={DIRECTIVE} props={DIRECTIVE.props}>
+        <SpreadPayoffCard {...PROPS} />
+      </DirectiveInteractionProvider>,
+    );
+  }
+
+  it('clicking the chart queues a select_strike with the instance identity', () => {
+    renderInteractive();
+    fireEvent.click(screen.getByTestId('spread-payoff-chart'), { clientX: 120 });
+    expect(queueInteractionMock).toHaveBeenCalledTimes(1);
+    const queued = queueInteractionMock.mock.calls[0][0];
+    expect(queued.component).toBe('spread_payoff');
+    expect(queued.component_id).toBe('inst-1');
+    expect(queued.action).toBe('select_strike');
+    expect(Number.isFinite(queued.payload.strike)).toBe(true);
+    expect(queued.props).toEqual(DIRECTIVE.props);
+  });
+
+  it('selecting a strike reveals reprice chips; clicking one sends a message-mode turn', () => {
+    renderInteractive();
+    expect(screen.queryByTestId('reprice-long')).toBeNull();
+    fireEvent.click(screen.getByTestId('spread-payoff-chart'), { clientX: 120 });
+
+    fireEvent.click(screen.getByTestId('reprice-long'));
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [text, extras] = sendMessageMock.mock.calls[0];
+    expect(text).toContain('long leg');
+    expect(text).toContain('INTC');
+    expect(extras).toHaveLength(1);
+    expect(extras[0].action).toBe('reprice_leg');
+    expect(extras[0].payload.leg).toBe('long');
+    expect(Number.isFinite(extras[0].payload.strike)).toBe(true);
+    // Message-mode gestures never touch the context queue.
+    expect(queueInteractionMock).toHaveBeenCalledTimes(1); // only the select
+  });
+
+  it('locks the card once its gesture has been sent: frozen mark, no clicks, no chips', () => {
+    chatState.consumedInteractions = {
+      'inst-1': [
+        {
+          component_id: 'inst-1',
+          component: 'spread_payoff',
+          action: 'select_strike',
+          payload: { strike: 150 },
+        },
+      ],
+    };
+    renderInteractive();
+
+    // The answered selection renders as an immutable mark.
+    const chart = screen.getByTestId('spread-payoff-chart');
+    expect(chart.textContent).toContain('sel 150');
+    expect(screen.getByTestId('spread-payoff-card').textContent).toContain(
+      'Selection locked',
+    );
+
+    // Clicking neither queues a new gesture nor moves the mark.
+    fireEvent.click(chart, { clientX: 300 });
+    expect(queueInteractionMock).not.toHaveBeenCalled();
+    expect(chart.textContent).toContain('sel 150');
+
+    // No live affordances on a historical card.
+    expect(screen.queryByTestId('reprice-long')).toBeNull();
+    expect(screen.queryByTestId('reprice-short')).toBeNull();
+    expect(screen.getByTestId('spread-payoff-card').textContent).not.toContain(
+      'Click the chart to select a strike',
+    );
+  });
+
+  it('mentions chart clickability in the caption when interactive', () => {
+    renderInteractive();
+    expect(screen.getByTestId('spread-payoff-card').textContent).toContain(
+      'Click the chart to select a strike',
+    );
   });
 });

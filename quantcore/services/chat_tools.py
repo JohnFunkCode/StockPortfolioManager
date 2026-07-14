@@ -28,10 +28,51 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
 }
 
 
+# Component name -> action name -> payload spec (same typing convention as
+# prop specs). Components absent here are display-only. This is the UI->model
+# backchannel vocabulary: the frontend registry declares the same actions and
+# both sides validate (defense in depth, mirroring the directive registries).
+BACKEND_INTERACTION_REGISTRY: dict[str, dict[str, dict[str, object]]] = {
+    "spread_payoff": {
+        "select_strike": {"strike": _NUMBER},
+        "reprice_leg": {"leg": str, "strike": _NUMBER},
+    },
+    "price_chart": {
+        "select_point": {"date": str, "price": _NUMBER},
+    },
+}
+
+
 def _type_name(expected) -> str:
     if isinstance(expected, tuple):
         return " or ".join(t.__name__ for t in expected)
     return expected.__name__
+
+
+def _check_fields(spec: dict, values: dict, label: str, owner: str) -> tuple[bool, str]:
+    """Strict field check shared by directives and interactions: every spec
+    field required, extras rejected, bool never passes as a number."""
+    extra = set(values) - set(spec)
+    if extra:
+        return False, f"Unexpected {label}s {sorted(extra)} for '{owner}'"
+    for name, expected_type in spec.items():
+        if name not in values:
+            return False, f"Missing required {label} '{name}' for '{owner}'"
+        value = values[name]
+        # bool is an int subclass — never a valid stand-in for a number.
+        if isinstance(value, bool) and expected_type is not bool:
+            return False, (
+                f"{label.capitalize()} '{name}' must be "
+                f"{_type_name(expected_type)}, got bool"
+            )
+        if not isinstance(value, expected_type):
+            return False, (
+                f"{label.capitalize()} '{name}' must be {_type_name(expected_type)}, "
+                f"got {type(value).__name__}"
+            )
+        if expected_type is str and not value.strip():
+            return False, f"{label.capitalize()} '{name}' must be a non-empty string"
+    return True, ""
 
 
 def validate_directive(component: str, props: object) -> tuple[bool, str]:
@@ -44,23 +85,42 @@ def validate_directive(component: str, props: object) -> tuple[bool, str]:
         )
     if not isinstance(props, dict):
         return False, f"props must be an object, got {type(props).__name__}"
-    extra = set(props) - set(spec)
-    if extra:
-        return False, f"Unexpected props {sorted(extra)} for '{component}'"
-    for name, expected_type in spec.items():
-        if name not in props:
-            return False, f"Missing required prop '{name}' for '{component}'"
-        value = props[name]
-        # bool is an int subclass — never a valid stand-in for a number.
-        if isinstance(value, bool) and expected_type is not bool:
-            return False, f"Prop '{name}' must be {_type_name(expected_type)}, got bool"
-        if not isinstance(value, expected_type):
-            return False, (
-                f"Prop '{name}' must be {_type_name(expected_type)}, "
-                f"got {type(value).__name__}"
-            )
-        if expected_type is str and not value.strip():
-            return False, f"Prop '{name}' must be a non-empty string"
+    return _check_fields(spec, props, "prop", component)
+
+
+def validate_interaction(interaction: object) -> tuple[bool, str]:
+    """Validate one UI interaction from the request body before it is folded
+    into the model conversation. Returns (ok, reason-if-rejected)."""
+    if not isinstance(interaction, dict):
+        return False, f"interaction must be an object, got {type(interaction).__name__}"
+    component_id = interaction.get("component_id")
+    if not isinstance(component_id, str) or not component_id.strip():
+        return False, "interaction requires a non-empty 'component_id'"
+    component = interaction.get("component", "")
+    actions = BACKEND_INTERACTION_REGISTRY.get(component)
+    if actions is None:
+        return False, (
+            f"Component '{component}' accepts no interactions. "
+            f"Interactive components: {sorted(BACKEND_INTERACTION_REGISTRY)}"
+        )
+    action = interaction.get("action", "")
+    payload_spec = actions.get(action)
+    if payload_spec is None:
+        return False, (
+            f"Unknown action '{action}' for '{component}'. "
+            f"Valid actions: {sorted(actions)}"
+        )
+    payload = interaction.get("payload", {})
+    if not isinstance(payload, dict):
+        return False, f"payload must be an object, got {type(payload).__name__}"
+    ok, reason = _check_fields(payload_spec, payload, "payload field", action)
+    if not ok:
+        return False, reason
+    props = interaction.get("props")
+    if props is not None:
+        ok, reason = validate_directive(component, props)
+        if not ok:
+            return False, f"interaction props snapshot invalid: {reason}"
     return True, ""
 
 

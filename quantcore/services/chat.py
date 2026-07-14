@@ -21,10 +21,15 @@ import json
 import logging
 import math
 import os
+import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Iterator, Protocol
 
-from quantcore.services.chat_tools import TOOL_SCHEMAS, validate_directive
+from quantcore.services.chat_tools import (
+    TOOL_SCHEMAS,
+    validate_directive,
+    validate_interaction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +49,13 @@ short_strike, kind}) using the exact same parameters. After discussing a
 ticker, prefer showing the relevant component so the user sees live data —
 the component fetches its own data; never restate numbers the component will
 display.
+
+Rendered components are interactive: when the user clicks inside one (a
+strike on a spread_payoff chart, a point on a price_chart), their message
+arrives with [UI_INTERACTION] lines — JSON naming the component instance, the
+action, its payload, and the props of that instance. Treat these as precise
+context from the user ("this strike" means the payload strike). Answer about
+the selected element directly; never echo the raw JSON back.
 
 Numbers you state in prose must come from tool results in this conversation,
 never from memory. Be concise; this is a side rail, not a report."""
@@ -69,9 +81,14 @@ class ToolStatus:
 
 @dataclass(frozen=True)
 class Directive:
-    """A validated show_component call — render this registry component."""
+    """A validated show_component call — render this registry component.
+
+    ``component_id`` identifies the rendered instance so UI interactions can
+    reference exactly which chart the user touched (the backchannel).
+    """
     component: str
     props: dict = field(default_factory=dict)
+    component_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -120,6 +137,28 @@ def _sanitize(value):
     if isinstance(value, (list, tuple)):
         return [_sanitize(v) for v in value]
     return value
+
+
+def _fold_interactions(convo: list[dict], interactions: list[dict]) -> None:
+    """Append [UI_INTERACTION] envelope lines to the final user turn (adding
+    one if the conversation doesn't end on a user turn). Interactions are
+    current-turn context only — future turns rely on the assistant's reply,
+    exactly like MCP Apps' update-model-context semantics."""
+    lines = []
+    for it in interactions:
+        body = {
+            k: it[k]
+            for k in ("component", "component_id", "action", "payload", "props")
+            if it.get(k) is not None
+        }
+        lines.append(
+            "[UI_INTERACTION] " + json.dumps(_sanitize(body), sort_keys=True)
+        )
+    block = "\n".join(lines)
+    if convo and convo[-1]["role"] == "user" and isinstance(convo[-1]["content"], str):
+        convo[-1]["content"] = f"{convo[-1]['content']}\n\n{block}"
+    else:
+        convo.append({"role": "user", "content": block})
 
 
 def _tool_result(tool_use_id: str, payload, is_error: bool = False) -> dict:
@@ -187,8 +226,17 @@ class ChatService:
             ),
         }
 
-    def stream_chat(self, messages: list[dict]) -> Iterator[ChatEvent]:
+    def stream_chat(
+        self, messages: list[dict], interactions: list[dict] | None = None
+    ) -> Iterator[ChatEvent]:
         convo = [{"role": m["role"], "content": m["content"]} for m in messages]
+        if interactions:
+            for it in interactions:
+                ok, reason = validate_interaction(it)
+                if not ok:
+                    yield ErrorEvent(message=f"Invalid interaction: {reason}")
+                    return
+            _fold_interactions(convo, interactions)
         try:
             client = self._client_factory()
             for _ in range(self._max_iterations):
@@ -224,7 +272,11 @@ class ChatService:
                         props = args.get("props")
                         ok, reason = validate_directive(component, props)
                         if ok:
-                            yield Directive(component=component, props=props)
+                            yield Directive(
+                                component=component,
+                                props=props,
+                                component_id=uuid.uuid4().hex[:12],
+                            )
                             results.append(_tool_result(tu.id, {"rendered": True}))
                         else:
                             results.append(_tool_result(tu.id, reason, is_error=True))

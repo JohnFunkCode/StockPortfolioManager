@@ -302,6 +302,148 @@ class TestShowComponent(ChatServiceTestBase):
         self.assertIn("nuclear_launch", result_block["content"])
 
 
+def ui_interaction(**overrides):
+    base = {
+        "component_id": "d1",
+        "component": "spread_payoff",
+        "action": "select_strike",
+        "payload": {"strike": 120.0},
+    }
+    base.update(overrides)
+    return base
+
+
+class TestInteractions(ChatServiceTestBase):
+    """The UI->model backchannel: validated interactions are folded into the
+    last user turn as [UI_INTERACTION] envelope lines before the model runs."""
+
+    END = {"final": final("end_turn", text_block("ok"))}
+
+    def test_interaction_folded_into_last_user_message(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        events = list(
+            service.stream_chat(
+                [{"role": "user", "content": "what about this strike?"}],
+                interactions=[ui_interaction()],
+            )
+        )
+        self.assertIsInstance(events[-1], Done)
+        last = client.calls[0]["messages"][-1]
+        self.assertEqual(last["role"], "user")
+        self.assertIn("what about this strike?", last["content"])
+        self.assertIn("[UI_INTERACTION]", last["content"])
+        self.assertIn('"select_strike"', last["content"])
+        self.assertIn("120", last["content"])
+
+    def test_multiple_interactions_fold_in_order(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                interactions=[
+                    ui_interaction(payload={"strike": 110.0}),
+                    ui_interaction(payload={"strike": 130.0}, component_id="d2"),
+                ],
+            )
+        )
+        content = client.calls[0]["messages"][-1]["content"]
+        self.assertEqual(content.count("[UI_INTERACTION]"), 2)
+        self.assertLess(content.index("110"), content.index("130"))
+
+    def test_props_snapshot_included_in_envelope(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                interactions=[
+                    ui_interaction(
+                        props={
+                            "ticker": "WMT",
+                            "expiration": "2026-12-18",
+                            "long_strike": 120,
+                            "short_strike": 125,
+                            "kind": "call",
+                        }
+                    )
+                ],
+            )
+        )
+        content = client.calls[0]["messages"][-1]["content"]
+        self.assertIn("WMT", content)
+        self.assertIn("2026-12-18", content)
+
+    def test_no_interactions_leaves_conversation_untouched(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        list(service.stream_chat([{"role": "user", "content": "hi"}]))
+        self.assertEqual(client.calls[0]["messages"][-1]["content"], "hi")
+
+    def test_invalid_interaction_errors_before_model_call(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        events = list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                interactions=[ui_interaction(action="explode")],
+            )
+        )
+        self.assertEqual(len(events), 1)
+        self.assertIsInstance(events[0], ErrorEvent)
+        self.assertEqual(client.calls, [])
+        self.assertEqual(self.options.mock_calls, [])
+
+    def test_assistant_final_message_gets_own_user_turn(self):
+        client = ScriptedClient([dict(self.END)])
+        service = self.make_service(client)
+        list(
+            service.stream_chat(
+                [
+                    {"role": "user", "content": "hi"},
+                    {"role": "assistant", "content": "hello"},
+                ],
+                interactions=[ui_interaction()],
+            )
+        )
+        msgs = client.calls[0]["messages"]
+        self.assertEqual(msgs[-1]["role"], "user")
+        self.assertIn("[UI_INTERACTION]", msgs[-1]["content"])
+        self.assertEqual(msgs[-2]["content"], "hello")
+
+    def test_system_prompt_documents_the_envelope(self):
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("[UI_INTERACTION]", SYSTEM_PROMPT)
+
+
+class TestDirectiveComponentIds(ChatServiceTestBase):
+    def test_each_directive_gets_a_unique_component_id(self):
+        show = lambda tu_id, ticker: {  # noqa: E731
+            "final": final(
+                "tool_use",
+                tool_use(
+                    tu_id,
+                    "show_component",
+                    {"component": "signals", "props": {"ticker": ticker}},
+                ),
+            )
+        }
+        client = ScriptedClient(
+            [
+                show("tu_1", "INTC"),
+                show("tu_2", "AMD"),
+                {"final": final("end_turn", text_block("done"))},
+            ]
+        )
+        events = self.run_chat(client)
+        directives = [e for e in events if isinstance(e, Directive)]
+        self.assertEqual(len(directives), 2)
+        self.assertTrue(all(d.component_id for d in directives))
+        self.assertNotEqual(directives[0].component_id, directives[1].component_id)
+
+
 class TestFailureModes(ChatServiceTestBase):
     def test_client_exception_yields_single_error_no_done(self):
         client = ScriptedClient([RuntimeError("api down")])
@@ -378,6 +520,61 @@ class TestFakeChatClient(unittest.TestCase):
         self.assertLess(directive_idx, len(events) - 1)
         joined = "".join(e.delta for e in events if isinstance(e, TextDelta))
         self.assertIn("INTC", joined)
+
+    def test_spread_prompt_renders_spread_payoff(self):
+        """Prompts mentioning a spread play the WMT spread_payoff script —
+        the interactive card the Playwright backchannel spec clicks on."""
+        service = ChatService(
+            prices=Mock(),
+            fundamentals=Mock(),
+            sentiment=Mock(),
+            options=Mock(),
+            client_factory=FakeChatClient,
+        )
+        events = list(
+            service.stream_chat(
+                [{"role": "user", "content": "Price a WMT 120/125 call spread"}]
+            )
+        )
+        directives = [e for e in events if isinstance(e, Directive)]
+        self.assertEqual(len(directives), 1)
+        self.assertEqual(directives[0].component, "spread_payoff")
+        self.assertEqual(directives[0].props["ticker"], "WMT")
+        self.assertEqual(directives[0].props["long_strike"], 120)
+        self.assertTrue(directives[0].component_id)
+        self.assertIsInstance(events[-1], Done)
+        joined = "".join(e.delta for e in events if isinstance(e, TextDelta))
+        self.assertIn("risk graph", joined)
+
+    def test_interaction_envelope_gets_acknowledgement_turn(self):
+        """When the folded user turn carries a [UI_INTERACTION] envelope, the
+        fake acknowledges it instead of replaying the INTC script — pins the
+        contract the Playwright interaction spec relies on."""
+        service = ChatService(
+            prices=Mock(),
+            fundamentals=Mock(),
+            sentiment=Mock(),
+            options=Mock(),
+            client_factory=FakeChatClient,
+        )
+        events = list(
+            service.stream_chat(
+                [{"role": "user", "content": "what about this one?"}],
+                interactions=[
+                    {
+                        "component_id": "d1",
+                        "component": "spread_payoff",
+                        "action": "select_strike",
+                        "payload": {"strike": 120.0},
+                    }
+                ],
+            )
+        )
+        self.assertIsInstance(events[-1], Done)
+        self.assertEqual([e for e in events if isinstance(e, Directive)], [])
+        joined = "".join(e.delta for e in events if isinstance(e, TextDelta))
+        self.assertIn("120", joined)
+        self.assertIn("selection", joined.lower())
 
 
 if __name__ == "__main__":

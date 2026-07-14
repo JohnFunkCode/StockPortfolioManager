@@ -8,7 +8,12 @@ import type { ChatStreamEvent } from '../../chat/types';
 let currentOnEvent: ((e: ChatStreamEvent) => void) | null = null;
 let resolveStream: (() => void) | null = null;
 const streamChatMock = vi.fn(
-  (_msgs: unknown, onEvent: (e: ChatStreamEvent) => void) =>
+  (
+    _msgs: unknown,
+    onEvent: (e: ChatStreamEvent) => void,
+    _signal?: unknown,
+    _interactions?: unknown,
+  ) =>
     new Promise<void>((resolve) => {
       currentOnEvent = onEvent;
       resolveStream = resolve;
@@ -192,5 +197,66 @@ describe('ChatRail', () => {
     expect(assistantTurn?.content).toContain('Here.');
     expect(assistantTurn?.content).toContain('[shown: signals INTC]');
     expect(history[history.length - 1]).toEqual({ role: 'user', content: 'And AMD?' });
+  });
+
+  it('flips running tool chips to error when the stream dies without a terminal frame', async () => {
+    renderRail();
+    await sendPrompt('Price an MSTR spread');
+    emit({ type: 'text', delta: 'Pricing…' });
+    emit({
+      type: 'tool_status',
+      tool: 'price_vertical_spread',
+      args: { symbol: 'MSTR' },
+      state: 'running',
+    });
+    expect(screen.getByTestId('tool-chip-price_vertical_spread').dataset.state).toBe('running');
+
+    // Server restarted mid-call: the stream just ends — no done, no error frame.
+    finishStream();
+    await waitFor(() =>
+      expect(screen.getByTestId('tool-chip-price_vertical_spread').dataset.state).toBe('error'),
+    );
+  });
+
+  describe('pending interactions (backchannel composer chips)', () => {
+    const PENDING = {
+      component_id: 'inst-1',
+      component: 'spread_payoff',
+      action: 'select_strike',
+      payload: { strike: 120 },
+    };
+
+    it('shows a chip for a queued interaction and sends it with the next message', async () => {
+      localStorage.setItem('hl-chat-pending-interactions', JSON.stringify([PENDING]));
+      renderRail();
+
+      const chip = screen.getByTestId('pending-interaction');
+      expect(chip.textContent).toContain('select strike');
+      expect(chip.textContent).toContain('120');
+
+      await sendPrompt('What about this one?');
+      expect(streamChatMock.mock.calls[0][3]).toEqual([PENDING]);
+      // One-shot context: the chip is gone after the send.
+      expect(screen.queryByTestId('pending-interaction')).toBeNull();
+      // The instance is now on the consumed record — its card locks.
+      const consumed = JSON.parse(
+        localStorage.getItem('hl-chat-consumed-interactions') ?? '{}',
+      );
+      expect(consumed['inst-1']).toEqual([PENDING]);
+      finishStream();
+    });
+
+    it('chip delete discards the pending interaction without sending', async () => {
+      localStorage.setItem('hl-chat-pending-interactions', JSON.stringify([PENDING]));
+      renderRail();
+
+      const chip = screen.getByTestId('pending-interaction');
+      await userEvent.click(chip.querySelector('.MuiChip-deleteIcon')!);
+      expect(screen.queryByTestId('pending-interaction')).toBeNull();
+
+      await sendPrompt('plain question');
+      expect(streamChatMock.mock.calls[0][3]).toEqual([]);
+      finishStream();
+    });
   });
 });

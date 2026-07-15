@@ -13,3 +13,5 @@ api.log
 frontend.log
 backups/
 .env.docker
+frontend/tsconfig.tsbuildinfo
+frontend/test-results/

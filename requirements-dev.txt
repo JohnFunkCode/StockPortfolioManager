@@ -1,0 +1,5 @@
+# Dev/CI-only tooling. The Docker images install requirements-base.txt, so
+# nothing here ships to Cloud Run. CI's gate job installs this file.
+-r requirements-base.txt
+coverage
+diff-cover

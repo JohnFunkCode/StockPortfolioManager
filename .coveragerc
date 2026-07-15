@@ -1,0 +1,21 @@
+# Coverage scope = the arch-v2 surfaces we actively maintain. Legacy code the
+# standard carved out (portfolio/ report path, experiments/ monitors) and
+# operational scripts are excluded on purpose: including known-legacy code
+# dilutes the number until it describes nothing. Enforcement is a ratchet —
+# the CI floor (deploy.yml gate job) only ever moves up.
+[run]
+source =
+    quantcore
+    api
+    mcp_gateway
+    fastMCPTest
+
+omit =
+    */__pycache__/*
+    test_*.py
+
+[report]
+precision = 1
+skip_empty = True
+exclude_also =
+    if __name__ == .__main__.:

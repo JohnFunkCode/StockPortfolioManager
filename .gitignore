@@ -13,3 +13,8 @@ api.log
 frontend.log
 backups/
 .env.docker
+.coverage
+coverage.xml
+htmlcov/
+diff-cover.md
+frontend/coverage/

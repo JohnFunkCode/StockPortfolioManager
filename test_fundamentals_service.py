@@ -1,0 +1,302 @@
+"""Unit tests for FundamentalsService's pure scoring helpers and the
+cache-orchestration surface.
+
+Coverage uplift (July 2026). The `_compute_*` bodies that parse raw yfinance
+financial statements are exercised only through their pure extracted helpers
+here (statement-shaped fixtures for those internals are a follow-up); the
+cache wrappers, batch scorer, profile composer, and rankings are covered
+fully with a mocked repository.
+"""
+import math
+import unittest
+from unittest.mock import Mock, patch
+
+import pandas as pd
+
+from quantcore.services.fundamentals import (
+    FundamentalsService,
+    _compute_earnings_acceleration,
+    _fcf_margin_3y,
+    _get_annual_cfo_and_capex,
+    _get_annual_revenue_and_operating_income,
+    _get_quarterly_revenue,
+    _mom_12_1,
+    _op_margin_3y_and_trend,
+    _rev_accel,
+    _rev_cagr_3y,
+    _score_metric,
+    _valuation_metric,
+)
+
+
+def series(values):
+    return pd.Series([float(v) for v in values],
+                     index=pd.period_range("2022", periods=len(values), freq="Y"))
+
+
+class TestStatementExtractors(unittest.TestCase):
+    def test_revenue_and_operating_income(self):
+        fin = pd.DataFrame(
+            [[100.0, 120.0], [10.0, 18.0]],
+            index=["Total Revenue", "Operating Income"],
+            columns=pd.to_datetime(["2024-12-31", "2025-12-31"]),
+        )
+        rev, op = _get_annual_revenue_and_operating_income(fin)
+        self.assertEqual(list(rev.values), [100.0, 120.0])
+        self.assertEqual(list(op.values), [10.0, 18.0])
+
+    def test_missing_revenue_row_returns_nones(self):
+        fin = pd.DataFrame([[1.0]], index=["Something Else"],
+                           columns=pd.to_datetime(["2025-12-31"]))
+        self.assertEqual(_get_annual_revenue_and_operating_income(fin), (None, None))
+        self.assertEqual(_get_annual_revenue_and_operating_income(None), (None, None))
+
+    def test_cfo_capex_label_variants(self):
+        cf = pd.DataFrame(
+            [[30.0], [10.0]],
+            index=["Operating Cash Flow", "Capital Expenditure"],
+            columns=pd.to_datetime(["2025-12-31"]),
+        )
+        cfo, capex = _get_annual_cfo_and_capex(cf)
+        self.assertEqual(float(cfo.iloc[0]), 30.0)
+        self.assertEqual(float(capex.iloc[0]), 10.0)
+        self.assertEqual(_get_annual_cfo_and_capex(None), (None, None))
+
+    def test_quarterly_revenue(self):
+        qf = pd.DataFrame([[50.0, 60.0]], index=["Total Revenue"],
+                          columns=pd.to_datetime(["2026-03-31", "2025-12-31"]))
+        qrev = _get_quarterly_revenue(qf)
+        self.assertEqual(len(qrev), 2)
+        self.assertIsNone(_get_quarterly_revenue(None))
+
+
+class TestGrowthMath(unittest.TestCase):
+    def test_cagr_3y_exact(self):
+        cagr = _rev_cagr_3y(series([100, 120, 150, 200]))
+        self.assertAlmostEqual(cagr, 2.0 ** (1 / 3) - 1, places=9)
+
+    def test_cagr_needs_four_years_and_positive_base(self):
+        self.assertIsNone(_rev_cagr_3y(series([100, 120, 150])))
+        self.assertIsNone(_rev_cagr_3y(series([0, 120, 150, 200])))
+        self.assertIsNone(_rev_cagr_3y(None))
+
+    def test_revenue_acceleration_delta(self):
+        self.assertAlmostEqual(_rev_accel(series([100, 120, 150])), 0.05, places=9)
+        self.assertIsNone(_rev_accel(series([100, 120])))
+
+    def test_op_margin_mean_and_trend(self):
+        mean_om, trend = _op_margin_3y_and_trend(
+            series([100, 100, 100]), series([10, 20, 30])
+        )
+        self.assertAlmostEqual(mean_om, 0.2, places=9)
+        self.assertAlmostEqual(trend, 0.3 - 0.15, places=9)
+        self.assertEqual(_op_margin_3y_and_trend(None, None), (None, None))
+
+    def test_fcf_margin(self):
+        margin = _fcf_margin_3y(
+            series([100, 100, 100]), series([30, 30, 30]), series([10, 10, 10])
+        )
+        self.assertAlmostEqual(margin, 0.2, places=9)
+        self.assertIsNone(_fcf_margin_3y(series([100, 100]), series([30, 30]),
+                                         series([10, 10])))
+
+    def test_valuation_metric_preference_order(self):
+        val, label = _valuation_metric({"enterpriseToRevenue": 5.0, "trailingPE": 30.0})
+        self.assertEqual(label, "EV/Sales")
+        self.assertAlmostEqual(val, math.log(5.0), places=9)
+        val, label = _valuation_metric({"trailingPE": 30.0})
+        self.assertEqual(label, "P/E")
+        self.assertEqual(_valuation_metric({}), (None, "NA"))
+
+    def test_momentum_12_1(self):
+        closes = pd.DataFrame({"Close": [float(100 + i * 0.1) for i in range(300)]})
+        mom = _mom_12_1(closes)
+        p252, p21 = 100 + (300 - 252) * 0.1, 100 + (300 - 21) * 0.1
+        self.assertAlmostEqual(mom, p21 / p252 - 1, places=9)
+        self.assertIsNone(_mom_12_1(pd.DataFrame({"Close": [1.0] * 100})))
+        self.assertIsNone(_mom_12_1(None))
+
+
+class TestScoreMetric(unittest.TestCase):
+    CASES = [
+        ("RevCAGR3Y", 0.30, 2), ("RevCAGR3Y", 0.15, 1), ("RevCAGR3Y", 0.05, 0),
+        ("RevCAGR3Y", -0.10, -1),
+        ("RevAccel", 0.10, 1), ("RevAccel", -0.10, -1), ("RevAccel", 0.0, 0),
+        ("OpMargin3Y", 0.25, 2), ("OpMargin3Y", 0.12, 1), ("OpMargin3Y", 0.05, 0),
+        ("OpMargin3Y", -0.05, -1),
+        ("OpMarginTrend", 0.05, 1), ("OpMarginTrend", -0.05, -1), ("OpMarginTrend", 0.0, 0),
+        ("FCFMargin3Y", 0.20, 2), ("FCFMargin3Y", 0.08, 1), ("FCFMargin3Y", 0.01, 0),
+        ("FCFMargin3Y", -0.10, -1),
+        ("ValMetric", 1.0, 2), ("ValMetric", 2.0, 1), ("ValMetric", 3.0, 0),
+        ("ValMetric", 4.0, -1),
+        ("Mom12_1", 0.30, 2), ("Mom12_1", 0.05, 1), ("Mom12_1", -0.05, 0),
+        ("Mom12_1", -0.30, -1),
+    ]
+
+    def test_threshold_table(self):
+        for metric, value, expected in self.CASES:
+            score, detail = _score_metric(value, metric)
+            self.assertEqual(score, expected, f"{metric}={value} -> {detail}")
+
+    def test_missing_value_scores_zero(self):
+        self.assertEqual(_score_metric(None, "RevCAGR3Y"), (0, "no data"))
+
+
+def quarterly_income(newest_first):
+    return pd.DataFrame(
+        [list(map(float, newest_first))],
+        index=["Net Income"],
+        columns=pd.to_datetime(
+            [f"202{6 - i}-03-31" for i in range(len(newest_first))]
+        ),
+    )
+
+
+class TestEarningsAcceleration(unittest.TestCase):
+    def test_accelerating_growth_counts_all_deltas(self):
+        count, total, avg_delta, rates, incomes = _compute_earnings_acceleration(
+            quarterly_income([100, 50, 30, 20, 15])  # oldest->newest: 15,20,30,50,100
+        )
+        self.assertEqual((count, total), (3, 3))
+        self.assertGreater(avg_delta, 0)
+        self.assertEqual(len(rates), 4)
+        self.assertEqual(incomes[0], 15.0)
+
+    def test_decelerating_growth_counts_none(self):
+        count, total, avg_delta, _, _ = _compute_earnings_acceleration(
+            quarterly_income([50, 40, 30, 20, 10])  # steady adds, falling growth rate
+        )
+        self.assertEqual(count, 0)
+        self.assertLess(avg_delta, 0)
+
+    def test_too_few_quarters(self):
+        count, total, avg_delta, rates, incomes = _compute_earnings_acceleration(
+            quarterly_income([30, 20, 10])
+        )
+        self.assertIsNone(count)
+        self.assertEqual(len(incomes), 3)
+
+    def test_missing_row(self):
+        df = pd.DataFrame([[1.0]], index=["Revenue"],
+                          columns=pd.to_datetime(["2026-03-31"]))
+        self.assertEqual(_compute_earnings_acceleration(df), (None, None, None, [], []))
+
+
+class FundamentalsServiceTestBase(unittest.TestCase):
+    def setUp(self):
+        self.repo = Mock()
+        self.service = FundamentalsService(
+            fundamentals_repository=self.repo, yfinance_gateway=Mock()
+        )
+
+
+class TestCacheOrchestration(FundamentalsServiceTestBase):
+    def test_cache_hit_skips_compute(self):
+        self.repo.get.return_value = {"composite_score": 7}
+        with patch.object(self.service, "_compute_fundamental_score",
+                          side_effect=AssertionError("must not compute")):
+            out = self.service.get_fundamental_score("intc")
+        self.assertEqual(out["composite_score"], 7)
+        self.repo.set.assert_not_called()
+
+    def test_cache_miss_computes_and_stores(self):
+        self.repo.get.return_value = None
+        with patch.object(self.service, "_compute_fundamental_score",
+                          return_value={"composite_score": 3}) as compute:
+            out = self.service.get_fundamental_score("intc")
+        compute.assert_called_once_with("INTC")
+        self.repo.set.assert_called_once()
+        self.assertEqual(out["composite_score"], 3)
+
+    def test_all_four_wrappers_share_the_pattern(self):
+        self.repo.get.return_value = {"cached": True}
+        for method in ("get_earnings_calendar", "get_revenue_growth",
+                       "get_earnings_acceleration"):
+            self.assertEqual(getattr(self.service, method)("intc"), {"cached": True})
+
+
+class TestBatchScoring(FundamentalsServiceTestBase):
+    def test_batch_mixes_hits_computes_and_errors(self):
+        def repo_get(sym, kind):
+            return {"symbol": "AAA", "composite_score": 2} if sym == "AAA" else None
+
+        self.repo.get.side_effect = repo_get
+
+        def compute(sym):
+            if sym == "CCC":
+                raise RuntimeError("yahoo choked")
+            return {"symbol": sym, "composite_score": 9}
+
+        with patch.object(self.service, "_compute_fundamental_score",
+                          side_effect=compute):
+            out = self.service.get_fundamental_scores_batch(["aaa", "bbb", "ccc"])
+
+        self.assertEqual(out["requested"], 3)
+        self.assertEqual(out["cache_hits"], 1)
+        self.assertEqual(out["fetched"], 1)
+        self.assertEqual(out["errors"], 1)
+        # Sorted by composite descending; flags mark provenance.
+        self.assertEqual([r["symbol"] for r in out["results"]], ["BBB", "AAA"])
+        self.assertFalse(out["results"][0]["cache_hit"])
+        self.assertTrue(out["results"][1]["cache_hit"])
+
+
+class TestFullProfile(FundamentalsServiceTestBase):
+    def arm(self, composite=9, trajectory="accelerating", accel="strong",
+            risk="LOW", days_to_earnings=None, cagr=0.3):
+        patches = [
+            patch.object(self.service, "get_earnings_calendar", return_value={
+                "risk_level": risk, "days_to_earnings": days_to_earnings}),
+            patch.object(self.service, "get_fundamental_score", return_value={
+                "composite_score": composite}),
+            patch.object(self.service, "get_revenue_growth", return_value={
+                "trajectory": trajectory, "cagr_3y": cagr}),
+            patch.object(self.service, "get_earnings_acceleration", return_value={
+                "acceleration_label": accel}),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_strong_everything_reads_bullish_with_highlights(self):
+        self.arm()
+        out = self.service.get_full_fundamental_profile("intc")
+        self.assertEqual(out["summary"]["overall_signal"], "bullish")
+        joined = " ".join(out["summary"]["highlights"])
+        self.assertIn("Strong fundamentals", joined)
+        self.assertIn("Revenue accelerating", joined)
+        self.assertIn("EPS acceleration", joined)
+        self.assertIn("Strong 3Y CAGR", joined)
+
+    def test_deteriorating_reads_bearish(self):
+        self.arm(composite=-5, trajectory="decelerating", accel="none", cagr=None)
+        out = self.service.get_full_fundamental_profile("INTC")
+        self.assertEqual(out["summary"]["overall_signal"], "bearish")
+
+    def test_imminent_earnings_overrides_to_caution(self):
+        self.arm(risk="HIGH", days_to_earnings=3)
+        out = self.service.get_full_fundamental_profile("INTC")
+        self.assertEqual(out["summary"]["overall_signal"], "caution")
+        self.assertIn("options risk", " ".join(out["summary"]["highlights"]))
+
+
+class TestTopRankings(FundamentalsServiceTestBase):
+    def test_coverage_filter_and_ordering(self):
+        self.repo.get_all_latest.return_value = [
+            {"symbol": "AAA", "composite_score": 5, "coverage": 0.9,
+             "fundamental_label": "good", "fetched_at": "t"},
+            {"symbol": "BBB", "composite_score": 9, "coverage": 0.8,
+             "fundamental_label": "great", "fetched_at": "t"},
+            {"symbol": "LOWCOV", "composite_score": 12, "coverage": 0.2,
+             "fundamental_label": "?", "fetched_at": "t"},
+            {"symbol": "NOSCORE", "composite_score": None, "coverage": 0.9},
+        ]
+        out = self.service.get_top_fundamental_stocks(n=10, min_coverage=0.5)
+        self.assertEqual(out["total_in_cache"], 4)
+        self.assertEqual(out["eligible_count"], 2)
+        self.assertEqual([r["symbol"] for r in out["rankings"]], ["BBB", "AAA"])
+        self.assertEqual(out["rankings"][0]["rank"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -30,6 +30,7 @@ from quantcore.analytics.indicators import (
     safe_float,
 )
 from quantcore.analytics.market_time import latest_completed_session, period_to_days
+from quantcore.analytics.volume_profile import build_volume_profile, find_volume_nodes
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_repository import OptionsStore
@@ -1046,6 +1047,97 @@ class PricesService:
             "chandelier_stop":   round(chandelier_stop, 4),
             "stop_distance_pct": round(stop_distance_pct, 3),
             "bands_history":     bands_history,
+            "interpretation":    interpretation,
+        }
+
+    def get_volume_profile(self, symbol: str, days: int = 365, interval: str = "1d",
+                           bins: int = 50, value_area_pct: float = 0.70) -> dict:
+        valid_intervals = {"1d", "1h"}
+        if interval not in valid_intervals:
+            raise ValueError(f"Invalid interval '{interval}'. Choose from: {', '.join(sorted(valid_intervals))}")
+        if not 0 < value_area_pct < 1:
+            raise ValueError(f"value_area_pct must be between 0 and 1, got {value_area_pct}")
+        if bins < 5:
+            raise ValueError(f"bins must be at least 5, got {bins}")
+
+        sym = symbol.upper()
+        note = None
+        if interval == "1h" and days > 60:
+            note = ("Intraday (1h) history is capped at ~60 days by the data source; "
+                    "profile built on the available window.")
+
+        hist = self.get_history(sym, interval, days)
+
+        min_bars = 20
+        if len(hist) < min_bars:
+            raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {min_bars})")
+
+        profile = build_volume_profile(
+            hist["High"], hist["Low"], hist["Volume"], bins, value_area_pct
+        )
+        nodes = find_volume_nodes(profile["bin_centers"], profile["bin_volumes"])
+
+        last_close = float(hist["Close"].iloc[-1])
+        va_low, va_high = profile["value_area_low"], profile["value_area_high"]
+        in_value_area = va_low <= last_close <= va_high
+
+        def fmt_node(node):
+            return {"price": round(node["price"], 4), "volume": int(round(node["volume"]))}
+
+        hvns = [fmt_node(n) for n in nodes["hvns"]]
+        lvns = [fmt_node(n) for n in nodes["lvns"]]
+
+        def nearest(node_list, side):
+            if side == "below":
+                below = [n for n in node_list if n["price"] <= last_close]
+                return max(below, key=lambda n: n["price"]) if below else None
+            above = [n for n in node_list if n["price"] > last_close]
+            return min(above, key=lambda n: n["price"]) if above else None
+
+        nearest_hvn_below = nearest(hvns, "below")
+        nearest_hvn_above = nearest(hvns, "above")
+
+        total = profile["total_volume"]
+        compact_profile = [
+            {"price": round(float(c), 4),
+             "volume": int(round(float(v))),
+             "pct": round(float(v) / total * 100, 2)}
+            for c, v in zip(profile["bin_centers"], profile["bin_volumes"])
+        ]
+
+        va_pos = "inside" if in_value_area else ("above" if last_close > va_high else "below")
+        interpretation = (
+            f"POC (heaviest traded price) at {profile['poc']:.2f}; "
+            f"{int(value_area_pct * 100)}% value area {va_low:.2f}–{va_high:.2f} "
+            f"(price is {va_pos} it). HVNs mark acceptance zones that tend to act as "
+            f"support/resistance; LVNs mark rejection zones price tends to move through quickly."
+        )
+        if nearest_hvn_below is not None:
+            interpretation += (
+                f" Nearest high-volume support below: {nearest_hvn_below['price']:.2f}."
+            )
+
+        return {
+            "symbol":            sym,
+            "interval":          interval,
+            "days":              days,
+            "bars_used":         len(hist),
+            "bins":              bins,
+            "value_area_pct":    value_area_pct,
+            "last_close":        round(last_close, 4),
+            "poc":               round(profile["poc"], 4),
+            "poc_volume":        int(round(profile["poc_volume"])),
+            "total_volume":      int(round(total)),
+            "value_area":        {"low": round(va_low, 4), "high": round(va_high, 4)},
+            "in_value_area":     in_value_area,
+            "hvns":              hvns,
+            "lvns":              lvns,
+            "nearest_hvn_below": nearest_hvn_below,
+            "nearest_hvn_above": nearest_hvn_above,
+            "nearest_lvn_below": nearest(lvns, "below"),
+            "nearest_lvn_above": nearest(lvns, "above"),
+            "profile":           compact_profile,
+            "note":              note,
             "interpretation":    interpretation,
         }
 

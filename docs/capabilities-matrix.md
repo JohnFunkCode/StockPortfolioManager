@@ -3,7 +3,7 @@
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
 **Last Updated:** 2026-07-15  
-**MCP Tools:** 49 | **REST Endpoints:** 85 routes (see `docs/openapi-surface.txt`) | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
+**MCP Tools:** 50 | **REST Endpoints:** 86 routes (see `docs/openapi-surface.txt`) | **WebUI Pages:** 6 | **CLI Tools:** 2 | **Standalone Scripts:** 8
 
 > **Refactor status (2026-06-17):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md`. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — see `proposals/phase2-fastapi-plan.md`: the Flask app (`api/app.py`) was rebuilt on FastAPI (`api/main.py`) preserving every route path and JSON shape, then retired; OpenAPI is published at `/docs`; and 12 previously MCP-only capabilities were exposed over REST (50 method-distinct operations across 45 paths). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see `proposals/phase3-gateway-plan.md`: Step 1 closed the residual tool→endpoint gaps (32 thin routes + 3 param fixes, the surface is now 82 method+path operations), then all five MCP servers were inverted into thin HTTP gateway wrappers calling the REST tier through `mcp_gateway/rest_client.py` (Rule 6), JWT auth was added (`api/auth.py`, inert until configured), and the whole system was containerized and deployed to GCP Cloud Run (`quantcore-api` + 5 wrappers + a daily report Cloud Run Job) with CI/CD in `.github/workflows/deploy.yml`. Prod cutover (test→prod DSN) stays a supervised manual step.
 
@@ -33,7 +33,7 @@ The project exposes capabilities through five distinct surfaces:
 | CLI Tools | 2 | `collect_options.py` (EOD snapshot; broken), `options_analysis.py` (strategy analysis; hybrid CLI + MCP) |
 | Standalone Scripts | 8 | Portfolio reports, watchlist fundamentals report, spread monitors (6 superseded experiments deleted in Phase 1 Step 10) |
 
-**MCP tool count by server:** stock-price 25 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
+**MCP tool count by server:** stock-price 26 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
 
 **New since 2026-05-19:** `get_vwap_history`, `get_relative_strength_history`, `get_gamma_wall_history` (stock-price); `analyze_options_watchlist`, `analyze_options_symbol`, `mcp_health_check` (options-analysis — the `options_analysis.py` CLI is now also a FastMCP server); REST `GET /api/rungs/<rung_id>`; scripts `scripts/generate_watchlist_fundamentals_report.py`, `experiments/INTC_bear_call_spread_monitor.py`, `experiments/WMT_bull_call_spread_monitor.py`, `scripts/migrate_sqlite_to_postgres.py`.
 
@@ -64,6 +64,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Historical drawdown (worst 1d/5d, trailing stop %) | `get_historical_drawdown` (stock_price) | `GET /api/securities/<ticker>/signals/risk` | Securities Detail → Signals tab | — | `experiments/MaxDrawDownAnalyzer.py` |
 | ATR bands + chandelier trailing stop (volatility-calibrated) | `get_atr_bands` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/atr-bands` | — | — | — |
 | Anchored VWAP (auto-anchors: earnings, 52w H/L, gaps, swings) | `get_anchored_vwap` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/anchored-vwap` | — | — | — |
+| Volume profile (POC, value area, HVN/LVN nodes) | `get_volume_profile` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/volume-profile` | — | — | — |
 | Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | `GET /api/securities/<ticker>/recommendation?capital=` | — | — | — |
 | Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | `GET /api/securities/<ticker>/stop-loss` | — | — | — |
 

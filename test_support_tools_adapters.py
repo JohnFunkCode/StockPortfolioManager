@@ -1,5 +1,6 @@
-"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–2):
-the FastAPI routes and MCP wrapper tools for ATR bands and Anchored VWAP.
+"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–3):
+the FastAPI routes and MCP wrapper tools for ATR bands, Anchored VWAP, and
+Volume Profile.
 
 Both adapters must stay exactly one call deep (architectural standard v2), so
 these tests assert pure pass-through: the route forwards its params to the
@@ -77,6 +78,30 @@ class TestSupportToolRoutes(unittest.TestCase):
             "NVDA", None, 365, 5
         )
 
+    def test_volume_profile_passes_params_and_ships_dict_verbatim(self):
+        payload = {"symbol": "NVDA", "poc": 101.0, "hvns": []}
+        self.services.prices.get_volume_profile.return_value = payload
+
+        resp = self.client.get(
+            "/api/securities/NVDA/volume-profile",
+            params={"days": 100, "interval": "1h", "bins": 30, "value_area_pct": 0.6},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), payload)
+        self.services.prices.get_volume_profile.assert_called_once_with(
+            "NVDA", 100, "1h", 30, 0.6
+        )
+
+    def test_volume_profile_defaults_and_error_path(self):
+        self.services.prices.get_volume_profile.side_effect = ValueError("bad interval")
+        resp = self.client.get("/api/securities/NVDA/volume-profile")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json(), {"error": "bad interval"})
+        self.services.prices.get_volume_profile.assert_called_once_with(
+            "NVDA", 365, "1d", 50, 0.7
+        )
+
 
 class TestSupportToolMcpWrappers(unittest.TestCase):
     def setUp(self):
@@ -109,6 +134,16 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         self.rest_get.assert_called_once_with(
             "/api/securities/NVDA/anchored-vwap",
             lookback_days=200, anchor_date="2026-05-01",
+        )
+
+    def test_get_volume_profile_is_one_rest_call(self):
+        result = stock_price_server.get_volume_profile(
+            "NVDA", days=100, interval="1h", bins=30, value_area_pct=0.6
+        )
+        self.assertEqual(result, {"ok": True})
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/volume-profile",
+            days=100, interval="1h", bins=30, value_area_pct=0.6,
         )
 
 

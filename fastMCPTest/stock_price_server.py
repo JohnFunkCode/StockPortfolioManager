@@ -397,6 +397,52 @@ def get_gap_analysis(symbol: str, min_gap_pct: float = 0.5, lookback: int = 60,
 
 
 @mcp.tool()
+def get_atr_bands(symbol: str, period: int = 14, band_mult: float = 2.0,
+                  stop_mult: float = 3.0, interval: str = "1d", lookback: int = 250) -> dict:
+    """Compute ATR (Average True Range) volatility bands and a chandelier trailing stop.
+
+    ATR measures how far a stock actually moves per bar, gap-inclusive (True
+    Range = max of H−L, |H−prev close|, |L−prev close|, Wilder-smoothed). It is
+    the standard way to calibrate stop distance and price targets to CURRENT
+    volatility instead of a fixed percentage.
+
+    INTENDED USE — volatility-calibrated stop placement:
+      - Prefer this over get_stop_loss_analysis's trailing % when earnings gaps
+        pollute the drawdown history: ATR re-adapts within ~`period` bars after
+        a gap, while a drawdown-calibrated % stays distorted for months.
+      - chandelier_stop (highest high of last 22 bars − stop_mult×ATR) is the
+        classic volatility trailing stop for a trim-and-hold position.
+      - upper_band / lower_band (close ± band_mult×ATR) frame the expected
+        near-term trading range; a close outside them is a volatility event.
+
+    Signals returned:
+      atr, atr_pct          — current ATR in dollars and as % of price
+      atr_trend             — 'expanding' / 'contracting' / 'stable' vs ~3-month mean
+      upper_band/lower_band — close ± band_mult×ATR
+      chandelier_stop       — 22-bar highest high − stop_mult×ATR
+      stop_distance_pct     — how far below the last close that stop sits
+      bands_history         — last ~20 bars of {date, atr, upper, lower}
+      interpretation        — plain-English summary
+
+    Args:
+        symbol:    Stock ticker symbol (e.g. 'AAPL')
+        period:    ATR smoothing period in bars (default: 14)
+        band_mult: Band width in ATR multiples (default: 2.0)
+        stop_mult: Chandelier stop offset in ATR multiples (default: 3.0)
+        interval:  '1d' daily (default), '1h' hourly, '1wk' weekly
+        lookback:  Bars of history to analyse (default: 250)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/atr-bands",
+        period=period,
+        band_mult=band_mult,
+        stop_mult=stop_mult,
+        interval=interval,
+        lookback=lookback,
+    )
+
+
+@mcp.tool()
 def get_unusual_calls(
     symbol: str,
     min_volume: int = 100,

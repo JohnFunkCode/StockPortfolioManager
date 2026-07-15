@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-from quantcore.analytics.indicators import macd_series, rsi_series, safe_float
+from quantcore.analytics.indicators import atr_series, macd_series, rsi_series, safe_float
 from quantcore.analytics.market_time import latest_completed_session, period_to_days
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
@@ -954,6 +954,91 @@ class PricesService:
             "patterns_found": patterns_found,
             "pattern_count": len(patterns_found),
             "bounce_signal": bounce_signal,
+        }
+
+    def get_atr_bands(self, symbol: str, period: int = 14, band_mult: float = 2.0,
+                      stop_mult: float = 3.0, interval: str = "1d", lookback: int = 250) -> dict:
+        valid_intervals = {"1d", "1h", "1wk"}
+        if interval not in valid_intervals:
+            raise ValueError(f"Invalid interval '{interval}'. Choose from: {', '.join(sorted(valid_intervals))}")
+
+        fetch_period = {"1d": "2y", "1h": "60d", "1wk": "5y"}[interval]
+
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+
+        min_bars = period * 2 + 5
+        if len(hist) < min_bars:
+            raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {min_bars})")
+
+        if len(hist) > lookback:
+            hist = hist.tail(lookback)
+
+        high  = hist["High"]
+        low   = hist["Low"]
+        close = hist["Close"]
+
+        atr = atr_series(high, low, close, period)
+
+        last_close = float(close.iloc[-1])
+        last_atr   = float(atr.iloc[-1])
+        atr_pct    = last_atr / last_close * 100
+
+        upper_band = last_close + band_mult * last_atr
+        lower_band = last_close - band_mult * last_atr
+
+        # ATR regime: current reading vs its ~3-month mean (63 daily bars)
+        trend_window = min(63, len(atr))
+        atr_mean = float(atr.tail(trend_window).mean())
+        if last_atr > atr_mean * 1.1:
+            atr_trend = "expanding"
+        elif last_atr < atr_mean * 0.9:
+            atr_trend = "contracting"
+        else:
+            atr_trend = "stable"
+
+        # Chandelier exit: trailing stop hung from the highest high of the
+        # last 22 bars, offset by stop_mult ATRs.
+        chan_window   = min(22, len(hist))
+        highest_high  = float(high.tail(chan_window).max())
+        chandelier_stop   = highest_high - stop_mult * last_atr
+        stop_distance_pct = (last_close - chandelier_stop) / last_close * 100
+
+        fmt = "%Y-%m-%d %H:%M" if interval == "1h" else "%Y-%m-%d"
+        bands_history = []
+        tail = min(20, len(hist))
+        for ts, c, a in zip(hist.index[-tail:], close.iloc[-tail:], atr.iloc[-tail:]):
+            c_f, a_f = float(c), float(a)
+            bands_history.append({
+                "date":  ts.strftime(fmt),
+                "atr":   round(a_f, 4),
+                "upper": round(c_f + band_mult * a_f, 4),
+                "lower": round(c_f - band_mult * a_f, 4),
+            })
+
+        interpretation = (
+            f"ATR({period}) = {last_atr:.2f} ({atr_pct:.1f}% of price), {atr_trend} vs its "
+            f"{trend_window}-bar mean. Chandelier stop ({chan_window}-bar high − {stop_mult}×ATR) "
+            f"sits at {chandelier_stop:.2f}, {stop_distance_pct:.1f}% below the last close. "
+            f"Unlike a drawdown-calibrated trailing %, ATR re-adapts within ~{period} bars after "
+            f"an earnings gap, so the stop reflects current volatility rather than stale gap history."
+        )
+
+        return {
+            "symbol":            symbol.upper(),
+            "interval":          interval,
+            "period":            period,
+            "band_mult":         band_mult,
+            "stop_mult":         stop_mult,
+            "last_close":        round(last_close, 4),
+            "atr":               round(last_atr, 4),
+            "atr_pct":           round(atr_pct, 3),
+            "atr_trend":         atr_trend,
+            "upper_band":        round(upper_band, 4),
+            "lower_band":        round(lower_band, 4),
+            "chandelier_stop":   round(chandelier_stop, 4),
+            "stop_distance_pct": round(stop_distance_pct, 3),
+            "bands_history":     bands_history,
+            "interpretation":    interpretation,
         }
 
     def get_higher_lows(self, symbol: str, swing_bars: int = 3, lookback_swings: int = 6,

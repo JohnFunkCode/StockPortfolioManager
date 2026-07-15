@@ -515,11 +515,11 @@ For full implementation details, see [docs/FUNDAMENTALS_CACHE_IMPLEMENTATION.md]
 
 Three MCP tools expose historical views of key technical metrics to support multi-week position monitoring. They differ in how their history is sourced:
 
-| Tool | Source | Backfill |
-|------|--------|----------|
-| `get_vwap_history(symbol, since_days=90)` | Computed from OHLCV data in the unified QuantCore database | Up to 2 years |
+| Tool                                                   | Source | Backfill |
+|--------------------------------------------------------|--------|----------|
+| `get_vwap_history(symbol, since_days=90)`              | Computed from OHLCV data in the unified QuantCore database | Up to 2 years |
 | `get_relative_strength_history(symbol, since_days=90)` | Computed from OHLCV data in the unified QuantCore database | Up to 2 years |
-| `get_gamma_wall_history(symbol, since_days=90)` | Stored snapshots in the unified QuantCore database | Forward-only from first call |
+| `get_gamma_wall_history(symbol, since_days=90)`        | Stored snapshots in the unified QuantCore database | Forward-only from first call |
 
 #### VWAP History
 
@@ -545,6 +545,13 @@ The strike with the highest `|delta × OI|` concentration, **auto-persisted on e
 Gamma wall is an **intraday and weekly tool** used by professional services (SpotGamma, Tier1Alpha) to identify price pinning zones and MM hedging flows around expirations. It is **not** designed for multi-week equity decisions. Primary use of historical data: post-hoc analysis ("did price pin at the gamma wall on OpEx Fridays?").
 
 Our implementation uses `max(|delta × OI|)` as a GEX proxy — directional intuition, not institutional-grade precision.
+
+### Support-Level Analysis Tools
+
+Tools for locating durable support/resistance levels and volatility-calibrated stops (built per issue [#93](https://github.com/JohnFunkCode/StockPortfolioManager/issues/93); each is also a REST endpoint under `/api/securities/<ticker>/…`):
+
+- `get_atr_bands(symbol, period=14, band_mult=2.0, stop_mult=3.0, interval="1d", lookback=250)` — Wilder ATR volatility bands (close ± mult·ATR) plus a **chandelier trailing stop** (22-bar highest high − mult·ATR) with distance-to-stop and an expanding/contracting ATR trend read. Prefer this over `get_stop_loss_analysis`'s drawdown-based trailing % when earnings gaps pollute the drawdown history — ATR re-adapts within ~one period after a gap. REST: `GET /api/securities/<ticker>/atr-bands`.
+- `get_anchored_vwap(symbol, anchor_date=None, lookback_days=365)` — volume-weighted average price anchored at significant events, approximating the **cost basis of participants since that event**. Anchors resolve automatically — recent earnings dates, the 52-week high/low, the largest unfilled gaps, and the most recent confirmed swing high/low — deduped within 3 trading days (a user-supplied `anchor_date` outranks all). Each anchor reports its AVWAP, distance from spot, and whether it acts as support or resistance, plus the nearest AVWAP support/resistance overall. An AVWAP reclaim is an institutional re-accumulation signal. REST: `GET /api/securities/<ticker>/anchored-vwap`.
 
 ### Trade Recommendations (`get_trade_recommendation`)
 

@@ -142,3 +142,104 @@ class TestBsPrice(unittest.TestCase):
     def test_invalid_kind_raises(self):
         with self.assertRaises(ValueError):
             om.bs_price(100, 100, 1.0, 0.2, 0.05, "straddle")
+
+
+class TestNormalizeIv(unittest.TestCase):
+    """Ported from spreadMath.test.ts (normalizeIv) — the TS twin is retired
+    and these fixtures keep the server curves numerically identical."""
+
+    def test_percent_and_decimal_forms(self):
+        self.assertAlmostEqual(om.normalize_iv(85), 0.85)
+        self.assertAlmostEqual(om.normalize_iv(0.85), 0.85)
+        self.assertEqual(om.normalize_iv(0), 0.0)
+        self.assertEqual(om.normalize_iv(float("nan")), 0.0)
+        self.assertEqual(om.normalize_iv(-5), 0.0)
+
+
+CALL_SPREAD = dict(kind="call", long_strike=140.0, short_strike=160.0,
+                   long_iv=0.86, short_iv=0.91, debit=4.94)
+
+
+class TestSpreadPayoffAt(unittest.TestCase):
+    """Ported from spreadMath.test.ts (payoffAt)."""
+
+    def test_bull_call_flat_below_long_strike(self):
+        self.assertAlmostEqual(om.spread_payoff_at(140, **CALL_SPREAD), -4.94, places=9)
+        self.assertAlmostEqual(om.spread_payoff_at(100, **CALL_SPREAD), -4.94, places=9)
+
+    def test_bull_call_full_width_above_short_strike(self):
+        self.assertAlmostEqual(om.spread_payoff_at(160, **CALL_SPREAD), 15.06, places=9)
+        self.assertAlmostEqual(om.spread_payoff_at(500, **CALL_SPREAD), 15.06, places=9)
+
+    def test_zero_at_breakeven(self):
+        self.assertAlmostEqual(om.spread_payoff_at(144.94, **CALL_SPREAD), 0.0, places=9)
+
+    def test_bear_put_spread(self):
+        put = dict(kind="put", long_strike=160.0, short_strike=140.0,
+                   long_iv=0.9, short_iv=0.85, debit=3.2)
+        self.assertAlmostEqual(om.spread_payoff_at(170, **put), -3.2, places=9)
+        self.assertAlmostEqual(om.spread_payoff_at(130, **put), 20 - 3.2, places=9)
+
+
+class TestSpreadValueAt(unittest.TestCase):
+    """Ported from spreadMath.test.ts (spreadValueAt)."""
+
+    def test_value_bounded_by_zero_and_width(self):
+        T = 45 / 365
+        for S in (120, 140, 150, 160, 180):
+            value = om.spread_value_at(S, T=T, r=0.045, **CALL_SPREAD)
+            self.assertGreaterEqual(value, 0.0)
+            self.assertLessEqual(value, 20.0)
+
+    def test_converges_to_payoff_at_expiry(self):
+        near = om.spread_value_at(150, T=1e-9, r=0.045, **CALL_SPREAD) - CALL_SPREAD["debit"]
+        self.assertAlmostEqual(near, om.spread_payoff_at(150, **CALL_SPREAD), places=3)
+
+
+class TestVerticalSpreadCurves(unittest.TestCase):
+    """Ported from spreadMath.test.ts (buildCurves) plus API-shape checks."""
+
+    def curves(self, spot=150.0, T=45 / 365, **overrides):
+        params = dict(CALL_SPREAD, **overrides)
+        return om.vertical_spread_curves(spot=spot, T=T, **params)
+
+    def test_domain_covers_strikes_and_spot_with_aligned_samples(self):
+        out = self.curves()
+        prices, expiry, now = out["prices"], out["expiry"], out["now"]
+        self.assertLess(prices[0], 140)
+        self.assertGreater(prices[-1], 160)
+        self.assertEqual(len(expiry), len(prices))
+        self.assertEqual(len(now), len(prices))
+        self.assertEqual(len(prices), 121)
+        self.assertAlmostEqual(expiry[0], -4.94, places=6)
+        self.assertAlmostEqual(expiry[-1], 15.06, places=6)
+
+    def test_never_negative_domain_prices(self):
+        out = om.vertical_spread_curves(
+            kind="call", long_strike=1.0, short_strike=2.0,
+            long_iv=1.2, short_iv=1.3, debit=0.5, spot=1.5, T=0.1,
+        )
+        self.assertGreaterEqual(out["prices"][0], 0.0)
+
+    def test_far_spot_widens_domain(self):
+        out = self.curves(spot=250.0)
+        self.assertGreaterEqual(out["prices"][-1], 250.0)
+
+    def test_percent_form_ivs_match_decimal_form(self):
+        dec = self.curves()
+        pct = self.curves(long_iv=86, short_iv=91)
+        for a, b in zip(dec["now"], pct["now"]):
+            self.assertAlmostEqual(a, b, places=9)
+
+    def test_zero_spot_falls_back_to_strike_domain(self):
+        out = self.curves(spot=0.0)
+        self.assertLess(out["prices"][0], 140)
+        self.assertGreater(out["prices"][-1], 160)
+
+    def test_json_safe_finite_floats(self):
+        out = self.curves()
+        for series in ("prices", "expiry", "now"):
+            self.assertTrue(all(math.isfinite(v) for v in out[series]), series)
+
+    def test_default_risk_free_rate_constant(self):
+        self.assertAlmostEqual(om.RISK_FREE_RATE, 0.045)

@@ -371,3 +371,81 @@ class Phase3SurfaceGapRouteTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class VerticalSpreadCurvesRouteTest(unittest.TestCase):
+    """Issue #79: the include_curves flag must round-trip router -> service.
+    Seeds a snapshot directly (offline) and exercises the real POST route."""
+
+    SYMBOL = "ZZAPICURVES"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.client = TestClient(create_app())
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        from quantcore.repositories.options_repository import OptionsStore
+
+        OptionsStore().save_full_chain(
+            symbol=self.SYMBOL,
+            price=166.6,
+            bollinger_bands=None,
+            expirations_data=[{
+                "expiration": "2026-05-22",
+                "put_call_ratio": 1.0,
+                "calls": {
+                    "contracts": [
+                        {"strike": 150.0, "last": 14.5, "bid": 13.4, "ask": 15.8,
+                         "iv": 70.0, "volume": 90, "open_interest": 740,
+                         "in_the_money": True},
+                        {"strike": 170.0, "last": 4.1, "bid": 3.5, "ask": 4.7,
+                         "iv": 79.0, "volume": 621, "open_interest": 263,
+                         "in_the_money": False},
+                    ],
+                    "total_open_interest": 1003, "total_volume": 711,
+                    "avg_iv_pct": 74.5,
+                },
+                "puts": {"contracts": [], "total_open_interest": 0,
+                         "total_volume": 0, "avg_iv_pct": None},
+            }],
+            captured_at="2026-05-19T12:00:00Z",
+        )
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM options_snapshots WHERE symbol = %s", (self.SYMBOL,)
+            )
+            conn.commit()
+
+    def _post(self, **extra):
+        body = {
+            "expiration": "2026-05-22",
+            "long_strike": 150.0,
+            "short_strike": 170.0,
+            "kind": "call",
+            "max_snapshot_age_minutes": 10_000_000,
+            "allow_live_fetch": False,
+            **extra,
+        }
+        return self.client.post(
+            f"/api/securities/{self.SYMBOL}/options/vertical-spread", json=body
+        )
+
+    def test_default_response_has_no_curves(self):
+        resp = self._post()
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIsNotNone(data["legs"]["long"])
+        self.assertNotIn("curves", data)
+
+    def test_include_curves_round_trips_through_the_route(self):
+        resp = self._post(include_curves=True)
+        self.assertEqual(resp.status_code, 200)
+        curves = resp.json()["curves"]
+        self.assertEqual(len(curves["prices"]), 121)
+        self.assertEqual(len(curves["expiry"]), len(curves["prices"]))
+        self.assertEqual(len(curves["now"]), len(curves["prices"]))
+        self.assertEqual(curves["params"]["r"], 0.045)

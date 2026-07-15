@@ -443,6 +443,52 @@ def get_atr_bands(symbol: str, period: int = 14, band_mult: float = 2.0,
 
 
 @mcp.tool()
+def get_anchored_vwap(symbol: str, anchor_date: str = None,
+                      lookback_days: int = 365) -> dict:
+    """Compute Anchored VWAPs — volume-weighted average price measured from significant events.
+
+    An Anchored VWAP (AVWAP) is the average cost basis of every share traded
+    since a specific anchor event. Institutions defend these levels: price
+    above an AVWAP means holders since the anchor are in profit (the level acts
+    as support on pullbacks); price below means they are trapped (the level
+    acts as resistance on rallies).
+
+    Anchors are resolved automatically from multiple event types:
+      earnings          — last 2 earnings report dates
+      52w_high/52w_low  — the 52-week price extremes
+      gap               — the 2 largest recent price gaps
+      swing_high/swing_low — most recent confirmed daily swing pivots
+      user              — pass anchor_date to add your own (e.g. a news event)
+    Anchors within 3 trading days of each other are deduplicated
+    (user > earnings > 52w extremes > gaps > swings).
+
+    INTENDED USE — institutional cost-basis support/resistance:
+      - nearest_support is the closest AVWAP below price: a natural pullback
+        entry / stop-placement reference for a trim-and-hold position.
+      - nearest_resistance is the closest AVWAP above price: where trapped
+        holders are likely to sell into a bounce.
+      - An AVWAP reclaim (price crossing back above a lost anchor VWAP) is a
+        classic institutional re-accumulation signal.
+
+    Signals returned:
+      anchors            — [{type, date, label, avwap, distance_pct, position}]
+                           sorted by proximity to the current price
+      nearest_support    — closest AVWAP below the current price
+      nearest_resistance — closest AVWAP above the current price
+      interpretation     — plain-English summary
+
+    Args:
+        symbol:        Stock ticker symbol (e.g. 'AAPL')
+        anchor_date:   Optional explicit anchor 'YYYY-MM-DD' (added to the auto anchors)
+        lookback_days: Calendar days of daily history to anchor within (default: 365, max 730)
+    """
+    params = {"lookback_days": lookback_days}
+    if anchor_date:
+        params["anchor_date"] = anchor_date
+    return rest_client.get(f"/api/securities/{symbol}/anchored-vwap", **params)
+
+
+@mcp.tool()
 def get_unusual_calls(
     symbol: str,
     min_volume: int = 100,

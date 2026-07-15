@@ -12,6 +12,7 @@ screener's sentiment overlay through SentimentStore.
 
 from __future__ import annotations
 
+import bisect
 import datetime
 import math
 from collections import defaultdict
@@ -20,7 +21,14 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import pandas as pd
 
-from quantcore.analytics.indicators import atr_series, macd_series, rsi_series, safe_float
+from quantcore.analytics.indicators import (
+    anchored_vwap,
+    atr_series,
+    find_swings,
+    macd_series,
+    rsi_series,
+    safe_float,
+)
 from quantcore.analytics.market_time import latest_completed_session, period_to_days
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
@@ -1041,6 +1049,159 @@ class PricesService:
             "interpretation":    interpretation,
         }
 
+    # Dedupe priority when two anchors land within 3 trading days of each other:
+    # an explicit user anchor beats event anchors; earnings beat price extremes.
+    _ANCHOR_PRIORITY = {
+        "user": 0, "earnings": 1, "52w_high": 2, "52w_low": 2,
+        "gap": 3, "swing_high": 4, "swing_low": 4,
+    }
+
+    def get_anchored_vwap(self, symbol: str, anchor_date: str | None = None,
+                          lookback_days: int = 365, swing_bars: int = 5) -> dict:
+        sym = symbol.upper()
+        days = min(int(lookback_days), 730)  # yfinance daily-fetch cap
+        hist = self.get_history(sym, "1d", days).copy()
+
+        min_bars = swing_bars * 2 + 10
+        if len(hist) < min_bars:
+            raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {min_bars})")
+
+        bar_dates = [ts.date() for ts in hist.index]
+        last_close = float(hist["Close"].iloc[-1])
+
+        def idx_for(target: datetime.date):
+            """Positional index of the first bar on/after target; None if past the last bar."""
+            i = bisect.bisect_left(bar_dates, target)
+            return i if i < len(bar_dates) else None
+
+        candidates = []  # {type, idx, label}
+
+        # user — explicit anchor; errors here are the caller's to see, not swallowed
+        if anchor_date:
+            try:
+                target = datetime.datetime.strptime(anchor_date, "%Y-%m-%d").date()
+            except ValueError:
+                raise ValueError(f"Invalid anchor_date '{anchor_date}' — expected YYYY-MM-DD")
+            if target < bar_dates[0] or target > bar_dates[-1]:
+                raise ValueError(
+                    f"anchor_date {anchor_date} is outside the available history "
+                    f"({bar_dates[0].isoformat()} to {bar_dates[-1].isoformat()})"
+                )
+            candidates.append({"type": "user", "idx": idx_for(target),
+                               "label": f"user anchor {anchor_date}"})
+
+        # earnings — last 2 past report dates (network-backed; never kills the call)
+        try:
+            ed = self._yf.earnings_dates(sym)
+            if ed is not None and not ed.empty:
+                past = sorted(
+                    {ts.date() for ts in ed.index
+                     if bar_dates[0] <= ts.date() <= bar_dates[-1]},
+                    reverse=True,
+                )[:2]
+                for d in past:
+                    idx = idx_for(d)
+                    if idx is not None:
+                        candidates.append({"type": "earnings", "idx": idx,
+                                           "label": f"earnings {d.isoformat()}"})
+        except Exception:
+            pass
+
+        # 52-week high/low — extremes over the last ~252 bars
+        start = len(hist) - min(252, len(hist))
+        hi_pos = start + int(np.argmax(hist["High"].iloc[start:].to_numpy()))
+        lo_pos = start + int(np.argmin(hist["Low"].iloc[start:].to_numpy()))
+        candidates.append({"type": "52w_high", "idx": hi_pos,
+                           "label": f"52w high {bar_dates[hi_pos].isoformat()}"})
+        candidates.append({"type": "52w_low", "idx": lo_pos,
+                           "label": f"52w low {bar_dates[lo_pos].isoformat()}"})
+
+        # gaps — 2 largest |gap %| in the recent window
+        try:
+            gaps = self.get_gap_analysis(sym)["all_gaps"]
+            for g in sorted(gaps, key=lambda g: abs(g["gap_pct"]), reverse=True)[:2]:
+                d = datetime.datetime.strptime(g["date"], "%Y-%m-%d").date()
+                idx = idx_for(d)
+                if idx is not None:
+                    candidates.append({
+                        "type": "gap", "idx": idx,
+                        "label": f"{g['direction']} {g['gap_pct']:+.1f}% on {g['date']}",
+                    })
+        except Exception:
+            pass
+
+        # swings — most recent confirmed swing high + low on the daily series
+        swings = find_swings(hist["High"], hist["Low"], swing_bars)
+        if swings["highs"]:
+            i = swings["highs"][-1]
+            candidates.append({"type": "swing_high", "idx": i,
+                               "label": f"swing high {bar_dates[i].isoformat()}"})
+        if swings["lows"]:
+            i = swings["lows"][-1]
+            candidates.append({"type": "swing_low", "idx": i,
+                               "label": f"swing low {bar_dates[i].isoformat()}"})
+
+        # Dedupe anchors within 3 trading days, keeping the higher-priority type.
+        candidates.sort(key=lambda c: self._ANCHOR_PRIORITY[c["type"]])
+        kept = []
+        for c in candidates:
+            if any(abs(c["idx"] - k["idx"]) <= 3 for k in kept):
+                continue
+            kept.append(c)
+
+        anchors = []
+        for c in kept:
+            av = anchored_vwap(hist, c["idx"])
+            if av is None:
+                continue
+            dist = (av - last_close) / last_close * 100
+            anchors.append({
+                "type":         c["type"],
+                "date":         bar_dates[c["idx"]].isoformat(),
+                "label":        c["label"],
+                "avwap":        round(av, 4),
+                "distance_pct": round(dist, 3),
+                "position":     "support" if av <= last_close else "resistance",
+            })
+        anchors.sort(key=lambda a: abs(a["distance_pct"]))
+
+        supports    = [a for a in anchors if a["position"] == "support"]
+        resistances = [a for a in anchors if a["position"] == "resistance"]
+        nearest_support    = max(supports, key=lambda a: a["avwap"]) if supports else None
+        nearest_resistance = min(resistances, key=lambda a: a["avwap"]) if resistances else None
+
+        lines = []
+        if nearest_support:
+            lines.append(
+                f"Nearest AVWAP support: {nearest_support['label']} at "
+                f"{nearest_support['avwap']:.2f} ({nearest_support['distance_pct']:+.1f}%)."
+            )
+        if nearest_resistance:
+            lines.append(
+                f"Nearest AVWAP resistance: {nearest_resistance['label']} at "
+                f"{nearest_resistance['avwap']:.2f} ({nearest_resistance['distance_pct']:+.1f}%)."
+            )
+        if not anchors:
+            lines.append("No anchors could be resolved from the available history.")
+        else:
+            lines.append(
+                "Each AVWAP is the volume-weighted average cost of all shares traded "
+                "since that anchor event — holders from the event tend to defend it as "
+                "support from above and sell into it as resistance from below."
+            )
+
+        return {
+            "symbol":             sym,
+            "price":              round(last_close, 4),
+            "lookback_days":      days,
+            "swing_bars":         swing_bars,
+            "anchor_count":       len(anchors),
+            "anchors":            anchors,
+            "nearest_support":    nearest_support,
+            "nearest_resistance": nearest_resistance,
+            "interpretation":     " ".join(lines),
+        }
+
     def get_higher_lows(self, symbol: str, swing_bars: int = 3, lookback_swings: int = 6,
                         interval: str = "1h") -> dict:
         valid_intervals = {"15m", "30m", "1h", "1d"}
@@ -1060,17 +1221,10 @@ class PricesService:
         high  = hist["High"]
 
         # --- Identify swing lows ---
-        # A swing low at index i requires: low[i] < low[i-k] and low[i] < low[i+k]
-        # for all k in 1..swing_bars.  We skip the last `swing_bars` bars since they
-        # cannot be confirmed yet (right-side bars not yet complete).
-        swing_low_indices = []
-        scan_end = len(hist) - swing_bars
-        for i in range(swing_bars, scan_end):
-            l = float(low.iloc[i])
-            left_ok  = all(l <= float(low.iloc[i - k]) for k in range(1, swing_bars + 1))
-            right_ok = all(l <= float(low.iloc[i + k]) for k in range(1, swing_bars + 1))
-            if left_ok and right_ok:
-                swing_low_indices.append(i)
+        # A swing low at index i requires: low[i] <= low[i-k] and low[i] <= low[i+k]
+        # for all k in 1..swing_bars; the last `swing_bars` bars are skipped since
+        # they cannot be confirmed yet (delegated to the shared pure helper).
+        swing_low_indices = find_swings(high, low, swing_bars)["lows"]
 
         # Keep only the most recent `lookback_swings` swing lows
         recent_indices = swing_low_indices[-lookback_swings:]

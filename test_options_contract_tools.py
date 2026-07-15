@@ -129,6 +129,59 @@ class OptionsContractToolsTest(unittest.TestCase):
         self.assertEqual(len(snapshot["expirations"]), 1)
         self.assertEqual(len(snapshot["expirations"][0]["contracts"]), 4)
 
+    def test_save_full_chain_batches_across_page_boundaries(self):
+        """A MSTR-sized chain (>500 contracts per side) must survive the
+        execute_batch paging in _PGConn.executemany with every row intact —
+        pins the fix for the ~5-minute per-row persist over the proxy."""
+        n = 601  # crosses the 500-row page boundary within one executemany
+        contracts = [
+            {
+                "strike": 10.0 + i,
+                "last": 1.0,
+                "bid": 0.9,
+                "ask": 1.1,
+                "iv": 50.0,
+                "volume": i,
+                "open_interest": i,
+                "in_the_money": i % 2 == 0,
+            }
+            for i in range(n)
+        ]
+        big = [
+            {
+                "expiration": "2026-06-19",
+                "put_call_ratio": 1.0,
+                "calls": {
+                    "contracts": contracts,
+                    "total_open_interest": n,
+                    "total_volume": n,
+                    "avg_iv_pct": 50.0,
+                },
+                "puts": {
+                    "contracts": contracts,
+                    "total_open_interest": n,
+                    "total_volume": n,
+                    "avg_iv_pct": 50.0,
+                },
+            }
+        ]
+        store = self._store()
+        snapshot_id = store.save_full_chain(
+            symbol=TEST_SYMBOL,
+            price=100.0,
+            bollinger_bands=None,
+            expirations_data=big,
+            captured_at="2026-05-19T12:00:00Z",
+        )
+        self.assertIsNotNone(snapshot_id)
+        snapshot = store.get_full_chain(TEST_SYMBOL)
+        rows = snapshot["expirations"][0]["contracts"]
+        self.assertEqual(len(rows), 2 * n)
+        # Spot-check a row from the second page.
+        strikes = {(c["kind"], c["strike"]) for c in rows}
+        self.assertIn(("call", 10.0 + 550), strikes)
+        self.assertIn(("put", 10.0 + 600), strikes)
+
     def test_duplicate_snapshot_returns_none_without_corrupting_rows(self):
         store = self._store()
         first = self._seed_store(store)
@@ -208,6 +261,71 @@ class OptionsContractToolsTest(unittest.TestCase):
         self.assertEqual(result["source"], "live")
         self.assertTrue(result["storage_status"]["persisted"])
         self.assertEqual(result["missing"], [])
+
+    def test_curves_absent_by_default(self):
+        """LLM-facing callers never opt in — the default response must stay lean."""
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=170.0,
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+        )
+        self.assertIsNotNone(result["legs"]["long"])
+        self.assertNotIn("curves", result)
+
+    def test_curves_present_and_well_formed_when_requested(self):
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=170.0,
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+            include_curves=True,
+        )
+        curves = result["curves"]
+        self.assertEqual(len(curves["prices"]), 121)
+        self.assertEqual(len(curves["expiry"]), 121)
+        self.assertEqual(len(curves["now"]), 121)
+        # Grid spans both strikes and the snapshot price (166.6).
+        self.assertLess(curves["prices"][0], 150.0)
+        self.assertGreater(curves["prices"][-1], 170.0)
+        self.assertEqual(curves["params"]["r"], 0.045)
+        self.assertEqual(curves["params"]["spot"], 166.6)
+        # Curve debit prefers the mid debit, matching the card's chips.
+        self.assertEqual(curves["params"]["debit"], result["mid_debit"])
+        # Expiry curve extremes match the analytic bounds per share.
+        self.assertAlmostEqual(curves["expiry"][0], -curves["params"]["debit"], places=6)
+        self.assertAlmostEqual(
+            curves["expiry"][-1], 20.0 - curves["params"]["debit"], places=6
+        )
+
+    def test_curves_omitted_when_a_leg_is_missing(self):
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=190.0,  # not in the snapshot
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+            include_curves=True,
+        )
+        self.assertIsNone(result["legs"]["short"])
+        self.assertNotIn("curves", result)
 
     def test_prices_bull_call_spread(self):
         store = self._store()

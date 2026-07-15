@@ -22,3 +22,7 @@ class VerticalSpreadRequest(BaseModel):
     kind: str = "call"
     max_snapshot_age_minutes: int = 15
     allow_live_fetch: bool = True
+    # Opt-in payoff/value-today curve arrays (issue #79). The UI requests
+    # them; LLM-facing tool callers never should — hundreds of chart samples
+    # don't belong in model context.
+    include_curves: bool = False

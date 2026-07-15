@@ -298,5 +298,196 @@ class TestTopRankings(FundamentalsServiceTestBase):
         self.assertEqual(out["rankings"][0]["rank"], 1)
 
 
+# ---------------------------------------------------------------------------
+# _compute_* internals (wave 2) — full yfinance-statement-shaped fixtures
+# ---------------------------------------------------------------------------
+
+from datetime import date, timedelta  # noqa: E402
+
+
+def statement(rows: dict, dates):
+    return pd.DataFrame(
+        {pd.Timestamp(d): [float(rows[label][i]) for label in rows]
+         for i, d in enumerate(dates)},
+        index=list(rows),
+    )
+
+
+ANNUAL_DATES = ["2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
+
+FINANCIALS = statement(
+    {"Total Revenue": [100, 120, 150, 200],
+     "Operating Income": [25, 30, 37.5, 50]},   # constant 25% margin
+    ANNUAL_DATES,
+)
+CASHFLOW = statement(
+    {"Operating Cash Flow": [40, 48, 60, 80],   # 40% of revenue
+     "Capital Expenditure": [10, 12, 15, 20]},  # 10% -> FCF margin 30%
+    ANNUAL_DATES,
+)
+
+
+def momentum_history(n=300):
+    return pd.DataFrame(
+        {"Close": [float(100 + i * 0.1) for i in range(n)]},
+        index=pd.bdate_range(end="2026-07-14", periods=n),
+    )
+
+
+class TestComputeFundamentalScore(FundamentalsServiceTestBase):
+    def test_strong_compounder_composite(self):
+        yf = self.service._yf
+        yf.info.return_value = {"enterpriseToRevenue": 3.0,
+                                "sector": "Technology", "marketCap": 1_000}
+        yf.financials.return_value = FINANCIALS
+        yf.cashflow.return_value = CASHFLOW
+        yf.history.return_value = momentum_history()
+
+        out = self.service._compute_fundamental_score("INTC")
+
+        ms = out["metric_scores"]
+        self.assertEqual(ms["RevCAGR3Y"]["score"], 2)     # 26% CAGR
+        self.assertEqual(ms["RevAccel"]["score"], 1)      # +8.3pp acceleration
+        self.assertEqual(ms["OpMargin3Y"]["score"], 2)    # 25% margins
+        self.assertEqual(ms["OpMarginTrend"]["score"], 0) # flat
+        self.assertEqual(ms["FCFMargin3Y"]["score"], 2)   # 30% FCF margin
+        self.assertEqual(ms["ValMetric"]["score"], 2)     # log(3) cheap
+        self.assertEqual(ms["Mom12_1"]["score"], 2)       # ~22% 12-1 momentum
+        self.assertEqual(out["composite_score"], 11)
+        self.assertEqual(out["fundamental_label"], "strong_compounder")
+        self.assertEqual(out["coverage"], 1.0)
+        self.assertEqual(out["val_type"], "EV/Sales")
+        self.assertEqual(out["sector"], "Technology")
+
+    def test_no_data_degrades_to_average_zero_coverage(self):
+        yf = self.service._yf
+        yf.info.side_effect = RuntimeError("yahoo down")
+        yf.financials.return_value = pd.DataFrame()
+        yf.cashflow.return_value = pd.DataFrame()
+        yf.history.return_value = pd.DataFrame()
+
+        out = self.service._compute_fundamental_score("ZZZ")
+        self.assertEqual(out["composite_score"], 0)
+        self.assertEqual(out["coverage"], 0.0)
+        self.assertEqual(out["fundamental_label"], "average")
+        self.assertEqual(out["val_type"], "NA")
+
+
+QUARTER_DATES = ["2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30"]
+
+
+class TestComputeRevenueGrowth(FundamentalsServiceTestBase):
+    def quarters(self, revenues):
+        return statement({"Total Revenue": revenues}, QUARTER_DATES)
+
+    def test_accelerating_quarters(self):
+        yf = self.service._yf
+        yf.quarterly_financials.return_value = self.quarters([100, 102, 105, 110, 120])
+        yf.financials.return_value = FINANCIALS
+        out = self.service._compute_revenue_growth("INTC")
+        self.assertEqual(out["trajectory"], "accelerating")
+        self.assertEqual(out["weighted_score"], 1.0)      # all-positive growth
+        self.assertEqual(len(out["quarterly_revenues"]), 5)
+        self.assertAlmostEqual(out["cagr_3y"], 2.0 ** (1 / 3) - 1, places=4)
+        self.assertAlmostEqual(out["rev_accel"], (200 / 150 - 1) - (150 / 120 - 1),
+                               places=4)
+
+    def test_positive_inflection(self):
+        yf = self.service._yf
+        # Last QoQ positive after a negative one -> inflecting_positive.
+        yf.quarterly_financials.return_value = self.quarters([100, 110, 104.5, 100, 103])
+        yf.financials.return_value = pd.DataFrame()
+        out = self.service._compute_revenue_growth("INTC")
+        self.assertEqual(out["trajectory"], "inflecting_positive")
+
+    def test_insufficient_quarters(self):
+        yf = self.service._yf
+        yf.quarterly_financials.return_value = statement(
+            {"Total Revenue": [100, 110]}, QUARTER_DATES[:2]
+        )
+        yf.financials.return_value = pd.DataFrame()
+        out = self.service._compute_revenue_growth("INTC")
+        self.assertEqual(out["trajectory"], "insufficient_data")
+        self.assertEqual(out["quarterly_revenues"], [])
+
+
+class TestComputeEarningsAccelerationService(FundamentalsServiceTestBase):
+    def test_strong_acceleration(self):
+        self.service._yf.quarterly_income_stmt.return_value = quarterly_income(
+            [100e6, 50e6, 30e6, 20e6, 15e6]
+        )
+        out = self.service._compute_earnings_acceleration("INTC")
+        self.assertEqual(out["acceleration_label"], "strong")
+        self.assertEqual(out["acceleration_score"], 2)
+        self.assertEqual(out["accel_count"], 3)
+        self.assertEqual(out["net_incomes_M"][0], 15.0)   # scaled to millions
+
+    def test_decelerating(self):
+        self.service._yf.quarterly_income_stmt.return_value = quarterly_income(
+            [50e6, 40e6, 30e6, 20e6, 10e6]
+        )
+        out = self.service._compute_earnings_acceleration("INTC")
+        self.assertEqual(out["acceleration_label"], "decelerating")
+        self.assertEqual(out["acceleration_score"], -1)
+
+    def test_gateway_failure_degrades(self):
+        self.service._yf.quarterly_income_stmt.side_effect = RuntimeError("nope")
+        out = self.service._compute_earnings_acceleration("INTC")
+        self.assertEqual(out["acceleration_label"], "insufficient_data")
+
+
+class TestComputeEarningsCalendar(FundamentalsServiceTestBase):
+    def arm_history(self):
+        yf = self.service._yf
+        yf.history.return_value = pd.DataFrame()
+        yf.earnings_dates.return_value = pd.DataFrame()
+
+    def calendar_at(self, days_out):
+        earn = date.today() + timedelta(days=days_out)
+        return pd.DataFrame(
+            {0: [pd.Timestamp(earn)]}, index=["Earnings Date"]
+        )
+
+    def test_risk_ladder(self):
+        self.arm_history()
+        for days_out, expected in ((3, "CRITICAL"), (10, "HIGH"),
+                                   (20, "MODERATE"), (45, "LOW")):
+            self.service._yf.calendar.return_value = self.calendar_at(days_out)
+            out = self.service._compute_earnings_calendar("INTC")
+            self.assertEqual(out["risk_level"], expected, days_out)
+            self.assertEqual(out["days_to_earnings"], days_out)
+        # MODERATE also flags the pre-earnings IV setup.
+        self.service._yf.calendar.return_value = self.calendar_at(20)
+        self.assertTrue(self.service._compute_earnings_calendar("INTC")["pre_earnings_setup"])
+
+    def test_dict_form_calendar(self):
+        self.arm_history()
+        earn = date.today() + timedelta(days=40)
+        self.service._yf.calendar.return_value = {"Earnings Date": [earn]}
+        out = self.service._compute_earnings_calendar("INTC")
+        self.assertEqual(out["risk_level"], "LOW")
+        self.assertEqual(out["earnings_date"], earn.isoformat())
+
+    def test_calendar_failure_stays_unknown(self):
+        self.arm_history()
+        self.service._yf.calendar.side_effect = RuntimeError("yahoo calendar down")
+        out = self.service._compute_earnings_calendar("INTC")
+        self.assertEqual(out["risk_level"], "UNKNOWN")
+        self.assertIsNone(out["days_to_earnings"])
+
+    def test_historical_earnings_move_measured(self):
+        yf = self.service._yf
+        yf.calendar.return_value = None
+        idx = pd.bdate_range(end="2026-07-14", periods=10)
+        closes = [100.0] * 10
+        closes[5] = 110.0                                  # +10% earnings pop
+        yf.history.return_value = pd.DataFrame({"Close": closes}, index=idx)
+        yf.earnings_dates.return_value = pd.DataFrame(
+            {"EPS Estimate": [1.0]}, index=[idx[5]]
+        )
+        out = self.service._compute_earnings_calendar("INTC")
+        self.assertEqual(out["historical_avg_move_pct"], 10.0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -12,6 +12,12 @@ python main.py
 # Run all tests
 python -m unittest discover
 
+# Backend tests with coverage (CI enforces a ratchet floor — see .coveragerc + deploy.yml gate)
+coverage run -m unittest discover && coverage report
+
+# Frontend tests with coverage (thresholds in frontend/vitest.config.ts)
+cd frontend && npx vitest run --coverage
+
 # Run a single test file
 python -m unittest test_money
 python -m unittest test_stock_portfolio_manager

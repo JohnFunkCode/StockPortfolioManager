@@ -18,3 +18,5 @@ coverage.xml
 htmlcov/
 diff-cover.md
 frontend/coverage/
+frontend/tsconfig.tsbuildinfo
+frontend/test-results/

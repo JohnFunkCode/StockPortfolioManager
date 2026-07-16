@@ -183,6 +183,35 @@ export interface TechnicalSignalsResponse {
   _errors?: Record<string, string> | null;
 }
 
+// Support confluence (issue #93 Phase 6/7)
+export interface SupportContributor {
+  method: string;
+  level: number;
+  weight: number;
+  detail?: string;
+}
+export interface SupportZone {
+  zone_low: number;
+  zone_high: number;
+  center: number;
+  distance_pct: number;
+  score: number;
+  method_count: number;
+  contributors: SupportContributor[];
+}
+export interface SupportConfluenceResponse {
+  symbol: string;
+  price: number;
+  tolerance_pct: number;
+  methods_available: string[];
+  methods_failed: string[];
+  support_zones: SupportZone[];
+  resistance_zones: SupportZone[];
+  strongest_support: SupportZone | null;
+  interpretation: string;
+  error?: string; // set (with only symbol) when the price fetch fails server-side
+}
+
 export interface OptionsFlowResponse {
   ticker: string;
   _errors?: Record<string, string> | null;

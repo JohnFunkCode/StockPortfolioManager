@@ -11,6 +11,7 @@ import type {
   TechnicalSignalsResponse,
   OptionsFlowResponse,
   RiskSignalsResponse,
+  SupportConfluenceResponse,
   PortfolioDeltaResponse,
   ScreenerResponse,
   SnapshotRefreshResponse,
@@ -30,6 +31,7 @@ export interface OptionsPCHistoryResponse { ticker: string; history: OptionsPCHi
 export type {
   OptionsAnalyticsResponse, IVRankResponse, EarningsResponse,
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
+  SupportConfluenceResponse,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
   AddSecurityPayload, AddSecurityResponse, NewsResponse, BulkSentimentResponse,
   SymbolLookupResponse,
@@ -109,6 +111,9 @@ export const securitiesApi = {
 
   getRiskSignals: (ticker: string) =>
     apiRequest<RiskSignalsResponse>(`/api/securities/${ticker}/signals/risk`),
+
+  getSupportConfluence: (ticker: string) =>
+    apiRequest<SupportConfluenceResponse>(`/api/securities/${ticker}/support-confluence`),
 
   getPortfolioDeltaExposure: () =>
     apiRequest<PortfolioDeltaResponse>('/api/portfolio/delta-exposure'),

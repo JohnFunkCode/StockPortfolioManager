@@ -65,7 +65,7 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | ATR bands + chandelier trailing stop (volatility-calibrated) | `get_atr_bands` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/atr-bands` | — | — | — |
 | Anchored VWAP (auto-anchors: earnings, 52w H/L, gaps, swings) | `get_anchored_vwap` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/anchored-vwap` | — | — | — |
 | Volume profile (POC, value area, HVN/LVN nodes) | `get_volume_profile` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/volume-profile` | — | — | — |
-| Support confluence (14-source composite: clustered, method-weighted support/resistance zones) | `get_support_confluence` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/support-confluence` | — | — | — |
+| Support confluence (14-source composite: clustered, method-weighted support/resistance zones) | `get_support_confluence` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/support-confluence` | Securities Detail → Technical Analysis tab | — | — |
 | Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | `GET /api/securities/<ticker>/recommendation?capital=` | — | — | — |
 | Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | `GET /api/securities/<ticker>/stop-loss` | — | — | — |
 

@@ -19,6 +19,8 @@ GET    /api/securities/lookup  ->  lookup_security_api_securities_lookup_get
 GET    /api/securities/news/sentiment-summary  ->  get_sentiment_summary_api_securities_news_sentiment_summary_get
 GET    /api/securities/news/symbols  ->  list_news_symbols_api_securities_news_symbols_get
 GET    /api/securities/screen  ->  screen_securities_api_securities_screen_get
+GET    /api/securities/{ticker}/anchored-vwap  ->  get_anchored_vwap_api_securities__ticker__anchored_vwap_get
+GET    /api/securities/{ticker}/atr-bands  ->  get_atr_bands_api_securities__ticker__atr_bands_get
 GET    /api/securities/{ticker}/bid-ask-spread  ->  get_bid_ask_spread_api_securities__ticker__bid_ask_spread_get
 GET    /api/securities/{ticker}/candlestick  ->  get_candlestick_patterns_api_securities__ticker__candlestick_get
 GET    /api/securities/{ticker}/dark-pool  ->  get_dark_pool_api_securities__ticker__dark_pool_get

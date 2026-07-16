@@ -110,6 +110,39 @@ def get_obv(ticker: str, lookback: int = 20, interval: str = "1d") -> QuantCoreJ
         return route_error_plain(str(exc), 500)
 
 
+@router.get("/{ticker}/atr-bands")
+def get_atr_bands(
+    ticker: str,
+    period: int = 14,
+    band_mult: float = 2.0,
+    stop_mult: float = 3.0,
+    interval: str = "1d",
+    lookback: int = 250,
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_atr_bands(ticker, period, band_mult, stop_mult, interval, lookback)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+# /anchored-vwap is declared before /vwap so the literal sub-path is never shadowed.
+@router.get("/{ticker}/anchored-vwap")
+def get_anchored_vwap(
+    ticker: str,
+    anchor_date: Optional[str] = None,
+    lookback_days: int = 365,
+    swing_bars: int = 5,
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_anchored_vwap(ticker, anchor_date, lookback_days, swing_bars)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
 # /vwap/history is declared before /vwap so the literal sub-path is never shadowed.
 @router.get("/{ticker}/vwap/history")
 def get_vwap_history(

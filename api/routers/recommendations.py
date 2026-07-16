@@ -6,6 +6,7 @@ RecommendationsService:
   GET /api/securities/{ticker}/stop-loss?cost_basis=0&shares=0
   GET /api/securities/{ticker}/relative-strength
   GET /api/securities/{ticker}/relative-strength/history?since_days=90
+  GET /api/securities/{ticker}/support-confluence?tolerance_pct=1.0
 
 Pass-through responses (analytics dicts ship verbatim via QuantCoreJSONResponse).
 Query-param names mirror the service method signatures exactly so each route
@@ -56,3 +57,17 @@ def get_relative_strength_history(
 @router.get("/{ticker}/relative-strength")
 def get_relative_strength(ticker: str) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(services().recommendations.get_relative_strength(ticker))
+
+
+@router.get("/{ticker}/support-confluence")
+def get_support_confluence(
+    ticker: str, tolerance_pct: float = 1.0, max_expirations: int = 4, max_zones: int = 5
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().recommendations.get_support_confluence(
+            ticker,
+            tolerance_pct=tolerance_pct,
+            max_expirations=max_expirations,
+            max_zones=max_zones,
+        )
+    )

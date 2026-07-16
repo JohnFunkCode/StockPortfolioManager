@@ -1,6 +1,6 @@
-"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–3):
-the FastAPI routes and MCP wrapper tools for ATR bands, Anchored VWAP, and
-Volume Profile.
+"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–5):
+the FastAPI routes and MCP wrapper tools for ATR bands, Anchored VWAP,
+Volume Profile, OI-change analysis, and the signed GEX profile.
 
 Both adapters must stay exactly one call deep (architectural standard v2), so
 these tests assert pure pass-through: the route forwards its params to the
@@ -14,6 +14,7 @@ from unittest.mock import Mock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.routers import options as options_router
 from api.routers import prices as prices_router
 from fastMCPTest import stock_price_server
 
@@ -21,6 +22,7 @@ from fastMCPTest import stock_price_server
 def make_client():
     app = FastAPI()
     app.include_router(prices_router.router)
+    app.include_router(options_router.router)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -103,6 +105,61 @@ class TestSupportToolRoutes(unittest.TestCase):
         )
 
 
+class TestOptionsSupportToolRoutes(unittest.TestCase):
+    """Phase 4+5 routes live in the options router."""
+
+    def setUp(self):
+        self.services = Mock()
+        patcher = patch.object(options_router, "services", return_value=self.services)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.client = make_client()
+
+    def test_oi_change_passes_params_and_ships_dict_verbatim(self):
+        payload = {"symbol": "NVDA", "top_oi_builds": [], "summary": "quiet"}
+        self.services.options.get_oi_change_analysis.return_value = payload
+
+        resp = self.client.get(
+            "/api/securities/NVDA/options/oi-change",
+            params={"days": 14, "top_n": 5, "min_oi": 250, "expiration": "2026-08-21"},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), payload)
+        self.services.options.get_oi_change_analysis.assert_called_once_with(
+            "NVDA", days=14, top_n=5, min_oi=250, expiration="2026-08-21"
+        )
+
+    def test_oi_change_defaults_and_error_path(self):
+        self.services.options.get_oi_change_analysis.side_effect = ValueError("db down")
+        resp = self.client.get("/api/securities/NVDA/options/oi-change")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json(), {"error": "db down"})
+        self.services.options.get_oi_change_analysis.assert_called_once_with(
+            "NVDA", days=30, top_n=10, min_oi=100, expiration=None
+        )
+
+    def test_gex_profile_passes_params_and_ships_dict_verbatim(self):
+        payload = {"symbol": "NVDA", "net_gex": 1.0, "regime": "positive_gamma"}
+        self.services.options.get_gex_profile.return_value = payload
+
+        resp = self.client.get(
+            "/api/securities/NVDA/options/gex-profile",
+            params={"max_expirations": 3, "risk_free_rate": 0.05},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), payload)
+        self.services.options.get_gex_profile.assert_called_once_with("NVDA", 3, 0.05)
+
+    def test_gex_profile_defaults_and_error_path(self):
+        self.services.options.get_gex_profile.side_effect = ValueError("no price")
+        resp = self.client.get("/api/securities/NVDA/options/gex-profile")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json(), {"error": "no price"})
+        self.services.options.get_gex_profile.assert_called_once_with("NVDA", 6, 0.045)
+
+
 class TestSupportToolMcpWrappers(unittest.TestCase):
     def setUp(self):
         self.rest_get = Mock(return_value={"ok": True})
@@ -144,6 +201,33 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         self.rest_get.assert_called_once_with(
             "/api/securities/NVDA/volume-profile",
             days=100, interval="1h", bins=30, value_area_pct=0.6,
+        )
+
+    def test_get_oi_change_analysis_omits_absent_expiration(self):
+        result = stock_price_server.get_oi_change_analysis("NVDA")
+        self.assertEqual(result, {"ok": True})
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/options/oi-change",
+            days=30, top_n=10, min_oi=100,
+        )
+
+    def test_get_oi_change_analysis_forwards_expiration(self):
+        stock_price_server.get_oi_change_analysis(
+            "NVDA", days=14, top_n=5, min_oi=250, expiration="2026-08-21"
+        )
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/options/oi-change",
+            days=14, top_n=5, min_oi=250, expiration="2026-08-21",
+        )
+
+    def test_get_gex_profile_is_one_rest_call(self):
+        result = stock_price_server.get_gex_profile(
+            "NVDA", max_expirations=3, risk_free_rate=0.05
+        )
+        self.assertEqual(result, {"ok": True})
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/options/gex-profile",
+            max_expirations=3, risk_free_rate=0.05,
         )
 
 

@@ -639,3 +639,21 @@ if __name__ == "__main__":
 
     notifier = Notifier(portfolio)
     notifier.calculate_and_send_notifications()
+
+    # Capture full options chains for portfolio + watchlist symbols so the
+    # options_contracts OI time series (and daily GEX regime history) keeps
+    # accumulating (issue #93 Phases 4/5). In-process services, capped at 6
+    # expirations per symbol; a failed fetch must never fail the report.
+    capture_symbols = []
+    for stock in portfolio.list_stocks() + watchlist.list_stocks():
+        if stock.symbol not in capture_symbols:
+            capture_symbols.append(stock.symbol)
+    print(f"Capturing options chains for {len(capture_symbols)} symbols...")
+    for sym in capture_symbols:
+        try:
+            chain = get_services().options.get_full_options_chain(sym, max_expirations=6)
+            print(f"  {sym}: {chain.get('expiration_count', 0)} expirations, "
+                  f"{chain.get('total_contracts', 0)} contracts"
+                  + ("" if chain.get('persisted') else " (not persisted — duplicate)"))
+        except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the job
+            print(f"  {sym}: options chain capture failed: {exc}")

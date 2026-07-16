@@ -182,6 +182,36 @@ def get_gamma_wall_history(ticker: str, since_days: int = 90) -> QuantCoreJSONRe
         return route_error_plain(str(exc), 500)
 
 
+@router.get("/securities/{ticker}/options/oi-change")
+def get_oi_change_analysis(
+    ticker: str,
+    days: int = 30,
+    top_n: int = 10,
+    min_oi: int = 100,
+    expiration: Optional[str] = None,
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_oi_change_analysis(
+                ticker, days=days, top_n=top_n, min_oi=min_oi, expiration=expiration
+            )
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
+@router.get("/securities/{ticker}/options/gex-profile")
+def get_gex_profile(
+    ticker: str, max_expirations: int = 6, risk_free_rate: float = 0.045
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().options.get_gex_profile(ticker, max_expirations, risk_free_rate)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
 @router.get("/securities/{ticker}/options/screen")
 def screen_options_symbol(
     ticker: str, puts_budget: float = 1000.0, top_n: int = 10

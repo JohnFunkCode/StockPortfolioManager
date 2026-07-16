@@ -679,6 +679,109 @@ def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
 
 
 @mcp.tool()
+def get_oi_change_analysis(
+    symbol: str,
+    days: int = 30,
+    top_n: int = 10,
+    min_oi: int = 100,
+    expiration: str = None,
+) -> dict:
+    """Analyse open-interest CHANGES over time — the classic 2×2 OI/price read.
+
+    Comparing OI across stored full-chain snapshots reveals what kind of
+    positioning drove a move, which a single-day chain cannot show:
+
+      OI rising + price rising   → new_longs        (fresh bullish positioning)
+      OI rising + price falling  → new_shorts       (fresh bearish positioning)
+      OI falling + price rising  → short_covering   (rally without fresh sponsorship)
+      OI falling + price falling → long_liquidation (longs exiting)
+
+    Options-specific overlay:
+      put_oi_support_strikes     — strikes below spot with large PUT OI builds:
+                                   put writers defend these (support)
+      call_oi_resistance_strikes — strikes above spot with large CALL OI builds:
+                                   the call wall (resistance / pin candidates)
+
+    IMPORTANT — sparse-history caveat: OI history accumulates only when
+    full-chain snapshots are captured (get_full_options_chain; the daily report
+    job captures portfolio + watchlist symbols automatically). If fewer than 2
+    distinct snapshot days exist in the window, the tool returns a note payload
+    with empty oi_changes rather than an error — that is expected on symbols
+    without accumulated history, not a failure.
+
+    Outputs:
+      snapshot_dates_used   — earliest/latest/previous snapshot days compared
+      underlying_change_pct — spot move between earliest and latest snapshot
+      top_oi_builds / top_oi_drains — classified movers with |ΔOI| ≥ min_oi
+      latest_day_change     — call/put OI shift latest vs previous snapshot day
+      summary               — plain-English recap
+
+    Args:
+        symbol:     Stock ticker symbol (e.g. 'AAPL')
+        days:       Rolling window of snapshot history to compare (default: 30)
+        top_n:      Max movers to return per side (default: 10)
+        min_oi:     Minimum |ΔOI| in contracts to count as a mover (default: 100)
+        expiration: Optional 'YYYY-MM-DD' to restrict to one expiration
+    """
+    params = {"days": days, "top_n": top_n, "min_oi": min_oi}
+    if expiration:
+        params["expiration"] = expiration
+    return rest_client.get(f"/api/securities/{symbol}/options/oi-change", **params)
+
+
+@mcp.tool()
+def get_gex_profile(
+    symbol: str,
+    max_expirations: int = 6,
+    risk_free_rate: float = 0.045,
+) -> dict:
+    """Build a signed Gamma Exposure (GEX) profile — dealer hedging pressure by strike.
+
+    GEX signs each contract's dollar gamma by the standard dealer convention
+    (dealers long calls +, short puts −) and aggregates per strike:
+      GEX = gamma × OI × 100 × spot² × 1%   (dollar gamma per 1% move)
+
+    Key levels returned:
+      zero_gamma_level        — where cumulative net GEX flips sign: the
+                                volatility-regime boundary. Above it dealers
+                                dampen moves; below it they amplify them.
+      top_positive_gex_strike — the call wall: heaviest positive GEX; acts as
+                                resistance / an expiry pin magnet.
+      top_negative_gex_strike — put support / the vol trigger: heaviest
+                                negative GEX; breaking it accelerates selling.
+      regime                  — positive_gamma (mean-reverting, dealers buy dips
+                                and sell rips) or negative_gamma (trending /
+                                volatile, dealers chase moves).
+
+    Hedge-flow tilts (aggregate dealer greeks, share-equivalent):
+      net_vanna_exposure — sensitivity of dealer deltas to IV changes: with
+                           positive vanna a vol crush forces dealer BUYING
+                           (supportive), a vol spike forces selling.
+      net_charm_exposure — dealer delta drift from time decay: systematic
+                           buy/sell pressure into expiry (strongest near OpEx).
+
+    INTENDED USE — support/resistance from dealer positioning:
+      - top_negative_gex_strike below price is a defended support zone.
+      - price crossing below zero_gamma_level = regime change: expect wider
+        ranges and momentum moves; tighten stops.
+      - gex_ladder gives the full strike-by-strike wall map near spot.
+
+    A daily summary (net GEX, zero-gamma, regime) is auto-persisted per call —
+    history accumulates like gamma_wall_history.
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        max_expirations: Number of nearest expirations to scan (default: 6)
+        risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/gex-profile",
+        max_expirations=max_expirations,
+        risk_free_rate=risk_free_rate,
+    )
+
+
+@mcp.tool()
 def get_historical_drawdown(
     symbol: str,
     lookback_days: int = 252,

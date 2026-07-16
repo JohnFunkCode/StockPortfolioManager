@@ -1,6 +1,7 @@
-"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–5):
+"""Adapter-layer tests for the support-level tools (issue #93, Phases 1–6):
 the FastAPI routes and MCP wrapper tools for ATR bands, Anchored VWAP,
-Volume Profile, OI-change analysis, and the signed GEX profile.
+Volume Profile, OI-change analysis, the signed GEX profile, and the
+composite Support Confluence.
 
 Both adapters must stay exactly one call deep (architectural standard v2), so
 these tests assert pure pass-through: the route forwards its params to the
@@ -16,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from api.routers import options as options_router
 from api.routers import prices as prices_router
+from api.routers import recommendations as recommendations_router
 from fastMCPTest import stock_price_server
 
 
@@ -23,6 +25,7 @@ def make_client():
     app = FastAPI()
     app.include_router(prices_router.router)
     app.include_router(options_router.router)
+    app.include_router(recommendations_router.router)
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -160,6 +163,42 @@ class TestOptionsSupportToolRoutes(unittest.TestCase):
         self.services.options.get_gex_profile.assert_called_once_with("NVDA", 6, 0.045)
 
 
+class TestSupportConfluenceRoute(unittest.TestCase):
+    """Phase 6 route lives in the recommendations router."""
+
+    def setUp(self):
+        self.services = Mock()
+        patcher = patch.object(
+            recommendations_router, "services", return_value=self.services
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.client = make_client()
+
+    def test_support_confluence_passes_params_and_ships_dict_verbatim(self):
+        payload = {"symbol": "NVDA", "support_zones": [], "strongest_support": None}
+        self.services.recommendations.get_support_confluence.return_value = payload
+
+        resp = self.client.get(
+            "/api/securities/NVDA/support-confluence",
+            params={"tolerance_pct": 2.0, "max_expirations": 6, "max_zones": 3},
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), payload)
+        self.services.recommendations.get_support_confluence.assert_called_once_with(
+            "NVDA", tolerance_pct=2.0, max_expirations=6, max_zones=3
+        )
+
+    def test_support_confluence_defaults(self):
+        self.services.recommendations.get_support_confluence.return_value = {}
+        resp = self.client.get("/api/securities/NVDA/support-confluence")
+        self.assertEqual(resp.status_code, 200)
+        self.services.recommendations.get_support_confluence.assert_called_once_with(
+            "NVDA", tolerance_pct=1.0, max_expirations=4, max_zones=5
+        )
+
+
 class TestSupportToolMcpWrappers(unittest.TestCase):
     def setUp(self):
         self.rest_get = Mock(return_value={"ok": True})
@@ -228,6 +267,16 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         self.rest_get.assert_called_once_with(
             "/api/securities/NVDA/options/gex-profile",
             max_expirations=3, risk_free_rate=0.05,
+        )
+
+    def test_get_support_confluence_is_one_rest_call(self):
+        result = stock_price_server.get_support_confluence(
+            "NVDA", tolerance_pct=2.0, max_expirations=6, max_zones=3
+        )
+        self.assertEqual(result, {"ok": True})
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/support-confluence",
+            tolerance_pct=2.0, max_expirations=6, max_zones=3,
         )
 
 

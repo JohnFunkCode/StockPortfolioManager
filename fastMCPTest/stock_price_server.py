@@ -782,6 +782,59 @@ def get_gex_profile(
 
 
 @mcp.tool()
+def get_support_confluence(
+    symbol: str,
+    tolerance_pct: float = 1.0,
+    max_expirations: int = 4,
+    max_zones: int = 5,
+) -> dict:
+    """THE composite support/resistance tool — prefer this over calling the
+    individual level tools when the question is "where is support/resistance?".
+
+    Fans out to every level-finding technique in the system, clusters the
+    resulting price levels into zones (levels within tolerance_pct of each
+    other merge), and scores each zone by the weight of the INDEPENDENT
+    methods agreeing on it — a level confirmed by dealer positioning AND
+    volume acceptance AND a moving average is far more defensible than one
+    method repeated.
+
+    Sources and weights (highest = most informative):
+      1.0  gamma wall (delta-adjusted OI), signed GEX walls + zero-gamma flip
+      0.9  volume profile (POC / value area / HVNs), anchored VWAPs
+      0.8  put-OI support / call-OI resistance builds (OI-change history)
+      0.7  options expected move, rolling VWAP, SMA 200
+      0.6  SMA 100/50, prior week & month high/low
+      0.5  prior day high/low, SMA20+Bollinger, ATR bands + chandelier stop
+      0.3  Fibonacci retracements of the last major swing
+
+    Zone score = Σ(max weight per distinct method) + 0.2 × extra levels.
+    Options-dependent sources that fail (no chain, no OI history) are listed
+    in methods_failed and never fail the call.
+
+    Outputs:
+      support_zones / resistance_zones — ranked zones with zone_low/zone_high,
+        center, distance_pct, score, method_count, and per-level contributors
+      strongest_support — the top-scoring support zone (stop placement anchor)
+      methods_available / methods_failed — source health for interpreting
+        coverage (few methods = lower-confidence map)
+      interpretation — plain-English recap
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        tolerance_pct:   Cluster width — levels within this % merge into one
+                         zone (default: 1.0)
+        max_expirations: Expirations scanned by the options sources (default: 4)
+        max_zones:       Max zones returned per side (default: 5)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/support-confluence",
+        tolerance_pct=tolerance_pct,
+        max_expirations=max_expirations,
+        max_zones=max_zones,
+    )
+
+
+@mcp.tool()
 def get_historical_drawdown(
     symbol: str,
     lookback_days: int = 252,

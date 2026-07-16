@@ -95,6 +95,10 @@ code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/qu
 - **Test:** `https://quantui-uikpdb55ea-uc.a.run.app` (`quantcore-test-20260606`)
 - **Prod:** `https://quantui-swgixldxzq-uc.a.run.app` (`quantcore-prod-20260606`)
 
+The security detail page's Technical Analysis tab includes the **Support Confluence card**
+(`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the
+`GET /api/securities/{ticker}/support-confluence` composite support/resistance zones.
+
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback) and **reverse-proxies
 `/api/*` to `quantcore-api`, injecting the app JWT server-side** from the `quantui-api-token` Secret

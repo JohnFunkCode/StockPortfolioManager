@@ -142,3 +142,67 @@ class TestBsPrice(unittest.TestCase):
     def test_invalid_kind_raises(self):
         with self.assertRaises(ValueError):
             om.bs_price(100, 100, 1.0, 0.2, 0.05, "straddle")
+
+
+class TestVegaVannaCharm(unittest.TestCase):
+    """bs_vega / bs_vanna / bs_charm — exact values at the shared fixture
+    S=100, K=100, T=0.25, sigma=0.20, r=0.045 (d1=0.1625, d2=0.0625)."""
+
+    S, K, T, SIGMA, R = 100.0, 100.0, 0.25, 0.20, 0.045
+
+    def test_vega_exact(self):
+        vega = om.bs_vega(self.S, self.K, self.T, self.SIGMA, self.R)
+        self.assertAlmostEqual(vega, 19.6855, places=4)
+
+    def test_vanna_exact(self):
+        vanna = om.bs_vanna(self.S, self.K, self.T, self.SIGMA, self.R)
+        self.assertAlmostEqual(vanna, -0.123034, places=6)
+
+    def test_charm_exact(self):
+        charm = om.bs_charm(self.S, self.K, self.T, self.SIGMA, self.R)
+        self.assertAlmostEqual(charm, -0.127956, places=6)
+
+    def test_vega_always_positive_and_peaks_atm(self):
+        atm = om.bs_vega(100, 100, 0.25, 0.4, 0.045)
+        otm = om.bs_vega(100, 140, 0.25, 0.4, 0.045)
+        self.assertGreater(atm, 0.0)
+        self.assertGreater(otm, 0.0)
+        self.assertGreater(atm, otm)
+
+    def test_vanna_sign_by_moneyness(self):
+        # ATM-with-drift fixture has d2 > 0 → vanna negative; deep OTM call
+        # (d2 << 0) flips it positive.
+        self.assertLess(om.bs_vanna(self.S, self.K, self.T, self.SIGMA, self.R), 0.0)
+        self.assertGreater(om.bs_vanna(100, 140, 0.25, 0.2, 0.045), 0.0)
+
+    def test_charm_call_put_coincide_at_q_zero(self):
+        call = om.bs_charm(self.S, self.K, self.T, self.SIGMA, self.R, is_call=True)
+        put = om.bs_charm(self.S, self.K, self.T, self.SIGMA, self.R, is_call=False)
+        self.assertEqual(call, put)
+
+    def test_d1_passthrough_equivalence(self):
+        d1 = om.bs_d1(self.S, self.K, self.T, self.SIGMA, self.R)
+        self.assertEqual(
+            om.bs_vega(self.S, self.K, self.T, self.SIGMA, self.R),
+            om.bs_vega(self.S, self.K, self.T, self.SIGMA, self.R, d1=d1),
+        )
+        self.assertEqual(
+            om.bs_vanna(self.S, self.K, self.T, self.SIGMA, self.R),
+            om.bs_vanna(self.S, self.K, self.T, self.SIGMA, self.R, d1=d1),
+        )
+        self.assertEqual(
+            om.bs_charm(self.S, self.K, self.T, self.SIGMA, self.R),
+            om.bs_charm(self.S, self.K, self.T, self.SIGMA, self.R, d1=d1),
+        )
+
+    def test_degenerate_inputs_return_zero(self):
+        self.assertEqual(om.bs_vega(100, 100, 0.0, 0.2, 0.045), 0.0)
+        self.assertEqual(om.bs_vanna(100, 100, 0.25, 0.0, 0.045), 0.0)
+        self.assertEqual(om.bs_charm(-1, 100, 0.25, 0.2, 0.045), 0.0)
+
+    def test_explicit_d1_with_degenerate_params_falls_back_to_zero(self):
+        # Passing a precomputed d1 skips the bs_d1 guard, so the math itself
+        # must still degrade to 0.0 (sqrt of negative T, division by zero).
+        self.assertEqual(om.bs_vega(100, 100, -1.0, 0.2, 0.045, d1=0.5), 0.0)
+        self.assertEqual(om.bs_vanna(100, 100, 0.25, 0.0, 0.045, d1=0.5), 0.0)
+        self.assertEqual(om.bs_charm(100, 100, 0.0, 0.2, 0.045, d1=0.5), 0.0)

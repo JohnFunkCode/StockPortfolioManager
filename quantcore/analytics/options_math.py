@@ -102,6 +102,74 @@ def bs_delta(S: float, K: float, T: float, sigma: float,
         return norm_cdf(d1) - 1.0
 
 
+def bs_vega(S: float, K: float, T: float, sigma: float, r: float,
+            d1: float = None) -> float:
+    """
+    Black-Scholes vega for a European option (identical for calls and puts).
+
+    Vega = S · φ(d1) · √T — the option price change per 1.00 (100 percentage
+    points) move in implied volatility. Pass a precomputed d1 to avoid
+    recomputing it. Returns 0.0 for degenerate inputs.
+    """
+    if d1 is None:
+        d1 = bs_d1(S, K, T, sigma, r)
+    if d1 is None:
+        return 0.0
+    try:
+        return S * norm_pdf(d1) * math.sqrt(T)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 0.0
+
+
+def bs_vanna(S: float, K: float, T: float, sigma: float, r: float,
+             d1: float = None) -> float:
+    """
+    Black-Scholes vanna — ∂delta/∂sigma (equivalently ∂vega/∂S), identical
+    for calls and puts.
+
+    Vanna = −φ(d1) · d2 / σ  where d2 = d1 − σ√T. When dealers carry vanna,
+    a change in implied volatility forces delta re-hedging in the underlying —
+    the "vanna flow" that links vol crushes/spikes to spot buying/selling.
+    Returns 0.0 for degenerate inputs.
+    """
+    if d1 is None:
+        d1 = bs_d1(S, K, T, sigma, r)
+    if d1 is None:
+        return 0.0
+    try:
+        d2 = d1 - sigma * math.sqrt(T)
+        return -norm_pdf(d1) * d2 / sigma
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 0.0
+
+
+def bs_charm(S: float, K: float, T: float, sigma: float, r: float,
+             is_call: bool = True, d1: float = None) -> float:
+    """
+    Black-Scholes charm — ∂delta/∂T (delta decay per year), a.k.a. delta bleed.
+
+    With zero dividend yield (q=0, matching the other greeks here) the call and
+    put charms coincide:
+
+        charm = −φ(d1) · (2rT − d2·σ√T) / (2T·σ√T),  d2 = d1 − σ√T
+
+    ``is_call`` is accepted for forward-compatibility with a dividend-yield
+    (q>0) implementation, where call/put charm differ by q·e^{−qT}·N(±d1).
+    Dealers' charm exposure drives the systematic delta re-hedging into expiry
+    (the "charm flow" around OpEx). Returns 0.0 for degenerate inputs.
+    """
+    if d1 is None:
+        d1 = bs_d1(S, K, T, sigma, r)
+    if d1 is None:
+        return 0.0
+    try:
+        sqrt_t = math.sqrt(T)
+        d2 = d1 - sigma * sqrt_t
+        return -norm_pdf(d1) * (2 * r * T - d2 * sigma * sqrt_t) / (2 * T * sigma * sqrt_t)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return 0.0
+
+
 def bs_price(S: float, K: float, T: float, sigma: float, r: float,
              kind: str = "call") -> float:
     """

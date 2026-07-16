@@ -489,6 +489,54 @@ def get_anchored_vwap(symbol: str, anchor_date: str = None,
 
 
 @mcp.tool()
+def get_volume_profile(symbol: str, days: int = 365, interval: str = "1d",
+                       bins: int = 50, value_area_pct: float = 0.70) -> dict:
+    """Build a Volume Profile — the histogram of traded volume at each price level.
+
+    Unlike time-based charts, a volume profile shows WHERE the trading happened.
+    Each bar's volume is distributed across the prices it spanned, revealing the
+    levels the market accepted (heavy volume) versus rejected (thin volume).
+
+    Key levels returned:
+      poc               — Point of Control: the single heaviest-traded price;
+                          the market's consensus "fair value" for the window
+      value_area        — the price band holding `value_area_pct` (default 70%)
+                          of all volume, grown outward from the POC
+      hvns              — High Volume Nodes: acceptance zones that tend to act
+                          as strong support below price / resistance above
+      lvns              — Low Volume Nodes: rejection zones / air pockets that
+                          price tends to slice through quickly
+      nearest_hvn_below / nearest_hvn_above — the closest acceptance level on
+                          each side of the current price
+      nearest_lvn_below / nearest_lvn_above — the closest air pocket each side
+      in_value_area     — whether price currently trades inside the value area
+
+    INTENDED USE — volume-based support/resistance:
+      - Daily interval over ~1 year (default) gives the structural levels that
+        matter for swing entries, trims, and stop placement.
+      - interval='1h' gives a 60-day micro-profile for fine-tuning an entry
+        (intraday history is capped at ~60 days; a note is returned if
+        `days` exceeds that).
+      - A pullback into a HVN just below price is a high-probability support
+        test; a break into an LVN often accelerates to the next HVN.
+
+    Args:
+        symbol:         Stock ticker symbol (e.g. 'AAPL')
+        days:           Calendar days of history to profile (default: 365)
+        interval:       '1d' daily (default) or '1h' hourly micro-profile
+        bins:           Number of price buckets in the histogram (default: 50)
+        value_area_pct: Volume fraction defining the value area (default: 0.70)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/volume-profile",
+        days=days,
+        interval=interval,
+        bins=bins,
+        value_area_pct=value_area_pct,
+    )
+
+
+@mcp.tool()
 def get_unusual_calls(
     symbol: str,
     min_volume: int = 100,

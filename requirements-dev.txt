@@ -3,3 +3,7 @@
 -r requirements-base.txt
 coverage
 diff-cover
+# test_keyproxy_crypto.py needs the envelope crypto's `cryptography` lib; the
+# keyproxy service pins it in keyproxy/requirements.txt, and quantcore-api's
+# image never gains it (requirements-base.txt stays cryptography-free).
+cryptography>=42.0.0

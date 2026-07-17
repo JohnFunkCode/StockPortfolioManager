@@ -723,8 +723,8 @@ the context):
 
 | Packet | What | Status | Commit |
 |--------|------|--------|--------|
-| 0 | This proposal doc + GitHub issue #100 with the phase checklist (rides with packet 1a's commit) | ☐ | |
-| 1a | Python envelope crypto + keypair script + shared test vectors (`keyproxy/crypto.py`, `scripts/generate_keyproxy_keypair.py`, `tests/vectors/keyproxy_envelope_v1.json`) | ☐ | |
+| 0 | This proposal doc + GitHub issue #100 with the phase checklist (rides with packet 1a's commit) | ✅ 2026-07-16 | PR #101 (`b74c651`) |
+| 1a | Python envelope crypto + keypair script + shared test vectors (`keyproxy/crypto.py`, `scripts/generate_keyproxy_keypair.py`, `tests/vectors/keyproxy_envelope_v1.json`) | ✅ 2026-07-17 | (this packet's PR) |
 | 1b | TypeScript envelope crypto proven against the same vectors (`frontend/src/vault/envelope.ts`, SPKI pin check) | ☐ | |
 | 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ☐ | |
 | 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ☐ | |

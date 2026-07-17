@@ -727,8 +727,8 @@ the context):
 | 1a | Python envelope crypto + keypair script + shared test vectors (`keyproxy/crypto.py`, `scripts/generate_keyproxy_keypair.py`, `tests/vectors/keyproxy_envelope_v1.json`) | ✅ 2026-07-17 | PR #102 (`de85cfb`) |
 | 1b | TypeScript envelope crypto proven against the same vectors (`frontend/src/vault/envelope.ts`, SPKI pin check) | ✅ 2026-07-17 | #103 |
 | 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ✅ 2026-07-17 | (this packet's PR) |
-| 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ☐ | |
-| 2c | `Dockerfile.keyproxy` + compose wiring | ☐ | |
+| 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ✅ 2026-07-17 | (Phase 2 commit) |
+| 2c | `Dockerfile.keyproxy` + compose wiring | ✅ 2026-07-17 | (Phase 2 commit) |
 | 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ☐ | |
 | 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ☐ | |
 | 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ☐ | |

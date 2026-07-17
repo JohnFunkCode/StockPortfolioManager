@@ -1,0 +1,40 @@
+# Dockerfile.keyproxy — the Key Proxy (keyproxy/main.py).
+#
+# The BYOK credential-isolation boundary: the ONLY image that may hold the
+# envelope decryption key (KEYPROXY_PRIVATE_KEYS via Secret Manager), so it
+# carries ONLY the keyproxy package and its lean deps (keyproxy/requirements.txt)
+# — no quantcore code, no DB driver, no ML stack. Multi-stage + non-root,
+# mirroring Dockerfile.api.
+
+# ---- builder: install deps into an isolated venv ----
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY keyproxy/requirements.txt ./
+RUN pip install --upgrade pip && pip install -r requirements.txt
+
+# ---- final: slim runtime with only the venv + the keyproxy package ----
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PORT=5002
+
+RUN useradd --create-home --uid 1000 appuser
+COPY --from=builder /opt/venv /opt/venv
+
+WORKDIR /app
+COPY keyproxy/ keyproxy/
+
+USER appuser
+EXPOSE 5002
+
+# Shell form so $PORT is expanded (Cloud Run injects its own PORT).
+CMD uvicorn keyproxy.main:app --host 0.0.0.0 --port ${PORT}

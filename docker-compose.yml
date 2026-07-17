@@ -49,6 +49,7 @@ services:
       # DSN points at the proxy CONTAINER (TEST instance) — password injected from .env.docker.
       QUANTCORE_DB_DSN: "postgresql://${QUANTCORE_DB_USER}:${QUANTCORE_DB_PASSWORD}@cloud-sql-proxy:5432/${QUANTCORE_DB_NAME}"
       AUTH_DISABLED: "1"            # local stays open; JWT lands in Step 6 for GCP only
+      KEYPROXY_URL: "http://keyproxy:5002"
       PORT: "5001"
     ports:
       - "5001:5001"                # frontend (npm run dev) and curl hit http://localhost:5001
@@ -63,6 +64,28 @@ services:
       timeout: 5s
       retries: 12
       start_period: 90s            # torch/transformers import makes first boot slow
+    networks: [quantcore]
+
+  # --- Key Proxy: the BYOK credential-isolation boundary (own slim image) ---
+  # No DB, no dependence on quantcore-api. With KEYPROXY_PRIVATE_KEYS unset it
+  # generates an ephemeral dev keypair at boot — envelopes only work against
+  # this process's lifetime, exactly what a dev stack wants. Auth open locally,
+  # mirroring AUTH_DISABLED on quantcore-api. In GCP this service is NOT
+  # internet-reachable; here it's port-mapped so the Vite dev frontend and
+  # curl can hit it directly.
+  keyproxy:
+    build: { context: ., dockerfile: Dockerfile.keyproxy }
+    environment:
+      KEYPROXY_AUTH_DISABLED: "1"
+      PORT: "5002"
+    ports: ["5002:5002"]
+    restart: on-failure
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
     networks: [quantcore]
 
   # --- 5 MCP wrapper servers (thin HTTP gateways over quantcore-api; Rule 6) ---

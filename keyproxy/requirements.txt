@@ -1,0 +1,10 @@
+# Key Proxy service dependencies. Dockerfile.keyproxy (packet 2c) installs
+# THIS file only — the proxy container does not get requirements-base.txt,
+# and quantcore-api never gains `cryptography` (the envelope private-key
+# material and the code that can touch it stay confined to this service).
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+httpx>=0.27.0
+PyJWT>=2.8.0
+cryptography>=42.0.0
+anthropic>=0.40.0

@@ -1,0 +1,247 @@
+{
+  "description": "Shared envelope-v1 test vectors for the BYOK Key Proxy (docs/proposals/byok-key-proxy-plan.md). keyproxy/crypto.py and frontend/src/vault/envelope.ts must both reproduce every value here byte-exactly. API keys are fake vector strings, never real secrets.",
+  "alg": "ECDH-ES-P256+HKDF-SHA256+A256GCM",
+  "hkdf_info_prefix": "quantcore-keyproxy-v1|",
+  "iat": 1752570000,
+  "recipient": {
+    "kid": "kp-2026-07-vector",
+    "private_jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "d": "sQj5VzZ5yhsrseCjcyaCnHcXO56QGz3VoFi8zluPYhs",
+      "x": "zcoKS8PKgA1pnQPADT_Mzvj1yvCdRD3cz2bzm7uwadQ",
+      "y": "PJY_j_Yv7ocF539UF7Tpyi7yQ5K_PIn2NOklEEUoWEs"
+    },
+    "public_jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "zcoKS8PKgA1pnQPADT_Mzvj1yvCdRD3cz2bzm7uwadQ",
+      "y": "PJY_j_Yv7ocF539UF7Tpyi7yQ5K_PIn2NOklEEUoWEs"
+    },
+    "spki_fingerprint": "KFV3qFhY6qvtDXmib9V0MADtU03NjivNq2a-mGGZCL8"
+  },
+  "canonicalization": [
+    {
+      "name": "chat-turn-default-scope",
+      "input": {
+        "v": 1,
+        "provider": "anthropic",
+        "action": "chat.turn",
+        "params": {},
+        "budget": {
+          "max_calls": 20,
+          "max_mutations": 0,
+          "max_tokens": 250000,
+          "ttl": 300
+        }
+      },
+      "canonical": "{\"action\":\"chat.turn\",\"budget\":{\"max_calls\":20,\"max_mutations\":0,\"max_tokens\":250000,\"ttl\":300},\"params\":{},\"provider\":\"anthropic\",\"v\":1}",
+      "scope_hash": "4QuJH0p9u69yTHNWJELTPB9rsdpqAc_KhxlVOmscDQY"
+    },
+    {
+      "name": "unsorted-and-nested-keys",
+      "input": {
+        "zeta": {
+          "b": 2,
+          "a": 1
+        },
+        "alpha": [
+          1,
+          2,
+          {
+            "y": true,
+            "x": null
+          }
+        ],
+        "Mid": "m"
+      },
+      "canonical": "{\"Mid\":\"m\",\"alpha\":[1,2,{\"x\":null,\"y\":true}],\"zeta\":{\"a\":1,\"b\":2}}",
+      "scope_hash": "PndLB5ksnS3HIPYqieoWT1scqOX6jp7na4IvMb25lKM"
+    },
+    {
+      "name": "non-ascii-values",
+      "input": {
+        "label": "jöhn's naïve ünïcödé key ✓",
+        "emoji": "💹📈 non-BMP",
+        "cjk": "株式ポートフォリオ",
+        "seps": "line and paragraph separators stay literal"
+      },
+      "canonical": "{\"cjk\":\"株式ポートフォリオ\",\"emoji\":\"💹📈 non-BMP\",\"label\":\"jöhn's naïve ünïcödé key ✓\",\"seps\":\"line and paragraph separators stay literal\"}",
+      "scope_hash": "AAZ6--t-hsTt3WaFRI3zvwBmI9qpywofad3_j_0fhKU"
+    },
+    {
+      "name": "escape-sequences",
+      "input": {
+        "quotes": "she said \"hi\" \\ backslash / slash",
+        "controls": "tab\there\nnewline\rcr\bbs\fff",
+        "low-controls": "nul\u0000unitsep\u001f"
+      },
+      "canonical": "{\"controls\":\"tab\\there\\nnewline\\rcr\\bbs\\fff\",\"low-controls\":\"nul\\u0000unitsep\\u001f\",\"quotes\":\"she said \\\"hi\\\" \\\\ backslash / slash\"}",
+      "scope_hash": "FmRuRQux9uEgad9VbIqKue9wSgbdBGkriWrddYs4-Og"
+    },
+    {
+      "name": "empty-and-scalar-edges",
+      "input": {
+        "empty_str": "",
+        "empty_obj": {},
+        "empty_list": [],
+        "null": null,
+        "true": true,
+        "false": false,
+        "big_int": 9007199254740991
+      },
+      "canonical": "{\"big_int\":9007199254740991,\"empty_list\":[],\"empty_obj\":{},\"empty_str\":\"\",\"false\":false,\"null\":null,\"true\":true}",
+      "scope_hash": "cd7GMmKlPa-9c3ZTS_JqVN_uEgONXgKVeDXpU0iYg1s"
+    }
+  ],
+  "envelopes": [
+    {
+      "name": "basic-chat-turn",
+      "api_key": "sk-ant-api03-TEST-VECTOR-not-a-real-key-0000000000000000",
+      "expected_sub": "john",
+      "expected_provider": "anthropic",
+      "scope": {
+        "v": 1,
+        "provider": "anthropic",
+        "action": "chat.turn",
+        "params": {},
+        "budget": {
+          "max_calls": 20,
+          "max_mutations": 0,
+          "max_tokens": 250000,
+          "ttl": 300
+        }
+      },
+      "ephemeral_private_jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "d": "zG6lEAIkrpA9ir5pyU5TBKa4ol46yCCut6ds8HL2Q4I",
+        "x": "enVBZYd3WR2SnxfeCVp1LtAECz0FIxwjfBs76LNEMb0",
+        "y": "n4I1cDD_fRhEbTv5FhFbivPEtZk6Lc6YBYX3oOH74Jg"
+      },
+      "iv": "kUK8765pdWB3APBk",
+      "aad": {
+        "sub": "john",
+        "provider": "anthropic",
+        "iat": 1752570000,
+        "jti": "5f0d3b1c-9a52-4e0f-8f0e-2f4f6a1c9d10",
+        "scope_hash": "4QuJH0p9u69yTHNWJELTPB9rsdpqAc_KhxlVOmscDQY"
+      },
+      "envelope": {
+        "v": 1,
+        "alg": "ECDH-ES-P256+HKDF-SHA256+A256GCM",
+        "kid": "kp-2026-07-vector",
+        "epk": "BHp1QWWHd1kdkp8X3gladS7QBAs9BSMcI3wbO-izRDG9n4I1cDD_fRhEbTv5FhFbivPEtZk6Lc6YBYX3oOH74Jg",
+        "iv": "kUK8765pdWB3APBk",
+        "ct": "k4AHxYQ_BY5FYt6ljYmK-9OzyZajFdVMcB7TZ2dRf8Vdu9plGQ1oFUsvoSCE9BsLHfQKuuogSxmnw39SSue6oRaeDEG75mKr",
+        "aad": {
+          "sub": "john",
+          "provider": "anthropic",
+          "iat": 1752570000,
+          "jti": "5f0d3b1c-9a52-4e0f-8f0e-2f4f6a1c9d10",
+          "scope_hash": "4QuJH0p9u69yTHNWJELTPB9rsdpqAc_KhxlVOmscDQY"
+        }
+      }
+    },
+    {
+      "name": "non-ascii-scope-and-sub",
+      "api_key": "sk-ant-api03-TEST-VECTOR-ünïcödé-💹-0000000000000000",
+      "expected_sub": "jöhn@ünïcöde.example",
+      "expected_provider": "anthropic",
+      "scope": {
+        "v": 1,
+        "provider": "anthropic",
+        "action": "chat.turn",
+        "params": {
+          "note": "非ASCII ✓ 💹 sep"
+        },
+        "budget": {
+          "max_calls": 8,
+          "max_mutations": 0,
+          "max_tokens": 100000,
+          "ttl": 300
+        }
+      },
+      "ephemeral_private_jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "d": "3h0MIVGxkahIugr9mKIBhlFgFxNcOvL0L9xxp3f40o8",
+        "x": "Zv35nLe3XxC8e6jDLiReHR0HIg2FXR0qc8ZlGhdPJPk",
+        "y": "OKJ1yMyBP_UpClIxUGjw34jb6chmpxRwTn9enoBh_oQ"
+      },
+      "iv": "tnNDyhcmT-npvguP",
+      "aad": {
+        "sub": "jöhn@ünïcöde.example",
+        "provider": "anthropic",
+        "iat": 1752570000,
+        "jti": "0b7a9c44-6a1d-4d2b-b7f3-9d8e5c3a2b19",
+        "scope_hash": "dibMwgVXD7uE9lwgk-SKlXSevHS5zfrhPVa2vkxf8q8"
+      },
+      "envelope": {
+        "v": 1,
+        "alg": "ECDH-ES-P256+HKDF-SHA256+A256GCM",
+        "kid": "kp-2026-07-vector",
+        "epk": "BGb9-Zy3t18QvHuowy4kXh0dByINhV0dKnPGZRoXTyT5OKJ1yMyBP_UpClIxUGjw34jb6chmpxRwTn9enoBh_oQ",
+        "iv": "tnNDyhcmT-npvguP",
+        "ct": "LrVXdNN-l_AyceLVA0BwKmfIkVE_JAiU9BupmGkWuoImYjyQs2knstHDV7DBaOOLgRiA4Or2P7YKpGsLcUl5Qym0ZN05aDQfr8Y",
+        "aad": {
+          "sub": "jöhn@ünïcöde.example",
+          "provider": "anthropic",
+          "iat": 1752570000,
+          "jti": "0b7a9c44-6a1d-4d2b-b7f3-9d8e5c3a2b19",
+          "scope_hash": "dibMwgVXD7uE9lwgk-SKlXSevHS5zfrhPVa2vkxf8q8"
+        }
+      }
+    },
+    {
+      "name": "escape-heavy-scope",
+      "api_key": "sk-ant-api03-TEST-VECTOR-escapes-0000000000000000",
+      "expected_sub": "john",
+      "expected_provider": "anthropic",
+      "scope": {
+        "v": 1,
+        "provider": "anthropic",
+        "action": "chat.turn",
+        "params": {
+          "memo": "quote \" backslash \\ newline \n tab \t nul \u0000 esc \u001b"
+        },
+        "budget": {
+          "max_calls": 20,
+          "max_mutations": 0,
+          "max_tokens": 250000,
+          "ttl": 300
+        }
+      },
+      "ephemeral_private_jwk": {
+        "kty": "EC",
+        "crv": "P-256",
+        "d": "y9bwlVbVgZYu7k7_hJRgS7YQRO60mYuw1fBLyiNYVf8",
+        "x": "vMRyA5p4XZB6x1oKgqUjVSh6ReiEZTgQPQKenGJltUo",
+        "y": "2K9vSRtSvnhSyC4LppJyWKF1V_IovP5Rw7xdAVVhwtQ"
+      },
+      "iv": "oleKrfISTFAK22Vz",
+      "aad": {
+        "sub": "john",
+        "provider": "anthropic",
+        "iat": 1752570000,
+        "jti": "e2c1a0f9-3d4b-45c6-a7d8-1b2c3d4e5f60",
+        "scope_hash": "yAB60s9ROfwSSSO-LFKARGHKfQo_lUwGtD4mtnr2P4Y"
+      },
+      "envelope": {
+        "v": 1,
+        "alg": "ECDH-ES-P256+HKDF-SHA256+A256GCM",
+        "kid": "kp-2026-07-vector",
+        "epk": "BLzEcgOaeF2QesdaCoKlI1UoekXohGU4ED0CnpxiZbVK2K9vSRtSvnhSyC4LppJyWKF1V_IovP5Rw7xdAVVhwtQ",
+        "iv": "oleKrfISTFAK22Vz",
+        "ct": "oXYuZ_DGE0JsziUNNPNnXVaMIieAC0fsAjneKKRvCGl9l0juUuz84-6ANgelF5ib6Q7CrxIcFC_ohZDkUXaLpxM",
+        "aad": {
+          "sub": "john",
+          "provider": "anthropic",
+          "iat": 1752570000,
+          "jti": "e2c1a0f9-3d4b-45c6-a7d8-1b2c3d4e5f60",
+          "scope_hash": "yAB60s9ROfwSSSO-LFKARGHKfQo_lUwGtD4mtnr2P4Y"
+        }
+      }
+    }
+  ]
+}

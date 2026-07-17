@@ -2,7 +2,9 @@
 
 > Status: **PROPOSAL — awaiting team review.** No code has been written. This doc is the canonical
 > plan and checkpoint log for the BYOK feature, mirroring the cadence of `quantui-iap-plan.md` /
-> `phase3-gateway-plan.md`: one commit per phase, pushed, logged below. It adapts the
+> `phase3-gateway-plan.md`: one commit per work packet, pushed, logged below (see "Executing this
+> plan — session protocol", added 2026-07-16 to tailor the plan for execution by Claude Opus 4.8;
+> progress comments go on issue #100 at full-phase boundaries). It adapts the
 > user-controlled-key architecture proposal (HPKE-style envelope encryption, dedicated decrypting
 > proxy) to the QuantCore stack, with the existing Anthropic chat sidekick as the first consumer.
 > The source proposal's goals, security boundaries, cryptographic model, logging policy, and
@@ -678,99 +680,188 @@ seam:
 Rule 6 (`MCP → REST → Service`) is untouched: the five MCP wrappers don't change, and the Key Proxy
 sits *behind* the services layer (downstream, in the provider direction), not in front of it.
 
+## Executing this plan — session protocol (added 2026-07-16, tailored for Claude Opus 4.8)
+
+Implementation may be driven by Claude Opus 4.8. The plan below is restructured accordingly: the
+eight phases keep their identities (decisions #1–14, the Risks section, the invariants map, and
+issue #100 all cross-reference them by number), but the larger ones are split into lettered
+**work packets** (1a/1b, 2a–2c, 3a–3c, 5a/5b, 7a/7b, 8a/8b). A packet is sized so one focused
+session can hold the whole thing — its files, its tests, and the design context it depends on —
+without juggling unrelated concerns.
+
+Rules for the implementing session (they apply to any model; they just matter more the tighter
+the context):
+
+1. **One packet per session, one commit per packet.** Start each packet in a fresh or freshly
+   compacted context; the commit is the saved state between sessions. John commits himself (he
+   drives git to keep his GitHub skills sharp) — Claude prepares the diff and writes the commit
+   message. Post a progress comment on issue #100 at each **full-phase** boundary (Phase 3 gets
+   one comment when 3c lands, not three).
+2. **Read before writing.** Every packet lists *Context to load first* — the doc sections and
+   source files that packet depends on. Read those, plus `CLAUDE.md`, before the first edit.
+   Never guess at an interface you can open.
+3. **The design is settled.** Decisions #1–14 and the trade-offs recorded in this document were
+   made deliberately with the team. If something looks wrong or won't work as specified, **stop
+   and raise it with John** — never redesign mid-packet (no swapping crypto primitives, auth
+   models, session semantics, or endpoint shapes).
+4. **The Verify block is the exit contract.** A packet is done when every listed check passes,
+   plus the repo-wide gates: `coverage run -m unittest discover` green with the coverage-ratchet
+   floor; for frontend packets `cd frontend && npx vitest run --coverage` green and `tsc -b`
+   clean; the OpenAPI surface snapshot (`docs/openapi-surface.txt`) matches whenever the api tier
+   changed. Never report a packet done with failing, skipped, or weakened checks.
+5. **Touch only the packet's files.** New/changed files are enumerated per packet. Refactors,
+   renames, or "while I'm here" cleanups outside that list belong in a separate conversation with
+   John, not in the packet's diff.
+6. **The never-log policy applies to every packet:** no API keys, `Authorization` headers,
+   envelopes, decrypted payloads, request bodies, or exception dumps containing credentials may
+   reach any log or print — and it is enforced by tests, so when a packet adds a new failure
+   path, it adds the corresponding log assertion.
+7. **When blocked, say so.** A packet that ends half-done with a clear note about what remains
+   beats one that "finishes" by weakening a test or skipping a verify item.
+
 ## Checkpoint log
 
-| Phase | What | Status | Commit |
-|-------|------|--------|--------|
-| 0 | This proposal doc + GitHub issue with phase checklist (rides with Phase 1's commit) | ☐ | |
-| 1 | Envelope crypto both sides (`keyproxy/crypto.py`, `frontend/src/vault/envelope.ts`) + shared test vectors + `scripts/generate_keyproxy_keypair.py` | ☐ | |
-| 2 | Key Proxy skeleton: `keyproxy/` app (publickey, **sessions + scopes**, validate, auth, replay/rate-limit), `Dockerfile.keyproxy`, compose wiring | ☐ | |
-| 3 | Streaming turn endpoint + **session exchange** + `KeyProxyChatClient` + api plumbing (`TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, OpenAPI snapshot) | ☐ | |
+| Packet | What | Status | Commit |
+|--------|------|--------|--------|
+| 0 | This proposal doc + GitHub issue #100 with the phase checklist (rides with packet 1a's commit) | ☐ | |
+| 1a | Python envelope crypto + keypair script + shared test vectors (`keyproxy/crypto.py`, `scripts/generate_keyproxy_keypair.py`, `tests/vectors/keyproxy_envelope_v1.json`) | ☐ | |
+| 1b | TypeScript envelope crypto proven against the same vectors (`frontend/src/vault/envelope.ts`, SPKI pin check) | ☐ | |
+| 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ☐ | |
+| 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ☐ | |
+| 2c | `Dockerfile.keyproxy` + compose wiring | ☐ | |
+| 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ☐ | |
+| 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ☐ | |
+| 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ☐ | |
 | 4 | Frontend vault: IndexedDB + WebCrypto (`vaultStore.ts`, `vaultCrypto.ts`, `KeyVaultContext.tsx`), `fake-indexeddb` tests | ☐ | |
-| 5 | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX | ☐ | |
-| 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path | ☐ | |
-| 7 | Per-user JWTs: quantui Express verifies the IAP assertion and mints per-identity tokens; retire the shared `quantui-api-token` in cloud *(reordered before rollout 2026-07-16)* | ☐ | |
-| 8 | CI/CD + cloud rollout: `cloudbuild.yaml` step, `deploy.yml`/`prod-rollout.yml` wiring, manual first-deploy runbook (IAM-locked keyproxy) | ☐ | |
+| 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ☐ | |
+| 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted) | ☐ | |
+| 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E | ☐ | |
+| 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests | ☐ | |
+| 7b | Express IAP-verify + per-user ES256 mint (`quantui-signing-key`); retire the shared `quantui-api-token` in cloud | ☐ | |
+| 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml` | ☐ | |
+| 8b | Manual first-deploy runbook (IAM-locked keyproxy), executed interactively with John; results logged here | ☐ | |
 
 ## Phase details
 
 ### Phase 1 — Envelope crypto, both sides, shared vectors
+Two packets: 1a produces the shared vector file that 1b must then match byte-exactly — the
+vectors *are* the cross-runtime contract, so no test plumbing spans the two languages.
+
+#### Packet 1a — Python crypto + keypair script + shared vectors
+*Context to load first:* this doc's **Envelope spec**, **Cryptographic model**, **P-256
+deviation**, and **Logging policy** sections; `CLAUDE.md`.
 New: `keyproxy/crypto.py` (+ `keyproxy/requirements.txt`: fastapi, uvicorn, httpx, PyJWT,
 `cryptography`, anthropic — quantcore-api does **not** gain `cryptography`),
-`frontend/src/vault/envelope.ts` (pure `crypto.subtle`: ECDH → HKDF → AES-GCM, b64url helpers,
-**SPKI-pin check** against `VITE_KEYPROXY_SPKI_PINS`, and canonical scope hashing for
-`aad.scope_hash` — the identical canonicalization in TS and Python),
-`scripts/generate_keyproxy_keypair.py` (also prints the SPKI fingerprint for the pin list),
-`tests/vectors/keyproxy_envelope_v1.json` (pinned recipient + ephemeral JWKs + iv/aad — including
-`scope_hash` — → expected ciphertext, proving TS-encrypt → Py-decrypt byte-exactly without
-cross-runtime test plumbing; the vector set **must include non-ASCII and escape-sequence edge
-cases** in `scope`/AAD string fields — Python's `json.dumps` and JS's `JSON.stringify` disagree
-on non-ASCII escaping by default (added 2026-07-16, external review), and an untested divergence
-would make the same consent hash differently on the two sides), `test_keyproxy_crypto.py`,
+`scripts/generate_keyproxy_keypair.py` (prints — never writes — the PEM + kid, plus the SPKI
+fingerprint for the pin list), `tests/vectors/keyproxy_envelope_v1.json` (pinned recipient +
+ephemeral JWKs + iv/aad — including `scope_hash` — → expected ciphertext; the vector set **must
+include non-ASCII and escape-sequence edge cases** in `scope`/AAD string fields — Python's
+`json.dumps` and JS's `JSON.stringify` disagree on non-ASCII escaping by default (added
+2026-07-16, external review), and an untested divergence would make the same consent hash
+differently on the two sides), `test_keyproxy_crypto.py`.
+**Verify:** Python suite green; tamper cases (flipped AAD byte, wrong kid, stale iat, altered
+`scope` vs `scope_hash`) fail closed; the vectors file is committed with the packet.
+
+#### Packet 1b — TypeScript crypto proven against the same vectors
+*Context to load first:* the same doc sections as 1a, plus `keyproxy/crypto.py` and
+`tests/vectors/keyproxy_envelope_v1.json` from 1a (the contract to match), and
+`frontend/src/setupTests.ts`.
+New: `frontend/src/vault/envelope.ts` (pure `crypto.subtle`: ECDH → HKDF → AES-GCM, b64url
+helpers, **SPKI-pin check** against `VITE_KEYPROXY_SPKI_PINS`, and canonical scope hashing for
+`aad.scope_hash` — canonicalization identical to the Python side),
 `frontend/src/vault/envelope.test.ts`, WebCrypto polyfill in `setupTests.ts` if jsdom lacks
 `crypto.subtle`.
-**Verify:** both suites green; tamper cases (flipped AAD byte, wrong kid, stale iat, altered
-`scope` vs `scope_hash`) fail closed; the non-ASCII canonicalization vectors hash identically in
-TS and Python; `envelope.ts` refuses to encrypt to an unpinned public key.
+**Verify:** vitest green; encrypting with the vectors' pinned ephemeral key reproduces the
+expected ciphertext byte-exactly (proving TS-encrypt → Py-decrypt); the non-ASCII
+canonicalization vectors hash identically in TS and Python; `envelope.ts` refuses to encrypt to
+an unpinned public key.
 
 ### Phase 2 — Key Proxy skeleton + Docker/compose
+Three packets: the security-critical core modules land first as directly-tested units (2a), then
+the app and endpoints assembled around them (2b), then containerization (2c).
+
+#### Packet 2a — Core modules: auth, replay, sessions, scopes
+*Context to load first:* this doc's **Session mechanics**, **Scope schema (v1)**, **Provider
+modules fail closed**, and **Logging policy** sections; `api/auth.py` (the semantics
+`keyproxy/auth.py` mirrors); `keyproxy/crypto.py` from 1a.
+New: `keyproxy/auth.py` (~60-line HS256 verifier mirroring `api/auth.py` semantics incl. the
+disabled mode; swapped to ES256-only later, in packet 7a), `keyproxy/replay.py` (TTL `jti` set +
+per-sub token bucket, size-capped), `keyproxy/sessions.py` (in-memory session store: 128-bit
+random ids, sliding `KEYPROXY_SESSION_TTL` + hard cap, teardown), `keyproxy/scopes.py` (canonical
+scope JSON + hashing, schema validation, budget counters) — each with direct unit tests.
+**Verify:** unit tests green, including `test_replay_race` (two **concurrent** redemptions of the
+same `jti` racing the replay set — exactly one wins; added 2026-07-16, external review);
+session-lifecycle tests (sliding TTL expiry, hard 900 s cap);
+`max_calls`/`max_mutations`/`max_tokens` budget exhaustion — the token-budget rejection copy must
+say the user hit a **system-imposed threshold** and to ask the dev team to raise it; scope
+canonicalization agrees with the Phase 1 vectors.
+
+#### Packet 2b — App factory + endpoints + Anthropic provider
+*Context to load first:* this doc's **Endpoints**, **Session mechanics**, and **Logging policy**
+sections; the 2a modules; `api/main.py` (this repo's app-factory conventions).
 New: `keyproxy/main.py` (tiny app factory — the architectural standard's spirit at micro scale),
-`keyproxy/auth.py` (~60-line HS256 verifier mirroring `api/auth.py` semantics incl. the disabled
-mode), `keyproxy/replay.py` (TTL `jti` set + per-sub token bucket, size-capped),
-`keyproxy/sessions.py` (in-memory session store: 128-bit random ids, sliding
-`KEYPROXY_SESSION_TTL` + hard cap, teardown), `keyproxy/scopes.py` (canonical scope JSON +
-hashing, schema validation, budget counters), the `POST /v1/sessions` / `DELETE /v1/sessions/{id}`
-endpoints, `keyproxy/providers/anthropic.py` (`validate_key` via `models.list(limit=1)` + the
-operation taxonomy: `messages.stream` = read, everything else unclassified → reject),
-`Dockerfile.keyproxy` (python:3.12-slim multi-stage, non-root, `${PORT}`), compose service
-`keyproxy` (:5002, `KEYPROXY_AUTH_DISABLED=1`) + `KEYPROXY_URL` on quantcore-api. Every session
-gets a **correlation id** at redemption, echoed on each allowlist log line. A test asserts
-decrypt-failure paths log no envelope/key material.
+the `GET /healthz`, `GET /v1/publickey`, `POST /v1/keys/validate`, and `POST /v1/sessions` /
+`DELETE /v1/sessions/{id}` endpoints, `keyproxy/providers/anthropic.py` (`validate_key` via
+`models.list(limit=1)` + the operation taxonomy: `messages.stream` = read, everything else
+unclassified → reject). Every session gets a **correlation id** at redemption, echoed on each
+allowlist log line. A test asserts decrypt-failure paths log no envelope/key material.
 **Verify:** `test_keyproxy_service.py` (TestClient: happy path with real crypto round-trip;
 redemption burns the `jti` — second redemption 400; expiry/sub-mismatch/scope-hash-mismatch
-rejections; 429) + `test_replay_race` (two **concurrent** redemptions of the same `jti` racing
-the replay set — exactly one wins; added 2026-07-16, external review) + session-lifecycle tests
-(sliding TTL expiry, hard cap, session use with wrong `sub` rejected,
-`max_calls`/`max_mutations`/`max_tokens` budget exhaustion — the token-budget rejection copy must
-say the user hit a **system-imposed threshold** and to ask the dev team to raise it —
-unclassifiable operation rejected); `./runUI-CONTAINERS.sh up --build` → curl publickey.
+rejections; session use with a wrong `sub` rejected; unclassifiable operation rejected; 429 from
+the per-sub rate limit); the never-log assertion.
+
+#### Packet 2c — Docker + compose wiring
+*Context to load first:* this doc's **Env vars and secrets** section; `docker-compose.yml`,
+`Dockerfile.api` (the pattern to follow), `runUI-CONTAINERS.sh`.
+New: `Dockerfile.keyproxy` (python:3.12-slim multi-stage, non-root, `${PORT}`), compose service
+`keyproxy` (:5002, `KEYPROXY_AUTH_DISABLED=1`) + `KEYPROXY_URL` on quantcore-api.
+**Verify:** `./runUI-CONTAINERS.sh up --build` → curl the publickey endpoint from the host and
+from inside the quantcore-api container.
 
 ### Phase 3 — Streaming turn + `KeyProxyChatClient` + api plumbing (largest)
-- keyproxy: `POST /v1/providers/anthropic/messages/stream` mirroring
-  `AnthropicChatClient.stream_turn` (incl. `output_config.effort`, betas, fallbacks). The endpoint
-  takes a `session_id`: each call is scope-checked and budget-counted before the session's key is
-  attached; plaintext lives only in the session store and is discarded at teardown/TTL.
-- New: `quantcore/gateways/keyproxy_gateway.py` — `KeyProxyChatClient` implementing the `ChatClient`
-  protocol (httpx streaming SSE parse; content blocks namespace-wrapped so the tool loop's
-  `getattr` access works **and** thinking-block signatures round-trip when echoed back into the
-  conversation) plus the **session exchange** — `POST /v1/sessions` before the first turn,
-  `session_id` on every turn, best-effort `DELETE` when the loop ends — and pubkey/validate calls;
-  `quantcore/services/keyproxy.py` (thin service); `api/routers/keyproxy.py`;
-  `api/schemas/keyproxy.py` (`KeyEnvelope` + `KeyScope` models).
-- Streaming hardening (decided 2026-07-16 — the four finding-5 items): `KeyProxyChatClient` uses
-  a **persistent pooled `httpx.Client`** (keep-alive), so turns 2+ reuse the warm connection to
-  the single keyproxy instance instead of paying TCP+TLS setup per turn; the keyproxy emits an
-  SSE **heartbeat comment** (`: ping`) every ~15 s (`KEYPROXY_HEARTBEAT_SECS`) while waiting on
-  the provider — thinking pauses can run 30–60+ s with zero bytes on the wire, long enough for
-  idle-timeout appliances to drop the connection — and `api/sse.py` does the same toward the
-  browser (SSE comments are invisible to parsers; no frontend change); and **no compression
-  middleware may touch `text/event-stream`** on either app — a compressor buffers until its
-  window fills, which looks exactly like broken streaming with no error anywhere.
-- `quantcore/services/chat.py`: `TurnContext(key_envelope, scope, auth_token, subject)`;
-  `stream_chat(..., context)`; `client_factory` becomes `Callable[[TurnContext], ChatClient]`.
-  Missing envelope with keyproxy configured → immediate
-  `ErrorEvent("Add your Anthropic API key in Settings to use the sidekick.")`.
-- `api/routers/chat.py`: add a `Depends(require_principal)` param and build the `TurnContext`
-  (still exactly one service call deep).
-- `quantcore/services/registry.py` precedence: `CHAT_FAKE` > `KEYPROXY_URL` (KeyProxyChatClient) >
-  `CHAT_ENV_KEY_FALLBACK=1` (legacy env-key client) > keyless-error factory. `KEYPROXY_FAKE=1`
-  swaps a canned gateway (real generated keypair, no network) for route tests. Update
-  `docs/openapi-surface.txt`.
-**Verify:** proxy-stream, client-parse, and chat-service tests (envelope-required error,
-`TurnContext` plumbing, `CHAT_FAKE` unaffected); session-exchange tests (envelope redeemed exactly
-once per send, turns 2+ reuse the session, teardown fires on both `Done` and `ErrorEvent`, an
-expired session mid-chat surfaces a clean re-send error rather than a hang); snapshot green. Plus
-three dedicated risk-pinning tests (decided 2026-07-16):
+The plan's largest phase, split into three packets: the keyproxy's streaming endpoint (3a), the
+api-side client that consumes it (3b), and the chat-tier plumbing that puts it in front of users
+(3c). The streaming hardening decided 2026-07-16 (the four finding-5 items) is distributed
+across the packets, each item pinned by a test in the packet that owns it.
+
+#### Packet 3a — Keyproxy streaming endpoint
+*Context to load first:* this doc's **Session mechanics** and **Request flow** sections;
+`quantcore/gateways/anthropic_gateway.py` — specifically `AnthropicChatClient.stream_turn`, the
+exact shape this endpoint mirrors; the 2a/2b keyproxy modules.
+New: `POST /v1/providers/anthropic/messages/stream` mirroring `AnthropicChatClient.stream_turn`
+(incl. `output_config.effort`, betas, fallbacks). The endpoint takes a `session_id`: each call is
+scope-checked and budget-counted before the session's key is attached; plaintext lives only in
+the session store and is discarded at teardown/TTL. Hardening owned by this packet: the keyproxy
+emits an SSE **heartbeat comment** (`: ping`) every ~15 s (`KEYPROXY_HEARTBEAT_SECS`) while
+waiting on the provider — thinking pauses can run 30–60+ s with zero bytes on the wire, long
+enough for idle-timeout appliances to drop the connection (SSE comments are invisible to
+parsers) — and **no compression middleware may touch `text/event-stream`** in the keyproxy app —
+a compressor buffers until its window fills, which looks exactly like broken streaming with no
+error anywhere.
+**Verify:** stub-provider endpoint tests (delta/final/error framing; per-call scope check and
+budget count; expired-session rejection); heartbeat comments appear on the wire during an
+artificially long stub-provider pause; a request sent with `Accept-Encoding: gzip` comes back
+with no `Content-Encoding` (the keyproxy half of `test_keyproxy_stream_not_compressed`; the
+`/api/chat` half lands in 3c).
+
+#### Packet 3b — `KeyProxyChatClient` + session exchange
+*Context to load first:* this doc's **Session mechanics** section and decision #11;
+`quantcore/services/chat.py` (the `ChatClient` protocol, the injectable `client_factory`, and the
+tool loop's `getattr` access pattern the client must satisfy);
+`quantcore/gateways/anthropic_gateway.py`; `mcp_gateway/rest_client.py` (the httpx-client
+template); the 3a endpoint.
+New: `quantcore/gateways/keyproxy_gateway.py` — `KeyProxyChatClient` implementing the
+`ChatClient` protocol (httpx streaming SSE parse; content blocks namespace-wrapped so the tool
+loop's `getattr` access works **and** thinking-block signatures round-trip when echoed back into
+the conversation) plus the **session exchange** — `POST /v1/sessions` before the first turn,
+`session_id` on every turn, best-effort `DELETE` when the loop ends — and pubkey/validate calls;
+`quantcore/services/keyproxy.py` (thin service). Hardening owned by this packet:
+`KeyProxyChatClient` uses a **persistent pooled `httpx.Client`** (keep-alive), so turns 2+ reuse
+the warm connection to the single keyproxy instance instead of paying TCP+TLS setup per turn.
+**Verify:** client-parse tests; session-exchange tests (envelope redeemed exactly once per send,
+turns 2+ reuse the session, teardown fires on both `Done` and `ErrorEvent`, an expired session
+mid-chat surfaces a clean re-send error rather than a hang). Plus two of the three risk-pinning
+tests (decided 2026-07-16):
 - **`test_keyproxy_stream_no_buffering`** — proves the api → keyproxy hop passes chunks through as
   they arrive instead of accumulating the response. The keyproxy runs under a **real uvicorn
   server on a local port** (not an in-process TestClient, which would bypass socket-level
@@ -784,11 +875,33 @@ three dedicated risk-pinning tests (decided 2026-07-16):
   serialize/deserialize round trip **byte-exactly**. A stub provider emits a `final` message
   containing a thinking block (with a fixed `signature` field) plus a `tool_use` block; the test
   runs it through the full path — keyproxy JSON serialization → SSE → `KeyProxyChatClient` parse →
-  `ChatService` echoing the assistant content into the conversation → the params payload the
-  client would POST back to the keyproxy for the next turn — and asserts the thinking block in
-  that outbound payload is **deep-equal to the original dict the stub emitted** (every field,
-  including `signature`, unchanged). Complemented by the Phase 6 compose E2E exercising a real
-  tool-using chat with a live key, which fails loudly on any signature error from Anthropic.
+  `ChatService` echoing the assistant content into the conversation (via the existing injectable
+  `client_factory`) → the params payload the client would POST back to the keyproxy for the next
+  turn — and asserts the thinking block in that outbound payload is **deep-equal to the original
+  dict the stub emitted** (every field, including `signature`, unchanged). Complemented by the
+  Phase 6 compose E2E exercising a real tool-using chat with a live key, which fails loudly on
+  any signature error from Anthropic.
+
+#### Packet 3c — Chat-tier plumbing + registry + OpenAPI
+*Context to load first:* this doc's **Endpoints** and **Env vars and secrets** sections;
+`quantcore/services/chat.py`, `api/routers/chat.py`, `api/sse.py`,
+`quantcore/services/registry.py`, `api/auth.py` (`Principal.token` — the raw JWT forwarded to the
+keyproxy), `docs/openapi-surface.txt`.
+Changes: `quantcore/services/chat.py` — `TurnContext(key_envelope, scope, auth_token, subject)`;
+`stream_chat(..., context)`; `client_factory` becomes `Callable[[TurnContext], ChatClient]`;
+missing envelope with keyproxy configured → immediate
+`ErrorEvent("Add your Anthropic API key in Settings to use the sidekick.")`.
+`api/routers/chat.py` — add a `Depends(require_principal)` param and build the `TurnContext`
+(still exactly one service call deep). New `api/routers/keyproxy.py` and `api/schemas/keyproxy.py`
+(`KeyEnvelope` + `KeyScope` models). `quantcore/services/registry.py` precedence: `CHAT_FAKE` >
+`KEYPROXY_URL` (KeyProxyChatClient) > `CHAT_ENV_KEY_FALLBACK=1` (legacy env-key client) >
+keyless-error factory; `KEYPROXY_FAKE=1` swaps a canned gateway (real generated keypair, no
+network) for route tests. Hardening owned by this packet: `api/sse.py` emits the same `: ping`
+heartbeats toward the browser (no frontend change), and no compression middleware touches
+`text/event-stream` in the api app. Update `docs/openapi-surface.txt`.
+**Verify:** chat-service tests (envelope-required error, `TurnContext` plumbing, `CHAT_FAKE`
+unaffected); keyproxy-router tests under `KEYPROXY_FAKE=1`; OpenAPI snapshot green. Plus the
+third risk-pinning test (decided 2026-07-16):
 - **`test_keyproxy_stream_not_compressed`** — proves no layer compresses (and thereby buffers)
   the event stream. Sends stream requests **with `Accept-Encoding: gzip`** to both the keyproxy
   and `POST /api/chat` and asserts the responses carry no `Content-Encoding` and arrive as plain
@@ -796,6 +909,10 @@ three dedicated risk-pinning tests (decided 2026-07-16):
   long stub-provider pause (fake ~40 s gap), pinning the idle-keepalive behavior on both hops.
 
 ### Phase 4 — Frontend vault (IndexedDB + WebCrypto + context)
+One packet.
+*Context to load first:* this doc's **Key lifecycle** and **Security boundaries** sections;
+`frontend/src/vault/envelope.ts` from 1b; `frontend/src/context/` (existing provider patterns,
+e.g. `ChatContext`); `frontend/src/setupTests.ts`.
 New: `frontend/src/vault/vaultStore.ts` (promise-wrapped IndexedDB, db `hl-keyvault`, store `keys`
 keyed by provider; record `{provider, ct, iv, salt, kdf:{alg:"PBKDF2-SHA256", iterations:600000},
 label, last4, createdAt}`), `vaultCrypto.ts` (PBKDF2 → AES-GCM wrap/unwrap),
@@ -806,7 +923,15 @@ the whole vault). Dev-dep **`fake-indexeddb`**. `main.tsx`: `KeyVaultProvider` a
 **Verify:** vitest round-trips, wrong-passphrase failure, auto-lock via fake timers; coverage
 ratchet holds.
 
-### Phase 5 — Settings UI (add / rotate / remove / unlock)
+### Phase 5 — Settings UI (add / rotate / remove / unlock) + page hardening
+Two packets: the settings page and dialogs (5a), then the serving-layer hardening (5b). Both must
+land **before Phase 6** — 5b is what makes it safe for anyone to paste a real key.
+
+#### Packet 5a — Settings page + key dialogs
+*Context to load first:* this doc's **Key lifecycle** and **Endpoints** sections; the Phase 4
+vault modules; `frontend/src/App.tsx` (routing/nav), `securities/AddSecurityDialog.tsx` and
+`common/ConfirmDialog.tsx` (the dialog patterns to model), an existing `frontend/src/api/*`
+module + hook pair (the fetch conventions).
 New: `/settings` route + nav item in `App.tsx`;
 `frontend/src/components/settings/SettingsPage.tsx` + `ApiKeysSection.tsx` (per-provider rows:
 label, last4, status chip, Rotate/Remove); `AddKeyDialog.tsx` (modeled on
@@ -814,22 +939,35 @@ label, last4, status chip, Rotate/Remove); `AddKeyDialog.tsx` (modeled on
 `RotateKeyDialog.tsx`, `UnlockDialog.tsx`; Remove via `common/ConfirmDialog.tsx`.
 `frontend/src/api/keyproxy.ts` (`getKeyProxyInfo()` — pubkey + `sub`, cached 10 min;
 `validateKey()`) + `hooks/useKeyProxy.ts`. Add/rotate: encrypt → `POST /api/keyproxy/validate` →
-store on success (show last4), keep dialog open with the error on failure. Also in this phase
-(before anyone pastes a real key): strict `Content-Security-Policy` header in
-`frontend/server/server.mjs` (`default-src 'self'; connect-src 'self'; frame-ancestors 'none';
-object-src 'none'; form-action 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'` — the
-style exception is required by MUI/emotion), verified against every existing page, plus
-**Trusted Types** (added 2026-07-16, external review): `require-trusted-types-for 'script'`, which
-makes DOM-XSS sinks (`innerHTML`, script-src assignment) throw unless fed policy-typed values —
-React avoids those sinks by design, so the expected cost is auditing any stray
-`dangerouslySetInnerHTML`/library sink and shipping a minimal policy. `AddKeyDialog`
+store on success (show last4), keep dialog open with the error on failure. `AddKeyDialog`
 enforces a **passphrase-strength minimum** (length + estimated-entropy rule with inline feedback):
 the IndexedDB blob is offline-brute-forceable at PBKDF2-600k if exfiltrated, so weak passphrases
 are refused — worth it for LLM keys, mandatory before trading keys.
 **Verify:** dialog-flow component tests (mocked api + fake-indexeddb, incl. weak-passphrase
 rejection); `tsc -b`; manual compose walkthrough.
 
+#### Packet 5b — CSP + Trusted Types (before anyone pastes a real key)
+*Context to load first:* this doc's **Security boundaries** section and decision #14;
+`frontend/server/server.mjs`; a grep of `frontend/src` for `dangerouslySetInnerHTML` and other
+DOM sinks.
+Changes: strict `Content-Security-Policy` header in `frontend/server/server.mjs`
+(`default-src 'self'; connect-src 'self'; frame-ancestors 'none'; object-src 'none';
+form-action 'self'; base-uri 'none'; style-src 'self' 'unsafe-inline'` — the style exception is
+required by MUI/emotion), plus **Trusted Types** (added 2026-07-16, external review):
+`require-trusted-types-for 'script'`, which makes DOM-XSS sinks (`innerHTML`, script-src
+assignment) throw unless fed policy-typed values — React avoids those sinks by design, so the
+expected cost is auditing any stray `dangerouslySetInnerHTML`/library sink and shipping a minimal
+policy.
+**Verify:** every existing page loads clean under the new headers (manual compose walkthrough of
+the full UI, browser console free of CSP/Trusted-Types violations); the sink audit result is
+recorded in the packet's commit message.
+
 ### Phase 6 — Chat integration + retire the env-key path
+One packet — the integration seam plus the end-to-end proof.
+*Context to load first:* this doc's **Request flow**, **Sessions and scopes**, and **Scope schema
+(v1)** sections; `frontend/src/api/chatStream.ts`, `ChatContext`, `ChatRail.tsx`; the Phase 4
+vault context and 1b `envelope.ts`; packet 3c's `/api/chat` contract
+(`key_envelope`/`scope` fields).
 `chatStream.ts` gains `keyEnvelope`/`scope` → `key_envelope`/`scope` body fields;
 `ChatContext.sendMessage` pulls plaintext from the vault, fetches the cached pubkey + `sub`,
 builds the `action:"chat.turn"` scope (ambient tier, `max_mutations: 0`), hashes it into
@@ -845,39 +983,71 @@ error test; compose E2E with a real key (add → unlock → chat streams);
 ### Phase 7 — Per-user JWTs (added to scope 2026-07-16; reordered before rollout)
 Closes the shared-token AAD-binding gap **before** any real key flows in the cloud — with the
 original ordering, cloud envelopes would have been bound to the shared deployment `sub` for an
-interim window; reordering eliminates that window entirely. `frontend/server/server.mjs` stops
-injecting the static shared token in cloud: instead it **verifies IAP's
-`x-goog-iap-jwt-assertion` header** (Google-signed ES256; validated against Google's public JWKS
-with the service's expected audience) to establish *who* is behind the request, then **mints a
-short-lived ES256 JWT** (`sub` = the IAP email, `exp` ≈ 15 min,
+interim window; reordering eliminates that window entirely. The design is decision #13:
+`frontend/server/server.mjs` stops injecting the static shared token in cloud; instead it
+**verifies IAP's `x-goog-iap-jwt-assertion` header** (Google-signed ES256; validated against
+Google's public JWKS with the service's expected audience) to establish *who* is behind the
+request, then **mints a short-lived ES256 JWT** (`sub` = the IAP email, `exp` ≈ 15 min,
 `aud = ["quantcore-api","quantcore-keyproxy"]`, cached per user) signed with a **private key only
 Express holds** (new per-project secret `quantui-signing-key`, mounted into `quantui`). Asymmetric
-on purpose (decision #13): `quantcore-api` and the keyproxy verify with the **public key** and
-each checks its own name appears in `aud` (both native in PyJWT), so **verifiers cannot mint
-identities** — a compromised quantcore-api can no longer forge a JWT for an arbitrary `sub` and
-redeem someone else's captured envelope — and a token scoped to these two services replays
-nowhere else. `api/auth.py` verifies ES256 user tokens **alongside** the existing HS256 path (the
-MCP wrappers' long-lived service tokens keep working unchanged); the keyproxy accepts ES256 only
-and holds no signing material at all. The AAD `sub` now identifies the person, and per-user audit
-trails (§8 of the architectural standard, "identity passthrough") light up for the UI for free.
-Fallback ladder in
-Express: IAP assertion present → mint per-user; else `QUANTCORE_API_TOKEN` set (compose/local, no
-IAP) → legacy static inject; else no header. Once verified in both projects, the
-`quantui-api-token` secret is retired from the cloud services (kept for compose). Browser remains
-JWT-free throughout — nothing changes in the SPA or the envelope.
-**Verify:** Express unit tests (mocked assertion: valid/expired/wrong-audience/absent); verifier
-tests — wrong `aud` rejected, and an HS256 token crafted with the ES256 *public* key as its
-secret (the classic algorithm-confusion probe) rejected; cloud
-E2E — two different IAP users hit the UI and their distinct `sub`s appear in quantcore-api logs
-(the keyproxy isn't deployed until Phase 8; its sub-binding is already covered by compose tests).
+on purpose: verifiers hold only the public key, so **verifiers cannot mint identities** — a
+compromised quantcore-api can no longer forge a JWT for an arbitrary `sub` and redeem someone
+else's captured envelope — and a token scoped to these two services replays nowhere else. The AAD
+`sub` now identifies the person, and per-user audit trails (§8 of the architectural standard,
+"identity passthrough") light up for the UI for free. Browser remains JWT-free throughout —
+nothing changes in the SPA or the envelope.
+
+Two packets, **verifiers first**: both audiences must accept ES256 before Express starts minting
+it, so 7a is safely deployable on its own.
+
+#### Packet 7a — Python verifiers (dual-mode api, ES256-only keyproxy)
+*Context to load first:* decision #13 and this doc's **Env vars and secrets** section;
+`api/auth.py` (the existing HS256 path that must keep working); `keyproxy/auth.py` from 2a.
+Changes: `api/auth.py` verifies ES256 user tokens (public key from `QUANTCORE_JWT_PUBLIC_KEY`,
+own name required in `aud`) **alongside** the existing HS256 path — the MCP wrappers' long-lived
+service tokens keep working unchanged; `keyproxy/auth.py` becomes **ES256-only** and holds no
+signing material at all.
+**Verify:** verifier tests — valid ES256 accepted with the right `sub`; wrong `aud` rejected; an
+HS256 token crafted with the ES256 *public* key as its secret (the classic algorithm-confusion
+probe) rejected; existing HS256 service tokens still accepted by `api/auth.py` and rejected by
+the keyproxy; full backend suite green (proves the MCP-wrapper path is untouched).
+
+#### Packet 7b — Express mint + cloud switchover
+*Context to load first:* decision #13; `frontend/server/server.mjs` (current static-token
+inject); the quantui IAP plan (`docs/proposals/quantui-iap-plan.md`) for the IAP header
+mechanics.
+Changes: the IAP-assertion verification + ES256 minting in `server.mjs`, with the fallback
+ladder: IAP assertion present → mint per-user; else `QUANTCORE_API_TOKEN` set (compose/local, no
+IAP) → legacy static inject; else no header. Create the `quantui-signing-key` /
+`quantui-signing-pub` secrets per project. Once verified in both projects, the
+`quantui-api-token` secret is retired from the cloud services (kept for compose).
+**Verify:** Express unit tests (mocked assertion: valid/expired/wrong-audience/absent; ladder
+fallbacks); cloud E2E — two different IAP users hit the UI and their distinct `sub`s appear in
+quantcore-api logs (the keyproxy isn't deployed until Phase 8; its sub-binding is already covered
+by compose tests).
 
 ### Phase 8 — CI/CD + cloud rollout
-`cloudbuild.yaml`: `build-keyproxy` step + image entries (`quantcore-keyproxy:${_TAG}` / `:latest`).
+Two packets: the CI wiring lands as a normal code change (8a); the first deploy is an interactive
+runbook session with John at the gcloud console (8b).
+
+#### Packet 8a — CI wiring
+*Context to load first:* this doc's **Env vars and secrets** section; `cloudbuild.yaml`,
+`.github/workflows/deploy.yml` (the quantui image-only-deploy pattern is the template),
+`.github/workflows/prod-rollout.yml`.
+Changes — `cloudbuild.yaml`: `build-keyproxy` step + image entries
+(`quantcore-keyproxy:${_TAG}` / `:latest`).
 `deploy.yml`: image-only deploy step guarded by `gcloud run services describe` (the quantui
 pattern), plus a **secret-scanning job** (gitleaks or equivalent; added 2026-07-16, external
 review) so a pasted API key or PEM in a diff fails CI before it ever lands.
-`prod-rollout.yml`: add to the digest-copy loop + a deploy step. Manual first-deploy
-runbook (results to be logged here): create a **dedicated runtime SA** (`keyproxy-runtime@…`, no
+`prod-rollout.yml`: add to the digest-copy loop + a deploy step.
+**Verify:** CI green on a PR; the gitleaks job proven to catch a planted dummy secret on a
+throwaway branch (then deleted).
+
+#### Packet 8b — Manual first-deploy runbook (with John, interactive)
+*Context to load first:* this doc's **Operational controls** and **Env vars and secrets**
+sections; the prod-rollout plan (`docs/proposals/prod-rollout-plan.md`) for project/SA
+conventions.
+The runbook (results to be logged here): create a **dedicated runtime SA** (`keyproxy-runtime@…`, no
 project-level roles) → generate keypair → create `keyproxy-private-key` secrets (test + prod,
 distinct) → per-secret accessor grants to that SA only →
 `gcloud run deploy quantcore-keyproxy --service-account keyproxy-runtime@… --set-secrets KEYPROXY_PRIVATE_KEYS=keyproxy-private-key:latest,QUANTCORE_JWT_PUBLIC_KEY=quantui-signing-pub:latest --no-allow-unauthenticated`
@@ -895,15 +1065,16 @@ replay/rate-limit/session state is globally coherent — deliberately **without 
 (decided 2026-07-16): cold starts after idle are accepted for now and `--min-instances=1` can be
 added later if first-message latency becomes a real complaint. Frontend build gains
 `VITE_KEYPROXY_SPKI_PINS` (per project — test and prod pin their own keypair).
-**Verify:** CI green on a PR; unauthenticated curl to the keyproxy URL → 403 at the Google front
+**Verify:** unauthenticated curl to the keyproxy URL → 403 at the Google front
 end (app code never runs); test-project browser E2E behind IAP; an envelope minted under user A's
 identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promotion via
 `prod-rollout.yml` with approval.
 
 ## Overall verification
 
-1. Per phase: `coverage run -m unittest discover` + diff-cover ≥ 85 % on changed lines; frontend
-   `tsc -b` + vitest coverage ratchet; OpenAPI surface snapshot.
+1. Per packet (the session protocol's exit contract): `coverage run -m unittest discover` +
+   diff-cover ≥ 85 % on changed lines; frontend `tsc -b` + vitest coverage ratchet; OpenAPI
+   surface snapshot.
 2. Security checks after E2E: grep api/proxy logs for key fragments (must be zero); replay a
    captured envelope (400); resend after 90 s (400); wrong-sub JWT (400).
 3. SSE latency sanity: first token through browser → Express → api → keyproxy within ~2 s of the

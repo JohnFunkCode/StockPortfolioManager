@@ -80,14 +80,15 @@ jobs:
       - name: Unit tests (under coverage)
         run: coverage run -m unittest discover -v
       # COVERAGE RATCHET: the floor below is pinned ~1pt under the measured
-      # baseline (38.7% on 2026-07-14, scope in .coveragerc). It only ever
+      # baseline (66.5% on 2026-07-16, waves 1-3 restored; scope in
+      # .coveragerc). It only ever
       # moves UP — when a PR meaningfully raises coverage, bump it in the same
       # PR. The behavioral gate is diff-cover: changed lines need >= 85%.
       - name: Coverage report + floor
         run: |
           coverage report
           coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
-          coverage report --fail-under=37
+          coverage report --fail-under=65
       - name: Diff coverage (changed lines >= 85%, PRs only)
         if: github.event_name == 'pull_request'
         run: |

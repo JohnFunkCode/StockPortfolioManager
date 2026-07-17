@@ -5,13 +5,27 @@ Analytics tests are exact-value on hand-computed series; the service test uses
 the mocked-collaborator pattern from test_prices_history_policy.py — no
 network, no DB.
 """
-import unittest
-from unittest.mock import Mock
+import os
+from pathlib import Path
 
-import pandas as pd
+# Swap in the test DSN BEFORE quantcore.db is imported transitively (DB_DSN
+# freezes at import time). This module sorts ahead of the DB-backed suites in
+# unittest discovery, so freezing the prod DSN here would trip db_safety's
+# guard in every one of them (local runs only — CI has no .env).
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
+            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
+            break
 
-from quantcore.analytics.indicators import atr_series, true_range_series
-from quantcore.services.prices import PricesService
+import unittest  # noqa: E402
+from unittest.mock import Mock  # noqa: E402
+
+import pandas as pd  # noqa: E402
+
+from quantcore.analytics.indicators import atr_series, true_range_series  # noqa: E402
+from quantcore.services.prices import PricesService  # noqa: E402
 
 
 def make_service():

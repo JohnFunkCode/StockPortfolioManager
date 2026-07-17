@@ -92,6 +92,14 @@ test('backchannel: chart click queues an interaction that rides the next message
           long: { strike: 120, mid: 6.0, iv: 0.3 },
           short: { strike: 125, mid: 4.0, iv: 0.28 },
         },
+        // Server-computed curves (issue #79): the card draws whatever grid
+        // it is given — a coarse fixture keeps the spec readable.
+        curves: {
+          prices: [110, 120, 122, 125, 135],
+          expiry: [-2.0, -2.0, 0.0, 3.0, 3.0],
+          now: [-1.4, -0.6, 0.4, 1.6, 2.5],
+          params: { T: 200, r: 0.045, spot: 121.5, debit: 2.0 },
+        },
       },
     }),
   );

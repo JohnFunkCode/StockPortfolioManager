@@ -1,20 +1,19 @@
 /**
  * Risk graph for a two-leg vertical spread, rendered from chat directives.
  * Solid line: P/L at expiration (hockey stick). Dashed line: BS-priced
- * "value today" P/L. Tradable numbers come from the backend pricing response;
- * curves are rendering-side math (see chat/spreadMath.ts).
+ * "value today" P/L. Everything — tradable numbers AND curves — comes from
+ * the backend response (include_curves; the math's single home is
+ * quantcore/analytics/options_math.py). This card only draws.
  */
 import { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Alert, Box, Chip, CircularProgress, Stack, Typography } from '@mui/material';
 import { useVerticalSpread } from '../../hooks/useSecurities';
 import { usePricePolling } from '../../hooks/useSymbols';
-import { buildCurves, type SpreadInput } from '../../chat/spreadMath';
 import { useDirectiveInteractions } from '../../chat/DirectiveInteractions';
 
 const HEIGHT = 240;
 const MARGIN = { top: 12, right: 16, bottom: 28, left: 56 };
-const RISK_FREE = 0.045;
 
 interface Props {
   ticker: string;
@@ -76,22 +75,14 @@ export default function SpreadPayoffCard({
   }, [data]);
 
   useEffect(() => {
-    if (!svgRef.current || !data?.legs) return;
+    if (!svgRef.current || !data?.legs || !data.curves) return;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
     const width = containerWidth || svgRef.current.parentElement?.clientWidth || 360;
     svg.attr('width', width).attr('height', HEIGHT);
 
-    const debit = data.mid_debit || data.debit;
-    const spread: SpreadInput = {
-      kind: (data.kind === 'put' ? 'put' : 'call'),
-      debit,
-      longLeg: { strike: data.legs.long.strike, iv: data.legs.long.iv },
-      shortLeg: { strike: data.legs.short.strike, iv: data.legs.short.iv },
-    };
-    const T = daysToExpiration(expiration) / 365;
-    const { prices, expiry, now } = buildCurves(spread, spot, T, RISK_FREE);
+    const { prices, expiry, now } = data.curves;
     const perContract = (v: number) => v * 100;
 
     const x = d3
@@ -227,6 +218,16 @@ export default function SpreadPayoffCard({
       <Alert severity="error" data-testid="spread-payoff-error">
         Couldn&apos;t price the {ticker} {long_strike}/{short_strike} {kind} spread
         {error instanceof Error ? ` — ${error.message}` : ''}.
+      </Alert>
+    );
+  }
+  if (!data.curves) {
+    // Curves are server-computed (issue #79); a legs-bearing response without
+    // them means the API predates include_curves support.
+    return (
+      <Alert severity="error" data-testid="spread-payoff-error">
+        Priced the {ticker} spread, but the server returned no payoff curves —
+        the API is likely older than this UI.
       </Alert>
     );
   }

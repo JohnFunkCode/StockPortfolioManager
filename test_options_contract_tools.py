@@ -262,6 +262,71 @@ class OptionsContractToolsTest(unittest.TestCase):
         self.assertTrue(result["storage_status"]["persisted"])
         self.assertEqual(result["missing"], [])
 
+    def test_curves_absent_by_default(self):
+        """LLM-facing callers never opt in — the default response must stay lean."""
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=170.0,
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+        )
+        self.assertIsNotNone(result["legs"]["long"])
+        self.assertNotIn("curves", result)
+
+    def test_curves_present_and_well_formed_when_requested(self):
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=170.0,
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+            include_curves=True,
+        )
+        curves = result["curves"]
+        self.assertEqual(len(curves["prices"]), 121)
+        self.assertEqual(len(curves["expiry"]), 121)
+        self.assertEqual(len(curves["now"]), 121)
+        # Grid spans both strikes and the snapshot price (166.6).
+        self.assertLess(curves["prices"][0], 150.0)
+        self.assertGreater(curves["prices"][-1], 170.0)
+        self.assertEqual(curves["params"]["r"], 0.045)
+        self.assertEqual(curves["params"]["spot"], 166.6)
+        # Curve debit prefers the mid debit, matching the card's chips.
+        self.assertEqual(curves["params"]["debit"], result["mid_debit"])
+        # Expiry curve extremes match the analytic bounds per share.
+        self.assertAlmostEqual(curves["expiry"][0], -curves["params"]["debit"], places=6)
+        self.assertAlmostEqual(
+            curves["expiry"][-1], 20.0 - curves["params"]["debit"], places=6
+        )
+
+    def test_curves_omitted_when_a_leg_is_missing(self):
+        store = self._store()
+        self._seed_store(store)
+        result = price_vertical_spread_data(
+            symbol=TEST_SYMBOL,
+            expiration="2026-05-22",
+            long_strike=150.0,
+            short_strike=190.0,  # not in the snapshot
+            kind="call",
+            max_snapshot_age_minutes=10_000_000,
+            allow_live_fetch=False,
+            store=store,
+            include_curves=True,
+        )
+        self.assertIsNone(result["legs"]["short"])
+        self.assertNotIn("curves", result)
+
     def test_prices_bull_call_spread(self):
         store = self._store()
         self._seed_store(store)

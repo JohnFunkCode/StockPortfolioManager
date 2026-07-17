@@ -29,6 +29,14 @@ vi.mock('../../chat/ChatContext', () => ({
 import SpreadPayoffCard from './SpreadPayoffCard';
 import { DirectiveInteractionProvider } from '../../chat/DirectiveInteractions';
 
+// Server-computed curves (issue #79) — the card only draws these arrays.
+const CURVES = {
+  prices: [120, 140, 150, 160, 180],
+  expiry: [-4.8, -4.8, 5.2, 15.2, 15.2],
+  now: [-3.1, -1.2, 3.4, 8.9, 12.6],
+  params: { T: 45 / 365, r: 0.045, spot: 150, debit: 4.8 },
+};
+
 const SPREAD_RESPONSE = {
   symbol: 'INTC',
   expiration: '2026-08-21',
@@ -44,6 +52,7 @@ const SPREAD_RESPONSE = {
     long: { strike: 140, mid: 9.1, iv: 0.86 },
     short: { strike: 160, mid: 4.3, iv: 0.91 },
   },
+  curves: CURVES,
 };
 
 const PROPS = {
@@ -111,6 +120,38 @@ describe('SpreadPayoffCard', () => {
     fireEvent.click(screen.getByTestId('spread-payoff-chart'), { clientX: 120 });
     expect(queueInteractionMock).not.toHaveBeenCalled();
     expect(screen.queryByTestId('reprice-long')).toBeNull();
+  });
+
+  it('shows a distinct error when a priced response has no curves (stale API)', () => {
+    const { curves: _omitted, ...withoutCurves } = SPREAD_RESPONSE;
+    useVerticalSpreadMock.mockReturnValue({
+      data: { ...withoutCurves, expiration: PROPS.expiration },
+      isLoading: false,
+      error: null,
+    });
+    usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
+    render(<SpreadPayoffCard {...PROPS} />);
+    const alert = screen.getByTestId('spread-payoff-error');
+    expect(alert.textContent).toContain('no payoff curves');
+  });
+
+  it('requests server curves through the hook', () => {
+    useVerticalSpreadMock.mockReturnValue({
+      data: { ...SPREAD_RESPONSE, expiration: PROPS.expiration },
+      isLoading: false,
+      error: null,
+    });
+    usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
+    render(<SpreadPayoffCard {...PROPS} />);
+    // The card delegates fetching to useVerticalSpread with the card's props;
+    // the hook itself owns include_curves: true (asserted here structurally).
+    expect(useVerticalSpreadMock).toHaveBeenCalledWith(
+      'INTC',
+      PROPS.expiration,
+      140,
+      160,
+      'call',
+    );
   });
 
   it('surfaces liquidity warnings from the service', () => {

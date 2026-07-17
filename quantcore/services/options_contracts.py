@@ -16,12 +16,30 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from quantcore.analytics.options_math import chain_side_full, safe_int as _safe_int
+from quantcore.analytics.options_math import (
+    RISK_FREE_RATE,
+    chain_side_full,
+    safe_int as _safe_int,
+    vertical_spread_curves,
+)
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.options_repository import OptionsStore
 
 
 VALID_KINDS = {"call", "put"}
+
+
+def _years_to_expiration(expiration: str) -> float:
+    """Year fraction to the ~4pm-ET close of the expiration date — the same
+    convention the payoff card has always used for its value-today curve."""
+    try:
+        exp = datetime.strptime(expiration, "%Y-%m-%d").replace(
+            hour=21, tzinfo=timezone.utc
+        )
+    except ValueError:
+        return 0.0
+    seconds = (exp - datetime.now(timezone.utc)).total_seconds()
+    return max(0.0, seconds / (365.0 * 86_400.0))
 
 
 def _parse_ts(ts: str | None) -> Optional[datetime]:
@@ -266,8 +284,13 @@ def price_vertical_spread_data(
     allow_live_fetch: bool = True,
     store: Optional[OptionsStore] = None,
     live_fetcher: Optional[Callable[[str, OptionsStore], dict]] = None,
+    include_curves: bool = False,
 ) -> dict:
-    """Price a two-leg debit vertical spread from exact option contracts."""
+    """Price a two-leg debit vertical spread from exact option contracts.
+
+    ``include_curves`` is opt-in (the UI asks for it) so LLM-facing tool
+    results never carry hundreds of chart samples.
+    """
     kind = kind.lower()
     if kind not in VALID_KINDS:
         raise ValueError("kind must be 'call' or 'put'")
@@ -352,4 +375,23 @@ def price_vertical_spread_data(
         "liquidity": liquidity,
         "legs": {"long": long_leg, "short": short_leg},
     })
+
+    if include_curves:
+        curve_debit = mid_debit if mid_debit is not None else debit
+        T = _years_to_expiration(expiration)
+        spot = float(lookup.get("price") or 0.0)
+        curves = vertical_spread_curves(
+            kind=kind,
+            long_strike=float(long_strike),
+            short_strike=float(short_strike),
+            long_iv=long_leg.get("iv") or 0.0,
+            short_iv=short_leg.get("iv") or 0.0,
+            debit=curve_debit,
+            spot=spot,
+            T=T,
+        )
+        curves["params"] = {"T": T, "r": RISK_FREE_RATE, "spot": spot,
+                            "debit": curve_debit}
+        result["curves"] = curves
+
     return result

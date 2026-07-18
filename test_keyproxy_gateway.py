@@ -18,17 +18,16 @@ import unittest
 
 from unittest.mock import Mock, patch
 
-import jwt
 import uvicorn
 
 from quantcore.gateways import keyproxy_gateway
 from quantcore.services.keyproxy import KeyProxyService
 from test_keyproxy_service import (
     API_KEY,
-    SECRET,
     KID,
     KeyProxyServiceTestBase,
     chat_scope,
+    mint_user_token,
 )
 
 TEXT_BLOCK = {"type": "text", "text": "hi there"}
@@ -110,7 +109,7 @@ class GatewayTestBase(KeyProxyServiceTestBase):
         self.addCleanup(stop)
 
     def auth_token(self, sub="alice"):
-        return jwt.encode({"sub": sub}, SECRET, algorithm="HS256")
+        return mint_user_token(sub)
 
     def make_client(self, scope=None, sub="alice", **kwargs):
         scope = scope or chat_scope()

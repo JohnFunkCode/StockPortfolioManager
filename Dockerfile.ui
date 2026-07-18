@@ -31,7 +31,7 @@ ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# Server deps only (express + http-proxy-middleware), installed reproducibly.
+# Server deps only (express + http-proxy-middleware + jose), installed reproducibly.
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 

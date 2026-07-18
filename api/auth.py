@@ -21,12 +21,29 @@ call, so route code is identical in both modes.
 Configuration (env, read at call time so compose/tests can toggle it)
 ---------------------------------------------------------------------
     QUANTCORE_JWT_SECRET     shared secret for HS* algorithms (presence → auth ON)
-    QUANTCORE_JWT_PUBLIC_KEY PEM public key for RS*/ES* algorithms (presence → auth ON)
+    QUANTCORE_JWT_PUBLIC_KEY PEM public key for ES256 user tokens (presence → auth ON)
     AUTH_DISABLED            truthy ("1"/"true"/"yes"/"on") → force auth OFF (local/compose)
-    QUANTCORE_JWT_ALGORITHMS comma list of accepted algs (default "HS256")
+    QUANTCORE_JWT_ALGORITHMS comma list of accepted HS* algs (default "HS256")
     QUANTCORE_JWT_ISSUER     optional expected ``iss`` claim
-    QUANTCORE_JWT_AUDIENCE   optional expected ``aud`` claim
+    QUANTCORE_JWT_AUDIENCE   optional expected ``aud`` claim (HS path only)
     QUANTCORE_JWT_LEEWAY     clock-skew tolerance in seconds (default 0)
+
+Dual-mode verification (BYOK packet 7a, decision #13)
+-----------------------------------------------------
+Two token populations coexist and are routed by the token's declared ``alg``:
+
+* **ES256 user tokens** — short-lived, minted by the quantui Express server
+  from a private key only it holds. Verified against
+  ``QUANTCORE_JWT_PUBLIC_KEY`` with this service's own name
+  (``"quantcore-api"``) required in ``aud``. Asymmetric on purpose: this
+  verifier cannot mint identities.
+* **HS* service tokens** — the MCP wrappers' long-lived tokens, verified
+  against ``QUANTCORE_JWT_SECRET`` exactly as before.
+
+Each branch is pinned to its own key *and* algorithm family — the HS branch
+never sees the public key and the ES branch never sees the secret — so the
+classic algorithm-confusion attack (an HS token signed with the public key
+as its HMAC secret) fails closed.
 """
 
 from __future__ import annotations
@@ -53,9 +70,21 @@ def _auth_active() -> bool:
     return _verification_key() is not None
 
 
+# The audience this service requires in ES256 user tokens. Hardcoded, not
+# env-driven: a token minted for another service must not authenticate here.
+_ES256_AUDIENCE = "quantcore-api"
+
+
 def _algorithms() -> list[str]:
+    """Accepted algorithms for the shared-secret path — HS family only.
+
+    Anything non-HS in ``QUANTCORE_JWT_ALGORITHMS`` is dropped: asymmetric
+    verification is the ES256 branch's job, and letting an attacker-chosen
+    ``alg`` pair with the wrong key is exactly the confusion attack.
+    """
     raw = os.environ.get("QUANTCORE_JWT_ALGORITHMS", "HS256")
-    return [a.strip() for a in raw.split(",") if a.strip()] or ["HS256"]
+    algs = [a.strip() for a in raw.split(",") if a.strip().upper().startswith("HS")]
+    return algs or ["HS256"]
 
 
 def _leeway() -> float:
@@ -128,16 +157,37 @@ def _decode(token: str) -> dict[str, Any]:
             detail="authentication is enabled but no JWT verification key is configured",
         )
 
-    options: dict[str, Any] = {}
-    audience = os.environ.get("QUANTCORE_JWT_AUDIENCE") or None
     issuer = os.environ.get("QUANTCORE_JWT_ISSUER") or None
-    if audience is None:
-        options["verify_aud"] = False
 
     try:
+        alg = str(jwt.get_unverified_header(token).get("alg", ""))
+
+        if alg == "ES256":
+            # User-token branch: public key only, own name required in aud.
+            public_key = os.environ.get("QUANTCORE_JWT_PUBLIC_KEY")
+            if not public_key:
+                raise jwt.InvalidKeyError("ES256 verification is not configured")
+            return jwt.decode(
+                token,
+                public_key,
+                algorithms=["ES256"],
+                audience=_ES256_AUDIENCE,
+                issuer=issuer,
+                leeway=_leeway(),
+            )
+
+        # Service-token branch: shared secret only, HS-family algorithms only.
+        # The public key must never reach HMAC verification (confusion attack).
+        secret = os.environ.get("QUANTCORE_JWT_SECRET")
+        if not secret:
+            raise jwt.InvalidKeyError("shared-secret verification is not configured")
+        options: dict[str, Any] = {}
+        audience = os.environ.get("QUANTCORE_JWT_AUDIENCE") or None
+        if audience is None:
+            options["verify_aud"] = False
         return jwt.decode(
             token,
-            key,
+            secret,
             algorithms=_algorithms(),
             audience=audience,
             issuer=issuer,

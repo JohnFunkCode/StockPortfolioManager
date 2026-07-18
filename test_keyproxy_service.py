@@ -8,6 +8,7 @@ no envelope, key, or bearer material may reach any log record on either
 success or failure paths.
 """
 
+import functools
 import importlib.util
 import logging
 import time
@@ -25,7 +26,12 @@ from keyproxy.main import DEV_KID, create_app
 from keyproxy.scopes import TOKEN_BUDGET_MESSAGE
 from keyproxy.sessions import SessionError
 
-SECRET = "unit-test-secret-0123456789abcdef"  # >=32 bytes: no HMAC key warning
+# Packet 7a: the keyproxy verifies ES256 only — the harness mints user tokens
+# with a module-level EC keypair and patches the public half into the env.
+_JWT_SIGNING_KEY = crypto.generate_private_key()
+JWT_SIGNING_PEM = crypto.private_key_to_pem(_JWT_SIGNING_KEY)
+JWT_PUBLIC_PEM = crypto.public_key_to_pem(_JWT_SIGNING_KEY.public_key())
+JWT_AUDIENCE = ["quantcore-api", "quantcore-keyproxy"]
 KID = "kp-test-1"
 API_KEY = "sk-ant-test-key-abcd"
 GENERIC = "invalid request"
@@ -57,8 +63,16 @@ def render_bundle(kid, private_key):
     )
 
 
+@functools.lru_cache(maxsize=None)
+def mint_user_token(sub):
+    # Memoized: ECDSA signatures are randomized per signing, but the
+    # never-log assertions grep logs for the exact token a request carried,
+    # so the same sub must yield the same token within a run.
+    return jwt.encode({"sub": sub, "aud": JWT_AUDIENCE}, JWT_SIGNING_PEM, algorithm="ES256")
+
+
 def bearer(sub):
-    return {"Authorization": f"Bearer {jwt.encode({'sub': sub}, SECRET, algorithm='HS256')}"}
+    return {"Authorization": f"Bearer {mint_user_token(sub)}"}
 
 
 class _RecordingHandler(logging.Handler):
@@ -77,7 +91,7 @@ class KeyProxyServiceTestBase(unittest.TestCase):
         self.private_key = crypto.generate_private_key()
         env = {
             "KEYPROXY_PRIVATE_KEYS": render_bundle(KID, self.private_key),
-            "QUANTCORE_JWT_SECRET": SECRET,
+            "QUANTCORE_JWT_PUBLIC_KEY": JWT_PUBLIC_PEM,
             **self.extra_env,
         }
         env_patcher = patch.dict("os.environ", env, clear=True)
@@ -418,7 +432,7 @@ class TestRotationAndDevMode(unittest.TestCase):
         bundle = render_bundle("kp-old", old_key) + "\n" + render_bundle("kp-new", new_key)
         env = {
             "KEYPROXY_PRIVATE_KEYS": bundle,
-            "QUANTCORE_JWT_SECRET": SECRET,
+            "QUANTCORE_JWT_PUBLIC_KEY": JWT_PUBLIC_PEM,
         }
         with patch.dict("os.environ", env, clear=True):
             app = create_app()

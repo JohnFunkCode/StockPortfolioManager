@@ -646,6 +646,7 @@ the "Auth" column is the *application-layer* check on top:
 | keyproxy | `KEYPROXY_SESSION_TTL` | sliding session TTL, default 300 s; hard lifetime cap 900 s regardless of activity |
 | keyproxy | `KEYPROXY_MAX_SESSION_TOKENS` | server-side ceiling on any scope's `budget.max_tokens` (default 250 000); crossing it (or minting a scope above it) returns the "system-imposed threshold — ask the dev team to raise it" rejection |
 | quantui (Express) | `QUANTUI_SIGNING_KEY` | ES256 **private** signing key ← new per-project secret `quantui-signing-key` (Phase 7) — only Express can mint user identities |
+| quantui (Express) | `QUANTUI_IAP_AUDIENCE` | expected `aud` of the IAP assertion (`/projects/<num>/locations/<region>/services/quantui`, per project) — required whenever `QUANTUI_SIGNING_KEY` is set; Express fails fast at startup if the key is present without it (packet 7b) |
 | quantcore-api + keyproxy | `QUANTCORE_JWT_PUBLIC_KEY` | ES256 **public** verification key ← `quantui-signing-pub` secret (Phase 7; public material, secret-mounted for uniform wiring) |
 | keyproxy + api | `KEYPROXY_HEARTBEAT_SECS` | SSE `: ping` comment interval during provider quiet gaps, default 15 s (both hops) |
 | frontend (build-time) | `VITE_KEYPROXY_SPKI_PINS` | comma-separated b64url SHA-256 SPKI fingerprints baked into the bundle; `envelope.ts` refuses unpinned proxy keys |
@@ -736,8 +737,8 @@ the context):
 | 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ✅ 2026-07-18 | (Phase 5 commit) |
 | 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted); sink audit clean, fonts self-hosted to keep `default-src 'self'` | ✅ 2026-07-18 | (Phase 5 commit) |
 | 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E (persistent dev keypair + pin bake in `runUI-CONTAINERS.sh`; empty-bearer h11 fix in the gateway) | ✅ 2026-07-18 | (Phase 6 commit) |
-| 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests | ☐ | |
-| 7b | Express IAP-verify + per-user ES256 mint (`quantui-signing-key`); retire the shared `quantui-api-token` in cloud | ☐ | |
+| 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests. Note: `cryptography` moved into `requirements-base.txt` (PyJWT needs it for ES256; invariant 1 refined — key material/decrypt path still keyproxy-only) | ✅ 2026-07-18 | (Phase 7 commit) |
+| 7b | Express IAP-verify + per-user ES256 mint (`frontend/server/auth.mjs`, jose, `node --test` suite); ladder keyed on `QUANTUI_SIGNING_KEY` presence, hard 401 on bad/absent assertion. Cloud E2E (two IAP users → distinct subs in api logs) + secret creation (`quantui-signing-key`/`-pub`) are deploy-time steps | ✅ 2026-07-18 | (Phase 7 commit) |
 | 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml` | ☐ | |
 | 8b | Manual first-deploy runbook (IAM-locked keyproxy), executed interactively with John; results logged here | ☐ | |
 
@@ -1086,7 +1087,7 @@ The review's ten security invariants, each mapped to the named control or test t
 
 | # | Invariant | Held by |
 |---|---|---|
-| 1 | Only the Key Proxy decrypts credentials | By construction: quantcore-api never gains the `cryptography` dependency (Phase 1 requirements split); the envelope is an opaque field everywhere except `keyproxy/crypto.py` |
+| 1 | Only the Key Proxy decrypts credentials | By construction: the envelope private-key material (`KEYPROXY_PRIVATE_KEYS`) is mounted only into the keyproxy service, and the envelope is an opaque field everywhere except `keyproxy/crypto.py`. (Refined in packet 7a: the api image now carries the `cryptography` *library* — PyJWT needs it for ES256 verification — but never the key material or the decryption code path.) |
 | 2 | Verifiers cannot mint identities | ES256 + `aud` (decision #13); Phase 7 verifier tests incl. the algorithm-confusion probe |
 | 3 | One envelope = one redemption | `test_keyproxy_service.py`: second redemption of a burned `jti` → 400 (Phase 2) |
 | 4 | Every session is bounded | Session-lifecycle tests: sliding TTL expiry + hard 900 s cap (Phase 2) |

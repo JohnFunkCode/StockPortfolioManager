@@ -733,8 +733,8 @@ the context):
 | 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ✅ 2026-07-17 | (Phase 3 commit) |
 | 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ✅ 2026-07-18 | (Phase 3 commit) |
 | 4 | Frontend vault: IndexedDB + WebCrypto (`vaultStore.ts`, `vaultCrypto.ts`, `KeyVaultContext.tsx`), `fake-indexeddb` tests | ✅ 2026-07-18 | (Phase 4 commit) |
-| 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ☐ | |
-| 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted) | ☐ | |
+| 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ✅ 2026-07-18 | (Phase 5 commit) |
+| 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted); sink audit clean, fonts self-hosted to keep `default-src 'self'` | ✅ 2026-07-18 | (Phase 5 commit) |
 | 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E | ☐ | |
 | 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests | ☐ | |
 | 7b | Express IAP-verify + per-user ES256 mint (`quantui-signing-key`); retire the shared `quantui-api-token` in cloud | ☐ | |

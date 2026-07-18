@@ -33,6 +33,26 @@ const API_TOKEN = (process.env.QUANTCORE_API_TOKEN || '').trim();
 
 const app = express();
 
+// Strict CSP (BYOK packet 5b): the SPA is fully self-contained (fonts are
+// self-hosted via @fontsource), so everything locks to 'self'. The only
+// exception is style-src 'unsafe-inline', required by MUI/emotion's runtime
+// <style> injection. require-trusted-types-for 'script' turns on Trusted
+// Types enforcement so any future DOM XSS sink throws instead of executing.
+const CSP =
+  "default-src 'self'; " +
+  "connect-src 'self'; " +
+  "frame-ancestors 'none'; " +
+  "object-src 'none'; " +
+  "form-action 'self'; " +
+  "base-uri 'none'; " +
+  "style-src 'self' 'unsafe-inline'; " +
+  "require-trusted-types-for 'script'";
+
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP);
+  next();
+});
+
 // Lightweight liveness probe (does not touch the api) for Cloud Run / compose.
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 

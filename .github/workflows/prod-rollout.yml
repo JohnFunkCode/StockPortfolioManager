@@ -118,10 +118,16 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
           echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
-          for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui; do
+          for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy; do
             SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
             # Resolve the immutable source-manifest digest so the copy + deploy reference
-            # exact bytes.
+            # exact bytes. quantcore-keyproxy (BYOK packet 8a) tolerates an absent source
+            # image so tags built before 8a landed stay promotable; the others stay strict.
+            if [ "$img" = "quantcore-keyproxy" ] && ! gcloud artifacts docker images describe \
+                "$SRC_TAGGED" --format='value(image_summary.digest)' >/dev/null 2>&1; then
+              echo "quantcore-keyproxy:$TAG not in the test AR (pre-8a tag) — skipping its promotion."
+              continue
+            fi
             DIGEST="$(gcloud artifacts docker images describe "$SRC_TAGGED" \
               --format='value(image_summary.digest)')"
             echo "$img @ $DIGEST"
@@ -166,3 +172,18 @@ jobs:
         run: |
           gcloud run deploy quantui --project "$PROD_PROJECT" --region "$REGION" \
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-ui@$QUANTCORE_UI_DIGEST"
+
+      - name: Deploy quantcore-keyproxy (prod, image-only)
+        # First prod deploy is the manual packet-8b runbook (dedicated runtime SA,
+        # keyproxy-private-key + quantui-signing-pub secrets, IAM-locked invoker).
+        # Image-only redeploys preserve that config. Skips while the digest wasn't
+        # promoted (pre-8a tag) or the service doesn't exist yet (pre-8b prod).
+        run: |
+          if [ -z "${QUANTCORE_KEYPROXY_DIGEST:-}" ]; then
+            echo "no promoted keyproxy digest for this tag — skipping."
+          elif gcloud run services describe quantcore-keyproxy --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantcore-keyproxy --project "$PROD_PROJECT" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-keyproxy@$QUANTCORE_KEYPROXY_DIGEST"
+          else
+            echo "quantcore-keyproxy service not found in prod — first deploy is the manual packet-8b runbook; skipping."
+          fi

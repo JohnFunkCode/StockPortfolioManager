@@ -739,7 +739,7 @@ the context):
 | 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E (persistent dev keypair + pin bake in `runUI-CONTAINERS.sh`; empty-bearer h11 fix in the gateway) | ✅ 2026-07-18 | (Phase 6 commit) |
 | 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests. Note: `cryptography` moved into `requirements-base.txt` (PyJWT needs it for ES256; invariant 1 refined — key material/decrypt path still keyproxy-only) | ✅ 2026-07-18 | (Phase 7 commit) |
 | 7b | Express IAP-verify + per-user ES256 mint (`frontend/server/auth.mjs`, jose, `node --test` suite); ladder keyed on `QUANTUI_SIGNING_KEY` presence, hard 401 on bad/absent assertion. Cloud E2E (two IAP users → distinct subs in api logs) + secret creation (`quantui-signing-key`/`-pub`) are deploy-time steps | ✅ 2026-07-18 | (Phase 7 commit) |
-| 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml` | ☐ | |
+| 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml`. Local proof: full 255-commit history scans clean under `.gitleaks.toml` (5 false positives triaged → narrow allowlist regexes); planted anthropic/AWS/PEM fakes all caught. CI-on-PR + throwaway-branch plant proof remain John's step (no pushes from this session) | ✅ 2026-07-18 | (Phase 8a commit) |
 | 8b | Manual first-deploy runbook (IAM-locked keyproxy), executed interactively with John; results logged here | ☐ | |
 
 ## Phase details

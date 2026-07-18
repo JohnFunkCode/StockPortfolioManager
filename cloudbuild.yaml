@@ -8,10 +8,11 @@
 #
 # Images (one mcp image is reused by all five wrappers — server + port are
 # selected at run time via SERVER_MODULE/PORT env, see mcp_gateway/serve.py):
-#   quantcore-api     FastAPI front door + services in-process (carries FinBERT/torch)
-#   quantcore-mcp     the shared thin MCP wrapper image
-#   quantcore-report  main.py once-and-exit (Cloud Run Job)
-#   quantcore-ui      React/Vite SPA + /api proxy (built from the frontend/ context)
+#   quantcore-api       FastAPI front door + services in-process (carries FinBERT/torch)
+#   quantcore-mcp       the shared thin MCP wrapper image
+#   quantcore-report    main.py once-and-exit (Cloud Run Job)
+#   quantcore-ui        React/Vite SPA + /api proxy (built from the frontend/ context)
+#   quantcore-keyproxy  BYOK key-redemption proxy (lean FastAPI, keyproxy/ only)
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
@@ -83,6 +84,19 @@ steps:
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
       - frontend
 
+  # --- keyproxy (Dockerfile.keyproxy) — BYOK key-redemption proxy (packet 8a) ---
+  - name: gcr.io/cloud-builders/docker
+    id: build-keyproxy
+    args:
+      - build
+      - -f
+      - Dockerfile.keyproxy
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest
+      - .
+
 images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:latest
@@ -92,3 +106,5 @@ images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest

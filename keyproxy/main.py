@@ -23,21 +23,29 @@ nothing at all.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import queue
+import threading
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from keyproxy import crypto
 from keyproxy.auth import Caller, require_caller
 from keyproxy.providers import get_provider
 from keyproxy.replay import JtiReplaySet, ReplayCapacityError, SubRateLimiter
-from keyproxy.scopes import Scope, ScopeError, validate_scope
+from keyproxy.scopes import (
+    BudgetExceededError,
+    Scope,
+    ScopeError,
+    validate_scope,
+)
 from keyproxy.sessions import (
     HARD_LIFETIME_CAP_SECONDS,
     SessionError,
@@ -53,12 +61,25 @@ _UNAVAILABLE = "temporarily unavailable"
 DEV_KID = "kp-dev-ephemeral"
 
 
+DEFAULT_HEARTBEAT_SECONDS = 15.0
+
+
 def _max_iat_skew() -> int:
     return int(
         os.environ.get(
             "KEYPROXY_MAX_SKEW", str(crypto.DEFAULT_MAX_IAT_SKEW_SECONDS)
         )
     )
+
+
+def _heartbeat_secs() -> float:
+    return float(
+        os.environ.get("KEYPROXY_HEARTBEAT_SECS", str(DEFAULT_HEARTBEAT_SECONDS))
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
 def _parse_key_bundle(text: str) -> list[tuple[str, object]]:
@@ -142,6 +163,18 @@ class RedemptionRequest(BaseModel):
     provider: str
     envelope: dict
     scope: dict
+
+
+class StreamTurnRequest(BaseModel):
+    # Mirrors AnthropicChatClient.stream_turn's surface; betas/fallbacks are
+    # fixed provider-side (keyproxy.providers.anthropic) — not caller inputs.
+    session_id: str
+    model: str
+    effort: str
+    max_tokens: int = 8192
+    system: Any = None
+    tools: list = []
+    messages: list
 
 
 class SessionResponse(BaseModel):
@@ -292,6 +325,110 @@ def create_app() -> FastAPI:
             session.provider,
         )
         return Response(status_code=204)
+
+    @app.post("/v1/providers/anthropic/messages/stream")
+    def stream_messages(
+        body: StreamTurnRequest, caller: Caller = Depends(require_caller)
+    ) -> StreamingResponse:
+        # Per-call gate, all BEFORE the key is attached: session live + sub
+        # match, the operation classifies as a read, and the call budget has
+        # room. Every rejection is the same generic 400 (except budget
+        # exhaustion, whose messages name no values and — for the token
+        # ceiling — must reach the user verbatim).
+        provider = get_provider("anthropic")
+        try:
+            session = state.sessions.get(body.session_id, sub=caller.sub)
+        except SessionError:
+            raise HTTPException(status_code=400, detail=_INVALID) from None
+        if session.provider != provider.PROVIDER:
+            raise HTTPException(status_code=400, detail=_INVALID)
+        if provider.classify("messages.stream") != provider.READ:
+            raise HTTPException(status_code=400, detail=_INVALID)
+        try:
+            session.budget.charge_call()
+        except BudgetExceededError as exc:
+            state.sessions.delete(session.session_id)
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        try:
+            api_key = session.api_key
+        except SessionError:
+            raise HTTPException(status_code=400, detail=_INVALID) from None
+
+        heartbeat = _heartbeat_secs()
+        started = time.monotonic()
+
+        def worker(out: queue.Queue) -> None:
+            try:
+                for kind, payload in provider.stream_turn(
+                    api_key,
+                    model=body.model,
+                    effort=body.effort,
+                    max_tokens=body.max_tokens,
+                    system=body.system,
+                    tools=body.tools,
+                    messages=body.messages,
+                ):
+                    out.put((kind, payload))
+                    if kind == "final":
+                        return
+                out.put(("error", None))  # stream ended without a final
+            except Exception:
+                # Never let a provider exception (which may echo request
+                # material) reach the wire or a log — generic error frame.
+                out.put(("error", None))
+
+        def event_stream():
+            out: queue.Queue = queue.Queue()
+            threading.Thread(target=worker, args=(out,), daemon=True).start()
+            while True:
+                try:
+                    kind, payload = out.get(timeout=heartbeat)
+                except queue.Empty:
+                    # SSE comment — invisible to parsers, keeps idle-timeout
+                    # appliances from dropping the wire during thinking pauses.
+                    yield ": ping\n\n"
+                    continue
+                if kind == "delta":
+                    yield _sse("delta", {"text": payload})
+                elif kind == "final":
+                    usage = payload.get("usage") if isinstance(payload, dict) else None
+                    tokens = sum(
+                        v
+                        for v in (
+                            (usage or {}).get("input_tokens"),
+                            (usage or {}).get("output_tokens"),
+                        )
+                        if isinstance(v, int) and not isinstance(v, bool)
+                    )
+                    try:
+                        session.budget.charge_tokens(tokens)
+                    except BudgetExceededError:
+                        # Cumulative ceiling crossed: this response already
+                        # streamed, but the session is dead for future calls.
+                        state.sessions.delete(session.session_id)
+                    yield _sse("final", payload)
+                    logger.info(
+                        "turn streamed correlation_id=%s sub=%s provider=%s "
+                        "tokens=%s latency_ms=%s",
+                        session.correlation_id,
+                        caller.sub,
+                        provider.PROVIDER,
+                        tokens,
+                        int((time.monotonic() - started) * 1000),
+                    )
+                    return
+                else:
+                    yield _sse("error", {"detail": "provider error"})
+                    return
+
+        # No compression middleware may ever touch text/event-stream — a
+        # compressor buffers until its window fills, which looks exactly like
+        # broken streaming. This app deliberately adds none.
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
 
     @app.post("/v1/keys/validate", response_model=ValidateResponse)
     def validate_key(

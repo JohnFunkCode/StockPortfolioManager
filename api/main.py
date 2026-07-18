@@ -58,6 +58,7 @@ def create_app() -> FastAPI:
         chat,
         dashboard,
         fundamentals,
+        keyproxy,
         microstructure,
         options,
         plans,
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
         microstructure,
         recommendations,
         chat,
+        keyproxy,
     ):
         app.include_router(module.router, dependencies=[protected])
 

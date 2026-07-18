@@ -167,19 +167,19 @@ sequenceDiagram
     R->>R: encrypt key to PINNED proxy pubkey → envelope {kid, epk, iv, ct, aad incl. scope_hash}
     R->>E: POST /api/chat {messages, key_envelope, scope}
     E->>A: + Authorization: Bearer per-user JWT (server-side mint, Phase 7)
-    A->>A: verify JWT → Principal; ChatService tool loop starts
+    A->>A: verify JWT → Principal, then start the ChatService tool loop
     A->>P: POST /v1/sessions {provider, envelope, scope} + JWT (+ Google IAM ID token)
-    P->>P: verify JWT · AAD checks (sub/provider/iat/jti/scope_hash) · decrypt key once
+    P->>P: verify JWT, check AAD (sub/provider/iat/jti/scope_hash), decrypt key once
     P-->>A: {session_id, expires_at}
     loop each model turn (≤ max_iterations)
         A->>P: POST /v1/providers/anthropic/messages/stream {session_id, params}
-        P->>P: session live? sub match? scope allows this call? budget left?
-        P->>O: SDK streaming call (user's key)
+        P->>P: session live, sub matches, scope allows call, budget remains
+        P->>O: SDK streaming call using the user key
         O-->>P: SSE stream
-        P-->>A: SSE delta…, final
+        P-->>A: SSE deltas and final event
         A->>A: run tools locally, extend conversation
     end
-    A->>P: DELETE /v1/sessions/{session_id} (best effort; TTL is the backstop)
+    A->>P: DELETE session (best effort, TTL is the backstop)
     P->>P: discard plaintext key
     A-->>E: SSE (text deltas, tool status, done)
     E-->>R: SSE
@@ -729,9 +729,9 @@ the context):
 | 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ✅ 2026-07-17 | (this packet's PR) |
 | 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ✅ 2026-07-17 | (Phase 2 commit) |
 | 2c | `Dockerfile.keyproxy` + compose wiring | ✅ 2026-07-17 | (Phase 2 commit) |
-| 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ☐ | |
-| 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ☐ | |
-| 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ☐ | |
+| 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ✅ 2026-07-17 | (Phase 3 commit) |
+| 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ✅ 2026-07-17 | (Phase 3 commit) |
+| 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ✅ 2026-07-18 | (Phase 3 commit) |
 | 4 | Frontend vault: IndexedDB + WebCrypto (`vaultStore.ts`, `vaultCrypto.ts`, `KeyVaultContext.tsx`), `fake-indexeddb` tests | ☐ | |
 | 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ☐ | |
 | 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted) | ☐ | |

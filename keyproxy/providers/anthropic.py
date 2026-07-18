@@ -30,6 +30,11 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 VALIDATE_TIMEOUT_SECONDS = 10.0
 
+# Fixed turn parameters, mirroring AnthropicChatClient.stream_turn — callers
+# supply model/effort/max_tokens/system/tools/messages; nothing else.
+STREAM_BETAS = ["server-side-fallback-2026-06-01"]
+STREAM_FALLBACKS = [{"model": "claude-opus-4-8"}]
+
 READ = "read"
 MUTATE = "mutate"
 
@@ -72,6 +77,38 @@ def supports_scope(*, action: object, max_mutations: int) -> bool:
 def key_hint(api_key: str) -> str:
     """The displayable hint for a key — last 4 chars only, never more."""
     return "…" + api_key[-4:]
+
+
+def stream_turn(api_key, *, model, effort, max_tokens, system, tools, messages):
+    """Stream one model turn — the keyproxy-side mirror of
+    ``AnthropicChatClient.stream_turn`` (quantcore/gateways/anthropic_gateway.py).
+
+    Yields ``("delta", text)`` for each text delta, then ``("final",
+    message_dict)`` exactly once. ``base_url`` is passed explicitly so the
+    SDK's ``ANTHROPIC_BASE_URL`` environment override can never redirect
+    egress. The SDK import is lazy — dev/CI environments don't ship it; the
+    keyproxy image pins it in keyproxy/requirements.txt.
+    """
+    import anthropic  # lazy — see docstring
+
+    client = anthropic.Anthropic(api_key=api_key, base_url=BASE_URL)
+    with client.beta.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        system=system,
+        tools=tools,
+        messages=messages,
+        output_config={"effort": effort},
+        betas=STREAM_BETAS,
+        fallbacks=STREAM_FALLBACKS,
+    ) as stream:
+        for event in stream:
+            if (
+                event.type == "content_block_delta"
+                and getattr(event.delta, "type", "") == "text_delta"
+            ):
+                yield ("delta", event.delta.text)
+        yield ("final", stream.get_final_message().model_dump(mode="json"))
 
 
 def validate_key(api_key: str, *, timeout: float = VALIDATE_TIMEOUT_SECONDS) -> bool:

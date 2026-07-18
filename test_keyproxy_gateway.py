@@ -343,6 +343,20 @@ class TestPubkeyAndValidate(GatewayTestBase):
         self.assertEqual(str(ctx.exception), keyproxy_gateway.RESEND_MESSAGE)
 
 
+class TestAuthHeaders(unittest.TestCase):
+    def test_empty_token_omits_the_header_entirely(self):
+        # AUTH_DISABLED dev stacks pass auth_token="" — "Bearer " with no
+        # token is an illegal header value that h11 rejects client-side, so
+        # the header must be absent, not empty.
+        self.assertEqual(keyproxy_gateway._headers(""), {})
+
+    def test_token_is_sent_as_bearer(self):
+        self.assertEqual(
+            keyproxy_gateway._headers("tok-123"),
+            {"Authorization": "Bearer tok-123"},
+        )
+
+
 class TestKeyProxyServiceThin(unittest.TestCase):
     def test_passthrough(self):
         gateway = Mock()

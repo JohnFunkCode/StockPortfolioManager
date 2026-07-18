@@ -78,6 +78,10 @@ services:
     environment:
       KEYPROXY_AUTH_DISABLED: "1"
       PORT: "5002"
+      # Persistent local dev keypair (git-ignored, written by runUI-CONTAINERS.sh
+      # into .env.docker with \n-escaped newlines). Empty -> ephemeral per-boot
+      # keypair, which can never match the pin baked into the quantui bundle.
+      KEYPROXY_PRIVATE_KEYS: "${KEYPROXY_DEV_PRIVATE_KEYS:-}"
     ports: ["5002:5002"]
     restart: on-failure
     healthcheck:
@@ -160,7 +164,14 @@ services:
   # here: the compose api runs AUTH_DISABLED=1, so the proxy sends no bearer (the
   # token is a Cloud Run / Secret Manager concern only — see Dockerfile.ui).
   quantui:
-    build: { context: ./frontend, dockerfile: ../Dockerfile.ui }
+    build:
+      context: ./frontend
+      dockerfile: ../Dockerfile.ui
+      args:
+        # SPKI pin of the local dev keyproxy keypair (public fingerprint, not a
+        # secret) — derived into .env.docker by runUI-CONTAINERS.sh so the UI
+        # bundle pins the same key the keyproxy container loads.
+        VITE_KEYPROXY_SPKI_PINS: "${VITE_KEYPROXY_SPKI_PINS:-}"
     environment:
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
       PORT: "8080"

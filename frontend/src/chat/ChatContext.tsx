@@ -13,7 +13,9 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { streamChat } from '../api/chatStream';
+import { streamChat, type ChatKeyMaterial } from '../api/chatStream';
+import { sealKeyForTurn } from '../hooks/useKeyProxy';
+import { useKeyVaultOptional } from '../vault/KeyVaultContext';
 import type {
   ApiChatMessage,
   ChatInteraction,
@@ -135,6 +137,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Optional so the provider still works without a vault (tests, isolation).
+  const vault = useKeyVaultOptional();
 
   useEffect(() => {
     try {
@@ -270,6 +274,17 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       };
 
       try {
+        // BYOK: seal the vault key into a fresh single-use envelope for this
+        // turn (fresh jti — one user action, one envelope). Plaintext exists
+        // only as an argument on its way into WebCrypto; if the vault is
+        // absent or locked we send no envelope and the backend answers with
+        // its Settings-prompt error frame.
+        let keyMaterial: ChatKeyMaterial | undefined;
+        const apiKey = vault?.getPlaintextKey('anthropic') ?? null;
+        if (apiKey !== null) {
+          const sealed = await sealKeyForTurn('anthropic', apiKey);
+          keyMaterial = { keyEnvelope: sealed.envelope, scope: sealed.scope };
+        }
         await streamChat(
           history,
           (event) => {
@@ -283,6 +298,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           },
           controller.signal,
           interactions,
+          keyMaterial,
         );
       } catch (exc) {
         if ((exc as Error).name !== 'AbortError') {
@@ -294,7 +310,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, pendingInteractions],
+    [messages, isStreaming, pendingInteractions, vault],
   );
 
   return (

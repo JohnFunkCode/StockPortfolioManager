@@ -12,7 +12,12 @@ import {
   spkiFingerprint,
   type Envelope,
 } from '../vault/envelope';
-import { keyValidationScope, sealAndValidateKey } from './useKeyProxy';
+import {
+  chatTurnScope,
+  keyValidationScope,
+  sealAndValidateKey,
+  sealKeyForTurn,
+} from './useKeyProxy';
 import { getKeyProxyInfo, validateKey } from '../api/keyproxy';
 
 vi.mock('../api/keyproxy', async () => {
@@ -58,6 +63,50 @@ describe('keyValidationScope', () => {
       params: {},
       budget: { max_calls: 1, max_mutations: 0, ttl: 60 },
     });
+  });
+});
+
+describe('chatTurnScope', () => {
+  it('is the ambient chat tier: reads only, zero mutations, hard token ceiling', () => {
+    expect(chatTurnScope('anthropic')).toEqual({
+      v: 1,
+      provider: 'anthropic',
+      action: 'chat.turn',
+      params: {},
+      budget: { max_calls: 20, max_mutations: 0, max_tokens: 250000, ttl: 300 },
+    });
+  });
+});
+
+describe('sealKeyForTurn', () => {
+  it('seals to the newest pinned key under the chat.turn scope', async () => {
+    const { envelope, scope } = await sealKeyForTurn('anthropic', API_KEY);
+    expect(scope).toEqual(chatTurnScope('anthropic'));
+    expect(envelope.kid).toBe('kp-test');
+    expect(envelope.aad.sub).toBe('john');
+    expect(envelope.aad.provider).toBe('anthropic');
+    expect(envelope.aad.scope_hash).toBe(await computeScopeHash(scope));
+    expect(envelope.aad.jti).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('mints a fresh jti per call — one user action, one single-use envelope', async () => {
+    const first = await sealKeyForTurn('anthropic', API_KEY);
+    const second = await sealKeyForTurn('anthropic', API_KEY);
+    expect(first.envelope.aad.jti).not.toBe(second.envelope.aad.jti);
+    expect(first.envelope.ct).not.toBe(second.envelope.ct);
+  });
+
+  it('never puts the plaintext key in the serialized turn payload (never-log)', async () => {
+    const { envelope, scope } = await sealKeyForTurn('anthropic', API_KEY);
+    expect(JSON.stringify({ key_envelope: envelope, scope })).not.toContain(API_KEY);
+  });
+
+  it('refuses a proxy key whose fingerprint is not pinned', async () => {
+    const other = await generateProxyKey();
+    vi.stubEnv('VITE_KEYPROXY_SPKI_PINS', other.fingerprint);
+    await expect(sealKeyForTurn('anthropic', API_KEY)).rejects.toThrow(
+      'recipient public key is not in the SPKI pin list; refusing to encrypt',
+    );
   });
 });
 

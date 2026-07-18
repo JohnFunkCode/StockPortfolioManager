@@ -93,6 +93,11 @@ def _shared_client() -> httpx.Client:
 
 
 def _headers(auth_token: str) -> dict[str, str]:
+    # An empty token (AUTH_DISABLED dev stacks) must omit the header entirely:
+    # "Bearer " with no token is an illegal header value that h11 rejects
+    # client-side before the request is ever sent.
+    if not auth_token:
+        return {}
     return {"Authorization": f"Bearer {auth_token}"}
 
 

@@ -44,21 +44,31 @@ export function keyValidationScope(provider: string): KeyScope {
 }
 
 /**
- * Seal `apiKey` into a single-use envelope bound to the caller's `sub` and a
- * `key.validate` scope, then relay it for validation. Throws with safe,
- * user-facing copy on every failure path.
+ * Scope for one chat turn: ambient tier — read-only tool calls allowed, zero
+ * mutations, a hard token ceiling, and a TTL covering a single streamed turn.
  */
-export async function sealAndValidateKey(
-  provider: string,
-  apiKey: string,
-): Promise<KeyValidationResult> {
+export function chatTurnScope(provider: string): KeyScope {
+  return {
+    v: 1,
+    provider,
+    action: 'chat.turn',
+    params: {},
+    budget: { max_calls: 20, max_mutations: 0, max_tokens: 250000, ttl: 300 },
+  };
+}
+
+/**
+ * Seal `apiKey` under `scope` into a single-use envelope bound to the
+ * caller's `sub` and the pinned proxy public key. Fresh jti/iat per call —
+ * every envelope is one-shot by construction (replay cache rejects reuse).
+ */
+async function sealKey(provider: string, apiKey: string, scope: KeyScope) {
   const info = await getKeyProxyInfo();
   const [newest] = info.keys;
   if (newest === undefined) {
     throw new Error('The key proxy returned no public keys; try again later.');
   }
   const recipientKey = await importPinnedPublicKey(b64urlDecode(newest.spki));
-  const scope = keyValidationScope(provider);
   const envelope = await encryptEnvelope(apiKey, recipientKey, {
     kid: newest.kid,
     aad: {
@@ -69,6 +79,27 @@ export async function sealAndValidateKey(
       scope_hash: await computeScopeHash(scope),
     },
   });
+  return { envelope, scope };
+}
+
+/**
+ * Seal `apiKey` for a single chat turn. Called fresh on every send — one
+ * user action, one envelope.
+ */
+export async function sealKeyForTurn(provider: string, apiKey: string) {
+  return sealKey(provider, apiKey, chatTurnScope(provider));
+}
+
+/**
+ * Seal `apiKey` into a single-use envelope bound to the caller's `sub` and a
+ * `key.validate` scope, then relay it for validation. Throws with safe,
+ * user-facing copy on every failure path.
+ */
+export async function sealAndValidateKey(
+  provider: string,
+  apiKey: string,
+): Promise<KeyValidationResult> {
+  const { envelope, scope } = await sealKey(provider, apiKey, keyValidationScope(provider));
   const result = await validateKey(envelope, scope);
   if (!result.valid) {
     throw new Error('The provider rejected this key. Check that you pasted it completely.');

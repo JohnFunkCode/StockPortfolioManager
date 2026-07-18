@@ -15,12 +15,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from quantcore.services.chat import (
+    ChatKeyRequired,
     ChatService,
     Directive,
     Done,
     ErrorEvent,
     TextDelta,
     ToolStatus,
+    TurnContext,
 )
 from quantcore.services.chat_fake import FakeChatClient
 
@@ -75,7 +77,7 @@ class ChatServiceTestBase(unittest.TestCase):
             sentiment=self.sentiment,
             options=self.options,
             max_iterations=max_iterations,
-            client_factory=lambda: client,
+            client_factory=lambda context: client,
         )
 
     def run_chat(self, client, **kwargs):
@@ -501,7 +503,7 @@ class TestFakeChatClient(unittest.TestCase):
             fundamentals=Mock(),
             sentiment=Mock(),
             options=Mock(),
-            client_factory=FakeChatClient,
+            client_factory=lambda context: FakeChatClient(),
         )
         events = list(
             service.stream_chat([{"role": "user", "content": "How's INTC looking?"}])
@@ -529,7 +531,7 @@ class TestFakeChatClient(unittest.TestCase):
             fundamentals=Mock(),
             sentiment=Mock(),
             options=Mock(),
-            client_factory=FakeChatClient,
+            client_factory=lambda context: FakeChatClient(),
         )
         events = list(
             service.stream_chat(
@@ -555,7 +557,7 @@ class TestFakeChatClient(unittest.TestCase):
             fundamentals=Mock(),
             sentiment=Mock(),
             options=Mock(),
-            client_factory=FakeChatClient,
+            client_factory=lambda context: FakeChatClient(),
         )
         events = list(
             service.stream_chat(
@@ -575,6 +577,84 @@ class TestFakeChatClient(unittest.TestCase):
         joined = "".join(e.delta for e in events if isinstance(e, TextDelta))
         self.assertIn("120", joined)
         self.assertIn("selection", joined.lower())
+
+
+class TestTurnContext(ChatServiceTestBase):
+    """BYOK packet 3c: the per-request TurnContext reaches the client factory."""
+
+    def make_recording_service(self, client):
+        seen = []
+
+        def factory(context):
+            seen.append(context)
+            return client
+
+        service = ChatService(
+            prices=self.prices,
+            fundamentals=self.fundamentals,
+            sentiment=self.sentiment,
+            options=self.options,
+            client_factory=factory,
+        )
+        return service, seen
+
+    def test_factory_receives_the_context_passed_to_stream_chat(self):
+        client = ScriptedClient(
+            [{"deltas": ["hi"], "final": final("end_turn", text_block("hi"))}]
+        )
+        service, seen = self.make_recording_service(client)
+        context = TurnContext(
+            key_envelope={"v": 1},
+            scope={"provider": "anthropic"},
+            auth_token="tok",
+            subject="alice",
+        )
+        events = list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}], context=context
+            )
+        )
+        self.assertIsInstance(events[-1], Done)
+        self.assertEqual(seen, [context])
+
+    def test_default_context_when_none_passed(self):
+        client = ScriptedClient(
+            [{"deltas": ["hi"], "final": final("end_turn", text_block("hi"))}]
+        )
+        service, seen = self.make_recording_service(client)
+        list(service.stream_chat([{"role": "user", "content": "hi"}]))
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0], TurnContext())
+        self.assertIsNone(seen[0].key_envelope)
+        self.assertEqual(seen[0].subject, "local")
+
+    def test_chat_key_required_yields_clean_error_without_logging(self):
+        """The keyless path is an expected state: exactly one ErrorEvent with
+        the factory's verbatim message, no Done, and — per the never-log
+        policy — no exception dump on the chat logger."""
+
+        def factory(context):
+            raise ChatKeyRequired(
+                "Add your Anthropic API key in Settings to use the sidekick."
+            )
+
+        service = ChatService(
+            prices=self.prices,
+            fundamentals=self.fundamentals,
+            sentiment=self.sentiment,
+            options=self.options,
+            client_factory=factory,
+        )
+        with self.assertNoLogs("quantcore.services.chat", level="WARNING"):
+            events = list(
+                service.stream_chat([{"role": "user", "content": "hi"}])
+            )
+        self.assertEqual(len(events), 1)
+        self.assertIsInstance(events[0], ErrorEvent)
+        self.assertEqual(
+            events[0].message,
+            "Add your Anthropic API key in Settings to use the sidekick.",
+        )
 
 
 if __name__ == "__main__":

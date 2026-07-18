@@ -167,19 +167,19 @@ sequenceDiagram
     R->>R: encrypt key to PINNED proxy pubkey → envelope {kid, epk, iv, ct, aad incl. scope_hash}
     R->>E: POST /api/chat {messages, key_envelope, scope}
     E->>A: + Authorization: Bearer per-user JWT (server-side mint, Phase 7)
-    A->>A: verify JWT → Principal; ChatService tool loop starts
+    A->>A: verify JWT → Principal, then start the ChatService tool loop
     A->>P: POST /v1/sessions {provider, envelope, scope} + JWT (+ Google IAM ID token)
-    P->>P: verify JWT · AAD checks (sub/provider/iat/jti/scope_hash) · decrypt key once
+    P->>P: verify JWT, check AAD (sub/provider/iat/jti/scope_hash), decrypt key once
     P-->>A: {session_id, expires_at}
     loop each model turn (≤ max_iterations)
         A->>P: POST /v1/providers/anthropic/messages/stream {session_id, params}
-        P->>P: session live? sub match? scope allows this call? budget left?
-        P->>O: SDK streaming call (user's key)
+        P->>P: session live, sub matches, scope allows call, budget remains
+        P->>O: SDK streaming call using the user key
         O-->>P: SSE stream
-        P-->>A: SSE delta…, final
+        P-->>A: SSE deltas and final event
         A->>A: run tools locally, extend conversation
     end
-    A->>P: DELETE /v1/sessions/{session_id} (best effort; TTL is the backstop)
+    A->>P: DELETE session (best effort, TTL is the backstop)
     P->>P: discard plaintext key
     A-->>E: SSE (text deltas, tool status, done)
     E-->>R: SSE
@@ -646,6 +646,7 @@ the "Auth" column is the *application-layer* check on top:
 | keyproxy | `KEYPROXY_SESSION_TTL` | sliding session TTL, default 300 s; hard lifetime cap 900 s regardless of activity |
 | keyproxy | `KEYPROXY_MAX_SESSION_TOKENS` | server-side ceiling on any scope's `budget.max_tokens` (default 250 000); crossing it (or minting a scope above it) returns the "system-imposed threshold — ask the dev team to raise it" rejection |
 | quantui (Express) | `QUANTUI_SIGNING_KEY` | ES256 **private** signing key ← new per-project secret `quantui-signing-key` (Phase 7) — only Express can mint user identities |
+| quantui (Express) | `QUANTUI_IAP_AUDIENCE` | expected `aud` of the IAP assertion (`/projects/<num>/locations/<region>/services/quantui`, per project) — required whenever `QUANTUI_SIGNING_KEY` is set; Express fails fast at startup if the key is present without it (packet 7b) |
 | quantcore-api + keyproxy | `QUANTCORE_JWT_PUBLIC_KEY` | ES256 **public** verification key ← `quantui-signing-pub` secret (Phase 7; public material, secret-mounted for uniform wiring) |
 | keyproxy + api | `KEYPROXY_HEARTBEAT_SECS` | SSE `: ping` comment interval during provider quiet gaps, default 15 s (both hops) |
 | frontend (build-time) | `VITE_KEYPROXY_SPKI_PINS` | comma-separated b64url SHA-256 SPKI fingerprints baked into the bundle; `envelope.ts` refuses unpinned proxy keys |
@@ -725,20 +726,20 @@ the context):
 |--------|------|--------|--------|
 | 0 | This proposal doc + GitHub issue #100 with the phase checklist (rides with packet 1a's commit) | ✅ 2026-07-16 | PR #101 (`b74c651`) |
 | 1a | Python envelope crypto + keypair script + shared test vectors (`keyproxy/crypto.py`, `scripts/generate_keyproxy_keypair.py`, `tests/vectors/keyproxy_envelope_v1.json`) | ✅ 2026-07-17 | PR #102 (`de85cfb`) |
-| 1b | TypeScript envelope crypto proven against the same vectors (`frontend/src/vault/envelope.ts`, SPKI pin check) | ✅ 2026-07-17 | (this packet's PR) |
-| 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ☐ | |
-| 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ☐ | |
-| 2c | `Dockerfile.keyproxy` + compose wiring | ☐ | |
-| 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ☐ | |
-| 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ☐ | |
-| 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ☐ | |
-| 4 | Frontend vault: IndexedDB + WebCrypto (`vaultStore.ts`, `vaultCrypto.ts`, `KeyVaultContext.tsx`), `fake-indexeddb` tests | ☐ | |
-| 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ☐ | |
-| 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted) | ☐ | |
-| 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E | ☐ | |
-| 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests | ☐ | |
-| 7b | Express IAP-verify + per-user ES256 mint (`quantui-signing-key`); retire the shared `quantui-api-token` in cloud | ☐ | |
-| 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml` | ☐ | |
+| 1b | TypeScript envelope crypto proven against the same vectors (`frontend/src/vault/envelope.ts`, SPKI pin check) | ✅ 2026-07-17 | #103 |
+| 2a | Keyproxy core modules: `auth.py`, `replay.py`, `sessions.py`, `scopes.py` + unit tests (incl. `test_replay_race`, budget exhaustion) | ✅ 2026-07-17 | (this packet's PR) |
+| 2b | Keyproxy app: factory, publickey/validate/sessions endpoints, Anthropic provider (taxonomy), correlation ids, never-log test | ✅ 2026-07-17 | (Phase 2 commit) |
+| 2c | `Dockerfile.keyproxy` + compose wiring | ✅ 2026-07-17 | (Phase 2 commit) |
+| 3a | Streaming turn endpoint (stub-provider tests, `: ping` heartbeats, keyproxy-side no-compression) | ✅ 2026-07-17 | (Phase 3 commit) |
+| 3b | `KeyProxyChatClient` + session exchange + `test_keyproxy_stream_no_buffering` + `test_thinking_block_signature_roundtrip` | ✅ 2026-07-17 | (Phase 3 commit) |
+| 3c | Chat-tier plumbing: `TurnContext`, `key_envelope`/`scope` on `/api/chat`, keyproxy router/schemas, registry precedence, `api/sse.py` heartbeats, OpenAPI snapshot, `test_keyproxy_stream_not_compressed` | ✅ 2026-07-18 | (Phase 3 commit) |
+| 4 | Frontend vault: IndexedDB + WebCrypto (`vaultStore.ts`, `vaultCrypto.ts`, `KeyVaultContext.tsx`), `fake-indexeddb` tests | ✅ 2026-07-18 | (Phase 4 commit) |
+| 5a | Settings UI: `/settings` route + nav, `ApiKeysSection`, Add/Rotate/Unlock dialogs, Remove confirm, validate-on-save UX, passphrase-strength minimum | ✅ 2026-07-18 | (Phase 5 commit) |
+| 5b | Page hardening: CSP header + Trusted Types in `server.mjs` (must land before any real key is pasted); sink audit clean, fonts self-hosted to keep `default-src 'self'` | ✅ 2026-07-18 | (Phase 5 commit) |
+| 6 | Chat integration: envelope attach in `chatStream.ts`/`ChatContext`, ChatRail gating (absent/locked/unlocked), retire env-key path, compose E2E (persistent dev keypair + pin bake in `runUI-CONTAINERS.sh`; empty-bearer h11 fix in the gateway) | ✅ 2026-07-18 | (Phase 6 commit) |
+| 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests. Note: `cryptography` moved into `requirements-base.txt` (PyJWT needs it for ES256; invariant 1 refined — key material/decrypt path still keyproxy-only) | ✅ 2026-07-18 | (Phase 7 commit) |
+| 7b | Express IAP-verify + per-user ES256 mint (`frontend/server/auth.mjs`, jose, `node --test` suite); ladder keyed on `QUANTUI_SIGNING_KEY` presence, hard 401 on bad/absent assertion. Cloud E2E (two IAP users → distinct subs in api logs) + secret creation (`quantui-signing-key`/`-pub`) are deploy-time steps | ✅ 2026-07-18 | (Phase 7 commit) |
+| 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml`. Local proof: full 255-commit history scans clean under `.gitleaks.toml` (5 false positives triaged → narrow allowlist regexes); planted anthropic/AWS/PEM fakes all caught. CI-on-PR + throwaway-branch plant proof remain John's step (no pushes from this session) | ✅ 2026-07-18 | (Phase 8a commit) |
 | 8b | Manual first-deploy runbook (IAM-locked keyproxy), executed interactively with John; results logged here | ☐ | |
 
 ## Phase details
@@ -1086,7 +1087,7 @@ The review's ten security invariants, each mapped to the named control or test t
 
 | # | Invariant | Held by |
 |---|---|---|
-| 1 | Only the Key Proxy decrypts credentials | By construction: quantcore-api never gains the `cryptography` dependency (Phase 1 requirements split); the envelope is an opaque field everywhere except `keyproxy/crypto.py` |
+| 1 | Only the Key Proxy decrypts credentials | By construction: the envelope private-key material (`KEYPROXY_PRIVATE_KEYS`) is mounted only into the keyproxy service, and the envelope is an opaque field everywhere except `keyproxy/crypto.py`. (Refined in packet 7a: the api image now carries the `cryptography` *library* — PyJWT needs it for ES256 verification — but never the key material or the decryption code path.) |
 | 2 | Verifiers cannot mint identities | ES256 + `aud` (decision #13); Phase 7 verifier tests incl. the algorithm-confusion probe |
 | 3 | One envelope = one redemption | `test_keyproxy_service.py`: second redemption of a burned `jti` → 400 (Phase 2) |
 | 4 | Every session is bounded | Session-lifecycle tests: sliding TTL expiry + hard 900 s cap (Phase 2) |

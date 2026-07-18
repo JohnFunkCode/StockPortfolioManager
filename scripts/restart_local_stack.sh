@@ -11,6 +11,12 @@
 # What it does: restarts the Cloud SQL proxy (it caches credentials, so a
 # fresh ADC needs a fresh proxy), restarts the FastAPI tier with
 # ANTHROPIC_API_KEY loaded from .env, and makes sure vite is serving.
+#
+# BYOK note (packet 6): the chat sidekick no longer reads ANTHROPIC_API_KEY
+# from the environment by default — keys arrive per turn as encrypted
+# envelopes via the key proxy. This dev stack runs without a keyproxy, so it
+# opts back into the env key with CHAT_ENV_KEY_FALLBACK=1 (dev-only escape
+# hatch; never set it in a deployed environment).
 
 set -u
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,7 +54,7 @@ KEY="$(grep '^ANTHROPIC_API_KEY=' .env | cut -d= -f2- || true)"
 # .env may quote the value (ANTHROPIC_API_KEY="sk-ant-..."); strip surrounding
 # quotes so they don't end up INSIDE the key and cause a 401 invalid x-api-key.
 KEY="${KEY%\"}"; KEY="${KEY#\"}"; KEY="${KEY%\'}"; KEY="${KEY#\'}"
-ANTHROPIC_API_KEY="$KEY" nohup uvicorn api.main:app --host 127.0.0.1 --port 5001 \
+ANTHROPIC_API_KEY="$KEY" CHAT_ENV_KEY_FALLBACK=1 nohup uvicorn api.main:app --host 127.0.0.1 --port 5001 \
     > "$REPO/api.log" 2>&1 &
 echo "  API starting (slow first boot is normal)..."
 for i in $(seq 1 30); do

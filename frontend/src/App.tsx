@@ -7,6 +7,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import SettingsIcon from '@mui/icons-material/Settings';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import ChatIcon from '@mui/icons-material/Chat';
@@ -18,6 +19,7 @@ import PlanDetailPage from './components/plans/PlanDetailPage';
 import SymbolsPage from './components/symbols/SymbolsPage';
 import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
+import SettingsPage from './components/settings/SettingsPage';
 import { useAppTheme } from './ThemeContext';
 
 function Layout() {
@@ -32,6 +34,7 @@ function Layout() {
     { label: 'Securities', path: '/securities', icon: <BarChartIcon /> },
     { label: 'Plans', path: '/plans', icon: <ListAltIcon /> },
     { label: 'Symbols', path: '/symbols', icon: <ShowChartIcon /> },
+    { label: 'Settings', path: '/settings', icon: <SettingsIcon /> },
   ];
 
   return (
@@ -160,6 +163,7 @@ export default function App() {
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/plans/:id" element={<PlanDetailPage />} />
         <Route path="/symbols" element={<SymbolsPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Typography variant="h5" sx={{ mt: 4 }}>Page not found</Typography>} />
       </Route>
     </Routes>

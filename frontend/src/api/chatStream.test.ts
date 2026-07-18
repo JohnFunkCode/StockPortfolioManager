@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseSSEChunk, streamChat } from './chatStream';
+import { parseSSEChunk, streamChat, type ChatKeyMaterial } from './chatStream';
 import type { ChatStreamEvent } from '../chat/types';
 
 const frame = (event: string, data: object) =>
@@ -153,6 +153,35 @@ describe('streamChat', () => {
 
     await streamChat([{ role: 'user', content: 'hi' }], () => {}, undefined, []);
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).not.toHaveProperty('interactions');
+  });
+
+  it('serializes key material as key_envelope/scope, omitted when absent (BYOK 6)', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () =>
+        sseResponse([frame('done', { stop_reason: 'end_turn' })]),
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const keyMaterial = {
+      keyEnvelope: { v: 1, kid: 'kp-test' },
+      scope: {
+        v: 1,
+        provider: 'anthropic',
+        action: 'chat.turn',
+        params: {},
+        budget: { max_calls: 20, max_mutations: 0, max_tokens: 250000, ttl: 300 },
+      },
+    } as unknown as ChatKeyMaterial;
+    await streamChat([{ role: 'user', content: 'hi' }], () => {}, undefined, undefined, keyMaterial);
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.key_envelope).toEqual({ v: 1, kid: 'kp-test' });
+    expect(body.scope).toEqual(keyMaterial.scope);
+
+    await streamChat([{ role: 'user', content: 'hi' }], () => {});
+    const bare = JSON.parse(fetchMock.mock.calls[1][1].body);
+    expect(bare).not.toHaveProperty('key_envelope');
+    expect(bare).not.toHaveProperty('scope');
   });
 
   it('rejects with status on non-2xx', async () => {

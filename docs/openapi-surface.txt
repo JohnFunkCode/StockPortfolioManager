@@ -2,6 +2,7 @@ DELETE /api/plans/{instance_id}  ->  delete_plan_api_plans__instance_id__delete
 DELETE /api/portfolio/{ticker}  ->  remove_from_portfolio_api_portfolio__ticker__delete
 GET    /api/dashboard/stats  ->  dashboard_stats_api_dashboard_stats_get
 GET    /api/health  ->  health_api_health_get
+GET    /api/keyproxy/publickey  ->  publickey_api_keyproxy_publickey_get
 GET    /api/options/screen-watchlist  ->  screen_options_watchlist_api_options_screen_watchlist_get
 GET    /api/plans  ->  list_plans_api_plans_get
 GET    /api/plans/{instance_id}  ->  get_plan_api_plans__instance_id__get
@@ -72,6 +73,7 @@ GET    /api/symbols/{ticker}/price  ->  get_symbol_price_api_symbols__ticker__pr
 GET    /api/watchlist  ->  get_watchlist_api_watchlist_get
 PATCH  /api/plans/{instance_id}  ->  update_plan_api_plans__instance_id__patch
 POST   /api/chat  ->  chat_api_chat_post
+POST   /api/keyproxy/validate  ->  validate_api_keyproxy_validate_post
 POST   /api/plans  ->  create_plan_api_plans_post
 POST   /api/portfolio  ->  add_to_portfolio_api_portfolio_post
 POST   /api/portfolio/import  ->  import_portfolio_api_portfolio_import_post

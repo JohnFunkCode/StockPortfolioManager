@@ -1,8 +1,16 @@
 # Minting prod JWT tokens
 
 The production API (`quantcore-api` on Cloud Run, project `quantcore-prod-20260606`)
-enforces an **app-level HS256 JWT** on every request (see [`api/auth.py`](../../api/auth.py)).
-Any caller — the React UI, the CLI smoke, an MCP client, a `curl` — must send:
+enforces an **app-level JWT** on every request (see [`api/auth.py`](../../api/auth.py)).
+Since the BYOK rollout (2026-07-18) auth is **dual-mode**:
+
+- **ES256 per-user tokens** — minted automatically by the deployed QuantUI Express server
+  from the IAP identity (`frontend/server/auth.mjs`, `quantui-signing-key` secret). Nothing
+  to do by hand; if you're using the hosted UI you already have one.
+- **HS256 service tokens** — the manually minted tokens **this doc covers**, signed with
+  `quantcore-jwt-secret`. Still the path for MCP clients, `curl`/CLI, and the dev UI.
+
+Any caller — the CLI smoke, an MCP client, a `curl`, the local dev UI — must send:
 
 ```
 Authorization: Bearer <token>
@@ -10,8 +18,10 @@ Authorization: Bearer <token>
 
 A request with no token (or a bad/expired one) gets **HTTP 401**. Tokens are
 **short-lived and self-contained**: nothing is stored or revoked server-side, so when
-one expires you just mint another. The only long-lived secret is the HMAC signing key
-`quantcore-jwt-secret`, held in Secret Manager on the prod project.
+one expires you just mint another. The long-lived secrets are the signing keys — the
+HMAC key `quantcore-jwt-secret` (this doc's tokens) and the ES256 keypair
+`quantui-signing-key`/`-pub` (the UI's per-user tokens) — all held in Secret Manager
+on the prod project.
 
 > Local development and the docker-compose stack run with `AUTH_DISABLED=1`, so they
 > need **no token**. Tokens are only for talking to the **prod** deployment.
@@ -126,5 +136,8 @@ gcloud run services update quantcore-api --project quantcore-prod-20260606 \
   script and the prereq check are written to avoid this — don't paste the raw secret.
 - **Prefer short lifetimes.** Tokens can't be revoked individually; expiry is the only
   guardrail until the key is rotated.
-- The prod **database** password and the JWT signing key are the two crown-jewel
-  secrets — both live in Secret Manager, never in the repo or `.env` that gets shared.
+- The crown-jewel secrets — the prod **database** password, the HS256 JWT signing key,
+  the ES256 UI signing key (`quantui-signing-key`), and the BYOK keyproxy private key
+  (`keyproxy-private-key`) — all live in Secret Manager, never in the repo or a shared
+  `.env`. Private keys are piped straight into Secret Manager at creation and never
+  printed.

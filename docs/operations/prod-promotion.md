@@ -14,20 +14,16 @@ Run over to it, behind a gated, manually-approved GitHub workflow.
 
 ## The model in one paragraph
 
-The test CI ([`deploy.yml`](../../.github/workflows/deploy.yml)) builds the **three**
-images — `quantcore-api`, `quantcore-mcp` (all 5 wrappers share it), `quantcore-report`
-— and tags each with the **7-char commit SHA**, deploying them to the **test** Cloud Run
-stack.
-
-> **Current state (P9):** `deploy.yml`'s automatic build-on-push is **disabled** —
-> the test-project WIF and the `GCP_WIF_PROVIDER`/`GCP_DEPLOY_SA` secrets aren't wired
-> yet, so the workflow is `workflow_dispatch`-only. Until that follow-up lands, test
-> images are built **manually** (`gcloud builds submit` / Cloud Build) and tagged by
-> hand, then promoted here exactly as below. The promotion path itself is unaffected —
-> it only needs tagged images in the test AR, however they got there.
+The test CI ([`deploy.yml`](../../.github/workflows/deploy.yml)) builds the **five**
+images — `quantcore-api`, `quantcore-mcp` (all 5 wrappers share it), `quantcore-report`,
+`quantcore-ui` (QuantUI), and `quantcore-keyproxy` (BYOK) — and tags each with the
+**7-char commit SHA**, deploying them to the **test** Cloud Run stack. Automatic
+build-on-push is **live**: the test-project WIF secrets are wired
+(`scripts/setup_test_wif.sh`), and a `preflight` job skips the deploy only if those
+secrets are ever absent (e.g. on forks).
 
 Promotion takes one such already-built, already-tested
-**tag**, copies all three images **by digest** test AR → prod AR (`docker buildx
+**tag**, copies all five images **by digest** test AR → prod AR (`docker buildx
 imagetools create`), and deploys prod **by the resolved original digest** (not the tag).
 A manual-approval gate (`prod` GitHub Environment + required reviewers) sits in front of
 the prod rollout. Per-service prod config (Cloud SQL binding, secrets, ingress,
@@ -65,9 +61,9 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
    ```
 
    If it's missing, merge the branch carrying `.github/workflows/*` into `main` first
-   (or land just the workflow files there). **This is currently the open gate: the CI
-   workflows live on `feature/new-architecture-phase1` and have not yet been merged to
-   `main`, so the first prod dispatch is blocked until that merge happens.**
+   (or land just the workflow files there). *(Resolved: the workflows have lived on
+   `main` since the phase-1 merge, and prod dispatches have run successfully — most
+   recently `image_tag=177e411` for the BYOK rollout on 2026-07-18.)*
 
 2. **Prod WIF + deploy SA + secrets + Environment exist** (one-time, done in P9):
    - Repo secrets `GCP_PROD_WIF_PROVIDER` and `GCP_PROD_DEPLOY_SA`
@@ -77,21 +73,26 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
      Settings → Environments → prod). Without a reviewer the approval gate won't pause.
    - The deploy SA `quantcore-deployer@quantcore-prod-20260606.iam.gserviceaccount.com`
      has, in prod: `run.developer`, `artifactregistry.writer` (prod AR),
-     `iam.serviceAccountUser` on the runtime SA `quantcore-run@…`; and
-     `artifactregistry.reader` on the **test** AR.
+     `iam.serviceAccountUser` on **both** runtime SAs — `quantcore-run@…` **and**
+     `keyproxy-runtime@…` (the keyproxy runs as its own least-privilege SA; a missing
+     grant there fails the rollout's final step with `iam.serviceaccounts.actAs`
+     denied, as happened on the 2026-07-18 dispatch); and `artifactregistry.reader`
+     on the **test** AR.
 
 ---
 
 ## Choosing the tag to promote
 
-The workflow promotes **one tag across all three images**, so that tag must exist on
-`quantcore-api`, `quantcore-mcp`, and `quantcore-report` in the test AR.
+The workflow promotes **one tag across all five images**, so that tag should exist on
+`quantcore-api`, `quantcore-mcp`, `quantcore-report`, `quantcore-ui`, and
+`quantcore-keyproxy` in the test AR. (The ui and keyproxy steps tolerate an absent
+tag/service — tags built before those images existed skip them cleanly.)
 
 - **Normal case — a commit SHA.** Use the 7-char SHA that CI built when your change
-  merged to `main` (it tags all three together). List what's available:
+  merged to `main` (it tags all five together). List what's available:
 
   ```bash
-  for img in quantcore-api quantcore-mcp quantcore-report; do
+  for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy; do
     echo "== $img =="
     gcloud artifacts docker tags list \
       us-central1-docker.pkg.dev/quantcore-test-20260606/quantcore/$img \
@@ -99,16 +100,14 @@ The workflow promotes **one tag across all three images**, so that tag must exis
   done
   ```
 
-  Pick a SHA present in **all three** lists.
+  Pick a SHA present in **all five** lists (or accept the skip for pre-BYOK tags).
 
-- **The `latest` tag is the human-pinned, known-good set.** `latest` is maintained to
-  point at the currently-blessed digests (as of 2026-06-17: api `ac5cd17f`, mcp
-  `1b7da905`, report `65d70659` — the digests validated end-to-end in P8 and running in
-  prod). Promoting `image_tag=latest` redeploys exactly those bytes (a safe no-op
-  validation if prod already runs them). **Do not assume a raw commit-SHA tag is
-  blessed** — e.g. a newer build may sit under its SHA without `latest` having moved to
-  it, meaning it hasn't been promoted/validated. When in doubt, verify the digest behind
-  the tag:
+- **The current validated baseline is `177e411`** (the BYOK rollout, promoted and
+  E2E-verified on prod 2026-07-18 — api digest `4e50638c…`, keyproxy `9b3b0ecb…`).
+  The `latest` tag is the human-pinned, known-good marker; keep it pointed at the
+  blessed set when you promote. **Do not assume a raw commit-SHA tag is blessed** —
+  a newer build may sit under its SHA without having been promoted/validated. When in
+  doubt, verify the digest behind the tag:
 
   ```bash
   gcloud artifacts docker images describe \
@@ -158,8 +157,10 @@ The workflow promotes **one tag across all three images**, so that tag must exis
 
 5. **The deploy runs automatically** after approval: it resolves each image's source
    digest, `imagetools`-copies test AR → prod AR, verifies the original digest resolves
-   in the prod AR, then `gcloud run deploy` (api + 5 wrappers) and `gcloud run jobs
-   update` (report) **by digest**. Per-service env/secrets/Cloud-SQL bindings are
+   in the prod AR, then `gcloud run deploy` (api + 5 wrappers + `quantui` +
+   `quantcore-keyproxy`) and `gcloud run jobs update` (report) **by digest**. The
+   quantui/keyproxy steps are image-only and skip when the tag predates those images or
+   the service doesn't exist yet. Per-service env/secrets/Cloud-SQL bindings are
    untouched.
 
 ---
@@ -185,8 +186,9 @@ done
 
 The report **Job** has no HTTP surface; verify it by running it once
 (`gcloud run jobs execute quantcore-report --project quantcore-prod-20260606 --region
-us-central1`) or by waiting for its scheduled run. (Note the open follow-up: the report
-path can crash on a flaky Yahoo response — see the P7 row in the rollout plan.)
+us-central1`) or by waiting for its scheduled run. (The former flaky-Yahoo crash is
+fixed — `portfolio/yfinance_gateway.py` now retries with back-off and degrades
+gracefully to all-None prices.)
 
 ---
 
@@ -206,9 +208,9 @@ gcloud run deploy quantcore-api --project quantcore-prod-20260606 --region us-ce
   --image us-central1-docker.pkg.dev/quantcore-prod-20260606/quantcore/quantcore-api@<good-digest>
 ```
 
-The last-validated baseline (P8) is api `ac5cd17f` / mcp `1b7da905` / report `65d70659`
-— the `latest` tag's digests. Re-dispatching the workflow with `image_tag=latest`
-restores that set across the whole stack.
+The last-validated baseline is tag **`177e411`** (BYOK rollout, verified end-to-end on
+prod 2026-07-18). Re-dispatching the workflow with `image_tag=177e411` restores that
+set across the whole stack.
 
 ---
 
@@ -220,8 +222,8 @@ restores that set across the whole stack.
 | Prod AR | `us-central1-docker.pkg.dev/quantcore-prod-20260606/quantcore` |
 | Prod API URL | `https://quantcore-api-127961694257.us-central1.run.app` |
 | Deploy SA | `quantcore-deployer@quantcore-prod-20260606.iam.gserviceaccount.com` |
-| Runtime SA | `quantcore-run@quantcore-prod-20260606.iam.gserviceaccount.com` |
+| Runtime SAs | `quantcore-run@…` (api/wrappers/report/ui) and `keyproxy-runtime@…` (keyproxy; deployer needs actAs on both) |
 | WIF provider | `projects/127961694257/locations/global/workloadIdentityPools/github-prod/providers/github` |
 | Repo secrets | `GCP_PROD_WIF_PROVIDER`, `GCP_PROD_DEPLOY_SA` |
 | Approval gate | `prod` GitHub Environment + required reviewers |
-| Blessed tag | `latest` (pinned to the validated digest set) |
+| Blessed tag | `177e411` (BYOK rollout, validated 2026-07-18) |

@@ -96,13 +96,19 @@ code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/qu
 - **Prod:** `https://quantui-swgixldxzq-uc.a.run.app` (`quantcore-prod-20260606`)
 
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
-(`frontend/server/server.mjs`) that serves the static bundle (SPA fallback) and **reverse-proxies
-`/api/*` to `quantcore-api`, injecting the app JWT server-side** from the `quantui-api-token` Secret
-Manager secret. The browser stays same-origin (no CORS) and never sees the bearer — the production
-equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the app JWT authenticates the
-UI→API hop. Each project has its own `quantui-api-token` (signed with that project's
-`QUANTCORE_JWT_SECRET`) and its own custom OAuth client (standalone projects can't auto-provision
-one; attach via `scripts/attach_quantui_iap_oauth.sh`).
+(`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
+Types headers) and **reverse-proxies `/api/*` to `quantcore-api`, attaching a per-user token
+server-side**: it verifies the Google-signed IAP assertion (`x-goog-iap-jwt-assertion`) and mints
+a 15-min **ES256 JWT** (`sub` = the IAP email, `aud: ['quantcore-api','quantcore-keyproxy']`) in
+`frontend/server/auth.mjs`, signed with the `quantui-signing-key` secret (public half in
+`quantui-signing-pub`, given to the verifiers). Fallback ladder keyed on configuration:
+`QUANTUI_SIGNING_KEY` set → per-user mint (missing/invalid IAP assertion = hard 401); else
+`QUANTCORE_API_TOKEN` (legacy static `quantui-api-token` secret) → else no header (compose,
+`AUTH_DISABLED=1`). The browser stays same-origin (no CORS) and never sees any bearer — the
+production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the minted JWT
+authenticates the UI→API hop and carries user identity to the BYOK keyproxy. Each project has its
+own signing keypair + OAuth client (standalone projects can't auto-provision one; attach via
+`scripts/attach_quantui_iap_oauth.sh`).
 
 **Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
 filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and image-only-rolls it onto
@@ -118,6 +124,43 @@ run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
 `./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
 Audience tab in Console. Both are required — only one results in a blocked login.
 
+### BYOK key proxy (Sidekick chat — users bring their own Anthropic key)
+
+**Status: COMPLETE — live on test and prod since 2026-07-18** (GitHub issue #100; plan +
+checkpoint/runbook log in [`docs/proposals/byok-key-proxy-plan.md`](docs/proposals/byok-key-proxy-plan.md),
+merged via PRs #105/#106 at `177e411`). The QuantUI Sidekick chat runs on each user's own
+Anthropic API key; the backend never holds a usable key at rest.
+
+- **Flow:** browser vault (`frontend/src/vault/` — IndexedDB, passphrase PBKDF2 + AES-GCM;
+  managed on the `/settings` page) seals the key per turn into a **single-use envelope**
+  (`frontend/src/vault/envelope.ts` ↔ `keyproxy/crypto.py`, SPKI pin baked into the UI bundle,
+  AAD binds `sub`/`jti`/scope-hash) → `/api/chat` carries envelope + scope through
+  `quantcore-api` (never decrypted there) → **`keyproxy/`** (own FastAPI service, no DB) decrypts
+  in memory, enforces scopes/budgets/replay (`scopes.py`, `sessions.py`, `replay.py`), streams
+  SSE from Anthropic back through the chain.
+- **Never-log policy (enforced by tests):** no API keys, `Authorization` headers, envelopes,
+  decrypted payloads, request bodies, or exception dumps containing credentials may reach any log
+  or print. Any new failure path must add the corresponding log assertion.
+- **Auth layers:** keyproxy is **IAM-locked on Cloud Run** (`--no-allow-unauthenticated`;
+  `run.invoker` only for `quantcore-run@`; the api attaches a Google ID token in
+  `X-Serverless-Authorization`) and runs as dedicated SA `keyproxy-runtime@` (zero project roles,
+  per-secret grants only). App level: keyproxy verifies **ES256-only** user JWTs (audience
+  `quantcore-keyproxy`); `api/auth.py` is **dual-mode** (ES256 per-user UI tokens via
+  `QUANTCORE_JWT_PUBLIC_KEY` + legacy HS256 service/MCP tokens via `QUANTCORE_JWT_SECRET`).
+- **Deploy wiring:** `Dockerfile.keyproxy`; compose service `keyproxy:5002` (ephemeral or
+  persistent dev keypair via `runUI-CONTAINERS.sh`); `cloudbuild.yaml` `build-keyproxy`;
+  `deploy.yml` image-only-deploys test `quantcore-keyproxy` (skips if the service doesn't exist);
+  `prod-rollout.yml` promotes/deploys it by digest the same way. First deploy in each project is
+  the manual packet-8b runbook (secrets `keyproxy-private-key`, `quantui-signing-key`/`-pub`;
+  private keys are piped straight into Secret Manager, never printed). Gitleaks secret-scanning
+  job runs in CI (`.gitleaks.toml`).
+- **Gotchas learned on the prod rollout (details in the plan doc):** on existing Cloud Run
+  services always `--update-secrets`/`--update-env-vars` (`--set-*` replaces the whole set);
+  "inert" env-var claims must be checked against the image actually running (the pre-BYOK
+  `api/auth.py` used `QUANTCORE_JWT_PUBLIC_KEY` as an HMAC secret and broke all HS256 tokens);
+  the CI deployer needs `roles/iam.serviceAccountUser` on `keyproxy-runtime@` (granted in both
+  projects).
+
 ### Environments (prod is the system of record)
 
 **Prod (`quantcore-prod-20260606`) is the system of record for all analysis for all users; test
@@ -127,8 +170,8 @@ analysis on test, treat prod as read-only" operating rule — now that changes s
 deployed `quantui` UI and the `.mcp.json` AI-client remotes both already target prod.
 
 The 5 remote MCP servers in `.mcp.json` send `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`, which
-the wrappers forward unchanged to `quantcore-api` (identity passthrough → HS256 JWT in
-`api/auth.py`). So real analysis requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the
+the wrappers forward unchanged to `quantcore-api` (identity passthrough → the legacy HS256
+service-token path in the now dual-mode `api/auth.py`). So real analysis requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the
 environment Claude Code launches from; if it's unset, every data tool returns `401: … Not enough
 segments` (the wrapper-local `mcp_health_check` still passes, which is misleading). Each user mints
 their own 3-month token with `scripts/mint_prod_jwt.py --output export --expires-hours 2160 --sub

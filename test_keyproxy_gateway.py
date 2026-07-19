@@ -343,6 +343,12 @@ class TestPubkeyAndValidate(GatewayTestBase):
 
 
 class TestAuthHeaders(unittest.TestCase):
+    def setUp(self):
+        os.environ.pop("KEYPROXY_ID_TOKEN_AUDIENCE", None)
+        keyproxy_gateway._id_token_cache = None
+        self.addCleanup(os.environ.pop, "KEYPROXY_ID_TOKEN_AUDIENCE", None)
+        self.addCleanup(setattr, keyproxy_gateway, "_id_token_cache", None)
+
     def test_empty_token_omits_the_header_entirely(self):
         # AUTH_DISABLED dev stacks pass auth_token="" — "Bearer " with no
         # token is an illegal header value that h11 rejects client-side, so
@@ -354,6 +360,81 @@ class TestAuthHeaders(unittest.TestCase):
             keyproxy_gateway._headers("tok-123"),
             {"Authorization": "Bearer tok-123"},
         )
+
+
+class TestGoogleIdTokenLayer(unittest.TestCase):
+    """Packet 8b: the Cloud Run IAM hop (X-Serverless-Authorization).
+
+    Only active when KEYPROXY_ID_TOKEN_AUDIENCE is set — every test above and
+    below this class runs with it unset, pinning that local/compose behavior
+    is completely unchanged.
+    """
+
+    AUDIENCE = "https://keyproxy.example.run.app"
+
+    def setUp(self):
+        os.environ["KEYPROXY_ID_TOKEN_AUDIENCE"] = self.AUDIENCE
+        keyproxy_gateway._id_token_cache = None
+        self.addCleanup(os.environ.pop, "KEYPROXY_ID_TOKEN_AUDIENCE", None)
+        self.addCleanup(setattr, keyproxy_gateway, "_id_token_cache", None)
+
+    def test_id_token_rides_serverless_header_user_jwt_keeps_authorization(self):
+        with patch("google.oauth2.id_token.fetch_id_token", return_value="idtok") as fetch:
+            self.assertEqual(
+                keyproxy_gateway._headers("user-jwt"),
+                {
+                    "X-Serverless-Authorization": "Bearer idtok",
+                    "Authorization": "Bearer user-jwt",
+                },
+            )
+        # Audience is the keyproxy service URL (what Cloud Run IAM checks).
+        self.assertEqual(fetch.call_args.args[1], self.AUDIENCE)
+
+    def test_publickey_style_calls_carry_only_the_id_token(self):
+        with patch("google.oauth2.id_token.fetch_id_token", return_value="idtok"):
+            self.assertEqual(
+                keyproxy_gateway._headers(""),
+                {"X-Serverless-Authorization": "Bearer idtok"},
+            )
+
+    def test_token_is_cached_across_requests(self):
+        with patch("google.oauth2.id_token.fetch_id_token", return_value="idtok") as fetch:
+            keyproxy_gateway._headers("a")
+            keyproxy_gateway._headers("b")
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_token_is_refetched_after_ttl(self):
+        with patch("google.oauth2.id_token.fetch_id_token", return_value="idtok") as fetch:
+            keyproxy_gateway._headers("a")
+            token, fetched_at = keyproxy_gateway._id_token_cache
+            keyproxy_gateway._id_token_cache = (
+                token,
+                fetched_at - keyproxy_gateway._ID_TOKEN_TTL_SECONDS - 1,
+            )
+            keyproxy_gateway._headers("a")
+        self.assertEqual(fetch.call_count, 2)
+
+    def test_fetch_failure_is_a_clean_silent_error(self):
+        # Never-log policy: google-auth exceptions can embed request/response
+        # material — nothing may be logged, and the raised error must carry
+        # only the constant user-facing message, never the cause's text.
+        boom = RuntimeError("metadata response body with sensitive-material")
+        with patch("google.oauth2.id_token.fetch_id_token", side_effect=boom):
+            with self.assertNoLogs(level="DEBUG"):
+                with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
+                    keyproxy_gateway._headers("user-jwt")
+        self.assertEqual(str(ctx.exception), keyproxy_gateway.UNAVAILABLE_MESSAGE)
+        self.assertIsNone(ctx.exception.__cause__)
+        self.assertNotIn("sensitive-material", repr(ctx.exception))
+
+    def test_close_stays_best_effort_when_the_fetch_fails(self):
+        client = keyproxy_gateway.KeyProxyChatClient(
+            envelope={}, scope={}, auth_token="t", model="m", effort="low",
+        )
+        client._session_id = "sess-1"
+        with patch("google.oauth2.id_token.fetch_id_token", side_effect=RuntimeError):
+            client.close()  # must not raise
+        self.assertIsNone(client._session_id)
 
 
 class TestKeyProxyServiceThin(unittest.TestCase):

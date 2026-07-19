@@ -1155,9 +1155,12 @@ identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promo
   `KEYPROXY_URL`/`KEYPROXY_ID_TOKEN_AUDIENCE` — dual-mode auth live.
 - *Prod E2E (2026-07-18):* John added his real Anthropic key via the prod Settings page and
   confirmed the sidekick chat works end-to-end on prod (browser → Express per-user mint →
-  api → IAM-locked keyproxy → Anthropic). **Packet 8b closed — BYOK live on prod.** The only
-  loose end is the optional green re-dispatch of `prod-rollout.yml` (state already correct;
-  it would purely prove the now-fixed keyproxy step for future rollouts).
+  api → IAM-locked keyproxy → Anthropic). **Packet 8b closed — BYOK live on prod.**
+- *Green re-dispatch (2026-07-19):* John dispatched `prod-rollout.yml -f image_tag=177e411`
+  end-to-end — gate job (tests + wrapper smoke + OpenAPI diff) passed, `prod` Environment
+  approved, promote-and-deploy succeeded in 10m22s with the keyproxy step included. The full
+  CI/CD path is proven for future rollouts; no loose ends remain. (Only warnings: GitHub's
+  own actions pinning deprecated Node 20 — upstream, cosmetic.)
 
 ## Overall verification
 

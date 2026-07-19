@@ -740,7 +740,7 @@ the context):
 | 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests. Note: `cryptography` moved into `requirements-base.txt` (PyJWT needs it for ES256; invariant 1 refined — key material/decrypt path still keyproxy-only) | ✅ 2026-07-18 | (Phase 7 commit) |
 | 7b | Express IAP-verify + per-user ES256 mint (`frontend/server/auth.mjs`, jose, `node --test` suite); ladder keyed on `QUANTUI_SIGNING_KEY` presence, hard 401 on bad/absent assertion. Cloud E2E (two IAP users → distinct subs in api logs) + secret creation (`quantui-signing-key`/`-pub`) are deploy-time steps | ✅ 2026-07-18 | (Phase 7 commit) |
 | 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml`. Local proof: full 255-commit history scans clean under `.gitleaks.toml` (5 false positives triaged → narrow allowlist regexes); planted anthropic/AWS/PEM fakes all caught. CI-on-PR + throwaway-branch plant proof remain John's step (no pushes from this session) | ✅ 2026-07-18 | (Phase 8a commit) |
-| 8b | Manual first-deploy runbook (IAM-locked keyproxy), executed interactively with John; results logged here | ☐ | |
+| 8b | Manual first-deploy runbook (IAM-locked keyproxy). **Test leg ✅ 2026-07-18** — prep code (ID-token attach + dual-pin bake) PR #106 `177e411`; runbook executed, all CLI verify items green (results in the 8b section below). Remaining: John's browser E2E with a real key, then the prod leg | 🔶 | PR #106 (`177e411`) |
 
 ## Phase details
 
@@ -1070,6 +1070,37 @@ added later if first-message latency becomes a real complaint. Frontend build ga
 end (app code never runs); test-project browser E2E behind IAP; an envelope minted under user A's
 identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promotion via
 `prod-rollout.yml` with approval.
+
+**Runbook results — test leg (2026-07-18):**
+
+- *Prep (PR #106, merge `177e411`, auto-deployed by `deploy.yml`):* the plan's "~10 lines of
+  google-auth" landed as `_google_id_token()` in `quantcore/gateways/keyproxy_gateway.py` — ID
+  token from the metadata server, audience from `KEYPROXY_ID_TOKEN_AUDIENCE` (unset = layer off,
+  pinned by tests), sent in **`X-Serverless-Authorization`** so Cloud Run verifies/strips it and
+  the user's ES256 JWT rides `Authorization` untouched; cached ~50 min under a lock. The
+  "per project pins" line above was **amended**: prod promotion copies the UI image by digest
+  (never rebuilds), so `cloudbuild.yaml` bakes BOTH projects' pins into the one bundle
+  (`_VITE_KEYPROXY_SPKI_PINS`, test `kp-2026-07-test` + prod `kp-2026-07-prod`); rotation ships
+  old+new pins then drops the old one a release later.
+- *Runbook:* `keyproxy-runtime@quantcore-test-20260606` SA created, zero project-level roles,
+  per-secret `secretAccessor` on exactly `keyproxy-private-key` + `quantui-signing-pub`; keypairs
+  generated and piped straight into each project's `keyproxy-private-key` secret (never printed);
+  `quantcore-keyproxy` rev `00001-tbn` deployed IAM-locked (`--no-allow-unauthenticated`,
+  `--max-instances=1`, `--timeout=300`), `run.invoker` granted only to the api's runtime SA;
+  api rev `00030-hpn` carries `KEYPROXY_URL` + `KEYPROXY_ID_TOKEN_AUDIENCE`.
+- *Verify (all via the deployed api, dummy key `sk-ant-…` — no real credential used):*
+  ① unauthenticated curl → **403** from Google's front end, app never ran.
+  ② `GET /api/keyproxy/publickey` with a minted JWT → **200**, `kp-2026-07-test` key + caller
+  `sub` — proves ID-token fetch + Cloud Run IAM + secret-bundle parse end-to-end.
+  ③ user A's envelope under user B's ES256 JWT → **400** generic (sub mismatch, invariant 10).
+  ④ user A's own envelope → **200 `{"valid": false, "key_hint": "…-key"}`** — full decrypt →
+  jti burn → live Anthropic probe of the dummy key.
+  ⑤ the same envelope replayed → **400** (jti burned, invariant 3).
+  ⑥ log sweep: keyproxy logs carry only method/path/status + allowlist fields; a project-wide
+  log search for the dummy-key fragments returned **zero hits** (invariant 7).
+- *Remaining for the row to close:* John's browser E2E on test quantui (real key into Settings —
+  never handled by the agent), then the prod leg (prod `quantui-signing-pub` + Phase 7 identity
+  secrets, prod keyproxy-runtime SA grants, first manual prod deploy, `prod-rollout.yml` dispatch).
 
 ## Overall verification
 

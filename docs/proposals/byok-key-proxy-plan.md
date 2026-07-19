@@ -1120,8 +1120,9 @@ identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promo
   `https://quantcore-keyproxy-127961694257.us-central1.run.app`; `run.invoker` granted only to
   `quantcore-run@` (the api's runtime SA). Env wiring: quantui rev `00003-sgj` carries
   `QUANTUI_SIGNING_KEY` + `QUANTUI_IAP_AUDIENCE`; api rev `00005-tb9` carries
-  `QUANTCORE_JWT_PUBLIC_KEY` + `KEYPROXY_URL`/`KEYPROXY_ID_TOKEN_AUDIENCE` — all inert on the
-  current pre-BYOK images, activating atomically at rollout.
+  `QUANTCORE_JWT_PUBLIC_KEY` + `KEYPROXY_URL`/`KEYPROXY_ID_TOKEN_AUDIENCE` — intended to sit
+  inert on the pre-BYOK images until rollout (wrong for one variable; see the second incident
+  below).
 - *Incident (resolved same session):* the first env-wiring commands used `--set-secrets`, which
   **replaces** a service's whole secret set rather than merging. quantui briefly lost
   `QUANTCORE_API_TOKEN` (prod UI 401s for ~8 min) and the api's new revision lost
@@ -1132,8 +1133,29 @@ identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promo
   `--update-secrets`/`--update-env-vars`; reserve `--set-*` for first deploys.**
 - *Verify ① (prod):* unauthenticated curl to the prod keyproxy URL → **403** from Google's front
   end, app code never ran.
-- *Remaining:* `prod-rollout.yml` dispatch with tag `177e411` (prod-environment approval), then
-  John's prod browser E2E with a real key → flip row 8b to ✅ and close out on issue #100.
+- *Second incident (resolved same session):* `QUANTCORE_JWT_PUBLIC_KEY` was **not** inert on the
+  pre-BYOK api image. The Phase-3 `api/auth.py` already read it — `_verification_key()` returns
+  `PUBLIC_KEY or SECRET` — while accepting only HS256, so the old image fed the PEM into PyJWT's
+  HMAC verifier, which refuses asymmetric keys: every HS256 token (UI + MCP wrappers) was
+  rejected and prod api auth was down until repaired. Test never hit this because its api was
+  already on the dual-mode image when the env was wired. Repair sequence:
+  `--remove-secrets QUANTCORE_JWT_PUBLIC_KEY` (healed instantly) → rollout → re-add the key onto
+  the dual-mode image (rev `00008-4h8`). **Lesson: "inert env var" claims must be checked against
+  the image actually running, not the repo head — old images can read new names.**
+- *Rollout (2026-07-18):* `prod-rollout.yml` dispatched with `image_tag=177e411`; all five images
+  promoted test→prod by digest, and api (`00007-nhd`), the 5 MCP wrappers, the report job, and
+  quantui (`00004-2sr`) deployed clean. The final keyproxy step failed with
+  `iam.serviceaccounts.actAs` denied: the CI deployer (`quantcore-deployer@`) had no
+  `serviceAccountUser` grant on the new `keyproxy-runtime@` SA (created in this runbook, after
+  the WIF setups). Harmless to state — the keyproxy was already running the exact target digest
+  from the manual first deploy. Grants added in **both** projects (test's `deploy.yml` keyproxy
+  step stops skipping at the next merge and would have hit the same wall).
+- *Final prod state:* whole stack at `177e411`; api rev `00008-4h8` runs the new image with DSN +
+  HS256 secret (legacy service tokens) + ES256 public key (per-user UI tokens) +
+  `KEYPROXY_URL`/`KEYPROXY_ID_TOKEN_AUDIENCE` — dual-mode auth live.
+- *Remaining:* optional green re-dispatch of `prod-rollout.yml` (state already correct; proves the
+  pipeline for future rollouts), then John's prod browser E2E with a real key → flip row 8b to ✅
+  and close out on issue #100.
 
 ## Overall verification
 

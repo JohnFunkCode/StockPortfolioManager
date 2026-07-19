@@ -740,7 +740,7 @@ the context):
 | 7a | ES256 verifiers: `api/auth.py` dual-mode (ES256 users + legacy HS256), keyproxy ES256-only, algorithm-confusion tests. Note: `cryptography` moved into `requirements-base.txt` (PyJWT needs it for ES256; invariant 1 refined — key material/decrypt path still keyproxy-only) | ✅ 2026-07-18 | (Phase 7 commit) |
 | 7b | Express IAP-verify + per-user ES256 mint (`frontend/server/auth.mjs`, jose, `node --test` suite); ladder keyed on `QUANTUI_SIGNING_KEY` presence, hard 401 on bad/absent assertion. Cloud E2E (two IAP users → distinct subs in api logs) + secret creation (`quantui-signing-key`/`-pub`) are deploy-time steps | ✅ 2026-07-18 | (Phase 7 commit) |
 | 8a | CI wiring: `cloudbuild.yaml` build-keyproxy step, `deploy.yml` (+ gitleaks secret-scanning job), `prod-rollout.yml`. Local proof: full 255-commit history scans clean under `.gitleaks.toml` (5 false positives triaged → narrow allowlist regexes); planted anthropic/AWS/PEM fakes all caught. CI-on-PR + throwaway-branch plant proof remain John's step (no pushes from this session) | ✅ 2026-07-18 | (Phase 8a commit) |
-| 8b | Manual first-deploy runbook (IAM-locked keyproxy). **Test leg ✅ 2026-07-18** (incl. John's real-key browser E2E); **prod leg infra ✅ 2026-07-18** — prod identity secrets, keyproxy-runtime SA, IAM-locked keyproxy deploy by digest, env wiring on quantui/api (inert until rollout); results in the 8b section below. Remaining: `prod-rollout.yml` dispatch `177e411` + John's prod browser E2E | 🔶 | PR #106 (`177e411`) |
+| 8b | Manual first-deploy runbook (IAM-locked keyproxy). **Test leg ✅ 2026-07-18** (incl. John's real-key browser E2E); **prod leg ✅ 2026-07-18** — identity secrets, `keyproxy-runtime@` SA, IAM-locked keyproxy deploy by digest, `prod-rollout.yml` dispatch of `177e411`, and John's prod real-key browser E2E green (**BYOK live on prod**); full results incl. two incidents + lessons in the 8b section below | ✅ 2026-07-18 | PR #106 (`177e411`) |
 
 ## Phase details
 
@@ -1153,9 +1153,11 @@ identity replayed under user B's JWT is rejected (sub mismatch, 400); prod promo
 - *Final prod state:* whole stack at `177e411`; api rev `00008-4h8` runs the new image with DSN +
   HS256 secret (legacy service tokens) + ES256 public key (per-user UI tokens) +
   `KEYPROXY_URL`/`KEYPROXY_ID_TOKEN_AUDIENCE` — dual-mode auth live.
-- *Remaining:* optional green re-dispatch of `prod-rollout.yml` (state already correct; proves the
-  pipeline for future rollouts), then John's prod browser E2E with a real key → flip row 8b to ✅
-  and close out on issue #100.
+- *Prod E2E (2026-07-18):* John added his real Anthropic key via the prod Settings page and
+  confirmed the sidekick chat works end-to-end on prod (browser → Express per-user mint →
+  api → IAM-locked keyproxy → Anthropic). **Packet 8b closed — BYOK live on prod.** The only
+  loose end is the optional green re-dispatch of `prod-rollout.yml` (state already correct;
+  it would purely prove the now-fixed keyproxy step for future rollouts).
 
 ## Overall verification
 

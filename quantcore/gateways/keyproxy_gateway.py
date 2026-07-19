@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from typing import Iterator, Optional
 
 import httpx
@@ -92,13 +93,61 @@ def _shared_client() -> httpx.Client:
         return _client
 
 
+# --- Google IAM layer (packet 8b) -----------------------------------------
+#
+# On Cloud Run the keyproxy is deployed --no-allow-unauthenticated, so every
+# hop must ALSO carry a Google-signed ID token (defense-in-depth layer 1).
+# It rides in X-Serverless-Authorization — Cloud Run's front end verifies and
+# strips that header, which leaves Authorization free for the user's ES256
+# JWT that the keyproxy app itself verifies (layer 2). Activation is explicit
+# via KEYPROXY_ID_TOKEN_AUDIENCE (set to the keyproxy service URL on the
+# quantcore-api service); local/compose stacks leave it unset and skip the
+# IAM layer entirely. Google ID tokens live 1 h — cache and refresh early so
+# the metadata-server round-trip is off the per-request path.
+
+_ID_TOKEN_AUDIENCE_ENV = "KEYPROXY_ID_TOKEN_AUDIENCE"
+_ID_TOKEN_TTL_SECONDS = 50 * 60
+
+_id_token_lock = threading.Lock()
+_id_token_cache: Optional[tuple[str, float]] = None  # (token, monotonic fetch time)
+
+
+def _google_id_token() -> Optional[str]:
+    audience = os.environ.get(_ID_TOKEN_AUDIENCE_ENV)
+    if not audience:
+        return None
+    global _id_token_cache
+    with _id_token_lock:
+        now = time.monotonic()
+        if _id_token_cache is not None and now - _id_token_cache[1] < _ID_TOKEN_TTL_SECONDS:
+            return _id_token_cache[0]
+        try:
+            from google.auth.transport import requests as google_auth_requests
+            from google.oauth2 import id_token as google_id_token
+
+            token = google_id_token.fetch_id_token(
+                google_auth_requests.Request(), audience
+            )
+        except Exception:
+            # Never-log policy: google-auth exceptions can embed request and
+            # response material, so the cause is dropped — the constant
+            # user-facing message is all that propagates.
+            raise KeyProxyError(UNAVAILABLE_MESSAGE) from None
+        _id_token_cache = (token, now)
+        return token
+
+
 def _headers(auth_token: str) -> dict[str, str]:
+    headers: dict[str, str] = {}
+    id_token = _google_id_token()
+    if id_token:
+        headers["X-Serverless-Authorization"] = f"Bearer {id_token}"
     # An empty token (AUTH_DISABLED dev stacks) must omit the header entirely:
     # "Bearer " with no token is an illegal header value that h11 rejects
     # client-side before the request is ever sent.
-    if not auth_token:
-        return {}
-    return {"Authorization": f"Bearer {auth_token}"}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+    return headers
 
 
 def _error_message(status_code: int, detail: object) -> str:
@@ -261,7 +310,8 @@ class KeyProxyChatClient:
                 f"{_base_url()}/v1/sessions/{session_id}",
                 headers=_headers(self._auth_token),
             )
-        except httpx.HTTPError:
+        except (httpx.HTTPError, KeyProxyError):
+            # Best-effort includes an ID-token fetch failure — TTL backstop.
             pass
 
     # -- the protocol method ------------------------------------------------
@@ -321,7 +371,11 @@ class KeyProxyChatClient:
 def get_public_keys() -> list[dict]:
     """``GET /v1/publickey`` — the envelope encryption keys, newest first."""
     try:
-        response = _shared_client().get(f"{_base_url()}/v1/publickey")
+        # No user token — the endpoint is public at the app layer — but the
+        # Cloud Run IAM layer still requires the Google ID token.
+        response = _shared_client().get(
+            f"{_base_url()}/v1/publickey", headers=_headers("")
+        )
     except httpx.HTTPError:
         raise KeyProxyError(UNAVAILABLE_MESSAGE) from None
     if response.status_code != 200:

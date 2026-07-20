@@ -11,6 +11,9 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 - Support for multiple currencies with real-time conversion
 - Generate HTML reports with portfolio performance metrics
 - Calculate portfolio performance statistics
+- Web dashboard (**QuantUI**) with an AI chat **Sidekick** — each user brings their own Anthropic
+  API key (**BYOK**), stored encrypted in the browser and never visible to the backend (see
+  [BYOK Sidekick](#byok-sidekick-bring-your-own-llm-api-key))
 
 ## Technologies Used
 
@@ -185,9 +188,15 @@ A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Materi
 | Page | Route | Description |
 |------|-------|-------------|
 | Dashboard | `/` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
+| Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views |
+| Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol |
 | Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
 | Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |
 | Symbols | `/symbols` | Look up the latest live price for any ticker symbol |
+| Settings | `/settings` | Manage your BYOK API keys (add/rotate/remove, vault unlock) |
+
+Every page also carries the **Sidekick** chat rail — an AI assistant powered by the user's own
+Anthropic API key (see [BYOK Sidekick](#byok-sidekick-bring-your-own-llm-api-key)).
 
 ### Key dependencies
 
@@ -232,13 +241,19 @@ The SPA is *not* served by Vite in production. `Dockerfile.ui` builds `frontend/
 tiny Express server (`frontend/server/server.mjs`) that:
 
 - serves the static `dist/` bundle (with SPA `index.html` fallback), and
-- reverse-proxies `/api/*` to `quantcore-api`, injecting the app JWT **server-side** from Secret
-  Manager (`quantui-api-token`).
+- reverse-proxies `/api/*` to `quantcore-api`, attaching a **per-user token** server-side: it
+  verifies the Google-signed IAP assertion on each request, then mints a short-lived (15-min)
+  **ES256 JWT** with `sub` = the signed-in user's email (`frontend/server/auth.mjs`, signing key
+  in the `quantui-signing-key` secret; `quantcore-api` and the keyproxy verify with the public
+  half).
 
-So the browser stays same-origin (no CORS) and the bearer token **never reaches the client** — the
-production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the app JWT
-authenticates the UI→API hop. Each project has its own `quantui-api-token` secret (signed with that
-project's `QUANTCORE_JWT_SECRET`) and its own custom OAuth client.
+So the browser stays same-origin (no CORS) and no bearer token **ever reaches the client** — the
+production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the minted per-user
+JWT authenticates the UI→API hop and carries the user's identity all the way to the backend (the
+BYOK keyproxy binds key envelopes to it). The serving fallback ladder is keyed on configuration:
+per-user mint when `QUANTUI_SIGNING_KEY` is set → legacy static `quantui-api-token` secret →
+open (docker-compose, where the api runs `AUTH_DISABLED=1`). Each project has its own signing
+key/secret pair and its own custom OAuth client.
 
 ### Workflow for a UI change
 
@@ -300,6 +315,61 @@ since the compose api runs `AUTH_DISABLED=1`).
 
 ---
 
+## BYOK Sidekick (bring your own LLM API key)
+
+The Sidekick chat in QuantUI is powered by **each user's own Anthropic API key** — the project pays
+for no LLM usage, and the backend is architected so it **never holds a usable key at rest**. Live on
+test and prod since 2026-07-18; the full design and runbook log is
+[docs/proposals/byok-key-proxy-plan.md](docs/proposals/byok-key-proxy-plan.md).
+
+### How it works
+
+```text
+Browser vault (IndexedDB, passphrase-encrypted key)
+   │  per-turn: single-use envelope (ECDH → AES-GCM to the keyproxy's pinned public key)
+   ▼
+Express (server.mjs) ── IAP-verified per-user ES256 mint ──► quantcore-api (/api/chat)
+                                                                 │  envelope + scope (never decrypted here)
+                                                                 ▼
+                                                         quantcore-keyproxy  ── the ONLY process that
+                                                                 │              ever sees the plaintext key
+                                                                 ▼
+                                                             Anthropic API (SSE streamed back)
+```
+
+- **Browser vault** (`frontend/src/vault/`): the API key is stored in IndexedDB encrypted with a
+  passphrase-derived key (WebCrypto PBKDF2 + AES-GCM). Add/rotate/unlock/remove via the
+  **Settings** page.
+- **Envelope encryption** (`frontend/src/vault/envelope.ts` ↔ `keyproxy/crypto.py`): each chat
+  turn seals the key into a **single-use envelope** encrypted to the keyproxy's public key (SPKI
+  pin baked into the UI bundle), bound to the user's identity (`sub`), a scope hash, and a `jti`
+  that is burned on first use — replays and cross-user swaps are rejected.
+- **Key proxy** (`keyproxy/`): a small FastAPI service with **no database** that decrypts the
+  envelope in memory, enforces **scopes and token budgets**, calls the provider, and streams the
+  response back. A strict **never-log policy** (enforced by tests) means no key, header, envelope,
+  or credential-bearing error dump can reach any log.
+- **Defense in depth on Cloud Run:** the keyproxy is **IAM-locked** (`--no-allow-unauthenticated`;
+  only `quantcore-api`'s service account may invoke it, via a Google ID token) and runs as a
+  dedicated least-privilege service account (`keyproxy-runtime@`, zero project roles). App-level
+  ES256 user JWTs are enforced on top.
+- **Per-user identity:** IAP authenticates the person → Express mints a 15-min ES256 JWT →
+  `quantcore-api` (dual-mode: ES256 user tokens + legacy HS256 service tokens) and the keyproxy
+  (ES256-only) verify it with the public key. Envelopes are bound to that identity.
+
+### Using it
+
+1. Open QuantUI (test or prod URL above) and go to **Settings → API Keys**.
+2. Add your Anthropic API key and choose a vault passphrase (the key never leaves your browser
+   unencrypted; losing the passphrase just means re-entering the key).
+3. Chat in the Sidekick rail on any page. If the vault is locked, the rail prompts for your
+   passphrase first.
+
+Locally, the docker-compose stack runs the keyproxy at `:5002` with a persistent dev keypair
+(generated by `runUI-CONTAINERS.sh`), so the compose UI's baked-in SPKI pin matches across
+restarts.
+
+---
+
 ## Starting Both Servers Together (Mac)
 
 `runUI-MAC.sh` is a convenience script that launches both the API and frontend servers in the background from a single command.
@@ -334,9 +404,12 @@ AI agents ──HTTP──► stock-price :6001 │ options-analysis :6002 │ c
                               │  QUANTCORE_REST_URL
                               ▼
                        quantcore-api :5001  (FastAPI; services in-process)
-                              │
-                              ▼
-                       cloud-sql-proxy ──► Cloud SQL (TEST instance)
+                         │                    │  BYOK chat turns (envelope, never decrypted in the api)
+                         ▼                    ▼
+                  cloud-sql-proxy       keyproxy :5002  (no DB; decrypts envelopes in memory)
+                         │
+                         ▼
+                 Cloud SQL (TEST instance)
 ```
 
 ### Bring it up
@@ -371,6 +444,8 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 | `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) | FastAPI front door + service execution |
 | MCP wrappers (×5) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) |
+| `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
+| `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api image carries the heavy ML stack — post-inversion FinBERT scoring
 runs in the api, and `main.py` never scores sentiment, so the wrapper and report

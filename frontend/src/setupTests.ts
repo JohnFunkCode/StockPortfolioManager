@@ -1,4 +1,12 @@
 import '@testing-library/jest-dom/vitest';
+import { webcrypto } from 'node:crypto';
+
+// jsdom 29 has no WebCrypto (crypto.subtle); the BYOK envelope crypto in
+// src/vault/envelope.ts is pure crypto.subtle, so tests borrow Node's
+// spec-compliant implementation.
+if (!globalThis.crypto?.subtle) {
+  Object.defineProperty(globalThis, 'crypto', { value: webcrypto, configurable: true });
+}
 
 // jsdom 29 does not provide window.localStorage; the app relies on it for
 // chat/theme/filter persistence, so give tests a spec-faithful in-memory one.

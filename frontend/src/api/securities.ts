@@ -45,6 +45,15 @@ export interface SpreadLeg {
   ask?: number;
 }
 
+/** Server-computed payoff curves (issue #79 — math lives only in
+ * quantcore/analytics/options_math.py). Per-share values over a shared grid. */
+export interface SpreadCurves {
+  prices: number[];
+  expiry: number[];
+  now: number[];
+  params: { T: number; r: number; spot: number; debit: number };
+}
+
 export interface VerticalSpreadResponse {
   symbol: string;
   expiration: string;
@@ -57,6 +66,8 @@ export interface VerticalSpreadResponse {
   risk_reward: number | null;
   warnings?: string[];
   legs: { long: SpreadLeg; short: SpreadLeg };
+  /** Present only when the request set include_curves. */
+  curves?: SpreadCurves;
 }
 
 export interface VerticalSpreadRequestBody {
@@ -64,6 +75,7 @@ export interface VerticalSpreadRequestBody {
   long_strike: number;
   short_strike: number;
   kind: string;
+  include_curves?: boolean;
 }
 
 export const securitiesApi = {

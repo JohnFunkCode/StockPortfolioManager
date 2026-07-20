@@ -1,0 +1,30 @@
+# Gitleaks config for the secret-scan CI job (BYOK packet 8a, plan issue #100).
+#
+# Extends the default ruleset — the point is to fail CI if a real API key or
+# private-key PEM ever lands in a diff. The allowlist below is deliberately
+# NARROW: it exempts specific known-clean matches, never whole test suites,
+# so a real credential pasted into a test file still trips the scan.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-clean matches: PEM-marker string literals in parsing code, dummy test values, and code identifiers the generic rule trips on"
+paths = [
+  # PEM *marker* string literals only (bundle parsing / awk extraction) —
+  # neither file contains key material.
+  '''keyproxy/main\.py''',
+  '''runUI-CONTAINERS\.sh''',
+]
+regexes = [
+  # The dummy Anthropic-shaped key used across unit tests and docs. Real keys
+  # are sk-ant-api03-... with ~100 chars of payload and would not match this.
+  '''sk-ant-test-key-[A-Za-z0-9-]*''',
+  # The dummy HS256 signing secret shared by the auth test suites — its own
+  # value states it is a test secret.
+  '''test-secret-key-at-least-32-bytes-long-000''',
+  # generic-api-key false positives on code identifiers (an EC curve constant
+  # next to the word "key", and a HuggingFace model name after "tokenizer=").
+  '''ec\.SECP256R1''',
+  '''ProsusAI/finbert''',
+]

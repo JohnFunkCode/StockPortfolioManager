@@ -37,6 +37,27 @@ if [[ ! -f "$GCLOUD_ADC" ]]; then
   exit 1
 fi
 
+# --- BYOK dev keypair (packet 6): persistent so the pin baked into the quantui ---
+# bundle at build time matches the private key the keyproxy container loads at
+# boot. Generated ONCE into a git-ignored file; delete .keyproxy-dev-keys.txt to
+# rotate (then rerun with --build so the UI bundle picks up the new pin).
+KEYPROXY_DEV_KEYFILE=".keyproxy-dev-keys.txt"
+if [[ ! -f "$KEYPROXY_DEV_KEYFILE" ]]; then
+  PY="python3"; [[ -x .venv/bin/python ]] && PY=".venv/bin/python"
+  echo "→ Generating local BYOK dev keypair (kid kp-local-dev) → $KEYPROXY_DEV_KEYFILE"
+  "$PY" scripts/generate_keyproxy_keypair.py --kid kp-local-dev > "$KEYPROXY_DEV_KEYFILE"
+  chmod 600 "$KEYPROXY_DEV_KEYFILE"
+fi
+# SPKI pin = last field of the fingerprint line (public value, safe in build args).
+SPKI_PIN="$(awk '/^spki_fingerprint/ {print $NF}' "$KEYPROXY_DEV_KEYFILE")"
+# Flatten `kid:` line + PKCS8 private block into ONE \n-escaped line: compose-go's
+# dotenv parser expands \n inside double-quoted values back into real newlines.
+KEYPROXY_DEV_PRIVATE_KEYS="$(awk 'BEGIN{ORS="\\n"} /^kid: /{print} /-----BEGIN PRIVATE KEY-----/,/-----END PRIVATE KEY-----/{print}' "$KEYPROXY_DEV_KEYFILE")"
+if [[ -z "$SPKI_PIN" || -z "$KEYPROXY_DEV_PRIVATE_KEYS" ]]; then
+  echo "ERROR: could not parse $KEYPROXY_DEV_KEYFILE (delete it and rerun to regenerate)." >&2
+  exit 1
+fi
+
 # --- Parse the TEST DSN (postgresql://user:pass@host:port/db) — single source of truth ---
 TEST_DSN="$(grep '^QUANTCORE_TEST_DB_DSN=' .env | cut -d= -f2-)"
 if [[ -z "$TEST_DSN" ]]; then
@@ -57,6 +78,9 @@ GCLOUD_ADC=$GCLOUD_ADC
 QUANTCORE_DB_USER=$DB_USER
 QUANTCORE_DB_PASSWORD=$DB_PASS
 QUANTCORE_DB_NAME=$DB_NAME
+# BYOK (packet 6): pin baked into the quantui bundle + matching keyproxy private key.
+VITE_KEYPROXY_SPKI_PINS=$SPKI_PIN
+KEYPROXY_DEV_PRIVATE_KEYS="$KEYPROXY_DEV_PRIVATE_KEYS"
 EOF
 chmod 600 .env.docker
 

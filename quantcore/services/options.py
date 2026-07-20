@@ -181,6 +181,7 @@ class OptionsService:
         kind: str = "call",
         max_snapshot_age_minutes: int = 15,
         allow_live_fetch: bool = True,
+        include_curves: bool = False,
     ) -> dict:
         return price_vertical_spread_data(
             symbol=symbol,
@@ -191,6 +192,7 @@ class OptionsService:
             max_snapshot_age_minutes=max_snapshot_age_minutes,
             allow_live_fetch=allow_live_fetch,
             store=self._options,
+            include_curves=include_curves,
         )
 
     # ------------------------------------------------------------------

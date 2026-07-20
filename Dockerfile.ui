@@ -10,9 +10,15 @@
 # Express server (server/server.mjs) that reverse-proxies /api/* to quantcore-api,
 # injecting the bearer token server-side. No VITE_* secrets are baked at build
 # time — the app calls /api same-origin and the token is added at runtime.
+# Exception (BYOK packet 6): VITE_KEYPROXY_SPKI_PINS is a public-key
+# FINGERPRINT list, not a secret — it must be baked into the bundle so the
+# SPA refuses to seal envelopes to an unpinned key proxy. Empty (the default)
+# means no pins, and envelope encryption fails closed.
 
 # ---- builder: compile the Vite SPA ----
 FROM node:22-slim AS builder
+ARG VITE_KEYPROXY_SPKI_PINS=""
+ENV VITE_KEYPROXY_SPKI_PINS=$VITE_KEYPROXY_SPKI_PINS
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -25,7 +31,7 @@ ENV NODE_ENV=production \
     PORT=8080
 WORKDIR /app
 
-# Server deps only (express + http-proxy-middleware), installed reproducibly.
+# Server deps only (express + http-proxy-middleware + jose), installed reproducibly.
 COPY server/package.json server/package-lock.json ./server/
 RUN cd server && npm ci --omit=dev
 

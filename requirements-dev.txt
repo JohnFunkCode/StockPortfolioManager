@@ -3,3 +3,6 @@
 -r requirements-base.txt
 coverage
 diff-cover
+# `cryptography` moved into requirements-base.txt in BYOK packet 7a (ES256
+# JWT verification in api/auth.py needs it), so it arrives via the -r above.
+# The envelope-decryption code path still lives only in the keyproxy service.

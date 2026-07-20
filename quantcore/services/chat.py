@@ -107,6 +107,34 @@ ChatEvent = TextDelta | ToolStatus | Directive | ErrorEvent | Done
 
 
 # ---------------------------------------------------------------------------
+# Per-request turn context (BYOK packet 3c)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class TurnContext:
+    """Per-request identity + key material handed from the route to the
+    client factory. The envelope/scope are opaque dicts here — the keyproxy
+    owns every decision about them; ChatService never inspects or logs them."""
+
+    key_envelope: dict | None = None
+    scope: dict | None = None
+    auth_token: str | None = None
+    subject: str = "local"
+
+
+ENVELOPE_REQUIRED_MESSAGE = (
+    "Add your Anthropic API key in Settings to use the sidekick."
+)
+CHAT_NOT_CONFIGURED_MESSAGE = (
+    "The chat sidekick is not configured on this deployment."
+)
+
+
+class ChatKeyRequired(RuntimeError):
+    """No usable key for this turn — surfaced as a clean ErrorEvent, no log."""
+
+
+# ---------------------------------------------------------------------------
 # Client protocol (the provider adapter itself lives in
 # quantcore/gateways/anthropic_gateway.py per architectural-standard-v2 §5.3)
 # ---------------------------------------------------------------------------
@@ -187,7 +215,7 @@ class ChatService:
         model: str = "claude-fable-5",
         effort: str = "medium",
         max_iterations: int = 8,
-        client_factory: Callable[[], ChatClient] | None = None,
+        client_factory: Callable[[TurnContext], ChatClient] | None = None,
     ):
         self._prices = prices
         self._fundamentals = fundamentals
@@ -197,7 +225,7 @@ class ChatService:
         self._effort = effort
         self._max_iterations = max_iterations
         self._client_factory = client_factory or (
-            lambda: _default_client_factory(self._model, self._effort)
+            lambda context: _default_client_factory(self._model, self._effort)
         )
         # Tool name -> bound dispatch. Positional args mirror the service
         # signatures so tests can assert exact calls.
@@ -227,7 +255,10 @@ class ChatService:
         }
 
     def stream_chat(
-        self, messages: list[dict], interactions: list[dict] | None = None
+        self,
+        messages: list[dict],
+        interactions: list[dict] | None = None,
+        context: TurnContext | None = None,
     ) -> Iterator[ChatEvent]:
         convo = [{"role": m["role"], "content": m["content"]} for m in messages]
         if interactions:
@@ -238,7 +269,7 @@ class ChatService:
                     return
             _fold_interactions(convo, interactions)
         try:
-            client = self._client_factory()
+            client = self._client_factory(context or TurnContext())
             for _ in range(self._max_iterations):
                 final = None
                 for kind, payload in client.stream_turn(
@@ -307,6 +338,10 @@ class ChatService:
             yield ErrorEvent(
                 message=f"Tool iteration limit ({self._max_iterations}) reached."
             )
+        except ChatKeyRequired as exc:
+            # Expected keyless state, not a failure — clean event, no log noise
+            # (and nothing from the context may ever reach a log anyway).
+            yield ErrorEvent(message=str(exc))
         except Exception as exc:  # noqa: BLE001 — stream must end with a frame
             logger.exception("chat stream failed")
             yield ErrorEvent(message=str(exc))

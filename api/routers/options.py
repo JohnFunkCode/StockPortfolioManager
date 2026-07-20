@@ -104,6 +104,7 @@ def price_vertical_spread(ticker: str, body: VerticalSpreadRequest) -> QuantCore
                 kind=body.kind,
                 max_snapshot_age_minutes=body.max_snapshot_age_minutes,
                 allow_live_fetch=body.allow_live_fetch,
+                include_curves=body.include_curves,
             )
         )
     except Exception as exc:  # noqa: BLE001

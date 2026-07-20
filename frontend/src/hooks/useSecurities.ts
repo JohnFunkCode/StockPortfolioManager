@@ -210,6 +210,9 @@ export function useVerticalSpread(
         long_strike: longStrike,
         short_strike: shortStrike,
         kind,
+        // The chart draws server-computed curves (issue #79) — only the UI
+        // opts in; LLM-facing tool calls stay lean.
+        include_curves: true,
       }),
     enabled: !!ticker && !!expiration && longStrike > 0 && shortStrike > 0,
     staleTime: 60 * 1000,

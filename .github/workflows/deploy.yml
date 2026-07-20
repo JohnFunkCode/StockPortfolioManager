@@ -1,7 +1,9 @@
 # Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
 #
-# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff). Pushes to
-# main additionally build the 4 images (Cloud Build, native amd64) and roll them out to
+# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff) plus a
+# gitleaks secret scan (BYOK packet 8a — a pasted API key or PEM in a diff fails CI
+# before it ever lands; allowlist in .gitleaks.toml). Pushes to main additionally build
+# the 5 images (Cloud Build, native amd64) and roll them out to
 # the Cloud Run services + the report Job in the TEST project. Deploys carry ONLY the
 # image tag — every service's env/secrets/Cloud-SQL binding is preserved from its last
 # manual deploy (Steps 8–9), so CI never needs the DB DSN or JWT secret.
@@ -80,14 +82,15 @@ jobs:
       - name: Unit tests (under coverage)
         run: coverage run -m unittest discover -v
       # COVERAGE RATCHET: the floor below is pinned ~1pt under the measured
-      # baseline (38.7% on 2026-07-14, scope in .coveragerc). It only ever
+      # baseline (66.5% on 2026-07-16, waves 1-3 restored; scope in
+      # .coveragerc). It only ever
       # moves UP — when a PR meaningfully raises coverage, bump it in the same
       # PR. The behavioral gate is diff-cover: changed lines need >= 85%.
       - name: Coverage report + floor
         run: |
           coverage report
           coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
-          coverage report --fail-under=37
+          coverage report --fail-under=65
       - name: Diff coverage (changed lines >= 85%, PRs only)
         if: github.event_name == 'pull_request'
         run: |
@@ -147,6 +150,27 @@ jobs:
           name: frontend-coverage-html
           path: frontend/coverage/
           retention-days: 14
+      # BYOK packet 8a: the Express proxy's auth tests (IAP-assertion verify +
+      # per-user ES256 mint, packet 7b) — a separate npm package with its own
+      # lockfile, run with node's built-in test runner.
+      - name: QuantUI server tests (frontend/server)
+        working-directory: frontend/server
+        run: |
+          npm ci
+          npm test
+
+  secret-scan:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so the scan covers every commit in the push/PR range.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
 
   preflight:
     name: Check deploy credentials are configured
@@ -174,7 +198,7 @@ jobs:
 
   deploy:
     name: Build + roll out to Cloud Run (test project)
-    needs: [gate, frontend-gate, preflight]
+    needs: [gate, frontend-gate, secret-scan, preflight]
     if: needs.preflight.outputs.has_creds == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -188,7 +212,7 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v2
-      - name: Build + push the 4 images (Cloud Build, amd64)
+      - name: Build + push the 5 images (Cloud Build, amd64)
         run: |
           gcloud builds submit --project "$PROJECT_ID" \
             --config cloudbuild.yaml \
@@ -218,4 +242,17 @@ jobs:
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-ui:${GITHUB_SHA::7}"
           else
             echo "quantui service not found — first deploy is the manual --iap step; skipping image roll-out."
+          fi
+      - name: Deploy quantcore-keyproxy (image-only; SA/secrets/IAM lock preserved)
+        # The keyproxy's FIRST deploy is the manual packet-8b runbook (dedicated
+        # runtime SA, keyproxy-private-key + quantui-signing-pub secrets,
+        # --no-allow-unauthenticated with run.invoker granted only to
+        # quantcore-api's SA). That config persists across image-only redeploys.
+        # Until that one-time deploy exists, skip rather than fail.
+        run: |
+          if gcloud run services describe quantcore-keyproxy --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantcore-keyproxy --project "$PROJECT_ID" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-keyproxy:${GITHUB_SHA::7}"
+          else
+            echo "quantcore-keyproxy service not found — first deploy is the manual packet-8b runbook; skipping image roll-out."
           fi

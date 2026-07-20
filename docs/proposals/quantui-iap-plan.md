@@ -4,6 +4,13 @@
 > canonical plan and checkpoint log for deploying the QuantUI front end to Cloud Run secured by Google
 > IAP — mirroring the cadence of `phase3-gateway-plan.md` / `prod-rollout-plan.md`. One commit per
 > step, pushed, logged below.
+>
+> **Update (2026-07-18, BYOK packet 7b):** the UI→API hop described here was upgraded from the
+> static `quantui-api-token` secret to **per-user ES256 JWTs** — the Express server now verifies the
+> IAP assertion (`frontend/server/auth.mjs`) and mints a short-lived token per request, signed with
+> the `quantui-signing-key` secret. `quantui-api-token` (Step 4) remains as the **fallback rung**
+> when no signing key is configured. See `byok-key-proxy-plan.md` packets 7a/7b and CLAUDE.md's
+> "QuantUI front end" section for the current serving model.
 
 ## Checkpoint log
 

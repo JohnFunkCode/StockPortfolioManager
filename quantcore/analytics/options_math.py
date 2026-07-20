@@ -197,6 +197,87 @@ def bs_price(S: float, K: float, T: float, sigma: float, r: float,
 
 
 # ---------------------------------------------------------------------------
+# Vertical-spread payoff curves (issue #79 — the single home for the math the
+# retired frontend twin spreadMath.ts used to duplicate; fixtures ported to
+# test_options_math keep the rendered chart numerically identical)
+# ---------------------------------------------------------------------------
+
+# Risk-free rate used for the "value today" curve (was RISK_FREE in the UI).
+RISK_FREE_RATE = 0.045
+
+_SPREAD_CURVE_SAMPLES = 121
+
+
+def normalize_iv(iv: float) -> float:
+    """IVs arrive in percent form from chain snapshots; normalize to decimal."""
+    try:
+        iv = float(iv)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(iv) or iv <= 0:
+        return 0.0
+    return iv / 100.0 if iv > 3 else iv
+
+
+def _intrinsic(S: float, K: float, kind: str) -> float:
+    return max(S - K, 0.0) if kind == "call" else max(K - S, 0.0)
+
+
+def spread_payoff_at(S: float, *, kind: str, long_strike: float,
+                     short_strike: float, debit: float,
+                     long_iv: float = 0.0, short_iv: float = 0.0) -> float:
+    """P/L per share at expiration for a debit vertical (long − short − debit).
+
+    Accepts (and ignores) the leg IVs so one spread-spec kwargs dict serves
+    both the expiry and value-today functions.
+    """
+    return (
+        _intrinsic(S, float(long_strike), kind)
+        - _intrinsic(S, float(short_strike), kind)
+        - float(debit)
+    )
+
+
+def spread_value_at(S: float, *, T: float, r: float, kind: str,
+                    long_strike: float, short_strike: float,
+                    long_iv: float, short_iv: float,
+                    debit: float = 0.0) -> float:
+    """Theoretical spread VALUE (not P/L) per share today, BS-priced per leg."""
+    long_val = bs_price(S, float(long_strike), T, normalize_iv(long_iv), r, kind)
+    short_val = bs_price(S, float(short_strike), T, normalize_iv(short_iv), r, kind)
+    return long_val - short_val
+
+
+def vertical_spread_curves(*, kind: str, long_strike: float, short_strike: float,
+                           long_iv: float, short_iv: float, debit: float,
+                           spot: float, T: float, r: float = RISK_FREE_RATE,
+                           samples: int = _SPREAD_CURVE_SAMPLES) -> dict:
+    """Expiry-payoff and value-today P/L curves over a shared price grid.
+
+    Grid and math mirror the retired frontend twin exactly: domain spans both
+    strikes (± 0.9 × span, span at least 5% of the high strike) widened to
+    include spot when known; ``samples`` evenly spaced points.
+    Returns {"prices": [...], "expiry": [...], "now": [...]} per share.
+    """
+    k_low = min(float(long_strike), float(short_strike))
+    k_high = max(float(long_strike), float(short_strike))
+    span = max(k_high - k_low, k_high * 0.05)
+    spot = float(spot or 0.0)
+    lo = max(0.0, min(k_low, spot if spot > 0 else k_low) - span * 0.9)
+    hi = max(k_high, spot if spot > 0 else k_high) + span * 0.9
+
+    spec = dict(kind=kind, long_strike=long_strike, short_strike=short_strike,
+                long_iv=long_iv, short_iv=short_iv, debit=debit)
+    prices, expiry, now = [], [], []
+    for i in range(samples):
+        S = lo + (hi - lo) * i / (samples - 1)
+        prices.append(S)
+        expiry.append(spread_payoff_at(S, **spec))
+        now.append(spread_value_at(S, T=T, r=r, **spec) - float(debit))
+    return {"prices": prices, "expiry": expiry, "now": now}
+
+
+# ---------------------------------------------------------------------------
 # Full-chain side summary
 # ---------------------------------------------------------------------------
 

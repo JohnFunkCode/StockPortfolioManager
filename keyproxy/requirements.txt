@@ -1,0 +1,13 @@
+# Key Proxy service dependencies. Dockerfile.keyproxy (packet 2c) installs
+# THIS file only — the proxy container does not get requirements-base.txt.
+# The envelope private-key material and the decryption code path stay
+# confined to this service (invariant #1); since packet 7a quantcore-api
+# also carries the `cryptography` lib, but only for ES256 JWT verification.
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.0.0
+httpx>=0.27.0
+requests>=2.25.0
+PyJWT>=2.8.0
+cryptography>=42.0.0
+anthropic>=0.40.0

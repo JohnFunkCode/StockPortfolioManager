@@ -22,3 +22,12 @@ httpx>=0.27.0
 feedparser>=6.0.0
 psycopg2-binary>=2.9
 PyJWT>=2.8.0
+# BYOK packet 7a: api/auth.py verifies ES256 user tokens (decision #13), and
+# PyJWT needs `cryptography` for any asymmetric algorithm. Public-key
+# verification only — the envelope private-key material and the decryption
+# code path remain confined to the keyproxy service (invariant #1).
+cryptography>=42.0.0
+# BYOK packet 8b: the keyproxy gateway fetches a Google-signed ID token from
+# the metadata server (X-Serverless-Authorization) to pass the IAM-locked
+# keyproxy's Cloud Run front end. Inert unless KEYPROXY_ID_TOKEN_AUDIENCE is set.
+google-auth>=2.0.0

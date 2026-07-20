@@ -28,8 +28,15 @@ from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.services.fundamentals import FundamentalsService
-from quantcore.services.chat import ChatService
+from quantcore.services.chat import (
+    CHAT_NOT_CONFIGURED_MESSAGE,
+    ENVELOPE_REQUIRED_MESSAGE,
+    ChatKeyRequired,
+    ChatService,
+    TurnContext,
+)
 from quantcore.services.harvester import HarvesterService
+from quantcore.services.keyproxy import KeyProxyService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
 from quantcore.services.options_screening import OptionsScreeningService
@@ -37,6 +44,10 @@ from quantcore.services.portfolio import PortfolioService
 from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 @dataclass(frozen=True)
@@ -64,6 +75,7 @@ class Services:
     portfolio: PortfolioService
     recommendations: RecommendationsService
     chat: ChatService
+    keyproxy: KeyProxyService
 
 
 @lru_cache(maxsize=1)
@@ -108,25 +120,59 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         yfinance_gateway=yfinance_gateway,
     )
-    # CHAT_FAKE=1 swaps the Anthropic client for the deterministic scripted
-    # FakeChatClient (keyless route tests + Playwright E2E). The real client
-    # lazy-imports the anthropic SDK on first use, never at registry import.
-    if os.environ.get("CHAT_FAKE", "").strip().lower() in {"1", "true", "yes", "on"}:
+    # Chat client factory precedence (BYOK packet 3c):
+    #   CHAT_FAKE=1            → deterministic scripted FakeChatClient
+    #   KEYPROXY_URL set       → per-turn KeyProxyChatClient (BYOK; a turn
+    #                            without an envelope gets the Settings prompt)
+    #   CHAT_ENV_KEY_FALLBACK  → legacy server-side env key (default OFF)
+    #   otherwise              → keyless deployment; every turn errors cleanly
+    # Real clients lazy-import their SDK on first use, never at registry import.
+    chat_model = os.environ.get("CHAT_MODEL", "claude-fable-5")
+    chat_effort = os.environ.get("CHAT_EFFORT", "medium")
+    if _truthy(os.environ.get("CHAT_FAKE")):
         from quantcore.services.chat_fake import FakeChatClient
 
-        chat_client_factory = FakeChatClient
+        chat_client_factory = lambda context: FakeChatClient()  # noqa: E731
+    elif os.environ.get("KEYPROXY_URL"):
+
+        def chat_client_factory(context: TurnContext):
+            if not context.key_envelope:
+                raise ChatKeyRequired(ENVELOPE_REQUIRED_MESSAGE)
+            from quantcore.gateways.keyproxy_gateway import KeyProxyChatClient
+
+            return KeyProxyChatClient(
+                envelope=context.key_envelope,
+                scope=context.scope or {},
+                auth_token=context.auth_token or "",
+                model=chat_model,
+                effort=chat_effort,
+            )
+
+    elif _truthy(os.environ.get("CHAT_ENV_KEY_FALLBACK")):
+        chat_client_factory = None  # ChatService default: env-key Anthropic
     else:
-        chat_client_factory = None
+
+        def chat_client_factory(context: TurnContext):
+            raise ChatKeyRequired(CHAT_NOT_CONFIGURED_MESSAGE)
+
     chat = ChatService(
         prices=prices,
         fundamentals=fundamentals,
         sentiment=sentiment,
         options=options,
-        model=os.environ.get("CHAT_MODEL", "claude-fable-5"),
-        effort=os.environ.get("CHAT_EFFORT", "medium"),
+        model=chat_model,
+        effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
         client_factory=chat_client_factory,
     )
+    # KEYPROXY_FAKE=1 swaps a canned in-process gateway (real keypair, real
+    # envelope decrypt, no network) so /api/keyproxy routes are testable.
+    if _truthy(os.environ.get("KEYPROXY_FAKE")):
+        from quantcore.gateways.keyproxy_fake import FakeKeyProxyGateway
+
+        keyproxy = KeyProxyService(gateway=FakeKeyProxyGateway())
+    else:
+        keyproxy = KeyProxyService()
     return Services(
         yfinance_gateway=yfinance_gateway,
         polygon_gateway=polygon_gateway,
@@ -163,4 +209,5 @@ def get_services() -> Services:
             yfinance_gateway=yfinance_gateway,
         ),
         chat=chat,
+        keyproxy=keyproxy,
     )

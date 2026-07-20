@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { MemoryRouter } from 'react-router-dom';
+import { IDBFactory } from 'fake-indexeddb';
 import type { ChatStreamEvent } from '../../chat/types';
 
 // Controllable stream mock — tests drive events by hand.
@@ -13,6 +15,7 @@ const streamChatMock = vi.fn(
     onEvent: (e: ChatStreamEvent) => void,
     _signal?: unknown,
     _interactions?: unknown,
+    _keyMaterial?: unknown,
   ) =>
     new Promise<void>((resolve) => {
       currentOnEvent = onEvent;
@@ -23,16 +26,35 @@ vi.mock('../../api/chatStream', () => ({
   streamChat: (...args: Parameters<typeof streamChatMock>) => streamChatMock(...args),
 }));
 
+// Sealing is covered with real crypto in useKeyProxy.test.ts; here we only
+// assert the wiring — ChatContext seals per send and attaches the result.
+const FAKE_ENVELOPE = { v: 1, kid: 'kp-test', aad: { jti: 'fake-jti' } };
+const FAKE_SCOPE = { v: 1, provider: 'anthropic', action: 'chat.turn' };
+const sealKeyForTurnMock = vi.fn(async (_provider: string, _apiKey: string) => ({
+  envelope: FAKE_ENVELOPE,
+  scope: FAKE_SCOPE,
+}));
+vi.mock('../../hooks/useKeyProxy', () => ({
+  sealKeyForTurn: (...args: Parameters<typeof sealKeyForTurnMock>) =>
+    sealKeyForTurnMock(...args),
+  useValidateKey: () => ({ mutateAsync: vi.fn(), reset: vi.fn() }),
+}));
+
 import { ChatProvider } from '../../chat/ChatContext';
+import { KeyVaultProvider } from '../../vault/KeyVaultContext';
+import { wrapKey } from '../../vault/vaultCrypto';
+import { putRecord } from '../../vault/vaultStore';
 import ChatRail from './ChatRail';
 
 function renderRail() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
   return render(
     <QueryClientProvider client={qc}>
-      <ChatProvider>
-        <ChatRail />
-      </ChatProvider>
+      <MemoryRouter>
+        <ChatProvider>
+          <ChatRail />
+        </ChatProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -256,6 +278,108 @@ describe('ChatRail', () => {
 
       await sendPrompt('plain question');
       expect(streamChatMock.mock.calls[0][3]).toEqual([]);
+      finishStream();
+    });
+  });
+
+  describe('BYOK key gating (packet 6)', () => {
+    const PASSPHRASE = 'correct horse battery staple';
+    const API_KEY = 'sk-ant-test-key-abcd';
+
+    function renderRailWithVault() {
+      const qc = new QueryClient({
+        defaultOptions: { queries: { retry: false, enabled: false } },
+      });
+      return render(
+        <QueryClientProvider client={qc}>
+          <MemoryRouter>
+            <KeyVaultProvider>
+              <ChatProvider>
+                <ChatRail />
+              </ChatProvider>
+            </KeyVaultProvider>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    }
+
+    async function seedVault() {
+      await putRecord({
+        provider: 'anthropic',
+        ...(await wrapKey(API_KEY, PASSPHRASE)),
+        label: 'Personal key',
+        last4: 'abcd',
+        createdAt: Date.now(),
+      });
+    }
+
+    async function unlockViaDialog() {
+      await userEvent.click(screen.getByTestId('chat-unlock'));
+      const dialog = await screen.findByRole('dialog');
+      await userEvent.type(within(dialog).getByLabelText(/Vault passphrase/), PASSPHRASE);
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Unlock' }));
+    }
+
+    beforeEach(() => {
+      Object.defineProperty(globalThis, 'indexedDB', {
+        value: new IDBFactory(),
+        configurable: true,
+      });
+      sealKeyForTurnMock.mockClear();
+    });
+
+    it('absent: disables the input and shows the Settings CTA', async () => {
+      renderRailWithVault();
+      expect(await screen.findByTestId('chat-key-cta')).toHaveTextContent(
+        'Add your Anthropic API key in Settings to use the sidekick.',
+      );
+      expect(screen.getByTestId('chat-input').querySelector('textarea, input')).toBeDisabled();
+      expect(screen.getByRole('link', { name: 'Settings' })).toHaveAttribute(
+        'href',
+        '/settings',
+      );
+      expect(screen.queryByTestId('chat-key-indicator')).toBeNull();
+    });
+
+    it('locked: unlocking through the rail banner enables the input and shows the indicator', async () => {
+      await seedVault();
+      renderRailWithVault();
+      expect(await screen.findByTestId('chat-key-locked')).toBeInTheDocument();
+      const input = () => screen.getByTestId('chat-input').querySelector('textarea, input')!;
+      expect(input()).toBeDisabled();
+
+      await unlockViaDialog();
+
+      expect(await screen.findByTestId('chat-key-indicator')).toBeInTheDocument();
+      expect(screen.queryByTestId('chat-key-locked')).toBeNull();
+      await waitFor(() => expect(input()).toBeEnabled());
+    });
+
+    it('unlocked: each send seals a fresh envelope and attaches it to the stream call', async () => {
+      await seedVault();
+      renderRailWithVault();
+      await screen.findByTestId('chat-key-locked');
+      await unlockViaDialog();
+      await waitFor(() =>
+        expect(screen.getByTestId('chat-input').querySelector('textarea, input')).toBeEnabled(),
+      );
+
+      await sendPrompt('How is INTC?');
+      await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1));
+      expect(sealKeyForTurnMock).toHaveBeenCalledWith('anthropic', API_KEY);
+      expect(streamChatMock.mock.calls[0][4]).toEqual({
+        keyEnvelope: FAKE_ENVELOPE,
+        scope: FAKE_SCOPE,
+      });
+      finishStream();
+    });
+
+    it('without a vault provider the rail stays ungated and sends no envelope', async () => {
+      renderRail();
+      await sendPrompt('hello');
+      await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1));
+      expect(sealKeyForTurnMock).not.toHaveBeenCalled();
+      expect(streamChatMock.mock.calls[0][4]).toBeUndefined();
       finishStream();
     });
   });

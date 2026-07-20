@@ -4,9 +4,11 @@
  * routes; visibility is controlled by ChatContext.railOpen.
  */
 import { useEffect, useRef, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
   Box,
+  Button,
   Chip,
   CircularProgress,
   IconButton,
@@ -21,7 +23,11 @@ import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
 import BoltIcon from '@mui/icons-material/Bolt';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import FullscreenExitIcon from '@mui/icons-material/FullscreenExit';
+import LockIcon from '@mui/icons-material/Lock';
+import LockOpenIcon from '@mui/icons-material/LockOpen';
 import { useChat } from '../../chat/ChatContext';
+import { useKeyVaultOptional } from '../../vault/KeyVaultContext';
+import UnlockDialog from '../settings/UnlockDialog';
 import type { ChatMessage, Segment } from '../../chat/types';
 import DirectiveRenderer from './DirectiveRenderer';
 
@@ -109,8 +115,14 @@ export default function ChatRail() {
     removeInteraction,
   } = useChat();
   const [draft, setDraft] = useState('');
+  const [unlockOpen, setUnlockOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // BYOK gating: null vault (tests/isolation) or a vault still reading
+  // IndexedDB stays ungated — the rail behaves exactly as before.
+  const vault = useKeyVaultOptional();
+  const keyStatus = vault?.ready ? vault.status('anthropic') : null;
+  const inputBlocked = keyStatus === 'absent' || keyStatus === 'locked';
   // In fullscreen, give directive components (charts, signal panels) most of
   // the width while keeping comfortable side gutters.
   const centered = expanded ? { maxWidth: '80%', mx: 'auto', width: '100%' } : {};
@@ -124,7 +136,7 @@ export default function ChatRail() {
 
   const submit = () => {
     const text = draft.trim();
-    if (!text || isStreaming) return;
+    if (!text || isStreaming || inputBlocked) return;
     setDraft('');
     void sendMessage(text);
     // Scroll every scrollable ancestor (message list AND the page itself) to
@@ -152,6 +164,16 @@ export default function ChatRail() {
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
           Sidekick
         </Typography>
+        {keyStatus === 'unlocked' && (
+          <Tooltip title="API key unlocked — each message is sealed into a fresh single-use envelope">
+            <LockOpenIcon
+              fontSize="small"
+              color="success"
+              data-testid="chat-key-indicator"
+              sx={{ opacity: 0.7 }}
+            />
+          </Tooltip>
+        )}
         <Tooltip title={expanded ? 'Collapse to side rail' : 'Expand to full screen'}>
           <IconButton size="small" onClick={() => setExpanded(!expanded)} data-testid="chat-expand">
             {expanded ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
@@ -209,6 +231,36 @@ export default function ChatRail() {
         </Stack>
       )}
 
+      {keyStatus === 'absent' && (
+        <Alert
+          severity="info"
+          data-testid="chat-key-cta"
+          sx={{ mx: 1.5, mb: 1, ...centered }}
+          action={
+            <Button component={RouterLink} to="/settings" size="small" color="inherit">
+              Settings
+            </Button>
+          }
+        >
+          Add your Anthropic API key in Settings to use the sidekick.
+        </Alert>
+      )}
+      {keyStatus === 'locked' && (
+        <Alert
+          severity="info"
+          icon={<LockIcon fontSize="inherit" />}
+          data-testid="chat-key-locked"
+          sx={{ mx: 1.5, mb: 1, ...centered }}
+          action={
+            <Button size="small" color="inherit" data-testid="chat-unlock" onClick={() => setUnlockOpen(true)}>
+              Unlock
+            </Button>
+          }
+        >
+          Your API key vault is locked. Unlock it to chat.
+        </Alert>
+      )}
+
       <Stack direction="row" spacing={1} sx={{ p: 1.5, pt: 0.5, ...centered }}>
         <TextField
           data-testid="chat-input"
@@ -218,7 +270,7 @@ export default function ChatRail() {
           maxRows={4}
           placeholder={isStreaming ? 'Thinking…' : 'Ask the sidekick…'}
           value={draft}
-          disabled={isStreaming}
+          disabled={isStreaming || inputBlocked}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -230,12 +282,13 @@ export default function ChatRail() {
         <IconButton
           color="primary"
           onClick={submit}
-          disabled={isStreaming || !draft.trim()}
+          disabled={isStreaming || inputBlocked || !draft.trim()}
           data-testid="chat-send"
         >
           <SendIcon />
         </IconButton>
       </Stack>
+      {vault && <UnlockDialog open={unlockOpen} onClose={() => setUnlockOpen(false)} />}
     </Box>
   );
 }

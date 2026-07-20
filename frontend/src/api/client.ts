@@ -26,7 +26,11 @@ export async function apiRequest<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
-    throw new ApiError(error.message || error.error || response.statusText, response.status);
+    // `detail` is FastAPI's error field; `message`/`error` are legacy shapes.
+    throw new ApiError(
+      error.message || error.error || error.detail || response.statusText,
+      response.status,
+    );
   }
 
   return response.json();

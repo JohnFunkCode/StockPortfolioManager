@@ -9,16 +9,30 @@ service and ships the dict verbatim (or the plain ``{"error": str}`` 500), and
 the MCP wrapper translates a tool call into a single ``rest_client.get``.
 No network, no DB — the service registry and REST client are patched.
 """
-import unittest
-from unittest.mock import Mock, patch
+import os
+from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+# Swap in the test DSN BEFORE quantcore.db is imported transitively (DB_DSN
+# freezes at import time). This module sorts ahead of the DB-backed suites in
+# unittest discovery, so freezing the prod DSN here would trip db_safety's
+# guard in every one of them (local runs only — CI has no .env).
+_env_file = Path(__file__).parent / ".env"
+if _env_file.exists():
+    for _line in _env_file.read_text().splitlines():
+        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
+            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
+            break
 
-from api.routers import options as options_router
-from api.routers import prices as prices_router
-from api.routers import recommendations as recommendations_router
-from fastMCPTest import stock_price_server
+import unittest  # noqa: E402
+from unittest.mock import Mock, patch  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+
+from api.routers import options as options_router  # noqa: E402
+from api.routers import prices as prices_router  # noqa: E402
+from api.routers import recommendations as recommendations_router  # noqa: E402
+from fastMCPTest import stock_price_server  # noqa: E402
 
 
 def make_client():

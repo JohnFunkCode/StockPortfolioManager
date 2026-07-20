@@ -100,6 +100,16 @@ export function useRiskSignals(ticker: string, enabled = true) {
   });
 }
 
+export function useSupportConfluence(ticker: string, enabled = true) {
+  return useQuery({
+    queryKey: ['support-confluence', ticker],
+    queryFn: () => securitiesApi.getSupportConfluence(ticker),
+    enabled: !!ticker && enabled,
+    // The endpoint fans out to ~14 sub-analyses server-side — cache generously.
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
 export function useNews(ticker: string, maxArticles = 10) {
   return useQuery({
     queryKey: ['news', ticker, maxArticles],

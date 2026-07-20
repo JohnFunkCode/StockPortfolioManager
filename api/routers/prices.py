@@ -127,6 +127,22 @@ def get_atr_bands(
         return route_error_plain(str(exc), 500)
 
 
+@router.get("/{ticker}/volume-profile")
+def get_volume_profile(
+    ticker: str,
+    days: int = 365,
+    interval: str = "1d",
+    bins: int = 50,
+    value_area_pct: float = 0.70,
+) -> QuantCoreJSONResponse:
+    try:
+        return QuantCoreJSONResponse(
+            services().prices.get_volume_profile(ticker, days, interval, bins, value_area_pct)
+        )
+    except Exception as exc:  # noqa: BLE001
+        return route_error_plain(str(exc), 500)
+
+
 # /anchored-vwap is declared before /vwap so the literal sub-path is never shadowed.
 @router.get("/{ticker}/anchored-vwap")
 def get_anchored_vwap(

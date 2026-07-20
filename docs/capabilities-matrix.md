@@ -2,16 +2,16 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-07-19
-**MCP Tools:** 49 | **REST Endpoints:** 87 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 (+ Sidekick chat rail) | **CLI Tools:** 1 | **Standalone Scripts:** ~10
+**Last Updated:** 2026-07-20
+**MCP Tools:** 51 unique (53 registrations across 5 servers — 2 tools are dual-registered) | **REST Endpoints:** 91 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 (+ Sidekick chat rail) | **CLI Tools:** 1 | **Standalone Scripts:** ~10
 
-> **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18** (browser key vault + Settings page + `keyproxy` credential-isolation service; per-user ES256 JWTs replaced the static UI→API token). Phase 3 Step 1 closed the residual MCP-tool→REST-endpoint gaps, so **every MCP tool now has a REST equivalent** — the surface-parity problem this document originally tracked has moved entirely to the WebUI layer. See the section immediately below.
+> **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18** (browser key vault + Settings page + `keyproxy` credential-isolation service; per-user ES256 JWTs replaced the static UI→API token). Phase 3 Step 1 closed the residual MCP-tool→REST-endpoint gaps, so **every MCP tool now has a REST equivalent**. Issue #93 ("Recover Phases 3-7: Support-Level Analysis Tools", PR #108, merged 2026-07-20) added 4 more analysis tools (volume profile, support confluence, OI-change analysis, signed GEX profile) — all REST-exposed, one (`get_support_confluence`) is also WebUI-surfaced. The surface-parity problem this document originally tracked has moved almost entirely to the WebUI layer. See the section immediately below.
 
 ---
 
 ## ⭐ Built But Not Yet Surfaced in the WebUI
 
-**This is the headline finding of the 2026-07-19 refresh.** The REST tier now exposes 87 operations, but the React frontend calls only ~35 of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
+**Headline finding, refreshed 2026-07-20.** The REST tier exposes 91 operations, but the React frontend calls only a subset of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
 
 ### Tier 1 — High-value analysis synthesis (flagship tools, invisible to UI users)
 
@@ -31,6 +31,8 @@ This document is a comprehensive inventory of every user-facing capability in th
 | **Exact contract lookup + vertical-spread builder** | `GET .../options/contracts`, `POST .../options/vertical-spread` | A spread-builder form. Note: spread pricing *is* reachable via the Sidekick chat (`spread_payoff` card) but there is no direct UI form |
 | **Full options chain browser** (all strikes × all expirations) | `GET .../options/chain`, `GET .../options/full-chain` | The Options Chain tab today renders only the latest snapshot's nearest expiries |
 | **Gamma wall history** (daily gamma-wall strike + MM hedge-bias trend) | `GET .../options/gamma-wall-history` | Time-series chart on Options Analytics tab |
+| **Open-interest change analysis** (2×2 OI/price classification, put-OI support / call-wall resistance) (issue #93) | `GET .../options/oi-change` | New card on Options Analytics tab |
+| **Signed GEX profile** (dealer gamma ladder, zero-gamma level, vanna/charm; daily summary persisted to `gex_history`) (issue #93) | `GET .../options/gex-profile` | Gamma-ladder chart on Options Analytics tab (pairs with gamma-wall-history) |
 | **Standalone unusual-calls / delta-adjusted-OI detail** | `GET .../options/unusual-calls`, `.../options/delta-adjusted-oi` | Partially surfaced (aggregated) via the Signals tab's options-flow section; the detail views (per-contract sweeps, full DAOI ladder) are not |
 
 ### Tier 3 — Chart overlays, screeners, and workflow
@@ -39,11 +41,14 @@ This document is a comprehensive inventory of every user-facing capability in th
 |---|---|---|
 | **ATR bands + chandelier trailing stop** (issue #93) | `GET /api/securities/{ticker}/atr-bands` | Overlay on the Price & MAs chart |
 | **Anchored VWAP** (auto-anchors: earnings, 52w H/L, gaps, swings) (issue #93) | `GET /api/securities/{ticker}/anchored-vwap` | Overlay on the Price & MAs chart |
+| **Volume profile** (POC, value area, HVN/LVN nodes) (issue #93) | `GET /api/securities/{ticker}/volume-profile` | Overlay/histogram on the Price & MAs chart |
 | **Cross-symbol fundamentals screeners** — top-N by score, upcoming earnings (N days), sector breakdown, 90-day score-change movers, batch scoring | `GET /api/securities/fundamentals/top`, `/upcoming-earnings`, `/sector-breakdown`, `/score-changes`, `POST /fundamentals/scores-batch` | Securities-page screener presets or a dashboard widget (e.g. "earnings this week") |
 | **30-day sentiment trend** (per-day breakdown, net score) | `GET /api/securities/{ticker}/news/trend` | Sparkline/chart next to the existing sentiment badge |
 | **On-demand news collection** (fetch + FinBERT + persist) | `POST /api/securities/{ticker}/news/collect` | A "refresh news" button (mirrors the existing options-snapshot refresh button) |
 | **Portfolio CSV import** (full-sync per-owner) | `POST /api/portfolio/import` | Upload dialog on Dashboard/Securities — today it's the `scripts/import_portfolio.py` CLI only |
 | **VWAP history** (multi-day series) | `GET /api/securities/{ticker}/vwap/history` | Chart overlay |
+
+**Already surfaced from issue #93:** `get_support_confluence` (14-source composite support/resistance zones) shipped **with** a WebUI card (`SupportConfluenceCard.tsx` on the Technical Analysis tab) in the same PR — the only issue #93 tool that isn't in the backlog above.
 
 **Sidekick partially mitigates Tier 1:** the chat rail's tool vocabulary (`quantcore/services/chat_tools.py`) includes `get_fundamental_score`, `get_technical_signals`, `get_news_sentiment`, and `price_vertical_spread`, so a UI user *can* ask Sidekick for these. But chat is discoverable-on-demand, not glanceable — the dashboard/detail-page panels above remain the durable fix.
 
@@ -66,16 +71,16 @@ This document is a comprehensive inventory of every user-facing capability in th
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (5 servers) | 49 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
-| REST Endpoints | 87 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| MCP Tools (5 servers) | 51 unique (53 registrations) | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist` |
+| REST Endpoints | 91 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + chat rail | Dashboard, Securities, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals), Plans, Plan Detail, Symbols, Settings (BYOK keys) |
 | Sidekick chat tools | 7 + 4 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`; renders `signals`/`live_price`/`price_chart`/`spread_payoff` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server). `collect_options.py` has been **deleted** |
 | Standalone Scripts | ~10 | `main.py` (daily report Job), watchlist fundamentals report, INTC/WMT spread monitors, `import_portfolio.py`, migration/ops scripts |
 
-**MCP tool count by server:** stock-price 25 · company-fundamentals 12 · options-analysis 5 · news-sentiment 4 · market-analysis 3. `get_option_contracts` and `price_vertical_spread` appear on both stock-price and options-analysis (shared `quantcore/services/options_contracts.py`).
+**MCP tool count by server (verified against source, 2026-07-20):** stock-price 29 · company-fundamentals 12 · options-analysis 5 · news-sentiment 4 · market-analysis 3 = 53 registrations, 51 unique tools. `get_option_contracts` and `price_vertical_spread` appear on both stock-price and options-analysis (shared `quantcore/services/options_contracts.py`), accounting for the 2-tool overlap.
 
-**New since the 2026-06-12 code scan:** the FastAPI tier grew from 50 → 87 operations (Phase 3 Step 1 added 32 thin routes mirroring every remaining MCP-only tool, plus fundamentals batch/screener routes); `POST /api/chat` + `GET/POST /api/keyproxy/*` (BYOK); `POST /api/portfolio/import` (DB-backed multi-owner positions); the Sidekick chat rail and Settings page in the UI; `collect_options.py` and the legacy experiments deleted.
+**New since the 2026-07-19 refresh (issue #93 / PR #108, merged 2026-07-20):** 4 new stock-price MCP tools + REST endpoints — `get_volume_profile`, `get_support_confluence`, `get_oi_change_analysis`, `get_gex_profile` (stock-price grew 25→29); new `gex_history` DB table (daily signed-GEX summary, upserted per call); new frontend `SupportConfluenceCard.tsx` on the Technical Analysis tab (the one issue #93 capability that shipped with WebUI surfacing).
 
 ---
 
@@ -102,6 +107,8 @@ Capabilities are organized by domain. **Bold ⚠ rows** are built-but-not-in-UI 
 | Historical drawdown (worst 1d/5d, trailing stop %) | `get_historical_drawdown` | `GET /{ticker}/drawdown`, `/signals/risk` | Signals tab | — |
 | **⚠ ATR bands + chandelier trailing stop** (issue #93) | `get_atr_bands` | `GET /{ticker}/atr-bands` | **—** | — |
 | **⚠ Anchored VWAP (auto-anchors)** (issue #93) | `get_anchored_vwap` | `GET /{ticker}/anchored-vwap` | **—** | — |
+| **⚠ Volume profile (POC, value area, HVN/LVN nodes)** (issue #93) | `get_volume_profile` | `GET /{ticker}/volume-profile` | **—** | — |
+| Support confluence (14-source composite: clustered, method-weighted support/resistance zones) (issue #93) | `get_support_confluence` | `GET /{ticker}/support-confluence` | **Technical Analysis tab** (`SupportConfluenceCard`) | — |
 | **⚠ Composite trade recommendation (19 signals)** | `get_trade_recommendation` | `GET /{ticker}/recommendation?capital=` | **—** | — |
 | **⚠ Stop-loss synthesis (7 sub-analyses)** | `get_stop_loss_analysis` | `GET /{ticker}/stop-loss` | **—** | — |
 | Technical screener (RSI/MA/BB/MACD/sentiment filters) | — | `GET /api/securities/screen` | Securities page → screener presets | — |
@@ -121,6 +128,8 @@ Capabilities are organized by domain. **Bold ⚠ rows** are built-but-not-in-UI 
 | Unusual call sweep detection | `get_unusual_calls` | `GET .../options/unusual-calls`, `/signals/options-flow` | Signals tab (aggregated) | — |
 | Delta-Adjusted OI (DAOI, gamma wall, delta flip) | `get_delta_adjusted_oi` | `GET .../options/delta-adjusted-oi`, `/signals/options-flow` | Signals tab (aggregated) | — |
 | **⚠ Gamma wall history (daily MM hedge-bias trend)** | `get_gamma_wall_history` | `GET .../options/gamma-wall-history` | **—** | — |
+| **⚠ Open-interest change analysis** (2×2 OI/price classification, put-OI support / call-wall resistance) (issue #93) | `get_oi_change_analysis` | `GET .../options/oi-change` | **—** | — |
+| **⚠ Signed GEX profile** (dealer gamma ladder, zero-gamma level, vanna/charm; persisted to `gex_history`) (issue #93) | `get_gex_profile` | `GET .../options/gex-profile` | **—** | — |
 | IV Rank + IV Percentile (365-day) | — | `GET .../options/iv-rank` | Options Analytics tab | — |
 | Max pain + expected move per expiration | — | `GET .../options/analytics` | Options Analytics tab (MaxPainChart, IVTermStructureChart) | — |
 | P/C ratio history (daily aggregated) | — | `GET .../options/history` | Options Performance tab (PCRatioChart) | — |
@@ -255,25 +264,25 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | `scripts/generate_keyproxy_keypair.py` | BYOK envelope keypair generation | Ops (packet-8b runbook) |
 | `html_summary.py`, `simple_text_summary.py` | Legacy report variants (old CSV format) | Superseded — candidates for deletion |
 
-**Deleted since the last revision:** `collect_options.py` (was broken — imports referenced classes that no longer existed) and the six superseded analytics experiments (`RevenueGrowthExperiment*.py`, `EarningsAccelerationExperiment.py`, `CompositScoreExperiment.py`, `MaxDrawDownAnalyzer.py`, `YahooNewsReader/RSSReaderExperiment.py`, `HarvesterPlanStore.py`) — all functionality lives in `quantcore/` services now.
+**Deleted:** `collect_options.py` (was broken — imports referenced classes that no longer existed) and the six superseded analytics experiments (`RevenueGrowthExperiment*.py`, `EarningsAccelerationExperiment.py`, `CompositScoreExperiment.py`, `MaxDrawDownAnalyzer.py`, `YahooNewsReader/RSSReaderExperiment.py`, `HarvesterPlanStore.py`) — all functionality lives in `quantcore/` services now.
 
 ---
 
 ## Database Structure
 
-One unified **QuantCore** PostgreSQL database (16 tables, `psycopg2` via `QUANTCORE_DB_DSN`; schema auto-created by `quantcore/db.init_schema()` from every entry point). Local dev and Cloud SQL (via Auth Proxy) are interchangeable. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
+One unified **QuantCore** PostgreSQL database (17 tables, `psycopg2` via `QUANTCORE_DB_DSN`; schema auto-created by `quantcore/db.init_schema()` from every entry point). Local dev and Cloud SQL (via Auth Proxy) are interchangeable. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
 
 | Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|
 | **Price Data** | `ohlcv`, `fetch_log` | `OhlcvRepository` | Shared OHLCV bar cache (daily + intraday intervals); yfinance fetch tracking |
-| **Harvester + Positions** | `symbols`, `plan_templates`, `positions`, `plan_instances`, `plan_rungs`, `alerts` | `HarvesterPlanDB`, `PortfolioRepository` | Harvest plans/rungs/alerts; **`positions` is now the live multi-owner position registry** (resolved: was dead schema pre-Phase-1) |
-| **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `gamma_wall_history`, `options_positions` | `OptionsStore`, `OptionsPositionStore` | Chain snapshots (ATM + full), gamma wall history, active options positions |
+| **Harvester + Positions** | `symbols`, `plan_templates`, `positions`, `plan_instances`, `plan_rungs`, `alerts` | `HarvesterPlanDB`, `PortfolioRepository` | Harvest plans/rungs/alerts; `positions` is the live multi-owner position registry |
+| **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `gamma_wall_history`, `gex_history`, `options_positions` | `OptionsStore`/`OptionsRepository`, `OptionsPositionStore` | Chain snapshots (ATM + full), gamma wall history, daily signed-GEX regime history, active options positions |
 | **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `NewsStore`, `SentimentStore` | FinBERT-scored articles; aggregated sentiment summaries |
 | **Fundamentals** | `fundamentals_history` | `FundamentalsRepository` | Append-only TTL cache (earnings_calendar, fundamental_score, revenue_growth, earnings_acceleration payloads) |
 
 ### Remaining Database Gaps
 
-1. **`options_positions` has no REST/WebUI/MCP surface.** Only the standalone INTC/WMT monitors and direct `OptionsPositionStore` use touch it. Either add REST CRUD + a UI positions panel, or fold it into the monitors' pickled state and drop the table.
+1. **`options_positions` has no REST/WebUI/MCP surface.** Only the standalone INTC/WMT monitors and direct `OptionsPositionStore` use it. Either add REST CRUD + a UI positions panel, or fold it into the monitors' pickled state and drop the table.
 2. **Microstructure signals are never persisted.** `get_short_interest` / `get_dark_pool` / `get_bid_ask_spread` compute in real time; no historical trend is possible. Add a snapshot table if trend analysis is wanted.
 3. **News article data partially duplicated.** `sentiment_snapshots` re-embeds aggregate data derivable from `news_articles`; no FK cross-reference. Low priority.
 
@@ -282,20 +291,21 @@ One unified **QuantCore** PostgreSQL database (16 tables, `psycopg2` via `QUANTC
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (87 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (91 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, options analytics (IV rank, max pain, P/C history), technical signals, portfolio/watchlist CRUD, and the sentiment dashboard** are all fully surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, gated digest-promotion to prod, IAP-gated UI, per-user JWTs, daily report Job.
 
-### The One Big Gap: WebUI Coverage (~35 of 87 REST operations wired)
+### The One Big Gap: WebUI Coverage
 The React frontend has kept pace with options analytics and harvest workflows but not with the analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation + stop-loss panels** — the two most powerful synthesis endpoints, invisible in the UI.
 2. **A Fundamentals tab** — the entire 12-tool fundamentals domain surfaces only an earnings date.
 3. **Microstructure section on the Signals tab** — 3 ready endpoints, zero UI.
 4. **Options screener page** — covered-call/put screening exists as CLI/MCP/REST but not UI.
-5. **Chart overlays** — ATR bands, anchored VWAP, relative strength; all one GET away.
-6. **Workflow buttons** — news collect, portfolio CSV import.
+5. **Chart overlays** — ATR bands, anchored VWAP, volume profile, relative strength; all one GET away.
+6. **Options Analytics additions** — OI-change analysis, signed GEX profile (both new from issue #93).
+7. **Workflow buttons** — news collect, portfolio CSV import.
 
 ### Recommended Quick Wins
 1. Add a **Recommendation card** to Security Detail (`GET .../recommendation` + `.../stop-loss`) — highest value-to-effort ratio in the codebase.
@@ -306,6 +316,6 @@ The React frontend has kept pace with options analytics and harvest workflows bu
 
 ---
 
-**Document Version:** 2.0
-**Last Updated:** 2026-07-19 (full code-scan refresh: REST 50→87 ops, Sidekick/BYOK surfaces added, UI-gap analysis promoted to headline section, deleted scripts/experiments purged)
+**Document Version:** 2.1
+**Last Updated:** 2026-07-20 (merge-conflict reconciliation of the 2026-07-19 UI-gap-analysis refresh with the 2026-07-20 issue #93 support-tools recovery [PR #108]; MCP tool/REST endpoint counts re-verified against source rather than either prior document — 51 unique MCP tools / 53 registrations, 91 REST operations)
 **Maintained By:** John Funk

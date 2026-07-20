@@ -32,6 +32,7 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio } from '../../hooks/useSecurities';
 import SignalsTab from './SignalsTab';
+import SupportConfluenceCard from './SupportConfluenceCard';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
 import MACDChart from './charts/MACDChart';
@@ -833,6 +834,9 @@ export default function SecurityDetailPage() {
               </Stack>
             </Paper>
           )}
+
+          {/* Support / resistance confluence zones */}
+          <SupportConfluenceCard ticker={ticker} />
         </Stack>
       )}
 

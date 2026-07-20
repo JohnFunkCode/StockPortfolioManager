@@ -44,7 +44,7 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 ### Report Generation (`main.py`)
 
-`main.py` is the entry point. It loads portfolio from CSV + watchlist from YAML, fetches prices/metrics, generates matplotlib charts (embedded as base64 in HTML via Jinja2 template), optionally uploads to S3, and triggers notifications.
+`main.py` is the entry point. It loads portfolio from CSV + watchlist from YAML, fetches prices/metrics, generates matplotlib charts (embedded as base64 in HTML via Jinja2 template), optionally uploads to S3, and triggers notifications. It also captures a full options chain snapshot per portfolio/watchlist symbol (in-process `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so open-interest history accumulates daily for `get_oi_change_analysis`.
 
 ### Notifications (`notifier.py`)
 
@@ -64,8 +64,8 @@ The Harvester integrates with the notification system: when `main.py` runs, it c
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 16 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history.
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 17 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history.
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -77,7 +77,7 @@ Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural
 
 - **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`.
 - **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`.
-- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `options_math.py` (Black–Scholes delta/gamma, max-pain, expected-move — single home, deduped).
+- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped).
 - **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `RecommendationsService` (composes the other services).
 - **`quantcore/services/registry.py`** — the composition root: a lazy `@lru_cache get_services()` returning a frozen `Services` dataclass with all dependencies constructor-injected. Adapters call `get_services().<service>.<method>(...)`; service modules never import each other or the registry (acyclic).
 
@@ -94,6 +94,10 @@ code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/qu
 
 - **Test:** `https://quantui-uikpdb55ea-uc.a.run.app` (`quantcore-test-20260606`)
 - **Prod:** `https://quantui-swgixldxzq-uc.a.run.app` (`quantcore-prod-20260606`)
+
+The security detail page's Technical Analysis tab includes the **Support Confluence card**
+(`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the
+`GET /api/securities/{ticker}/support-confluence` composite support/resistance zones.
 
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
@@ -184,7 +188,7 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — Watchlist entries with `name`, `symbol`, `currency`, and optional `tags` list.
 
-**Database Initialization:** The unified PostgreSQL database and its 16-table schema are automatically created on startup by any application entry point (`main.py`, REST API, or MCP servers) — `init_schema()` runs before any database operations. The database itself (and its `quantcore` user) must already exist; point `QUANTCORE_DB_DSN` at any reachable PostgreSQL instance — local, or a managed service such as Cloud SQL accessed through the Cloud SQL Auth Proxy (which exposes the remote instance as a local TCP host:port, so no code changes are needed to switch targets).
+**Database Initialization:** The unified PostgreSQL database and its 17-table schema are automatically created on startup by any application entry point (`main.py`, REST API, or MCP servers) — `init_schema()` runs before any database operations. The database itself (and its `quantcore` user) must already exist; point `QUANTCORE_DB_DSN` at any reachable PostgreSQL instance — local, or a managed service such as Cloud SQL accessed through the Cloud SQL Auth Proxy (which exposes the remote instance as a local TCP host:port, so no code changes are needed to switch targets).
 
 ## Key Dependencies
 

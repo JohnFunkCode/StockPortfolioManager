@@ -271,6 +271,21 @@ CREATE TABLE IF NOT EXISTS gamma_wall_history (
 
 CREATE INDEX IF NOT EXISTS idx_gamma_wall_symbol_date ON gamma_wall_history(symbol, date_only DESC);
 
+CREATE TABLE IF NOT EXISTS gex_history (
+    id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    date_only TEXT NOT NULL,
+    captured_at TEXT NOT NULL,
+    price REAL,
+    net_gex REAL,
+    zero_gamma_level REAL,
+    regime TEXT,
+    payload TEXT,
+    UNIQUE(symbol, date_only)
+);
+
+CREATE INDEX IF NOT EXISTS idx_gex_history_symbol_date ON gex_history(symbol, date_only DESC);
+
 CREATE TABLE IF NOT EXISTS options_positions (
     position_id SERIAL PRIMARY KEY,
     symbol TEXT NOT NULL,

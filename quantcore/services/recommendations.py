@@ -17,6 +17,11 @@ contract) from ``fastMCPTest/stock_price_server.py``:
 
 The sector-ETF map and lookup helper move here with them, since RS is their
 only consumer.
+
+``get_support_confluence`` (issue #93 Phase 6) is native to this layer: it
+fans out to every support-level technique across Prices and Options, clusters
+the resulting price levels into zones, and scores each zone by how many
+*independent* methods agree on it.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ import math
 
 import pandas as pd
 
+from quantcore.analytics.indicators import find_swings
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.services.fundamentals import FundamentalsService
@@ -46,6 +52,28 @@ _SECTOR_ETF_MAP: dict[str, str] = {
     "Basic Materials":        "XLB",
     "Real Estate":            "XLRE",
     "Utilities":              "XLU",
+}
+
+# Confluence method weights (issue #93 Phase 6). Ordering follows the
+# professional support-level hierarchy: dealer positioning and volume
+# acceptance carry the most information, derived/geometric levels the least.
+_CONFLUENCE_WEIGHTS: dict[str, float] = {
+    "gamma_wall":      1.0,   # BS gamma × OI peak (delta-adjusted OI)
+    "gex_profile":     1.0,   # signed GEX walls + zero-gamma flip
+    "volume_profile":  0.9,   # POC / value area / HVNs
+    "anchored_vwap":   0.9,   # institutional cost-basis AVWAPs
+    "oi_change":       0.8,   # put-OI support / call-OI resistance builds
+    "expected_move":   0.7,   # spot ± options expected move
+    "rolling_vwap":    0.7,   # rolling 20-bar VWAP
+    "sma_200":         0.7,
+    "sma_100":         0.6,
+    "sma_50":          0.6,
+    "prev_week_hl":    0.6,   # prior completed week high/low
+    "prev_month_hl":   0.6,   # prior completed month high/low
+    "prev_day_hl":     0.5,   # prior session high/low
+    "bollinger_sma20": 0.5,   # 20-day SMA + Bollinger bands
+    "atr_bands":       0.5,   # ATR bands + chandelier stop
+    "fibonacci":       0.3,   # retracements of the last major swing
 }
 
 
@@ -1104,4 +1132,266 @@ class RecommendationsService:
             "signals_collected": signals_collected,
             "options_context":   options_context,
             "news_sentiment":    news_sentiment,
+        }
+
+    # ------------------------------------------------------------------
+    # Support confluence
+    # ------------------------------------------------------------------
+    def get_support_confluence(
+        self,
+        symbol: str,
+        tolerance_pct: float = 1.0,
+        max_expirations: int = 4,
+        max_zones: int = 5,
+    ) -> dict:
+        """Composite support/resistance map across every level-finding technique.
+
+        Collects candidate price levels from 14 sources (dealer positioning,
+        volume acceptance, anchored/rolling VWAPs, OI walls, expected move,
+        moving averages, prior-period extremes, Bollinger, ATR bands,
+        Fibonacci), clusters levels lying within ``tolerance_pct`` of each
+        other into zones, and scores each zone by the summed weight of the
+        *independent* methods agreeing on it — confluence across methods
+        dominates repetition within one method.
+        """
+        sym = symbol.upper()
+
+        try:
+            price_data = self._prices.get_stock_price(sym)
+            price = float(price_data["price"])
+        except Exception as exc:
+            return {"symbol": sym, "error": f"Could not fetch price: {exc}"}
+
+        levels: list[dict] = []
+        methods_available: list[str] = []
+        methods_failed: list[str] = []
+
+        def _add(method: str, level, detail: str) -> None:
+            try:
+                lvl = float(level)
+            except (TypeError, ValueError):
+                return
+            if lvl <= 0 or math.isnan(lvl):
+                return
+            levels.append({
+                "level":  round(lvl, 2),
+                "method": method,
+                "weight": _CONFLUENCE_WEIGHTS[method],
+                "detail": detail,
+            })
+
+        # ── Level sources (each isolated: one failure never kills the call) ──
+        def _src_gamma_wall():
+            daoi = self._options.get_delta_adjusted_oi(
+                sym, max_expirations=max_expirations
+            )
+            _add("gamma_wall", daoi.get("gamma_wall_strike"),
+                 "gamma wall (BS gamma × OI peak)")
+
+        def _src_gex_profile():
+            gex = self._options.get_gex_profile(sym, max_expirations=max_expirations)
+            _add("gex_profile", gex.get("top_positive_gex_strike"),
+                 "call wall (top +GEX strike)")
+            _add("gex_profile", gex.get("top_negative_gex_strike"),
+                 "put support (top -GEX strike)")
+            _add("gex_profile", gex.get("zero_gamma_level"), "zero-gamma flip")
+
+        def _src_volume_profile():
+            vp = self._prices.get_volume_profile(sym)
+            _add("volume_profile", vp.get("poc"), "point of control")
+            va = vp.get("value_area") or {}
+            _add("volume_profile", va.get("low"), "value area low")
+            _add("volume_profile", va.get("high"), "value area high")
+            for hvn in (vp.get("hvns") or [])[:4]:
+                _add("volume_profile", hvn.get("price"), "high-volume node")
+
+        def _src_anchored_vwap():
+            av = self._prices.get_anchored_vwap(sym)
+            for a in av.get("anchors") or []:
+                _add("anchored_vwap", a.get("avwap"),
+                     f"AVWAP from {a.get('label') or a.get('type')}")
+
+        def _src_oi_change():
+            oi = self._options.get_oi_change_analysis(sym)
+            for s in oi.get("put_oi_support_strikes") or []:
+                _add("oi_change", s.get("strike"),
+                     f"put-OI build support (+{s.get('oi_build')} OI)")
+            for s in oi.get("call_oi_resistance_strikes") or []:
+                _add("oi_change", s.get("strike"),
+                     f"call-OI build resistance (+{s.get('oi_build')} OI)")
+
+        def _src_expected_move():
+            oa = self._options.get_options_analytics(sym)
+            analytics = oa.get("analytics") or []
+            if analytics:
+                first = analytics[0]
+                exp = first.get("expiration")
+                _add("expected_move", first.get("lower_bound"),
+                     f"spot − expected move ({exp})")
+                _add("expected_move", first.get("upper_bound"),
+                     f"spot + expected move ({exp})")
+
+        def _src_rolling_vwap():
+            _add("rolling_vwap", self._prices.get_vwap(sym).get("vwap"),
+                 "rolling 20-bar VWAP")
+
+        def _src_moving_averages():
+            rows = self._prices.get_technicals_table(sym).get("indicators") or []
+            if rows:
+                last = rows[-1]
+                _add("sma_200", last.get("ma200"), "200-day SMA")
+                _add("sma_100", last.get("ma100"), "100-day SMA")
+                _add("sma_50", last.get("ma50"), "50-day SMA")
+
+        def _prev_bar_hl(method: str, interval: str, days: int, label: str):
+            df = self._prices.get_history(sym, interval=interval, days=days)
+            if len(df) >= 2:
+                bar = df.iloc[-2]
+                _add(method, bar["High"], f"prior {label} high")
+                _add(method, bar["Low"], f"prior {label} low")
+
+        def _src_prev_day_hl():
+            _prev_bar_hl("prev_day_hl", "1d", 10, "day")
+
+        def _src_prev_week_hl():
+            _prev_bar_hl("prev_week_hl", "1wk", 30, "week")
+
+        def _src_prev_month_hl():
+            _prev_bar_hl("prev_month_hl", "1mo", 95, "month")
+
+        def _src_bollinger():
+            bb = price_data.get("bollinger_bands") or {}
+            _add("bollinger_sma20", bb.get("middle"), "20-day SMA (BB middle)")
+            _add("bollinger_sma20", bb.get("lower"), "lower Bollinger band")
+            _add("bollinger_sma20", bb.get("upper"), "upper Bollinger band")
+
+        def _src_atr_bands():
+            atr = self._prices.get_atr_bands(sym)
+            _add("atr_bands", atr.get("lower_band"), "ATR lower band")
+            _add("atr_bands", atr.get("upper_band"), "ATR upper band")
+            _add("atr_bands", atr.get("chandelier_stop"), "chandelier trailing stop")
+
+        def _src_fibonacci():
+            df = self._prices.get_history(sym, interval="1d", days=365)
+            swings = find_swings(df["High"], df["Low"], swing_bars=5)
+            if not swings["highs"] or not swings["lows"]:
+                return
+            hi_idx, lo_idx = swings["highs"][-1], swings["lows"][-1]
+            hi = float(df["High"].iloc[hi_idx])
+            lo = float(df["Low"].iloc[lo_idx])
+            if hi <= lo:
+                return
+            span = hi - lo
+            leg = f"{round(lo, 2)}→{round(hi, 2)}"
+            for ratio in (0.382, 0.5, 0.618, 0.786):
+                if hi_idx >= lo_idx:
+                    # Last major swing was up: retracements measure down from the high.
+                    _add("fibonacci", hi - ratio * span, f"fib {ratio} retrace of {leg}")
+                else:
+                    _add("fibonacci", lo + ratio * span, f"fib {ratio} retrace of {leg}")
+
+        sources = [
+            ("gamma_wall", _src_gamma_wall),
+            ("gex_profile", _src_gex_profile),
+            ("volume_profile", _src_volume_profile),
+            ("anchored_vwap", _src_anchored_vwap),
+            ("oi_change", _src_oi_change),
+            ("expected_move", _src_expected_move),
+            ("rolling_vwap", _src_rolling_vwap),
+            ("moving_averages", _src_moving_averages),
+            ("prev_day_hl", _src_prev_day_hl),
+            ("prev_week_hl", _src_prev_week_hl),
+            ("prev_month_hl", _src_prev_month_hl),
+            ("bollinger_sma20", _src_bollinger),
+            ("atr_bands", _src_atr_bands),
+            ("fibonacci", _src_fibonacci),
+        ]
+        for name, collect in sources:
+            try:
+                collect()
+                methods_available.append(name)
+            except Exception:
+                methods_failed.append(name)
+
+        # ── Cluster levels within tolerance_pct into zones ────────────────────
+        candidates = sorted(
+            (l for l in levels if price * 0.75 <= l["level"] <= price * 1.25),
+            key=lambda l: l["level"],
+        )
+
+        def _weighted_center(members: list[dict]) -> float:
+            total_w = sum(m["weight"] for m in members)
+            return sum(m["level"] * m["weight"] for m in members) / total_w
+
+        clusters: list[list[dict]] = []
+        current: list[dict] = []
+        center = 0.0
+        for lvl in candidates:
+            if current and lvl["level"] <= center * (1 + tolerance_pct / 100):
+                current.append(lvl)
+            else:
+                if current:
+                    clusters.append(current)
+                current = [lvl]
+            center = _weighted_center(current)
+        if current:
+            clusters.append(current)
+
+        # ── Score: Σ(max weight per distinct method) + 0.2·extra levels ──────
+        def _zone(members: list[dict]) -> dict:
+            c = _weighted_center(members)
+            best_by_method: dict[str, float] = {}
+            for m in members:
+                best_by_method[m["method"]] = max(
+                    best_by_method.get(m["method"], 0.0), m["weight"]
+                )
+            extras = len(members) - len(best_by_method)
+            return {
+                "zone_low":     min(m["level"] for m in members),
+                "zone_high":    max(m["level"] for m in members),
+                "center":       round(c, 2),
+                "distance_pct": round((c - price) / price * 100, 2),
+                "score":        round(sum(best_by_method.values()) + 0.2 * extras, 2),
+                "method_count": len(best_by_method),
+                "contributors": sorted(members, key=lambda m: -m["weight"]),
+            }
+
+        zones = [_zone(c) for c in clusters]
+        support_zones = sorted(
+            (z for z in zones if z["center"] <= price), key=lambda z: -z["score"]
+        )[:max_zones]
+        resistance_zones = sorted(
+            (z for z in zones if z["center"] > price), key=lambda z: -z["score"]
+        )[:max_zones]
+        strongest_support = support_zones[0] if support_zones else None
+
+        parts = []
+        if strongest_support:
+            s = strongest_support
+            parts.append(
+                f"Strongest support zone {s['zone_low']}–{s['zone_high']} "
+                f"(center {s['center']}, {s['distance_pct']}% from price): "
+                f"{s['method_count']} independent method(s), score {s['score']}."
+            )
+        else:
+            parts.append("No support zones found within 25% below the current price.")
+        if resistance_zones:
+            r = resistance_zones[0]
+            parts.append(
+                f"Strongest resistance zone {r['zone_low']}–{r['zone_high']} "
+                f"(center {r['center']}, +{r['distance_pct']}%), score {r['score']}."
+            )
+        if methods_failed:
+            parts.append("Sources unavailable: " + ", ".join(methods_failed) + ".")
+
+        return {
+            "symbol":            sym,
+            "price":             price,
+            "tolerance_pct":     tolerance_pct,
+            "methods_available": methods_available,
+            "methods_failed":    methods_failed,
+            "support_zones":     support_zones,
+            "resistance_zones":  resistance_zones,
+            "strongest_support": strongest_support,
+            "interpretation":    " ".join(parts),
         }

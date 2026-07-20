@@ -489,6 +489,54 @@ def get_anchored_vwap(symbol: str, anchor_date: str = None,
 
 
 @mcp.tool()
+def get_volume_profile(symbol: str, days: int = 365, interval: str = "1d",
+                       bins: int = 50, value_area_pct: float = 0.70) -> dict:
+    """Build a Volume Profile — the histogram of traded volume at each price level.
+
+    Unlike time-based charts, a volume profile shows WHERE the trading happened.
+    Each bar's volume is distributed across the prices it spanned, revealing the
+    levels the market accepted (heavy volume) versus rejected (thin volume).
+
+    Key levels returned:
+      poc               — Point of Control: the single heaviest-traded price;
+                          the market's consensus "fair value" for the window
+      value_area        — the price band holding `value_area_pct` (default 70%)
+                          of all volume, grown outward from the POC
+      hvns              — High Volume Nodes: acceptance zones that tend to act
+                          as strong support below price / resistance above
+      lvns              — Low Volume Nodes: rejection zones / air pockets that
+                          price tends to slice through quickly
+      nearest_hvn_below / nearest_hvn_above — the closest acceptance level on
+                          each side of the current price
+      nearest_lvn_below / nearest_lvn_above — the closest air pocket each side
+      in_value_area     — whether price currently trades inside the value area
+
+    INTENDED USE — volume-based support/resistance:
+      - Daily interval over ~1 year (default) gives the structural levels that
+        matter for swing entries, trims, and stop placement.
+      - interval='1h' gives a 60-day micro-profile for fine-tuning an entry
+        (intraday history is capped at ~60 days; a note is returned if
+        `days` exceeds that).
+      - A pullback into a HVN just below price is a high-probability support
+        test; a break into an LVN often accelerates to the next HVN.
+
+    Args:
+        symbol:         Stock ticker symbol (e.g. 'AAPL')
+        days:           Calendar days of history to profile (default: 365)
+        interval:       '1d' daily (default) or '1h' hourly micro-profile
+        bins:           Number of price buckets in the histogram (default: 50)
+        value_area_pct: Volume fraction defining the value area (default: 0.70)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/volume-profile",
+        days=days,
+        interval=interval,
+        bins=bins,
+        value_area_pct=value_area_pct,
+    )
+
+
+@mcp.tool()
 def get_unusual_calls(
     symbol: str,
     min_volume: int = 100,
@@ -627,6 +675,162 @@ def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
     """
     return rest_client.get(
         f"/api/securities/{symbol}/options/gamma-wall-history", since_days=since_days
+    )
+
+
+@mcp.tool()
+def get_oi_change_analysis(
+    symbol: str,
+    days: int = 30,
+    top_n: int = 10,
+    min_oi: int = 100,
+    expiration: str = None,
+) -> dict:
+    """Analyse open-interest CHANGES over time — the classic 2×2 OI/price read.
+
+    Comparing OI across stored full-chain snapshots reveals what kind of
+    positioning drove a move, which a single-day chain cannot show:
+
+      OI rising + price rising   → new_longs        (fresh bullish positioning)
+      OI rising + price falling  → new_shorts       (fresh bearish positioning)
+      OI falling + price rising  → short_covering   (rally without fresh sponsorship)
+      OI falling + price falling → long_liquidation (longs exiting)
+
+    Options-specific overlay:
+      put_oi_support_strikes     — strikes below spot with large PUT OI builds:
+                                   put writers defend these (support)
+      call_oi_resistance_strikes — strikes above spot with large CALL OI builds:
+                                   the call wall (resistance / pin candidates)
+
+    IMPORTANT — sparse-history caveat: OI history accumulates only when
+    full-chain snapshots are captured (get_full_options_chain; the daily report
+    job captures portfolio + watchlist symbols automatically). If fewer than 2
+    distinct snapshot days exist in the window, the tool returns a note payload
+    with empty oi_changes rather than an error — that is expected on symbols
+    without accumulated history, not a failure.
+
+    Outputs:
+      snapshot_dates_used   — earliest/latest/previous snapshot days compared
+      underlying_change_pct — spot move between earliest and latest snapshot
+      top_oi_builds / top_oi_drains — classified movers with |ΔOI| ≥ min_oi
+      latest_day_change     — call/put OI shift latest vs previous snapshot day
+      summary               — plain-English recap
+
+    Args:
+        symbol:     Stock ticker symbol (e.g. 'AAPL')
+        days:       Rolling window of snapshot history to compare (default: 30)
+        top_n:      Max movers to return per side (default: 10)
+        min_oi:     Minimum |ΔOI| in contracts to count as a mover (default: 100)
+        expiration: Optional 'YYYY-MM-DD' to restrict to one expiration
+    """
+    params = {"days": days, "top_n": top_n, "min_oi": min_oi}
+    if expiration:
+        params["expiration"] = expiration
+    return rest_client.get(f"/api/securities/{symbol}/options/oi-change", **params)
+
+
+@mcp.tool()
+def get_gex_profile(
+    symbol: str,
+    max_expirations: int = 6,
+    risk_free_rate: float = 0.045,
+) -> dict:
+    """Build a signed Gamma Exposure (GEX) profile — dealer hedging pressure by strike.
+
+    GEX signs each contract's dollar gamma by the standard dealer convention
+    (dealers long calls +, short puts −) and aggregates per strike:
+      GEX = gamma × OI × 100 × spot² × 1%   (dollar gamma per 1% move)
+
+    Key levels returned:
+      zero_gamma_level        — where cumulative net GEX flips sign: the
+                                volatility-regime boundary. Above it dealers
+                                dampen moves; below it they amplify them.
+      top_positive_gex_strike — the call wall: heaviest positive GEX; acts as
+                                resistance / an expiry pin magnet.
+      top_negative_gex_strike — put support / the vol trigger: heaviest
+                                negative GEX; breaking it accelerates selling.
+      regime                  — positive_gamma (mean-reverting, dealers buy dips
+                                and sell rips) or negative_gamma (trending /
+                                volatile, dealers chase moves).
+
+    Hedge-flow tilts (aggregate dealer greeks, share-equivalent):
+      net_vanna_exposure — sensitivity of dealer deltas to IV changes: with
+                           positive vanna a vol crush forces dealer BUYING
+                           (supportive), a vol spike forces selling.
+      net_charm_exposure — dealer delta drift from time decay: systematic
+                           buy/sell pressure into expiry (strongest near OpEx).
+
+    INTENDED USE — support/resistance from dealer positioning:
+      - top_negative_gex_strike below price is a defended support zone.
+      - price crossing below zero_gamma_level = regime change: expect wider
+        ranges and momentum moves; tighten stops.
+      - gex_ladder gives the full strike-by-strike wall map near spot.
+
+    A daily summary (net GEX, zero-gamma, regime) is auto-persisted per call —
+    history accumulates like gamma_wall_history.
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        max_expirations: Number of nearest expirations to scan (default: 6)
+        risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/gex-profile",
+        max_expirations=max_expirations,
+        risk_free_rate=risk_free_rate,
+    )
+
+
+@mcp.tool()
+def get_support_confluence(
+    symbol: str,
+    tolerance_pct: float = 1.0,
+    max_expirations: int = 4,
+    max_zones: int = 5,
+) -> dict:
+    """THE composite support/resistance tool — prefer this over calling the
+    individual level tools when the question is "where is support/resistance?".
+
+    Fans out to every level-finding technique in the system, clusters the
+    resulting price levels into zones (levels within tolerance_pct of each
+    other merge), and scores each zone by the weight of the INDEPENDENT
+    methods agreeing on it — a level confirmed by dealer positioning AND
+    volume acceptance AND a moving average is far more defensible than one
+    method repeated.
+
+    Sources and weights (highest = most informative):
+      1.0  gamma wall (delta-adjusted OI), signed GEX walls + zero-gamma flip
+      0.9  volume profile (POC / value area / HVNs), anchored VWAPs
+      0.8  put-OI support / call-OI resistance builds (OI-change history)
+      0.7  options expected move, rolling VWAP, SMA 200
+      0.6  SMA 100/50, prior week & month high/low
+      0.5  prior day high/low, SMA20+Bollinger, ATR bands + chandelier stop
+      0.3  Fibonacci retracements of the last major swing
+
+    Zone score = Σ(max weight per distinct method) + 0.2 × extra levels.
+    Options-dependent sources that fail (no chain, no OI history) are listed
+    in methods_failed and never fail the call.
+
+    Outputs:
+      support_zones / resistance_zones — ranked zones with zone_low/zone_high,
+        center, distance_pct, score, method_count, and per-level contributors
+      strongest_support — the top-scoring support zone (stop placement anchor)
+      methods_available / methods_failed — source health for interpreting
+        coverage (few methods = lower-confidence map)
+      interpretation — plain-English recap
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        tolerance_pct:   Cluster width — levels within this % merge into one
+                         zone (default: 1.0)
+        max_expirations: Expirations scanned by the options sources (default: 4)
+        max_zones:       Max zones returned per side (default: 5)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/support-confluence",
+        tolerance_pct=tolerance_pct,
+        max_expirations=max_expirations,
+        max_zones=max_zones,
     )
 
 

@@ -430,6 +430,148 @@ class OptionsStore:
             for r in rows
         ]
 
+    def save_gex_summary(self, symbol: str, result: dict) -> None:
+        """
+        Persist one daily GEX profile summary. Last write of the day wins,
+        mirroring save_gamma_wall — a post-close capture overwrites any
+        earlier intraday call. The per-strike ladder is deliberately NOT
+        persisted (stripped from the JSON payload); scalar columns hold
+        the queryable regime series.
+
+        Parameters
+        ----------
+        symbol : ticker, e.g. "NVDA"
+        result : dict from get_gex_profile(), containing:
+                 price, net_gex, zero_gamma_level, regime, and the full payload
+        """
+        import json
+        symbol = symbol.upper()
+        captured_at = self._now_utc()
+        date_only = captured_at[:10]
+
+        with closing(self._get_connection()) as conn:
+            conn.execute(
+                """
+                INSERT INTO gex_history
+                (symbol, date_only, captured_at, price, net_gex,
+                 zero_gamma_level, regime, payload)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, date_only) DO UPDATE SET
+                    captured_at      = EXCLUDED.captured_at,
+                    price            = EXCLUDED.price,
+                    net_gex          = EXCLUDED.net_gex,
+                    zero_gamma_level = EXCLUDED.zero_gamma_level,
+                    regime           = EXCLUDED.regime,
+                    payload          = EXCLUDED.payload
+                """,
+                (
+                    symbol,
+                    date_only,
+                    captured_at,
+                    result.get("price"),
+                    result.get("net_gex"),
+                    result.get("zero_gamma_level"),
+                    result.get("regime"),
+                    json.dumps({k: v for k, v in result.items() if k != "gex_ladder"}),
+                ),
+            )
+            conn.commit()
+
+    def get_gex_history(self, symbol: str, since_days: int = 90) -> list[dict]:
+        """
+        Return daily GEX summaries for `symbol` over the past `since_days` days,
+        ordered by date_only ASC:
+            [{date, captured_at, price, net_gex, zero_gamma_level, regime}, ...]
+        """
+        from datetime import timedelta
+        symbol = symbol.upper()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=since_days)).strftime("%Y-%m-%d")
+
+        with closing(self._get_connection()) as conn:
+            rows = conn.execute(
+                """
+                SELECT date_only, captured_at, price, net_gex,
+                       zero_gamma_level, regime
+                FROM gex_history
+                WHERE symbol = %s AND date_only >= %s
+                ORDER BY date_only ASC
+                """,
+                (symbol, cutoff),
+            ).fetchall()
+
+        return [
+            {
+                "date":             r["date_only"],
+                "captured_at":      r["captured_at"],
+                "price":            r["price"],
+                "net_gex":          r["net_gex"],
+                "zero_gamma_level": r["zero_gamma_level"],
+                "regime":           r["regime"],
+            }
+            for r in rows
+        ]
+
+    def get_oi_timeseries(self, symbol: str, days: int = 30,
+                          expiration: Optional[str] = None) -> list[dict]:
+        """
+        Return per-contract open-interest history from stored full-chain
+        snapshots, deduped to the LAST full-chain snapshot per calendar day
+        (DISTINCT ON ... captured_at DESC).
+
+        `captured_at` is stored as ISO-8601 TEXT, so it is cast to
+        timestamptz for the rolling window and to date for the per-day
+        grouping.
+
+        Returns rows ordered by (snap_date, expiration, kind, strike):
+            [{snap_date, underlying_price, expiration, kind, strike,
+              open_interest, volume, implied_vol}, ...]
+        """
+        symbol = symbol.upper()
+        params: list = [symbol, str(int(days))]
+        exp_filter = ""
+        if expiration:
+            exp_filter = "AND e.expiration = %s"
+            params.append(expiration)
+
+        with closing(self._get_connection()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT DISTINCT ON (s.captured_at::date, e.expiration, c.kind, c.strike)
+                       s.captured_at::date::text AS snap_date,
+                       s.price                   AS underlying_price,
+                       e.expiration,
+                       c.kind,
+                       c.strike,
+                       c.open_interest,
+                       c.volume,
+                       c.implied_vol
+                FROM   options_contracts   c
+                JOIN   options_expirations e ON e.expiration_id = c.expiration_id
+                JOIN   options_snapshots   s ON s.snapshot_id   = e.snapshot_id
+                WHERE  s.symbol = %s
+                  AND  s.chain_type = 'full'
+                  AND  s.captured_at::timestamptz >= now() - (%s || ' days')::interval
+                  {exp_filter}
+                ORDER  BY s.captured_at::date, e.expiration, c.kind, c.strike,
+                          s.captured_at DESC
+                """,
+                tuple(params),
+            ).fetchall()
+
+        return [
+            {
+                "snap_date":        r["snap_date"],
+                "underlying_price": r["underlying_price"],
+                "expiration":       r["expiration"],
+                "kind":             r["kind"],
+                "strike":           r["strike"],
+                "open_interest":    r["open_interest"],
+                "volume":           r["volume"],
+                "implied_vol":      r["implied_vol"],
+            }
+            for r in rows
+        ]
+
     # ------------------------------------------------------------------
     # Read / backtesting queries
     # ------------------------------------------------------------------

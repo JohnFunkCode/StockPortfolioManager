@@ -48,9 +48,11 @@ GET    /api/securities/{ticker}/options/contracts  ->  get_option_contracts_api_
 GET    /api/securities/{ticker}/options/delta-adjusted-oi  ->  get_delta_adjusted_oi_api_securities__ticker__options_delta_adjusted_oi_get
 GET    /api/securities/{ticker}/options/full-chain  ->  get_full_options_chain_api_securities__ticker__options_full_chain_get
 GET    /api/securities/{ticker}/options/gamma-wall-history  ->  get_gamma_wall_history_api_securities__ticker__options_gamma_wall_history_get
+GET    /api/securities/{ticker}/options/gex-profile  ->  get_gex_profile_api_securities__ticker__options_gex_profile_get
 GET    /api/securities/{ticker}/options/history  ->  get_options_history_api_securities__ticker__options_history_get
 GET    /api/securities/{ticker}/options/iv-rank  ->  get_iv_rank_api_securities__ticker__options_iv_rank_get
 GET    /api/securities/{ticker}/options/latest  ->  get_options_latest_api_securities__ticker__options_latest_get
+GET    /api/securities/{ticker}/options/oi-change  ->  get_oi_change_analysis_api_securities__ticker__options_oi_change_get
 GET    /api/securities/{ticker}/options/screen  ->  screen_options_symbol_api_securities__ticker__options_screen_get
 GET    /api/securities/{ticker}/options/unusual-calls  ->  get_unusual_calls_api_securities__ticker__options_unusual_calls_get
 GET    /api/securities/{ticker}/price-summary  ->  get_price_summary_api_securities__ticker__price_summary_get
@@ -64,8 +66,10 @@ GET    /api/securities/{ticker}/signals/risk  ->  get_signals_risk_api_securitie
 GET    /api/securities/{ticker}/signals/technical  ->  get_signals_technical_api_securities__ticker__signals_technical_get
 GET    /api/securities/{ticker}/stochastic  ->  get_stochastic_api_securities__ticker__stochastic_get
 GET    /api/securities/{ticker}/stop-loss  ->  get_stop_loss_analysis_api_securities__ticker__stop_loss_get
+GET    /api/securities/{ticker}/support-confluence  ->  get_support_confluence_api_securities__ticker__support_confluence_get
 GET    /api/securities/{ticker}/technicals  ->  get_technicals_api_securities__ticker__technicals_get
 GET    /api/securities/{ticker}/volume  ->  get_volume_analysis_api_securities__ticker__volume_get
+GET    /api/securities/{ticker}/volume-profile  ->  get_volume_profile_api_securities__ticker__volume_profile_get
 GET    /api/securities/{ticker}/vwap  ->  get_vwap_api_securities__ticker__vwap_get
 GET    /api/securities/{ticker}/vwap/history  ->  get_vwap_history_api_securities__ticker__vwap_history_get
 GET    /api/symbols  ->  list_symbols_api_symbols_get

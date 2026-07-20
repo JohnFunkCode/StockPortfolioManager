@@ -28,9 +28,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from quantcore.analytics.options_math import (
+    bs_charm,
     bs_d1,
     bs_delta,
     bs_gamma,
+    bs_vanna,
     chain_side_full,
     compute_expected_move,
     compute_max_pain,
@@ -68,7 +70,7 @@ class OptionsService:
     # Full chain + exact contracts (MCP)
     # ------------------------------------------------------------------
 
-    def get_full_options_chain(self, symbol: str) -> dict:
+    def get_full_options_chain(self, symbol: str, max_expirations: int = None) -> dict:
         info = self._yf.fast_info(symbol.upper())
         price = info.last_price
         if price is None:
@@ -100,6 +102,11 @@ class OptionsService:
                 "total_contracts":  0,
                 "expirations":      [],
             }
+
+        # Optional cap keeps scheduled bulk captures (main.py daily job) light;
+        # interactive callers get the whole chain by default.
+        if max_expirations:
+            expirations = expirations[:max_expirations]
 
         expirations_data = []
         total_contracts  = 0
@@ -547,6 +554,356 @@ class OptionsService:
             "data_points": len(rows),
             "history": rows,
             "note": "One row per calendar day. Data accumulates from first call after tracking was enabled." if rows else "No history yet — call get_delta_adjusted_oi() daily to build history.",
+        }
+
+    # ------------------------------------------------------------------
+    # OI-change analysis (Phase 4, issue #93)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _classify_oi_change(oi_delta: int, price_up: bool) -> tuple[str, str]:
+        """Classic 2×2 OI/price read: what kind of positioning drove the change."""
+        if oi_delta > 0:
+            if price_up:
+                return ("new_longs",
+                        "OI rising with price — fresh long positioning confirming the move")
+            return ("new_shorts",
+                    "OI rising as price falls — fresh bearish positioning")
+        if price_up:
+            return ("short_covering",
+                    "OI falling as price rises — shorts closing; rally may lack fresh sponsorship")
+        return ("long_liquidation",
+                "OI falling with price — longs exiting")
+
+    def get_oi_change_analysis(
+        self,
+        symbol: str,
+        days: int = 30,
+        top_n: int = 10,
+        min_oi: int = 100,
+        expiration: str = None,
+    ) -> dict:
+        symbol = symbol.upper().strip()
+        rows = self._options.get_oi_timeseries(symbol, days=days, expiration=expiration)
+        snapshot_dates = sorted({r["snap_date"] for r in rows})
+
+        # Graceful degradation: OI deltas need at least two distinct snapshot
+        # days; history is forward-accumulating like gamma_wall_history.
+        if len(snapshot_dates) < 2:
+            return {
+                "symbol": symbol,
+                "days": days,
+                "snapshot_dates": snapshot_dates,
+                "oi_changes": [],
+                "note": (
+                    "OI history accumulates only when full-chain snapshots are "
+                    "captured — call get_full_options_chain periodically (the "
+                    "daily report job captures portfolio + watchlist symbols)."
+                ),
+            }
+
+        earliest, latest = snapshot_dates[0], snapshot_dates[-1]
+        previous = snapshot_dates[-2]
+
+        by_date: dict[str, dict] = {}
+        price_by_date: dict[str, float] = {}
+        for r in rows:
+            d = r["snap_date"]
+            key = (r["expiration"], r["kind"], float(r["strike"]))
+            by_date.setdefault(d, {})[key] = r
+            if r["underlying_price"] is not None:
+                price_by_date[d] = float(r["underlying_price"])
+
+        price_start = price_by_date.get(earliest)
+        price_end   = price_by_date.get(latest)
+        underlying_change_pct = None
+        if price_start and price_end:
+            underlying_change_pct = round((price_end - price_start) / price_start * 100, 2)
+        price_up = (underlying_change_pct or 0.0) >= 0
+
+        # Earliest-vs-latest ΔOI per (expiration, kind, strike). Contracts absent
+        # from the earliest snapshot count as OI 0 (newly listed / first capture).
+        early_map = by_date[earliest]
+        late_map  = by_date[latest]
+        movers = []
+        for key, late_row in late_map.items():
+            early_row = early_map.get(key)
+            oi_after  = int(late_row["open_interest"] or 0)
+            oi_before = int(early_row["open_interest"] or 0) if early_row else 0
+            delta = oi_after - oi_before
+            if abs(delta) < min_oi:
+                continue
+            exp, kind, strike = key
+            classification, interpretation = self._classify_oi_change(delta, price_up)
+            movers.append({
+                "expiration":     exp,
+                "kind":           kind,
+                "strike":         strike,
+                "oi_before":      oi_before,
+                "oi_after":       oi_after,
+                "oi_change":      delta,
+                "oi_change_pct":  round(delta / oi_before * 100, 1) if oi_before else None,
+                "classification": classification,
+                "interpretation": interpretation,
+            })
+
+        builds = sorted((m for m in movers if m["oi_change"] > 0),
+                        key=lambda m: -m["oi_change"])[:top_n]
+        drains = sorted((m for m in movers if m["oi_change"] < 0),
+                        key=lambda m: m["oi_change"])[:top_n]
+
+        # Options overlay: big put-OI builds below spot read as put-writing
+        # support; big call-OI builds above spot read as call-wall resistance.
+        spot = price_end or price_start
+        put_support: dict[float, int] = {}
+        call_resistance: dict[float, int] = {}
+        for m in movers:
+            if m["oi_change"] <= 0 or spot is None:
+                continue
+            if m["kind"] == "put" and m["strike"] < spot:
+                put_support[m["strike"]] = put_support.get(m["strike"], 0) + m["oi_change"]
+            elif m["kind"] == "call" and m["strike"] > spot:
+                call_resistance[m["strike"]] = call_resistance.get(m["strike"], 0) + m["oi_change"]
+        put_oi_support_strikes = [
+            {"strike": k, "oi_build": v}
+            for k, v in sorted(put_support.items(), key=lambda kv: -kv[1])[:5]
+        ]
+        call_oi_resistance_strikes = [
+            {"strike": k, "oi_build": v}
+            for k, v in sorted(call_resistance.items(), key=lambda kv: -kv[1])[:5]
+        ]
+
+        # Latest-vs-previous day: aggregate call/put OI shift for a quick pulse.
+        prev_map = by_date[previous]
+        day_call = day_put = 0
+        for key, late_row in late_map.items():
+            prev_row = prev_map.get(key)
+            delta = int(late_row["open_interest"] or 0) - (int(prev_row["open_interest"] or 0) if prev_row else 0)
+            if key[1] == "call":
+                day_call += delta
+            else:
+                day_put += delta
+        latest_day_change = {
+            "from_date":      previous,
+            "to_date":        latest,
+            "call_oi_change": day_call,
+            "put_oi_change":  day_put,
+            "net_oi_change":  day_call + day_put,
+        }
+
+        n_builds = len([m for m in movers if m["oi_change"] > 0])
+        n_drains = len(movers) - n_builds
+        direction = "rose" if price_up else "fell"
+        summary = (
+            f"{symbol} {direction} {abs(underlying_change_pct or 0):.1f}% between "
+            f"{earliest} and {latest}; {n_builds} contract(s) built ≥{min_oi} OI and "
+            f"{n_drains} drained. "
+            f"{len(put_oi_support_strikes)} put-writing support strike(s) below spot, "
+            f"{len(call_oi_resistance_strikes)} call-wall strike(s) above."
+        )
+
+        return {
+            "symbol": symbol,
+            "days": days,
+            "min_oi": min_oi,
+            "expiration_filter": expiration,
+            "snapshot_dates": snapshot_dates,
+            "snapshot_dates_used": {"earliest": earliest, "latest": latest, "previous": previous},
+            "underlying_price_start": price_start,
+            "underlying_price_end": price_end,
+            "underlying_change_pct": underlying_change_pct,
+            "top_oi_builds": builds,
+            "top_oi_drains": drains,
+            "put_oi_support_strikes": put_oi_support_strikes,
+            "call_oi_resistance_strikes": call_oi_resistance_strikes,
+            "latest_day_change": latest_day_change,
+            "summary": summary,
+        }
+
+    # ------------------------------------------------------------------
+    # Signed GEX profile + vanna/charm (Phase 5, issue #93)
+    # ------------------------------------------------------------------
+
+    def get_gex_profile(
+        self,
+        symbol: str,
+        max_expirations: int = 6,
+        risk_free_rate: float = 0.045,
+    ) -> dict:
+        info  = self._yf.fast_info(symbol.upper())
+        price = getattr(info, "last_price", None)
+        if price is None or math.isnan(float(price)):
+            raise ValueError(f"Could not retrieve price for {symbol}")
+        price = float(price)
+
+        expirations = self._yf.expirations(symbol.upper())
+        if not expirations:
+            return {
+                "symbol": symbol.upper(),
+                "price": round(price, 2),
+                "signal": "none",
+                "interpretation": "No options data available.",
+            }
+
+        today = datetime.date.today()
+
+        strike_gex: dict[float, dict] = {}   # strike → {"call_gex": .., "put_gex": ..}
+        net_vanna = 0.0
+        net_charm = 0.0
+        by_expiration = []
+
+        for exp in expirations[:max_expirations]:
+            try:
+                exp_date = datetime.date.fromisoformat(exp)
+                T = max((exp_date - today).days / 365.0, 1 / 365.0)
+                chain    = self._yf.option_chain(symbol.upper(), exp)
+                calls_df = chain.calls.copy()
+                puts_df  = chain.puts.copy()
+            except Exception:
+                continue
+
+            exp_net_gex = 0.0
+
+            for df, is_call in [(calls_df, True), (puts_df, False)]:
+                if df.empty:
+                    continue
+                for _, row in df.iterrows():
+                    K   = float(row.get("strike", 0) or 0)
+                    oi  = _safe_int(row.get("openInterest"))
+                    raw_iv = float(row.get("impliedVolatility", 0) or 0)
+                    sigma = raw_iv if raw_iv > 0 else 0.30   # fallback 30% if IV missing
+
+                    if K <= 0 or oi <= 0:
+                        continue
+
+                    d1    = bs_d1(price, K, T, sigma, risk_free_rate)
+                    gamma = bs_gamma(price, K, T, sigma, risk_free_rate, d1=d1)
+                    # Dealer convention: long calls (+), short puts (−).
+                    sign = 1.0 if is_call else -1.0
+                    # Dollar gamma per 1% underlying move.
+                    gex = sign * gamma * oi * 100 * price * price * 0.01
+
+                    entry = strike_gex.setdefault(K, {"call_gex": 0.0, "put_gex": 0.0})
+                    if is_call:
+                        entry["call_gex"] += gex
+                    else:
+                        entry["put_gex"] += gex
+                    exp_net_gex += gex
+
+                    net_vanna += sign * bs_vanna(price, K, T, sigma, risk_free_rate, d1=d1) * oi * 100
+                    net_charm += sign * bs_charm(price, K, T, sigma, risk_free_rate, is_call, d1=d1) * oi * 100
+
+            by_expiration.append({
+                "expiration":     exp,
+                "days_to_expiry": (exp_date - today).days,
+                "net_gex":        round(exp_net_gex, 0),
+            })
+
+        if not by_expiration:
+            return {
+                "symbol": symbol.upper(),
+                "price": round(price, 2),
+                "signal": "none",
+                "interpretation": "Could not compute GEX profile — check symbol or options availability.",
+            }
+
+        sorted_strikes = sorted(strike_gex.keys())
+        net_by_strike  = {k: strike_gex[k]["call_gex"] + strike_gex[k]["put_gex"]
+                          for k in sorted_strikes}
+        net_gex = sum(net_by_strike.values())
+
+        # Zero-gamma flip: cumulative net GEX over ascending strikes,
+        # linearly interpolated at the first sign change.
+        zero_gamma_level = None
+        cum = 0.0
+        prev_cum = None
+        prev_k = None
+        for k in sorted_strikes:
+            cum += net_by_strike[k]
+            if prev_cum is not None and prev_cum * cum < 0:
+                zero_gamma_level = round(
+                    prev_k + (k - prev_k) * abs(prev_cum) / (abs(prev_cum) + abs(cum)), 2
+                )
+                break
+            prev_cum = cum
+            prev_k = k
+
+        dist_to_zero_gamma_pct = None
+        if zero_gamma_level:
+            dist_to_zero_gamma_pct = round((zero_gamma_level - price) / price * 100, 2)
+
+        positive_strikes = {k: v for k, v in net_by_strike.items() if v > 0}
+        negative_strikes = {k: v for k, v in net_by_strike.items() if v < 0}
+        top_positive_gex_strike = max(positive_strikes, key=positive_strikes.get) if positive_strikes else None
+        top_negative_gex_strike = min(negative_strikes, key=negative_strikes.get) if negative_strikes else None
+
+        # Ladder: top ~20 strikes by |net GEX| plus everything within ±10% of spot.
+        top_by_magnitude = set(sorted(net_by_strike, key=lambda k: -abs(net_by_strike[k]))[:20])
+        near_spot = {k for k in sorted_strikes if abs(k - price) / price <= 0.10}
+        gex_ladder = [
+            {
+                "strike":   k,
+                "net_gex":  round(net_by_strike[k], 0),
+                "call_gex": round(strike_gex[k]["call_gex"], 0),
+                "put_gex":  round(strike_gex[k]["put_gex"], 0),
+            }
+            for k in sorted_strikes if k in (top_by_magnitude | near_spot)
+        ]
+
+        if net_gex > 0:
+            regime = "positive_gamma"
+            regime_note = ("Dealers are net long gamma — hedging dampens moves "
+                           "(buy dips, sell rips); expect pinning near the call wall.")
+        else:
+            regime = "negative_gamma"
+            regime_note = ("Dealers are net short gamma — hedging amplifies moves "
+                           "(sell weakness, chase strength); volatility expansion regime.")
+
+        vanna_note = (
+            "Positive dealer vanna: falling IV forces dealer buying (vol-crush tailwind); an IV spike forces selling."
+            if net_vanna > 0 else
+            "Negative dealer vanna: falling IV forces dealer selling; an IV spike forces buying."
+        )
+        charm_note = (
+            "Positive dealer charm: dealer deltas drift up into expiry — systematic selling pressure toward OpEx."
+            if net_charm > 0 else
+            "Negative dealer charm: dealer deltas drift down into expiry — systematic buying pressure toward OpEx."
+        )
+
+        result = {
+            "symbol":                  symbol.upper(),
+            "price":                   round(price, 2),
+            "convention":              "dealers long calls / short puts",
+            "expirations_scanned":     [s["expiration"] for s in by_expiration],
+            "net_gex":                 round(net_gex, 0),
+            "regime":                  regime,
+            "regime_note":             regime_note,
+            "zero_gamma_level":        zero_gamma_level,
+            "dist_to_zero_gamma_pct":  dist_to_zero_gamma_pct,
+            "top_positive_gex_strike": top_positive_gex_strike,
+            "top_negative_gex_strike": top_negative_gex_strike,
+            "wall_note":               ("Top positive-GEX strike acts as the call wall / pin; "
+                                        "top negative-GEX strike marks put support / the vol trigger."),
+            "net_vanna_exposure":      round(net_vanna, 0),
+            "vanna_note":              vanna_note,
+            "net_charm_exposure":      round(net_charm, 0),
+            "charm_note":              charm_note,
+            "gex_ladder":              gex_ladder,
+            "by_expiration":           by_expiration,
+        }
+
+        self._options.save_gex_summary(symbol.upper(), result)
+        return result
+
+    def get_gex_history(self, symbol: str, since_days: int = 90) -> dict:
+        symbol = symbol.upper().strip()
+        rows = self._options.get_gex_history(symbol, since_days)
+        return {
+            "symbol": symbol,
+            "since_days": since_days,
+            "data_points": len(rows),
+            "history": rows,
+            "note": "One row per calendar day, last write wins." if rows else "No history yet — call get_gex_profile() daily to build history.",
         }
 
     # ------------------------------------------------------------------

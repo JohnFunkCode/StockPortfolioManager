@@ -2,8 +2,8 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-07-19  
-**MCP Tools:** 49 | **REST Endpoints:** 85 routes (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 | **CLI Tools:** 2 | **Standalone Scripts:** 8
+**Last Updated:** 2026-07-20  
+**MCP Tools:** 53 | **REST Endpoints:** 91 routes (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 | **CLI Tools:** 2 | **Standalone Scripts:** 8
 
 > **Refactor status (2026-06-17):** This inventory is the evidence base for [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md). Phase 1 (extraction of all business logic into `quantcore/services/`, with MCP tools and REST routes reduced to one-call-deep adapters) is **complete** — see `proposals/phase1-migration-plan.md`. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — see `proposals/phase2-fastapi-plan.md`: the Flask app (`api/app.py`) was rebuilt on FastAPI (`api/main.py`) preserving every route path and JSON shape, then retired; OpenAPI is published at `/docs`; and 12 previously MCP-only capabilities were exposed over REST (50 method-distinct operations across 45 paths). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see `proposals/phase3-gateway-plan.md`: Step 1 closed the residual tool→endpoint gaps (32 thin routes + 3 param fixes, the surface is now 82 method+path operations), then all five MCP servers were inverted into thin HTTP gateway wrappers calling the REST tier through `mcp_gateway/rest_client.py` (Rule 6), JWT auth was added (`api/auth.py`, inert until configured), and the whole system was containerized and deployed to GCP Cloud Run (`quantcore-api` + 5 wrappers + a daily report Cloud Run Job) with CI/CD in `.github/workflows/deploy.yml`. **Prod rollout is complete** — the same stack runs in a dedicated prod project (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`; see `proposals/prod-rollout-plan.md`), and the QuantUI React SPA is deployed behind IAP in both projects (`proposals/quantui-iap-plan.md`). **BYOK is live as of 2026-07-18** — see `proposals/byok-key-proxy-plan.md`: users bring their own Anthropic API key (encrypted browser vault, managed on the new **Settings** page), and the **Sidekick** chat rail talks to Claude through the `keyproxy` credential-isolation service; per-user ES256 JWTs (minted from the IAP identity) replaced the static UI→API service token.
 
@@ -33,7 +33,7 @@ The project exposes capabilities through five distinct surfaces:
 | CLI Tools | 2 | `collect_options.py` (EOD snapshot; broken), `options_analysis.py` (strategy analysis; hybrid CLI + MCP) |
 | Standalone Scripts | 8 | Portfolio reports, watchlist fundamentals report, spread monitors (6 superseded experiments deleted in Phase 1 Step 10) |
 
-**MCP tool count by server:** stock-price 25 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
+**MCP tool count by server:** stock-price 28 · options-analysis 5 · company-fundamentals 12 · market-analysis 3 · news-sentiment 4. `get_option_contracts` and `price_vertical_spread` are exposed on both stock-price and options-analysis (shared implementation in `quantcore/services/options_contracts.py`).
 
 **New since 2026-05-19:** `get_vwap_history`, `get_relative_strength_history`, `get_gamma_wall_history` (stock-price); `analyze_options_watchlist`, `analyze_options_symbol`, `mcp_health_check` (options-analysis — the `options_analysis.py` CLI is now also a FastMCP server); REST `GET /api/rungs/<rung_id>`; scripts `scripts/generate_watchlist_fundamentals_report.py`, `experiments/INTC_bear_call_spread_monitor.py`, `experiments/WMT_bull_call_spread_monitor.py`, `scripts/migrate_sqlite_to_postgres.py`.
 
@@ -64,6 +64,8 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Historical drawdown (worst 1d/5d, trailing stop %) | `get_historical_drawdown` (stock_price) | `GET /api/securities/<ticker>/signals/risk` | Securities Detail → Signals tab | — | `experiments/MaxDrawDownAnalyzer.py` |
 | ATR bands + chandelier trailing stop (volatility-calibrated) | `get_atr_bands` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/atr-bands` | — | — | — |
 | Anchored VWAP (auto-anchors: earnings, 52w H/L, gaps, swings) | `get_anchored_vwap` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/anchored-vwap` | — | — | — |
+| Volume profile (POC, value area, HVN/LVN nodes) | `get_volume_profile` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/volume-profile` | — | — | — |
+| Support confluence (14-source composite: clustered, method-weighted support/resistance zones) | `get_support_confluence` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/support-confluence` | Securities Detail → Technical Analysis tab | — | — |
 | Composite trade recommendation (19 signals) | `get_trade_recommendation` (stock_price) | `GET /api/securities/<ticker>/recommendation?capital=` | — | — | — |
 | Stop-loss synthesis (7 sub-analyses: BB, VWAP, MACD, RSI, DAOI, drawdown, short interest) | `get_stop_loss_analysis` (stock_price) | `GET /api/securities/<ticker>/stop-loss` | — | — | — |
 
@@ -82,6 +84,8 @@ Capabilities are organized by domain. A row with empty cells in the surface colu
 | Unusual call sweep detection (vol/OI, aggressive fill, OTM scoring) | `get_unusual_calls` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Delta-Adjusted Open Interest (DAOI, gamma wall, delta flip) | `get_delta_adjusted_oi` (stock_price) | `GET /api/securities/<ticker>/signals/options-flow` | Securities Detail → Signals tab | — | — |
 | Gamma wall history (daily snapshots, MM hedge bias trend) | `get_gamma_wall_history` (stock_price) **NEW** | — | — | — | — |
+| Open-interest change analysis (2×2 OI/price classification, put-OI support / call-wall resistance) | `get_oi_change_analysis` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/options/oi-change` | — | — | — |
+| Signed GEX profile (dealer gamma ladder, zero-gamma level, vanna/charm; daily summary persisted to `gex_history`) | `get_gex_profile` (stock_price) **NEW (issue #93)** | `GET /api/securities/<ticker>/options/gex-profile` | — | — | — |
 | IV Rank + IV Percentile (365-day) | — | `GET /api/securities/<ticker>/options/iv-rank` | Securities Detail → Options Analytics tab | — | — |
 | Max pain + expected move per expiration | — | `GET /api/securities/<ticker>/options/analytics` | Securities Detail → Options Analytics tab | — | — |
 | P/C ratio history (daily aggregated) | — | `GET /api/securities/<ticker>/options/history` | Securities Detail → Options Performance tab | — | — |
@@ -307,15 +311,15 @@ The project uses **1 unified PostgreSQL database** (codename **QuantCore**, acce
 |---|---|---|---|
 | **Price Data** | `ohlcv`, `fetch_log` | `fastMCPTest/ohlcv_cache.py` | Shared OHLCV bar cache for all MCP servers; supports daily/intraday intervals; tracks yfinance fetch times |
 | **Harvester** | `symbols`, `plan_templates`, `positions`, `plan_instances`, `plan_rungs`, `alerts` | `experiments/HarvesterPlanStore.py` | Harvest plans, rungs, alerts, positions for the Harvester strategy; shares symbol registry with OHLCV |
-| **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `gamma_wall_history`, `options_positions` | `fastMCPTest/options_store.py`, `options_position_store.py` | Options chain snapshots (ATM + full), active positions, gamma wall history |
+| **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `gamma_wall_history`, `gex_history`, `options_positions` | `fastMCPTest/options_store.py`, `options_position_store.py` | Options chain snapshots (ATM + full), active positions, gamma wall history, daily GEX regime history |
 | **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `fastMCPTest/news_store.py`, `sentiment_store.py` | Individual news articles with FinBERT scores; aggregated sentiment summaries |
 | **Fundamentals** | `fundamentals_history` | `fastMCPTest/fundamentals_cache.py` | Append-only cache for earnings/fundamentals data (TTL-based) |
 
-**All modules** use `from quantcore.db import get_connection()` instead of managing individual database connections. **Schema initialization is automatic** — `init_schema()` creates all 16 tables on-demand against whatever PostgreSQL database `QUANTCORE_DB_DSN` points to (the database and its `quantcore` user must already exist).
+**All modules** use `from quantcore.db import get_connection()` instead of managing individual database connections. **Schema initialization is automatic** — `init_schema()` creates all 17 tables on-demand against whatever PostgreSQL database `QUANTCORE_DB_DSN` points to (the database and its `quantcore` user must already exist).
 
 ### Unified Schema
 
-All 16 tables live in the unified QuantCore PostgreSQL database. All store modules use the shared `quantcore/db.get_connection()` factory, which connects via `psycopg2` using the `QUANTCORE_DB_DSN` connection string.
+All 17 tables live in the unified QuantCore PostgreSQL database. All store modules use the shared `quantcore/db.get_connection()` factory, which connects via `psycopg2` using the `QUANTCORE_DB_DSN` connection string.
 
 #### Price Data (2 tables)
 - **`ohlcv`** — OHLCV bars per (symbol, interval, ts): supports '1d', '1h', '30m', '15m', '1wk', '1mo'; status field ('OPEN', 'CLOSED', 'GAP', 'CORRECTED'); primary key (symbol, interval, ts)
@@ -329,11 +333,12 @@ All 16 tables live in the unified QuantCore PostgreSQL database. All store modul
 - **`plan_rungs`** — Individual price targets (target_price, shares_to_sell, status PENDING/ACHIEVED/EXECUTED, actuals; FK → instance)
 - **`alerts`** — One per pending rung (threshold_price, status, notification config, fired_price; FK → rung, symbol, instance)
 
-#### Options (5 tables)
+#### Options (6 tables)
 - **`options_snapshots`** — One row per (symbol, capture-time) with price and Bollinger Bands
 - **`options_expirations`** — Per-expiry aggregate OI, volume, IV, put/call ratio (FK → snapshots)
 - **`options_contracts`** — Individual strikes (kind, strike, bid/ask, IV, volume, OI, ITM; FK → expiration)
 - **`gamma_wall_history`** — Daily snapshots of gamma wall strike and MM hedge bias
+- **`gex_history`** — Daily signed-GEX summary per (symbol, date): net GEX, zero-gamma level, regime; upserted on each `get_gex_profile` call (last write wins)
 - **`options_positions`** — Active options positions (symbol, kind, strike, expiration, contracts, purchase_price, target, status)
 
 #### News & Sentiment (2 tables)
@@ -413,7 +418,7 @@ All writes and reads use the same unified database via `quantcore.db.get_connect
 - **OHLCV caching:** the `ohlcv` table in the unified QuantCore database is shared across all MCP servers, eliminating redundant yfinance calls.
 - **Harvest ladder:** Fully accessible via REST + WebUI; no gaps.
 - **Options data flow:** MCP tools fetch & store, exact-contract tools can use cache-first/live-refresh, and REST reads from the store.
-- **Unified database:** All 16 tables consolidated into a single QuantCore PostgreSQL database with automatic schema initialization on startup.
+- **Unified database:** All 17 tables consolidated into a single QuantCore PostgreSQL database with automatic schema initialization on startup.
 
 ### Completed Improvements
 - ✅ **OHLCV duplication resolved:** Merged `price_bars_daily` + `ohlcv` into single unified `ohlcv` table (symbol, interval, ts) with status tracking and adj_close support.

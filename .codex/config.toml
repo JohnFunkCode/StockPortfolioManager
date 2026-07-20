@@ -170,3 +170,9 @@ approval_mode = "approve"
 
 [mcp_servers.stock-price-server.tools.get_gamma_wall_history]
 approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_anchored_vwap]
+approval_mode = "approve"
+
+[mcp_servers.stock-price-server.tools.get_atr_bands]
+approval_mode = "approve"

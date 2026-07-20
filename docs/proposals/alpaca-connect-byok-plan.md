@@ -7,6 +7,20 @@
 > second read-only milestone lets the authenticated Anthropic chat sidekick retrieve those same
 > positions through a curated MCP wrapper after explicit per-message consent. Paper-order
 > execution is designed into the security boundary but is a later release.
+>
+> **Revision 2026-07-19:** review pass applying lessons from the completed base BYOK rollout
+> (PRs #105/#106 at `177e411`, live on test and prod since 2026-07-18): prerequisite gate
+> updated to actual status, BYOK packet-8b runbook rules folded into packet A7, the JWT-mint
+> audience gap closed, SPKI pin baking aligned with digest-copy promotion, `sub_hash`
+> construction specified, execution protocol and checkpoint log added, and the reentrant
+> sidekick topology flagged as an explicit team-review question.
+>
+> **Revision 2026-07-19 (b):** incorporated concepts from the draft OKAP (Open Key Access
+> Protocol) specification after review — grant profiles become structured, versioned
+> authorization documents (RFC 9396 style), grant responses echo the effective granted profile
+> for verbatim rendering, and the metadata-only audit trail gains a user-visible connection
+> activity view. See "Prior art: OKAP". The OKAP reference library itself is deliberately not
+> used.
 
 ## Executive summary
 
@@ -130,6 +144,34 @@ Positions: https://paper-api.alpaca.markets/v2/positions
     design adds explicit human confirmation, idempotency, service-owned risk and entitlement
     checks, durable audit, and a distinct mutation grant.
 
+### Prior art: OKAP (Open Key Access Protocol)
+
+The team reviewed the draft OKAP specification
+([github.com/openkeyprotocol/okap](https://github.com/openkeyprotocol/okap)), which addresses
+the neighboring problem of delegating AI-provider API keys to applications through a vault that
+proxies provider calls. Its reference implementation is not used — it is a single-maintainer
+project, and its `okap_` tokens are unbound bearer strings with no signing, replay protection,
+client authentication, or audit schema. Three of its ideas do improve this design and are
+folded in:
+
+1. **Structured authorization documents instead of scope strings** (OKAP's core idea, borrowed
+   from OAuth 2.0 Rich Authorization Requests, RFC 9396). Grant profiles such as
+   `portfolio.read.v1` are now defined as typed, versioned JSON documents with explicit
+   standing limits, not just named constants — see "Grant profiles as structured documents".
+2. **Echo the granted authorization; render granted, not requested.** OKAP grant responses
+   carry the effective (possibly narrowed) authorization back to the requesting app. Adopted:
+   the exchange response and the vault record carry the effective profile document, and the UI
+   renders that document verbatim on the connection card and consent disclosure.
+3. **User-visible usage audit.** OKAP vaults show the key owner a per-app usage trail.
+   Adopted: a principal-scoped, metadata-only connection activity view — see "Metadata-only
+   audit".
+
+Deliberately not adopted: OKAP's custody model, in which the vault holds master keys at rest
+and proxies every provider call — this plan's browser-vault custody with single-use envelopes
+is strictly stronger for our threat model — and OKAP's unauthenticated bearer tokens; the
+AAD-bound, single-use, replay-protected envelope and grant constructions in this document are
+unchanged.
+
 ## High-level architecture
 
 ```mermaid
@@ -153,6 +195,30 @@ is `Browser -> REST -> AlpacaService`. The sidekick path intentionally re-enters
 front door as `ChatService -> MCP -> REST -> AlpacaService`: the first REST request hosts the AI
 orchestrator, while the second is an independently authenticated tool request. This preserves
 Rule 6 instead of giving the in-process chat loop a privileged service bypass.
+
+### Considered alternative: in-process dispatch (flagged for team review)
+
+Every existing sidekick tool (`get_stock_price`, `get_rsi`, `price_vertical_spread`, …) is
+dispatched **in-process**: `ChatService` holds constructor-injected services and calls them
+directly (see the handler table in `quantcore/services/chat.py`), which is the standard's
+blessed composition pattern (P1 plus the composition root). Rule 6's stated motivation is
+external AI agents reaching business logic while bypassing REST enforcement; whether it also
+governs the in-process sidekick — whose originating request already passed the REST front door
+and `require_principal` — is a genuine interpretation question this proposal should not settle
+silently.
+
+The alternative is `ChatService -> AlpacaService.list_positions_for_agent(...)` with the grant
+validation, rate policy, audit, and consent semantics unchanged inside the service, and the
+curated MCP wrapper still built — but only for *external* AI clients (the `.mcp.json` pattern),
+not the sidekick. That removes one Cloud Run service from the sidekick's critical path, the
+self-call deadlock hazard, the nested reentrant timeout budget, and one network round trip. The
+cost is that the sidekick and a future external agent would exercise different transport paths
+to the same capability, and the sidekick would set a precedent of skipping the wrapper.
+
+The reentrant design above remains this proposal's default because it yields one audited
+enforcement chokepoint and makes the sidekick indistinguishable from an external agent. The
+team should settle this deliberately in packet A0, before A9b is built — see the first
+team-review question.
 
 ### Security boundaries
 
@@ -361,6 +427,44 @@ Output:
 The URL includes `response_type=code`, the deployment's client ID and exact redirect URI, and
 `env=paper`. It omits `trading`, `account:write`, and `data` in v1.
 
+### Grant profiles as structured documents
+
+Following the rich-authorization-request pattern of RFC 9396 (adopted via the OKAP review — see
+"Prior art: OKAP"), each grant profile is a server-defined, versioned JSON document rather than
+a bare name. `portfolio.read.v1` is:
+
+```json
+{
+  "type": "brokerage_account_access",
+  "profile": "portfolio.read.v1",
+  "v": 1,
+  "provider": "alpaca",
+  "environment": "paper",
+  "operations": ["positions.list"],
+  "consumers": ["portfolio_ui", "anthropic_chat"],
+  "limits": {
+    "requests_per_minute": 4,
+    "requests_per_day": 2000,
+    "mutations": 0
+  },
+  "oauth_scopes": []
+}
+```
+
+(The `limits` values above are the reviewable defaults; packet A3 fixes the final numbers, which
+must stay above the 60-second UI refresh cadence.) Profile documents are defined only in
+`AlpacaService`; the Trading Key Proxy keeps its own fail-closed operation allowlist as the
+independent boundary check and never derives behavior from a client-supplied document. The
+standing `limits` block is the service-owned rate policy already required in this plan, now
+declared in one reviewable place — per-envelope budgets (`max_calls`, `max_mutations`, `ttl`)
+remain separate and strictly tighter. The future `paper-trading.v1` profile extends the same
+shape with structured order ceilings (maximum order notional, mutations per day, allowed order
+types) instead of inventing ad hoc constants at mutation time.
+
+The exchange response and the browser vault record both carry the effective profile document,
+and the UI renders the granted document — never a client-side assumption of what was requested —
+on the connection card and in the consent disclosure.
+
 ### OAuth state
 
 State is an authenticated encrypted value under `ALPACA_OAUTH_STATE_KEYS`, a rotatable AES-256
@@ -392,6 +496,11 @@ plaintext contains:
 The opaque state is safe to traverse Alpaca and the callback URL. The browser retains the exact
 opaque value in memory and requires byte-for-byte equality on return. The proxy separately checks
 authentication, expiry, subject binding, environment, grant profile, and redirect URI.
+
+`sub_hash` is `b64url(HMAC-SHA256(k_sub, sub))`, where `k_sub` is a dedicated subject-hash key
+carried alongside the encryption key in the same rotatable bundle (`ALPACA_OAUTH_STATE_KEYS`
+here; `AGENT_TOOL_GRANT_KEYS` for agent grants). It is never a bare or truncated SHA-256 of the
+subject, and its exact construction is pinned by packet A1's shared Python/TypeScript vectors.
 
 Alpaca's published Connect flow does not document PKCE, so this plan does not invent a PKCE
 contract. CSRF and account-mix-up protection instead come from unpredictable encrypted state,
@@ -440,7 +549,10 @@ It returns:
 The ciphertext contains only the token type and access token. The browser verifies the AAD,
 decrypts with the in-memory return key, and writes a provider record to the existing vault. No
 last-four token hint is displayed or stored. Safe cleartext metadata may include provider,
-environment, grant profile, connection label, and connected timestamp.
+environment, grant profile, connection label, and connected timestamp. The exchange response
+also returns the effective grant profile document (see "Grant profiles as structured
+documents") beside the receipt; the browser stores it as vault metadata and the UI renders it
+verbatim, so what the user sees is always what was actually granted.
 
 If Alpaca later expires or revokes the token, v1 requires reconnect. No refresh-token behavior is
 invented because Alpaca's Trading API Connect documentation does not publish one for this flow.
@@ -504,6 +616,7 @@ cloud credentials are permitted.
 | `POST /api/alpaca/oauth/exchange` | Exchange code and opaque state for an encrypted token receipt |
 | `POST /api/alpaca/positions` | Fetch current paper positions using a single-use token envelope |
 | `POST /api/alpaca/agent/positions` | Redeem an audience-bound sidekick grant through the canonical positions service |
+| `GET /api/alpaca/activity` | Return the authenticated principal's own recent metadata-only provider access events |
 
 Sensitive material uses POST bodies, never query parameters. There is no arbitrary URL, HTTP
 method, header, environment, or provider path in any public request model.
@@ -679,8 +792,9 @@ The encrypted claims are:
 }
 ```
 
-The expiry cannot exceed the embedded scope or Trading Key Proxy envelope deadline. The grant is
-not persisted. Its embedded envelope `jti` provides one-use redemption at the credential
+`sub_hash` uses the same keyed HMAC-SHA256 construction as OAuth state, keyed from the
+`AGENT_TOOL_GRANT_KEYS` bundle. The expiry cannot exceed the embedded scope or Trading Key
+Proxy envelope deadline. The grant is not persisted. Its embedded envelope `jti` provides one-use redemption at the credential
 boundary; after the first successful redemption, replay fails even if a grant is captured. The
 extra encryption prevents the MCP wrapper from inspecting or altering provider capability
 details and binds the ciphertext to one audience and one tool.
@@ -830,6 +944,18 @@ is raised under the same correlation ID; the read-only v1 response may still com
 mutations will require both their durable pre-execution audit and idempotency record before the
 provider call.
 
+### User-visible connection activity (adopted from OKAP)
+
+The audit trail is also user-facing: `GET /api/alpaca/activity` returns the authenticated
+principal's own recent events — timestamp, operation, consumer, grant profile, and safe outcome
+category only — and the `/portfolio` page shows them in a connection-activity panel, with agent
+accesses (consumer `anthropic_chat`) visually distinguished. A user can therefore see every
+time the sidekick touched their account and when, turning the audit table into a detection
+layer for the account owner rather than a purely operational record — a layered-mitigation
+surface in the same spirit as the rest of this design. The route reads only fields already on
+the metadata allowlist above and is principal-scoped by the verified JWT `sub`; it can never
+widen into position, order, or credential data.
+
 ## Frontend experience
 
 ### Navigation and naming
@@ -936,6 +1062,15 @@ paper-api.alpaca.markets:443
 Cloud Run at startup. No arbitrary outbound host, URL, proxy, or redirect target is configurable
 from request data.
 
+**Required change to the JWT mint:** the per-user ES256 tokens are minted by quantui Express
+(`frontend/server/auth.mjs`) with `aud: ['quantcore-api', 'quantcore-keyproxy']` today. The
+trading proxy verifies audience membership against `KEYPROXY_JWT_AUDIENCE`, so the mint's `aud`
+array must gain the trading-proxy audience (for example `quantcore-keyproxy-trading`) before
+any trading-proxy call can succeed. The addition is backward-compatible — each verifier checks
+only for its own audience — but it must ship in packet A5 and be deployed to quantui before
+A7's smoke test. Without it, every trading-proxy request fails audience verification with a
+misleading 401.
+
 ## Alpaca portfolio MCP deployment
 
 Deploy `quantcore-mcp-alpaca-portfolio` as a separate, internal-ingress Cloud Run service using
@@ -954,7 +1089,15 @@ The reentrant `quantcore-api -> MCP -> quantcore-api` call requires an async, co
 REST deployment. The MCP hop uses a bounded connect/read/total timeout shorter than the remaining
 chat-turn deadline and propagates cancellation. A deployment smoke test must exercise the loop to
 prevent connection-pool starvation or a single-worker deadlock. No fallback can replace it with
-`ChatService -> AlpacaService`, because that would violate Rule 6.
+`ChatService -> AlpacaService`, because that would violate Rule 6 (whether Rule 6 applies to the
+in-process sidekick at all is the flagged team-review question; if the team selects in-process
+dispatch, this section reduces to the wrapper's external-client deployment).
+
+Timeout budgets nest strictly, applying the base plan's decision-11 lesson that the platform
+timeout must be at least the application timeout on **every** hop: Cloud Run request timeout on
+quantcore-api > chat-turn deadline > `ALPACA_PORTFOLIO_MCP_TIMEOUT` > the wrapper's REST-call
+timeout > `TRADING_KEYPROXY_TIMEOUT` > the proxy's Alpaca client timeout. The chat SSE heartbeat
+keeps flowing during the tool hop so intermediaries do not idle-close the stream.
 
 ## OAuth permission progression
 
@@ -1073,91 +1216,291 @@ There will never be a generic “execute these arbitrary Alpaca requests” endp
 | trading proxy | `QUANTCORE_JWT_PUBLIC_KEY` | ES256 verification key only |
 | trading proxy | `KEYPROXY_JWT_AUDIENCE` | Trading-proxy-specific audience |
 | trading proxy | `ALPACA_AGENT_ENVELOPE_MAX_SKEW` | Hard ceiling of 300 seconds for the exact agent positions profile |
-| frontend build | `VITE_TRADING_KEYPROXY_SPKI_PINS` | Test/prod trading-proxy public-key fingerprints |
+| frontend build | `VITE_TRADING_KEYPROXY_SPKI_PINS` | Trading-proxy public-key fingerprints — one bundle carries BOTH projects' pins (see below) |
 
 Test and production use different OAuth applications, callback URIs, client secrets, state keys,
-envelope keys, pins, runtime identities, and GCP projects. No real secret has a local default.
-Local and CI tests use deterministic fake providers and test-only key material.
+envelope keys, pins, runtime identities, and GCP projects. One deliberate exception, inherited
+from the base plan's packet-8b amendment: production promotes the already-built UI image **by
+digest** and never rebuilds it, so `cloudbuild.yaml` bakes BOTH projects' trading-proxy SPKI
+pins into the single frontend bundle (exactly as `VITE_KEYPROXY_SPKI_PINS` is handled today),
+and key rotation follows the base plan's dual-pin choreography (add the new pin, ship the
+bundle, rotate the key, remove the old pin). No real secret has a local default. Local and CI
+tests use deterministic fake providers and test-only key material.
 
 ## Implementation packets
 
-Implementation follows the base proposal's one-packet, one-reviewable-commit cadence.
+Implementation follows the base proposal's one-packet, one-reviewable-commit cadence and adopts
+its "Executing this plan — session protocol" in full:
+
+- One packet per session, ending in one reviewable commit; compact context between packets.
+- Each packet starts by loading its **Context** list — the relevant sections of this proposal
+  plus the named source files — before writing code.
+- The packet's **Verify** items are the exit contract: the packet is not done until every one
+  passes alongside the repo-wide gates (backend coverage ratchet, `tsc -b`, frontend coverage,
+  `docs/openapi-surface.txt` diff, MCP list-tools snapshot, gitleaks).
+- Every new failure path adds its corresponding never-log assertion in the same packet.
+- Design is settled at packet time — mid-packet scope changes stop the session and come back to
+  this document.
+- Blockers are reported, not worked around.
+
+Packet A0 opens a GitHub tracking issue (the issue-#100 pattern from the base plan) and each
+packet closes with a comment on it. A0 also schedules the external security review of this
+document; on the base plan that review produced the ES256-only and AAD-binding decisions before
+any crypto code existed, so its findings must be folded in **before A2 starts** (the first
+crypto and proxy code).
+
+### Written for a smaller implementation model
+
+These packets are structured so an Opus-class model can execute each one in a fresh session
+without inheriting judgment calls from this design conversation. That imposes five rules on the
+packet definitions themselves:
+
+- **Decision-complete.** Every module, class, route, env var, and test file a packet touches is
+  named in the "File and name map" below or in the packet's **Files** list. The implementing
+  session never invents a name, a package location, or a structural pattern; if a needed name
+  is missing, that is a blocker to report, not a decision to make.
+- **One coherent deliverable per packet**, sized to one session: roughly one new module plus
+  its tests. Packets whose original scope exceeded that have been split (A5/A6, A9a/A9b).
+- **Ordered steps.** Each packet's bullets are executed top to bottom; later steps assume
+  earlier ones.
+- **A hard out-of-scope fence.** Each packet says what it must *not* build, because the most
+  common smaller-model failure is helpfully building the next packet early and half-wiring it.
+- **Operator-led packets are labeled.** A0, A7, and the deployment half of A10 involve external
+  registration, secrets, and `gcloud` against live projects; the model drafts commands and
+  verifies outcomes, but a human runs anything that touches a cloud project or a secret.
+
+### Repo-wide gates — exact commands, run before every packet's commit
+
+```bash
+source .venv/bin/activate
+coverage run -m unittest discover && coverage report        # backend tests + coverage ratchet
+PYTHONPATH=. python scripts/check_openapi_snapshot.py       # REST surface unchanged?
+# when a packet intentionally changes routes:
+#   PYTHONPATH=. python scripts/check_openapi_snapshot.py --update   (commit the diff, review line by line)
+cd frontend && npx tsc -b && npx vitest run --coverage      # frontend types + tests + thresholds
+```
+
+Gitleaks and the MCP wrapper smoke (`scripts/ci_wrapper_smoke.py`) run in CI; packet A9b adds
+the Alpaca wrapper to the smoke and the list-tools snapshot.
+
+### File and name map (pinned)
+
+Renaming anything below is a review-visible edit to this document first, then code — never a
+mid-packet choice.
+
+| Thing | Pinned location and name |
+|---|---|
+| OAuth-state + receipt crypto (Python) | `keyproxy/oauth_state.py` |
+| Shared crypto vectors | `keyproxy/providers/vectors/alpaca_*.json` (consumed by Python unittest and vitest) |
+| Alpaca provider taxonomy (proxy side) | `keyproxy/providers/alpaca.py` |
+| Deterministic Alpaca fake (mock OAuth + positions) | `keyproxy/providers/alpaca_fake.py`, selected by `ALPACA_FAKE=1` (mirrors `CHAT_FAKE=1`) |
+| Trading proxy FastAPI app | `keyproxy/trading_main.py` — service `quantcore-keyproxy-trading`, image `Dockerfile.keyproxy-trading`. Same package as the base proxy so auth/replay/sessions/scopes/crypto are reused; trust separation is deployment-level (separate service, SA, keys, audience) |
+| Return-key + receipt crypto (browser) | `frontend/src/vault/alpacaReceipt.ts` (+ vault record types in the existing vault modules) |
+| Alpaca feature UI | `frontend/src/alpaca/` (connection card, popup handler, `/portfolio` page components); route registered in `frontend/src/App.tsx` |
+| Proxy gateway | `quantcore/gateways/alpaca_keyproxy_gateway.py` — `AlpacaKeyProxyGateway` |
+| Canonical service | `quantcore/services/alpaca.py` — `AlpacaService` |
+| Agent grant service | `quantcore/services/agent_grants.py` — `AgentToolGrantService` |
+| Audit repository | `quantcore/repositories/provider_access_audit_repository.py` — `ProviderAccessAuditRepository` |
+| REST routes / schemas | `api/routers/alpaca.py` / `api/schemas/alpaca.py` |
+| MCP wrapper | `fastMCPTest/alpaca_portfolio_server.py` — service `quantcore-mcp-alpaca-portfolio` |
+| MCP tool gateway (ChatService seam) | `quantcore/gateways/mcp_tool_gateway.py` — `McpToolGateway` |
+| Backend test files | `test_alpaca_oauth_state.py`, `test_keyproxy_alpaca.py`, `test_alpaca_service.py`, `test_alpaca_api.py`, `test_agent_grants.py`, `test_alpaca_mcp.py`, `test_alpaca_sidekick_e2e.py`; extend `test_architecture_guards.py` |
 
 | Packet | Deliverable | Status |
 |---|---|---|
-| A0 | This proposal, team security review, and Alpaca Connect registration request | ☐ |
+| A0 | This proposal, tracking issue, external + team security review, and Alpaca Connect registration request | ☐ |
 | A1 | OAuth-state and token-receipt crypto with shared Python/TypeScript vectors | ☐ |
 | A2 | Trading proxy deployment skeleton, OAuth exchange, and `positions.list` provider | ☐ |
-| A3 | Metadata-only audit repository and `AlpacaService` with fake collaborators | ☐ |
-| A4 | Thin Pydantic REST routes, proxy gateway, error mapping, and OpenAPI snapshot | ☐ |
-| A5 | Vault Alpaca record, popup callback flow, and connection UI | ☐ |
-| A6 | `/portfolio` page, summaries, position grid, and cache lifecycle | ☐ |
+| A3 | Metadata-only audit repository, proxy gateway, and `AlpacaService` with fake collaborators | ☐ |
+| A4 | Thin Pydantic REST routes, activity route, error mapping, and OpenAPI snapshot | ☐ |
+| A5 | Vault Alpaca record, popup callback flow, connection UI, headers, and JWT-mint audience | ☐ |
+| A6 | `/portfolio` page, summaries, position grid, activity panel, and cache lifecycle | ☐ |
 | A7 | IAM, secrets, pins, FQDN-restricted egress, CI, and paper smoke test | ☐ |
 | A8 | Agent-tool grant service, chat request contract, and per-message consent UI | ☐ |
-| A9 | Canonical agent REST endpoint, curated FastMCP wrapper, MCP gateway, and ChatService tool wiring | ☐ |
+| A9a | Agent REST endpoint and `AlpacaService.list_positions_for_agent` | ☐ |
+| A9b | Curated FastMCP wrapper, `McpToolGateway`, and ChatService tool wiring | ☐ |
 | A10 | MCP IAM, private deployment, architecture guards, and sidekick end-to-end test | ☐ |
 
 ### Prerequisite gate
 
-Real OAuth tokens must not be used until the shared BYOK work provides:
+The base BYOK proposal this plan depends on is **complete** — live on test and production since
+2026-07-18 (PRs #105/#106 at `177e411`; checkpoint log in
+[`byok-key-proxy-plan.md`](byok-key-proxy-plan.md)). Gate status against its deliverables:
 
-- the browser vault and explicit unlock lifecycle;
-- strict CSP, Trusted Types, `Referrer-Policy`, and popup-compatible COOP;
-- per-user ES256 JWTs with service-specific audiences;
-- public-key pinning and rotation; and
-- IAM-locked Cloud Run invocation.
+- browser vault and explicit unlock lifecycle — **met**;
+- strict CSP and Trusted Types — **met** (base phase 5b);
+- `Referrer-Policy: no-referrer` and popup-compatible COOP (`same-origin-allow-popups`) —
+  **not part of the base work**: these are new headers this plan delivers in packet A5
+  (`frontend/server/server.mjs`) and they must land before any real callback carries an
+  authorization code;
+- per-user ES256 JWTs — **met** (base phase 7), but the minted `aud` array does not yet
+  include a trading-proxy audience — extending it is packet A5 work (see "Required change to
+  the JWT mint");
+- public-key pinning and rotation — **met** (base packet 8/8b, including the
+  both-projects-in-one-bundle pin-baking amendment this plan inherits); and
+- IAM-locked Cloud Run invocation — **met** (base packet 8b).
 
 Packets A8 through A10 additionally require the base proposal's authenticated Anthropic
-`TurnContext`, Key Proxy chat client, and provider-scoped session lifecycle. A7's direct
-`/portfolio` paper-account acceptance must pass before A8 begins, so the MCP milestone wraps a
-known canonical service rather than debugging OAuth, normalization, and agent orchestration at
-the same time.
+`TurnContext`, Key Proxy chat client, and provider-scoped session lifecycle — all delivered.
+A7's direct `/portfolio` paper-account acceptance must pass before A8 begins, so the MCP
+milestone wraps a known canonical service rather than debugging OAuth, normalization, and agent
+orchestration at the same time.
 
 Alpaca application registration can proceed in parallel. Development remains on a mock OAuth and
-mock positions provider until the gate is complete.
+mock positions provider until the two remaining header items and the audience extension land.
+
+### Packet A0 — review and registration (operator-led)
+
+- Open the GitHub tracking issue and link this document.
+- Run the team review (the questions section below) and the external security review; fold
+  resulting edits into this document before A2.
+- Submit the Alpaca Connect application registrations (test and prod, exact callback URLs).
+- Resolve the flagged reentrant-vs-in-process decision so A9b starts settled.
+
+No implementation model runs this packet; it is meetings, registrations, and document edits.
+Its exit is a comment on the tracking issue recording the review outcomes and any changed
+defaults.
 
 ### Packet A1 — return-channel crypto
 
-- Add shared vectors for OAuth state, return-key envelopes, token receipts, tampering, expiry,
-  Unicode, and key rotation.
-- Keep browser crypto on native `crypto.subtle` and proxy crypto on the existing reviewed Python
-  primitives.
+**Files:** `keyproxy/oauth_state.py`, `keyproxy/providers/vectors/alpaca_*.json`,
+`frontend/src/vault/alpacaReceipt.ts` (+ colocated `.test.ts`), `test_alpaca_oauth_state.py`.
+
+- Implement OAuth-state seal/unseal and token-receipt seal/open in `keyproxy/oauth_state.py`,
+  reusing the reviewed primitives in `keyproxy/crypto.py` — no new cryptographic constructions,
+  only the compositions specified in "OAuth state" and "Token receipt".
+- Implement the browser half in `frontend/src/vault/alpacaReceipt.ts` on native
+  `crypto.subtle`, mirroring `frontend/src/vault/envelope.ts`.
+- Generate shared vectors covering round-trip, tampering (header, IV, ciphertext, AAD), expiry,
+  wrong-key/unknown-`kid` rotation, Unicode payloads, and the keyed `sub_hash` construction;
+  both test suites consume the same JSON files.
 - Prove intermediaries cannot decrypt the return key or token receipt.
+
+**Out of scope:** no proxy app, no routes, no UI, no vault-record persistence.
+**Context to load first:** the base plan's crypto sections plus `keyproxy/crypto.py` and
+`frontend/src/vault/envelope.ts` (the reviewed primitives being reused).
+**Verify:** the same vector files pass in both languages (`python -m unittest
+test_alpaca_oauth_state` and `npx vitest run` on the new spec), including every tamper, expiry,
+rotation, and Unicode case.
 
 ### Packet A2 — Trading Key Proxy
 
-- Reuse the common key-proxy auth, envelope, replay, scope, and session primitives without sharing
-  deployment keys or sessions with the LLM proxy.
-- Add fixed OAuth start/exchange operations and one provider taxonomy entry: `positions.list`.
+**Files:** `keyproxy/providers/alpaca.py`, `keyproxy/providers/alpaca_fake.py`,
+`keyproxy/trading_main.py`, `Dockerfile.keyproxy-trading`, `test_keyproxy_alpaca.py`.
+
+- Build the provider taxonomy in `keyproxy/providers/alpaca.py`: exactly three operations —
+  `oauth.start`, `oauth.exchange`, `positions.list` — against hardcoded hosts, with a
+  fail-closed match on everything else.
+- Build the deterministic fake (`alpaca_fake.py`, selected by `ALPACA_FAKE=1`) first and
+  develop against it; no real Alpaca credentials exist in this packet.
+- Assemble `keyproxy/trading_main.py` from the existing `keyproxy/` auth, envelope, replay,
+  scope, and session primitives, with its own audience, key env vars, and session store —
+  nothing shared at runtime with the LLM proxy.
 - Use pooled async HTTP clients with redirects disabled, TLS verification, strict timeouts, and
-  constant safe failures.
-- Ensure raw provider bodies never enter exception logs.
+  constant safe failures; raw provider bodies never enter exception logs.
+
+**Out of scope:** no `quantcore/` service, gateway, REST route, or frontend change; no
+deployment (that is A7).
+**Context to load first:** the base `keyproxy/` package (auth, replay, sessions, scopes) plus
+this document's OAuth-state and proxy-exception sections.
+**Verify:** the taxonomy fails closed on every non-matching operation (host, path, method,
+environment), each new failure path has its never-log capture assertion, OAuth-state round-trip
+vectors pass, and the app boots and serves the full flow with `ALPACA_FAKE=1`.
 
 ### Packet A3 — service and audit
 
-- Add `AlpacaService` as the canonical capability.
-- Inject the proxy gateway and audit repository through `quantcore/services/registry.py`.
-- Keep grant selection, position validation, Decimal normalization, totals, error categories, and
-  audit behavior in the service.
-- Add the metadata-only audit schema through the repo's normal additive PostgreSQL migration and
-  `init_schema()` parity path.
+**Files:** `quantcore/services/alpaca.py`, `quantcore/gateways/alpaca_keyproxy_gateway.py`,
+`quantcore/repositories/provider_access_audit_repository.py`, `quantcore/services/registry.py`
+(wiring), `quantcore/db.py` (schema), `test_alpaca_service.py`, plus the CLAUDE.md and
+docstring table-count updates.
+
+- Add the `provider_access_audit` schema to `init_schema()` through the repo's normal additive
+  path, and the SQL-only `ProviderAccessAuditRepository` over it.
+- Add `AlpacaKeyProxyGateway` as a thin HTTP seam to the trading proxy — no scope selection,
+  totals, risk, or audit logic in the gateway.
+- Add `AlpacaService` holding grant-profile selection (the structured document), position
+  validation, Decimal normalization, totals, error categories, and attempted/succeeded/failed
+  audit behavior; wire everything through `get_services()` in the registry.
+
+**Out of scope:** no REST routes, no MCP, no frontend; the service is reachable only from
+tests.
+**Context to load first:** `quantcore/services/registry.py`, one existing service/repository
+pair as the pattern, and this document's audit and grant-profile sections.
+**Verify:** service tests run against fake collaborators only, the audit row shape matches the
+metadata-only contract, and every "16 tables" reference is updated — `provider_access_audit`
+makes `init_schema()` 17 tables, so CLAUDE.md and the `quantcore/db.py` docstrings change in
+this packet.
 
 ### Packet A4 — REST front door
 
-- Add Pydantic request/response schemas and one-call-deep routes.
-- Apply `require_principal` to every route.
-- Return no-store headers and stable safe errors.
-- Update `docs/openapi-surface.txt` and architecture guards.
+**Files:** `api/routers/alpaca.py`, `api/schemas/alpaca.py`, `api/main.py` (router include),
+`docs/openapi-surface.txt`, `test_alpaca_api.py`, `test_architecture_guards.py` (extension).
 
-### Packets A5 and A6 — frontend
+- Add Pydantic request/response schemas and one-call-deep routes for the five user-facing
+  routes in "Public REST surface" (the agent route is A9a).
+- Apply `require_principal` to every route; return no-store headers and the stable safe errors
+  from the error-contract table.
+- Add the principal-scoped `GET /api/alpaca/activity` route over the audit repository
+  (metadata-only fields, filtered by the verified `sub`).
+- Regenerate the OpenAPI snapshot and extend the architecture guards to the new router.
 
-- Add the vault grant profile, return-key lifecycle, exact-origin popup handler, reconnect, and
-  disconnect flows.
-- Add `/portfolio` and rename the existing tracked-holdings filter.
-- Fetch only while unlocked and visible; clear financial data on lock or disconnect.
+**Out of scope:** no `/api/alpaca/agent/*` route, no frontend, no MCP.
+**Context to load first:** the existing `api/routers/*` and `api/schemas/*` pattern plus this
+document's error-contract section.
+**Verify:** `PYTHONPATH=. python scripts/check_openapi_snapshot.py --update` produces exactly
+the expected new lines (reviewed line by line in the diff), architecture guards pass, and
+no-store headers are asserted on every route in `test_alpaca_api.py`.
+
+### Packet A5 — connection flow frontend
+
+**Files:** `frontend/src/alpaca/` (connection card, popup handler), vault record types in
+`frontend/src/vault/`, `frontend/server/server.mjs` (headers), `frontend/server/auth.mjs`
+(audience), colocated frontend tests.
+
+- Add the vault Alpaca record type and the return-key lifecycle around
+  `alpacaReceipt.ts` (from A1); implement connect, reconnect (atomic replace), and disconnect.
+- Implement the exact-origin popup handler per "Popup callback hardening"; consent denial,
+  popup close, popup block, timeout, and reload leave the vault unchanged.
+- Render the effective grant profile document verbatim on the connection card.
+- Add `Referrer-Policy: no-referrer` and COOP `same-origin-allow-popups` headers in
+  `frontend/server/server.mjs`, and the trading-proxy audience in the minted `aud` array in
+  `frontend/server/auth.mjs` (see "Required change to the JWT mint").
+
+**Out of scope:** no `/portfolio` positions page, grid, or activity panel (A6); no chat consent
+control (A8).
+**Context to load first:** `frontend/src/vault/`, `frontend/server/server.mjs`,
+`frontend/server/auth.mjs`, and this document's popup-hardening and token-receipt sections.
+**Verify:** the connection-flow items of the frontend test list pass, the two new headers are
+asserted present in server responses (extend `frontend/server/auth.test.mjs` or a sibling), and
+a mint test asserts the `aud` array contains the trading-proxy audience.
+
+### Packet A6 — portfolio page
+
+**Files:** `frontend/src/alpaca/` (page components), route registration in
+`frontend/src/App.tsx`, the tracked-holdings filter rename, colocated frontend tests.
+
+- Add the `/portfolio` route and page states exactly as specified in "Page states".
+- Add summaries and the position grid per the positions contract; Decimal-string formatting,
+  negatives, and nulls handled per the frontend test list.
+- Add the connection-activity panel fed by `GET /api/alpaca/activity`, visually distinguishing
+  agent accesses.
+- Fetch only while unlocked, online, and visible; clear all position data on lock or
+  disconnect; rename the Securities-page filter to **Tracked holdings**.
 - Do not add trading controls, disabled order buttons, or future-order placeholders.
 
-### Packet A7 — rollout
+**Out of scope:** no chat/sidekick surface, no new REST routes.
+**Context to load first:** the positions-contract, page-states, and activity sections of this
+document plus an existing data-grid component in `frontend/src/components/`.
+**Verify:** the remaining frontend test-list items pass and no position data is written to
+localStorage or IndexedDB (asserted in tests).
+
+### Packet A7 — rollout (operator-led)
+
+**Files:** `cloudbuild.yaml`, `.github/workflows/deploy.yml`,
+`.github/workflows/prod-rollout.yml`, `.gitleaks.toml`; everything else in this packet is
+`gcloud` runbook work a human executes. The implementation model may draft the CI edits and the
+runbook commands, but a human runs anything that touches cloud projects, service accounts, or
+secrets.
 
 - Register separate test/prod Alpaca Connect apps with exact callbacks.
 - Provision trading-only identities, secrets, keys, pins, Cloud Run service, and egress policy.
@@ -1165,7 +1508,36 @@ mock positions provider until the gate is complete.
   digest through the existing gated production workflow.
 - Record callback, consent, disconnect/revocation, and log-audit results in this document.
 
+**Runbook rules learned on the base BYOK prod rollout (packet 8b — all mandatory here):**
+
+- On existing Cloud Run services use `--update-secrets` / `--update-env-vars` **only** —
+  `--set-*` replaces the entire set and briefly broke prod `quantui` and `quantcore-api` on
+  2026-07-18.
+- Never accept an "this env var is inert" claim without checking the image *actually running*
+  on the service: the pre-BYOK `api/auth.py` consumed `QUANTCORE_JWT_PUBLIC_KEY` as an HMAC
+  secret and broke every HS256 token on prod.
+- Create the new runtime service accounts (`keyproxy-trading-runtime@`, `mcp-alpaca-runtime@`
+  or equivalent) with **zero project roles** and per-secret grants only, and in the same step
+  grant `quantcore-deployer@` `roles/iam.serviceAccountUser` on each of them **in both
+  projects** — the missing actAs grant is exactly what failed the base keyproxy CI deploy.
+- Private keys and the Alpaca client secret are generated and piped straight into Secret
+  Manager, never printed to a terminal or log.
+- CI wiring mirrors base packet 8a: named `cloudbuild.yaml` build steps for the two new images,
+  `deploy.yml` image-only deploys with skip-if-service-absent guards, `prod-rollout.yml`
+  digest-copy + deploy for both services, and `.gitleaks.toml` rules extended for the new
+  secret shapes (OAuth client secret, `ALPACA_OAUTH_STATE_KEYS`, `AGENT_TOOL_GRANT_KEYS`).
+
+**Context to load first:** the base plan's packet 8a/8b runbook (including the amendments) plus
+`deploy.yml`, `prod-rollout.yml`, and `cloudbuild.yaml`.
+**Verify:** the paper-account smoke test is green on test, and the runbook results (including
+any incidents) are recorded in this document before promotion.
+
 ### Packet A8 — per-message agent capability
+
+**Files:** `quantcore/services/agent_grants.py`, `api/schemas/chat.py` (contract extension),
+`quantcore/services/chat.py` (accept and thread the grant — no dispatch yet),
+`quantcore/services/registry.py` (wiring), the consent control in `frontend/src/chat/`,
+`test_agent_grants.py`, colocated frontend tests.
 
 - Add canonical Pydantic `ToolGrant`, `AgentPositionsRequest`, and existing response-model reuse;
   extend `ChatRequest` with `chat_request_id` and the bounded `tool_grants` list.
@@ -1176,28 +1548,119 @@ mock positions provider until the gate is complete.
 - Verify the Anthropic request and tool schema contain no Alpaca envelope, grant, JWT, or
   credential-shaped tool parameter.
 
-### Packet A9 — canonical MCP positions path
+**Out of scope:** no MCP wrapper, no `McpToolGateway`, no agent REST endpoint, and no
+`get_alpaca_positions` tool exposure — in this packet a granted turn validates the grant and
+goes no further (A9a/A9b add the dispatch path).
+**Context to load first:** this document's chat contract and grant sections,
+`quantcore/services/chat.py`, and the existing chat request/response schemas.
+**Verify:** grant issuance/validation tests pass (including rotation and replay), and an
+assertion proves the Anthropic request contains no credential-shaped fields.
 
-- Add the one-call-deep `POST /api/alpaca/agent/positions` route and reuse the canonical
+### Packet A9a — agent REST endpoint
+
+**Files:** `api/routers/alpaca.py` (one added route), `api/schemas/alpaca.py`,
+`quantcore/services/alpaca.py` (`list_positions_for_agent`), `docs/openapi-surface.txt`,
+`test_alpaca_api.py` and `test_alpaca_service.py` (extensions).
+
+- Add the one-call-deep `POST /api/alpaca/agent/positions` route reusing the canonical
   `AlpacaPositionsResponse` Pydantic contract.
 - Add `AlpacaService.list_positions_for_agent`, sharing the direct-read normalization, totals,
-  errors, and audit workflow while adding principal/grant/rate checks.
-- Add the one-tool FastMCP wrapper over REST and a thin async `McpToolGateway` for `ChatService`;
-  preserve user JWT metadata and separate Cloud Run service identity.
+  errors, and audit workflow while adding principal/grant/rate checks (grant validation via the
+  injected `AgentToolGrantService` from A8).
+- Regenerate the OpenAPI snapshot.
+
+**Out of scope:** no MCP wrapper, no `McpToolGateway`, no `ChatService` changes.
+**Context to load first:** this document's agent-endpoint contract, `api/routers/alpaca.py`
+as landed in A4, and `quantcore/services/agent_grants.py` from A8.
+**Verify:** the OpenAPI snapshot diff shows exactly the one new route, agent-path audit rows
+carry the agent consumer marker, and grant/replay/expiry rejections return the stable safe
+errors.
+
+### Packet A9b — wrapper, gateway, and chat wiring
+
+**Files:** `fastMCPTest/alpaca_portfolio_server.py`,
+`quantcore/gateways/mcp_tool_gateway.py`, `quantcore/services/chat.py` (dispatch),
+`quantcore/services/registry.py` (wiring), `test_alpaca_mcp.py`,
+`test_architecture_guards.py` (extension), the MCP list-tools snapshot,
+`scripts/ci_wrapper_smoke.py` (add the new wrapper).
+
+- Add the one-tool FastMCP wrapper over REST (service `quantcore-mcp-alpaca-portfolio`) and the
+  thin async `McpToolGateway` for `ChatService`; preserve user JWT metadata and separate Cloud
+  Run service identity.
 - Dynamically include `get_alpaca_positions` only with a valid per-message grant; cache one
   successful result for the turn and clear it on every terminal path.
-- Update `docs/openapi-surface.txt` and the MCP list-tools snapshot in the same packet.
+- Update the MCP list-tools snapshot and the wrapper smoke in the same packet.
 
-### Packet A10 — private deployment and end-to-end proof
+**Out of scope:** no deployment (A10), no REST or schema changes.
+**Context to load first:** this document's wrapper and reentrant-topology sections (including
+team-review question 1 and its A0 resolution), an existing `fastMCPTest/*_server.py` wrapper,
+and `mcp_gateway/rest_client.py`.
+**Verify:** MCP list-tools snapshot updated and reviewed, the wrapper smoke passes, and the
+architecture guard rejects a direct `ChatService -> AlpacaService` path (if the reentrant
+default stands).
+
+### Packet A10 — private deployment and end-to-end proof (deployment half operator-led)
+
+**Files:** `test_alpaca_sidekick_e2e.py` plus extensions to the guard/contract tests; the
+deployment steps are `gcloud` runbook work a human executes, mirroring A7.
 
 - Deploy the wrapper with internal ingress, least-privilege invoker relationships, bounded
-  timeouts, cancellation propagation, no Cloud SQL attachment, and no provider egress.
+  timeouts, cancellation propagation, no Cloud SQL attachment, and no provider egress
+  (operator-led).
 - Add architecture-import guards, OpenAPI/MCP contract checks, never-log capture, replay and
   confused-deputy tests, and a reentrant-call concurrency smoke test.
-- Exercise a complete tool-using chat against deterministic Anthropic and Alpaca fakes, then a
-  dedicated paper account, and record credential/data-flow inspection results in this proposal.
+- Exercise a complete tool-using chat in `test_alpaca_sidekick_e2e.py` against deterministic
+  Anthropic and Alpaca fakes (`CHAT_FAKE=1` / `ALPACA_FAKE=1` selection), then against a
+  dedicated paper account on the deployed stack, and record credential/data-flow inspection
+  results in this proposal.
+
+**Context to load first:** this document's MCP deployment section (timeout nesting included)
+and the base plan's packet 8b runbook.
+**Verify:** end-to-end acceptance items 8–12 pass, and the reentrant-call concurrency smoke
+test passes under the production worker and connection-pool configuration.
+
+### Checkpoint log
+
+| Packet | Date | Status | Commit |
+|---|---|---|---|
+| A0 | — | ☐ | — |
+| A1 | — | ☐ | — |
+| A2 | — | ☐ | — |
+| A3 | — | ☐ | — |
+| A4 | — | ☐ | — |
+| A5 | — | ☐ | — |
+| A6 | — | ☐ | — |
+| A7 | — | ☐ | — |
+| A8 | — | ☐ | — |
+| A9a | — | ☐ | — |
+| A9b | — | ☐ | — |
+| A10 | — | ☐ | — |
 
 ## Verification
+
+### Security invariants → tests
+
+Mirroring the base plan's invariant map (added there at the external reviewers' request), each
+numbered invariant must have a named test before the packet that implements it closes:
+
+1. The Alpaca client secret exists only in the Trading Key Proxy — never in the api, UI,
+   wrapper, or any log.
+2. A user's access token is never persisted or logged server-side; it exists only as vault
+   ciphertext in the browser and transiently in trading-proxy memory.
+3. Every envelope and agent grant is single-use — replay fails even when the ciphertext is
+   captured verbatim.
+4. A captured envelope or grant is unusable without the matching per-user JWT (AAD subject
+   binding).
+5. Only exact `GET /v2/positions` on the hardcoded paper host is reachable in v1; every
+   mutation-shaped operation fails closed.
+6. OAuth state is authenticated, subject-bound, single-flow, and expires in five minutes.
+7. The token receipt can be opened only by the browser holding the one-use return key.
+8. The model never sees a credential, envelope, grant, or JWT — only the tool schema and the
+   normalized result, and only after per-message consent.
+9. No log line, error body, or audit row ever contains credentials, OAuth values,
+   request/response bodies, or position financial data.
+10. All four auth layers — Cloud Run IAM, per-user ES256 JWT, envelope/grant AAD, and
+    scope/taxonomy enforcement — are independently tested to fail closed.
 
 ### Architecture tests
 
@@ -1248,6 +1711,10 @@ mock positions provider until the gate is complete.
 - Aggregate dollar values and percentage calculations are exact.
 - Alpaca 401/403, 429, 5xx, timeout, and malformed payloads map to stable safe errors.
 - Audit rows contain required metadata and no disallowed financial or credential data.
+- The exchange response's effective profile document matches the server-defined
+  `portfolio.read.v1` document exactly; the service never reflects a client-supplied profile.
+- `GET /api/alpaca/activity` returns only rows belonging to the verified `sub` and only
+  allowlisted metadata fields; a request by one principal can never surface another's events.
 - Response headers prevent browser/intermediary caching.
 
 ### Agent grant, MCP, and chat tests
@@ -1279,6 +1746,10 @@ mock positions provider until the gate is complete.
 - Decimal formatting, negative values, null values, sorting, responsive layout, and symbol
   navigation work correctly.
 - No position data is written to localStorage or IndexedDB.
+- The connection card and consent disclosure render the effective profile document from the
+  vault metadata, never hardcoded assumptions of what was requested.
+- The connection-activity panel shows only metadata fields and visually distinguishes agent
+  accesses from UI refreshes.
 - The chat opt-in is off initially, disabled while Alpaca is unavailable or locked, resets before
   awaiting send, and never persists or silently re-enables after retry or cancellation.
 - The exact Anthropic data-transfer disclosure is visible and accessible beside the consent
@@ -1330,26 +1801,123 @@ mock positions provider until the gate is complete.
 
 ## Team-review questions
 
-The implementation defaults above are decision-complete, but reviewers should challenge these
-specific boundaries before approval:
+The implementation defaults above are decision-complete, but reviewers should challenge the
+specific boundaries below before approval. Each entry states the question, why it exists, the
+default this plan takes, and what changes depending on the answer.
 
-- Is the one-use return-key protocol small and auditable enough, or should the browser vault gain a
-  persistent encrypted receipt keypair instead?
-- Does the chosen GCP egress control provide a true FQDN deny-by-default policy for both required
-  Alpaca hosts?
-- Does Alpaca's registered-app dashboard provide a stable user-revocation link we can safely place
-  in the disconnect UI?
-- Are metadata-only audit fields sufficient for privacy and operational investigation?
-- Are the base BYOK CSP, per-user JWT, pinning, and vault prerequisites complete enough to permit a
-  real paper token?
-- Is the per-message disclosure sufficiently clear that normalized position data enters the
-  user's Anthropic conversation after a successful tool call?
-- Are the internal Cloud Run identities and user-JWT metadata hop independently testable and
-  least-privilege in both test and production projects?
-- Is the narrow 300-second agent-read envelope window acceptable for model latency given its
-  one-call, zero-mutation, paper-only, subject-bound scope?
-- Does the future mutation boundary preserve Architectural Standard v2 ownership of risk,
-  idempotency, and audit in `AlpacaService` while retaining independent proxy enforcement?
+**1. Should the sidekick's tool call use the reentrant `ChatService -> MCP -> REST` loop, or
+dispatch in-process to `AlpacaService`?** Every existing chat tool in
+`quantcore/services/chat.py` dispatches in-process to constructor-injected services — the
+composition pattern Architectural Standard v2 blesses — and Rule 6 ("agents reach capabilities
+through the MCP wrapper over REST") was written for *external* AI agents, not for our own
+service calling itself. The plan's default is the reentrant loop (see "Considered alternative:
+in-process dispatch") because it gives one uniform enforcement path, identical audit rows for
+internal and external agents, and free reuse when external agents later need the same tool. The
+costs are real: an extra Cloud Run service in the request path, a self-call (the API calling
+back into itself through the wrapper) that can deadlock under exhausted worker or connection
+pools, added latency inside the chat turn, and the strict nested timeout budget in "MCP
+deployment". If reviewers choose in-process instead: packet A9b shrinks to building the wrapper
+for external agents only, grant validation moves wholly into `AlpacaService`, and the
+architecture guard that forbids `ChatService -> AlpacaService` is inverted for this one tool.
+If reviewers keep the loop: the deadlock, concurrency, and timeout-nesting tests stop being
+nice-to-haves and become the packet's exit criteria.
+
+**2. Is the one-use return-key protocol small and auditable enough, or should the browser vault
+gain a persistent encrypted receipt keypair instead?** The OAuth token receipt is encrypted to
+a fresh keypair that exists only in page memory for the duration of a single connect flow;
+nothing capable of decrypting a receipt ever exists at rest. The alternative is a durable
+receipt keypair stored in the vault (mirroring how the Anthropic-key envelope works), which
+simplifies the flow and survives a page reload mid-connect — but it puts a long-lived private
+key in IndexedDB whose compromise silently exposes every *future* receipt. The default favors
+the one-use key because connects are rare and the failure mode is cheap (the user reconnects);
+reviewers should confirm the extra protocol steps are simple enough to audit correctly, since
+a subtle bug in a bespoke handshake is worse than a well-understood stored key.
+
+**3. Does the chosen GCP egress control provide a true FQDN deny-by-default policy for both
+required Alpaca hosts?** The Trading Key Proxy should be *infrastructurally* unable to reach
+anything but `app.alpaca.markets` and `paper-api.alpaca.markets`, so that even a compromised
+proxy cannot exfiltrate a token to an attacker host. The honest difficulty is that classic VPC
+firewall rules are IP-based (Alpaca's IPs are not stable), and hostname-level control requires
+something like Secure Web Proxy with an FQDN allowlist — which adds cost and a new component in
+the data path — and must be evaluated for SNI-vs-Host-header bypasses. If no true FQDN control
+is acceptable, the fallback is layered compensation (hardcoded hosts and disabled redirects in
+the proxy code, plus the narrowest achievable network policy) with the residual risk recorded
+here, not a silent downgrade.
+
+**4. Does Alpaca's registered-app dashboard provide a stable user-revocation link we can safely
+place in the disconnect UI?** Disconnect deletes the browser-vault record, which removes *our*
+ability to use the token — but the token itself remains valid at Alpaca until it expires or the
+user revokes the app authorization on Alpaca's side, and Alpaca publishes no revocation API for
+this flow. The disconnect UI therefore wants to deep-link the user to Alpaca's authorized-apps
+page to finish the job. Reviewers should verify during A7 that a stable URL exists; if it does
+not, the disconnect copy must instruct the user in words, and the consent disclosure must state
+the residual-validity window honestly.
+
+**5. Are metadata-only audit fields sufficient for privacy and operational investigation?** The
+question cuts both ways. Too little: can an on-call engineer actually trace a failed or
+suspicious provider call end-to-end using only correlation IDs, Alpaca `X-Request-ID`, latency,
+and safe error categories — with no request or response bodies anywhere? Too much: in a
+multi-user database, is any retained field (precise timestamps joined with consumer and
+operation) itself a privacy concern, especially now that the activity view exposes rows to the
+account owner? Review the field list against a concrete incident-response walkthrough, not in
+the abstract.
+
+**6. Is the OKAP-inspired user-visible activity view correctly scoped, and is passive UI
+visibility enough?** The route is principal-scoped by the verified JWT `sub` and returns only
+allowlisted metadata; reviewers should confirm both choices (is `sub` the right partition key
+for shared or renamed accounts? is every exposed field genuinely safe to show?). The deeper
+question is detection posture: the panel only helps a user who looks at it. An out-of-band
+notification on agent access (the existing Discord notifier is precedent) converts detection
+from pull to push, but at one alert per opted-in sidekick message it risks training users to
+ignore alerts. The default is UI-only for v1 with the notification decision deferred until real
+usage volume is known.
+
+**7. Are the base BYOK CSP, per-user JWT, pinning, and vault prerequisites complete enough to
+permit a real paper token?** The prerequisite gate marks most items met by the completed BYOK
+rollout, with the two new headers assigned to packet A5. The 8b lesson applies directly:
+"met" claims must be re-verified against what is *actually running* in both projects — inspect
+the live services, not this document — before the first real paper token is minted. A paper
+token moves no money, but it exposes real account structure and position data, so the gate is
+about data protection, not trading risk.
+
+**8. Is the per-message disclosure sufficiently clear that normalized position data enters the
+user's Anthropic conversation after a successful tool call?** When the sidekick tool succeeds,
+the user's symbols, quantities, and dollar values become part of a conversation processed by
+Anthropic under the user's own API key. The consent control discloses this per message, but
+reviewers should judge the wording as a non-technical user would read it: does it name the
+data classes that leave QuantCore, is it visible beside the control rather than behind a
+tooltip, and does it meet the accessibility bar? Under-disclosure is a trust failure even when
+the architecture is sound.
+
+**9. Are the internal Cloud Run identities and user-JWT metadata hop independently testable and
+least-privilege in both test and production projects?** The design has three authenticated
+hops (api → MCP wrapper via Google ID token, wrapper → api carrying the user JWT, api → trading
+proxy via `X-Serverless-Authorization`), each with its own dedicated service account holding
+zero project roles. Reviewers should demand a negative test per hop — a caller with the *wrong*
+Google identity or a missing user JWT is rejected — runnable in both projects, because
+least-privilege that can only be verified by reading IAM policy in the console is exactly the
+kind of claim the BYOK rollout proved unreliable.
+
+**10. Is the 300-second agent-read envelope window acceptable?** The UI positions envelope
+lives 30 seconds because the browser calls immediately; the agent envelope must survive the
+model's thinking-plus-tool-call latency between the user's consent and the wrapper's REST call,
+so it gets 300 seconds. A longer window is a longer replay/exfiltration window, mitigated by
+single-use redemption, subject and request binding, zero-mutation budget, and paper-only scope.
+Reviewers should sanity-check the number rather than the principle: packet A8 should measure
+real p99 consent-to-tool-call latency and shrink the window to the smallest value that doesn't
+strand legitimate turns.
+
+**11. Does the future mutation boundary preserve Architectural Standard v2 ownership of risk,
+idempotency, and audit in `AlpacaService` while retaining independent proxy enforcement?** The
+roadmap's plan/confirm/execute design makes `AlpacaService` the single owner of risk checks,
+idempotency records, and durable audit, while the Trading Key Proxy independently enforces its
+own ceilings so a service-layer bug alone cannot mutate an account. The review question is
+whether that dual enforcement can stay in lockstep without drifting — the structured
+`paper-trading.v1` profile document is the intended single source for both sides' limits — and
+whether binding the user-confirmed order plan into the grant AAD keeps the service
+authoritative over *what* executes while the proxy stays authoritative over *whether anything*
+may execute. This is a design-shape review now so the read-only v1 doesn't paint the mutation
+phase into a corner; the mutation phase itself still requires its own full review.
 
 Any change that introduces server-side token persistence, direct frontend/provider access, a
 generic proxy operation, a route with business logic, an unconfirmed mutation, or a write-capable

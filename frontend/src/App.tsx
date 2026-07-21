@@ -38,7 +38,7 @@ function Layout() {
   ];
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <AppBar position="static">
         <Toolbar>
           <Typography
@@ -143,7 +143,14 @@ function Layout() {
         <Container
           maxWidth="xl"
           data-testid="page-content"
-          sx={{ py: 3, flex: 1, minWidth: 0, display: chatFullscreen ? 'none' : 'block' }}
+          sx={{
+            py: 3,
+            flex: 1,
+            minWidth: 0,
+            minHeight: 0,
+            overflowY: 'auto',
+            display: chatFullscreen ? 'none' : 'block',
+          }}
         >
           <Outlet />
         </Container>

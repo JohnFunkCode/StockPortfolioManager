@@ -334,6 +334,21 @@ class ChatService:
                     results.append(_tool_result(tu.id, out))
 
                 convo.append({"role": "user", "content": results})
+                # Diagnostic only: tool names are a fixed, non-sensitive enum
+                # (TOOL_SCHEMAS) and this is a byte count, not content — safe
+                # under the never-log policy. Narrows whether a provider
+                # invalid_request_error on the follow-up call correlates with
+                # multi-tool turns or with oversized tool_result payloads.
+                try:
+                    results_bytes = len(json.dumps(results))
+                except (TypeError, ValueError):
+                    results_bytes = -1
+                logger.info(
+                    "tool turn built tool_count=%d tools=%s results_bytes=%d",
+                    len(tool_uses),
+                    [tu.name for tu in tool_uses],
+                    results_bytes,
+                )
 
             yield ErrorEvent(
                 message=f"Tool iteration limit ({self._max_iterations}) reached."

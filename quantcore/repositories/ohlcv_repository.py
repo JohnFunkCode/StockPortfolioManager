@@ -117,61 +117,82 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     """
     Upsert OHLCV rows.  If an existing CLOSED bar's close diverges ≥0.1% from
     the freshly-fetched value the row is upgraded to CORRECTED (split detection).
+
+    Batched into (at most) one lookup + one executemany rather than a
+    SELECT-then-INSERT per row — against Cloud SQL through the auth proxy
+    (~90ms RTT) the old per-row loop took ~90s/symbol for a full 2-year daily
+    history, which is what turned a multi-symbol correction cascade into a
+    30+ minute synchronous hold (see db.py's executemany docstring for the
+    same fix applied to the options-snapshot path).
     """
     if df.empty:
         return
 
+    prepared = []
+    for ts_idx, row in df.iterrows():
+        ts_int    = _ts_to_int(ts_idx)
+        bar_date  = pd.Timestamp(ts_idx).date()
+        new_close = float(row["Close"])
+        status    = _bar_status_for(bar_date, interval)
+        prepared.append((ts_int, new_close, status, row))
+
+    closed_ts = [ts_int for ts_int, _, status, _ in prepared if status == BarStatus.CLOSED]
+
     with closing(get_connection()) as conn:
-        for ts_idx, row in df.iterrows():
-            ts_int     = _ts_to_int(ts_idx)
-            bar_date   = pd.Timestamp(ts_idx).date()
-            new_close  = float(row["Close"])
-            status     = _bar_status_for(bar_date, interval)
+        existing_closed = {}
+        if closed_ts:
+            existing_closed = {
+                r[0]: float(r[1])
+                for r in conn.execute(
+                    "SELECT ts, close FROM ohlcv "
+                    "WHERE symbol=? AND interval=? AND status='CLOSED' AND ts = ANY(?)",
+                    (symbol, interval, closed_ts),
+                ).fetchall()
+            }
 
-            if status == BarStatus.CLOSED:
-                existing = conn.execute(
-                    "SELECT close, status FROM ohlcv WHERE symbol=? AND interval=? AND ts=?",
-                    (symbol, interval, ts_int),
-                ).fetchone()
-                if existing and existing[1] == "CLOSED":
-                    cached_close = float(existing[0])
-                    if (
-                        cached_close != 0
-                        and abs(cached_close - new_close) / abs(cached_close) > 0.001
-                    ):
-                        status = BarStatus.CORRECTED
-                        logger.warning(
-                            "CORRECTED bar detected: %s %s ts=%s  cached=%.4f  new=%.4f",
-                            symbol, interval, ts_int, cached_close, new_close,
-                        )
+        upsert_rows = []
+        for ts_int, new_close, status, row in prepared:
+            if status == BarStatus.CLOSED and ts_int in existing_closed:
+                cached_close = existing_closed[ts_int]
+                if (
+                    cached_close != 0
+                    and abs(cached_close - new_close) / abs(cached_close) > 0.001
+                ):
+                    status = BarStatus.CORRECTED
+                    logger.warning(
+                        "CORRECTED bar detected: %s %s ts=%s  cached=%.4f  new=%.4f",
+                        symbol, interval, ts_int, cached_close, new_close,
+                    )
 
-            conn.execute(
-                """
-                INSERT INTO ohlcv
-                    (symbol, interval, ts, open, high, low, close, volume, status, adj_close, data_vendor, ingested_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (symbol, interval, ts) DO UPDATE SET
-                    open        = EXCLUDED.open,
-                    high        = EXCLUDED.high,
-                    low         = EXCLUDED.low,
-                    close       = EXCLUDED.close,
-                    volume      = EXCLUDED.volume,
-                    status      = EXCLUDED.status,
-                    adj_close   = EXCLUDED.adj_close,
-                    data_vendor = EXCLUDED.data_vendor,
-                    ingested_at = EXCLUDED.ingested_at
-                """,
-                (
-                    symbol, interval, ts_int,
-                    float(row["Open"]), float(row["High"]),
-                    float(row["Low"]),  new_close,
-                    int(row["Volume"]) if row["Volume"] is not None else 0,
-                    status.value,
-                    None,  # adj_close: not available from yfinance with auto_adjust=True
-                    "yfinance",
-                    int(time()),
-                ),
-            )
+            upsert_rows.append((
+                symbol, interval, ts_int,
+                float(row["Open"]), float(row["High"]),
+                float(row["Low"]),  new_close,
+                int(row["Volume"]) if row["Volume"] is not None else 0,
+                status.value,
+                None,  # adj_close: not available from yfinance with auto_adjust=True
+                "yfinance",
+                int(time()),
+            ))
+
+        conn.executemany(
+            """
+            INSERT INTO ohlcv
+                (symbol, interval, ts, open, high, low, close, volume, status, adj_close, data_vendor, ingested_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (symbol, interval, ts) DO UPDATE SET
+                open        = EXCLUDED.open,
+                high        = EXCLUDED.high,
+                low         = EXCLUDED.low,
+                close       = EXCLUDED.close,
+                volume      = EXCLUDED.volume,
+                status      = EXCLUDED.status,
+                adj_close   = EXCLUDED.adj_close,
+                data_vendor = EXCLUDED.data_vendor,
+                ingested_at = EXCLUDED.ingested_at
+            """,
+            upsert_rows,
+        )
 
         conn.execute(
             """

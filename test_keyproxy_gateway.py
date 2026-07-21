@@ -233,6 +233,33 @@ class TestKeyProxyChatClient(GatewayTestBase):
             self.run_turn(client)
         self.assertEqual(str(ctx.exception), keyproxy_gateway.RESEND_MESSAGE)
 
+    def test_invalid_bearer_token_is_a_distinct_auth_error_and_logs_status(self):
+        # A real 401 from require_caller (bad JWT), not a mocked status code —
+        # must map to a distinct message from UNAVAILABLE_MESSAGE and must log
+        # the bare status so the next occurrence is diagnosable server-side.
+        scope = chat_scope()
+        client = keyproxy_gateway.KeyProxyChatClient(
+            envelope=self.mint_envelope(scope),
+            scope=scope,
+            auth_token="not-a-valid-jwt",
+            model="claude-fable-5",
+            effort="medium",
+        )
+        with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
+            self.run_turn(client)
+        self.assertEqual(str(ctx.exception), keyproxy_gateway.AUTH_ERROR_MESSAGE)
+        self.assertNotEqual(
+            keyproxy_gateway.AUTH_ERROR_MESSAGE, keyproxy_gateway.UNAVAILABLE_MESSAGE
+        )
+        rejections = [
+            m for m in self.logged_messages() if "keyproxy session rejected" in m
+        ]
+        self.assertEqual(len(rejections), 1)
+        self.assertIn("401", rejections[0])
+        # Never-log policy: the log line carries the status only — never the
+        # token, the response detail string, or any other request material.
+        self.assert_never_logged("not-a-valid-jwt", "invalid or missing bearer token")
+
     def test_keyproxy_stream_no_buffering(self):
         # Risk-pinning test (2026-07-16): the api -> keyproxy hop must pass
         # chunks through as they arrive. 5 deltas spaced ~200 ms apart; the

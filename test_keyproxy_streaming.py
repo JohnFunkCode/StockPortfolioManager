@@ -243,6 +243,45 @@ class TestStreamingTurn(StreamingTestBase):
         ]
         self.assertEqual(unexpected, [])
 
+    def test_provider_error_logs_only_safe_metadata(self):
+        # A bare exception (no .status_code) — e.g. the RuntimeError above,
+        # which embeds the key in its message — must log only its class name.
+        stub = stub_stream("partial", error=True)
+        with patch("keyproxy.providers.anthropic.stream_turn", stub):
+            self.stream(self.open_session())
+        self.assert_never_logged(API_KEY, "blew up")
+        diag = [m for m in self.logged_messages() if "provider stream failed" in m]
+        self.assertEqual(len(diag), 1)
+        self.assertIn("exception_type=RuntimeError", diag[0])
+        self.assertIn("status_code=None", diag[0])
+
+    def test_provider_status_error_logs_code_and_type_not_message(self):
+        # Duck-typed anthropic.APIStatusError shape: status_code + a body
+        # whose error.message carries request-derived text that must never
+        # reach a log, while status_code/error.type (a fixed enum) may.
+        class FakeAPIStatusError(Exception):
+            status_code = 400
+            body = {
+                "type": "error",
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "tool_result for " + API_KEY + " is malformed",
+                },
+            }
+
+        def stream_turn(api_key, **params):
+            yield ("delta", "partial")
+            raise FakeAPIStatusError("unused")
+
+        with patch("keyproxy.providers.anthropic.stream_turn", stream_turn):
+            self.stream(self.open_session())
+        self.assert_never_logged(API_KEY, "is malformed")
+        diag = [m for m in self.logged_messages() if "provider stream failed" in m]
+        self.assertEqual(len(diag), 1)
+        self.assertIn("exception_type=FakeAPIStatusError", diag[0])
+        self.assertIn("status_code=400", diag[0])
+        self.assertIn("error_type=invalid_request_error", diag[0])
+
 
 class TestStreamingHeartbeat(StreamingTestBase):
     extra_env = {"KEYPROXY_HEARTBEAT_SECS": "0.05"}

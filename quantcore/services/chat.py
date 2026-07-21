@@ -25,6 +25,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Callable, Iterator, Protocol
 
+from quantcore.error_text import safe_error_text
 from quantcore.services.chat_tools import (
     TOOL_SCHEMAS,
     validate_directive,
@@ -296,6 +297,7 @@ class ChatService:
                 # Echo assistant content back unchanged (thinking blocks included).
                 convo.append({"role": "assistant", "content": final.content})
                 results = []
+                degraded: list[str] = []
                 for tu in tool_uses:
                     args = dict(tu.input or {})
                     if tu.name == "show_component":
@@ -311,6 +313,7 @@ class ChatService:
                             results.append(_tool_result(tu.id, {"rendered": True}))
                         else:
                             results.append(_tool_result(tu.id, reason, is_error=True))
+                            degraded.append(tu.name)
                         continue
 
                     yield ToolStatus(tool=tu.name, args=args, state="running")
@@ -320,18 +323,26 @@ class ChatService:
                         results.append(
                             _tool_result(tu.id, f"Unknown tool: {tu.name}", is_error=True)
                         )
+                        degraded.append(tu.name)
                         continue
                     try:
                         out = handler(**args)
                     except Exception as exc:  # noqa: BLE001 — model gets to recover
-                        logger.warning("chat tool %s failed: %s", tu.name, exc)
+                        safe_exc = safe_error_text(exc)
+                        logger.warning("chat tool %s failed: %s", tu.name, safe_exc)
                         yield ToolStatus(tool=tu.name, args=args, state="error")
                         results.append(
-                            _tool_result(tu.id, f"Error: {exc}", is_error=True)
+                            _tool_result(tu.id, f"Error: {safe_exc}", is_error=True)
                         )
+                        degraded.append(tu.name)
                         continue
                     yield ToolStatus(tool=tu.name, args=args, state="done")
                     results.append(_tool_result(tu.id, out))
+                    # Some handlers (e.g. get_technical_signals, get_options_flow_signals)
+                    # fan out internally and degrade individual sub-results rather than
+                    # raising — surface those partial failures here too.
+                    if isinstance(out, dict) and out.get("_errors"):
+                        degraded.append(tu.name)
 
                 convo.append({"role": "user", "content": results})
                 # Diagnostic only: tool names are a fixed, non-sensitive enum
@@ -343,6 +354,11 @@ class ChatService:
                     results_bytes = len(json.dumps(results))
                 except (TypeError, ValueError):
                     results_bytes = -1
+                if degraded:
+                    logger.warning(
+                        "tool turn had degraded results tool_count=%d degraded=%s results_bytes=%d",
+                        len(tool_uses), degraded, results_bytes,
+                    )
                 logger.info(
                     "tool turn built tool_count=%d tools=%s results_bytes=%d",
                     len(tool_uses),

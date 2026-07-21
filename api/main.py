@@ -10,11 +10,23 @@ Run with:  uvicorn api.main:app --host 127.0.0.1 --port 5001
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Cloud Run's `uvicorn api.main:app` entrypoint never hits `if __name__ ==
+# "__main__"`, and uvicorn's own logging config only touches the "uvicorn*"
+# loggers, leaving the root logger at its WARNING default — every
+# `logger.info(...)`/`logger.warning(...)` call in quantcore/* was silently
+# dropped before reaching Cloud Logging. basicConfig() is a no-op if a handler
+# is already attached to root, so this is safe regardless of import order.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 # Ensure project root and fastMCPTest are importable (mirrors api/app.py).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent

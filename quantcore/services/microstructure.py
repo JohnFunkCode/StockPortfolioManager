@@ -16,6 +16,7 @@ import datetime
 import math
 
 from quantcore.analytics.market_time import period_to_days
+from quantcore.error_text import safe_error_text
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 
@@ -55,7 +56,7 @@ class MicrostructureService:
         except TimeoutError as e:
             return {
                 "symbol":  symbol.upper(),
-                "error":   str(e),
+                "error":   safe_error_text(e),
                 "note":    "Retry the call — Yahoo Finance info endpoint was temporarily unresponsive.",
             }
 

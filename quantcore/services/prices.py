@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import bisect
 import datetime
+import logging
 import math
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -31,10 +32,13 @@ from quantcore.analytics.indicators import (
 )
 from quantcore.analytics.market_time import latest_completed_session, period_to_days
 from quantcore.analytics.volume_profile import build_volume_profile, find_volume_nodes
+from quantcore.error_text import safe_error_text
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
+
+logger = logging.getLogger(__name__)
 
 VALID_INTERVALS = {"1d", "1wk", "1mo", "1h", "30m", "15m"}
 
@@ -1759,7 +1763,7 @@ class PricesService:
         try:
             dd = self.get_historical_drawdown(ticker)
         except Exception as exc:
-            return {"ticker": ticker, "drawdown": None, "error": str(exc)}
+            return {"ticker": ticker, "drawdown": None, "error": safe_error_text(exc)}
         # Derive a simple stop-loss recommendation from drawdown stats
         price_data: dict = {}
         try:
@@ -1843,8 +1847,13 @@ class PricesService:
                     results[key] = future.result()
                 except Exception as e:
                     results[key] = None
-                    errors[key] = str(e)
+                    errors[key] = safe_error_text(e)
 
+        if errors:
+            logger.warning(
+                "technical signal sub-indicator(s) failed ticker=%s indicators=%s",
+                ticker, sorted(errors),
+            )
         return {"ticker": ticker, "_errors": errors if errors else None, **results}
 
     def screen_securities(self, filters: dict, portfolio: list[dict], watchlist: list[dict]) -> dict:

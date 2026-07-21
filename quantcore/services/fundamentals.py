@@ -21,6 +21,7 @@ from typing import Any, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from quantcore.error_text import safe_error_text
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 
@@ -965,5 +966,5 @@ class FundamentalsService:
                 pass
             dates = sorted(set(d for d in dates if d and len(d) == 10))
         except Exception as exc:
-            return {"ticker": ticker, "earnings_dates": [], "error": str(exc)}
+            return {"ticker": ticker, "earnings_dates": [], "error": safe_error_text(exc)}
         return {"ticker": ticker, "earnings_dates": dates}

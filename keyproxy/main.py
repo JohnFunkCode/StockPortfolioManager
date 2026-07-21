@@ -55,6 +55,17 @@ from keyproxy.sessions import (
     SessionStore,
 )
 
+# Cloud Run's `uvicorn keyproxy.main:app` entrypoint never hits
+# `if __name__ == "__main__"`, and uvicorn's own logging config only touches
+# the "uvicorn*" loggers, leaving the root logger at its WARNING default —
+# every logger.info(...) call below (session redeemed/deleted, turn streamed,
+# key validated) was silently dropped before reaching Cloud Logging.
+# basicConfig() is a no-op if a handler is already attached to root.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 logger = logging.getLogger("keyproxy")
 
 _INVALID = "invalid request"

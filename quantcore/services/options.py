@@ -20,6 +20,7 @@ behavioural parity is the contract.
 from __future__ import annotations
 
 import datetime
+import logging
 import math
 import time as _time
 from collections import defaultdict
@@ -38,6 +39,7 @@ from quantcore.analytics.options_math import (
     compute_max_pain,
     safe_int as _safe_int,
 )
+from quantcore.error_text import safe_error_text
 from quantcore.gateways.polygon_gateway import PolygonGateway, PolygonPlanError
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
@@ -46,6 +48,8 @@ from quantcore.services.options_contracts import (
     get_option_contracts_data,
     price_vertical_spread_data,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OptionsService:
@@ -1065,8 +1069,13 @@ class OptionsService:
                     results[key] = future.result()
                 except Exception as e:
                     results[key] = None
-                    errors[key] = str(e)
+                    errors[key] = safe_error_text(e)
 
+        if errors:
+            logger.warning(
+                "options flow sub-signal(s) failed ticker=%s signals=%s",
+                ticker, sorted(errors),
+            )
         return {"ticker": ticker, "_errors": errors if errors else None, **results}
 
     def get_portfolio_delta_exposure(self, portfolio: list[dict]) -> dict:
@@ -1203,11 +1212,11 @@ class OptionsService:
                 contracts_all = self._polygon.option_snapshots(ticker, date_str)
             except PolygonPlanError as exc:
                 return {
-                    "error": str(exc),
+                    "error": safe_error_text(exc),
                     "polygon_status": exc.status_code,
                 }, 402
             except requests.RequestException as exc:
-                results.append({"date": date_str, "status": "error", "error": str(exc)})
+                results.append({"date": date_str, "status": "error", "error": safe_error_text(exc)})
                 continue
 
             if contracts_all is None:

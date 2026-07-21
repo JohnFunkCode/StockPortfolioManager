@@ -26,21 +26,29 @@ access pattern, while the underlying dict is kept byte-exact — thinking-block
 ``signature`` fields must survive the echo back into the conversation and the
 serialization onto the next turn's request unchanged.
 
-Error policy: nothing here logs, and no exception raised from this module
-carries envelope, key, token, or request material — only the keyproxy's own
-constant-detail strings (which name no values; the token-budget copy must
-reach the user verbatim) or this module's canned user-facing messages.
+Error policy: no exception raised from this module carries envelope, key,
+token, or request material — only the keyproxy's own constant-detail strings
+(which name no values; the token-budget copy must reach the user verbatim)
+or this module's canned user-facing messages. The one thing this module does
+log is the bare numeric HTTP status of a rejected session/turn (never the
+response detail, headers, or body) — see ``_log_rejection`` — so an incident
+like "the key service is temporarily unavailable" can be told apart from an
+actual auth rejection after the fact instead of collapsing into one generic
+bucket in both the user message and the logs.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 import threading
 import time
 from typing import Iterator, Optional
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_BASE_URL = "http://127.0.0.1:5002"
 
@@ -62,6 +70,9 @@ UNAVAILABLE_MESSAGE = (
 )
 RATE_LIMITED_MESSAGE = (
     "Rate limit exceeded — please wait a moment and re-send your message."
+)
+AUTH_ERROR_MESSAGE = (
+    "Your session's authorization was rejected — please refresh and try again."
 )
 
 
@@ -161,6 +172,8 @@ def _error_message(status_code: int, detail: object) -> str:
         if isinstance(detail, str) and detail and detail != _KEYPROXY_GENERIC:
             return detail
         return RESEND_MESSAGE
+    if status_code == 401:
+        return AUTH_ERROR_MESSAGE
     if status_code == 429:
         return RATE_LIMITED_MESSAGE
     return UNAVAILABLE_MESSAGE
@@ -171,6 +184,16 @@ def _response_detail(response: httpx.Response) -> object:
         return response.json().get("detail")
     except Exception:
         return None
+
+
+def _log_rejection(status_code: int) -> None:
+    """Log the bare numeric status of a rejected session/turn.
+
+    Never the response detail, headers, or body — only this int, so a real
+    auth failure or upstream error shows up in Cloud Run logs as something
+    other than an undifferentiated "unavailable" (see module docstring).
+    """
+    logger.warning("keyproxy session rejected: status=%s", status_code)
 
 
 # ---------------------------------------------------------------------------
@@ -294,6 +317,7 @@ class KeyProxyChatClient:
         except httpx.HTTPError:
             raise KeyProxyError(UNAVAILABLE_MESSAGE) from None
         if response.status_code != 200:
+            _log_rejection(response.status_code)
             raise KeyProxyError(
                 _error_message(response.status_code, _response_detail(response))
             )
@@ -339,6 +363,7 @@ class KeyProxyChatClient:
                     # The session is unusable (expired / budget-exhausted /
                     # killed) — a clean re-send error, never a hang.
                     self._session_id = None
+                    _log_rejection(response.status_code)
                     raise KeyProxyError(
                         _error_message(
                             response.status_code, _response_detail(response)

@@ -138,6 +138,36 @@ class TestToolTurn(ChatServiceTestBase):
         self.assertEqual(result_block["tool_use_id"], "tu_1")
         self.assertIn("55.1", result_block["content"])
 
+    def test_multi_tool_turn_logs_safe_diagnostic_metadata(self):
+        """Diagnostic-only line for the invalid_request_error investigation:
+        tool names (a fixed, non-sensitive enum) and a byte count (not
+        content) are safe to log and should reflect a multi-tool turn."""
+        self.prices.get_rsi.return_value = {"symbol": "AMD", "rsi": 55.1}
+        self.prices.get_macd.return_value = {"symbol": "AMD", "macd": 1.2}
+        client = ScriptedClient(
+            [
+                {
+                    "final": final(
+                        "tool_use",
+                        tool_use("tu_1", "get_rsi", {"symbol": "AMD"}),
+                        tool_use("tu_2", "get_macd", {"symbol": "AMD"}),
+                    )
+                },
+                {"final": final("end_turn", text_block("done"))},
+            ]
+        )
+        with self.assertLogs("quantcore.services.chat", level="INFO") as cm:
+            self.run_chat(client)
+        diag = [m for m in cm.output if "tool turn built" in m]
+        self.assertEqual(len(diag), 1)
+        self.assertIn("tool_count=2", diag[0])
+        self.assertIn("get_rsi", diag[0])
+        self.assertIn("get_macd", diag[0])
+        self.assertIn("results_bytes=", diag[0])
+        # No tool arguments or result content leaked into the log line.
+        self.assertNotIn("AMD", diag[0])
+        self.assertNotIn("55.1", diag[0])
+
     def test_unknown_tool_is_error_result_and_loop_continues(self):
         client = ScriptedClient(
             [

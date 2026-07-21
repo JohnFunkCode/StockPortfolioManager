@@ -15,10 +15,13 @@ Run with:  uvicorn keyproxy.main:app --host 127.0.0.1 --port 5002
 
 Logging policy (enforced by tests): every rejection is a generic 400/401/429
 with a constant detail string; request bodies are never echoed (the default
-FastAPI 422, which reflects input back, is overridden). The only log lines
-this module emits are the allowlist lines — correlation id, sub, provider,
-status — on *successful* redemption/validation/teardown; failure paths log
-nothing at all.
+FastAPI 422, which reflects input back, is overridden). Log lines this module
+emits are the allowlist lines — correlation id, sub, provider, status — on
+*successful* redemption/validation/teardown, plus one diagnostic line when a
+provider call fails: exception class name and, for anthropic.APIStatusError
+(detected structurally, not by import), its status code and fixed error-type
+enum. Never the exception message/body text itself, which may echo request
+material.
 """
 
 from __future__ import annotations
@@ -372,9 +375,27 @@ def create_app() -> FastAPI:
                     if kind == "final":
                         return
                 out.put(("error", None))  # stream ended without a final
-            except Exception:
-                # Never let a provider exception (which may echo request
-                # material) reach the wire or a log — generic error frame.
+            except Exception as exc:
+                # Never let exception text (which may echo request material,
+                # e.g. an API key embedded in a message) reach a log — only
+                # duck-typed, content-free metadata: the exception's class
+                # name, and — for anthropic.APIStatusError specifically,
+                # detected by attribute shape so this module never needs to
+                # import the SDK — the HTTP status code and the provider's
+                # fixed error-type enum (never `.message`/`.body` text).
+                status_code = getattr(exc, "status_code", None)
+                error_type = None
+                error_body = getattr(exc, "body", None)
+                if isinstance(error_body, dict):
+                    err = error_body.get("error")
+                    if isinstance(err, dict):
+                        error_type = err.get("type")
+                logger.warning(
+                    "provider stream failed exception_type=%s status_code=%s error_type=%s",
+                    type(exc).__name__,
+                    status_code,
+                    error_type,
+                )
                 out.put(("error", None))
 
         def event_stream():

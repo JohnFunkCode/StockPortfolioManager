@@ -20,6 +20,8 @@ import threading
 import pandas as pd
 import yfinance as yf
 
+from quantcore.analytics.market_time import ET
+
 logger = logging.getLogger(__name__)
 
 _YF_DOWNLOAD_LOCK = threading.Lock()
@@ -59,7 +61,13 @@ class YFinanceGateway:
         frame when Yahoo returns nothing. Window capped at _MAX_FETCH_DAYS.
         """
         fetch_days = min(days, _MAX_FETCH_DAYS)
-        end = datetime.datetime.utcnow()
+        # yf.download's `end` bound is EXCLUSIVE, so it must sit one day past the
+        # session we want; passing today silently drops today's bar and the cache
+        # can then only ever serve the previous close. Anchor to the ET market
+        # date, not UTC — utcnow() rolls over at 20:00 ET and would otherwise
+        # shift the window mid-evening.
+        today_et = datetime.datetime.now(tz=ET).date()
+        end = today_et + datetime.timedelta(days=1)
         start = end - datetime.timedelta(days=fetch_days)
         with _YF_DOWNLOAD_LOCK:
             df = yf.download(

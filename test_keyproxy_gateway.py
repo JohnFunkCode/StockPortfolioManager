@@ -31,6 +31,14 @@ from test_keyproxy_service import (
 )
 
 TEXT_BLOCK = {"type": "text", "text": "hi there"}
+# A response text block carrying the output-only `parsed_output` field the
+# Messages API attaches under output_config/effort. Valid on the way out of the
+# API, rejected as request input on the follow-up turn.
+TEXT_BLOCK_WITH_PARSED_OUTPUT = {
+    "type": "text",
+    "text": "checking the price",
+    "parsed_output": {"symbol": "AAPL"},
+}
 THINKING_BLOCK = {
     "type": "thinking",
     "thinking": "let me check the price",
@@ -323,6 +331,44 @@ class TestKeyProxyChatClient(GatewayTestBase):
         outbound = provider.calls[1]["messages"]
         assistant = next(m for m in outbound if m["role"] == "assistant")
         self.assertEqual(assistant["content"][0], THINKING_BLOCK)
+        self.assertEqual(assistant["content"][1], TOOL_USE_BLOCK)
+
+    def test_output_only_parsed_output_stripped_on_next_turn(self):
+        # Regression (2026-07-21): the API attaches an output-only
+        # `parsed_output` field to assistant text blocks under
+        # output_config/effort. Echoing it back verbatim on the follow-up tool
+        # turn draws a hard 400 invalid_request_error ("Extra inputs are not
+        # permitted"). The wire seam must drop it while leaving every other
+        # field — critically the adjacent tool_use block — untouched.
+        from quantcore.services.chat import ChatService, Done
+
+        provider = ScriptedProvider(
+            [
+                {"final": final_message(
+                    TEXT_BLOCK_WITH_PARSED_OUTPUT, TOOL_USE_BLOCK)},
+                {"final": final_message(TEXT_BLOCK)},
+            ]
+        )
+        prices = Mock()
+        prices.get_stock_price.return_value = {"symbol": "AAPL", "price": 123.45}
+        service = ChatService(
+            prices, Mock(), Mock(), Mock(),
+            client_factory=lambda context: self.make_client(),
+        )
+        with patch("keyproxy.providers.anthropic.stream_turn", provider):
+            events = list(
+                service.stream_chat([{"role": "user", "content": "price of AAPL?"}])
+            )
+        self.assertIsInstance(events[-1], Done)
+        outbound = provider.calls[1]["messages"]
+        assistant = next(m for m in outbound if m["role"] == "assistant")
+        # parsed_output stripped, but text + type preserved verbatim.
+        self.assertEqual(
+            assistant["content"][0],
+            {"type": "text", "text": "checking the price"},
+        )
+        self.assertNotIn("parsed_output", assistant["content"][0])
+        # The adjacent tool_use block is untouched.
         self.assertEqual(assistant["content"][1], TOOL_USE_BLOCK)
 
 

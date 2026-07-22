@@ -234,6 +234,25 @@ class KeyProxyMessage:
         ]
 
 
+# Fields the Messages API attaches to *response* content blocks that are not
+# valid on the *input* side of a subsequent request. `parsed_output` is emitted
+# on assistant text blocks when output_config/effort is set
+# (keyproxy/providers/anthropic.py); echoing it back on the follow-up tool turn
+# draws a hard `400 invalid_request_error` ("Extra inputs are not permitted").
+# Content blocks otherwise round-trip verbatim — thinking-block `signature`
+# MUST survive byte-exact — so this denylist is the one deliberate exception.
+_OUTPUT_ONLY_BLOCK_FIELDS = ("parsed_output",)
+
+
+def _strip_output_only(block):
+    """Drop response-only fields so an echoed block is valid as request input."""
+    if not isinstance(block, dict) or not any(
+        field in block for field in _OUTPUT_ONLY_BLOCK_FIELDS
+    ):
+        return block
+    return {k: v for k, v in block.items() if k not in _OUTPUT_ONLY_BLOCK_FIELDS}
+
+
 def _wire_messages(messages: list[dict]) -> list[dict]:
     """Unwrap ContentBlock views back to their raw dicts for the request body."""
     out = []
@@ -241,7 +260,9 @@ def _wire_messages(messages: list[dict]) -> list[dict]:
         content = message["content"]
         if isinstance(content, list):
             content = [
-                block.raw if isinstance(block, ContentBlock) else block
+                _strip_output_only(
+                    block.raw if isinstance(block, ContentBlock) else block
+                )
                 for block in content
             ]
         out.append({"role": message["role"], "content": content})

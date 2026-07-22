@@ -22,6 +22,13 @@ provider call fails: exception class name and, for anthropic.APIStatusError
 (detected structurally, not by import), its status code and fixed error-type
 enum. Never the exception message/body text itself, which may echo request
 material.
+
+TEMPORARY (test-only): the provider-error diagnostic line also logs the
+provider's error message/body text, with the session's API key redacted, to
+chase an intermittent invalid_request_error on large tool_result follow-up
+turns. Revert this block (and the matching test changes in
+test_keyproxy_streaming.py) once that's diagnosed — see the "TEMPORARY"
+comment at the log call site.
 """
 
 from __future__ import annotations
@@ -396,16 +403,31 @@ def create_app() -> FastAPI:
                 # fixed error-type enum (never `.message`/`.body` text).
                 status_code = getattr(exc, "status_code", None)
                 error_type = None
+                error_message = None
                 error_body = getattr(exc, "body", None)
                 if isinstance(error_body, dict):
                     err = error_body.get("error")
                     if isinstance(err, dict):
                         error_type = err.get("type")
+                        error_message = err.get("message")
+                # TEMPORARY (test-only, revert once the intermittent
+                # invalid_request_error on large tool_result follow-up turns
+                # is diagnosed): the provider's validation message is the
+                # only place that names the actual complaint. The API key is
+                # the one piece of request material known to this closure, so
+                # it's redacted before anything is logged; this does not
+                # widen the guarantee to arbitrary echoed request content.
+                error_detail = error_message if error_message is not None else str(exc)
+                error_detail = error_detail.replace(api_key, "[REDACTED]")
+                error_detail = error_detail.encode("utf-8", "replace").decode("utf-8")
+                if len(error_detail) > 300:
+                    error_detail = error_detail[:300] + "...(truncated)"
                 logger.warning(
-                    "provider stream failed exception_type=%s status_code=%s error_type=%s",
+                    "provider stream failed exception_type=%s status_code=%s error_type=%s error_detail=%s",
                     type(exc).__name__,
                     status_code,
                     error_type,
+                    error_detail,
                 )
                 out.put(("error", None))
 

@@ -123,13 +123,43 @@ class TestStreamingTurn(StreamingTestBase):
             response = self.stream(self.open_session())
         self.assertEqual(response.status_code, 200)
         _, events = parse_sse(response.text)
-        self.assertEqual(events[-1], ("error", {"detail": "provider error"}))
+        # A bare RuntimeError classifies to the opaque provider_error code —
+        # only a closed-set reason code crosses the wire, never provider text.
+        self.assertEqual(events[-1], ("error", {"code": "provider_error"}))
         # The exception message carried the key — it must never surface on
         # the wire (the SSE response), regardless of what reaches the log.
         self.assertNotIn(API_KEY, response.text)
         self.assertNotIn("blew up", response.text)
         # TEMPORARY: error_detail now logs the redacted message ("provider
         # blew up: [REDACTED]") — the key itself must still never be logged.
+        self.assert_never_logged(API_KEY)
+
+    def test_classifiable_provider_error_emits_specific_reason_code(self):
+        # The billing failure (a 400 whose message is the static "credit
+        # balance is too low" string) must reach the SSE `error` frame as its
+        # specific reason code — but the provider's raw message must NOT.
+        class FakeAPIStatusError(Exception):
+            status_code = 400
+            body = {
+                "error": {
+                    "type": "invalid_request_error",
+                    "message": "Your credit balance is too low to access the "
+                    "Anthropic API. Please go to Plans & Billing. " + API_KEY,
+                },
+            }
+
+        def stream_turn(api_key, **params):
+            yield ("delta", "partial")
+            raise FakeAPIStatusError("unused")
+
+        with patch("keyproxy.providers.anthropic.stream_turn", stream_turn):
+            response = self.stream(self.open_session())
+        self.assertEqual(response.status_code, 200)
+        _, events = parse_sse(response.text)
+        self.assertEqual(events[-1], ("error", {"code": "insufficient_credits"}))
+        # Only the code crosses the wire — never the provider's message bytes.
+        self.assertNotIn("credit balance", response.text)
+        self.assertNotIn(API_KEY, response.text)
         self.assert_never_logged(API_KEY)
 
     def test_call_budget_counted_then_exhausted_then_killed(self):

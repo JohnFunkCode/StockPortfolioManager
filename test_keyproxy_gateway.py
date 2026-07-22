@@ -190,7 +190,10 @@ class TestKeyProxyChatClient(GatewayTestBase):
         self.assertEqual(str(ctx.exception), keyproxy_gateway.PROVIDER_ERROR_MESSAGE)
         self.assertNotIn(API_KEY, str(ctx.exception))
         self.assertEqual(self.state.sessions._sessions, {})
-        self.assert_never_logged(API_KEY, "exploded")
+        # TEMPORARY: keyproxy's error_detail now logs the redacted message
+        # ("provider exploded: [REDACTED]") — the key itself must still
+        # never be logged.
+        self.assert_never_logged(API_KEY)
 
     def test_expired_session_mid_chat_surfaces_clean_resend_error(self):
         provider = ScriptedProvider(

@@ -124,10 +124,13 @@ class TestStreamingTurn(StreamingTestBase):
         self.assertEqual(response.status_code, 200)
         _, events = parse_sse(response.text)
         self.assertEqual(events[-1], ("error", {"detail": "provider error"}))
-        # The exception message carried the key — it must never surface.
+        # The exception message carried the key — it must never surface on
+        # the wire (the SSE response), regardless of what reaches the log.
         self.assertNotIn(API_KEY, response.text)
         self.assertNotIn("blew up", response.text)
-        self.assert_never_logged(API_KEY, "blew up")
+        # TEMPORARY: error_detail now logs the redacted message ("provider
+        # blew up: [REDACTED]") — the key itself must still never be logged.
+        self.assert_never_logged(API_KEY)
 
     def test_call_budget_counted_then_exhausted_then_killed(self):
         scope = chat_scope(
@@ -245,20 +248,25 @@ class TestStreamingTurn(StreamingTestBase):
 
     def test_provider_error_logs_only_safe_metadata(self):
         # A bare exception (no .status_code) — e.g. the RuntimeError above,
-        # which embeds the key in its message — must log only its class name.
+        # which embeds the key in its message — must never log the key, even
+        # though the TEMPORARY error_detail field logs str(exc) verbatim
+        # otherwise (there's no structured .body to redact against here).
         stub = stub_stream("partial", error=True)
         with patch("keyproxy.providers.anthropic.stream_turn", stub):
             self.stream(self.open_session())
-        self.assert_never_logged(API_KEY, "blew up")
+        self.assert_never_logged(API_KEY)
         diag = [m for m in self.logged_messages() if "provider stream failed" in m]
         self.assertEqual(len(diag), 1)
         self.assertIn("exception_type=RuntimeError", diag[0])
         self.assertIn("status_code=None", diag[0])
+        self.assertIn("error_detail=provider blew up: [REDACTED]", diag[0])
 
     def test_provider_status_error_logs_code_and_type_not_message(self):
         # Duck-typed anthropic.APIStatusError shape: status_code + a body
-        # whose error.message carries request-derived text that must never
-        # reach a log, while status_code/error.type (a fixed enum) may.
+        # whose error.message carries request-derived text. TEMPORARY: this
+        # message is now logged (to diagnose an intermittent provider 400 on
+        # large follow-up turns), but the API key embedded in it must still
+        # never reach the log — only the message with the key redacted.
         class FakeAPIStatusError(Exception):
             status_code = 400
             body = {
@@ -275,12 +283,13 @@ class TestStreamingTurn(StreamingTestBase):
 
         with patch("keyproxy.providers.anthropic.stream_turn", stream_turn):
             self.stream(self.open_session())
-        self.assert_never_logged(API_KEY, "is malformed")
+        self.assert_never_logged(API_KEY)
         diag = [m for m in self.logged_messages() if "provider stream failed" in m]
         self.assertEqual(len(diag), 1)
         self.assertIn("exception_type=FakeAPIStatusError", diag[0])
         self.assertIn("status_code=400", diag[0])
         self.assertIn("error_type=invalid_request_error", diag[0])
+        self.assertIn("error_detail=tool_result for [REDACTED] is malformed", diag[0])
 
 
 class TestStreamingHeartbeat(StreamingTestBase):

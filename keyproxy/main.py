@@ -19,16 +19,9 @@ FastAPI 422, which reflects input back, is overridden). Log lines this module
 emits are the allowlist lines — correlation id, sub, provider, status — on
 *successful* redemption/validation/teardown, plus one diagnostic line when a
 provider call fails: exception class name and, for anthropic.APIStatusError
-(detected structurally, not by import), its status code and fixed error-type
-enum. Never the exception message/body text itself, which may echo request
-material.
-
-TEMPORARY (test-only): the provider-error diagnostic line also logs the
-provider's error message/body text, with the session's API key redacted, to
-chase an intermittent invalid_request_error on large tool_result follow-up
-turns. Revert this block (and the matching test changes in
-test_keyproxy_streaming.py) once that's diagnosed — see the "TEMPORARY"
-comment at the log call site.
+(detected structurally, not by import), its status code, fixed error-type
+enum, and the classified reason code (see ``_provider_reason``). Never the
+exception message/body text itself, which may echo request material.
 """
 
 from __future__ import annotations
@@ -453,26 +446,13 @@ def create_app() -> FastAPI:
                     if isinstance(err, dict):
                         error_type = err.get("type")
                         error_message = err.get("message")
-                # TEMPORARY (test-only, revert once the intermittent
-                # invalid_request_error on large tool_result follow-up turns
-                # is diagnosed): the provider's validation message is the
-                # only place that names the actual complaint. The API key is
-                # the one piece of request material known to this closure, so
-                # it's redacted before anything is logged; this does not
-                # widen the guarantee to arbitrary echoed request content.
-                error_detail = error_message if error_message is not None else str(exc)
-                error_detail = error_detail.replace(api_key, "[REDACTED]")
-                error_detail = error_detail.encode("utf-8", "replace").decode("utf-8")
-                if len(error_detail) > 300:
-                    error_detail = error_detail[:300] + "...(truncated)"
                 reason = _provider_reason(status_code, error_type, error_message)
                 logger.warning(
-                    "provider stream failed exception_type=%s status_code=%s error_type=%s reason=%s error_detail=%s",
+                    "provider stream failed exception_type=%s status_code=%s error_type=%s reason=%s",
                     type(exc).__name__,
                     status_code,
                     error_type,
                     reason,
-                    error_detail,
                 )
                 out.put(("error", {"code": reason}))
 

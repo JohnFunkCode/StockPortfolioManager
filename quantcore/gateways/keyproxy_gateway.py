@@ -75,40 +75,6 @@ AUTH_ERROR_MESSAGE = (
     "Your session's authorization was rejected — please refresh and try again."
 )
 
-# User-facing copy for each closed-set provider-error reason code the keyproxy
-# emits on the SSE `error` frame (keyproxy/main.py `PROVIDER_REASON_CODES`).
-# The keyproxy sends only the code, never the provider's raw message, so this
-# is the single place that turns a category into words. An unknown or absent
-# code falls through to PROVIDER_ERROR_MESSAGE, which keeps a new keyproxy code
-# (or an old keyproxy that sends no code at all) safe against this older map.
-_PROVIDER_REASON_COPY = {
-    "insufficient_credits": (
-        "Your Anthropic API key is out of credits. Add credits in the Anthropic "
-        "Console (Plans & Billing), then re-send your message."
-    ),
-    "authentication": (
-        "Anthropic rejected your API key. Re-enter it on the Settings page, then "
-        "re-send your message."
-    ),
-    "permission": (
-        "Your Anthropic API key doesn't have permission for this request."
-    ),
-    "rate_limit": RATE_LIMITED_MESSAGE,
-    "overloaded": (
-        "Anthropic is temporarily overloaded — please wait a moment and re-send "
-        "your message."
-    ),
-    "model_unavailable": (
-        "The selected model isn't available on your Anthropic API key."
-    ),
-}
-
-
-def _provider_error_message(data: object) -> str:
-    """Map a keyproxy `error` frame's reason code to user-facing copy."""
-    code = data.get("code") if isinstance(data, dict) else None
-    return _PROVIDER_REASON_COPY.get(code, PROVIDER_ERROR_MESSAGE)
-
 
 class KeyProxyError(RuntimeError):
     """A keyproxy interaction failed; the message is safe to show the user."""
@@ -435,7 +401,7 @@ class KeyProxyChatClient:
                         return
                     elif event == "error":
                         self.close()
-                        raise KeyProxyError(_provider_error_message(data))
+                        raise KeyProxyError(PROVIDER_ERROR_MESSAGE)
         except httpx.HTTPError:
             self.close()
             raise KeyProxyError(UNAVAILABLE_MESSAGE) from None

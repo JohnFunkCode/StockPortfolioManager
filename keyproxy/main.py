@@ -103,48 +103,6 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
-# The complete, closed set of provider-error reason codes emitted on the SSE
-# `error` frame. Only a member of this set ever crosses the wire — never the
-# provider's raw message/body text (which may echo request material, e.g. an
-# API key embedded in a message). The gateway maps each code to user-facing
-# copy; an unknown/absent code falls back to the generic provider message, so
-# adding a code here is forward/backward compatible across a deploy skew.
-PROVIDER_REASON_CODES = frozenset({
-    "insufficient_credits",
-    "authentication",
-    "permission",
-    "rate_limit",
-    "overloaded",
-    "model_unavailable",
-    "provider_error",
-})
-
-
-def _provider_reason(status_code, error_type, error_message) -> str:
-    """Classify a provider failure into one closed-set reason code.
-
-    ``error_message`` is untrusted and is *inspected only* — for the billing
-    case it is matched against a fixed, request-material-free substring — and
-    is never itself forwarded. Generic ``invalid_request_error`` complaints
-    (e.g. a malformed follow-up turn) deliberately fall through to the opaque
-    ``provider_error`` bucket rather than leaking their structural text.
-    """
-    message = (error_message or "").lower()
-    if "credit balance is too low" in message:
-        return "insufficient_credits"
-    if error_type == "authentication_error":
-        return "authentication"
-    if error_type == "permission_error":
-        return "permission"
-    if error_type == "rate_limit_error" or status_code == 429:
-        return "rate_limit"
-    if error_type == "overloaded_error" or status_code == 529:
-        return "overloaded"
-    if error_type == "not_found_error":
-        return "model_unavailable"
-    return "provider_error"
-
-
 def _parse_key_bundle(text: str) -> list[tuple[str, object]]:
     """Parse ``KEYPROXY_PRIVATE_KEYS`` — the generate-script output format.
 
@@ -434,8 +392,7 @@ def create_app() -> FastAPI:
                     out.put((kind, payload))
                     if kind == "final":
                         return
-                # Stream ended without a final frame — opaque provider fault.
-                out.put(("error", {"code": "provider_error"}))
+                out.put(("error", None))  # stream ended without a final
             except Exception as exc:
                 # Never let exception text (which may echo request material,
                 # e.g. an API key embedded in a message) reach a log — only
@@ -465,16 +422,14 @@ def create_app() -> FastAPI:
                 error_detail = error_detail.encode("utf-8", "replace").decode("utf-8")
                 if len(error_detail) > 300:
                     error_detail = error_detail[:300] + "...(truncated)"
-                reason = _provider_reason(status_code, error_type, error_message)
                 logger.warning(
-                    "provider stream failed exception_type=%s status_code=%s error_type=%s reason=%s error_detail=%s",
+                    "provider stream failed exception_type=%s status_code=%s error_type=%s error_detail=%s",
                     type(exc).__name__,
                     status_code,
                     error_type,
-                    reason,
                     error_detail,
                 )
-                out.put(("error", {"code": reason}))
+                out.put(("error", None))
 
         def event_stream():
             out: queue.Queue = queue.Queue()
@@ -517,13 +472,7 @@ def create_app() -> FastAPI:
                     )
                     return
                 else:
-                    # Only a closed-set reason code crosses the wire — never
-                    # provider text. Defensively re-validate the code against
-                    # the known set before it leaves the process.
-                    code = payload.get("code") if isinstance(payload, dict) else None
-                    if code not in PROVIDER_REASON_CODES:
-                        code = "provider_error"
-                    yield _sse("error", {"code": code})
+                    yield _sse("error", {"detail": "provider error"})
                     return
 
         # No compression middleware may ever touch text/event-stream — a

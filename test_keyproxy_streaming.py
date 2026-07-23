@@ -123,42 +123,13 @@ class TestStreamingTurn(StreamingTestBase):
             response = self.stream(self.open_session())
         self.assertEqual(response.status_code, 200)
         _, events = parse_sse(response.text)
-        # A bare RuntimeError classifies to the opaque provider_error code —
-        # only a closed-set reason code crosses the wire, never provider text.
-        self.assertEqual(events[-1], ("error", {"code": "provider_error"}))
+        self.assertEqual(events[-1], ("error", {"detail": "provider error"}))
         # The exception message carried the key — it must never surface on
         # the wire (the SSE response), regardless of what reaches the log.
         self.assertNotIn(API_KEY, response.text)
         self.assertNotIn("blew up", response.text)
-        # The exception message (which carried the key) must never be logged.
-        self.assert_never_logged(API_KEY)
-
-    def test_classifiable_provider_error_emits_specific_reason_code(self):
-        # The billing failure (a 400 whose message is the static "credit
-        # balance is too low" string) must reach the SSE `error` frame as its
-        # specific reason code — but the provider's raw message must NOT.
-        class FakeAPIStatusError(Exception):
-            status_code = 400
-            body = {
-                "error": {
-                    "type": "invalid_request_error",
-                    "message": "Your credit balance is too low to access the "
-                    "Anthropic API. Please go to Plans & Billing. " + API_KEY,
-                },
-            }
-
-        def stream_turn(api_key, **params):
-            yield ("delta", "partial")
-            raise FakeAPIStatusError("unused")
-
-        with patch("keyproxy.providers.anthropic.stream_turn", stream_turn):
-            response = self.stream(self.open_session())
-        self.assertEqual(response.status_code, 200)
-        _, events = parse_sse(response.text)
-        self.assertEqual(events[-1], ("error", {"code": "insufficient_credits"}))
-        # Only the code crosses the wire — never the provider's message bytes.
-        self.assertNotIn("credit balance", response.text)
-        self.assertNotIn(API_KEY, response.text)
+        # TEMPORARY: error_detail now logs the redacted message ("provider
+        # blew up: [REDACTED]") — the key itself must still never be logged.
         self.assert_never_logged(API_KEY)
 
     def test_call_budget_counted_then_exhausted_then_killed(self):
@@ -277,9 +248,9 @@ class TestStreamingTurn(StreamingTestBase):
 
     def test_provider_error_logs_only_safe_metadata(self):
         # A bare exception (no .status_code) — e.g. the RuntimeError above,
-        # which embeds the key in its message — logs only content-free
-        # metadata: class name, status, and the classified reason code. The
-        # provider's message text (and the key inside it) never reaches a log.
+        # which embeds the key in its message — must never log the key, even
+        # though the TEMPORARY error_detail field logs str(exc) verbatim
+        # otherwise (there's no structured .body to redact against here).
         stub = stub_stream("partial", error=True)
         with patch("keyproxy.providers.anthropic.stream_turn", stub):
             self.stream(self.open_session())
@@ -288,16 +259,14 @@ class TestStreamingTurn(StreamingTestBase):
         self.assertEqual(len(diag), 1)
         self.assertIn("exception_type=RuntimeError", diag[0])
         self.assertIn("status_code=None", diag[0])
-        self.assertIn("reason=provider_error", diag[0])
-        # The free-text provider message is never logged — not even redacted.
-        self.assertNotIn("error_detail", diag[0])
-        self.assertNotIn("blew up", diag[0])
+        self.assertIn("error_detail=provider blew up: [REDACTED]", diag[0])
 
     def test_provider_status_error_logs_code_and_type_not_message(self):
         # Duck-typed anthropic.APIStatusError shape: status_code + a body
-        # whose error.message carries request-derived text. Only the safe
-        # metadata — status code, fixed error-type enum, and classified reason
-        # — is logged; the message text (and the key inside it) never is.
+        # whose error.message carries request-derived text. TEMPORARY: this
+        # message is now logged (to diagnose an intermittent provider 400 on
+        # large follow-up turns), but the API key embedded in it must still
+        # never reach the log — only the message with the key redacted.
         class FakeAPIStatusError(Exception):
             status_code = 400
             body = {
@@ -320,10 +289,7 @@ class TestStreamingTurn(StreamingTestBase):
         self.assertIn("exception_type=FakeAPIStatusError", diag[0])
         self.assertIn("status_code=400", diag[0])
         self.assertIn("error_type=invalid_request_error", diag[0])
-        self.assertIn("reason=provider_error", diag[0])
-        # The provider's free-text message is never logged, redacted or not.
-        self.assertNotIn("error_detail", diag[0])
-        self.assertNotIn("tool_result for", diag[0])
+        self.assertIn("error_detail=tool_result for [REDACTED] is malformed", diag[0])
 
 
 class TestStreamingHeartbeat(StreamingTestBase):

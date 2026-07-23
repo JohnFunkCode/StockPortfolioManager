@@ -19,16 +19,9 @@ FastAPI 422, which reflects input back, is overridden). Log lines this module
 emits are the allowlist lines — correlation id, sub, provider, status — on
 *successful* redemption/validation/teardown, plus one diagnostic line when a
 provider call fails: exception class name and, for anthropic.APIStatusError
-(detected structurally, not by import), its status code and fixed error-type
-enum. Never the exception message/body text itself, which may echo request
-material.
-
-TEMPORARY (test-only): the provider-error diagnostic line also logs the
-provider's error message/body text, with the session's API key redacted, to
-chase an intermittent invalid_request_error on large tool_result follow-up
-turns. Revert this block (and the matching test changes in
-test_keyproxy_streaming.py) once that's diagnosed — see the "TEMPORARY"
-comment at the log call site.
+(detected structurally, not by import), its status code, fixed error-type
+enum, and the classified reason code (see ``_provider_reason``). Never the
+exception message/body text itself, which may echo request material.
 """
 
 from __future__ import annotations
@@ -101,6 +94,48 @@ def _heartbeat_secs() -> float:
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
+
+
+# The complete, closed set of provider-error reason codes emitted on the SSE
+# `error` frame. Only a member of this set ever crosses the wire — never the
+# provider's raw message/body text (which may echo request material, e.g. an
+# API key embedded in a message). The gateway maps each code to user-facing
+# copy; an unknown/absent code falls back to the generic provider message, so
+# adding a code here is forward/backward compatible across a deploy skew.
+PROVIDER_REASON_CODES = frozenset({
+    "insufficient_credits",
+    "authentication",
+    "permission",
+    "rate_limit",
+    "overloaded",
+    "model_unavailable",
+    "provider_error",
+})
+
+
+def _provider_reason(status_code, error_type, error_message) -> str:
+    """Classify a provider failure into one closed-set reason code.
+
+    ``error_message`` is untrusted and is *inspected only* — for the billing
+    case it is matched against a fixed, request-material-free substring — and
+    is never itself forwarded. Generic ``invalid_request_error`` complaints
+    (e.g. a malformed follow-up turn) deliberately fall through to the opaque
+    ``provider_error`` bucket rather than leaking their structural text.
+    """
+    message = (error_message or "").lower()
+    if "credit balance is too low" in message:
+        return "insufficient_credits"
+    if error_type == "authentication_error":
+        return "authentication"
+    if error_type == "permission_error":
+        return "permission"
+    if error_type == "rate_limit_error" or status_code == 429:
+        return "rate_limit"
+    if error_type == "overloaded_error" or status_code == 529:
+        return "overloaded"
+    if error_type == "not_found_error":
+        return "model_unavailable"
+    return "provider_error"
 
 
 def _parse_key_bundle(text: str) -> list[tuple[str, object]]:
@@ -392,7 +427,8 @@ def create_app() -> FastAPI:
                     out.put((kind, payload))
                     if kind == "final":
                         return
-                out.put(("error", None))  # stream ended without a final
+                # Stream ended without a final frame — opaque provider fault.
+                out.put(("error", {"code": "provider_error"}))
             except Exception as exc:
                 # Never let exception text (which may echo request material,
                 # e.g. an API key embedded in a message) reach a log — only
@@ -410,26 +446,15 @@ def create_app() -> FastAPI:
                     if isinstance(err, dict):
                         error_type = err.get("type")
                         error_message = err.get("message")
-                # TEMPORARY (test-only, revert once the intermittent
-                # invalid_request_error on large tool_result follow-up turns
-                # is diagnosed): the provider's validation message is the
-                # only place that names the actual complaint. The API key is
-                # the one piece of request material known to this closure, so
-                # it's redacted before anything is logged; this does not
-                # widen the guarantee to arbitrary echoed request content.
-                error_detail = error_message if error_message is not None else str(exc)
-                error_detail = error_detail.replace(api_key, "[REDACTED]")
-                error_detail = error_detail.encode("utf-8", "replace").decode("utf-8")
-                if len(error_detail) > 300:
-                    error_detail = error_detail[:300] + "...(truncated)"
+                reason = _provider_reason(status_code, error_type, error_message)
                 logger.warning(
-                    "provider stream failed exception_type=%s status_code=%s error_type=%s error_detail=%s",
+                    "provider stream failed exception_type=%s status_code=%s error_type=%s reason=%s",
                     type(exc).__name__,
                     status_code,
                     error_type,
-                    error_detail,
+                    reason,
                 )
-                out.put(("error", None))
+                out.put(("error", {"code": reason}))
 
         def event_stream():
             out: queue.Queue = queue.Queue()
@@ -472,7 +497,13 @@ def create_app() -> FastAPI:
                     )
                     return
                 else:
-                    yield _sse("error", {"detail": "provider error"})
+                    # Only a closed-set reason code crosses the wire — never
+                    # provider text. Defensively re-validate the code against
+                    # the known set before it leaves the process.
+                    code = payload.get("code") if isinstance(payload, dict) else None
+                    if code not in PROVIDER_REASON_CODES:
+                        code = "provider_error"
+                    yield _sse("error", {"code": code})
                     return
 
         # No compression middleware may ever touch text/event-stream — a

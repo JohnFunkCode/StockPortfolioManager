@@ -62,6 +62,17 @@ def final_message(*blocks, stop_reason="end_turn", usage=None):
     }
 
 
+class FakeAPIStatusError(Exception):
+    """Shapes like anthropic.APIStatusError: a ``status_code`` int and a
+    ``body`` dict carrying ``error.type`` / ``error.message`` — the exact
+    attributes keyproxy's worker duck-types (it never imports the SDK)."""
+
+    def __init__(self, status_code, error_type, message):
+        super().__init__("api status error")
+        self.status_code = status_code
+        self.body = {"error": {"type": error_type, "message": message}}
+
+
 class ScriptedProvider:
     """Scripted stand-in for keyproxy.providers.anthropic.stream_turn.
 
@@ -84,6 +95,9 @@ class ScriptedProvider:
             self.emit_times.append(time.monotonic())
             yield ("delta", text)
         if turn.get("error"):
+            err = turn["error"]
+            if isinstance(err, BaseException):
+                raise err
             raise RuntimeError("provider exploded: " + api_key)
         if turn.get("delay"):
             time.sleep(turn["delay"])
@@ -198,9 +212,68 @@ class TestKeyProxyChatClient(GatewayTestBase):
         self.assertEqual(str(ctx.exception), keyproxy_gateway.PROVIDER_ERROR_MESSAGE)
         self.assertNotIn(API_KEY, str(ctx.exception))
         self.assertEqual(self.state.sessions._sessions, {})
-        # TEMPORARY: keyproxy's error_detail now logs the redacted message
-        # ("provider exploded: [REDACTED]") — the key itself must still
-        # never be logged.
+        # The exception message (which carried the key) must never be logged.
+        self.assert_never_logged(API_KEY)
+
+    def test_insufficient_credits_surfaces_specific_copy(self):
+        # The billing failure (a 400 invalid_request_error whose message is the
+        # static "credit balance is too low" string) must reach the user as its
+        # own actionable copy — not the opaque generic provider message.
+        billing = FakeAPIStatusError(
+            400, "invalid_request_error",
+            "Your credit balance is too low to access the Anthropic API. "
+            "Please go to Plans & Billing to upgrade or purchase credits.",
+        )
+        provider = ScriptedProvider([{"error": billing}])
+        client = self.make_client()
+        with patch("keyproxy.providers.anthropic.stream_turn", provider):
+            with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
+                self.run_turn(client)
+        self.assertEqual(
+            str(ctx.exception),
+            keyproxy_gateway._PROVIDER_REASON_COPY["insufficient_credits"],
+        )
+        self.assertNotEqual(
+            str(ctx.exception), keyproxy_gateway.PROVIDER_ERROR_MESSAGE
+        )
+        self.assertEqual(self.state.sessions._sessions, {})
+
+    def test_structural_invalid_request_stays_generic_and_unleaked(self):
+        # A structural invalid_request_error (the parsed_output-style complaint)
+        # names request material, so it must fall through to the OPAQUE generic
+        # message — its text must never reach the user.
+        structural = FakeAPIStatusError(
+            400, "invalid_request_error",
+            "messages.9.content.1.text.parsed_output: Extra inputs are not permitted",
+        )
+        provider = ScriptedProvider([{"error": structural}])
+        client = self.make_client()
+        with patch("keyproxy.providers.anthropic.stream_turn", provider):
+            with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
+                self.run_turn(client)
+        self.assertEqual(
+            str(ctx.exception), keyproxy_gateway.PROVIDER_ERROR_MESSAGE
+        )
+        self.assertNotIn("parsed_output", str(ctx.exception))
+
+    def test_provider_error_message_never_echoes_key_or_body(self):
+        # Safety net: even if the provider's message embeds the API key, the
+        # user-facing copy is our canned string and the key never surfaces —
+        # in the message or in any log line.
+        leaky = FakeAPIStatusError(
+            401, "authentication_error",
+            "invalid x-api-key: " + API_KEY,
+        )
+        provider = ScriptedProvider([{"error": leaky}])
+        client = self.make_client()
+        with patch("keyproxy.providers.anthropic.stream_turn", provider):
+            with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
+                self.run_turn(client)
+        self.assertEqual(
+            str(ctx.exception),
+            keyproxy_gateway._PROVIDER_REASON_COPY["authentication"],
+        )
+        self.assertNotIn(API_KEY, str(ctx.exception))
         self.assert_never_logged(API_KEY)
 
     def test_expired_session_mid_chat_surfaces_clean_resend_error(self):
@@ -370,6 +443,59 @@ class TestKeyProxyChatClient(GatewayTestBase):
         self.assertNotIn("parsed_output", assistant["content"][0])
         # The adjacent tool_use block is untouched.
         self.assertEqual(assistant["content"][1], TOOL_USE_BLOCK)
+
+
+class TestProviderErrorClassification(unittest.TestCase):
+    """The keyproxy classifier + gateway translator, as pure functions."""
+
+    def test_reason_codes_cover_every_branch(self):
+        from keyproxy.main import _provider_reason
+
+        cases = [
+            # (status_code, error_type, message) -> reason
+            (400, "invalid_request_error",
+             "Your credit balance is too low to access the Anthropic API.",
+             "insufficient_credits"),
+            (401, "authentication_error", "invalid x-api-key", "authentication"),
+            (403, "permission_error", "not allowed", "permission"),
+            (429, "rate_limit_error", "slow down", "rate_limit"),
+            (429, None, "slow down", "rate_limit"),          # status-only
+            (529, "overloaded_error", "busy", "overloaded"),
+            (529, None, "busy", "overloaded"),               # status-only
+            (404, "not_found_error", "no such model", "model_unavailable"),
+            (400, "invalid_request_error",
+             "messages.9.content.1.text.parsed_output: Extra inputs are not permitted",
+             "provider_error"),                              # structural -> opaque
+            (None, None, None, "provider_error"),            # nothing known
+        ]
+        for status, etype, msg, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(_provider_reason(status, etype, msg), expected)
+
+    def test_every_reason_code_has_gateway_copy_or_generic(self):
+        from keyproxy.main import PROVIDER_REASON_CODES
+
+        # Every code the keyproxy can emit resolves to non-empty user copy.
+        for code in PROVIDER_REASON_CODES:
+            msg = keyproxy_gateway._provider_error_message({"code": code})
+            self.assertTrue(msg)
+        # provider_error and any unknown/absent code fall to the generic string.
+        self.assertEqual(
+            keyproxy_gateway._provider_error_message({"code": "provider_error"}),
+            keyproxy_gateway.PROVIDER_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            keyproxy_gateway._provider_error_message({"code": "nonexistent"}),
+            keyproxy_gateway.PROVIDER_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            keyproxy_gateway._provider_error_message({}),
+            keyproxy_gateway.PROVIDER_ERROR_MESSAGE,
+        )
+        self.assertEqual(
+            keyproxy_gateway._provider_error_message(None),
+            keyproxy_gateway.PROVIDER_ERROR_MESSAGE,
+        )
 
 
 class TestClientHeartbeatTolerance(GatewayTestBase):

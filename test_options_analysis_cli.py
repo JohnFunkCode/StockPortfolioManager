@@ -265,3 +265,39 @@ class TestMcpToolBodies(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMainSingleSymbol(unittest.TestCase):
+    """End-to-end CLI run for --symbol: real screening scoring/printing over a
+    patched fetch, no DB writes (--no-persist), no news (--no-news)."""
+
+    def test_main_renders_the_full_report(self):
+        import sys
+        from types import SimpleNamespace
+        from quantcore.services.options_screening import OptionsScreeningService
+
+        svc = OptionsScreeningService(
+            ohlcv_repository=Mock(), yfinance_gateway=Mock(), prices=Mock()
+        )
+        sec = security(
+            symbol="UPP", price=91.0,
+            options=options_summary(put_call_ratio=0.4,
+                                    atm_calls=[dict(ATM_CALL)],
+                                    atm_puts=[dict(ATM_PUT)]),
+            iv=IV,
+        )
+        bag = SimpleNamespace(options_screening=svc)
+
+        argv = ["options_analysis.py", "--symbol", "upp",
+                "--no-persist", "--no-news", "--puts-budget", "500"]
+        with patch.object(oa, "get_services", return_value=bag), \
+             patch("quantcore.db.init_schema"), \
+             patch.object(svc, "fetch_security", return_value=sec), \
+             patch.object(sys, "argv", argv):
+            text = out_of(oa.main)
+
+        self.assertIn("Options Analysis Engine", text)
+        self.assertIn("Symbols   : 1", text)
+        self.assertIn("News      : disabled (--no-news)", text)
+        self.assertIn("LONG / BOUNCE CANDIDATES", text)
+        self.assertIn("UPP", text)

@@ -171,3 +171,67 @@ class HarvesterRepoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# HarvesterService scan path (85%-campaign part 10) — real plans in the test
+# DB, price feed stubbed at the _latest_close seam.
+# ---------------------------------------------------------------------------
+
+from unittest.mock import Mock, patch  # noqa: E402
+
+from quantcore.services.harvester import HarvesterService  # noqa: E402
+
+
+class HarvesterScanTest(HarvesterRepoTest):
+    def make_service(self):
+        return HarvesterService(self.db, yfinance_gateway=Mock())
+
+    def test_scan_fires_on_target_touch_and_marks_the_rung(self):
+        plan = self.build()
+        rungs = self.db.get_rungs_for_plan(plan["instance_id"])
+        first = rungs[0]
+        service = self.make_service()
+
+        with patch.object(service, "_latest_close",
+                          return_value=float(first["target_price"]) * 1.001):
+            fired = service.scan_and_fire_alerts()
+
+        mine = [f for f in fired if f["symbol"] == SYM]
+        self.assertEqual(len(mine), 1)
+        self.assertEqual(mine[0]["rung_id"], first["rung_id"])
+        self.assertEqual(mine[0]["target_price"], float(first["target_price"]))
+        after = self.db.get_rung_by_id(first["rung_id"])
+        self.assertNotEqual(str(after.get("status", "")).upper(), "PENDING")
+
+        # Second scan at the same price: rung 1 is no longer pending and rung 2
+        # is above the price, so nothing fires for this symbol.
+        with patch.object(service, "_latest_close",
+                          return_value=float(first["target_price"]) * 1.001):
+            again = service.scan_and_fire_alerts()
+        self.assertEqual([f for f in again if f["symbol"] == SYM], [])
+
+    def test_scan_holds_below_target_or_without_price(self):
+        plan = self.build()
+        first = self.db.get_rungs_for_plan(plan["instance_id"])[0]
+        service = self.make_service()
+        with patch.object(service, "_latest_close",
+                          return_value=float(first["target_price"]) * 0.5):
+            self.assertEqual(
+                [f for f in service.scan_and_fire_alerts() if f["symbol"] == SYM], []
+            )
+        with patch.object(service, "_latest_close", return_value=None):
+            self.assertEqual(
+                [f for f in service.scan_and_fire_alerts() if f["symbol"] == SYM], []
+            )
+
+    def test_latest_close_seam_degrades(self):
+        gateway = Mock()
+        service = HarvesterService(self.db, yfinance_gateway=gateway)
+        gateway.fetch_history.return_value = bars(n=5)
+        self.assertAlmostEqual(service.poll_latest_close("ZZX"),
+                               float(bars(n=5)["Close"].iloc[-1]))
+        gateway.fetch_history.return_value = bars(n=5).iloc[0:0]   # empty
+        self.assertIsNone(service.poll_latest_close("ZZX"))
+        gateway.fetch_history.side_effect = RuntimeError("yahoo down")
+        self.assertIsNone(service.poll_latest_close("ZZX"))

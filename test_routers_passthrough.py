@@ -60,6 +60,8 @@ OPTIONS_GETS = [
     "/api/securities/TST/options/delta-adjusted-oi",
     "/api/securities/TST/options/gamma-wall-history",
     "/api/securities/TST/signals/options-flow",
+    "/api/securities/TST/options/screen",
+    "/api/options/screen-watchlist",
 ]
 
 

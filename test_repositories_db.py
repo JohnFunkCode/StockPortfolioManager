@@ -221,3 +221,55 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Fundamentals cache edge branches (85%-campaign part 10)
+# ---------------------------------------------------------------------------
+
+from unittest.mock import patch  # noqa: E402
+
+from quantcore.repositories import fundamentals_repository as fr  # noqa: E402
+
+
+class TestFundamentalsCacheEdges(RepoTestBase):
+    def test_ttl_env_parsing(self):
+        with patch.dict(os.environ, {"FUNDAMENTALS_CACHE_TTL_HOURS": "2"}):
+            self.assertEqual(fr._get_ttl_seconds(), 7200.0)
+        with patch.dict(os.environ, {"FUNDAMENTALS_CACHE_TTL_HOURS": "-5"}):
+            self.assertEqual(fr._get_ttl_seconds(), 0.0)      # clamped
+        with patch.dict(os.environ, {"FUNDAMENTALS_CACHE_TTL_HOURS": "nope"}):
+            self.assertEqual(fr._get_ttl_seconds(), 86400.0)  # default on garbage
+
+    def test_ttl_zero_disables_reads(self):
+        fr.cache_set(SYM, "fundamental_score", {"composite_score": 5})
+        with patch.dict(os.environ, {"FUNDAMENTALS_CACHE_TTL_HOURS": "0"}):
+            self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))
+
+    def test_expired_entry_is_a_miss(self):
+        fr.cache_set(SYM, "fundamental_score", {"composite_score": 5})
+        # Age the row far past any TTL.
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "UPDATE fundamentals_history SET fetched_at = fetched_at - 999999 "
+                "WHERE symbol = %s", (SYM,)
+            )
+            conn.commit()
+        self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))
+        # ...but history still sees it.
+        self.assertGreaterEqual(len(fr.cache_history(SYM, "fundamental_score")), 1)
+
+    def test_unserializable_and_none_payloads_are_skipped(self):
+        fr.cache_set(SYM, "fundamental_score", None)          # no-op
+        fr.cache_set(SYM, "fundamental_score", {"bad": object()})  # unserializable
+        self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))
+
+    def test_corrupt_json_entry_is_a_miss(self):
+        fr.cache_set(SYM, "fundamental_score", {"ok": 1})
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "UPDATE fundamentals_history SET payload = 'not json' "
+                "WHERE symbol = %s", (SYM,)
+            )
+            conn.commit()
+        self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))

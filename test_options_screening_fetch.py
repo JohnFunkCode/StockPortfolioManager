@@ -259,3 +259,38 @@ class TestFetchSecurity(FetchTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFetchAndStoreFullChain(unittest.TestCase):
+    """fetch_and_store_full_chain — the shared live-refresh helper in
+    quantcore/services/options_contracts.py (85%-campaign closer)."""
+
+    def test_fetches_every_expiration_and_persists(self):
+        from quantcore.services.options_contracts import fetch_and_store_full_chain
+
+        gw = Mock()
+        gw.fast_info.return_value = SimpleNamespace(last_price=100.0)
+        gw.expirations.return_value = ("2026-08-21", "2026-09-18")
+        gw.option_chain.side_effect = [
+            chains(chain_df(oi=100, vol=10), chain_df(oi=200, vol=20)),
+            RuntimeError("second expiry unavailable"),   # skipped, not fatal
+        ]
+        store = Mock()
+        store.save_full_chain.return_value = 77
+        store.get_full_chain.return_value = {"price": 100.0}
+
+        out = fetch_and_store_full_chain("intc", store, gateway=gw)
+        self.assertEqual(out["snapshot_id"], 77)
+        self.assertEqual(out["expiration_count"], 1)     # bad expiry skipped
+        self.assertGreater(out["total_contracts"], 0)
+        _, kwargs = store.save_full_chain.call_args
+        self.assertEqual(kwargs["symbol"], "INTC")
+        self.assertEqual(kwargs["expirations_data"][0]["put_call_ratio"], 2.0)
+
+    def test_missing_price_raises(self):
+        from quantcore.services.options_contracts import fetch_and_store_full_chain
+
+        gw = Mock()
+        gw.fast_info.return_value = SimpleNamespace(last_price=None)
+        with self.assertRaises(ValueError):
+            fetch_and_store_full_chain("ZZNONE", Mock(), gateway=gw)

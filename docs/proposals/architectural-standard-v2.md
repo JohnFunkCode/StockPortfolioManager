@@ -174,6 +174,25 @@ Rationale: in a multi-user GCP deployment, the REST tier is the single enforceme
 
 A PR that adds a new analytic directly to a route, tool, or script — without a service function — fails review.
 
+### Rule 8 — Analytical UI components are sidekick-renderable (GenUI-compliant)
+
+Any front-end component that **displays analytical data** (prices, indicators, options analytics, fundamentals, sentiment, positions) must be built so the LLM sidekick can render it as a validated directive — even if no chat surface needs it yet. Page-exclusive layout/navigation chrome is exempt.
+
+Compliance means all of:
+
+1. **Self-contained, scalar props.** The component accepts only serializable primitives (`ticker`, strikes, dates, enums) and fetches its own data through the existing hooks/REST client. Never callbacks, objects, or pre-fetched data blobs as directive props.
+2. **Dual registration with strict specs.** A typed prop spec in **both** `quantcore/services/chat_tools.py` (`BACKEND_COMPONENT_REGISTRY`, plus the `show_component` tool description so the model knows it exists) and `frontend/src/chat/componentRegistry.tsx`. Validation invariants on both sides: every spec'd prop required, extras rejected, `bool` is never a number, strings non-empty. The model can only *reference* components — it never generates markup (the trusted-catalog pattern the GenUI standards — MCP Apps, A2UI, AG-UI — converged on).
+3. **Rendered only through `DirectiveRenderer`** — error boundary + visible fallback; set the registry's `titled` flag when the component carries no symbol header of its own.
+4. **Displayed math lives in `quantcore/analytics`** (single home — the `spreadMath.ts` retirement in #79/#88 is the precedent). Heavy numeric payloads (e.g., curve arrays) go behind opt-in request flags so LLM-facing tool results stay lean.
+5. **Interactivity, if any, only via the interaction registries** (`BACKEND_INTERACTION_REGISTRY` + `INTERACTION_REGISTRY`) and `useDirectiveInteractions`, honoring the `locked`/`consumed` contract: once a gesture has been answered, the instance is immutable conversational history.
+6. **Parity tests on both sides** — the prop/interaction case tables in `test_chat_protocol.py` and `componentRegistry.test.ts` stay mirrored.
+
+Rationale: the sidekick is a first-class consumer of every analytical visual. A component built page-bound has to be rebuilt the day the model needs to show it; a compliant component is one registry entry away.
+
+### Rule 9 — UI components ship with tests
+
+A PR that adds or materially changes a component under `frontend/src` includes vitest coverage of its load-bearing behavior in the same PR: loading/error/success states and the key computed values it renders (not render-only smoke). The vitest coverage thresholds in `frontend/vitest.config.ts` are a ratchet — they only move up, and a PR that meaningfully raises frontend coverage bumps them. Components reachable from the sidekick get a `CHAT_FAKE=1` Playwright beat when a fake script exists for their flow.
+
 ---
 
 ## 7. Capability Surface Policy
@@ -282,6 +301,9 @@ graph LR
 8. Gateways growing into service layers
 9. Duplicate "mirror" implementations across surfaces
 10. AI tools mutating state without confirmation + idempotency + audit
+11. Analytical display component built page-bound (no registry entry — Rule 8)
+12. UI component merged without tests (Rule 9)
+13. Financial math implemented in the front end (belongs in quantcore/analytics — Rule 8.4)
 ```
 
 (Note: v1 listed `MCP → REST` as anti-pattern; it is now **required** — see Rule 6.)
@@ -298,11 +320,20 @@ When generating or reviewing code in this repository, enforce:
 2. Add a thin FastAPI route exposing it, with Pydantic request/response models.
 3. Optionally expose it as an MCP tool — a curated wrapper over the REST endpoint, with an LLM-facing description.
 
+**Always — for any new analytical UI component (Rules 8–9):**
+
+1. Compute displayed math in `quantcore/analytics`; the component only draws.
+2. Give it scalar, self-contained props and register it in **both** component registries (`chat_tools.py` + `componentRegistry.tsx`) with matching strict prop specs; update the `show_component` tool description.
+3. Declare any gestures in **both** interaction registries and emit them only through `useDirectiveInteractions`.
+4. Ship vitest tests (loading/error/success + key values) and the registry parity cases in the same PR.
+
 **Never:**
 
 - Add analytics, thresholds, or decisions to MCP tool bodies, route handlers, CLI commands, or gateway classes.
 - Import yfinance, `psycopg2`, or store modules from an adapter.
 - Create a standalone script that re-implements an existing service.
+- Implement financial math in the front end, or build an analytical display component without a registry entry.
+- Merge a UI component without tests.
 
 **When unsure:**
 

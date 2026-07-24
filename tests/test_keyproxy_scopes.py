@@ -25,7 +25,6 @@ from keyproxy.scopes import (
 
 VECTORS_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "tests",
     "vectors",
     "keyproxy_envelope_v1.json",
 )

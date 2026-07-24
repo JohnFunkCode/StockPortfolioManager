@@ -489,5 +489,122 @@ class TestComputeEarningsCalendar(FundamentalsServiceTestBase):
         self.assertEqual(out["historical_avg_move_pct"], 10.0)
 
 
+# ---------------------------------------------------------------------------
+# Cache-backed collection surfaces (85%-campaign part 5)
+# ---------------------------------------------------------------------------
+
+import time as _time  # noqa: E402
+
+
+def cal_entry(sym, days_out, fetched_ago_s=60, risk="MODERATE"):
+    return {
+        "symbol": sym,
+        "earnings_date": (date.today() + timedelta(days=days_out)).isoformat(),
+        "risk_level": risk,
+        "pre_earnings_setup": risk == "MODERATE",
+        "historical_avg_move_pct": 5.5,
+        "fetched_at": "2026-07-24T00:00:00Z",
+        "_fetched_at_ts": int(_time.time()) - fetched_ago_s,
+    }
+
+
+class TestUpcomingEarnings(FundamentalsServiceTestBase):
+    def test_window_staleness_and_ordering(self):
+        self.repo.ttl_seconds.return_value = 3600.0
+        self.repo.get_all_latest.return_value = [
+            cal_entry("SOON", 3),
+            cal_entry("LATER", 10),
+            cal_entry("FAR", 40),                      # outside the 14d window
+            cal_entry("STALE", 5, fetched_ago_s=999_999),
+            {"symbol": "NODATE", "_fetched_at_ts": int(_time.time())},
+        ]
+        out = self.service.get_upcoming_earnings(days=14)
+        self.assertEqual([u["symbol"] for u in out["upcoming"]], ["SOON", "LATER"])
+        self.assertEqual(out["stale_excluded"], 1)
+        self.assertEqual(out["total_in_cache"], 5)
+
+    def test_include_stale_keeps_and_flags(self):
+        self.repo.ttl_seconds.return_value = 3600.0
+        self.repo.get_all_latest.return_value = [
+            cal_entry("STALE", 5, fetched_ago_s=999_999)
+        ]
+        out = self.service.get_upcoming_earnings(days=14, include_stale=True)
+        self.assertEqual(out["count"], 1)
+        self.assertTrue(out["upcoming"][0]["stale"])
+
+
+def score_entry(sym, score, sector="Tech", coverage=0.9):
+    return {"symbol": sym, "composite_score": score, "sector": sector,
+            "coverage": coverage, "fundamental_label": "solid"}
+
+
+class TestSectorBreakdown(FundamentalsServiceTestBase):
+    def test_grouping_ranking_and_filter(self):
+        self.repo.get_all_latest.return_value = [
+            score_entry("AAA", 3), score_entry("BBB", 9),
+            score_entry("CCC", 5, sector="Energy"),
+            {"symbol": "NOSECTOR", "composite_score": 1},   # -> "Unknown"
+        ]
+        out = self.service.get_sector_fundamental_breakdown(top_n=5)
+        self.assertEqual(out["sector_count"], 3)
+        tech = out["sectors"]["Tech"]
+        self.assertEqual([e["symbol"] for e in tech], ["BBB", "AAA"])
+        self.assertEqual(tech[0]["rank"], 1)
+
+        only_energy = self.service.get_sector_fundamental_breakdown(sector="energy")
+        self.assertEqual(list(only_energy["sectors"]), ["Energy"])
+
+    def test_cache_stats_passthrough(self):
+        self.repo.stats.return_value = {"data_types": []}
+        self.assertEqual(self.service.get_cache_stats(), {"data_types": []})
+
+
+class TestScoreChanges(FundamentalsServiceTestBase):
+    def arm_history(self, then, now):
+        self.repo.get_all_latest.return_value = [score_entry("MOVER", now)]
+        self.repo.history.return_value = [
+            {"composite_score": then, "fundamental_label": "weak",
+             "fetched_at": "t0"},
+            {"composite_score": now, "fundamental_label": "solid",
+             "fetched_at": "t1"},
+        ]
+
+    def test_improver_detected_with_delta(self):
+        self.arm_history(then=2, now=8)
+        out = self.service.get_fundamental_score_changes(min_delta=2)
+        self.assertEqual(len(out["changes"]), 1)
+        change = out["changes"][0]
+        self.assertEqual(change["delta"], 6)
+        self.assertEqual(change["direction"], "improving")
+
+    def test_direction_and_min_delta_filters(self):
+        self.arm_history(then=2, now=8)
+        out = self.service.get_fundamental_score_changes(direction="deteriorating")
+        self.assertEqual(out["changes"], [])
+        out = self.service.get_fundamental_score_changes(min_delta=10)
+        self.assertEqual(out["changes"], [])
+
+    def test_insufficient_history_counted(self):
+        self.repo.get_all_latest.return_value = [score_entry("NEWB", 5)]
+        self.repo.history.return_value = [{"composite_score": 5}]
+        out = self.service.get_fundamental_score_changes()
+        self.assertEqual(out["symbols_with_insufficient_history"], 1)
+        self.assertEqual(out["changes"], [])
+
+
+class TestFundamentalHistory(FundamentalsServiceTestBase):
+    def test_invalid_data_type_rejected(self):
+        out = self.service.get_fundamental_history("intc", "nonsense")
+        self.assertIn("error", out)
+
+    def test_score_trend_labels(self):
+        self.repo.history.return_value = [
+            {"composite_score": 2, "fetched_at": "t0"},
+            {"composite_score": 7, "fetched_at": "t1"},
+        ]
+        out = self.service.get_fundamental_history("INTC", "fundamental_score")
+        self.assertEqual(out.get("trend"), "improving")
+
+
 if __name__ == "__main__":
     unittest.main()

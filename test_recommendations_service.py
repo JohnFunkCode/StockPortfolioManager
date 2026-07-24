@@ -260,3 +260,97 @@ class StopLossSynthesisTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# Relative strength (85%-campaign part 8)
+# ---------------------------------------------------------------------------
+
+import numpy as _np  # noqa: E402
+import pandas as _pd  # noqa: E402
+from unittest.mock import Mock as _Mock, patch as _patch  # noqa: E402
+
+from quantcore.services.recommendations import RecommendationsService as _RS  # noqa: E402
+
+
+def _mock_service():
+    return _RS(
+        prices=_Mock(), options=_Mock(), microstructure=_Mock(),
+        sentiment=_Mock(), fundamentals=_Mock(),
+        ohlcv_repository=_Mock(), yfinance_gateway=_Mock(),
+    )
+
+
+def _trend_df(total_return_pct, n=160):
+    idx = _pd.bdate_range(end="2026-07-17", periods=n)
+    closes = _np.linspace(100.0, 100.0 * (1 + total_return_pct / 100.0), n)
+    return _pd.DataFrame({"Close": closes}, index=idx)
+
+
+class RelativeStrengthHistoryTests(unittest.TestCase):
+    def test_outperformer_reads_positive_rs(self):
+        svc = _mock_service()
+        frames = {"WINNR": _trend_df(30), "SPY": _trend_df(8),
+                  "QQQ": _trend_df(10), "XLK": _trend_df(12)}
+        svc._prices.get_history.side_effect = (
+            lambda sym, interval="1d", days=0: frames[sym]
+        )
+        with _patch.object(svc, "_get_sector_etf", return_value="XLK"):
+            out = svc.get_relative_strength_history("winnr", since_days=30)
+        self.assertEqual(out["symbol"], "WINNR")
+        self.assertEqual(out["sector_etf"], "XLK")
+        self.assertEqual(out["data_points"], 30)
+        last = out["history"][-1]
+        self.assertGreater(last["rs_vs_spy"], 0)
+        self.assertGreater(last["rs_vs_qqq"], 0)
+        self.assertIsNotNone(last["rs_vs_sector"])
+        self.assertIn(last["rs_label"],
+                      {"leader", "outperforming", "neutral", "laggard", "weak"})
+
+    def test_missing_history_degrades(self):
+        svc = _mock_service()
+        svc._prices.get_history.return_value = _pd.DataFrame()
+        with _patch.object(svc, "_get_sector_etf", return_value=None):
+            out = svc.get_relative_strength_history("GHOST")
+        self.assertEqual(out["history"], [])
+        self.assertIn("error", out)
+
+
+class RelativeStrengthTests(unittest.TestCase):
+    def _download_frame(self, returns_by_ticker, n=300):
+        idx = _pd.bdate_range(end="2026-07-17", periods=n)
+        closes = _pd.DataFrame(
+            {t: _np.linspace(100.0, 100.0 * (1 + r / 100.0), n)
+             for t, r in returns_by_ticker.items()},
+            index=idx,
+        )
+        return _pd.concat({"Close": closes}, axis=1)
+
+    def test_market_leader_labels_and_sector_momentum(self):
+        svc = _mock_service()
+        svc._yf.info.return_value = {"sector": "Technology"}
+        svc._yf.download.return_value = self._download_frame(
+            {"HERO": 45.0, "SPY": 10.0, "QQQ": 15.0, "XLK": 20.0}
+        )
+        out = svc.get_relative_strength("hero")
+        self.assertEqual(out["sector"], "Technology")
+        returns = out["returns"]
+        for leg in ("stock", "spy", "qqq", "sector"):
+            self.assertIsNotNone(returns[leg]["12m"], leg)
+        # Self-consistent ratio math.
+        self.assertAlmostEqual(
+            out["rs_ratio_vs_spy"],
+            round(returns["stock"]["12m"] - returns["spy"]["12m"], 2),
+        )
+        self.assertEqual(out["relative_strength_label"], "leader")
+        self.assertIn(out["sector_momentum"],
+                      {"sector_leading", "sector_neutral", "sector_lagging"})
+
+    def test_provider_failures_leave_safe_defaults(self):
+        svc = _mock_service()
+        svc._yf.info.side_effect = RuntimeError("info down")
+        svc._yf.download.side_effect = RuntimeError("download down")
+        out = svc.get_relative_strength("GHOST")
+        self.assertEqual(out["relative_strength_label"], "unknown")
+        self.assertEqual(out["sector_momentum"], "unknown")
+        self.assertIsNone(out["rs_ratio_vs_spy"])

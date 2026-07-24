@@ -263,5 +263,76 @@ class TestGetNews(SentimentServiceTestBase):
         self.assertEqual(out["symbol"], "INTC")
 
 
+# ---------------------------------------------------------------------------
+# Dashboard + scoring wrapper (85%-campaign part 7)
+# ---------------------------------------------------------------------------
+
+def snap(sentiment, neg=0):
+    return {
+        "captured_at": "2026-07-24T00:00:00Z", "overall_sentiment": sentiment,
+        "positive_count": 1, "negative_count": neg, "neutral_count": 0,
+        "scored_count": 1 + neg, "article_count": 2 + neg,
+    }
+
+
+class TestSentimentDashboard(SentimentServiceTestBase):
+    PORTFOLIO = [{"symbol": "AAA", "name": "Alpha", "source": "portfolio", "tags": []}]
+    WATCHLIST = [
+        {"symbol": "AAA", "name": "Alpha", "source": "watchlist", "tags": ["dual"]},
+        {"symbol": "BBB", "name": "Beta", "source": "watchlist", "tags": []},
+    ]
+
+    def arm(self):
+        self.snapshots.get_all_latest.return_value = {
+            "AAA": snap("positive"),
+            "BBB": snap("negative", neg=5),
+            "ORPHAN": snap("neutral"),   # scored but untracked -> watchlist src
+        }
+
+    def test_ranked_negative_first_with_dual_source(self):
+        self.arm()
+        out = self.service.get_sentiment_dashboard(
+            [dict(s) for s in self.PORTFOLIO], [dict(s) for s in self.WATCHLIST]
+        )
+        self.assertEqual(out["count"], 3)
+        self.assertEqual(out["items"][0]["symbol"], "BBB")       # negative first
+        aaa = next(i for i in out["items"] if i["symbol"] == "AAA")
+        self.assertEqual(aaa["source"], "both")
+        self.assertEqual(aaa["tags"], ["dual"])
+
+    def test_source_filters(self):
+        self.arm()
+        portfolio_only = self.service.get_sentiment_dashboard(
+            [dict(s) for s in self.PORTFOLIO], [dict(s) for s in self.WATCHLIST],
+            source_filter="portfolio",
+        )
+        self.assertEqual([i["symbol"] for i in portfolio_only["items"]], ["AAA"])
+        watch_only = self.service.get_sentiment_dashboard(
+            [dict(s) for s in self.PORTFOLIO], [dict(s) for s in self.WATCHLIST],
+            source_filter="watchlist",
+        )
+        self.assertEqual({i["symbol"] for i in watch_only["items"]},
+                         {"AAA", "BBB", "ORPHAN"})
+
+
+class TestScoreSentimentWrapper(unittest.TestCase):
+    def test_blank_text_short_circuits(self):
+        self.assertIsNone(sentiment_mod._score_sentiment("   "))
+
+    def test_rounds_and_slims_the_finbert_result(self):
+        full = {"sentiment": "negative", "sentiment_score": 0.87654321,
+                "positive_score": 0.1, "negative_score": 0.88, "neutral_score": 0.02}
+        with patch.object(sentiment_mod, "_score_text", return_value=full):
+            out = sentiment_mod._score_sentiment("bad quarter")
+        self.assertEqual(out, {"sentiment": "negative", "sentiment_score": 0.8765})
+
+    def test_model_unavailable_or_error_returns_none(self):
+        with patch.object(sentiment_mod, "_score_text", return_value=None):
+            self.assertIsNone(sentiment_mod._score_sentiment("text"))
+        with patch.object(sentiment_mod, "_score_text",
+                          side_effect=RuntimeError("torch OOM")):
+            self.assertIsNone(sentiment_mod._score_sentiment("text"))
+
+
 if __name__ == "__main__":
     unittest.main()

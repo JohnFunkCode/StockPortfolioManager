@@ -74,6 +74,40 @@ describe('SecurityDetailPage', () => {
     );
   });
 
+  it('renders every tab panel, exercising the interpretation builders', async () => {
+    armAll();
+    renderPage();
+    await waitFor(() => expect(screen.getByText('Technical Analysis')).toBeInTheDocument());
+    // Walk all six tabs; each panel body + its narrative helpers run.
+    for (const label of [
+      'Technical Analysis',
+      'Options Chain',
+      'Options Performance',
+      'Options Analytics',
+      'Signals',
+      'Price & MAs',
+    ]) {
+      // Click the tab (role=tab disambiguates from panel text like "Options Chain").
+      fireEvent.click(screen.getByRole('tab', { name: label }));
+      await waitFor(() =>
+        expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true'),
+      );
+    }
+  });
+
+  it('opens the remove-from-portfolio confirmation', async () => {
+    armAll();
+    renderPage();
+    await waitFor(() =>
+      expect(screen.getByText('Remove from Portfolio')).toBeInTheDocument(),
+    );
+    fireEvent.click(screen.getByText('Remove from Portfolio'));
+    // The confirmation dialog surfaces the archival copy.
+    await waitFor(() =>
+      expect(screen.getAllByText(/Remove from Portfolio/i).length).toBeGreaterThan(1),
+    );
+  });
+
   it('offers a Remove from Portfolio action for a held name', async () => {
     armAll();
     renderPage();

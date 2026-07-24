@@ -70,6 +70,28 @@ describe('SignalsTab', () => {
     expect(screen.getByText(/broadly bullish/i)).toBeInTheDocument();
   });
 
+  it('synthesizes a bearish read and renders the news sentiment summary', async () => {
+    armAll({
+      tech: {
+        ...TECH,
+        stochastic: { k: 85, d: 82, signal: 'overbought' },
+        vwap: { vwap: 99, position: 'below_vwap', reclaim_signal: false, reclaim_strength: 'none', distance_pct: -2.1 },
+        obv: { divergence: 'bearish', divergence_strength: 'strong', obv_trend: 'falling', price_trend: 'falling' },
+      },
+      news: {
+        symbol: 'INTC',
+        article_count: 3,
+        articles: [{ title: 'Guidance cut', sentiment: 'negative', sentiment_score: 0.9, publisher: 'Wire', published: '2026-07-20', url: 'u' }],
+        sentiment_summary: { overall: 'negative', positive_count: 0, negative_count: 3, neutral_count: 0, scored_count: 3 },
+      },
+    });
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    await waitFor(() =>
+      expect(screen.getByText(/broadly bearish/i)).toBeInTheDocument(),
+    );
+    expect(screen.getByText(/News sentiment across 3/i)).toBeInTheDocument();
+  });
+
   it('degrades a section when its endpoint errors while others render', async () => {
     armAll({ risk: { __status: 500, error: 'risk unavailable' } });
     renderWithProviders(<SignalsTab ticker="INTC" />);

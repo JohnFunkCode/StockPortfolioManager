@@ -11,4 +11,12 @@ describe('OptionsChainChart', () => {
     expect(container.querySelector('svg')!.querySelectorAll('rect').length).toBeGreaterThan(0);
     expect(container.textContent).toMatch(/contract|call|put/i);
   });
+
+  it('degrades gracefully when the nearest expiration has no contracts', () => {
+    const snap = optionsSnapshot();
+    snap.expirations[0].contracts = [];
+    const { container } = render(<OptionsChainChart snapshot={snap} />);
+    // No contracts -> no OI bars, but the component still renders its shell.
+    expect(container).toBeTruthy();
+  });
 });

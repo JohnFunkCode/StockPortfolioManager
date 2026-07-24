@@ -32,4 +32,11 @@ describe('RSIChart', () => {
     const { container } = render(<RSIChart data={rows as never} />);
     expect(container.querySelector('svg')!.querySelectorAll('path').length).toBe(0);
   });
+
+  it('renders overbought values at a custom height', () => {
+    const rows = indicatorRows(40).map((r) => ({ ...r, rsi: 85 }));
+    const { container } = render(<RSIChart data={rows as never} height={220} />);
+    expect(container.querySelector('svg')!.getAttribute('height')).toBeTruthy();
+    expect(container.querySelector('svg')!.querySelectorAll('path').length).toBeGreaterThan(0);
+  });
 });

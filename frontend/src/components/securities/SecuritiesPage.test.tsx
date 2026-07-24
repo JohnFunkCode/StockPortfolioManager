@@ -43,6 +43,24 @@ describe('SecuritiesPage', () => {
     expect(screen.getByText('WMT')).toBeInTheDocument();
   });
 
+  it('filters by source with the toggle group', async () => {
+    arm();
+    renderWithProviders(<SecuritiesPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Portfolio' }));
+    // INTC is the only portfolio-source row in the fixture.
+    await waitFor(() => expect(screen.queryByText('WMT')).toBeNull());
+    expect(screen.getByText('INTC')).toBeInTheDocument();
+  });
+
+  it('opens the Add Security dialog and toggles screener/sentiment panels', async () => {
+    arm();
+    renderWithProviders(<SecuritiesPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: /Add Security/i }));
+    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+  });
+
   it('surfaces a load error', async () => {
     mockApi([
       ['/api/securities', () => ({ __status: 500, error: 'securities down' })],

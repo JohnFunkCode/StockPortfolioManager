@@ -35,6 +35,35 @@ describe('AddSecurityDialog', () => {
     expect(JSON.parse(String(post![1]?.body)).symbol).toBe('INTC');
   });
 
+  it('submits a portfolio entry with cost basis when the Portfolio tab is chosen', async () => {
+    const api = mockApi([
+      ['/api/securities/lookup', { symbol: 'INTC', name: 'Intel', suggested_tags: [] }],
+      ['/api/portfolio', { added: true }],
+    ]);
+    const onClose = vi.fn();
+    renderWithProviders(<AddSecurityDialog open onClose={onClose} />);
+
+    // Switch to the Portfolio destination tab.
+    fireEvent.click(screen.getByRole('tab', { name: 'Portfolio' }));
+    fireEvent.change(symbolInput(), { target: { value: 'INTC' } });
+    fireEvent.click(screen.getByText(/Add to Portfolio/i));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const post = api.calls.find((c) => c[0].includes('/api/portfolio') && c[1]?.method === 'POST');
+    expect(post).toBeTruthy();
+    expect(JSON.parse(String(post![1]?.body)).symbol).toBe('INTC');
+  });
+
+  it('adds tag chips on Enter', async () => {
+    mockApi([['/api/securities/lookup', { symbol: 'INTC', name: 'Intel', suggested_tags: [] }]]);
+    renderWithProviders(<AddSecurityDialog open onClose={() => {}} />);
+    const tagField = screen.getByLabelText(/Tags/i).querySelector('input')
+      ?? document.querySelectorAll('input[type="text"]')[document.querySelectorAll('input[type="text"]').length - 1];
+    fireEvent.change(tagField as HTMLInputElement, { target: { value: 'chips' } });
+    fireEvent.keyDown(tagField as HTMLInputElement, { key: 'Enter' });
+    await waitFor(() => expect(screen.getByText('chips')).toBeInTheDocument());
+  });
+
   it('blocks submission without a symbol', () => {
     mockApi([]);
     renderWithProviders(<AddSecurityDialog open onClose={() => {}} />);

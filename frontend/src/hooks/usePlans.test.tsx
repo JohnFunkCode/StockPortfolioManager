@@ -27,10 +27,10 @@ describe('usePlans query hooks', () => {
     const disabled = renderHookWithProviders(() => usePlan(0));
     expect(disabled.result.current.fetchStatus).toBe('idle');
 
-    mockApi([['/api/plans/7', { instance_id: 7, rungs: [] }]]);
+    mockApi([['/api/plans/7', { plan: { instance_id: 7 }, rungs: [] }]]);
     const active = renderHookWithProviders(() => usePlan(7));
     await waitFor(() => expect(active.result.current.isSuccess).toBe(true));
-    expect(active.result.current.data!.instance_id).toBe(7);
+    expect(active.result.current.data!.plan.instance_id).toBe(7);
   });
 });
 

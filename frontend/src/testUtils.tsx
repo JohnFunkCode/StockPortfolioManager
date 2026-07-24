@@ -210,7 +210,7 @@ export function pcHistoryRows(n = 30) {
 
 /** Option contracts across a strike ladder (both sides). */
 export function optionContracts(strikes = [95, 100, 105, 110], spot = 102) {
-  const rows: object[] = [];
+  const rows: Array<Record<string, unknown>> = [];
   let id = 1;
   for (const strike of strikes) {
     for (const kind of ['call', 'put'] as const) {
@@ -225,7 +225,7 @@ export function optionContracts(strikes = [95, 100, 105, 110], spot = 102) {
         implied_vol: 0.45,
         volume: 100 + strike,
         open_interest: 500 + strike,
-        in_the_money: kind === 'call' ? (strike < spot ? 1 : 0) : (strike > spot ? 1 : 0),
+        in_the_money: (kind === 'call' ? (strike < spot ? 1 : 0) : (strike > spot ? 1 : 0)) as 0 | 1,
       });
     }
   }
@@ -310,6 +310,8 @@ export function rungRow(overrides: object = {}) {
     shares_sold_actual: null,
     gross_harvest_actual: null,
     tax_paid_actual: null,
+    net_harvest_actual: null,
+    notes: null,
     ...overrides,
   };
 }

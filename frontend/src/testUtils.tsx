@@ -190,3 +190,91 @@ export function securityRow(symbol = 'INTC', overrides: object = {}) {
     ...overrides,
   };
 }
+
+/** N days of P/C history rows for PCRatioChart. */
+export function pcHistoryRows(n = 30) {
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const d = new Date(2026, 3, (i % 27) + 1);
+    rows.push({
+      captured_at: d.toISOString(),
+      price: 100 + i * 0.3,
+      put_call_ratio: 0.8 + 0.4 * Math.sin(i / 5),
+      bb_upper: 108,
+      bb_middle: 100,
+      bb_lower: 92,
+    });
+  }
+  return rows;
+}
+
+/** Option contracts across a strike ladder (both sides). */
+export function optionContracts(strikes = [95, 100, 105, 110], spot = 102) {
+  const rows: object[] = [];
+  let id = 1;
+  for (const strike of strikes) {
+    for (const kind of ['call', 'put'] as const) {
+      rows.push({
+        contract_id: id++,
+        expiration_id: 1,
+        kind,
+        strike,
+        last_price: 2.5,
+        bid: 2.3,
+        ask: 2.7,
+        implied_vol: 0.45,
+        volume: 100 + strike,
+        open_interest: 500 + strike,
+        in_the_money: kind === 'call' ? (strike < spot ? 1 : 0) : (strike > spot ? 1 : 0),
+      });
+    }
+  }
+  return rows;
+}
+
+/** An OptionsSnapshot with one expiration for OptionsChainChart. */
+export function optionsSnapshot(symbol = 'INTC') {
+  const contracts = optionContracts();
+  return {
+    snapshot_id: 1,
+    symbol,
+    captured_at: '2026-07-24T15:00:00Z',
+    price: 102,
+    bb_upper: 110,
+    bb_middle: 100,
+    bb_lower: 90,
+    bb_period: 20,
+    expirations: [
+      {
+        expiration_id: 1,
+        snapshot_id: 1,
+        expiration: '2026-08-21',
+        put_call_ratio: 1.1,
+        total_call_oi: 5000,
+        total_put_oi: 5500,
+        total_call_vol: 1200,
+        total_put_vol: 1400,
+        avg_call_iv: 44,
+        avg_put_iv: 48,
+        contracts,
+      },
+    ],
+  };
+}
+
+/** Term-structure expirations for IVTermStructureChart. */
+export function ivExpirations() {
+  return [
+    { expiration: '2026-08-21', avg_call_iv: 42, avg_put_iv: 46, total_call_oi: 1, total_put_oi: 1, put_call_ratio: 1, total_call_vol: 1, total_put_vol: 1, expiration_id: 1, snapshot_id: 1, contracts: [] },
+    { expiration: '2026-09-18', avg_call_iv: 40, avg_put_iv: 44, total_call_oi: 1, total_put_oi: 1, put_call_ratio: 1, total_call_vol: 1, total_put_vol: 1, expiration_id: 2, snapshot_id: 1, contracts: [] },
+    { expiration: '2026-12-18', avg_call_iv: 38, avg_put_iv: 41, total_call_oi: 1, total_put_oi: 1, put_call_ratio: 1, total_call_vol: 1, total_put_vol: 1, expiration_id: 3, snapshot_id: 1, contracts: [] },
+  ];
+}
+
+/** Max-pain curve points. */
+export function painCurve() {
+  return [90, 95, 100, 105, 110].map((strike, i) => ({
+    strike,
+    pain: 100000 - Math.abs(i - 2) * 20000,
+  }));
+}

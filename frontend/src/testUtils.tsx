@@ -271,6 +271,49 @@ export function ivExpirations() {
   ];
 }
 
+/** A plan instance row. */
+export function planRow(overrides: object = {}) {
+  return {
+    instance_id: 1,
+    symbol: 'INTC',
+    status: 'ACTIVE',
+    created_at: '2026-07-01T00:00:00Z',
+    shares_initial: 100,
+    h_threshold: 0.1,
+    n_iterations: 4,
+    ...overrides,
+  };
+}
+
+/** A rung row. */
+export function rungRow(overrides: object = {}) {
+  return {
+    rung_id: 1,
+    instance_id: 1,
+    rung_index: 1,
+    target_price: 120,
+    shares_before: 100,
+    shares_sold_planned: 10,
+    shares_after_planned: 90,
+    expected_days_from_now: 30,
+    expected_date: '2026-08-24',
+    gross_harvest_planned: 1200,
+    cumulative_harvest_planned: 1200,
+    remaining_value_planned: 10800,
+    total_wealth_planned: 12000,
+    total_return_planned: 0.2,
+    status: 'PENDING',
+    triggered_at: null,
+    trigger_price: null,
+    executed_at: null,
+    executed_price: null,
+    shares_sold_actual: null,
+    gross_harvest_actual: null,
+    tax_paid_actual: null,
+    ...overrides,
+  };
+}
+
 /** Max-pain curve points. */
 export function painCurve() {
   return [90, 95, 100, 105, 110].map((strike, i) => ({

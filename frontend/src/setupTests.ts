@@ -43,3 +43,14 @@ if (typeof window !== 'undefined' && !window.localStorage) {
   Object.defineProperty(window, 'localStorage', { value: storage, configurable: true });
   Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true });
 }
+
+// jsdom has no ResizeObserver; chart/card components observe their containers.
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  class NoopResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (globalThis as any).ResizeObserver = NoopResizeObserver;
+}

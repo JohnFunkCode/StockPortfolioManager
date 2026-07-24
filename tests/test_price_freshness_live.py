@@ -36,15 +36,6 @@ from pathlib import Path
 
 LIVE = os.environ.get("QUANTCORE_LIVE_PRICE_TESTS") == "1"
 
-# Point at the test DB before quantcore.db freezes DB_DSN at import time, matching
-# the convention in test_api_smoke.py / test_support_tools_adapters.py.
-_env_file = Path(__file__).parent / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
-            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
-            break
-
 # Reference symbols: highly liquid, never halted, no thin-volume gaps.
 REFERENCE_SYMBOLS = ["AAPL", "MSFT", "SPY"]
 

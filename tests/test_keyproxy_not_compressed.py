@@ -16,15 +16,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-# Swap in the test DSN BEFORE quantcore.db is imported (it freezes DB_DSN at
-# import time), then let the guard abort if this process would reach prod.
-_env_file = Path(__file__).parent / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
-            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
-            break
-
 from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
@@ -33,13 +24,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from quantcore.services.registry import get_services  # noqa: E402
 from api.main import create_app  # noqa: E402
-from test_keyproxy_gateway import (  # noqa: E402
+from tests.test_keyproxy_gateway import (  # noqa: E402
     GatewayTestBase,
     ScriptedProvider,
     TEXT_BLOCK,
     final_message,
 )
-from test_keyproxy_service import bearer, chat_scope  # noqa: E402
+from tests.test_keyproxy_service import bearer, chat_scope  # noqa: E402
 
 # The base patches os.environ with clear=True; the api app (and any DB touch
 # inside a request) must keep seeing the test DSN inside that patched world.

@@ -9,15 +9,6 @@ from unittest.mock import Mock
 
 import pandas as pd
 
-# Standard test preamble: swap in the test DSN BEFORE quantcore.db is imported
-# (harvester_repository imports it transitively and freezes DB_DSN).
-_env_file = Path(__file__).parent / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
-            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
-            break
-
 from quantcore.repositories.harvester_repository import PlanBuildParams  # noqa: E402
 from quantcore.services.harvester import HarvesterService  # noqa: E402
 

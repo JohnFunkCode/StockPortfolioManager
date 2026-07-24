@@ -16,7 +16,7 @@ import re
 import unittest
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parent.parent
 
 # Directories whose *.py files are subject to the fence.
 SCANNED_DIRS = ["quantcore", "api", "fastMCPTest", "scripts", "mcp_gateway"]

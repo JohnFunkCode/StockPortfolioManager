@@ -22,7 +22,7 @@ import uvicorn
 
 from quantcore.gateways import keyproxy_gateway
 from quantcore.services.keyproxy import KeyProxyService
-from test_keyproxy_service import (
+from tests.test_keyproxy_service import (
     API_KEY,
     KID,
     KeyProxyServiceTestBase,

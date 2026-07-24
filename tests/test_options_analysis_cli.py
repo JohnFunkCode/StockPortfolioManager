@@ -13,15 +13,6 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-# Swap in the test DSN BEFORE quantcore.db is imported transitively (DB_DSN
-# freezes at import time; this module sorts ahead of DB-backed suites).
-_env_file = Path(__file__).parent / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
-            os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
-            break
-
 from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()

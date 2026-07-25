@@ -120,6 +120,7 @@ export default function ChatRail() {
     models,
     selectedModel,
     setSelectedModel,
+    modelSaveError,
   } = useChat();
   const [draft, setDraft] = useState('');
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -175,7 +176,7 @@ export default function ChatRail() {
           <FormControl size="small" variant="standard" sx={{ minWidth: 72, maxWidth: 150 }}>
             <Select
               value={selectedModel}
-              onChange={(e: SelectChangeEvent) => setSelectedModel(e.target.value)}
+              onChange={(e: SelectChangeEvent) => void setSelectedModel(e.target.value)}
               disableUnderline
               data-testid="chat-model-select"
               sx={{ fontSize: 12 }}
@@ -229,6 +230,12 @@ export default function ChatRail() {
       {error && (
         <Alert severity="error" data-testid="chat-error" sx={{ mx: 1.5, mb: 1, ...centered }}>
           {error}
+        </Alert>
+      )}
+
+      {modelSaveError && (
+        <Alert severity="error" data-testid="chat-model-error" sx={{ mx: 1.5, mb: 1, ...centered }}>
+          {modelSaveError}
         </Alert>
       )}
 

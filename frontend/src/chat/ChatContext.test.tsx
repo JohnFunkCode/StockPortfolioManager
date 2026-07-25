@@ -3,6 +3,7 @@ import { act, renderHook } from '@testing-library/react';
 import type { ReactNode } from 'react';
 
 import { ChatProvider, serializeForApi, useChat } from './ChatContext';
+import * as settingsApi from '../api/settings';
 import type { ChatMessage } from './types';
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -72,5 +73,37 @@ describe('ChatProvider persistence + controls', () => {
     expect(result.current.pendingInteractions[0].payload.strike).toBe(105);
     act(() => result.current.removeInteraction(0));
     expect(result.current.pendingInteractions).toEqual([]);
+  });
+
+  describe('setSelectedModel persistence (issue #124)', () => {
+    afterEach(() => vi.restoreAllMocks());
+
+    it('optimistically switches and clears any prior error on success', async () => {
+      vi.spyOn(settingsApi, 'putChatModel').mockResolvedValue({
+        chat_model: 'claude-opus-4-8',
+        models: [],
+      });
+      const { result } = renderHook(() => useChat(), { wrapper });
+
+      await act(async () => {
+        await result.current.setSelectedModel('claude-opus-4-8');
+      });
+
+      expect(result.current.selectedModel).toBe('claude-opus-4-8');
+      expect(result.current.modelSaveError).toBeNull();
+    });
+
+    it('rolls back and sets modelSaveError when the PUT fails', async () => {
+      vi.spyOn(settingsApi, 'putChatModel').mockRejectedValue(new Error('network down'));
+      const { result } = renderHook(() => useChat(), { wrapper });
+      const previous = result.current.selectedModel;
+
+      await act(async () => {
+        await result.current.setSelectedModel('claude-opus-4-8');
+      });
+
+      expect(result.current.selectedModel).toBe(previous);
+      expect(result.current.modelSaveError).toBe('network down');
+    });
   });
 });

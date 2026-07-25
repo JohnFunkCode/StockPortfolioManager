@@ -111,7 +111,10 @@ interface ChatContextValue {
    * dropdown and the chat-header quick-switch — a single source of truth. */
   models: ChatModel[];
   selectedModel: string;
-  setSelectedModel: (id: string) => void;
+  /** Optimistically switches, persists via PUT, and rolls back + populates
+   * modelSaveError if the save fails. Resolves once settled either way. */
+  setSelectedModel: (id: string) => Promise<void>;
+  modelSaveError: string | null;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -145,6 +148,8 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [models, setModels] = useState<ChatModel[]>(CHAT_MODELS);
   const [selectedModel, setSelectedModelState] = useState<string>(DEFAULT_CHAT_MODEL);
+  const [modelSaveError, setModelSaveError] = useState<string | null>(null);
+  const selectedModelRef = useRef(selectedModel);
   const abortRef = useRef<AbortController | null>(null);
   // Optional so the provider still works without a vault (tests, isolation).
   const vault = useKeyVaultOptional();
@@ -165,9 +170,20 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const setSelectedModel = useCallback((id: string) => {
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  const setSelectedModel = useCallback(async (id: string) => {
+    const previous = selectedModelRef.current;
+    setModelSaveError(null);
     setSelectedModelState(id);
-    void putChatModel(id);
+    try {
+      await putChatModel(id);
+    } catch (exc) {
+      setSelectedModelState(previous);
+      setModelSaveError((exc as Error).message || 'Failed to save the model selection.');
+    }
   }, []);
 
   useEffect(() => {
@@ -363,6 +379,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         models,
         selectedModel,
         setSelectedModel,
+        modelSaveError,
       }}
     >
       {children}

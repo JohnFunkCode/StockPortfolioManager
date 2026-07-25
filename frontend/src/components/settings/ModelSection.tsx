@@ -1,12 +1,12 @@
 /**
  * Sidekick model section of the Settings page (issue #124): a dropdown for
- * the chat model, backed by GET/PUT /api/settings. The canonical surface for
- * changing the model — the chat-header quick-switch (WP8) writes through the
- * same endpoint and stays in sync.
+ * the chat model, backed by GET/PUT /api/settings via ChatContext — the
+ * single source of truth shared with the chat-header quick-switch (WP8), so
+ * changing the model here is reflected immediately in the live chat.
  */
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
-  CircularProgress,
+  Alert,
   FormControl,
   MenuItem,
   Paper,
@@ -16,51 +16,22 @@ import {
   type SelectChangeEvent,
 } from '@mui/material';
 
-import { getSettings, putChatModel } from '../../api/settings';
-import { CHAT_MODELS, DEFAULT_CHAT_MODEL, type ChatModel } from '../../chat/models';
+import { useChat } from '../../chat/ChatContext';
 
 export default function ModelSection() {
-  const [models, setModels] = useState<ChatModel[]>(CHAT_MODELS);
-  const [chatModel, setChatModel] = useState(DEFAULT_CHAT_MODEL);
-  const [ready, setReady] = useState(false);
+  const { models, selectedModel, setSelectedModel, modelSaveError } = useChat();
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    getSettings()
-      .then((view) => {
-        if (cancelled) return;
-        setModels(view.models);
-        setChatModel(view.chat_model);
-      })
-      .finally(() => {
-        if (!cancelled) setReady(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   const handleChange = async (event: SelectChangeEvent) => {
-    const id = event.target.value;
-    setChatModel(id);
     setSaving(true);
     try {
-      await putChatModel(id);
+      await setSelectedModel(event.target.value);
     } finally {
       setSaving(false);
     }
   };
 
-  const selected = models.find((m) => m.id === chatModel);
-
-  if (!ready) {
-    return (
-      <Paper sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
-        <CircularProgress size={24} />
-      </Paper>
-    );
-  }
+  const selected = models.find((m) => m.id === selectedModel);
 
   return (
     <Paper sx={{ p: 3 }}>
@@ -73,7 +44,7 @@ export default function ModelSection() {
 
       <Stack spacing={1}>
         <FormControl size="small" sx={{ maxWidth: 320 }}>
-          <Select value={chatModel} onChange={(e) => void handleChange(e)} disabled={saving}>
+          <Select value={selectedModel} onChange={(e) => void handleChange(e)} disabled={saving}>
             {models.map((m) => (
               <MenuItem key={m.id} value={m.id}>
                 {m.name}
@@ -86,6 +57,7 @@ export default function ModelSection() {
             {selected.description}
           </Typography>
         )}
+        {modelSaveError && <Alert severity="error">{modelSaveError}</Alert>}
       </Stack>
     </Paper>
   );

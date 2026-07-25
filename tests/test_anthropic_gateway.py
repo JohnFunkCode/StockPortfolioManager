@@ -19,7 +19,7 @@ import sys
 import unittest
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parent.parent
 
 
 class TestAnthropicGatewayExtraction(unittest.TestCase):

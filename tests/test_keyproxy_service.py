@@ -166,7 +166,7 @@ class TestHealthAndKeys(KeyProxyServiceTestBase):
     def test_keypair_script_output_is_a_valid_bundle(self):
         # The runbook pipes the generate script's stdout straight into the
         # secret — pin that the parser accepts the script's exact format.
-        script = Path(__file__).parent / "scripts" / "generate_keyproxy_keypair.py"
+        script = Path(__file__).parent.parent / "scripts" / "generate_keyproxy_keypair.py"
         spec = importlib.util.spec_from_file_location("gen_keypair", script)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)

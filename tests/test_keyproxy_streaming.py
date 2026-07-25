@@ -13,7 +13,7 @@ import unittest
 
 from unittest.mock import patch
 
-from test_keyproxy_service import (
+from tests.test_keyproxy_service import (
     API_KEY,
     GENERIC,
     KeyProxyServiceTestBase,

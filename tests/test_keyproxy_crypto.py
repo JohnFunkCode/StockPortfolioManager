@@ -18,7 +18,7 @@ from keyproxy import crypto
 
 VECTORS_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
-    "tests", "vectors", "keyproxy_envelope_v1.json",
+    "vectors", "keyproxy_envelope_v1.json",
 )
 
 with open(VECTORS_PATH, encoding="utf-8") as _fh:
@@ -287,7 +287,7 @@ class TestNeverLogPolicy(unittest.TestCase):
 
 class TestKeypairScript(unittest.TestCase):
     def test_prints_pair_and_writes_nothing(self):
-        repo_root = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         before = set(os.listdir(repo_root))
         proc = subprocess.run(
             [sys.executable, os.path.join("scripts", "generate_keyproxy_keypair.py"),
@@ -302,7 +302,7 @@ class TestKeypairScript(unittest.TestCase):
         self.assertIn("BEGIN PRIVATE KEY", out)
 
     def test_render_generates_fresh_keys_each_call(self):
-        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts"))
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
         try:
             import generate_keyproxy_keypair as script
         finally:

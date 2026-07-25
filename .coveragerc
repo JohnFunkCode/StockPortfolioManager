@@ -12,7 +12,7 @@ source =
 
 omit =
     */__pycache__/*
-    test_*.py
+    tests/*
 
 [report]
 precision = 1

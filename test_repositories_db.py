@@ -27,8 +27,10 @@ from quantcore.repositories.fundamentals_repository import FundamentalsRepositor
 from quantcore.repositories.news_repository import NewsStore  # noqa: E402
 from quantcore.repositories.ohlcv_repository import OhlcvRepository  # noqa: E402
 from quantcore.repositories.options_position_repository import OptionsPositionStore  # noqa: E402
+from quantcore.repositories.user_settings_repository import UserSettingsRepository  # noqa: E402
 
 SYM = "ZZREPOS"
+TEST_OWNER = "zzrepos-owner"
 
 
 def purge():
@@ -37,6 +39,7 @@ def purge():
         conn.execute("DELETE FROM news_articles WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM options_positions WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM ohlcv WHERE symbol = %s", (SYM,))
+        conn.execute("DELETE FROM user_settings WHERE owner = %s", (TEST_OWNER,))
         conn.commit()
 
 
@@ -217,6 +220,36 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertEqual(len(rows), 5)
         self.assertEqual(rows[0]["symbol"], SYM)
         self.assertIn("close", rows[0])
+
+
+class TestUserSettingsRepository(RepoTestBase):
+    def setUp(self):
+        super().setUp()
+        self.repo = UserSettingsRepository()
+
+    def test_unknown_owner_is_none(self):
+        self.assertIsNone(self.repo.get_chat_model(TEST_OWNER))
+
+    def test_set_get_roundtrip(self):
+        self.repo.set_chat_model(TEST_OWNER, "claude-opus-4-8")
+        self.assertEqual(self.repo.get_chat_model(TEST_OWNER), "claude-opus-4-8")
+
+    def test_upsert_overwrites(self):
+        self.repo.set_chat_model(TEST_OWNER, "claude-opus-4-8")
+        self.repo.set_chat_model(TEST_OWNER, "claude-fable-5")
+        self.assertEqual(self.repo.get_chat_model(TEST_OWNER), "claude-fable-5")
+
+    def test_owners_are_isolated(self):
+        other = f"{TEST_OWNER}-2"
+        self.repo.set_chat_model(TEST_OWNER, "claude-sonnet-5")
+        self.repo.set_chat_model(other, "claude-fable-5")
+        try:
+            self.assertEqual(self.repo.get_chat_model(TEST_OWNER), "claude-sonnet-5")
+            self.assertEqual(self.repo.get_chat_model(other), "claude-fable-5")
+        finally:
+            with closing(get_connection()) as conn:
+                conn.execute("DELETE FROM user_settings WHERE owner = %s", (other,))
+                conn.commit()
 
 
 if __name__ == "__main__":

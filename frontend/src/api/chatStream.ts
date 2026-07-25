@@ -91,6 +91,7 @@ export async function streamChat(
   signal?: AbortSignal,
   interactions?: ChatInteraction[],
   keyMaterial?: ChatKeyMaterial,
+  model?: string,
 ): Promise<void> {
   const response = await fetch(`${API_BASE}/api/chat`, {
     method: 'POST',
@@ -100,6 +101,7 @@ export async function streamChat(
     },
     body: JSON.stringify({
       messages,
+      ...(model ? { model } : {}),
       ...(interactions && interactions.length > 0 ? { interactions } : {}),
       ...(keyMaterial
         ? { key_envelope: keyMaterial.keyEnvelope, scope: keyMaterial.scope }

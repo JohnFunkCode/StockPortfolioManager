@@ -11,12 +11,16 @@ import {
   Button,
   Chip,
   CircularProgress,
+  FormControl,
   IconButton,
+  MenuItem,
   Paper,
+  Select,
   Stack,
   TextField,
   Tooltip,
   Typography,
+  type SelectChangeEvent,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import DeleteSweepIcon from '@mui/icons-material/DeleteSweep';
@@ -113,6 +117,9 @@ export default function ChatRail() {
     clearConversation,
     pendingInteractions,
     removeInteraction,
+    models,
+    selectedModel,
+    setSelectedModel,
   } = useChat();
   const [draft, setDraft] = useState('');
   const [unlockOpen, setUnlockOpen] = useState(false);
@@ -164,6 +171,23 @@ export default function ChatRail() {
         <Typography variant="subtitle2" sx={{ flex: 1 }}>
           Sidekick
         </Typography>
+        <Tooltip title="Sidekick model">
+          <FormControl size="small" variant="standard" sx={{ minWidth: 72, maxWidth: 150 }}>
+            <Select
+              value={selectedModel}
+              onChange={(e: SelectChangeEvent) => setSelectedModel(e.target.value)}
+              disableUnderline
+              data-testid="chat-model-select"
+              sx={{ fontSize: 12 }}
+            >
+              {models.map((m) => (
+                <MenuItem key={m.id} value={m.id} sx={{ fontSize: 12 }}>
+                  {m.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Tooltip>
         {keyStatus === 'unlocked' && (
           <Tooltip title="API key unlocked — each message is sealed into a fresh single-use envelope">
             <LockOpenIcon

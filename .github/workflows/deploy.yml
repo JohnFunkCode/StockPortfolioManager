@@ -80,7 +80,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
       - name: Unit tests (under coverage)
-        run: coverage run -m unittest discover -v
+        run: coverage run -m unittest discover -s tests -t . -v
       # COVERAGE RATCHET: the floor below is pinned ~1pt under the measured
       # baseline (66.5% on 2026-07-16, waves 1-3 restored; scope in
       # .coveragerc). It only ever

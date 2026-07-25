@@ -9,18 +9,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Run the application (generates HTML report + sends Discord notifications)
 python main.py
 
-# Run all tests
-python -m unittest discover
+# Run all tests (suites live under tests/; the tests/__init__.py package
+# initializer swaps in the test DSN before quantcore.db is imported)
+python -m unittest discover -s tests -t .
 
 # Backend tests with coverage (CI enforces a ratchet floor — see .coveragerc + deploy.yml gate)
-coverage run -m unittest discover && coverage report
+coverage run -m unittest discover -s tests -t . && coverage report
 
 # Frontend tests with coverage (thresholds in frontend/vitest.config.ts)
 cd frontend && npx vitest run --coverage
 
-# Run a single test file
-python -m unittest test_money
-python -m unittest test_stock_portfolio_manager
+# Run a single test module (dotted path from the repo root)
+python -m unittest tests.test_money
+python -m unittest tests.test_stock_portfolio_manager
 
 # Activate virtualenv
 source .venv/bin/activate

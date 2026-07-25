@@ -25,11 +25,12 @@ export default defineConfig({
       // Ratchet floors: pinned ~1pt under the measured baseline; only ever
       // raised (see deploy.yml frontend-gate). Not aspirations — regressions.
       thresholds: {
-        // Baseline 2026-07-14: lines 23.5, statements 22.4, funcs 16.5, branches 16.2.
-        lines: 22,
-        statements: 21,
-        functions: 15,
-        branches: 15,
+        // Measured 2026-07-24 after the 85%-campaign: lines 85.4, statements 83.4,
+        // funcs 78.7, branches 65.8. Floors pinned ~1pt under; ratchet only up.
+        lines: 84,
+        statements: 82,
+        functions: 77,
+        branches: 64,
       },
     },
   },

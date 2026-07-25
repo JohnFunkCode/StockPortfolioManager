@@ -9,7 +9,7 @@ Design notes:
     §5.3; it is loaded lazily via _default_client_factory so this module —
     and the registry that imports it — never touches the SDK at import time
     (MCP stdio servers and requirements-base images depend on that).
-  * Model default is claude-fable-5: thinking is always on (the ``thinking``
+  * Model default is claude-sonnet-5: thinking is always on (the ``thinking``
     parameter must be omitted entirely), sampling params are not accepted, and
     depth is controlled via ``output_config.effort``. Server-side refusal
     fallbacks to claude-opus-4-8 are opted in by default per current API
@@ -218,7 +218,7 @@ class ChatService:
         fundamentals,
         sentiment,
         options,
-        model: str = "claude-fable-5",
+        model: str = "claude-sonnet-5",
         effort: str = "medium",
         max_iterations: int = 8,
         client_factory: Callable[[TurnContext], ChatClient] | None = None,

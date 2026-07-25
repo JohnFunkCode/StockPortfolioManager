@@ -32,3 +32,6 @@ class ChatRequest(BaseModel):
     # the keyproxy. Absent on legacy/env-key deployments.
     key_envelope: KeyEnvelope | None = None
     scope: KeyScope | None = None
+    # Current UI model selection (issue #124); server validates and falls
+    # back to the caller's stored setting or the deployment default.
+    model: str | None = None

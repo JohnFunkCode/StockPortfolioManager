@@ -39,6 +39,7 @@ def chat(
         scope=body.scope.model_dump() if body.scope else None,
         auth_token=principal.token,
         subject=principal.subject,
+        model=body.model,
     )
     events = services().chat.stream_chat(
         [{"role": m.role, "content": m.content} for m in body.messages],

@@ -17,6 +17,7 @@ Design notes:
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import math
@@ -121,6 +122,10 @@ class TurnContext:
     scope: dict | None = None
     auth_token: str | None = None
     subject: str = "local"
+    # Requested chat model for this turn (issue #124); resolved against the
+    # allow-list and the caller's stored setting before use — see
+    # ChatService._resolve_model.
+    model: str | None = None
 
 
 ENVELOPE_REQUIRED_MESSAGE = (
@@ -217,6 +222,8 @@ class ChatService:
         effort: str = "medium",
         max_iterations: int = 8,
         client_factory: Callable[[TurnContext], ChatClient] | None = None,
+        settings=None,
+        allowed: frozenset[str] = frozenset(),
     ):
         self._prices = prices
         self._fundamentals = fundamentals
@@ -225,8 +232,10 @@ class ChatService:
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
+        self._settings = settings
+        self._allowed = allowed
         self._client_factory = client_factory or (
-            lambda context: _default_client_factory(self._model, self._effort)
+            lambda context: _default_client_factory(context.model or self._model, self._effort)
         )
         # Tool name -> bound dispatch. Positional args mirror the service
         # signatures so tests can assert exact calls.
@@ -255,6 +264,17 @@ class ChatService:
             ),
         }
 
+    def _resolve_model(self, context: TurnContext) -> str:
+        """Requested model wins if allow-listed; else fall back to the
+        caller's stored setting (if allow-listed); else the service default."""
+        if context.model and context.model in self._allowed:
+            return context.model
+        if self._settings is not None:
+            stored = self._settings.get_chat_model(context.subject)
+            if stored in self._allowed:
+                return stored
+        return self._model
+
     def stream_chat(
         self,
         messages: list[dict],
@@ -270,7 +290,10 @@ class ChatService:
                     return
             _fold_interactions(convo, interactions)
         try:
-            client = self._client_factory(context or TurnContext())
+            context = context or TurnContext()
+            if self._allowed:
+                context = dataclasses.replace(context, model=self._resolve_model(context))
+            client = self._client_factory(context)
             for _ in range(self._max_iterations):
                 final = None
                 for kind, payload in client.stream_turn(

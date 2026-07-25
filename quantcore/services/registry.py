@@ -139,7 +139,7 @@ def get_services() -> Services:
     #   CHAT_ENV_KEY_FALLBACK  → legacy server-side env key (default OFF)
     #   otherwise              → keyless deployment; every turn errors cleanly
     # Real clients lazy-import their SDK on first use, never at registry import.
-    chat_model = os.environ.get("CHAT_MODEL", "claude-fable-5")
+    chat_model = os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL)
     chat_effort = os.environ.get("CHAT_EFFORT", "medium")
     if _truthy(os.environ.get("CHAT_FAKE")):
         from quantcore.services.chat_fake import FakeChatClient
@@ -156,7 +156,7 @@ def get_services() -> Services:
                 envelope=context.key_envelope,
                 scope=context.scope or {},
                 auth_token=context.auth_token or "",
-                model=chat_model,
+                model=context.model or chat_model,
                 effort=chat_effort,
             )
 
@@ -176,6 +176,8 @@ def get_services() -> Services:
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
         client_factory=chat_client_factory,
+        settings=settings,
+        allowed=MODEL_IDS,
     )
     # KEYPROXY_FAKE=1 swaps a canned in-process gateway (real keypair, real
     # envelope decrypt, no network) so /api/keyproxy routes are testable.

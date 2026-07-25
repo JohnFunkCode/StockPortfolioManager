@@ -219,6 +219,22 @@ class TestStreamingTurn(StreamingTestBase):
         self.assertEqual(response.json()["detail"], GENERIC)
         self.assertEqual(self.state.sessions._sessions, {})
 
+    def test_allow_listed_model_streams(self):
+        stub = stub_stream("hi")
+        with patch("keyproxy.providers.anthropic.stream_turn", stub):
+            response = self.stream(self.open_session(), model="claude-opus-4-8")
+        self.assertEqual(response.status_code, 200)
+        (_, params), = stub.calls
+        self.assertEqual(params["model"], "claude-opus-4-8")
+
+    def test_disallowed_model_rejected(self):
+        session_id = self.open_session()
+        with patch("keyproxy.providers.anthropic.stream_turn") as stub:
+            response = self.stream(session_id, model="gpt-4o")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], GENERIC)
+        stub.assert_not_called()
+
     def test_missing_bearer_is_401(self):
         response = self.client.post(
             STREAM_URL,
@@ -249,6 +265,20 @@ class TestStreamingTurn(StreamingTestBase):
             )
         self.assertEqual(response.status_code, 200)
         self.assertNotIn("content-encoding", response.headers)
+
+    def test_disallowed_model_rejection_never_logs_the_model_value(self):
+        # Issue #124 allow-list gate: the rejected model string is request
+        # material and must never reach a log, matching the other pre-key
+        # rejections (session/sub/classify) which log nothing at all.
+        session_id = self.open_session()
+        self.stream(session_id, model="gpt-4o-should-never-appear-in-logs")
+        self.assert_never_logged("gpt-4o-should-never-appear-in-logs")
+        unexpected = [
+            r.getMessage()
+            for r in self.log_handler.records
+            if r.name.startswith("keyproxy") and "session redeemed" not in r.getMessage()
+        ]
+        self.assertEqual(unexpected, [])
 
     def test_streaming_paths_never_log_key_material(self):
         token = bearer("alice")["Authorization"].split()[1]

@@ -35,6 +35,16 @@ VALIDATE_TIMEOUT_SECONDS = 10.0
 STREAM_BETAS = ["server-side-fallback-2026-06-01"]
 STREAM_FALLBACKS = [{"model": "claude-opus-4-8"}]
 
+# Sidekick model selector (issue #124). Keyproxy is a separate deployable —
+# it owns this copy rather than importing quantcore.chat_models.
+ALLOWED_MODELS = frozenset({"claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"})
+
+
+def supports_model(model: object) -> bool:
+    """Whether a requested chat model is allow-listed for streaming."""
+    return isinstance(model, str) and model in ALLOWED_MODELS
+
+
 READ = "read"
 MUTATE = "mutate"
 

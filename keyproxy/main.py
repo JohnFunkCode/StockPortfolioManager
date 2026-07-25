@@ -400,6 +400,8 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail=_INVALID)
         if provider.classify("messages.stream") != provider.READ:
             raise HTTPException(status_code=400, detail=_INVALID)
+        if not provider.supports_model(body.model):
+            raise HTTPException(status_code=400, detail=_INVALID)
         try:
             session.budget.charge_call()
         except BudgetExceededError as exc:

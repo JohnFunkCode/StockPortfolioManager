@@ -344,7 +344,7 @@ class KeyProxyChatClient:
         auth_token: str,
         model: str,
         effort: str,
-        max_tokens: int = 8192,
+        max_tokens: int = 16384,
     ):
         self._envelope = envelope
         self._scope = scope

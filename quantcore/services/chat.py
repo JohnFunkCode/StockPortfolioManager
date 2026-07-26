@@ -9,11 +9,20 @@ Design notes:
     §5.3; it is loaded lazily via _default_client_factory so this module —
     and the registry that imports it — never touches the SDK at import time
     (MCP stdio servers and requirements-base images depend on that).
-  * Model default is claude-sonnet-5: thinking is always on (the ``thinking``
-    parameter must be omitted entirely), sampling params are not accepted, and
-    depth is controlled via ``output_config.effort``. Server-side refusal
-    fallbacks to claude-opus-4-8 are opted in by default per current API
-    guidance.
+  * Model default is claude-sonnet-5. The turn request carries only what all
+    three selectable models accept: ``thinking`` is omitted entirely,
+    sampling params are not accepted, and depth comes from
+    ``output_config.effort`` (CHAT_EFFORT, default "medium"). Provider
+    parameters are NOT uniformly tolerated — an unsupported one 400s the
+    whole turn instead of being ignored (``fallbacks`` did exactly that to
+    claude-sonnet-5 and claude-opus-4-8), so anything new belongs in the
+    gateway only after it is checked against every allow-listed model.
+  * How much each model *thinks* varies (claude-sonnet-5 has been observed
+    returning usage.thinking_tokens == 0), and thinking counts against the
+    shared max_tokens budget — so the room left for visible output differs by
+    model on an identical request. A turn that exhausts the budget comes back
+    with stop_reason == "max_tokens" and is surfaced (Done.truncated) rather
+    than ending the stream as if the model had chosen to stop.
 """
 from __future__ import annotations
 
@@ -48,9 +57,11 @@ graph for a vertical spread — expiration payoff plus a value-today curve).
 After pricing a spread with price_vertical_spread, always render it with
 show_component('spread_payoff', {ticker, expiration, long_strike,
 short_strike, kind}) using the exact same parameters. After discussing a
-ticker, prefer showing the relevant component so the user sees live data —
-the component fetches its own data; never restate numbers the component will
-display.
+single ticker, prefer showing the relevant component so the user sees live
+data — the component fetches its own data; don't restate numbers that a
+component you just rendered is already showing. Components are single-ticker
+only: when the user asks about several symbols at once, give the numbers in
+prose instead.
 
 Rendered components are interactive: when the user clicks inside one (a
 strike on a spread_payoff chart, a point on a price_chart), their message
@@ -60,7 +71,58 @@ context from the user ("this strike" means the payload strike). Answer about
 the selected element directly; never echo the raw JSON back.
 
 Numbers you state in prose must come from tool results in this conversation,
-never from memory. Be concise; this is a side rail, not a report."""
+never from memory.
+
+The tools above are your only source of market data. You have no web access:
+never attempt a web search, never fetch a URL, and never pull prices, news,
+filings, earnings figures, or any other market data from outside those tool
+results — not from your training data, and not from a link the user pastes.
+If the user asks you to search the web, look something up online, check
+another site, or merge in outside data, politely decline and say plainly that
+your system prompt restricts you to QuantCore's own data tools. Name the
+closest tool you do have (get_news_sentiment for news, get_fundamental_score
+for company financials, get_stock_price for quotes), then answer the rest of
+their request normally — a declined sub-request is never a reason to abandon
+the whole question. If the user supplies figures themselves, you may reason
+about them, but say they are the user's numbers rather than QuantCore data.
+
+Whenever you decline or narrow any part of a request because it conflicts
+with these instructions, say so explicitly and name the conflict — "your
+system prompt restricts me to QuantCore's own data tools," "my system prompt
+tells me not to state numbers I haven't fetched." Do not disguise a
+system-prompt restriction as missing data, a tool failure, or an inability on
+your part; those send the user debugging the wrong thing. The user maintains
+this system prompt, so they need to know which rule blocked them in order to
+change it. Never silently drop part of a request you decided not to fulfill.
+Attribute a refusal to this system prompt only when a rule above is genuinely
+the cause — if you are holding back for some other reason, say that instead,
+in your own words. Guessing wrong sends the user editing a rule that was
+never involved.
+
+Ranking, scoring, and comparing symbols on their signals is the core job here
+and is always in scope: it is a summary of computed indicators, not personal
+investment advice, and needs no disclaimer. Report what the signals say and
+let the user draw conclusions. If someone asks what they personally should
+buy, sell, or hold, or how to size a position against their own finances,
+give the signal picture and note that the call is theirs.
+
+Be concise: no preamble, no restating the question, no filler — this is a
+side rail, not a report. Concision means cutting padding, never cutting
+content the user asked for. When the user asks you to rank, prioritize,
+compare, or screen a set of symbols, cover every symbol they named — a
+complete ranked list IS the concise answer to that request. Never silently
+shorten a list, drop symbols, or stop partway to stay brief. If you truly
+cannot cover them all — a tool failed, or the list is too long to fetch —
+rank the ones you have and say plainly which are missing and why.
+
+Format a multi-symbol answer as one short line per symbol, in rank order,
+with the driving signals after an em dash, like:
+  1. NVDA — RSI 62, MACD bullish crossover, price above 50d
+Your prose renders as plain text — no markdown is interpreted. Never use
+markdown tables, pipes, or heading syntax (columns will not line up), and
+never use **bold**, *italics*, or `backticks`: those show up as literal
+asterisks and backtick characters on screen. Write tickers and labels bare.
+Plain numbered or hyphenated lines are fine."""
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +163,16 @@ class ErrorEvent:
 
 @dataclass(frozen=True)
 class Done:
-    """Clean end of turn — always the final event on success."""
+    """End of turn — always the final event on success.
+
+    ``truncated`` means the model ran out of output budget mid-answer
+    (stop_reason "max_tokens") rather than finishing. The distinction matters
+    to the user: a truncated ranked list looks identical to a deliberately
+    short one, so the rail renders a visible note for it. Kept separate from
+    ErrorEvent because the partial answer above it is still worth reading.
+    """
     stop_reason: str = "end_turn"
+    truncated: bool = False
 
 
 ChatEvent = TextDelta | ToolStatus | Directive | ErrorEvent | Done
@@ -313,6 +383,21 @@ class ChatService:
                 tool_uses = [
                     b for b in final.content if getattr(b, "type", None) == "tool_use"
                 ]
+
+                # Budget exhausted mid-answer. Stop here even when the turn
+                # carries tool_use blocks: a block cut off mid-stream can hold
+                # incomplete argument JSON, and echoing that assistant turn
+                # back to the provider is itself an invalid_request_error risk.
+                # A partial answer the user can see beats a turn that dies
+                # opaquely one iteration later.
+                if final.stop_reason == "max_tokens":
+                    logger.warning(
+                        "chat turn truncated at max_tokens model=%s pending_tools=%d",
+                        context.model or self._model,
+                        len(tool_uses),
+                    )
+                    yield Done(stop_reason="max_tokens", truncated=True)
+                    return
                 if not tool_uses:
                     yield Done(stop_reason=str(final.stop_reason or "end_turn"))
                     return

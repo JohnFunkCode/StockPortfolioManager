@@ -297,6 +297,19 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         });
       };
 
+      // A `done` frame carrying truncated=true means the answer was cut off
+      // at the output-budget ceiling. It's message-level, not another
+      // segment: it describes how the turn ended, and always lands last.
+      const markTruncated = () => {
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role !== 'assistant') return prev;
+          next[next.length - 1] = { ...last, truncated: true };
+          return next;
+        });
+      };
+
       // If the stream dies without a terminal frame (server restart, network
       // drop), tool chips stuck in 'running' would spin forever — flip any
       // survivors to 'error' once the stream is over, however it ended.
@@ -338,7 +351,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
               setError(event.message);
             } else if (event.type === 'parse_error') {
               setError('Received an unreadable chunk from the server.');
-            } else if (event.type !== 'done') {
+            } else if (event.type === 'done') {
+              if (event.truncated) markTruncated();
+            } else {
               applyToAssistant(event);
             }
           },

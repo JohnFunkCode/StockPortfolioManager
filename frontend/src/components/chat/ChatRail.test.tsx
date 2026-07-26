@@ -155,6 +155,48 @@ describe('ChatRail', () => {
     expect(screen.getByTestId('tool-chip-get_rsi').dataset.state).toBe('done');
   });
 
+  it('notes a truncated turn on the message that was cut off', async () => {
+    renderRail();
+    await sendPrompt('Rank the top 10 semis');
+    emit({ type: 'text', delta: '1. AMD\n2. NVDA' });
+    expect(screen.queryByTestId('message-truncated')).toBeNull();
+    // stop_reason max_tokens: the list above is real but unfinished, so the
+    // rail has to say so — otherwise it reads as a deliberately short answer.
+    emit({ type: 'done', stop_reason: 'max_tokens', truncated: true });
+    finishStream();
+    const assistant = screen.getByTestId('chat-message-assistant');
+    expect(within(assistant).getByTestId('message-truncated')).toHaveTextContent(/cut off/i);
+    expect(screen.getByText(/1\. AMD/)).toBeInTheDocument();
+  });
+
+  it('leaves a cleanly finished turn unmarked', async () => {
+    renderRail();
+    await sendPrompt('hi');
+    emit({ type: 'text', delta: 'all done' });
+    emit({ type: 'done', stop_reason: 'end_turn' });
+    finishStream();
+    expect(screen.queryByTestId('message-truncated')).toBeNull();
+  });
+
+  it('marks only the truncated turn, not the next one', async () => {
+    renderRail();
+    await sendPrompt('long one');
+    emit({ type: 'text', delta: 'partial' });
+    emit({ type: 'done', stop_reason: 'max_tokens', truncated: true });
+    finishStream();
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-input').querySelector('textarea, input')).toBeEnabled(),
+    );
+    await sendPrompt('shorter one');
+    emit({ type: 'text', delta: 'complete' });
+    emit({ type: 'done', stop_reason: 'end_turn' });
+    finishStream();
+    expect(screen.getAllByTestId('message-truncated')).toHaveLength(1);
+    const bubbles = screen.getAllByTestId('chat-message-assistant');
+    expect(within(bubbles[0]).queryByTestId('message-truncated')).not.toBeNull();
+    expect(within(bubbles[1]).queryByTestId('message-truncated')).toBeNull();
+  });
+
   it('disables the input while streaming and re-enables on error', async () => {
     renderRail();
     await sendPrompt('hello');

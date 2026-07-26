@@ -449,6 +449,77 @@ class TestInteractions(ChatServiceTestBase):
 
         self.assertIn("[UI_INTERACTION]", SYSTEM_PROMPT)
 
+    def test_system_prompt_allows_complete_multi_symbol_answers(self):
+        """Concision must not read as permission to truncate (issue #121).
+
+        "Be concise; this is a side rail, not a report" was being applied to
+        multi-symbol ranking requests, so "prioritize these symbols by bullish
+        signals" came back partial. The prompt must scope concision to padding
+        and explicitly require full coverage of a requested set.
+        """
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("cover every symbol they named", SYSTEM_PROMPT)
+        self.assertIn("Never silently", SYSTEM_PROMPT)
+        # Concision is defined, not left bare — the bare form is what misfired.
+        self.assertIn("never cutting", SYSTEM_PROMPT)
+
+    def test_system_prompt_forbids_external_data_sources(self):
+        """The sidekick is closed over its own tools — no web, no training
+        data. Numbers on screen must be traceable to a QuantCore tool call,
+        and a refused "search the web for X" must not abort the whole turn."""
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("no web access", SYSTEM_PROMPT)
+        self.assertIn("politely decline", SYSTEM_PROMPT)
+        self.assertIn("only source of market data", SYSTEM_PROMPT)
+
+    def test_system_prompt_requires_attributing_refusals_to_itself(self):
+        """A partial refusal must name the system prompt as the cause.
+
+        The user maintains this prompt; a restriction disguised as "no data
+        available" or a tool failure sends them debugging the wrong layer.
+        """
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("name the conflict", SYSTEM_PROMPT)
+        self.assertIn("Do not disguise a", SYSTEM_PROMPT)
+        self.assertIn("Never silently drop part of a request", SYSTEM_PROMPT)
+
+    def test_system_prompt_forbids_markdown_tables(self):
+        """ChatRail renders assistant text as plain text (whiteSpace:
+        pre-wrap, proportional font) — markdown tables would render as raw
+        pipes with misaligned columns, so the prompt must rule them out."""
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("markdown tables", SYSTEM_PROMPT)
+        # Bold/backticks are the ones models actually reach for in ranked
+        # lists ("**NVDA** — ..."), and they render as literal asterisks.
+        self.assertIn("**bold**", SYSTEM_PROMPT)
+        self.assertIn("backticks", SYSTEM_PROMPT)
+
+    def test_system_prompt_scopes_refusal_attribution(self):
+        """Only blame this prompt when this prompt is actually the cause.
+
+        The attribution rule primes the model to point at the system prompt;
+        without scoping, a refusal driven by anything else gets misattributed
+        and sends the user editing a rule that was never involved.
+        """
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("only when a rule above is genuinely", SYSTEM_PROMPT)
+
+    def test_system_prompt_puts_ranking_in_scope(self):
+        """Ranking on signals is the product, not investment advice.
+
+        Left unstated, each model improvises its own disclaimer/decline
+        threshold, so the same request behaves differently per model.
+        """
+        from quantcore.services.chat import SYSTEM_PROMPT
+
+        self.assertIn("always in scope", SYSTEM_PROMPT)
+        self.assertIn("not personal", SYSTEM_PROMPT)
+
 
 class TestDirectiveComponentIds(ChatServiceTestBase):
     def test_each_directive_gets_a_unique_component_id(self):
@@ -474,6 +545,48 @@ class TestDirectiveComponentIds(ChatServiceTestBase):
         self.assertEqual(len(directives), 2)
         self.assertTrue(all(d.component_id for d in directives))
         self.assertNotEqual(directives[0].component_id, directives[1].component_id)
+
+
+class TestOutputBudgetTruncation(ChatServiceTestBase):
+    """stop_reason "max_tokens" is a cut-off answer, not a clean finish.
+
+    Regression guard for issue #121: a ranked list that ran out of output
+    budget looked identical to a deliberately short one, so the flag has to
+    reach the UI instead of the turn ending as an ordinary Done.
+    """
+
+    def test_truncated_turn_flags_done_and_keeps_partial_text(self):
+        client = ScriptedClient(
+            [{"deltas": ["1. AMD", "\n2. NV"], "final": final("max_tokens", text_block("1. AMD\n2. NV"))}]
+        )
+        events = self.run_chat(client)
+        self.assertEqual([type(e) for e in events], [TextDelta, TextDelta, Done])
+        # The prose above the flag is real output — it must still be delivered.
+        self.assertEqual("".join(e.delta for e in events[:2]), "1. AMD\n2. NV")
+        self.assertTrue(events[-1].truncated)
+        self.assertEqual(events[-1].stop_reason, "max_tokens")
+
+    def test_normal_turn_is_not_flagged_truncated(self):
+        client = ScriptedClient([{"final": final("end_turn", text_block("done"))}])
+        events = self.run_chat(client)
+        self.assertFalse(events[-1].truncated)
+        self.assertEqual(events[-1].stop_reason, "end_turn")
+
+    def test_truncated_turn_with_tool_use_stops_without_executing_it(self):
+        # A tool_use block cut off mid-stream can hold incomplete argument
+        # JSON; running it (and echoing the turn back) is the worse failure.
+        client = ScriptedClient(
+            [
+                {"final": final("max_tokens", tool_use("tu_1", "get_rsi", {"symbol": "AMD"}))},
+                {"final": final("end_turn", text_block("unreachable"))},
+            ]
+        )
+        events = self.run_chat(client)
+        self.assertIsInstance(events[-1], Done)
+        self.assertTrue(events[-1].truncated)
+        self.assertEqual(self.prices.mock_calls, [])
+        # One turn only — no follow-up round trip carrying the partial block.
+        self.assertEqual(len(client.calls), 1)
 
 
 class TestFailureModes(ChatServiceTestBase):

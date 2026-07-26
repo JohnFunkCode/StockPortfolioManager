@@ -51,6 +51,31 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 Sends Discord webhook alerts for: moving average violations (30/50/100/200-day), price below purchase price, and Harvester plan rung hits. Uses `notification.log` file to deduplicate alerts within a run.
 
+### Arbitrage Scanner
+
+Finds securities whose price has stretched against a structurally linked underlying, across
+three families: **nav_vehicle** (treasury companies/trusts — the only family with a computable
+fair value), **commodity_etf** (fund vs its reference future), and **producer** (miner/E&P vs
+the commodity it sells). Curated links live in **`arb_universe.yaml`** at the repo root
+(alongside `watchlist.yaml`); `discover_pairs` additionally sweeps for undeclared cointegrated
+links against a reference panel, gated by a sector/industry economic-link filter.
+
+**The scoring is deliberately inverted: spread width only qualifies a candidate, the
+convergence mechanism ranks it.** `ArbitrageService._score` multiplies named factors —
+`opportunity × evidence × convergence × hedge × carry × trend × freshness` — all returned in
+the `factors` block alongside `reasons` and `breaks_on`, so any score is attributable. The
+design and every penalty trace to
+[`docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`](docs/analysis%20results/MSTR_BTC_arbitrage_assessment_2026-07-14.md);
+`tests/test_arbitrage_nav.py` is a regression guard that the MSTR inputs still produce a ~10%
+**net** discount rather than the ~37% headline against gross assets. Because the account is
+equity/ETF-only, any pair whose sole clean hedge is a futures contract is flagged
+`hedge_available: false` and halved.
+
+Surfaced as `GET /api/arbitrage/{universe,scan,discover,pairs/{security}}` and four MCP tools on
+the stock-price wrapper (`list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`,
+`discover_arbitrage_pairs`). Expect most scans to return nothing above `watch` — that is the
+intended behaviour, not a bug.
+
 ### Harvester System
 
 An experimental "harvest ladder" strategy for systematically selling shares as prices rise:
@@ -65,8 +90,8 @@ The Harvester integrates with the notification system: when `main.py` runs, it c
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 18 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences, e.g. the Sidekick chat model).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 19 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences, e.g. the Sidekick chat model), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -77,9 +102,9 @@ All repositories under `quantcore/repositories/` and the REST API (`api/main.py`
 Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and FastAPI routes (`api/routers/*`, app assembled in `api/main.py`) are thin adapters that are **exactly one service call deep**.
 
 - **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`.
-- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `UserSettingsRepository`.
-- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped).
-- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `SettingsService`, `RecommendationsService` (composes the other services).
+- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
+- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio).
+- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `SettingsService`, `ArbitrageService`, `RecommendationsService` (composes the other services).
 - **`quantcore/chat_models.py`** — pure-data catalog of the three user-selectable Sidekick chat models (issue #124: `claude-sonnet-5` default, `claude-opus-4-8`, `claude-fable-5`), injected by the registry into both `SettingsService` and `ChatService` so the two never import each other for it. `SettingsService` (backed by `UserSettingsRepository`'s `user_settings` table) resolves a per-owner chat model — falling back to the default if the stored value has since been retired from the allow-list — and validates writes against the same allow-list; exposed via `GET/PUT /api/settings` (`api/routers/settings.py`). The frontend Settings page and the Sidekick chat-header quick-switch both read/write this endpoint, converging on one server-side source of truth rather than sharing a JS module.
 - **`quantcore/services/registry.py`** — the composition root: a lazy `@lru_cache get_services()` returning a frozen `Services` dataclass with all dependencies constructor-injected. Adapters call `get_services().<service>.<method>(...)`; service modules never import each other or the registry (acyclic).
 

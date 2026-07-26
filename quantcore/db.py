@@ -360,6 +360,31 @@ CREATE TABLE IF NOT EXISTS user_settings (
     chat_model  TEXT NOT NULL,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Arbitrage scanner: point-in-time holdings/capital-structure snapshots for
+-- NAV vehicles (MSTR-style treasuries, closed-end funds, trusts). Curated
+-- input rather than fetched — no free API publishes a coin count or a
+-- preferred stack — so each row carries its own as-of date and source, and a
+-- premium history becomes computable as snapshots accumulate.
+-- DOUBLE PRECISION rather than the REAL used for prices elsewhere: these are
+-- whole-balance-sheet figures (a $16.5B preferred stack), and float4's ~7
+-- significant digits would quietly round them.
+CREATE TABLE IF NOT EXISTS arb_nav_snapshots (
+    security            TEXT NOT NULL,
+    as_of               TEXT NOT NULL,
+    underlying          TEXT NOT NULL,
+    units               DOUBLE PRECISION NOT NULL CHECK(units >= 0),
+    senior_claims       DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK(senior_claims >= 0),
+    annual_senior_cost  DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK(annual_senior_cost >= 0),
+    other_assets        DOUBLE PRECISION NOT NULL DEFAULT 0,
+    diluted_shares      DOUBLE PRECISION CHECK(diluted_shares IS NULL OR diluted_shares > 0),
+    source              TEXT,
+    ingested_at         INTEGER NOT NULL,
+    PRIMARY KEY (security, as_of)
+);
+
+CREATE INDEX IF NOT EXISTS idx_arb_nav_latest
+    ON arb_nav_snapshots(security, as_of DESC);
 """
 
 

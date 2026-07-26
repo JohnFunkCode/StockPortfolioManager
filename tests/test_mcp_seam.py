@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import httpx
 
 from fastMCPTest import company_fundamentals_server as cfs  # noqa: E402
+from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
 
 
@@ -133,6 +134,55 @@ class TestCompanyFundamentalsWrapper(unittest.TestCase):
             self.assertIn("score-changes", rc.get.call_args[0][0])
             cfs.get_fundamental_history("intc", "fundamental_score")
             self.assertIn("history", rc.get.call_args[0][0])
+
+
+class TestArbitrageWrapperTools(unittest.TestCase):
+    """The four arbitrage tools on the stock-price wrapper (Rule 6)."""
+
+    def test_universe_and_scan_route_correctly(self):
+        with patch.object(sps, "rest_client") as rc:
+            rc.get.return_value = {"ok": True}
+
+            sps.list_arbitrage_universe()
+            self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/universe")
+
+            sps.scan_arbitrage(kinds="nav_vehicle", top_n=5, days=90)
+            self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/scan")
+            self.assertEqual(rc.get.call_args[1]["kinds"], "nav_vehicle")
+            self.assertEqual(rc.get.call_args[1]["top_n"], 5)
+            self.assertEqual(rc.get.call_args[1]["days"], 90)
+
+    def test_empty_optional_args_are_not_forwarded(self):
+        """Blank kinds/underlying must be omitted, not sent as empty strings."""
+        with patch.object(sps, "rest_client") as rc:
+            rc.get.return_value = {"ok": True}
+
+            sps.scan_arbitrage()
+            self.assertNotIn("kinds", rc.get.call_args[1])
+
+            sps.analyze_arbitrage_pair("MSTR")
+            self.assertNotIn("underlying", rc.get.call_args[1])
+            self.assertNotIn("zscore_window", rc.get.call_args[1])
+
+    def test_analyze_pair_routes_with_its_options(self):
+        with patch.object(sps, "rest_client") as rc:
+            rc.get.return_value = {"ok": True}
+            sps.analyze_arbitrage_pair("MSTR", underlying="BTC-USD",
+                                       days=180, zscore_window=60)
+            self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/pairs/MSTR")
+            self.assertEqual(rc.get.call_args[1]["underlying"], "BTC-USD")
+            self.assertEqual(rc.get.call_args[1]["zscore_window"], 60)
+
+    def test_discover_routes_with_its_gate(self):
+        with patch.object(sps, "rest_client") as rc:
+            rc.get.return_value = {"ok": True}
+            sps.discover_arbitrage_pairs("GDX,FCX", references="GC=F",
+                                         min_abs_correlation=0.6,
+                                         require_economic_link=False)
+            self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/discover")
+            self.assertEqual(rc.get.call_args[1]["symbols"], "GDX,FCX")
+            self.assertEqual(rc.get.call_args[1]["references"], "GC=F")
+            self.assertFalse(rc.get.call_args[1]["require_economic_link"])
 
 
 if __name__ == "__main__":

@@ -1,0 +1,153 @@
+# Curated arbitrage-scanner universe.
+#
+# Each entry declares a structural link between a security and an underlying.
+# The scanner will not invent these links: statistical discovery proposes
+# candidates, but only a declared entry gets NAV math applied to it, because
+# only a human can supply a coin count or a preferred stack.
+#
+# Fields
+#   security              ticker of the listed vehicle/company
+#   kind                  nav_vehicle | commodity_etf | producer
+#   underlying            yfinance symbol of the underlying (BTC-USD, GC=F, ...)
+#   hedge_instrument      EQUITY/ETF symbol that hedges the underlying leg.
+#                         Leave null when the only clean hedge is a futures
+#                         contract — the scanner flags those as unhedgeable
+#                         rather than pretending the trade is executable.
+#   convergence_mechanism none | redemption | conversion | buyback |
+#                         index_event | deal_terms
+#                         What actually forces the gap to close. `none` is the
+#                         honest answer for most vehicles and is penalised.
+#
+# nav_vehicle entries additionally carry point-in-time capital structure:
+#   holdings_units, holdings_as_of, senior_claims_usd, annual_senior_cost_usd,
+#   other_assets_usd, diluted_shares, source
+#
+# STALENESS: holdings_as_of is load-bearing. These figures are hand-maintained
+# and the scanner reports their age; a treasury company that buys weekly makes
+# a three-month-old unit count worthless.
+
+# --------------------------------------------------------------------------
+# NAV vehicles — computable fair value, weak-to-no convergence force
+# --------------------------------------------------------------------------
+- security: MSTR
+  name: Strategy (MicroStrategy)
+  kind: nav_vehicle
+  underlying: BTC-USD
+  hedge_instrument: IBIT
+  convergence_mechanism: buyback
+  holdings_units: 843775
+  holdings_as_of: 2026-07-14
+  senior_claims_usd: 16_500_000_000
+  annual_senior_cost_usd: 854_000_000
+  other_assets_usd: 0
+  diluted_shares: 350_000_000
+  source: "10-Q Q1 FY2026 + The Block treasury tracker"
+  notes: >-
+    Converts (~$6.7B post the May 2026 buyback of the 2029s) plus four preferred
+    series (STRK/STRF/STRD/STRC, ~$8.5-10B). Quoting a discount against gross
+    BTC overstates it by ~27 points. $1B common buyback authorised (~3% of cap)
+    is the only accretion mechanism; supervoting shares block any activist or
+    liquidation path. GBTC traded at a discount for three years, widening from
+    10% to nearly 50%, before an ETF conversion with no MSTR analog closed it.
+    February 2027 brings the first convert maturity. MSCI index treatment was
+    deferred, not resolved.
+
+- security: GBTC
+  name: Grayscale Bitcoin Trust ETF
+  kind: nav_vehicle
+  underlying: BTC-USD
+  hedge_instrument: IBIT
+  convergence_mechanism: redemption
+  holdings_as_of: 2026-07-14
+  senior_claims_usd: 0
+  annual_senior_cost_usd: 0
+  source: "Grayscale daily holdings disclosure"
+  notes: >-
+    Included as the control case: post-ETF-conversion it has genuine
+    creation/redemption, so its discount is arbitraged away by authorised
+    participants and stays near zero. A scanner that ranks MSTR above GBTC on
+    convergence quality is mis-scoring. holdings_units intentionally omitted —
+    the trust's coins-per-share decays with the fee and must be refreshed from
+    the daily disclosure before NAV math is trusted.
+
+# --------------------------------------------------------------------------
+# Commodity ETFs vs futures — real convergence force (AP creation/redemption),
+# but the futures leg is not reachable from an equity-only account.
+# --------------------------------------------------------------------------
+- security: USO
+  name: United States Oil Fund
+  kind: commodity_etf
+  underlying: CL=F
+  hedge_instrument: null
+  convergence_mechanism: redemption
+  notes: >-
+    Front-month WTI roll. Tracking gap is dominated by contango roll bleed, not
+    mispricing — read it as a carry diagnostic, not a trade.
+
+- security: UNG
+  name: United States Natural Gas Fund
+  kind: commodity_etf
+  underlying: NG=F
+  hedge_instrument: null
+  convergence_mechanism: redemption
+  notes: >-
+    The most severe roll decay in the family; a persistent negative spread here
+    is structural and must not be read as a convergence opportunity.
+
+- security: GLD
+  name: SPDR Gold Shares
+  kind: commodity_etf
+  underlying: GC=F
+  hedge_instrument: null
+  convergence_mechanism: redemption
+  notes: >-
+    Physically backed, so tracking is tight and any material gap is a data
+    problem before it is a trade.
+
+- security: CPER
+  name: United States Copper Index Fund
+  kind: commodity_etf
+  underlying: HG=F
+  hedge_instrument: null
+  convergence_mechanism: redemption
+
+# --------------------------------------------------------------------------
+# Producers — no fair value, no convergence force. Statistical relative value
+# only: cointegration, half-life, spread z-score.
+# --------------------------------------------------------------------------
+- security: GDX
+  name: VanEck Gold Miners ETF
+  kind: producer
+  underlying: GC=F
+  hedge_instrument: GLD
+  convergence_mechanism: none
+  notes: >-
+    Operating leverage means the beta is unstable across gold regimes; treat a
+    stretched spread as a directional bet with a partial hedge.
+
+- security: FCX
+  name: Freeport-McMoRan
+  kind: producer
+  underlying: HG=F
+  hedge_instrument: CPER
+  convergence_mechanism: none
+
+- security: AR
+  name: Antero Resources
+  kind: producer
+  underlying: NG=F
+  hedge_instrument: UNG
+  convergence_mechanism: none
+  notes: >-
+    Hedging programmes decouple realised revenue from spot gas for quarters at
+    a time, which breaks the spread relationship exactly when it looks widest.
+
+- security: MARA
+  name: MARA Holdings
+  kind: producer
+  underlying: BTC-USD
+  hedge_instrument: IBIT
+  convergence_mechanism: none
+  notes: >-
+    Miner economics (hash price, difficulty, power costs) sit between the
+    equity and the coin; the link is real but far looser than a treasury's.

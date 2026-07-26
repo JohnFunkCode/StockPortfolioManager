@@ -72,6 +72,7 @@ GET    /api/securities/{ticker}/volume  ->  get_volume_analysis_api_securities__
 GET    /api/securities/{ticker}/volume-profile  ->  get_volume_profile_api_securities__ticker__volume_profile_get
 GET    /api/securities/{ticker}/vwap  ->  get_vwap_api_securities__ticker__vwap_get
 GET    /api/securities/{ticker}/vwap/history  ->  get_vwap_history_api_securities__ticker__vwap_history_get
+GET    /api/settings  ->  get_settings_api_settings_get
 GET    /api/symbols  ->  list_symbols_api_symbols_get
 GET    /api/symbols/{ticker}/price  ->  get_symbol_price_api_symbols__ticker__price_get
 GET    /api/watchlist  ->  get_watchlist_api_watchlist_get
@@ -89,3 +90,4 @@ POST   /api/securities/{ticker}/news/collect  ->  collect_news_api_securities__t
 POST   /api/securities/{ticker}/options/history/backfill  ->  backfill_options_history_api_securities__ticker__options_history_backfill_post
 POST   /api/securities/{ticker}/options/vertical-spread  ->  price_vertical_spread_api_securities__ticker__options_vertical_spread_post
 POST   /api/watchlist  ->  add_to_watchlist_api_watchlist_post
+PUT    /api/settings  ->  update_settings_api_settings_put

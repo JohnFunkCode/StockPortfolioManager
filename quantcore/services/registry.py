@@ -20,6 +20,7 @@ from functools import lru_cache
 from quantcore.chat_models import CHAT_MODELS, DEFAULT_CHAT_MODEL, MODEL_IDS
 from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
+from quantcore.repositories.arbitrage_repository import ArbitrageRepository
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 from quantcore.repositories.harvester_repository import HarvesterPlanDB
 from quantcore.repositories.news_repository import NewsStore
@@ -29,6 +30,7 @@ from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.repositories.user_settings_repository import UserSettingsRepository
+from quantcore.services.arbitrage import ArbitrageService
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.chat import (
     CHAT_NOT_CONFIGURED_MESSAGE,
@@ -68,6 +70,7 @@ class Services:
     harvester_repository: HarvesterPlanDB
     portfolio_repository: PortfolioRepository
     user_settings_repository: UserSettingsRepository
+    arbitrage_repository: ArbitrageRepository
     # Services
     microstructure: MicrostructureService
     sentiment: SentimentService
@@ -78,6 +81,7 @@ class Services:
     harvester: HarvesterService
     portfolio: PortfolioService
     recommendations: RecommendationsService
+    arbitrage: ArbitrageService
     chat: ChatService
     keyproxy: KeyProxyService
     settings: SettingsService
@@ -95,6 +99,7 @@ def get_services() -> Services:
     harvester_repository = HarvesterPlanDB()
     portfolio_repository = PortfolioRepository()
     user_settings_repository = UserSettingsRepository()
+    arbitrage_repository = ArbitrageRepository()
     settings = SettingsService(
         user_settings_repository,
         allowed=MODEL_IDS,
@@ -199,6 +204,7 @@ def get_services() -> Services:
         harvester_repository=harvester_repository,
         portfolio_repository=portfolio_repository,
         user_settings_repository=user_settings_repository,
+        arbitrage_repository=arbitrage_repository,
         microstructure=microstructure,
         sentiment=sentiment,
         fundamentals=fundamentals,
@@ -221,6 +227,11 @@ def get_services() -> Services:
             sentiment=sentiment,
             fundamentals=fundamentals,
             ohlcv_repository=ohlcv_repository,
+            yfinance_gateway=yfinance_gateway,
+        ),
+        arbitrage=ArbitrageService(
+            arbitrage_repository=arbitrage_repository,
+            prices=prices,
             yfinance_gateway=yfinance_gateway,
         ),
         chat=chat,

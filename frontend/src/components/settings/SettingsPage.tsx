@@ -1,7 +1,8 @@
-/** Settings page (BYOK 5a): currently just the API-keys vault section. */
+/** Settings page (BYOK 5a): API-keys vault section + Sidekick model (issue #124). */
 import { Stack, Typography } from '@mui/material';
 
 import ApiKeysSection from './ApiKeysSection';
+import ModelSection from './ModelSection';
 
 export default function SettingsPage() {
   return (
@@ -10,6 +11,7 @@ export default function SettingsPage() {
         Settings
       </Typography>
       <ApiKeysSection />
+      <ModelSection />
     </Stack>
   );
 }

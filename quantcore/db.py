@@ -354,6 +354,12 @@ CREATE TABLE IF NOT EXISTS fundamentals_history (
 
 CREATE INDEX IF NOT EXISTS idx_fundamentals_latest
     ON fundamentals_history(symbol, data_type, fetched_at DESC);
+
+CREATE TABLE IF NOT EXISTS user_settings (
+    owner       TEXT PRIMARY KEY,
+    chat_model  TEXT NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 

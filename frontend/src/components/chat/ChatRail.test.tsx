@@ -16,6 +16,7 @@ const streamChatMock = vi.fn(
     _signal?: unknown,
     _interactions?: unknown,
     _keyMaterial?: unknown,
+    _model?: unknown,
   ) =>
     new Promise<void>((resolve) => {
       currentOnEvent = onEvent;
@@ -38,6 +39,23 @@ vi.mock('../../hooks/useKeyProxy', () => ({
   sealKeyForTurn: (...args: Parameters<typeof sealKeyForTurnMock>) =>
     sealKeyForTurnMock(...args),
   useValidateKey: () => ({ mutateAsync: vi.fn(), reset: vi.fn() }),
+}));
+
+// Sidekick model quick-switch (issue #124): control the shared catalog/model
+// ChatContext seeds from GET /api/settings, and assert the header PUTs.
+const SETTINGS = {
+  chat_model: 'claude-sonnet-5',
+  models: [
+    { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', description: 'Recommended.' },
+    { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Heavy-lifting.' },
+    { id: 'claude-fable-5', name: 'Claude Fable 5', description: 'Most capable.' },
+  ],
+};
+const getSettingsMock = vi.fn(async () => SETTINGS);
+const putChatModelMock = vi.fn(async (id: string) => ({ ...SETTINGS, chat_model: id }));
+vi.mock('../../api/settings', () => ({
+  getSettings: (...args: Parameters<typeof getSettingsMock>) => getSettingsMock(...args),
+  putChatModel: (...args: Parameters<typeof putChatModelMock>) => putChatModelMock(...args),
 }));
 
 import { ChatProvider } from '../../chat/ChatContext';
@@ -75,6 +93,8 @@ function finishStream() {
 beforeEach(() => {
   localStorage.clear();
   streamChatMock.mockClear();
+  getSettingsMock.mockClear();
+  putChatModelMock.mockClear();
   currentOnEvent = null;
   resolveStream = null;
 });
@@ -238,6 +258,39 @@ describe('ChatRail', () => {
     await waitFor(() =>
       expect(screen.getByTestId('tool-chip-price_vertical_spread').dataset.state).toBe('error'),
     );
+  });
+
+  describe('sidekick model quick-switch (issue #124)', () => {
+    it('loads the model catalog and defaults to the stored chat_model', async () => {
+      renderRail();
+      await waitFor(() => expect(getSettingsMock).toHaveBeenCalled());
+      expect(await screen.findByText('Claude Sonnet 5')).toBeInTheDocument();
+    });
+
+    it('switching the header selector updates state and PUTs the new model', async () => {
+      renderRail();
+      await screen.findByText('Claude Sonnet 5');
+
+      await userEvent.click(screen.getByRole('combobox'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Claude Opus 4.8' }));
+
+      expect(putChatModelMock).toHaveBeenCalledWith('claude-opus-4-8');
+      expect(await screen.findByText('Claude Opus 4.8')).toBeInTheDocument();
+    });
+
+    it('sends the selected model with the next chat turn', async () => {
+      renderRail();
+      await screen.findByText('Claude Sonnet 5');
+
+      await userEvent.click(screen.getByRole('combobox'));
+      await userEvent.click(await screen.findByRole('option', { name: 'Claude Fable 5' }));
+      expect(putChatModelMock).toHaveBeenCalledWith('claude-fable-5');
+
+      await sendPrompt('hello');
+      await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1));
+      expect(streamChatMock.mock.calls[0][5]).toBe('claude-fable-5');
+      finishStream();
+    });
   });
 
   describe('pending interactions (backchannel composer chips)', () => {

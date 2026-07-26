@@ -17,6 +17,7 @@ import os
 from dataclasses import dataclass
 from functools import lru_cache
 
+from quantcore.chat_models import CHAT_MODELS, DEFAULT_CHAT_MODEL, MODEL_IDS
 from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
@@ -27,6 +28,7 @@ from quantcore.repositories.options_position_repository import OptionsPositionSt
 from quantcore.repositories.options_repository import OptionsStore
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
+from quantcore.repositories.user_settings_repository import UserSettingsRepository
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.chat import (
     CHAT_NOT_CONFIGURED_MESSAGE,
@@ -44,6 +46,7 @@ from quantcore.services.portfolio import PortfolioService
 from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
+from quantcore.services.settings import SettingsService
 
 
 def _truthy(value: str | None) -> bool:
@@ -64,6 +67,7 @@ class Services:
     fundamentals_repository: FundamentalsRepository
     harvester_repository: HarvesterPlanDB
     portfolio_repository: PortfolioRepository
+    user_settings_repository: UserSettingsRepository
     # Services
     microstructure: MicrostructureService
     sentiment: SentimentService
@@ -76,6 +80,7 @@ class Services:
     recommendations: RecommendationsService
     chat: ChatService
     keyproxy: KeyProxyService
+    settings: SettingsService
 
 
 @lru_cache(maxsize=1)
@@ -89,6 +94,13 @@ def get_services() -> Services:
     options_repository = OptionsStore()
     harvester_repository = HarvesterPlanDB()
     portfolio_repository = PortfolioRepository()
+    user_settings_repository = UserSettingsRepository()
+    settings = SettingsService(
+        user_settings_repository,
+        allowed=MODEL_IDS,
+        default=DEFAULT_CHAT_MODEL,
+        catalog=CHAT_MODELS,
+    )
     # PricesService is constructed first: OptionsService composes it for the
     # ATM-snapshot refresh path (acyclic — Prices never references Options).
     prices = PricesService(
@@ -127,7 +139,7 @@ def get_services() -> Services:
     #   CHAT_ENV_KEY_FALLBACK  → legacy server-side env key (default OFF)
     #   otherwise              → keyless deployment; every turn errors cleanly
     # Real clients lazy-import their SDK on first use, never at registry import.
-    chat_model = os.environ.get("CHAT_MODEL", "claude-fable-5")
+    chat_model = os.environ.get("CHAT_MODEL", DEFAULT_CHAT_MODEL)
     chat_effort = os.environ.get("CHAT_EFFORT", "medium")
     if _truthy(os.environ.get("CHAT_FAKE")):
         from quantcore.services.chat_fake import FakeChatClient
@@ -144,7 +156,7 @@ def get_services() -> Services:
                 envelope=context.key_envelope,
                 scope=context.scope or {},
                 auth_token=context.auth_token or "",
-                model=chat_model,
+                model=context.model or chat_model,
                 effort=chat_effort,
             )
 
@@ -164,6 +176,8 @@ def get_services() -> Services:
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
         client_factory=chat_client_factory,
+        settings=settings,
+        allowed=MODEL_IDS,
     )
     # KEYPROXY_FAKE=1 swaps a canned in-process gateway (real keypair, real
     # envelope decrypt, no network) so /api/keyproxy routes are testable.
@@ -184,6 +198,7 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         harvester_repository=harvester_repository,
         portfolio_repository=portfolio_repository,
+        user_settings_repository=user_settings_repository,
         microstructure=microstructure,
         sentiment=sentiment,
         fundamentals=fundamentals,
@@ -210,4 +225,5 @@ def get_services() -> Services:
         ),
         chat=chat,
         keyproxy=keyproxy,
+        settings=settings,
     )

@@ -14,8 +14,10 @@ import {
   type ReactNode,
 } from 'react';
 import { streamChat, type ChatKeyMaterial } from '../api/chatStream';
+import { getSettings, putChatModel } from '../api/settings';
 import { sealKeyForTurn } from '../hooks/useKeyProxy';
 import { useKeyVaultOptional } from '../vault/KeyVaultContext';
+import { CHAT_MODELS, DEFAULT_CHAT_MODEL, type ChatModel } from './models';
 import type {
   ApiChatMessage,
   ChatInteraction,
@@ -105,6 +107,14 @@ interface ChatContextValue {
    * rendered card locks and its mark becomes immutable.
    */
   consumedInteractions: Record<string, ChatInteraction[]>;
+  /** Sidekick model catalog + selection (issue #124), shared by the Settings
+   * dropdown and the chat-header quick-switch — a single source of truth. */
+  models: ChatModel[];
+  selectedModel: string;
+  /** Optimistically switches, persists via PUT, and rolls back + populates
+   * modelSaveError if the save fails. Resolves once settled either way. */
+  setSelectedModel: (id: string) => Promise<void>;
+  modelSaveError: string | null;
 }
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -136,9 +146,45 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   >(() => loadStored<Record<string, ChatInteraction[]>>(CONSUMED_KEY, {}));
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [models, setModels] = useState<ChatModel[]>(CHAT_MODELS);
+  const [selectedModel, setSelectedModelState] = useState<string>(DEFAULT_CHAT_MODEL);
+  const [modelSaveError, setModelSaveError] = useState<string | null>(null);
+  const selectedModelRef = useRef(selectedModel);
   const abortRef = useRef<AbortController | null>(null);
   // Optional so the provider still works without a vault (tests, isolation).
   const vault = useKeyVaultOptional();
+
+  useEffect(() => {
+    let cancelled = false;
+    getSettings()
+      .then((view) => {
+        if (cancelled) return;
+        setModels(view.models);
+        setSelectedModelState(view.chat_model);
+      })
+      .catch(() => {
+        /* fall back catalog/default already seeded above */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  const setSelectedModel = useCallback(async (id: string) => {
+    const previous = selectedModelRef.current;
+    setModelSaveError(null);
+    setSelectedModelState(id);
+    try {
+      await putChatModel(id);
+    } catch (exc) {
+      setSelectedModelState(previous);
+      setModelSaveError((exc as Error).message || 'Failed to save the model selection.');
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -299,6 +345,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
           controller.signal,
           interactions,
           keyMaterial,
+          selectedModel,
         );
       } catch (exc) {
         if ((exc as Error).name !== 'AbortError') {
@@ -310,7 +357,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         abortRef.current = null;
       }
     },
-    [messages, isStreaming, pendingInteractions, vault],
+    [messages, isStreaming, pendingInteractions, vault, selectedModel],
   );
 
   return (
@@ -329,6 +376,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
         queueInteraction,
         removeInteraction,
         consumedInteractions,
+        models,
+        selectedModel,
+        setSelectedModel,
+        modelSaveError,
       }}
     >
       {children}

@@ -687,5 +687,132 @@ class TestTurnContext(ChatServiceTestBase):
         )
 
 
+class TestModelResolution(ChatServiceTestBase):
+    """Issue #124: the model actually used for a turn is resolved from the
+    request, the caller's stored setting, and the service default — in that
+    precedence order — and only when an allow-list is configured at all."""
+
+    ALLOWED = frozenset({"claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"})
+
+    def make_recording_service(self, settings=None, allowed=None, model="claude-fable-5"):
+        seen = []
+
+        def factory(context):
+            seen.append(context)
+            client = ScriptedClient(
+                [{"deltas": ["hi"], "final": final("end_turn", text_block("hi"))}]
+            )
+            return client
+
+        service = ChatService(
+            prices=self.prices,
+            fundamentals=self.fundamentals,
+            sentiment=self.sentiment,
+            options=self.options,
+            model=model,
+            client_factory=factory,
+            settings=settings,
+            allowed=self.ALLOWED if allowed is None else allowed,
+        )
+        return service, seen
+
+    def test_requested_model_wins_when_allow_listed(self):
+        settings = Mock()
+        settings.get_chat_model.return_value = "claude-fable-5"
+        service, seen = self.make_recording_service(settings=settings)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                context=TurnContext(model="claude-opus-4-8", subject="alice"),
+            )
+        )
+        self.assertEqual(seen[0].model, "claude-opus-4-8")
+        settings.get_chat_model.assert_not_called()
+
+    def test_invalid_requested_model_falls_back_to_stored_setting(self):
+        settings = Mock()
+        settings.get_chat_model.return_value = "claude-opus-4-8"
+        service, seen = self.make_recording_service(settings=settings)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                context=TurnContext(model="gpt-4o", subject="alice"),
+            )
+        )
+        self.assertEqual(seen[0].model, "claude-opus-4-8")
+        settings.get_chat_model.assert_called_once_with("alice")
+
+    def test_no_requested_model_uses_stored_setting(self):
+        settings = Mock()
+        settings.get_chat_model.return_value = "claude-opus-4-8"
+        service, seen = self.make_recording_service(settings=settings)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                context=TurnContext(subject="alice"),
+            )
+        )
+        self.assertEqual(seen[0].model, "claude-opus-4-8")
+
+    def test_no_settings_service_falls_back_to_default(self):
+        service, seen = self.make_recording_service(settings=None)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                context=TurnContext(subject="alice"),
+            )
+        )
+        self.assertEqual(seen[0].model, "claude-fable-5")
+
+    def test_stored_setting_not_allow_listed_falls_back_to_default(self):
+        settings = Mock()
+        settings.get_chat_model.return_value = "retired-model"
+        service, seen = self.make_recording_service(settings=settings)
+        list(
+            service.stream_chat(
+                [{"role": "user", "content": "hi"}],
+                context=TurnContext(subject="alice"),
+            )
+        )
+        self.assertEqual(seen[0].model, "claude-fable-5")
+
+    def test_model_passed_to_client_matches_resolved_model(self):
+        from unittest.mock import patch
+
+        with patch(
+            "quantcore.gateways.anthropic_gateway.AnthropicChatClient"
+        ) as gateway_cls:
+            gateway_cls.return_value.stream_turn.return_value = iter(
+                [("final", final("end_turn", text_block("hi")))]
+            )
+            service = ChatService(
+                prices=Mock(),
+                fundamentals=Mock(),
+                sentiment=Mock(),
+                options=Mock(),
+                model="claude-fable-5",
+                effort="low",
+                allowed=self.ALLOWED,
+            )
+            list(
+                service.stream_chat(
+                    [{"role": "user", "content": "hi"}],
+                    context=TurnContext(model="claude-sonnet-5"),
+                )
+            )
+        gateway_cls.assert_called_once_with("claude-sonnet-5", "low")
+
+    def test_no_allow_list_configured_leaves_context_untouched(self):
+        """Without an allow-list (e.g. a service constructed pre-WP4-style),
+        the context is passed through unresolved rather than forced to the
+        service default — matches the frozen-dataclass default of no-op."""
+        service, seen = self.make_recording_service(allowed=frozenset())
+        context = TurnContext(model="claude-opus-4-8", subject="alice")
+        list(
+            service.stream_chat([{"role": "user", "content": "hi"}], context=context)
+        )
+        self.assertEqual(seen[0], context)
+
+
 if __name__ == "__main__":
     unittest.main()

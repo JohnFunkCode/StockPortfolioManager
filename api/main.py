@@ -79,6 +79,7 @@ def create_app() -> FastAPI:
         recommendations,
         rungs,
         sentiment,
+        settings,
         symbols,
         system,
     )
@@ -104,6 +105,7 @@ def create_app() -> FastAPI:
         recommendations,
         chat,
         keyproxy,
+        settings,
     ):
         app.include_router(module.router, dependencies=[protected])
 

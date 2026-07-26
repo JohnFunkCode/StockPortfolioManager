@@ -21,3 +21,5 @@ diff-cover.md
 frontend/coverage/
 frontend/tsconfig.tsbuildinfo
 frontend/test-results/
+.claude/settings.local.json
+.claude/.cc-writes/

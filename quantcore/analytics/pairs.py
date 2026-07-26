@@ -353,33 +353,49 @@ def half_life(spread) -> dict:
     }
 
 
+TREND_TSTAT_THRESHOLD = 2.0
+
+
 def spread_trend(spread) -> dict:
     """Is the gap closing or still widening?
 
-    Regresses the spread on time and compares the slope's sign with the
-    current deviation from the mean. ``widening=True`` is the GBTC pattern:
-    a spread that has been getting worse for the whole sample, which the
-    scanner must penalise rather than reward for being wide.
+    Regresses the spread on time and compares the slope's sign with the current
+    deviation from the mean. ``widening=True`` is the GBTC pattern: a spread
+    that has been getting worse for the whole sample, which the scanner must
+    penalise rather than reward for being wide.
+
+    The slope must first clear ``TREND_TSTAT_THRESHOLD`` (~5% two-sided) to
+    count as a direction at all. Without that gate a spread with *no* trend
+    has a slope of floating-point noise whose sign is arbitrary — on a
+    perfectly symmetric series the true slope is exactly zero, and macOS
+    Accelerate and Linux OpenBLAS disagree on the sign of the 1e-16 that comes
+    out. That made ``widening`` platform-dependent and, worse, let rounding
+    error cost a real candidate 25% of its score via the trend factor.
+
+    ``widening=None`` means "not enough data to say"; an insignificant slope
+    is a definite False.
     """
     s = pd.Series(spread).astype(float).replace([np.inf, -np.inf], np.nan).dropna()
     arr = np.asarray(s.values, dtype=float)
+    empty = {"slope_per_day": None, "drift_total": None, "slope_tstat": None,
+             "widening": None, "n": int(arr.size)}
     if arr.size < 10:
-        return {"slope_per_day": None, "drift_total": None, "widening": None,
-                "n": int(arr.size)}
+        return empty
 
     t = np.arange(arr.size, dtype=float)
     fit = _ols(arr, t.reshape(-1, 1))
     if fit is None:
-        return {"slope_per_day": None, "drift_total": None, "widening": None,
-                "n": int(arr.size)}
+        return empty
 
     slope = float(fit["beta"][1])
+    tstat = float(fit["tstats"][1])
     deviation = float(arr[-1] - arr.mean())
-    widening = bool(slope * deviation > 0)
+    significant = math.isfinite(tstat) and abs(tstat) >= TREND_TSTAT_THRESHOLD
     return {
         "slope_per_day": _clean(slope),
         "drift_total": _clean(slope * (arr.size - 1)),
-        "widening": widening,
+        "slope_tstat": _clean(tstat),
+        "widening": bool(significant and slope * deviation > 0),
         "n": int(arr.size),
     }
 

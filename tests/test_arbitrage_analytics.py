@@ -179,12 +179,31 @@ class SpreadTrendTest(unittest.TestCase):
         self.assertLess(trend["slope_per_day"], 0)
 
     def test_move_back_toward_the_mean_is_not_widening(self):
-        # Falls, then recovers to the mean: latest deviation and slope disagree.
+        # Long rise, then a pullback through its own mean: the slope is clearly
+        # positive (t = 15.2) while the latest deviation is negative, so the two
+        # disagree with real magnitude rather than by a rounding accident.
+        series = np.concatenate([np.linspace(0, 60, 150), np.linspace(60, 20, 50)])
+        trend = pairs.spread_trend(series)
+        self.assertFalse(trend["widening"])
+        self.assertGreater(abs(trend["slope_tstat"]), 2.0)
+
+    def test_insignificant_slope_never_reports_a_direction(self):
+        """A symmetric series has a true slope of exactly zero.
+
+        What comes out of lstsq is ~1e-16 whose sign differs between macOS
+        Accelerate and Linux OpenBLAS. Before the significance gate this made
+        `widening` platform-dependent — green locally, red in CI — and let
+        rounding noise dock a candidate 25% of its score.
+        """
         series = np.concatenate([np.linspace(0, -50, 100), np.linspace(-50, 0, 100)])
-        self.assertFalse(pairs.spread_trend(series)["widening"])
+        trend = pairs.spread_trend(series)
+        self.assertLess(abs(trend["slope_tstat"]), 2.0)
+        self.assertFalse(trend["widening"])
 
     def test_short_series_returns_none(self):
-        self.assertIsNone(pairs.spread_trend([1.0, 2.0])["widening"])
+        trend = pairs.spread_trend([1.0, 2.0])
+        self.assertIsNone(trend["widening"])
+        self.assertIsNone(trend["slope_tstat"])
 
 
 class ZScoreTest(unittest.TestCase):

@@ -76,6 +76,10 @@ the stock-price wrapper (`list_arbitrage_universe`, `analyze_arbitrage_pair`, `s
 `discover_arbitrage_pairs`). Expect most scans to return nothing above `watch` — that is the
 intended behaviour, not a bug.
 
+**Driving it:** [`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md) — example
+prompts per tool, how to read the `factors` breakdown, the MSTR worked example (gross vs net
+discount), and how to add a pair to `arb_universe.yaml`.
+
 ### Harvester System
 
 An experimental "harvest ladder" strategy for systematically selling shares as prices rise:

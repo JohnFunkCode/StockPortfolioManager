@@ -18,7 +18,7 @@ from __future__ import annotations
 class AnthropicChatClient:
     """Real client: streams one model turn via the Anthropic SDK."""
 
-    def __init__(self, model: str, effort: str, max_tokens: int = 8192):
+    def __init__(self, model: str, effort: str, max_tokens: int = 16384):
         import anthropic  # lazy — see module docstring
 
         self._client = anthropic.Anthropic()
@@ -27,8 +27,17 @@ class AnthropicChatClient:
         self._max_tokens = max_tokens
 
     def stream_turn(self, *, system, tools, messages):
-        # claude-fable-5: omit `thinking` entirely (always on); no sampling
-        # params. Refusal fallbacks are opt-in — include them by default.
+        # Deliberately minimal request shape — and it must stay that way: only
+        # parameters that EVERY selectable model accepts. `thinking` is omitted
+        # (on by default), sampling params are not accepted, and depth comes
+        # from output_config.effort.
+        #
+        # No betas/fallbacks. The server-side-fallback beta was sent here and
+        # removed: only claude-fable-5 accepts `fallbacks`, and a model that
+        # doesn't rejects the ENTIRE turn with a 400 ("'<model>' does not
+        # support the `fallbacks` parameter") rather than ignoring it. Any new
+        # parameter added here needs checking against all three models first.
+        # Mirrored in keyproxy/providers/anthropic.py.
         with self._client.beta.messages.stream(
             model=self._model,
             max_tokens=self._max_tokens,
@@ -36,8 +45,6 @@ class AnthropicChatClient:
             tools=tools,
             messages=messages,
             output_config={"effort": self._effort},
-            betas=["server-side-fallback-2026-06-01"],
-            fallbacks=[{"model": "claude-opus-4-8"}],
         ) as stream:
             for event in stream:
                 if (

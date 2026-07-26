@@ -32,7 +32,9 @@ export type ChatStreamEvent =
     }
   | { type: 'directive'; directive: ChatDirective }
   | { type: 'error'; message: string }
-  | { type: 'done'; stop_reason: string }
+  /** `truncated` = the model hit its output budget mid-answer (stop_reason
+   *  "max_tokens"), not a clean finish. The prose above it is still valid. */
+  | { type: 'done'; stop_reason: string; truncated?: boolean }
   /** Client-side only: a frame whose data payload failed to JSON-parse. */
   | { type: 'parse_error'; raw: string };
 
@@ -45,6 +47,9 @@ export type Segment =
 export interface ChatMessage {
   role: 'user' | 'assistant';
   segments: Segment[];
+  /** Assistant turn ran out of output budget mid-answer — the rail notes it
+   *  so a cut-off list isn't mistaken for a deliberately short one. */
+  truncated?: boolean;
 }
 
 /** History shape sent to the API (assistant segments serialized to text). */

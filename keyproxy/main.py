@@ -222,12 +222,15 @@ class RedemptionRequest(BaseModel):
 
 
 class StreamTurnRequest(BaseModel):
-    # Mirrors AnthropicChatClient.stream_turn's surface; betas/fallbacks are
-    # fixed provider-side (keyproxy.providers.anthropic) — not caller inputs.
+    # Mirrors AnthropicChatClient.stream_turn's surface. The request shape is
+    # fixed provider-side (keyproxy.providers.anthropic) — not a caller input.
+    # max_tokens is only a floor for callers that omit it; KeyProxyChatClient
+    # always sends its own, so raising the budget there needs no keyproxy
+    # redeploy.
     session_id: str
     model: str
     effort: str
-    max_tokens: int = 8192
+    max_tokens: int = 16384
     system: Any = None
     tools: list = []
     messages: list

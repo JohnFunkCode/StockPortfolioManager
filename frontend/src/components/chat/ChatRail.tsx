@@ -93,6 +93,19 @@ function MessageView({ message }: { message: ChatMessage }) {
             …
           </Typography>
         )}
+        {message.truncated && (
+          // Muted on purpose: the answer above is real, it's just incomplete.
+          // Without this a cut-off ranked list reads as a deliberately short
+          // one, and the user debugs the wrong thing (see issue #121).
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            data-testid="message-truncated"
+            sx={{ display: 'block', mt: 0.75, fontStyle: 'italic' }}
+          >
+            Response cut off — length limit reached.
+          </Typography>
+        )}
       </Paper>
     </Box>
   );

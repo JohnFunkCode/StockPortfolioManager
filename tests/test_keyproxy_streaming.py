@@ -113,7 +113,10 @@ class TestStreamingTurn(StreamingTestBase):
         self.assertEqual(key, API_KEY)
         self.assertEqual(params["model"], "claude-fable-5")
         self.assertEqual(params["effort"], "high")
-        self.assertEqual(params["max_tokens"], 8192)
+        # The body omits max_tokens, so this is StreamTurnRequest's default —
+        # only a floor for callers that don't send one (KeyProxyChatClient
+        # always does, so raising its budget needs no keyproxy redeploy).
+        self.assertEqual(params["max_tokens"], 16384)
         self.assertEqual(params["system"], "you are a test")
         self.assertEqual(params["messages"], [{"role": "user", "content": "hi"}])
 

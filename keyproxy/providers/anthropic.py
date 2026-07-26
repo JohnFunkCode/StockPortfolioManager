@@ -30,11 +30,6 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 VALIDATE_TIMEOUT_SECONDS = 10.0
 
-# Fixed turn parameters, mirroring AnthropicChatClient.stream_turn — callers
-# supply model/effort/max_tokens/system/tools/messages; nothing else.
-STREAM_BETAS = ["server-side-fallback-2026-06-01"]
-STREAM_FALLBACKS = [{"model": "claude-opus-4-8"}]
-
 # Sidekick model selector (issue #124). Keyproxy is a separate deployable —
 # it owns this copy rather than importing quantcore.chat_models.
 ALLOWED_MODELS = frozenset({"claude-sonnet-5", "claude-opus-4-8", "claude-fable-5"})
@@ -98,6 +93,11 @@ def stream_turn(api_key, *, model, effort, max_tokens, system, tools, messages):
     SDK's ``ANTHROPIC_BASE_URL`` environment override can never redirect
     egress. The SDK import is lazy — dev/CI environments don't ship it; the
     keyproxy image pins it in keyproxy/requirements.txt.
+
+    The request shape carries only parameters that EVERY allow-listed model
+    accepts. No betas/fallbacks: the server-side-fallback beta was sent here
+    and removed, because only claude-fable-5 accepts ``fallbacks`` and the
+    others reject the whole turn with a 400 rather than ignoring it.
     """
     import anthropic  # lazy — see docstring
 
@@ -109,8 +109,6 @@ def stream_turn(api_key, *, model, effort, max_tokens, system, tools, messages):
         tools=tools,
         messages=messages,
         output_config={"effort": effort},
-        betas=STREAM_BETAS,
-        fallbacks=STREAM_FALLBACKS,
     ) as stream:
         for event in stream:
             if (

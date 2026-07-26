@@ -232,8 +232,8 @@ the app. It runs in both projects:
 
 | Environment | URL | Project | Auto-deploy? |
 |-------------|-----|---------|--------------|
-| **Test** | https://quantui-uikpdb55ea-uc.a.run.app | `quantcore-test-20260606` | **Yes** — every push to `main` |
-| **Prod** | https://quantui-swgixldxzq-uc.a.run.app | `quantcore-prod-20260606` | **No** — manual promotion only |
+| **Test** | https://quantui-493357101423.us-central1.run.app | `quantcore-test-20260606` | **Yes** — every push to `main` |
+| **Prod** | https://quantui-127961694257.us-central1.run.app | `quantcore-prod-20260606` | **No** — manual promotion only |
 
 ### How it's served
 

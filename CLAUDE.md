@@ -121,8 +121,8 @@ gated by **Identity-Aware Proxy (IAP)** so the team reaches the real UI from any
 code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/quantui-iap-plan.md)
 (status: **COMPLETE, Steps 1–8**). Live URLs:
 
-- **Test:** `https://quantui-uikpdb55ea-uc.a.run.app` (`quantcore-test-20260606`)
-- **Prod:** `https://quantui-swgixldxzq-uc.a.run.app` (`quantcore-prod-20260606`)
+- **Test:** `https://quantui-493357101423.us-central1.run.app` (`quantcore-test-20260606`)
+- **Prod:** `https://quantui-127961694257.us-central1.run.app` (`quantcore-prod-20260606`)
 
 The security detail page's Technical Analysis tab includes the **Support Confluence card**
 (`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the

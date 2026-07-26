@@ -109,6 +109,70 @@ class ArbitrageRouterTest(unittest.TestCase):
         resp = self.client.get("/api/arbitrage/discover")
         self.assertEqual(resp.status_code, 422)
 
+
+class QueryParameterBoundsTest(ArbitrageRouterTest):
+    """Expensive/lossy numeric inputs must be rejected at the edge.
+
+    `top_n=-1` previously reached `candidates[:-1]`, silently dropping the last
+    candidate and reporting a negative `returned`; the rest fan out into
+    per-symbol network fetches.
+    """
+
+    def assert_rejected(self, path):
+        resp = self.client.get(path)
+        self.assertEqual(resp.status_code, 422, path)
+        self.assertEqual(self.service.calls, [], f"service was reached: {path}")
+
+    def test_non_positive_top_n_is_rejected(self):
+        self.assert_rejected("/api/arbitrage/scan?top_n=-1")
+        self.assert_rejected("/api/arbitrage/scan?top_n=0")
+
+    def test_oversized_top_n_is_rejected(self):
+        self.assert_rejected("/api/arbitrage/scan?top_n=1000")
+
+    def test_days_bounds_are_enforced_on_every_route(self):
+        for path in ("/api/arbitrage/scan?days=%s",
+                     "/api/arbitrage/pairs/MSTR?days=%s",
+                     "/api/arbitrage/discover?symbols=GDX&days=%s"):
+            self.assert_rejected(path % 0)
+            self.assert_rejected(path % 29)
+            self.assert_rejected(path % 99999)
+
+    def test_zscore_window_below_two_is_rejected(self):
+        """A z-score needs two observations for a standard deviation, and a
+        negative window used to slice from the front of the series."""
+        self.assert_rejected("/api/arbitrage/pairs/MSTR?zscore_window=-5")
+        self.assert_rejected("/api/arbitrage/pairs/MSTR?zscore_window=1")
+
+    def test_correlation_floor_must_be_a_correlation(self):
+        self.assert_rejected("/api/arbitrage/discover?symbols=GDX&min_abs_correlation=1.5")
+        self.assert_rejected("/api/arbitrage/discover?symbols=GDX&min_abs_correlation=-0.1")
+
+    def test_discover_symbol_list_is_capped(self):
+        many = ",".join(f"SYM{i}" for i in range(30))
+        resp = self.client.get(f"/api/arbitrage/discover?symbols={many}")
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn("limited to 25", resp.json()["message"])
+        self.assertEqual(self.service.calls, [])
+
+    def test_discover_reference_list_is_capped(self):
+        refs = ",".join(f"R{i}=F" for i in range(15))
+        resp = self.client.get(f"/api/arbitrage/discover?symbols=GDX&references={refs}")
+        self.assertEqual(resp.status_code, 422)
+        self.assertIn("limited to 10", resp.json()["message"])
+
+    def test_blank_symbols_is_rejected(self):
+        self.assert_rejected("/api/arbitrage/discover?symbols=%20")
+        self.assert_rejected("/api/arbitrage/discover?symbols=,,,")
+
+    def test_values_inside_the_bounds_still_pass_through(self):
+        for path in ("/api/arbitrage/scan?top_n=1&days=30",
+                     "/api/arbitrage/scan?top_n=100&days=3650",
+                     "/api/arbitrage/pairs/MSTR?zscore_window=2",
+                     "/api/arbitrage/discover?symbols=GDX&min_abs_correlation=0",
+                     "/api/arbitrage/discover?symbols=GDX&min_abs_correlation=1"):
+            self.assertEqual(self.client.get(path).status_code, 200, path)
+
     def _failing_client(self, exc):
         class Exploding:
             def __getattr__(self, name):

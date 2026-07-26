@@ -166,12 +166,15 @@ def zscore(series, window: Optional[int] = None) -> dict:
     """Latest z-score of a series against its own history.
 
     ``window`` trims the reference sample to the trailing N observations; the
-    default uses the full series.
+    default (and any non-positive value) uses the full series. Guarding the
+    sign matters: ``s.iloc[-window:]`` with a negative window slices from the
+    *front*, so a window of -5 would silently score against everything except
+    the first five bars rather than against the last five.
     """
     s = pd.Series(series).astype(float).replace([np.inf, -np.inf], np.nan).dropna()
     if s.empty:
         return {"z": None, "mean": None, "std": None, "latest": None, "n": 0}
-    ref = s.iloc[-window:] if window else s
+    ref = s.iloc[-window:] if (window and window > 0) else s
     mean = float(ref.mean())
     std = float(ref.std(ddof=1)) if ref.size > 1 else 0.0
     latest = float(s.iloc[-1])

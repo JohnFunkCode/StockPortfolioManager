@@ -222,6 +222,20 @@ class ZScoreTest(unittest.TestCase):
         self.assertEqual(windowed["n"], 10)
         self.assertGreater(full["z"], windowed["z"])
 
+    def test_non_positive_window_uses_the_full_sample(self):
+        """`s.iloc[-window:]` with a negative window slices from the front.
+
+        A window of -5 would otherwise score against everything *except* the
+        first five observations — quietly the wrong reference sample rather
+        than an error.
+        """
+        series = list(range(100))
+        full = pairs.zscore(series)
+        for bad_window in (-5, -1, 0):
+            result = pairs.zscore(series, window=bad_window)
+            self.assertEqual(result["n"], full["n"], f"window={bad_window}")
+            self.assertEqual(result["z"], full["z"], f"window={bad_window}")
+
     def test_empty_series(self):
         self.assertIsNone(pairs.zscore([])["z"])
 

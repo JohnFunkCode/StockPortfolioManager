@@ -1118,8 +1118,9 @@ def analyze_arbitrage_pair(
         security:      Ticker of the listed vehicle/company (e.g. 'MSTR')
         underlying:    Override/supply the underlying symbol for an ad-hoc pair
                        not in the curated universe (e.g. 'BTC-USD')
-        days:          Days of daily history for the spread statistics
-        zscore_window: Trailing window for the z-score; 0 uses the full sample
+        days:          Days of daily history for the spread statistics (30-3650)
+        zscore_window: Trailing window for the z-score (2-3650); 0 uses the
+                       full sample
     """
     params: dict = {"days": days}
     if underlying:
@@ -1144,8 +1145,8 @@ def scan_arbitrage(kinds: str = "", top_n: int = 20, days: int = 365) -> dict:
     Args:
         kinds:  Comma-separated families to include — nav_vehicle,
                 commodity_etf, producer. Empty scans all three.
-        top_n:  Maximum candidates to return
-        days:   Days of daily history per pair
+        top_n:  Maximum candidates to return (1-100)
+        days:   Days of daily history per pair (30-3650)
     """
     params: dict = {"top_n": top_n, "days": days}
     if kinds:
@@ -1176,10 +1177,13 @@ def discover_arbitrage_pairs(
     candidates for curation, not trades.
 
     Args:
-        symbols:               Comma-separated tickers to sweep
-        references:            Comma-separated reference series; empty uses the panel
-        days:                  Days of daily history
-        min_abs_correlation:   Minimum |return correlation| to keep a pair
+        symbols:               Comma-separated tickers to sweep (max 25 per
+                               call — each one costs a history fetch plus a
+                               profile lookup)
+        references:            Comma-separated reference series (max 10); empty
+                               uses the panel
+        days:                  Days of daily history (30-3650)
+        min_abs_correlation:   Minimum |return correlation| to keep a pair (0-1)
         require_economic_link: Drop pairs with no plausible sector link
     """
     params: dict = {

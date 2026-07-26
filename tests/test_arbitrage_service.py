@@ -309,6 +309,23 @@ class UniverseTest(unittest.TestCase):
         self.assertFalse(by_symbol["NEW"]["holdings_stale"])
         self.assertTrue(by_symbol["NEW"]["hedge_available"])
 
+    def test_scan_never_reports_a_negative_or_inconsistent_count(self):
+        """Defence in depth: the REST edge rejects top_n<1, but an in-process
+        caller passing -1 must not get `candidates[:-1]` with returned=-1."""
+        y, x = cointegrated_pair()
+        frames = {"AAA": price_frame(y), "BBB": price_frame(y),
+                  "ZZZ": price_frame(x)}
+        entries = [entry(security="AAA"), entry(security="BBB")]
+        svc = build(entries, frames)
+        for top_n in (-1, 0, 1, 50):
+            scan = svc.scan(top_n=top_n)
+            self.assertEqual(scan["returned"], len(scan["candidates"]),
+                             f"top_n={top_n}")
+            self.assertGreaterEqual(scan["returned"], 0, f"top_n={top_n}")
+        # A negative limit must not silently truncate the ranking either.
+        self.assertEqual(svc.scan(top_n=-1)["returned"], 0)
+        self.assertEqual(svc.scan(top_n=50)["returned"], 2)
+
     def test_scan_filters_by_kind(self):
         y, x = cointegrated_pair()
         frames = {"AAA": price_frame(y), "BBB": price_frame(y),

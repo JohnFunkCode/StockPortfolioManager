@@ -188,7 +188,14 @@ class ArbitrageService:
     # ------------------------------------------------------------------ #
     def scan(self, kinds: Optional[list[str]] = None, top_n: int = 20,
              days: int = 365) -> dict:
-        """Rank the curated universe. Errors on one pair never sink the scan."""
+        """Rank the curated universe. Errors on one pair never sink the scan.
+
+        ``top_n`` is clamped at or above zero: the REST edge rejects
+        non-positive values outright, but a negative limit reaching the slice
+        directly would silently drop the last candidate and report a negative
+        count, so in-process callers get the same guarantee.
+        """
+        top_n = max(0, int(top_n))
         wanted = {k.strip().lower() for k in kinds} if kinds else None
         candidates, errors = [], []
         for entry in self._repo.load_universe():
@@ -207,10 +214,12 @@ class ArbitrageService:
             candidates.append(result)
 
         candidates.sort(key=lambda c: (c.get("score") or 0), reverse=True)
+        returned = candidates[:top_n]
         return {
             "scanned": len(candidates) + len(errors),
-            "returned": min(top_n, len(candidates)),
-            "candidates": candidates[:top_n],
+            # Counted off the actual slice so it can never contradict the list.
+            "returned": len(returned),
+            "candidates": returned,
             "errors": errors,
         }
 

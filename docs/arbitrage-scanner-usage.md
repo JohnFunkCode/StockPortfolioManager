@@ -123,15 +123,15 @@ opportunity × evidence × convergence × hedge × carry × trend × freshness
 Alongside them, `breaks_on` lists what kills the trade, and `reasons` explains each factor
 in prose.
 
-### Worked example — MSTR, 2026-07-26
+### Worked example — MSTR (live prod, 2026-07-26)
 
 ```
-score 9.0  verdict reject  basis nav_discount
-nav:     premium_discount_pct  -15.76     ← the real number
-         gross_premium_discount_pct  -41.22  ← the headline that misleads
-         carry_drag_pct  2.24   exposure_ratio  1.70
-factors: opportunity 39.4 · evidence 0.35 · convergence 0.7
-         hedge 1.0 · carry 0.93 · trend 1.0 · freshness 1.0
+score 9.7  verdict reject  basis nav_discount
+nav:     premium_discount_pct  -16.92     ← the real number
+         gross_premium_discount_pct  -41.79  ← the headline that misleads
+         carry_drag_pct  2.21   exposure_ratio  1.72
+factors: opportunity 42.3 · evidence 0.35 · convergence 0.7
+         hedge 1.0 · carry 0.936 · trend 1.0 · freshness 1.0
 breaks_on: ["Negative carry (senior claims serviced out of NAV)"]
 ```
 
@@ -146,27 +146,50 @@ leaves the position materially net long.
 The reasoning behind every penalty is written up in
 `docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`.
 
-### Example scan output
+### Example scan output (live prod, 2026-07-26)
 
 ```
-14.5  reject  GLD   commodity_etf   conv=redemption   hedge=false
- 9.0  reject  MSTR  nav_vehicle     conv=buyback      hedge=true
- 7.4  reject  USO   commodity_etf   conv=redemption   hedge=false
- 6.3  reject  UNG   commodity_etf   conv=redemption   hedge=false
- 3.4  reject  FCX   producer        conv=none         hedge=true
+17.0  reject  GLD   commodity_etf   conv=redemption   hedge=false
+ 9.7  reject  MSTR  nav_vehicle     conv=buyback      hedge=true
+ 8.7  reject  USO   commodity_etf   conv=redemption   hedge=false
+ 8.5  reject  CPER  commodity_etf   conv=redemption   hedge=false
+ 4.9  reject  UNG   commodity_etf   conv=redemption   hedge=false
 ```
 
 GLD tops it on gap size and a real redemption mechanism, then loses half its score because
 the hedge is futures-only. Values move with the market; treat these as shape, not truth.
 
-### Example discovery hit
+### Discovery: expect a lot of nothing
+
+A sweep of the obvious miner names returns **zero pairs** today:
 
 ```
-NEM ~ GC=F   corr 0.73   z 1.25   half_life 6.5d   economic_link true
+GET /api/arbitrage/discover?symbols=NEM,AEM,FCX,SCCO   →   count 0
 ```
 
-Newmont against gold: genuinely cointegrated with a fast half-life. Discovered pairs carry
-no NAV math and no convergence claim — they're candidates for *curation*, not for trading.
+That is not a bug, and it is worth understanding why before you conclude the tool is
+broken. Pull the near-miss apart with `analyze_arbitrage_pair`:
+
+```
+NEM vs GC=F   correlation 0.733   half_life 6.4d   beta 1.45   r² 0.93
+              cointegration statistic -2.87  vs  -3.04 critical (10%)  →  false
+```
+
+Newmont tracks gold closely and reverts fast — but the Engle-Granger residual test misses
+its loosest threshold by **0.17**. The pair sits on the boundary, so it flips between runs
+as bars roll in: the same sweep on the test environment earlier the same day *did* return
+it. Discovery is deliberately strict, and a near-miss is reported as a miss.
+
+Two practical consequences:
+
+- **Don't treat discovery output as stable.** Re-running tomorrow can add or drop
+  boundary pairs. If you care about one, pin it with `analyze_arbitrage_pair` and read the
+  statistic rather than the boolean.
+- **`count: 0` with an empty `skipped` list means the pairs were tested and rejected** —
+  not that data was missing. Symbols with no usable history appear in `skipped` instead.
+
+Discovered pairs carry no NAV math and no convergence claim — they're candidates for
+*curation*, not for trading.
 
 ---
 

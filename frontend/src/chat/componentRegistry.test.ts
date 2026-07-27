@@ -10,9 +10,28 @@ import {
 // the frontend re-validates independently of the backend.
 describe('COMPONENT_REGISTRY', () => {
   it('resolves all registered component names', () => {
-    for (const name of ['signals', 'live_price', 'price_chart', 'spread_payoff']) {
+    for (const name of [
+      'signals',
+      'live_price',
+      'price_chart',
+      'spread_payoff',
+      'arbitrage_pair',
+    ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
     }
+  });
+
+  it('accepts a ticker-only arbitrage_pair directive and rejects extras', () => {
+    // Mirrors test_chat_protocol.py: curated pairs only, so an `underlying`
+    // prop must be rejected on both sides rather than silently ignored.
+    expect(validateDirective({ component: 'arbitrage_pair', props: { ticker: 'MSTR' } }).ok)
+      .toBe(true);
+    expect(
+      validateDirective({
+        component: 'arbitrage_pair',
+        props: { ticker: 'MSTR', underlying: 'BTC-USD' },
+      }).ok,
+    ).toBe(false);
   });
 });
 

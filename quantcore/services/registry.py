@@ -172,11 +172,19 @@ def get_services() -> Services:
         def chat_client_factory(context: TurnContext):
             raise ChatKeyRequired(CHAT_NOT_CONFIGURED_MESSAGE)
 
+    # Hoisted so ChatService can compose it — the sidekick's arbitrage tools
+    # dispatch into this same instance the REST tier uses.
+    arbitrage = ArbitrageService(
+        arbitrage_repository=arbitrage_repository,
+        prices=prices,
+        yfinance_gateway=yfinance_gateway,
+    )
     chat = ChatService(
         prices=prices,
         fundamentals=fundamentals,
         sentiment=sentiment,
         options=options,
+        arbitrage=arbitrage,
         model=chat_model,
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
@@ -229,11 +237,7 @@ def get_services() -> Services:
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
         ),
-        arbitrage=ArbitrageService(
-            arbitrage_repository=arbitrage_repository,
-            prices=prices,
-            yfinance_gateway=yfinance_gateway,
-        ),
+        arbitrage=arbitrage,
         chat=chat,
         keyproxy=keyproxy,
         settings=settings,

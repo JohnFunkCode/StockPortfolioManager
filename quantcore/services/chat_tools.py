@@ -25,6 +25,11 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
         "short_strike": _NUMBER,
         "kind": str,
     },
+    # Curated pairs only: the card resolves the underlying from
+    # arb_universe.yaml. Ad-hoc pairs (analyze_arbitrage_pair with an explicit
+    # `underlying`) have no card — every prop here is required, so there is no
+    # way to make `underlying` optional without weakening the validator.
+    "arbitrage_pair": {"ticker": str},
 }
 
 
@@ -234,6 +239,88 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "analyze_arbitrage_pair",
+        "description": (
+            "Analyse a security against the underlying it is structurally linked "
+            "to (a treasury company vs its coin stack, a fund vs its reference "
+            "future, a miner vs the metal it sells). Returns the gap, whether the "
+            "spread mean-reverts, whether anything forces it to close, and a "
+            "0-100 score with the factors that produced it.\n\n"
+            "CRITICAL — read 'nav.premium_discount_pct', the NET discount. The "
+            "response also carries 'nav.gross_premium_discount_pct', which "
+            "ignores convertible notes and preferred stock sitting senior to the "
+            "common and routinely overstates the gap by 20+ points. Quoting the "
+            "gross figure as the opportunity is the specific error this tool "
+            "exists to prevent. If you mention both, say plainly which is real.\n\n"
+            "Scoring is inverted by design: spread width only qualifies a "
+            "candidate, the convergence mechanism ranks it. Expect 'reject' — a "
+            "wide gap with no forcing mechanism, negative carry and a widening "
+            "trend is a directional bet, not an arbitrage. Report a rejection as "
+            "the finding, not as a failure. After analysing, render it with "
+            "show_component('arbitrage_pair', {'ticker': SYMBOL})."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "security": {
+                    "type": "string",
+                    "description": "Ticker of the listed vehicle/company, e.g. 'MSTR'",
+                },
+                "underlying": {
+                    "type": "string",
+                    "description": (
+                        "Optional: underlying symbol for an ad-hoc pair not in the "
+                        "curated universe, e.g. 'BTC-USD'. Omit for curated pairs."
+                    ),
+                },
+                "days": {
+                    "type": "integer",
+                    "description": "Days of daily history, 30-3650 (default 365)",
+                },
+            },
+            "required": ["security"],
+        },
+    },
+    {
+        "name": "scan_arbitrage",
+        "description": (
+            "Rank the curated arbitrage universe, one summary row per candidate: "
+            "score, verdict, NET discount, convergence mechanism, whether the "
+            "hedge is executable from an equity account, and what breaks the "
+            "trade. Use for 'any arbitrage opportunities?' style questions, then "
+            "call analyze_arbitrage_pair for detail on anything interesting.\n\n"
+            "Most scans return nothing above 'watch'. That is the scanner "
+            "working, not an error — say so rather than implying the data failed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "kinds": {
+                    "type": "string",
+                    "description": (
+                        "Optional comma-separated families to include: "
+                        "nav_vehicle, commodity_etf, producer. Omit for all three."
+                    ),
+                },
+                "top_n": {
+                    "type": "integer",
+                    "description": "Max candidates to return, 1-100 (default 10)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "list_arbitrage_universe",
+        "description": (
+            "List the curated security-to-underlying pairs the scanner tracks, "
+            "with each one's family, hedge instrument, convergence mechanism, and "
+            "whether its hand-maintained holdings figures have gone stale. Use "
+            "when the user asks what the scanner covers or why a symbol is absent."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "show_component",
         "description": (
             "Render a live, data-bound UI component inline in the conversation. "
@@ -243,7 +330,11 @@ TOOL_SCHEMAS: list[dict] = [
             "'price_chart' shows the price history chart with moving averages, "
             "'spread_payoff' shows an interactive risk graph for a vertical "
             "spread (requires ticker, expiration, long_strike, short_strike, "
-            "kind — the same parameters you passed to price_vertical_spread)."
+            "kind — the same parameters you passed to price_vertical_spread), "
+            "'arbitrage_pair' shows the structural-spread card for a curated "
+            "pair: net discount, the score's factor breakdown, and what breaks "
+            "the trade (requires ticker; curated securities only — check "
+            "list_arbitrage_universe if unsure)."
         ),
         "input_schema": {
             "type": "object",

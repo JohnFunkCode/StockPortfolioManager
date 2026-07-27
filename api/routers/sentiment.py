@@ -14,8 +14,9 @@ by the /{ticker}/news template.
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import require_owner
 from ..deps import load_portfolio, load_watchlist, services
 from ..json_response import QuantCoreJSONResponse
 
@@ -23,10 +24,12 @@ router = APIRouter(prefix="/api/securities", tags=["sentiment"])
 
 
 @router.get("/news/sentiment-summary")
-def get_sentiment_summary(source: str = "all") -> QuantCoreJSONResponse:
+def get_sentiment_summary(
+    source: str = "all", owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
     try:
         result = services().sentiment.get_sentiment_dashboard(
-            load_portfolio(), load_watchlist(), source_filter=source
+            load_portfolio(owner), load_watchlist(), source_filter=source
         )
     except Exception as exc:  # noqa: BLE001 — parity with Flask
         return QuantCoreJSONResponse({"error": str(exc), "items": []}, status_code=500)

@@ -27,6 +27,7 @@ from quantcore.repositories.news_repository import NewsStore
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
 from quantcore.repositories.options_position_repository import OptionsPositionStore
 from quantcore.repositories.options_repository import OptionsStore
+from quantcore.repositories.owner_identity_repository import OwnerIdentityRepository
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.repositories.user_settings_repository import UserSettingsRepository
@@ -40,6 +41,7 @@ from quantcore.services.chat import (
     TurnContext,
 )
 from quantcore.services.harvester import HarvesterService
+from quantcore.services.identity import IdentityService
 from quantcore.services.keyproxy import KeyProxyService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
@@ -71,6 +73,7 @@ class Services:
     portfolio_repository: PortfolioRepository
     user_settings_repository: UserSettingsRepository
     arbitrage_repository: ArbitrageRepository
+    owner_identity_repository: OwnerIdentityRepository
     # Services
     microstructure: MicrostructureService
     sentiment: SentimentService
@@ -85,6 +88,7 @@ class Services:
     chat: ChatService
     keyproxy: KeyProxyService
     settings: SettingsService
+    identity: IdentityService
 
 
 @lru_cache(maxsize=1)
@@ -100,6 +104,8 @@ def get_services() -> Services:
     portfolio_repository = PortfolioRepository()
     user_settings_repository = UserSettingsRepository()
     arbitrage_repository = ArbitrageRepository()
+    owner_identity_repository = OwnerIdentityRepository()
+    identity = IdentityService(owner_identity_repository=owner_identity_repository)
     settings = SettingsService(
         user_settings_repository,
         allowed=MODEL_IDS,
@@ -213,6 +219,7 @@ def get_services() -> Services:
         portfolio_repository=portfolio_repository,
         user_settings_repository=user_settings_repository,
         arbitrage_repository=arbitrage_repository,
+        owner_identity_repository=owner_identity_repository,
         microstructure=microstructure,
         sentiment=sentiment,
         fundamentals=fundamentals,
@@ -241,4 +248,5 @@ def get_services() -> Services:
         chat=chat,
         keyproxy=keyproxy,
         settings=settings,
+        identity=identity,
     )

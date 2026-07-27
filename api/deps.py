@@ -45,7 +45,7 @@ def route_error_plain(message: str, status: int) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"error": message}, status_code=status)
 
 
-def load_portfolio(owner: str = "john") -> list[dict]:
+def load_portfolio(owner: str) -> list[dict]:
     """Load an owner's positions from the DB-backed positions table."""
     return get_services().portfolio.list_positions(owner)
 

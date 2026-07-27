@@ -11,6 +11,17 @@ export class ApiError extends Error {
   }
 }
 
+type NotProvisionedListener = () => void;
+const notProvisionedListeners = new Set<NotProvisionedListener>();
+
+/** Subscribe to the global "principal isn't provisioned" signal (issue #126
+ * decision #2/#4): fired whenever any apiRequest call comes back as a 403
+ * whose body resolves to "not_provisioned". Returns an unsubscribe function. */
+export function onNotProvisioned(listener: NotProvisionedListener): () => void {
+  notProvisionedListeners.add(listener);
+  return () => notProvisionedListeners.delete(listener);
+}
+
 export async function apiRequest<T>(
   endpoint: string,
   options?: RequestInit,
@@ -27,10 +38,11 @@ export async function apiRequest<T>(
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     // `detail` is FastAPI's error field; `message`/`error` are legacy shapes.
-    throw new ApiError(
-      error.message || error.error || error.detail || response.statusText,
-      response.status,
-    );
+    const message = error.message || error.error || error.detail || response.statusText;
+    if (response.status === 403 && message === 'not_provisioned') {
+      notProvisionedListeners.forEach((listener) => listener());
+    }
+    throw new ApiError(message, response.status);
   }
 
   return response.json();

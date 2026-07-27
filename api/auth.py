@@ -48,15 +48,22 @@ as its HMAC secret) fails closed.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from quantcore.services.identity import UnknownIdentityError
+from quantcore.services.registry import get_services
+
 _TRUTHY = {"1", "true", "yes", "on"}
+
+_security_logger = logging.getLogger("quantcore.security")
 
 # auto_error=False so a missing/blank header reaches our dependency (which then either
 # bypasses, when AUTH_DISABLED, or raises a uniform 401) rather than FastAPI's generic 403.
@@ -122,6 +129,11 @@ class Principal:
 
     @property
     def owner(self) -> str:
+        """The raw authenticated identity (IAP email or MCP token ``sub``).
+
+        This is *not* the canonical short-handle owner used in ``positions.owner``
+        etc. — that resolution happens in ``require_owner``, via ``IdentityService``.
+        """
         return self.subject or (self.email or "unknown")
 
     @classmethod
@@ -223,3 +235,31 @@ def require_principal(
 
     claims = _decode(credentials.credentials)
     return Principal.from_claims(claims, credentials.credentials)
+
+
+def require_owner(principal: Principal = Depends(require_principal)) -> str:
+    """FastAPI dependency: resolve the authenticated principal to its canonical owner.
+
+    Every owner-scoped route depends on this instead of accepting an ``?owner=``
+    query param (issue #126 decision #1) — there is no legitimate cross-user read
+    path on this endpoint. An identity with no ``owner_identities`` mapping is
+    never auto-provisioned (decision #2): it logs a security event and 403s,
+    identically for ES256 UI tokens and HS256 MCP tokens (decision #4).
+
+    ``Principal.local()`` (auth inactive — local/compose, no key configured) is
+    exempt: it resolves straight to ``"john"``, preserving the same open-by-default
+    local contract ``require_principal`` already grants ``Principal.local()``.
+    """
+    if principal.is_local:
+        return "john"
+
+    try:
+        return get_services().identity.resolve_owner(principal.owner)
+    except UnknownIdentityError:
+        # Identity only — never the token, header, or raw claims.
+        _security_logger.warning(
+            "SECURITY unmapped_principal identity=%s at=%s",
+            principal.owner,
+            datetime.now(timezone.utc).isoformat(),
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not_provisioned")

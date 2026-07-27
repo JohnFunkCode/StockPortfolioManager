@@ -12,8 +12,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from ..auth import require_owner
 from ..deps import load_portfolio, load_watchlist, route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
 
@@ -240,6 +241,7 @@ def screen_securities(
     macd_bearish: Optional[str] = None,
     news_sentiment: Optional[str] = None,
     source: str = "all",
+    owner: str = Depends(require_owner),
 ) -> QuantCoreJSONResponse:
     filters = {
         "rsi_max": rsi_max,
@@ -257,7 +259,7 @@ def screen_securities(
     }
     try:
         return QuantCoreJSONResponse(
-            services().prices.screen_securities(filters, load_portfolio(), load_watchlist())
+            services().prices.screen_securities(filters, load_portfolio(owner), load_watchlist())
         )
     except Exception as exc:  # noqa: BLE001
         return route_error_plain(str(exc), 500)

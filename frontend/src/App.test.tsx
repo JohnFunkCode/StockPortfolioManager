@@ -53,4 +53,19 @@ describe('App routing', () => {
     renderApp('/nonexistent-path');
     expect(screen.getByText('Page not found')).toBeInTheDocument();
   });
+
+  it('renders RestrictedAccess with no Layout chrome when a call reports not_provisioned', async () => {
+    mockApi([
+      [/\/api\//, () => ({ __status: 403, error: 'not_provisioned', message: 'not_provisioned' })],
+    ]);
+    renderApp('/securities');
+    await waitFor(() =>
+      expect(
+        screen.getByText(/restricted to authorized users/i),
+      ).toBeInTheDocument(),
+    );
+    // No nav chrome (Layout's AppBar links) and no chat toggle survive.
+    expect(screen.queryAllByRole('link').length).toBe(0);
+    expect(screen.queryByTestId('chat-toggle')).not.toBeInTheDocument();
+  });
 });

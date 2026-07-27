@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Routes, Route, Link, useLocation, Outlet } from 'react-router-dom';
 import {
   AppBar, Toolbar, Typography, Button, Container, Box, Stack, alpha,
@@ -24,7 +25,9 @@ import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
 import ArbitragePage from './components/arbitrage/ArbitragePage';
 import SettingsPage from './components/settings/SettingsPage';
+import RestrictedAccess from './components/access/RestrictedAccess';
 import { useAppTheme } from './ThemeContext';
+import { onNotProvisioned } from './api/client';
 
 function Layout() {
   const location = useLocation();
@@ -167,6 +170,16 @@ function Layout() {
 }
 
 export default function App() {
+  // Issue #126 decision #2/#4: an unmapped principal must land on a full-page
+  // restricted screen with no header/nav/ChatRail, never inside Layout.
+  const [restricted, setRestricted] = useState(false);
+
+  useEffect(() => onNotProvisioned(() => setRestricted(true)), []);
+
+  if (restricted) {
+    return <RestrictedAccess />;
+  }
+
   return (
     <Routes>
       <Route element={<Layout />}>

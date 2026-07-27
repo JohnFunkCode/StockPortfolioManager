@@ -1,12 +1,16 @@
 """Portfolio / watchlist / securities routes.
 
 Ports the Flask handlers (api/app.py) for:
-  GET/POST  /api/portfolio          (+ ?owner=, default "john")
+  GET/POST  /api/portfolio
   DELETE    /api/portfolio/{ticker}
   POST      /api/portfolio/import    (multipart file OR JSON path)
   GET/POST  /api/watchlist
   GET       /api/securities
   GET       /api/securities/lookup
+
+The owner is resolved from the authenticated principal via ``require_owner``
+(issue #126 decision #1) — there is no ``?owner=`` query param; there is no
+legitimate cross-user read path on this endpoint.
 
 These routes returned the bare ``{"error": message}`` body (no ``status`` key)
 on validation/not-found, so they use ``route_error_plain`` rather than the
@@ -20,8 +24,9 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 
+from ..auth import require_owner
 from ..deps import (
     PROJECT_ROOT,
     load_portfolio,
@@ -48,12 +53,14 @@ router = APIRouter(prefix="/api", tags=["securities"])
 # Portfolio
 # --------------------------------------------------------------------------- #
 @router.get("/portfolio", response_model=SecuritiesResponse)
-def get_portfolio(owner: str = "john") -> QuantCoreJSONResponse:
+def get_portfolio(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"securities": load_portfolio(owner)})
 
 
 @router.post("/portfolio", response_model=AddSecurityResponse, status_code=201)
-def add_to_portfolio(body: AddPositionRequest, owner: str = "john") -> QuantCoreJSONResponse:
+def add_to_portfolio(
+    body: AddPositionRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
     symbol = (body.symbol or "").strip().upper()
     if not symbol:
         return route_error_plain("symbol is required", 400)
@@ -75,7 +82,9 @@ def add_to_portfolio(body: AddPositionRequest, owner: str = "john") -> QuantCore
 
 
 @router.delete("/portfolio/{ticker}", response_model=RemovePositionResponse)
-def remove_from_portfolio(ticker: str, owner: str = "john") -> QuantCoreJSONResponse:
+def remove_from_portfolio(
+    ticker: str, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
     ticker = ticker.upper()
     removed = services().portfolio.remove_position(owner, ticker)
     if removed == 0:
@@ -86,7 +95,7 @@ def remove_from_portfolio(ticker: str, owner: str = "john") -> QuantCoreJSONResp
 @router.post("/portfolio/import", response_model=ImportResult)
 async def import_portfolio(
     request: Request,
-    owner: str = "john",
+    owner: str = Depends(require_owner),
     file: Optional[UploadFile] = File(default=None),
 ) -> QuantCoreJSONResponse:
     """Full-sync replace of the owner's positions from an uploaded CSV.
@@ -156,8 +165,8 @@ def add_to_watchlist(body: AddWatchlistRequest) -> QuantCoreJSONResponse:
 # Securities — combined portfolio + watchlist
 # --------------------------------------------------------------------------- #
 @router.get("/securities", response_model=SecuritiesResponse)
-def get_securities() -> QuantCoreJSONResponse:
-    portfolio = {s["symbol"]: s for s in load_portfolio()}
+def get_securities(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
+    portfolio = {s["symbol"]: s for s in load_portfolio(owner)}
     watchlist = {s["symbol"]: s for s in load_watchlist()}
     combined: dict[str, dict] = {}
     for sym, s in portfolio.items():

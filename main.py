@@ -648,6 +648,17 @@ if __name__ == "__main__":
     for stock in portfolio.list_stocks() + watchlist.list_stocks():
         if stock.symbol not in capture_symbols:
             capture_symbols.append(stock.symbol)
+
+    # Capture walks every owner's symbols, not just John's (issue #126 decision
+    # #5) — other owners' positions have no separate daily job of their own.
+    for other_owner in get_services().portfolio.list_owners():
+        if other_owner == "john":
+            continue
+        for row in get_services().portfolio.list_positions(other_owner):
+            sym = row.get("symbol")
+            if sym and sym not in capture_symbols:
+                capture_symbols.append(sym)
+
     print(f"Capturing options chains for {len(capture_symbols)} symbols...")
     for sym in capture_symbols:
         try:

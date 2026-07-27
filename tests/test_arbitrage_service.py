@@ -359,6 +359,157 @@ class ScanSummaryTest(unittest.TestCase):
         self.assertIn("NET", summary["note"])
 
 
+class SpreadHistoryTest(unittest.TestCase):
+    """The series analyze_pair discards, plus the levels needed to draw it."""
+
+    def setUp(self):
+        y, x = cointegrated_pair()
+        self.frames = {"AAA": price_frame(y), "ZZZ": price_frame(x)}
+        self.entries = [entry(security="AAA")]
+
+    def test_returns_dated_points_and_band_levels(self):
+        result = build(self.entries, self.frames).get_spread_history("AAA")
+        self.assertGreater(len(result["points"]), 100)
+        self.assertIn("date", result["points"][0])
+        self.assertIn("spread", result["points"][0])
+        # Bands are precomputed so the chart never does arithmetic.
+        mean, std = result["mean"], result["std"]
+        self.assertAlmostEqual(result["bands"]["plus_one"], mean + std, places=5)
+        self.assertAlmostEqual(result["bands"]["minus_one"], mean - std, places=5)
+        self.assertAlmostEqual(result["bands"]["plus_two"], mean + 2 * std, places=5)
+        self.assertAlmostEqual(result["bands"]["minus_two"], mean - 2 * std, places=5)
+
+    def test_latest_matches_the_final_point(self):
+        result = build(self.entries, self.frames).get_spread_history("AAA")
+        self.assertEqual(result["latest"]["spread"], result["points"][-1]["spread"])
+        self.assertEqual(result["latest"]["date"], result["points"][-1]["date"])
+        self.assertIsNotNone(result["latest"]["z"])
+
+    def test_trend_carries_an_intercept_so_the_line_can_be_drawn(self):
+        result = build(self.entries, self.frames).get_spread_history("AAA")
+        self.assertIn("intercept", result["trend"])
+        self.assertIsNotNone(result["trend"]["intercept"])
+
+    def test_cointegration_block_never_leaks_the_series(self):
+        """engle_granger returns the spread; it must not ride along twice."""
+        result = build(self.entries, self.frames).get_spread_history("AAA")
+        self.assertNotIn("spread", result["cointegration"])
+
+    def test_ad_hoc_pair_needs_an_underlying(self):
+        svc = build([], self.frames)
+        self.assertIn("not in the curated universe",
+                      svc.get_spread_history("AAA")["error"])
+        self.assertIsNone(
+            svc.get_spread_history("AAA", underlying="ZZZ").get("error")
+        )
+
+    def test_missing_history_is_reported_cleanly(self):
+        result = build(self.entries, {"ZZZ": price_frame([1.0] * 40)}).get_spread_history("AAA")
+        self.assertIn("No price history", result["error"])
+
+
+class PremiumHistoryTest(unittest.TestCase):
+    def setUp(self):
+        n = 120
+        self.frames = {
+            "MSTR": price_frame([100.0] * n),
+            "BTC-USD": price_frame([50_000.0] * n),
+        }
+        self.entry = entry(
+            security="MSTR", kind="nav_vehicle", underlying="BTC-USD", hedge="IBIT",
+            mechanism="buyback", holdings_units=1_000, holdings_as_of="2026-07-14",
+            senior_claims_usd=10_000_000, diluted_shares=1_000_000,
+        )
+
+    def test_series_values_are_exact(self):
+        # 1,000 units x $50,000 = $50M gross, less $10M senior = $40M over 1M
+        # shares = $40/share; price 100 => +150% premium.
+        result = build([self.entry], self.frames).get_premium_history("MSTR")
+        self.assertEqual(len(result["points"]), 120)
+        point = result["points"][-1]
+        self.assertAlmostEqual(point["nav_per_share"], 40.0, places=4)
+        self.assertAlmostEqual(point["premium_discount_pct"], 150.0, places=4)
+        self.assertEqual(result["latest"], point)
+
+    def test_approximation_is_declared_not_implied(self):
+        """The series applies today's capital structure to past prices; a
+        reader who misses that would misread how the gap behaved."""
+        result = build([self.entry], self.frames).get_premium_history("MSTR")
+        self.assertEqual(result["method"], "current_capital_structure")
+        self.assertIn("Approximation", result["note"])
+        self.assertIn("not a record", result["note"])
+
+    def test_db_snapshot_supersedes_the_yaml_bootstrap(self):
+        snapshot = {"units": 2_000, "as_of": "2026-07-20", "senior_claims": 0.0,
+                    "annual_senior_cost": 0.0, "other_assets": 0.0,
+                    "diluted_shares": 1_000_000, "source": "db"}
+        result = build([self.entry], self.frames, snapshot=snapshot).get_premium_history("MSTR")
+        self.assertEqual(result["units"], 2_000)
+        # 2,000 x 50,000 / 1M shares = $100/share, price 100 => flat.
+        self.assertAlmostEqual(result["points"][-1]["premium_discount_pct"], 0.0, places=4)
+
+    def test_non_nav_vehicle_is_refused_with_a_reason(self):
+        producer = entry(security="GDX", kind="producer", underlying="GC=F")
+        frames = {"GDX": price_frame([30.0] * 60), "GC=F": price_frame([2000.0] * 60)}
+        result = build([producer], frames).get_premium_history("GDX")
+        self.assertIn("not a NAV vehicle", result["error"])
+        self.assertEqual(result["kind"], "producer")
+
+    def test_uncurated_security_is_refused(self):
+        result = build([], self.frames).get_premium_history("NOPE")
+        self.assertIn("not in the curated universe", result["error"])
+
+    def test_missing_holdings_explains_what_to_add(self):
+        bare = {**self.entry, "holdings_units": None, "diluted_shares": None}
+        result = build([bare], self.frames).get_premium_history("MSTR")
+        self.assertIn("arb_universe.yaml", result["error"])
+
+
+class DiscoveryIncludeAllTest(unittest.TestCase):
+    """Near-misses are the point of the scatter — they must survive the sweep."""
+
+    def setUp(self):
+        y, x = cointegrated_pair(seed=12)
+        self.frames = {"MINER": price_frame(y), "GC=F": price_frame(x)}
+        self.info = {"MINER": {"sector": "Basic Materials", "industry": "Gold Mining"}}
+
+    def test_default_omits_the_tested_list(self):
+        svc = build([], self.frames, info=self.info)
+        result = svc.discover_pairs(["MINER"], references=["GC=F"])
+        self.assertNotIn("tested", result)
+
+    def test_include_all_reports_passes_and_failures_alike(self):
+        svc = build([], self.frames, info=self.info)
+        result = svc.discover_pairs(["MINER"], references=["GC=F"], include_all=True)
+        self.assertEqual(len(result["tested"]), 1)
+        row = result["tested"][0]
+        for field in ("correlation", "statistic", "half_life_days", "passed",
+                      "failed_because", "economic_link"):
+            self.assertIn(field, row)
+        self.assertIn("critical_values", result)
+
+    def test_a_rejected_pair_keeps_its_measurements(self):
+        """A correlation floor of 1.0 rejects everything — the row must still
+        carry the numbers so the scatter can plot the near-miss."""
+        svc = build([], self.frames, info=self.info)
+        result = svc.discover_pairs(["MINER"], references=["GC=F"],
+                                    min_abs_correlation=1.0, include_all=True)
+        self.assertEqual(result["count"], 0)
+        row = result["tested"][0]
+        self.assertFalse(row["passed"])
+        self.assertIn("correlation below", row["failed_because"])
+        self.assertIsNotNone(row["correlation"])
+        self.assertIsNotNone(row["statistic"])
+
+    def test_gate_rejections_are_recorded_too(self):
+        svc = build([], self.frames, info={"MINER": {"sector": "Consumer Staples"}})
+        result = svc.discover_pairs(["MINER"], references=["GC=F"], include_all=True)
+        row = result["tested"][0]
+        self.assertFalse(row["passed"])
+        self.assertEqual(row["failed_because"], "no economic link")
+        self.assertFalse(row["economic_link"])
+
+
 class UniverseTest(unittest.TestCase):
     def test_flags_stale_holdings_and_hedge_availability(self):
         entries = [

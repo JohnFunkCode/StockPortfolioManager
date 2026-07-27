@@ -109,6 +109,31 @@ class ArbitrageRouterTest(unittest.TestCase):
         resp = self.client.get("/api/arbitrage/discover")
         self.assertEqual(resp.status_code, 422)
 
+    def test_spread_history_route_uppercases_and_forwards(self):
+        resp = self.client.get(
+            "/api/arbitrage/pairs/mstr/spread-history?underlying=BTC-USD&days=180"
+        )
+        self.assertEqual(resp.status_code, 200)
+        name, args, kwargs = self.last_call()
+        self.assertEqual(name, "get_spread_history")
+        self.assertEqual(args[0], "MSTR")
+        self.assertEqual(kwargs["underlying"], "BTC-USD")
+        self.assertEqual(kwargs["days"], 180)
+
+    def test_premium_history_route_uppercases_and_forwards(self):
+        resp = self.client.get("/api/arbitrage/pairs/mstr/premium-history?days=90")
+        self.assertEqual(resp.status_code, 200)
+        name, args, kwargs = self.last_call()
+        self.assertEqual(name, "get_premium_history")
+        self.assertEqual(args[0], "MSTR")
+        self.assertEqual(kwargs["days"], 90)
+
+    def test_discover_forwards_include_all(self):
+        self.client.get("/api/arbitrage/discover?symbols=NEM&include_all=true")
+        self.assertTrue(self.last_call()[2]["include_all"])
+        self.client.get("/api/arbitrage/discover?symbols=NEM")
+        self.assertFalse(self.last_call()[2]["include_all"])
+
 
 class QueryParameterBoundsTest(ArbitrageRouterTest):
     """Expensive/lossy numeric inputs must be rejected at the edge.
@@ -164,6 +189,12 @@ class QueryParameterBoundsTest(ArbitrageRouterTest):
     def test_blank_symbols_is_rejected(self):
         self.assert_rejected("/api/arbitrage/discover?symbols=%20")
         self.assert_rejected("/api/arbitrage/discover?symbols=,,,")
+
+    def test_history_routes_enforce_the_same_day_bounds(self):
+        for path in ("/api/arbitrage/pairs/MSTR/spread-history?days=%s",
+                     "/api/arbitrage/pairs/MSTR/premium-history?days=%s"):
+            self.assert_rejected(path % 29)
+            self.assert_rejected(path % 99999)
 
     def test_values_inside_the_bounds_still_pass_through(self):
         for path in ("/api/arbitrage/scan?top_n=1&days=30",

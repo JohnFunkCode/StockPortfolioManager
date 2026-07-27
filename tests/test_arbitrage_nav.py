@@ -129,6 +129,41 @@ class ExposureRatioTest(unittest.TestCase):
         self.assertIsNone(nav.exposure_ratio(160, 0))
 
 
+class PremiumHistoryTest(unittest.TestCase):
+    """Per-date series; capital structure held constant by design."""
+
+    PRICES = [('2026-07-01', 96.99), ('2026-07-02', 90.0)]
+    SPOTS = [('2026-07-01', 64_709), ('2026-07-02', 64_709)]
+
+    def series(self, **overrides):
+        kwargs = {
+            "prices": self.PRICES, "spots": self.SPOTS, "units": 843_775,
+            "diluted_shares": 350_000_000, "senior_claims": 16_500_000_000,
+        }
+        kwargs.update(overrides)
+        return nav.premium_history(**kwargs)
+
+    def test_each_point_matches_the_point_in_time_workup(self):
+        rows = self.series()
+        self.assertEqual(len(rows), 2)
+        self.assertAlmostEqual(rows[0]["premium_discount_pct"], -10.9, delta=0.5)
+        # Same NAV per share throughout — only price moves.
+        self.assertEqual(rows[0]["nav_per_share"], rows[1]["nav_per_share"])
+        self.assertLess(rows[1]["premium_discount_pct"], rows[0]["premium_discount_pct"])
+
+    def test_dates_are_carried_through(self):
+        self.assertEqual([r["date"] for r in self.series()],
+                         ['2026-07-01', '2026-07-02'])
+
+    def test_unusable_points_are_dropped_not_nulled(self):
+        """An insolvent structure yields no per-share value; emitting a null
+        hole would draw a broken line."""
+        self.assertEqual(self.series(senior_claims=10**15), [])
+
+    def test_empty_input_yields_empty_series(self):
+        self.assertEqual(nav.premium_history([], [], 100, 100), [])
+
+
 class AnalyzeNavVehicleTest(unittest.TestCase):
     def test_zero_senior_claims_makes_gross_and_net_agree(self):
         result = nav.analyze_nav_vehicle(price=95, units=100, spot=10,

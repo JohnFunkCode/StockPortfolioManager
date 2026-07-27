@@ -30,6 +30,11 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # `underlying`) have no card — every prop here is required, so there is no
     # way to make `underlying` optional without weakening the validator.
     "arbitrage_pair": {"ticker": str},
+    "arbitrage_spread": {"ticker": str},
+    "arbitrage_premium": {"ticker": str},
+    # No props: the scan covers the whole curated universe.
+    "arbitrage_scan": {},
+    "arbitrage_discovery": {"symbols": str},
 }
 
 
@@ -344,7 +349,17 @@ TOOL_SCHEMAS: list[dict] = [
             "'arbitrage_pair' shows the structural-spread card for a curated "
             "pair: net discount, the score's factor breakdown, and what breaks "
             "the trade (requires ticker; curated securities only — check "
-            "list_arbitrage_universe if unsure)."
+            "list_arbitrage_universe if unsure), "
+            "'arbitrage_spread' charts that pair's spread over time with its "
+            "mean and standard-deviation bands, so the user can see how "
+            "stretched it is rather than reading a z-score (requires ticker), "
+            "'arbitrage_premium' charts a NAV vehicle's discount to net asset "
+            "value over time (requires ticker; nav_vehicle securities only), "
+            "'arbitrage_scan' shows the ranked scan table for the whole curated "
+            "universe (no props), "
+            "'arbitrage_discovery' plots a cointegration sweep — correlation "
+            "against test statistic, with near-misses visible against the "
+            "critical-value line (requires symbols, comma-separated)."
         ),
         "input_schema": {
             "type": "object",
@@ -375,8 +390,20 @@ TOOL_SCHEMAS: list[dict] = [
                             "enum": ["call", "put"],
                             "description": "spread_payoff only: option type",
                         },
+                        "symbols": {
+                            "type": "string",
+                            "description": (
+                                "arbitrage_discovery only: comma-separated "
+                                "tickers to sweep"
+                            ),
+                        },
                     },
-                    "required": ["ticker"],
+                    # No schema-level required list: which props are mandatory
+                    # depends on the component (arbitrage_scan takes none,
+                    # arbitrage_discovery takes symbols rather than ticker), and
+                    # JSON Schema cannot express that without oneOf. The
+                    # per-component registry is the enforcement point and
+                    # rejects both missing and extra props.
                 },
             },
             "required": ["component", "props"],

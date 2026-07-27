@@ -75,6 +75,11 @@ def discover(
     days: int = Query(365, ge=MIN_DAYS, le=MAX_DAYS),
     min_abs_correlation: float = Query(0.4, ge=0.0, le=1.0),
     require_economic_link: bool = True,
+    include_all: bool = Query(
+        False,
+        description="Also return every tested pair with a `passed` flag, so "
+                    "near-misses are visible (the discovery scatter needs this)",
+    ),
 ) -> QuantCoreJSONResponse:
     symbol_list = _split(symbols)
     if not symbol_list:
@@ -99,7 +104,31 @@ def discover(
             days=days,
             min_abs_correlation=min_abs_correlation,
             require_economic_link=require_economic_link,
+            include_all=include_all,
         )
+    )
+
+
+@router.get("/pairs/{security}/spread-history")
+def spread_history(
+    security: str,
+    underlying: Optional[str] = Query(None, max_length=32),
+    days: int = Query(365, ge=MIN_DAYS, le=MAX_DAYS),
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().arbitrage.get_spread_history(
+            security.upper(), underlying=underlying, days=days
+        )
+    )
+
+
+@router.get("/pairs/{security}/premium-history")
+def premium_history(
+    security: str,
+    days: int = Query(365, ge=MIN_DAYS, le=MAX_DAYS),
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().arbitrage.get_premium_history(security.upper(), days=days)
     )
 
 

@@ -63,19 +63,24 @@ class ScriptedClient:
         yield ("final", turn["final"])
 
 
+_UNSET = object()
+
+
 class ChatServiceTestBase(unittest.TestCase):
     def setUp(self):
         self.prices = Mock()
         self.fundamentals = Mock()
         self.sentiment = Mock()
         self.options = Mock()
+        self.arbitrage = Mock()
 
-    def make_service(self, client, max_iterations=8):
+    def make_service(self, client, max_iterations=8, arbitrage=_UNSET):
         return ChatService(
             prices=self.prices,
             fundamentals=self.fundamentals,
             sentiment=self.sentiment,
             options=self.options,
+            arbitrage=self.arbitrage if arbitrage is _UNSET else arbitrage,
             max_iterations=max_iterations,
             client_factory=lambda context: client,
         )
@@ -925,6 +930,95 @@ class TestModelResolution(ChatServiceTestBase):
             service.stream_chat([{"role": "user", "content": "hi"}], context=context)
         )
         self.assertEqual(seen[0], context)
+
+
+class TestArbitrageTools(ChatServiceTestBase):
+    """The sidekick's arbitrage tools dispatch into ArbitrageService."""
+
+    def tool_turn(self, name, args, **service_kwargs):
+        """One tool_use turn followed by a text turn; returns the events."""
+        client = ScriptedClient(
+            [
+                {"final": final("tool_use", tool_use("tu_1", name, args))},
+                {"final": final("end_turn", text_block("done"))},
+            ]
+        )
+        service = self.make_service(client, **service_kwargs)
+        events = list(service.stream_chat([{"role": "user", "content": "hi"}]))
+        return events, client
+
+    def test_analyze_pair_dispatch_with_defaults(self):
+        self.arbitrage.analyze_pair.return_value = {"security": "MSTR", "score": 9.7}
+        self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"})
+        self.arbitrage.analyze_pair.assert_called_once_with(
+            "MSTR", underlying=None, days=365
+        )
+
+    def test_analyze_pair_forwards_ad_hoc_underlying_and_window(self):
+        self.arbitrage.analyze_pair.return_value = {"security": "RIOT"}
+        self.tool_turn(
+            "analyze_arbitrage_pair",
+            {"security": "RIOT", "underlying": "BTC-USD", "days": 180},
+        )
+        self.arbitrage.analyze_pair.assert_called_once_with(
+            "RIOT", underlying="BTC-USD", days=180
+        )
+
+    def test_scan_uses_the_compact_projection_not_the_full_scan(self):
+        """A full scan's payload would crowd the context window."""
+        self.arbitrage.scan_summary.return_value = {"candidates": []}
+        self.tool_turn("scan_arbitrage", {})
+        self.arbitrage.scan_summary.assert_called_once_with(
+            kinds=None, top_n=10, days=365
+        )
+        self.arbitrage.scan.assert_not_called()
+
+    def test_scan_forwards_a_custom_history_window(self):
+        """'Scan over two years' must not silently run with the 365-day
+        default (Hermes review on #143)."""
+        self.arbitrage.scan_summary.return_value = {"candidates": []}
+        self.tool_turn("scan_arbitrage", {"days": 730})
+        self.assertEqual(self.arbitrage.scan_summary.call_args.kwargs["days"], 730)
+
+    def test_scan_splits_the_kinds_string(self):
+        self.arbitrage.scan_summary.return_value = {"candidates": []}
+        self.tool_turn("scan_arbitrage", {"kinds": "nav_vehicle, producer", "top_n": 3})
+        self.arbitrage.scan_summary.assert_called_once_with(
+            kinds=["nav_vehicle", "producer"], top_n=3, days=365
+        )
+
+    def test_blank_kinds_becomes_none_not_an_empty_list(self):
+        """An empty list would filter every family out — the opposite of 'all'."""
+        self.arbitrage.scan_summary.return_value = {"candidates": []}
+        self.tool_turn("scan_arbitrage", {"kinds": " , "})
+        self.assertIsNone(self.arbitrage.scan_summary.call_args.kwargs["kinds"])
+
+    def test_universe_dispatch(self):
+        self.arbitrage.get_universe.return_value = {"count": 10, "entries": []}
+        self.tool_turn("list_arbitrage_universe", {})
+        self.arbitrage.get_universe.assert_called_once_with()
+
+    def test_tool_result_reaches_the_model(self):
+        self.arbitrage.analyze_pair.return_value = {
+            "security": "MSTR",
+            "nav": {"premium_discount_pct": -16.92},
+        }
+        _, client = self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"})
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertEqual(result_block["type"], "tool_result")
+        self.assertIn("-16.92", result_block["content"])
+
+    def test_without_the_service_the_tools_degrade_to_a_recoverable_error(self):
+        """A ChatService built without arbitrage must not raise AttributeError
+        mid-stream; the loop's unknown-tool path lets the model recover."""
+        events, client = self.tool_turn(
+            "analyze_arbitrage_pair", {"security": "MSTR"}, arbitrage=None
+        )
+        statuses = [e for e in events if isinstance(e, ToolStatus)]
+        self.assertEqual([s.state for s in statuses], ["running", "error"])
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(result_block["is_error"])
+        self.assertIn("Unknown tool", result_block["content"])
 
 
 if __name__ == "__main__":

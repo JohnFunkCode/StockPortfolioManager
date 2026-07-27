@@ -223,6 +223,55 @@ class ArbitrageService:
             "errors": errors,
         }
 
+    def scan_summary(self, kinds: Optional[list[str]] = None, top_n: int = 10,
+                     days: int = 365) -> dict:
+        """``scan`` trimmed to one row per candidate, for the chat sidekick.
+
+        A full scan returns ten candidates each carrying complete spread
+        statistics, a NAV block, factors, reasons and breaks_on — far more than
+        an LLM needs to rank them, and enough to crowd a conversation's context
+        window. This keeps the fields that carry the judgement (score, verdict,
+        the *net* discount, convergence, hedgeability, what breaks it) and drops
+        the rest; the model calls ``analyze_pair`` for the full workup on
+        anything worth a closer look.
+
+        ``discount_pct`` is deliberately the NET figure. The gross number is
+        omitted here entirely rather than trimmed to it — a summary row is
+        exactly where a misread would happen.
+        """
+        full = self.scan(kinds=kinds, top_n=top_n, days=days)
+        rows = []
+        for c in full["candidates"]:
+            nav = c.get("nav") or {}
+            stats = c.get("statistics") or {}
+            rows.append({
+                "security": c["security"],
+                "name": c.get("name"),
+                "kind": c["kind"],
+                "underlying": c["underlying"],
+                "score": c.get("score"),
+                "verdict": c.get("verdict"),
+                "basis": c.get("basis"),
+                "discount_pct": nav.get("premium_discount_pct") if nav.get("available") else None,
+                "spread_zscore": (stats.get("zscore") or {}).get("z"),
+                "half_life_days": (stats.get("half_life") or {}).get("half_life_days"),
+                "cointegrated": (stats.get("cointegration") or {}).get("cointegrated"),
+                "convergence": c.get("convergence"),
+                "hedge_instrument": (c.get("hedge") or {}).get("instrument"),
+                "hedge_available": (c.get("hedge") or {}).get("available"),
+                "breaks_on": c.get("breaks_on", []),
+            })
+        return {
+            "scanned": full["scanned"],
+            "returned": len(rows),
+            "candidates": rows,
+            "errors": full["errors"],
+            "note": (
+                "Summary rows. discount_pct is NET of senior claims. Call "
+                "analyze_arbitrage_pair for the full workup on any row."
+            ),
+        }
+
     # ------------------------------------------------------------------ #
     # Statistical discovery
     # ------------------------------------------------------------------ #

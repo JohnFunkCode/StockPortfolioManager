@@ -295,6 +295,70 @@ class ErrorHandlingTest(unittest.TestCase):
         self.assertEqual(result["score"], 0.0)
 
 
+class ScanSummaryTest(unittest.TestCase):
+    """The compact projection the chat sidekick consumes."""
+
+    def setUp(self):
+        n = 400
+        rng = np.random.default_rng(9)
+        btc = 64_709 * np.exp(np.cumsum(rng.normal(0, 0.005, n)))
+        btc[-1] = 64_709
+        mstr = 96.99 * np.exp(np.cumsum(rng.normal(0, 0.01, n)))
+        mstr[-1] = 96.99
+        y, x = cointegrated_pair()
+        self.frames = {
+            "MSTR": price_frame(mstr), "BTC-USD": price_frame(btc),
+            "AAA": price_frame(y), "ZZZ": price_frame(x),
+        }
+        self.entries = [
+            entry(security="MSTR", kind="nav_vehicle", underlying="BTC-USD",
+                  hedge="IBIT", mechanism="buyback", holdings_units=843_775,
+                  holdings_as_of="2026-07-14", senior_claims_usd=16_500_000_000,
+                  annual_senior_cost_usd=854_000_000, diluted_shares=350_000_000),
+            entry(security="AAA"),
+        ]
+
+    def test_rows_carry_the_judgement_fields(self):
+        summary = build(self.entries, self.frames).scan_summary()
+        row = next(r for r in summary["candidates"] if r["security"] == "MSTR")
+        for field in ("score", "verdict", "discount_pct", "convergence",
+                      "hedge_available", "breaks_on", "cointegrated"):
+            self.assertIn(field, row)
+        self.assertEqual(summary["returned"], len(summary["candidates"]))
+
+    def test_discount_is_the_net_figure_and_gross_is_absent(self):
+        """A summary row is exactly where a gross/net misread would happen, so
+        the gross number is dropped rather than trimmed alongside it."""
+        summary = build(self.entries, self.frames).scan_summary()
+        row = next(r for r in summary["candidates"] if r["security"] == "MSTR")
+        self.assertAlmostEqual(row["discount_pct"], -10.9, delta=0.5)
+        self.assertNotIn("gross_premium_discount_pct", row)
+        self.assertNotIn("nav", row)
+
+    def test_heavy_blocks_are_dropped(self):
+        summary = build(self.entries, self.frames).scan_summary()
+        row = summary["candidates"][0]
+        for heavy in ("statistics", "factors", "reasons", "hedge"):
+            self.assertNotIn(heavy, row)
+
+    def test_non_nav_rows_report_no_discount(self):
+        summary = build(self.entries, self.frames).scan_summary()
+        row = next(r for r in summary["candidates"] if r["security"] == "AAA")
+        self.assertIsNone(row["discount_pct"])
+        self.assertIsNotNone(row["spread_zscore"])
+
+    def test_errors_and_ordering_survive_the_projection(self):
+        entries = self.entries + [entry(security="BOOM")]
+        summary = build(entries, self.frames, broken={"BOOM"}).scan_summary()
+        scores = [r["score"] or 0 for r in summary["candidates"]]
+        self.assertEqual(scores, sorted(scores, reverse=True))
+        self.assertEqual([e["security"] for e in summary["errors"]], ["BOOM"])
+
+    def test_note_tells_the_reader_the_discount_is_net(self):
+        summary = build(self.entries, self.frames).scan_summary()
+        self.assertIn("NET", summary["note"])
+
+
 class UniverseTest(unittest.TestCase):
     def test_flags_stale_holdings_and_hedge_availability(self):
         entries = [

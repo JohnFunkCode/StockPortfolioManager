@@ -109,9 +109,18 @@ class TestEventStream(unittest.TestCase):
 
 class TestValidateDirective(unittest.TestCase):
     def test_valid_components_accept_ticker(self):
-        for component in ("signals", "live_price", "price_chart"):
+        for component in ("signals", "live_price", "price_chart", "arbitrage_pair"):
             ok, reason = validate_directive(component, {"ticker": "INTC"})
             self.assertTrue(ok, f"{component} should accept ticker prop: {reason}")
+
+    def test_arbitrage_pair_rejects_an_underlying_prop(self):
+        """Curated pairs only — the card resolves the underlying itself. Every
+        registered prop is required, so an optional one cannot be expressed."""
+        ok, reason = validate_directive(
+            "arbitrage_pair", {"ticker": "MSTR", "underlying": "BTC-USD"}
+        )
+        self.assertFalse(ok)
+        self.assertIn("underlying", reason)
 
     def test_unknown_component_rejected_with_reason(self):
         ok, reason = validate_directive("nuclear_launch", {"ticker": "INTC"})
@@ -306,6 +315,9 @@ class TestToolSchemas(unittest.TestCase):
         "get_fundamental_score",
         "get_news_sentiment",
         "price_vertical_spread",
+        "analyze_arbitrage_pair",
+        "scan_arbitrage",
+        "list_arbitrage_universe",
         "show_component",
     }
 
@@ -322,6 +334,29 @@ class TestToolSchemas(unittest.TestCase):
         show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
         enum = show["input_schema"]["properties"]["component"]["enum"]
         self.assertEqual(set(enum), set(BACKEND_COMPONENT_REGISTRY))
+
+    def test_arbitrage_tool_steers_the_model_to_the_net_discount(self):
+        """Safety contract, not prose polish.
+
+        analyze_arbitrage_pair returns both premium_discount_pct (net of senior
+        claims) and gross_premium_discount_pct, which routinely overstates the
+        gap by 20+ points. A model that quotes the gross figure reproduces the
+        exact error the scanner exists to prevent, so the description must name
+        the right field and warn about the wrong one. If this fails, someone
+        trimmed the warning — restore it rather than deleting the test.
+        """
+        tool = next(t for t in TOOL_SCHEMAS if t["name"] == "analyze_arbitrage_pair")
+        description = tool["description"]
+        self.assertIn("premium_discount_pct", description)
+        self.assertIn("gross_premium_discount_pct", description)
+        self.assertIn("senior", description.lower())
+
+    def test_scan_tool_frames_an_empty_result_as_a_finding(self):
+        """Most scans return nothing above 'watch'; the model must report that
+        as the answer rather than implying a data failure."""
+        tool = next(t for t in TOOL_SCHEMAS if t["name"] == "scan_arbitrage")
+        self.assertIn("watch", tool["description"])
+        self.assertIn("not an error", tool["description"])
 
 
 if __name__ == "__main__":

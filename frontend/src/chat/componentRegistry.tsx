@@ -8,6 +8,7 @@ import SignalsTab from '../components/securities/SignalsTab';
 import LivePrice from '../components/symbols/LivePrice';
 import PriceChartCard from '../components/chat/PriceChartCard';
 import SpreadPayoffCard from '../components/chat/SpreadPayoffCard';
+import ArbitrageCard from '../components/chat/ArbitrageCard';
 import type { ChatDirective } from './types';
 
 type PropKind = 'string' | 'number';
@@ -42,6 +43,8 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
       kind: 'string',
     },
   },
+  // Carries its own "SECURITY vs UNDERLYING" heading, so no titled wrapper.
+  arbitrage_pair: { component: ArbitrageCard, spec: TICKER_ONLY },
 };
 
 /**

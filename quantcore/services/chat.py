@@ -73,6 +73,15 @@ the selected element directly; never echo the raw JSON back.
 Numbers you state in prose must come from tool results in this conversation,
 never from memory.
 
+On arbitrage results: quote the NET discount
+(nav.premium_discount_pct), never nav.gross_premium_discount_pct — the gross
+figure ignores debt and preferred stock ranking ahead of the common and
+routinely overstates the gap by 20+ points. If you cite both, label which one
+a shareholder actually gets. A "reject" verdict is a finding worth reporting
+plainly, not a failed lookup: say what the gap is and what stops it closing
+(no forcing mechanism, negative carry, an unhedgeable leg), rather than
+implying the tool found nothing.
+
 The tools above are your only source of market data. You have no web access:
 never attempt a web search, never fetch a URL, and never pull prices, news,
 filings, earnings figures, or any other market data from outside those tool
@@ -288,6 +297,7 @@ class ChatService:
         fundamentals,
         sentiment,
         options,
+        arbitrage=None,
         model: str = "claude-sonnet-5",
         effort: str = "medium",
         max_iterations: int = 8,
@@ -299,6 +309,7 @@ class ChatService:
         self._fundamentals = fundamentals
         self._sentiment = sentiment
         self._options = options
+        self._arbitrage = arbitrage
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
@@ -333,6 +344,30 @@ class ChatService:
                 )
             ),
         }
+        # Registered only when the service is wired. Absent, the loop's
+        # unknown-tool path returns a recoverable is_error to the model rather
+        # than raising AttributeError on a None service mid-stream.
+        if arbitrage is not None:
+            self._handlers.update({
+                "analyze_arbitrage_pair": (
+                    lambda security, underlying=None, days=365:
+                    self._arbitrage.analyze_pair(
+                        security, underlying=underlying, days=days
+                    )
+                ),
+                # Summary rows, not the full scan — ten candidates with complete
+                # statistics each would crowd the conversation's context window.
+                "scan_arbitrage": (
+                    lambda kinds=None, top_n=10, days=365:
+                    self._arbitrage.scan_summary(
+                        kinds=[k.strip() for k in (kinds or "").split(",") if k.strip()]
+                        or None,
+                        top_n=top_n,
+                        days=days,
+                    )
+                ),
+                "list_arbitrage_universe": lambda: self._arbitrage.get_universe(),
+            })
 
     def _resolve_model(self, context: TurnContext) -> str:
         """Requested model wins if allow-listed; else fall back to the

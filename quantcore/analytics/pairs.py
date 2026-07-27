@@ -381,7 +381,7 @@ def spread_trend(spread) -> dict:
     s = pd.Series(spread).astype(float).replace([np.inf, -np.inf], np.nan).dropna()
     arr = np.asarray(s.values, dtype=float)
     empty = {"slope_per_day": None, "drift_total": None, "slope_tstat": None,
-             "widening": None, "n": int(arr.size)}
+             "intercept": None, "widening": None, "n": int(arr.size)}
     if arr.size < 10:
         return empty
 
@@ -398,6 +398,9 @@ def spread_trend(spread) -> dict:
         "slope_per_day": _clean(slope),
         "drift_total": _clean(slope * (arr.size - 1)),
         "slope_tstat": _clean(tstat),
+        # Fitted value at t=0, so a caller can draw the trend line without
+        # refitting: y = intercept + slope * bar_index.
+        "intercept": _clean(float(fit["beta"][0])),
         "widening": bool(significant and slope * deviation > 0),
         "n": int(arr.size),
     }

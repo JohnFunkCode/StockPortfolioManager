@@ -146,6 +146,43 @@ def exposure_ratio(gross_nav_value: float, market_cap: float) -> Optional[float]
     return _clean(gross / cap)
 
 
+def premium_history(prices, spots, units: float, diluted_shares: float,
+                    senior_claims: float = 0.0,
+                    other_assets: float = 0.0) -> list[dict]:
+    """Per-date premium/discount series from aligned price and spot sequences.
+
+    ``prices`` and ``spots`` are parallel sequences of (date, value) pairs — the
+    caller aligns them; this function only does arithmetic, and reuses
+    ``net_nav_per_share``/``premium_discount`` so a historical point can never
+    drift from what the point-in-time workup would report.
+
+    IMPORTANT — the capital structure is treated as CONSTANT across the whole
+    series, because a single holdings snapshot is all that is usually
+    available. Every point therefore answers "what would the discount have been
+    on that date, if the entity had held today's units against today's senior
+    claims", which is an approximation, not history. Callers must label it as
+    such; ``ArbitrageService.get_premium_history`` carries a ``method`` field
+    and a note for exactly this reason.
+
+    Dates whose inputs are unusable (non-positive spot, insolvent structure)
+    are dropped rather than emitted as null holes.
+    """
+    out: list[dict] = []
+    for (date_str, price), (_, spot) in zip(prices, spots):
+        nav_ps = net_nav_per_share(units, spot, diluted_shares, senior_claims,
+                                   other_assets)
+        discount = premium_discount(price, nav_ps)
+        if discount is None:
+            continue
+        out.append({
+            "date": date_str,
+            "premium_discount_pct": discount,
+            "nav_per_share": nav_ps,
+            "price": _clean(price),
+        })
+    return out
+
+
 def analyze_nav_vehicle(price: float, units: float, spot: float,
                         diluted_shares: float, senior_claims: float = 0.0,
                         annual_senior_cost: float = 0.0,

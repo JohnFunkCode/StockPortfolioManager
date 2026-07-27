@@ -73,9 +73,131 @@ export interface ArbitragePairResponse {
   hint?: string;
 }
 
+export interface SpreadPoint {
+  date: string;
+  spread: number;
+}
+
+export interface SpreadHistoryResponse {
+  security: string;
+  name?: string;
+  kind: string;
+  underlying: string;
+  points: SpreadPoint[];
+  mean: number;
+  std: number;
+  /** Precomputed band levels — the chart draws, it does not derive. */
+  bands: {
+    plus_one: number;
+    minus_one: number;
+    plus_two: number;
+    minus_two: number;
+  };
+  latest: { date: string | null; spread: number | null; z: number | null };
+  hedge_ratio: { beta: number | null; alpha: number | null };
+  half_life: { half_life_days: number | null };
+  cointegration: { cointegrated: boolean; statistic: number | null };
+  trend: {
+    slope_per_day: number | null;
+    intercept: number | null;
+    slope_tstat: number | null;
+    widening: boolean | null;
+  };
+  error?: string;
+  hint?: string;
+}
+
+export interface PremiumPoint {
+  date: string;
+  premium_discount_pct: number;
+  nav_per_share: number;
+  price: number;
+}
+
+export interface PremiumHistoryResponse {
+  security: string;
+  name?: string;
+  underlying: string;
+  points: PremiumPoint[];
+  latest: PremiumPoint | null;
+  holdings_as_of?: string | null;
+  holdings_age_days?: number | null;
+  holdings_stale?: boolean;
+  /** Always "current_capital_structure" today — the series is an approximation. */
+  method: string;
+  note: string;
+  error?: string;
+}
+
+export interface ScanRow {
+  security: string;
+  name?: string;
+  kind: string;
+  underlying: string;
+  score: number | null;
+  verdict: string;
+  basis: string | null;
+  discount_pct: number | null;
+  spread_zscore: number | null;
+  half_life_days: number | null;
+  cointegrated: boolean | null;
+  convergence: string;
+  hedge_instrument: string | null;
+  hedge_available: boolean;
+  breaks_on: string[];
+}
+
+export interface ScanResponse {
+  scanned: number;
+  returned: number;
+  candidates: ScanRow[];
+  errors: Array<{ security: string; error: string }>;
+}
+
+export interface TestedPair {
+  security: string;
+  underlying: string;
+  economic_link: boolean;
+  correlation: number | null;
+  statistic: number | null;
+  reject_at: number | null;
+  half_life_days: number | null;
+  passed: boolean;
+  failed_because: string | null;
+}
+
+export interface DiscoveryResponse {
+  count: number;
+  pairs: Array<{ security: string; underlying: string; correlation: number | null }>;
+  skipped: Array<{ symbol: string; reason: string }>;
+  references: string[];
+  /** Present only with include_all — every tested pair, near-misses included. */
+  tested?: TestedPair[];
+  critical_values?: Record<string, number>;
+}
+
 export const arbitrageApi = {
   getPair: (security: string, days = 365) =>
     apiRequest<ArbitragePairResponse>(
       `/api/arbitrage/pairs/${encodeURIComponent(security)}?days=${days}`,
+    ),
+
+  getSpreadHistory: (security: string, days = 365) =>
+    apiRequest<SpreadHistoryResponse>(
+      `/api/arbitrage/pairs/${encodeURIComponent(security)}/spread-history?days=${days}`,
+    ),
+
+  getPremiumHistory: (security: string, days = 365) =>
+    apiRequest<PremiumHistoryResponse>(
+      `/api/arbitrage/pairs/${encodeURIComponent(security)}/premium-history?days=${days}`,
+    ),
+
+  scan: (topN = 20, days = 365) =>
+    apiRequest<ScanResponse>(`/api/arbitrage/scan?top_n=${topN}&days=${days}`),
+
+  discover: (symbols: string, requireEconomicLink = true) =>
+    apiRequest<DiscoveryResponse>(
+      `/api/arbitrage/discover?symbols=${encodeURIComponent(symbols)}` +
+        `&include_all=true&require_economic_link=${requireEconomicLink}`,
     ),
 };

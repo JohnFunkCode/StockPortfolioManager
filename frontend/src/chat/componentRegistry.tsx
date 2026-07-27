@@ -9,6 +9,12 @@ import LivePrice from '../components/symbols/LivePrice';
 import PriceChartCard from '../components/chat/PriceChartCard';
 import SpreadPayoffCard from '../components/chat/SpreadPayoffCard';
 import ArbitrageCard from '../components/chat/ArbitrageCard';
+import {
+  SpreadHistoryCard,
+  PremiumHistoryCard,
+  ArbScanCard,
+  DiscoveryCard,
+} from '../components/chat/ArbitrageChartCards';
 import type { ChatDirective } from './types';
 
 type PropKind = 'string' | 'number';
@@ -45,6 +51,11 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   },
   // Carries its own "SECURITY vs UNDERLYING" heading, so no titled wrapper.
   arbitrage_pair: { component: ArbitrageCard, spec: TICKER_ONLY },
+  arbitrage_spread: { component: SpreadHistoryCard, spec: TICKER_ONLY },
+  arbitrage_premium: { component: PremiumHistoryCard, spec: TICKER_ONLY },
+  // Universe-wide: no props at all.
+  arbitrage_scan: { component: ArbScanCard, spec: {}, titled: false },
+  arbitrage_discovery: { component: DiscoveryCard, spec: { symbols: 'string' } },
 };
 
 /**

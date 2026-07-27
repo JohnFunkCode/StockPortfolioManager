@@ -16,9 +16,32 @@ describe('COMPONENT_REGISTRY', () => {
       'price_chart',
       'spread_payoff',
       'arbitrage_pair',
+      'arbitrage_spread',
+      'arbitrage_premium',
+      'arbitrage_scan',
+      'arbitrage_discovery',
     ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
     }
+  });
+
+  it('accepts the arbitrage chart directives and rejects wrong props', () => {
+    // Mirrors test_chat_protocol.py — both sides validate independently.
+    for (const name of ['arbitrage_spread', 'arbitrage_premium']) {
+      expect(validateDirective({ component: name, props: { ticker: 'MSTR' } }).ok).toBe(true);
+    }
+    // Universe-wide: a ticker is meaningless here.
+    expect(validateDirective({ component: 'arbitrage_scan', props: {} }).ok).toBe(true);
+    expect(
+      validateDirective({ component: 'arbitrage_scan', props: { ticker: 'MSTR' } }).ok,
+    ).toBe(false);
+    // Discovery sweeps a list, so it takes symbols rather than a ticker.
+    expect(
+      validateDirective({ component: 'arbitrage_discovery', props: { symbols: 'NEM,AEM' } }).ok,
+    ).toBe(true);
+    expect(
+      validateDirective({ component: 'arbitrage_discovery', props: { ticker: 'NEM' } }).ok,
+    ).toBe(false);
   });
 
   it('accepts a ticker-only arbitrage_pair directive and rejects extras', () => {

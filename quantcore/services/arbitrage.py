@@ -273,21 +273,193 @@ class ArbitrageService:
         }
 
     # ------------------------------------------------------------------ #
+    # Chartable histories
+    # ------------------------------------------------------------------ #
+    def get_spread_history(self, security: str, underlying: Optional[str] = None,
+                           days: int = 365) -> dict:
+        """The spread series itself, with the bands and trend line to draw it.
+
+        ``analyze_pair`` computes this series and then discards it — a payload
+        of a thousand floats is noise to an LLM and a test pins that it never
+        leaks there. A chart is the one caller that genuinely needs it, so it
+        gets its own endpoint rather than fattening the workup.
+        """
+        security = (security or "").strip().upper()
+        if not security:
+            return {"error": "security is required"}
+
+        entry = self._repo.get_entry(security)
+        if entry is None:
+            if not underlying:
+                return {
+                    "security": security,
+                    "error": f"{security} is not in the curated universe and no "
+                             "underlying was supplied.",
+                    "hint": "Pass underlying= to chart an ad-hoc pair.",
+                }
+            resolved = underlying.strip()
+            kind = "producer"
+        else:
+            resolved = (underlying or entry["underlying"]).strip()
+            kind = entry["kind"]
+
+        sec_closes = self._closes(security, days)
+        und_closes = self._closes(resolved, days)
+        if sec_closes is None or und_closes is None:
+            missing = security if sec_closes is None else resolved
+            return {"security": security, "underlying": resolved,
+                    "error": f"No price history available for {missing}."}
+
+        ys, xs = pairs.align(sec_closes, und_closes)
+        hr = pairs.hedge_ratio(ys, xs)
+        if hr["beta"] is None:
+            return {"security": security, "underlying": resolved,
+                    "error": "Could not fit a hedge ratio for this pair."}
+
+        spread = pairs.spread_series(ys, xs, hr["beta"], hr["alpha"])
+        stats = pairs.zscore(spread)
+        mean = stats["mean"] or 0.0
+        std = stats["std"] or 0.0
+
+        points = [
+            {"date": pd.Timestamp(idx).date().isoformat(), "spread": _round(value, 6)}
+            for idx, value in spread.items()
+        ]
+        return {
+            "security": security,
+            "name": (entry or {}).get("name", security),
+            "kind": kind,
+            "underlying": resolved,
+            "points": points,
+            "mean": _round(mean, 6),
+            "std": _round(std, 6),
+            # Precomputed so the chart draws bands without doing arithmetic
+            # (arch-v2 Rule 8 — displayed math stays in the backend).
+            "bands": {
+                "plus_one": _round(mean + std, 6),
+                "minus_one": _round(mean - std, 6),
+                "plus_two": _round(mean + 2 * std, 6),
+                "minus_two": _round(mean - 2 * std, 6),
+            },
+            "latest": {
+                "date": points[-1]["date"] if points else None,
+                "spread": points[-1]["spread"] if points else None,
+                "z": stats["z"],
+            },
+            "hedge_ratio": hr,
+            "half_life": pairs.half_life(spread),
+            "cointegration": {
+                k: v for k, v in pairs.engle_granger(ys, xs).items() if k != "spread"
+            },
+            "trend": pairs.spread_trend(spread),
+        }
+
+    def get_premium_history(self, security: str, days: int = 365) -> dict:
+        """Discount-to-NAV over time for a NAV vehicle.
+
+        Only the current capital structure is known (one curated snapshot, or
+        the YAML bootstrap), so every point applies TODAY's holdings and senior
+        claims to that date's prices. That is an approximation, not history —
+        the payload says so in ``method`` and ``note``, and the chart is
+        required to show it. It converges on the truth as ``arb_nav_snapshots``
+        accumulates daily rows.
+        """
+        security = (security or "").strip().upper()
+        entry = self._repo.get_entry(security)
+        if entry is None:
+            return {"security": security,
+                    "error": f"{security} is not in the curated universe."}
+        if entry["kind"] != "nav_vehicle":
+            return {
+                "security": security,
+                "kind": entry["kind"],
+                "error": f"{security} is a {entry['kind']}, not a NAV vehicle — "
+                         "there is no net asset value to discount against.",
+            }
+
+        snapshot = None
+        try:
+            snapshot = self._repo.latest_nav_snapshot(security)
+        except Exception:
+            snapshot = None
+        source = snapshot or {}
+        units = source.get("units") or entry.get("holdings_units")
+        as_of = source.get("as_of") or entry.get("holdings_as_of")
+        senior = source.get("senior_claims", entry.get("senior_claims_usd")) or 0.0
+        other = source.get("other_assets", entry.get("other_assets_usd")) or 0.0
+        shares = source.get("diluted_shares") or entry.get("diluted_shares")
+        if shares is None:
+            shares = self._shares_outstanding(security)
+        if not units or not shares:
+            return {
+                "security": security,
+                "error": "No curated holdings or share count — add "
+                         "holdings_units and diluted_shares to arb_universe.yaml, "
+                         "or record a NAV snapshot.",
+                "holdings_as_of": as_of,
+            }
+
+        sec_closes = self._closes(security, days)
+        und_closes = self._closes(entry["underlying"], days)
+        if sec_closes is None or und_closes is None:
+            missing = security if sec_closes is None else entry["underlying"]
+            return {"security": security,
+                    "error": f"No price history available for {missing}."}
+
+        ys, xs = pairs.align(sec_closes, und_closes)
+        dated = [(pd.Timestamp(i).date().isoformat(), float(v)) for i, v in ys.items()]
+        spots = [(pd.Timestamp(i).date().isoformat(), float(v)) for i, v in xs.items()]
+        series = nav_math.premium_history(
+            prices=dated, spots=spots, units=float(units),
+            diluted_shares=float(shares), senior_claims=float(senior),
+            other_assets=float(other),
+        )
+        age = self._age_days(as_of, datetime.date.today())
+        return {
+            "security": security,
+            "name": entry.get("name", security),
+            "underlying": entry["underlying"],
+            "points": series,
+            "latest": series[-1] if series else None,
+            "units": float(units),
+            "diluted_shares": float(shares),
+            "senior_claims": float(senior),
+            "holdings_as_of": as_of,
+            "holdings_age_days": age,
+            "holdings_stale": age is not None and age > STALE_HOLDINGS_DAYS,
+            "method": "current_capital_structure",
+            "note": (
+                "Approximation: today's holdings and senior claims are applied to "
+                "past prices, so this is not a record of the discount as it stood. "
+                "It becomes exact as daily NAV snapshots accumulate."
+            ),
+        }
+
+    # ------------------------------------------------------------------ #
     # Statistical discovery
     # ------------------------------------------------------------------ #
     def discover_pairs(self, symbols: list[str],
                        references: Optional[list[str]] = None,
                        days: int = 365, min_abs_correlation: float = 0.4,
-                       require_economic_link: bool = True) -> dict:
+                       require_economic_link: bool = True,
+                       include_all: bool = False) -> dict:
         """Sweep symbols against commodity/crypto/FX references for cointegration.
 
         The economic-link gate is not optional decoration: over a wide enough
         sweep, cointegration tests will find statistically significant pairs
         with no causal relationship at all. Candidates whose sector/industry
         does not plausibly connect to the reference are dropped by default.
+
+        ``include_all`` additionally returns every pair that was *tested*, each
+        carrying ``passed`` and the reason it failed. A bare pass/fail list
+        hides the near-misses, and those are the interesting cases: NEM vs gold
+        correlates 0.73 with a 6.4-day half-life and still fails, its
+        Engle-Granger statistic landing 0.17 short of the loosest critical
+        value. ``pairs`` stays passes-only either way, so existing callers are
+        unaffected.
         """
         refs = [r.strip() for r in (references or list(REFERENCE_PANEL))]
-        found, skipped = [], []
+        found, skipped, tested = [], [], []
 
         ref_closes: dict[str, pd.Series] = {}
         for ref in refs:
@@ -308,13 +480,26 @@ class ArbitrageService:
             for ref, ref_series in ref_closes.items():
                 linked = self._economic_link(ref, profile)
                 if require_economic_link and not linked:
+                    if include_all:
+                        tested.append(self._tested_row(
+                            symbol, ref, linked, None, "no economic link"))
                     continue
                 stats = pairs.analyze_pair(sec_closes, ref_series)
                 corr = stats.get("correlation")
+                cointegrated = stats["cointegration"]["cointegrated"]
                 if corr is None or abs(corr) < min_abs_correlation:
+                    if include_all:
+                        tested.append(self._tested_row(
+                            symbol, ref, linked, stats,
+                            f"correlation below the {min_abs_correlation} floor"))
                     continue
-                if not stats["cointegration"]["cointegrated"]:
+                if not cointegrated:
+                    if include_all:
+                        tested.append(self._tested_row(
+                            symbol, ref, linked, stats, "not cointegrated"))
                     continue
+                if include_all:
+                    tested.append(self._tested_row(symbol, ref, linked, stats, None))
                 found.append({
                     "security": symbol,
                     "underlying": ref,
@@ -330,8 +515,33 @@ class ArbitrageService:
                 })
 
         found.sort(key=lambda f: abs(f["zscore"] or 0), reverse=True)
-        return {"count": len(found), "pairs": found, "skipped": skipped,
-                "references": list(ref_closes)}
+        result = {"count": len(found), "pairs": found, "skipped": skipped,
+                  "references": list(ref_closes)}
+        if include_all:
+            # Most negative statistic first — the order a reader scans for
+            # near-misses against the critical value.
+            tested.sort(key=lambda t: (t["statistic"] is None,
+                                       t["statistic"] if t["statistic"] is not None else 0))
+            result["tested"] = tested
+            result["critical_values"] = dict(pairs._EG_CRIT_2VAR)
+        return result
+
+    @staticmethod
+    def _tested_row(symbol: str, reference: str, linked: bool,
+                    stats: Optional[dict], failed_because: Optional[str]) -> dict:
+        """One row of the include_all sweep: what was measured and why it fell out."""
+        coint = (stats or {}).get("cointegration") or {}
+        return {
+            "security": symbol,
+            "underlying": reference,
+            "economic_link": linked,
+            "correlation": (stats or {}).get("correlation"),
+            "statistic": coint.get("statistic"),
+            "reject_at": coint.get("reject_at"),
+            "half_life_days": ((stats or {}).get("half_life") or {}).get("half_life_days"),
+            "passed": failed_because is None,
+            "failed_because": failed_because,
+        }
 
     def _sector_text(self, symbol: str) -> str:
         try:

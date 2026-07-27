@@ -7,6 +7,7 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
+import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import SettingsIcon from '@mui/icons-material/Settings';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
@@ -19,6 +20,7 @@ import PlanDetailPage from './components/plans/PlanDetailPage';
 import SymbolsPage from './components/symbols/SymbolsPage';
 import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
+import ArbitragePage from './components/arbitrage/ArbitragePage';
 import SettingsPage from './components/settings/SettingsPage';
 import { useAppTheme } from './ThemeContext';
 
@@ -32,6 +34,7 @@ function Layout() {
   const navItems = [
     { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
     { label: 'Securities', path: '/securities', icon: <BarChartIcon /> },
+    { label: 'Arbitrage', path: '/arbitrage', icon: <CompareArrowsIcon /> },
     { label: 'Plans', path: '/plans', icon: <ListAltIcon /> },
     { label: 'Symbols', path: '/symbols', icon: <ShowChartIcon /> },
     { label: 'Settings', path: '/settings', icon: <SettingsIcon /> },
@@ -167,6 +170,7 @@ export default function App() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/securities" element={<SecuritiesPage />} />
         <Route path="/securities/:symbol" element={<SecurityDetailPage />} />
+        <Route path="/arbitrage" element={<ArbitragePage />} />
         <Route path="/plans" element={<PlansPage />} />
         <Route path="/plans/:id" element={<PlanDetailPage />} />
         <Route path="/symbols" element={<SymbolsPage />} />

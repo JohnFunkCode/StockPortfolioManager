@@ -109,9 +109,21 @@ class TestEventStream(unittest.TestCase):
 
 class TestValidateDirective(unittest.TestCase):
     def test_valid_components_accept_ticker(self):
-        for component in ("signals", "live_price", "price_chart", "arbitrage_pair"):
+        for component in ("signals", "live_price", "price_chart", "arbitrage_pair",
+                          "arbitrage_spread", "arbitrage_premium"):
             ok, reason = validate_directive(component, {"ticker": "INTC"})
             self.assertTrue(ok, f"{component} should accept ticker prop: {reason}")
+
+    def test_scan_component_takes_no_props(self):
+        """Universe-wide, so a ticker is meaningless and must be rejected."""
+        self.assertTrue(validate_directive("arbitrage_scan", {})[0])
+        ok, reason = validate_directive("arbitrage_scan", {"ticker": "MSTR"})
+        self.assertFalse(ok)
+        self.assertIn("ticker", reason)
+
+    def test_discovery_component_takes_symbols_not_ticker(self):
+        self.assertTrue(validate_directive("arbitrage_discovery", {"symbols": "NEM,AEM"})[0])
+        self.assertFalse(validate_directive("arbitrage_discovery", {"ticker": "NEM"})[0])
 
     def test_arbitrage_pair_rejects_an_underlying_prop(self):
         """Curated pairs only — the card resolves the underlying itself. Every
@@ -334,6 +346,21 @@ class TestToolSchemas(unittest.TestCase):
         show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
         enum = show["input_schema"]["properties"]["component"]["enum"]
         self.assertEqual(set(enum), set(BACKEND_COMPONENT_REGISTRY))
+
+    def test_show_component_declares_every_prop_the_registry_uses(self):
+        """A prop the registry accepts but the schema omits is unreachable —
+        the model has no way to know it may send it."""
+        show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
+        declared = set(show["input_schema"]["properties"]["props"]["properties"])
+        used = {p for spec in BACKEND_COMPONENT_REGISTRY.values() for p in spec}
+        self.assertTrue(used <= declared, f"undeclared props: {sorted(used - declared)}")
+
+    def test_show_component_has_no_schema_level_required_props(self):
+        """Which props are mandatory depends on the component (arbitrage_scan
+        takes none), and JSON Schema can't express that — the registry is the
+        enforcement point. A `required` list here would contradict it."""
+        show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
+        self.assertNotIn("required", show["input_schema"]["properties"]["props"])
 
     def test_arbitrage_tool_steers_the_model_to_the_net_discount(self):
         """Safety contract, not prose polish.

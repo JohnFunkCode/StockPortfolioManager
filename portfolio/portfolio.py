@@ -11,16 +11,24 @@ from portfolio.yfinance_gateway import get_descriptive_info
 class Portfolio:
     def __init__(self, default_currency: str = "USD"):
         self.stocks: Dict[str, Stock] = {}
+        # All lots per symbol, in insertion order. `self.stocks` stays
+        # symbol-keyed (last lot wins) for the many symbol-level consumers
+        # (MA/harvester/sentiment/options alerts, metrics, pricing); `self.lots`
+        # is the only place every lot survives, for lot-dependent consumers
+        # (issue #126 Step 3.4).
+        self.lots: Dict[str, List[Stock]] = {}
         self.default_currency = default_currency
 
     def add_stock(self, stock: Stock) -> None:
         """Add a stock to the portfolio"""
         self.stocks[stock.symbol] = stock
+        self.lots.setdefault(stock.symbol, []).append(stock)
 
     def remove_stock(self, symbol: str) -> None:
         """Remove a stock from the portfolio"""
         if symbol in self.stocks:
             del self.stocks[symbol]
+        self.lots.pop(symbol, None)
 
     def get_stock(self, symbol: str) -> Optional[Stock]:
         """Get a stock by its symbol"""
@@ -200,8 +208,11 @@ class Portfolio:
             stock = Stock(
                 name=row.get('name'),
                 symbol=row['symbol'],
-                purchase_price=float(row['purchase_price']),
-                quantity=int(row['quantity']),
+                # Repository rows carry Decimal quantity/price (issue #126 Step
+                # 3.3's fractional shares) — int()/float() here would truncate
+                # a fractional lot like 0.0625 to zero shares.
+                purchase_price=row['purchase_price'],
+                quantity=row['quantity'],
                 purchase_date=purchase_date,
                 currency=row.get('currency', 'USD'),
                 sale_price=row.get('sale_price'),

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from contextlib import closing
+from decimal import Decimal
 from pathlib import Path
 
 from quantcore.db_safety import assert_not_production  # noqa: E402
@@ -129,7 +130,7 @@ class PortfolioServiceTest(unittest.TestCase):
         self.assertIn(OWNER_A, owners)
         self.assertIn(OWNER_B, owners)
 
-    def test_add_position_then_duplicate_raises(self):
+    def test_add_position_allows_multiple_lots_of_same_symbol(self):
         result = self.service.add_position(
             OWNER_A, name="Added", symbol="zztest", purchase_price="12.5",
             quantity="4", purchase_date="2026-01-10", currency="usd",
@@ -141,11 +142,35 @@ class PortfolioServiceTest(unittest.TestCase):
         self.assertEqual(positions[0]["symbol"], "ZZTEST")
         self.assertEqual(positions[0]["currency"], "USD")
 
-        with self.assertRaises(DuplicateSymbolError):
-            self.service.add_position(
-                OWNER_A, name="Dup", symbol="ZZTEST", purchase_price="13",
-                quantity="1", purchase_date="2026-05-11",
-            )
+        # A second lot of the same symbol on the same date no longer raises —
+        # multiple lots per symbol is the feature (issue #126 Step 3.3).
+        second = self.service.add_position(
+            OWNER_A, name="Second Lot", symbol="ZZTEST", purchase_price="13",
+            quantity="1", purchase_date="2026-01-10",
+        )
+        self.assertEqual(second, {"symbol": "ZZTEST"})
+
+        positions = self.service.list_positions(OWNER_A)
+        self.assertEqual(len(positions), 2)
+        lot_ids = {p["lot_id"] for p in positions}
+        self.assertEqual(len(lot_ids), 2)
+
+    def test_add_position_fractional_quantity_round_trips_exactly(self):
+        self.service.add_position(
+            OWNER_A, name="Fractional", symbol="ZZTEST", purchase_price="100",
+            quantity="0.0625", purchase_date="2026-01-10",
+        )
+        positions = self.service.list_positions(OWNER_A)
+        self.assertEqual(len(positions), 1)
+        self.assertEqual(positions[0]["quantity"], Decimal("0.0625"))
+
+    def test_add_position_purchase_date_populates_trade_date(self):
+        self.service.add_position(
+            OWNER_A, name="Legacy Alias", symbol="ZZTEST", purchase_price="10",
+            quantity="1", purchase_date="2026-01-10",
+        )
+        positions = self.service.list_positions(OWNER_A)
+        self.assertEqual(positions[0]["trade_date"].isoformat(), "2026-01-10")
 
     def test_add_position_without_symbol_raises_value_error(self):
         with self.assertRaises(ValueError):

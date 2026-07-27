@@ -1,15 +1,18 @@
-from typing import Optional, Dict, List
+from decimal import Decimal
+from typing import Optional, Dict, List, Union
 
 from datetime import date
 from portfolio.metrics import Metrics
 from portfolio.money import Money
 from portfolio.yfinance_gateway import get_latest_prices
 
+Number = Union[int, float, Decimal]
+
 
 class Stock:
     name: str
     symbol: str
-    quantity: int
+    quantity: Number
     purchase_price: Optional[Money] = None
     purchase_date: Optional[date] = None
     sale_price: Optional[Money] = None
@@ -22,13 +25,13 @@ class Stock:
         self,
         name: str,
         symbol: str,
-        quantity: Optional[int],
-        purchase_price: Optional[float],
+        quantity: Optional[Number],
+        purchase_price: Optional[Number],
         purchase_date: Optional[date],
         currency: str = "USD",
-        sale_price: Optional[float] = None,
+        sale_price: Optional[Number] = None,
         sale_date: Optional[date] = None,
-        current_price: Optional[float] = None,
+        current_price: Optional[Number] = None,
         tags: Optional[List[str]] = None
     ):
         self.name = name

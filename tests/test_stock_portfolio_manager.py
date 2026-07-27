@@ -223,5 +223,35 @@ class TestStockPortfolioManager(unittest.TestCase):
         self.assertEqual(total_current_eur.currency, "EUR")
 
 
+class TestReadStocksFromRecordsFractionalLots(unittest.TestCase):
+    """issue #126 Step 3.4: repository rows carry Decimal quantity/price
+    (fractional shares) — read_stocks_from_records() must not truncate
+    them via int()/float()."""
+
+    def test_fractional_quantity_and_decimal_price_round_trip_exactly(self):
+        portfolio = spm.Portfolio()
+        records = [{
+            "name": "Fractional Co",
+            "symbol": "ZZFRAC",
+            "purchase_price": Decimal("133.3300"),
+            "quantity": Decimal("0.0625"),
+            "purchase_date": "2026-01-10",
+            "currency": "USD",
+            "sale_price": None,
+            "sale_date": None,
+        }]
+
+        portfolio.read_stocks_from_records(records)
+        stock = portfolio.get_stock("ZZFRAC")
+
+        self.assertEqual(stock.quantity, Decimal("0.0625"))
+        self.assertEqual(stock.purchase_price.amount, Decimal("133.33"))
+
+        stock.current_price = Money("100.00", "USD")
+        gain_loss = stock.calculate_gain_loss()
+        # (100 - 133.33) * 0.0625 = -2.083125 -> quantized to cents by Money
+        self.assertEqual(gain_loss.amount, Decimal("-2.08"))
+
+
 if __name__ == "__main__":
     unittest.main()

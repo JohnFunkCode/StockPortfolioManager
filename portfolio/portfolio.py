@@ -208,8 +208,11 @@ class Portfolio:
             stock = Stock(
                 name=row.get('name'),
                 symbol=row['symbol'],
-                purchase_price=float(row['purchase_price']),
-                quantity=int(row['quantity']),
+                # Repository rows carry Decimal quantity/price (issue #126 Step
+                # 3.3's fractional shares) — int()/float() here would truncate
+                # a fractional lot like 0.0625 to zero shares.
+                purchase_price=row['purchase_price'],
+                quantity=row['quantity'],
                 purchase_date=purchase_date,
                 currency=row.get('currency', 'USD'),
                 sale_price=row.get('sale_price'),

@@ -4,6 +4,7 @@ import {
   IconButton, Tooltip,
 } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ListAltIcon from '@mui/icons-material/ListAlt';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -15,6 +16,7 @@ import ChatIcon from '@mui/icons-material/Chat';
 import ChatRail from './components/chat/ChatRail';
 import { useChat } from './chat/ChatContext';
 import DashboardPage from './components/dashboard/DashboardPage';
+import PortfolioPage from './components/portfolio/PortfolioPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
 import SymbolsPage from './components/symbols/SymbolsPage';
@@ -32,7 +34,8 @@ function Layout() {
   const isLight = themeName === 'light';
 
   const navItems = [
-    { label: 'Dashboard', path: '/', icon: <DashboardIcon /> },
+    { label: 'Portfolio', path: '/', icon: <AccountBalanceWalletIcon /> },
+    { label: 'Harvester', path: '/harvester', icon: <DashboardIcon /> },
     { label: 'Securities', path: '/securities', icon: <BarChartIcon /> },
     { label: 'Arbitrage', path: '/arbitrage', icon: <CompareArrowsIcon /> },
     { label: 'Plans', path: '/plans', icon: <ListAltIcon /> },
@@ -57,7 +60,7 @@ function Layout() {
               letterSpacing: '0.05em',
             }}
           >
-            Harvest Ladder
+            QuantUI
           </Typography>
 
           <Stack direction="row" spacing={1}>
@@ -167,7 +170,8 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<DashboardPage />} />
+        <Route path="/" element={<PortfolioPage />} />
+        <Route path="/harvester" element={<DashboardPage />} />
         <Route path="/securities" element={<SecuritiesPage />} />
         <Route path="/securities/:symbol" element={<SecurityDetailPage />} />
         <Route path="/arbitrage" element={<ArbitragePage />} />

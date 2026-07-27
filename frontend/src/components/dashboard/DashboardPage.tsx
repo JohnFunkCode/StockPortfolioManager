@@ -25,7 +25,7 @@ export default function DashboardPage() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>Dashboard</Typography>
+      <Typography variant="h4" gutterBottom>Harvester Dashboard</Typography>
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {cards.map((c) => (
           <Grid item xs={12} sm={6} md={3} key={c.label}>

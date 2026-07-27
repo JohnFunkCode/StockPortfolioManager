@@ -23,22 +23,35 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.harvester_repository import _utc_now_iso  # noqa: E402
+from quantcore.repositories.owner_identity_repository import (  # noqa: E402
+    OwnerIdentityRepository,
+)
 from quantcore.services.registry import get_services  # noqa: E402
 
+from api.auth import Principal, require_principal  # noqa: E402
 from api.main import create_app  # noqa: E402
 
 TEST_SYMBOL = "ZZAPISMOKE"
 TEST_TEMPLATE = "zz_api_smoke_template"
 
+# Owner-scoping (issue #126 PR 2): a principal must resolve through
+# IdentityService.resolve_owner, so tests map a fake identity to the owner
+# handle rather than passing ?owner= directly.
+TEST_IDENTITY = "zz_api_smoke_identity@example.com"
+TEST_OWNER = "zz_api_import_test"
+UNMAPPED_IDENTITY = "zz_api_smoke_unmapped@example.com"
+
 
 class ApiSmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.client = TestClient(create_app())
+        cls.app = create_app()
+        cls.client = TestClient(cls.app)
 
     def setUp(self):
         self._purge()
         self.addCleanup(self._purge)
+        OwnerIdentityRepository().upsert(TEST_IDENTITY, TEST_OWNER)
 
     def _purge(self):
         with closing(get_connection()) as conn:
@@ -49,7 +62,18 @@ class ApiSmokeTest(unittest.TestCase):
             )
             conn.execute("DELETE FROM symbols WHERE ticker = %s", (TEST_SYMBOL,))
             conn.execute("DELETE FROM plan_templates WHERE name = %s", (TEST_TEMPLATE,))
+            conn.execute("DELETE FROM owner_identities WHERE identity = %s", (TEST_IDENTITY,))
+            conn.execute(
+                "DELETE FROM owner_identities WHERE identity = %s", (UNMAPPED_IDENTITY,)
+            )
             conn.commit()
+
+    def _override_principal(self, identity):
+        """Swap in a non-local principal for one test, resolved for real through
+        IdentityService via require_owner (only require_principal is stubbed)."""
+        principal = Principal(subject=identity, is_local=False)
+        self.app.dependency_overrides[require_principal] = lambda: principal
+        self.addCleanup(self.app.dependency_overrides.pop, require_principal, None)
 
     def _seed_plan(self, status="ACTIVE", rungs=((1, 110.0, 10), (2, 120.0, 10))):
         now = _utc_now_iso()
@@ -230,7 +254,8 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(resp.json(), {"error": "symbol is required"})
 
     def test_remove_missing_position_returns_404(self):
-        resp = self.client.delete("/api/portfolio/ZZNOSUCH?owner=zz_api_import_test")
+        self._override_principal(TEST_IDENTITY)
+        resp = self.client.delete("/api/portfolio/ZZNOSUCH")
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json(), {"error": "ZZNOSUCH not found in portfolio"})
 
@@ -240,7 +265,7 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(resp.json(), {"error": "a CSV file upload or 'path' is required"})
 
     def test_import_multipart_round_trip(self):
-        owner = "zz_api_import_test"
+        self._override_principal(TEST_IDENTITY)
         csv = (
             "name,symbol,purchase_price,quantity,purchase_date,currency,"
             "sale_price,sale_date,current_price\n"
@@ -248,16 +273,41 @@ class ApiSmokeTest(unittest.TestCase):
         )
         try:
             resp = self.client.post(
-                f"/api/portfolio/import?owner={owner}",
+                "/api/portfolio/import",
                 files={"file": ("p.csv", csv, "text/csv")},
             )
             self.assertEqual(resp.status_code, 200)
-            self.assertEqual(resp.json(), {"owner": owner, "imported": 1})
+            self.assertEqual(resp.json(), {"owner": TEST_OWNER, "imported": 1})
 
-            got = self.client.get(f"/api/portfolio?owner={owner}").json()["securities"]
+            got = self.client.get("/api/portfolio").json()["securities"]
             self.assertEqual([s["symbol"] for s in got], ["ZZSMOKE"])
         finally:
-            self.client.delete(f"/api/portfolio/ZZSMOKE?owner={owner}")
+            self.client.delete("/api/portfolio/ZZSMOKE")
+
+    def test_unmapped_principal_returns_403_not_provisioned(self):
+        # No owner_identities row exists for this identity (issue #126 decision
+        # #2) — it must 403, not fall back to using the identity as the owner.
+        self._override_principal(UNMAPPED_IDENTITY)
+        resp = self.client.get("/api/portfolio")
+        self.assertEqual(resp.status_code, 403)
+        self.assertEqual(
+            resp.json(),
+            {"error": "not_provisioned", "message": "not_provisioned", "status": 403},
+        )
+
+    def test_unmapped_principal_403_is_identical_for_all_owner_scoped_routes(self):
+        # decision #4 — the same 403/not_provisioned shape regardless of route.
+        self._override_principal(UNMAPPED_IDENTITY)
+        for resp in (
+            self.client.get("/api/portfolio"),
+            self.client.get("/api/securities"),
+            self.client.get("/api/portfolio/delta-exposure"),
+        ):
+            self.assertEqual(resp.status_code, 403)
+            self.assertEqual(
+                resp.json(),
+                {"error": "not_provisioned", "message": "not_provisioned", "status": 403},
+            )
 
 
 class Phase3SurfaceGapRouteTest(unittest.TestCase):

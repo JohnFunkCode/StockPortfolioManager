@@ -18,8 +18,9 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
+from ..auth import require_owner
 from ..deps import load_portfolio, load_watchlist, route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
 from ..schemas.options import VerticalSpreadRequest
@@ -121,10 +122,10 @@ def get_signals_options_flow(ticker: str) -> QuantCoreJSONResponse:
 # Portfolio delta exposure
 # --------------------------------------------------------------------------- #
 @router.get("/portfolio/delta-exposure")
-def get_portfolio_delta_exposure() -> QuantCoreJSONResponse:
+def get_portfolio_delta_exposure(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(
-            services().options.get_portfolio_delta_exposure(load_portfolio())
+            services().options.get_portfolio_delta_exposure(load_portfolio(owner))
         )
     except Exception as exc:  # noqa: BLE001
         return route_error_plain(str(exc), 500)
@@ -270,10 +271,11 @@ def refresh_options_snapshots(
     batch_size: int = 10,
     max_workers: int = 4,
     batch_delay: float = 1.5,
+    owner: str = Depends(require_owner),
 ) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
         services().options.refresh_options_snapshots(
-            load_portfolio(),
+            load_portfolio(owner),
             load_watchlist(),
             source=source,
             chain_type=chain_type,

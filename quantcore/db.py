@@ -385,6 +385,19 @@ CREATE TABLE IF NOT EXISTS arb_nav_snapshots (
 
 CREATE INDEX IF NOT EXISTS idx_arb_nav_latest
     ON arb_nav_snapshots(security, as_of DESC);
+
+-- Maps an authenticated identity (IAP email or MCP token sub, lowercased) to
+-- the canonical short-handle owner value used elsewhere (e.g. positions.owner).
+-- Unknown identities are never auto-provisioned - rows are admin-managed (see
+-- db/migrations/V3__owner_identities.sql and scripts/grant_quantui_iap_access.sh).
+CREATE TABLE IF NOT EXISTS owner_identities (
+    identity   TEXT PRIMARY KEY,
+    owner      TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notes      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_owner_identities_owner ON owner_identities(owner);
 """
 
 

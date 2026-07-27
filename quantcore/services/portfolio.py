@@ -52,7 +52,7 @@ class PortfolioService:
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
-    def list_positions(self, owner: str = "john") -> List[Dict[str, Any]]:
+    def list_positions(self, owner: str) -> List[Dict[str, Any]]:
         return self._repo.list_positions(owner)
 
     def list_owners(self) -> List[str]:

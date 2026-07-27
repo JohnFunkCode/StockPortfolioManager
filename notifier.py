@@ -93,16 +93,36 @@ class Notifier:
                 }
                 self.send_notifications(embed)
 
-            # Keep separate notification for price below purchase price
-            if stock.current_price.amount < stock.purchase_price.amount:
+            # Keep separate notification for price below purchase price,
+            # evaluated per lot so a symbol with multiple purchase lots
+            # doesn't hide an underwater lot behind a profitable one
+            # (issue #126 Step 3.4). One alert per symbol either way — the
+            # dedup key in send_notifications() is the embed title, which is
+            # symbol + alert type, not lot.
+            lots = self.portfolio.lots.get(stock.symbol) or [stock]
+            underwater_lots = []
+            for lot in lots:
+                lot.current_price = stock.current_price
+                if (
+                    lot.purchase_price is not None
+                    and stock.current_price is not None
+                    and stock.current_price.amount < lot.purchase_price.amount
+                ):
+                    underwater_lots.append(lot)
+
+            if underwater_lots:
+                lot_lines = [
+                    f"Purchased {lot.purchase_date} @ {lot.purchase_price} x {lot.quantity}: "
+                    f"{lot.calculate_gain_loss_percentage():.1f}% or {lot.calculate_gain_loss()} Loss"
+                    for lot in underwater_lots
+                ]
                 embed = {
                     "content": f"Stock Warning: {datetime.now():%Y-%m-%d %H:%M:%S} {stock.symbol}",
                     "embeds": [
                         {
                             "title": f"{stock.name} ({stock.symbol}) Loss Alert",
-                            "description": f"Current Price: {stock.current_price}\n"
-                                           f"Purchase Price: {stock.purchase_price}\n"
-                                           f"{stock.calculate_gain_loss_percentage():.1f}% or {stock.calculate_gain_loss()} Loss",
+                            "description": f"Current Price: {stock.current_price}\n\n"
+                                           + "\n".join(lot_lines),
                             "color": 16711680  # Red color for alert
                         }
                     ]

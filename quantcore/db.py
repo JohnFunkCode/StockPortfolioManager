@@ -110,6 +110,47 @@ ALTER TABLE positions ADD COLUMN IF NOT EXISTS sale_date TEXT;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_positions_owner_symbol_date
     ON positions(owner, symbol_id, purchase_date);
 
+-- V4 (issue #126, PR 3): lot-granular positions. Mirrors
+-- db/migrations/V4__portfolio_lots.sql. Drops the V2 unique index (it forbids
+-- the split rule: a partial sale creates a second lot with the SAME
+-- owner/symbol/trade_date as its parent) and adds lot status/lineage columns
+-- plus the lot_sales table.
+DROP INDEX IF EXISTS idx_positions_owner_symbol_date;
+
+ALTER TABLE positions
+  ADD COLUMN IF NOT EXISTS status            TEXT NOT NULL DEFAULT 'OPEN',
+  ADD COLUMN IF NOT EXISTS parent_lot_id     INTEGER REFERENCES positions(position_id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS trade_date        DATE,
+  ADD COLUMN IF NOT EXISTS fees              NUMERIC(18,6),
+  ADD COLUMN IF NOT EXISTS acquisition_type  TEXT NOT NULL DEFAULT 'BUY',
+  ADD COLUMN IF NOT EXISTS covered           BOOLEAN,
+  ADD COLUMN IF NOT EXISTS fx_rate_at_purchase NUMERIC(18,8),
+  ADD COLUMN IF NOT EXISTS basis_adjustment      NUMERIC(18,6),
+  ADD COLUMN IF NOT EXISTS wash_sale_disallowed  NUMERIC(18,6);
+
+ALTER TABLE positions ALTER COLUMN quantity TYPE NUMERIC(18,6);
+
+UPDATE positions SET status = 'OPEN'          WHERE status IS NULL;
+UPDATE positions SET acquisition_type = 'BUY' WHERE acquisition_type IS NULL;
+UPDATE positions SET trade_date = purchase_date::date
+  WHERE trade_date IS NULL AND purchase_date IS NOT NULL AND purchase_date <> '';
+
+CREATE INDEX IF NOT EXISTS idx_positions_owner_status ON positions(owner, status);
+CREATE INDEX IF NOT EXISTS idx_positions_parent       ON positions(parent_lot_id);
+
+CREATE TABLE IF NOT EXISTS lot_sales (
+    sale_id        SERIAL PRIMARY KEY,
+    lot_id         INTEGER NOT NULL REFERENCES positions(position_id) ON DELETE CASCADE,
+    shares_sold    NUMERIC(18,6) NOT NULL,
+    sale_price     NUMERIC(18,6) NOT NULL,
+    sale_trade_date DATE NOT NULL,
+    fees           NUMERIC(18,6),
+    allocation_method TEXT,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    notes          TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lot_sales_lot ON lot_sales(lot_id);
+
 CREATE TABLE IF NOT EXISTS plan_instances (
     instance_id SERIAL PRIMARY KEY,
     template_id INTEGER NOT NULL,

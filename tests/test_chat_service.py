@@ -935,7 +935,7 @@ class TestModelResolution(ChatServiceTestBase):
 class TestArbitrageTools(ChatServiceTestBase):
     """The sidekick's arbitrage tools dispatch into ArbitrageService."""
 
-    def tool_turn(self, name, args, result, **service_kwargs):
+    def tool_turn(self, name, args, **service_kwargs):
         """One tool_use turn followed by a text turn; returns the events."""
         client = ScriptedClient(
             [
@@ -949,7 +949,7 @@ class TestArbitrageTools(ChatServiceTestBase):
 
     def test_analyze_pair_dispatch_with_defaults(self):
         self.arbitrage.analyze_pair.return_value = {"security": "MSTR", "score": 9.7}
-        self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"}, None)
+        self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"})
         self.arbitrage.analyze_pair.assert_called_once_with(
             "MSTR", underlying=None, days=365
         )
@@ -959,7 +959,6 @@ class TestArbitrageTools(ChatServiceTestBase):
         self.tool_turn(
             "analyze_arbitrage_pair",
             {"security": "RIOT", "underlying": "BTC-USD", "days": 180},
-            None,
         )
         self.arbitrage.analyze_pair.assert_called_once_with(
             "RIOT", underlying="BTC-USD", days=180
@@ -968,28 +967,35 @@ class TestArbitrageTools(ChatServiceTestBase):
     def test_scan_uses_the_compact_projection_not_the_full_scan(self):
         """A full scan's payload would crowd the context window."""
         self.arbitrage.scan_summary.return_value = {"candidates": []}
-        self.tool_turn("scan_arbitrage", {}, None)
-        self.arbitrage.scan_summary.assert_called_once_with(kinds=None, top_n=10)
+        self.tool_turn("scan_arbitrage", {})
+        self.arbitrage.scan_summary.assert_called_once_with(
+            kinds=None, top_n=10, days=365
+        )
         self.arbitrage.scan.assert_not_called()
+
+    def test_scan_forwards_a_custom_history_window(self):
+        """'Scan over two years' must not silently run with the 365-day
+        default (Hermes review on #143)."""
+        self.arbitrage.scan_summary.return_value = {"candidates": []}
+        self.tool_turn("scan_arbitrage", {"days": 730})
+        self.assertEqual(self.arbitrage.scan_summary.call_args.kwargs["days"], 730)
 
     def test_scan_splits_the_kinds_string(self):
         self.arbitrage.scan_summary.return_value = {"candidates": []}
-        self.tool_turn(
-            "scan_arbitrage", {"kinds": "nav_vehicle, producer", "top_n": 3}, None
-        )
+        self.tool_turn("scan_arbitrage", {"kinds": "nav_vehicle, producer", "top_n": 3})
         self.arbitrage.scan_summary.assert_called_once_with(
-            kinds=["nav_vehicle", "producer"], top_n=3
+            kinds=["nav_vehicle", "producer"], top_n=3, days=365
         )
 
     def test_blank_kinds_becomes_none_not_an_empty_list(self):
         """An empty list would filter every family out — the opposite of 'all'."""
         self.arbitrage.scan_summary.return_value = {"candidates": []}
-        self.tool_turn("scan_arbitrage", {"kinds": " , "}, None)
+        self.tool_turn("scan_arbitrage", {"kinds": " , "})
         self.assertIsNone(self.arbitrage.scan_summary.call_args.kwargs["kinds"])
 
     def test_universe_dispatch(self):
         self.arbitrage.get_universe.return_value = {"count": 10, "entries": []}
-        self.tool_turn("list_arbitrage_universe", {}, None)
+        self.tool_turn("list_arbitrage_universe", {})
         self.arbitrage.get_universe.assert_called_once_with()
 
     def test_tool_result_reaches_the_model(self):
@@ -997,7 +1003,7 @@ class TestArbitrageTools(ChatServiceTestBase):
             "security": "MSTR",
             "nav": {"premium_discount_pct": -16.92},
         }
-        _, client = self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"}, None)
+        _, client = self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"})
         result_block = client.calls[1]["messages"][-1]["content"][0]
         self.assertEqual(result_block["type"], "tool_result")
         self.assertIn("-16.92", result_block["content"])
@@ -1006,7 +1012,7 @@ class TestArbitrageTools(ChatServiceTestBase):
         """A ChatService built without arbitrage must not raise AttributeError
         mid-stream; the loop's unknown-tool path lets the model recover."""
         events, client = self.tool_turn(
-            "analyze_arbitrage_pair", {"security": "MSTR"}, None, arbitrage=None
+            "analyze_arbitrage_pair", {"security": "MSTR"}, arbitrage=None
         )
         statuses = [e for e in events if isinstance(e, ToolStatus)]
         self.assertEqual([s.state for s in statuses], ["running", "error"])

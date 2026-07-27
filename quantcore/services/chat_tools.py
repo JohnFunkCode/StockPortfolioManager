@@ -275,7 +275,9 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "days": {
                     "type": "integer",
-                    "description": "Days of daily history, 30-3650 (default 365)",
+                    "minimum": 30,
+                    "maximum": 3650,
+                    "description": "Days of daily history (default 365)",
                 },
             },
             "required": ["security"],
@@ -304,7 +306,15 @@ TOOL_SCHEMAS: list[dict] = [
                 },
                 "top_n": {
                     "type": "integer",
-                    "description": "Max candidates to return, 1-100 (default 10)",
+                    "minimum": 1,
+                    "maximum": 100,
+                    "description": "Max candidates to return (default 10)",
+                },
+                "days": {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650,
+                    "description": "Days of daily history per pair (default 365)",
                 },
             },
             "required": [],

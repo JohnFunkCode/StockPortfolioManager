@@ -358,11 +358,12 @@ class ChatService:
                 # Summary rows, not the full scan — ten candidates with complete
                 # statistics each would crowd the conversation's context window.
                 "scan_arbitrage": (
-                    lambda kinds=None, top_n=10:
+                    lambda kinds=None, top_n=10, days=365:
                     self._arbitrage.scan_summary(
                         kinds=[k.strip() for k in (kinds or "").split(",") if k.strip()]
                         or None,
                         top_n=top_n,
+                        days=days,
                     )
                 ),
                 "list_arbitrage_universe": lambda: self._arbitrage.get_universe(),

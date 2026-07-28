@@ -209,6 +209,45 @@ class PortfolioServiceTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.service.add_position(OWNER_A, name="No Symbol", purchase_price="1")
 
+    def test_add_position_missing_purchase_price_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", quantity="1", purchase_date="2026-01-10",
+            )
+
+    def test_add_position_missing_quantity_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", purchase_price="1", purchase_date="2026-01-10",
+            )
+
+    def test_add_position_missing_trade_date_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", purchase_price="1", quantity="1",
+            )
+
+    def test_add_position_zero_purchase_price_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", purchase_price="0", quantity="1",
+                purchase_date="2026-01-10",
+            )
+
+    def test_add_position_negative_quantity_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", purchase_price="1", quantity="-5",
+                purchase_date="2026-01-10",
+            )
+
+    def test_add_position_invalid_trade_date_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.service.add_position(
+                OWNER_A, symbol="ZZTEST", purchase_price="1", quantity="1",
+                trade_date="not-a-date",
+            )
+
     def test_remove_position_returns_rows_removed(self):
         path = self._write_csv(self._sample_rows())
         self.service.import_csv(path, OWNER_A)
@@ -369,6 +408,25 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
 
         lots = self.service.list_positions(OWNER_A)
         self.assertEqual(lots[0]["notes"], "corrected")
+
+    def test_update_lot_zero_purchase_price_raises_value_error(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        with self.assertRaises(ValueError):
+            self.service.update_lot(OWNER_A, lot_id, purchase_price="0")
+
+    def test_update_lot_negative_quantity_raises_value_error(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        with self.assertRaises(ValueError):
+            self.service.update_lot(OWNER_A, lot_id, quantity="-1")
+
+    def test_update_lot_invalid_trade_date_raises_value_error(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        with self.assertRaises(ValueError):
+            self.service.update_lot(OWNER_A, lot_id, trade_date="not-a-date")
+
+    def test_update_lot_partial_patch_without_required_fields_succeeds(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        self.assertTrue(self.service.update_lot(OWNER_A, lot_id, notes="ok"))
 
     def test_delete_lot_removes_entry(self):
         lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")

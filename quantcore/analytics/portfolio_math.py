@@ -47,11 +47,14 @@ def gain_loss(current_price: Decimal, cost_basis_per_share: Decimal, quantity: D
     return _money((current_price - cost_basis_per_share) * quantity)
 
 
-def gain_loss_pct(current_price: Decimal, cost_basis_per_share: Decimal, quantity: Decimal) -> Decimal:
+def gain_loss_pct(current_price: Decimal, cost_basis_per_share: Decimal, quantity: Decimal) -> Optional[Decimal]:
     """Gain/loss as a percentage of total cost basis (quantity cancels, but we
     route through the same dollar figures ``gain_loss``/``summary_totals`` use
-    so the two stay consistent by construction)."""
+    so the two stay consistent by construction). ``None`` when the cost basis
+    is zero — never divide by zero."""
     total_cost = cost_basis_per_share * quantity
+    if not total_cost:
+        return None
     total_gain_loss = (current_price - cost_basis_per_share) * quantity
     return _pct(total_gain_loss / total_cost * 100)
 
@@ -86,8 +89,16 @@ def summary_totals(lots: Iterable[Dict[str, Any]], as_of: date) -> Dict[str, Opt
 
     Dollars Per Day is the sum of each lot's own dollars-per-day (lots bought
     on ``as_of`` contribute nothing — they have not had a day to move yet).
+
+    A lot missing ``purchase_price``, ``quantity``, or ``trade_date`` (the API
+    currently allows this for legacy/CSV-imported rows) is skipped rather than
+    crashing the whole rollup — it contributes nothing to the totals.
     """
-    lots = list(lots)
+    lots = [
+        lot for lot in lots
+        if lot["purchase_price"] is not None and lot["quantity"] is not None
+        and lot["trade_date"] is not None
+    ]
     if not lots:
         return {
             "total_investment": _money(Decimal("0")),

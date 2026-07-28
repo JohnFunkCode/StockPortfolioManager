@@ -364,6 +364,26 @@ class LotRoutesTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json(), {"error": "symbol is required"})
 
+    def test_create_lot_missing_purchase_price_returns_422(self):
+        resp = self.client.post(
+            "/api/portfolio/lots",
+            json={
+                "symbol": self.SYMBOL, "name": "Lot Smoke Co", "currency": "USD",
+                "quantity": "5", "trade_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_create_lot_zero_quantity_returns_422(self):
+        resp = self.client.post(
+            "/api/portfolio/lots",
+            json={
+                "symbol": self.SYMBOL, "name": "Lot Smoke Co", "currency": "USD",
+                "purchase_price": "10.00", "quantity": "0", "trade_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
     def test_create_lot_returns_symbol_only(self):
         resp = self.client.post(
             "/api/portfolio/lots",

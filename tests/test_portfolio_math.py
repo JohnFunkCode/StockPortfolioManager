@@ -49,6 +49,9 @@ class TestGainLossPct(unittest.TestCase):
             Decimal("-50.00"),
         )
 
+    def test_zero_cost_basis_returns_none(self):
+        self.assertIsNone(gain_loss_pct(Decimal("10.00"), Decimal("0"), Decimal("10")))
+
 
 class TestDaysHeld(unittest.TestCase):
     def test_calendar_days(self):
@@ -127,6 +130,53 @@ class TestSummaryTotals(unittest.TestCase):
 
         self.assertEqual(totals["total_gain_loss"], Decimal("-2.08"))
         self.assertIsNone(totals["total_dollars_per_day"])
+
+    def test_lot_missing_trade_date_is_excluded_not_crashed(self):
+        lots = [
+            {
+                "quantity": Decimal("10"),
+                "purchase_price": Decimal("100.00"),
+                "current_price": Decimal("110.00"),
+                "trade_date": None,
+            },
+            {
+                "quantity": Decimal("20"),
+                "purchase_price": Decimal("200.00"),
+                "current_price": Decimal("220.00"),
+                "trade_date": date(2026, 1, 1),
+            },
+        ]
+        totals = summary_totals(lots, as_of=date(2026, 1, 11))
+
+        # Only the second (valid) lot contributes.
+        self.assertEqual(totals["total_investment"], Decimal("4000.00"))
+        self.assertEqual(totals["total_current_value"], Decimal("4400.00"))
+
+    def test_lot_missing_purchase_price_is_excluded_not_crashed(self):
+        lots = [
+            {
+                "quantity": Decimal("10"),
+                "purchase_price": None,
+                "current_price": Decimal("110.00"),
+                "trade_date": date(2026, 1, 1),
+            },
+        ]
+        totals = summary_totals(lots, as_of=date(2026, 1, 11))
+        self.assertEqual(totals["total_investment"], Decimal("0.00"))
+        self.assertEqual(totals["total_current_value"], Decimal("0.00"))
+
+    def test_lot_missing_quantity_is_excluded_not_crashed(self):
+        lots = [
+            {
+                "quantity": None,
+                "purchase_price": Decimal("100.00"),
+                "current_price": Decimal("110.00"),
+                "trade_date": date(2026, 1, 1),
+            },
+        ]
+        totals = summary_totals(lots, as_of=date(2026, 1, 11))
+        self.assertEqual(totals["total_investment"], Decimal("0.00"))
+        self.assertEqual(totals["total_current_value"], Decimal("0.00"))
 
 
 if __name__ == "__main__":

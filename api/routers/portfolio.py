@@ -86,6 +86,8 @@ def add_to_portfolio(
         )
     except DuplicateSymbolError as exc:
         return route_error_plain(str(exc), 409)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 422)
 
     return QuantCoreJSONResponse({"symbol": symbol, "destination": "portfolio"}, status_code=201)
 
@@ -163,19 +165,22 @@ def create_lot(
     if not symbol:
         return route_error_plain("symbol is required", 400)
 
-    result = services().portfolio.add_position(
-        owner,
-        name=(body.name or "").strip(),
-        symbol=symbol,
-        purchase_price=body.purchase_price,
-        quantity=body.quantity,
-        trade_date=body.trade_date,
-        currency=body.currency,
-        fees=body.fees,
-        acquisition_type=body.acquisition_type,
-        account=body.account,
-        notes=body.notes,
-    )
+    try:
+        result = services().portfolio.add_position(
+            owner,
+            name=(body.name or "").strip(),
+            symbol=symbol,
+            purchase_price=body.purchase_price,
+            quantity=body.quantity,
+            trade_date=body.trade_date,
+            currency=body.currency,
+            fees=body.fees,
+            acquisition_type=body.acquisition_type,
+            account=body.account,
+            notes=body.notes,
+        )
+    except ValueError as exc:
+        return route_error_plain(str(exc), 422)
     return QuantCoreJSONResponse(result, status_code=201)
 
 
@@ -186,7 +191,10 @@ def update_lot(
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         return route_error_plain("no fields to update", 400)
-    updated = services().portfolio.update_lot(owner, lot_id, **fields)
+    try:
+        updated = services().portfolio.update_lot(owner, lot_id, **fields)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 422)
     if not updated:
         return route_error_plain(f"lot {lot_id} not found", 404)
     return QuantCoreJSONResponse({"lot_id": lot_id, "updated": True})

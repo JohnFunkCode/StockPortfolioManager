@@ -15,7 +15,7 @@ from __future__ import annotations
 import csv
 import logging
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import portfolio_math
@@ -37,6 +37,48 @@ def _money(v) -> Optional[Decimal]:
 
 def _quantity(v) -> Optional[Decimal]:
     return Decimal(str(v)).quantize(Decimal("0.000001")) if v not in (None, "") else None
+
+
+def _validate_lot_fields(row: Dict[str, Any], *, require_all: bool) -> None:
+    """Shared invariant for lot writes: price and quantity must be positive
+    and trade_date must be a valid ISO date. ``require_all`` additionally
+    demands presence — set for creation (a new lot needs all three to be
+    usable by summary_totals/gain_loss_pct); updates only validate whichever
+    of these fields the caller is actually setting.
+
+    Coerces purchase_price/quantity to Decimal itself rather than trusting
+    the caller to have normalized them: add_position() passes an already
+    Decimal-normalized row, but update_lot() passes fields straight through
+    (Pydantic coerces to Decimal via the router, but a direct service call
+    may still hand in a raw string) — comparing an un-coerced str with ``<=``
+    raises TypeError instead of the ValueError callers expect from here.
+    """
+    purchase_price = row.get("purchase_price")
+    quantity = row.get("quantity")
+    trade_date = row.get("trade_date")
+
+    if require_all and (purchase_price is None or quantity is None or trade_date is None):
+        raise ValueError("purchase_price, quantity, and trade_date are required")
+
+    if purchase_price is not None:
+        try:
+            purchase_price = Decimal(str(purchase_price))
+        except InvalidOperation:
+            raise ValueError(f"purchase_price is not a valid number: {purchase_price!r}")
+        if purchase_price <= 0:
+            raise ValueError("purchase_price must be positive")
+    if quantity is not None:
+        try:
+            quantity = Decimal(str(quantity))
+        except InvalidOperation:
+            raise ValueError(f"quantity is not a valid number: {quantity!r}")
+        if quantity <= 0:
+            raise ValueError("quantity must be positive")
+    if trade_date is not None:
+        try:
+            date.fromisoformat(str(trade_date))
+        except ValueError:
+            raise ValueError(f"trade_date is not a valid date: {trade_date!r}")
 
 
 def _normalize_row(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -115,6 +157,7 @@ class PortfolioService:
         row = _normalize_row(fields)
         if not row["symbol"]:
             raise ValueError("symbol is required")
+        _validate_lot_fields(row, require_all=True)
         self._repo.add_position(owner, row)
         return {"symbol": row["symbol"]}
 
@@ -241,7 +284,14 @@ class PortfolioService:
         return portfolio_math.summary_totals(all_lots, as_of=date.today())
 
     def update_lot(self, owner: str, lot_id: int, **fields: Any) -> bool:
-        """Correct a single lot's fields. Returns True if a lot was updated."""
+        """Correct a single lot's fields. Returns True if a lot was updated.
+
+        Only the fields the caller supplies are validated/written (PATCH
+        semantics) — but any of purchase_price/quantity/trade_date that IS
+        supplied must be positive/valid, so a correction can't null out an
+        existing lot into the same unusable state add_position rejects.
+        """
+        _validate_lot_fields(fields, require_all=False)
         return self._repo.update_lot(owner, lot_id, fields)
 
     def delete_lot(self, owner: str, lot_id: int) -> bool:

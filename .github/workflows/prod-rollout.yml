@@ -159,6 +159,19 @@ jobs:
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           done
 
+      - name: Deploy quantcore-arbitrage (prod, image-only)
+        # Not in the loop above: that loop has no existence guard, and this
+        # service's first prod deploy is a manual one-time creation
+        # (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007). Skip until
+        # it exists rather than failing the whole rollout.
+        run: |
+          if gcloud run services describe quantcore-arbitrage --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantcore-arbitrage --project "$PROD_PROJECT" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
+          else
+            echo "quantcore-arbitrage not found in prod — first deploy is a manual one-time step; skipping."
+          fi
+
       - name: Update report Job image (prod)
         run: |
           gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \

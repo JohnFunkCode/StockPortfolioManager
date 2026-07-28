@@ -92,7 +92,7 @@ services:
       start_period: 10s
     networks: [quantcore]
 
-  # --- 5 MCP wrapper servers (thin HTTP gateways over quantcore-api; Rule 6) ---
+  # --- 6 MCP wrapper servers (thin HTTP gateways over quantcore-api; Rule 6) ---
   stock-price:
     build: { context: ., dockerfile: Dockerfile.mcp }
     environment:
@@ -152,6 +152,19 @@ services:
       PORT: "6005"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
     ports: ["6005:6005"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
+  arbitrage:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.arbitrage_server
+      PORT: "6006"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6006:6006"]
     depends_on:
       quantcore-api:
         condition: service_healthy

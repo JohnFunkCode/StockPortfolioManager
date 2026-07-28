@@ -35,6 +35,13 @@
         "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
       }
     },
+    "arbitrage-server": {
+      "type": "http",
+      "url": "https://quantcore-arbitrage-127961694257.us-central1.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
+    },
     "portfolio-server": {
       "type": "http",
       "url": "https://quantcore-portfolio-swgixldxzq-uc.a.run.app/mcp",
@@ -61,6 +68,10 @@
     "market-analysis-server-local": {
       "type": "http",
       "url": "http://localhost:6005/mcp"
+    },
+    "arbitrage-server-local": {
+      "type": "http",
+      "url": "http://localhost:6006/mcp"
     },
     "portfolio-server-local": {
       "type": "http",

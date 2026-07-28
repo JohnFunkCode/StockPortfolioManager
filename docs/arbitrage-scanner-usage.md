@@ -27,7 +27,7 @@ Verdict bands: `candidate` ≥ 60 · `watch` ≥ 35 · `reject` below that.
 
 ## The four tools
 
-All four are on the **stock-price** MCP server, and mirror
+All four are on the **arbitrage** MCP server (`arbitrage-server`, port 6006 locally), and mirror
 `GET /api/arbitrage/*` on the REST tier.
 
 ### 1. `list_arbitrage_universe` — what's tracked

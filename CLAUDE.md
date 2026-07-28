@@ -71,9 +71,11 @@ design and every penalty trace to
 equity/ETF-only, any pair whose sole clean hedge is a futures contract is flagged
 `hedge_available: false` and halved.
 
-Surfaced as `GET /api/arbitrage/{universe,scan,discover,pairs/{security}}` and four MCP tools on
-the stock-price wrapper (`list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`,
-`discover_arbitrage_pairs`). Expect most scans to return nothing above `watch` — that is the
+Surfaced as `GET /api/arbitrage/{universe,scan,discover,pairs/{security}}` and its own MCP
+wrapper `fastMCPTest/arbitrage_server.py` (`arbitrage-server`, port 6006 locally,
+`quantcore-arbitrage` on Cloud Run) carrying `list_arbitrage_universe`,
+`analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs` — one domain per
+server, like the others. Expect most scans to return nothing above `watch` — that is the
 intended behaviour, not a bug.
 
 **Driving it:** [`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md) — example

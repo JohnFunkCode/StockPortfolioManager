@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 import httpx
 
 from fastMCPTest import company_fundamentals_server as cfs  # noqa: E402
+from fastMCPTest import arbitrage_server as arb  # noqa: E402
 from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
 
@@ -137,16 +138,16 @@ class TestCompanyFundamentalsWrapper(unittest.TestCase):
 
 
 class TestArbitrageWrapperTools(unittest.TestCase):
-    """The four arbitrage tools on the stock-price wrapper (Rule 6)."""
+    """The four arbitrage tools on their own wrapper (Rule 6)."""
 
     def test_universe_and_scan_route_correctly(self):
-        with patch.object(sps, "rest_client") as rc:
+        with patch.object(arb, "rest_client") as rc:
             rc.get.return_value = {"ok": True}
 
-            sps.list_arbitrage_universe()
+            arb.list_arbitrage_universe()
             self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/universe")
 
-            sps.scan_arbitrage(kinds="nav_vehicle", top_n=5, days=90)
+            arb.scan_arbitrage(kinds="nav_vehicle", top_n=5, days=90)
             self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/scan")
             self.assertEqual(rc.get.call_args[1]["kinds"], "nav_vehicle")
             self.assertEqual(rc.get.call_args[1]["top_n"], 5)
@@ -154,35 +155,50 @@ class TestArbitrageWrapperTools(unittest.TestCase):
 
     def test_empty_optional_args_are_not_forwarded(self):
         """Blank kinds/underlying must be omitted, not sent as empty strings."""
-        with patch.object(sps, "rest_client") as rc:
+        with patch.object(arb, "rest_client") as rc:
             rc.get.return_value = {"ok": True}
 
-            sps.scan_arbitrage()
+            arb.scan_arbitrage()
             self.assertNotIn("kinds", rc.get.call_args[1])
 
-            sps.analyze_arbitrage_pair("MSTR")
+            arb.analyze_arbitrage_pair("MSTR")
             self.assertNotIn("underlying", rc.get.call_args[1])
             self.assertNotIn("zscore_window", rc.get.call_args[1])
 
     def test_analyze_pair_routes_with_its_options(self):
-        with patch.object(sps, "rest_client") as rc:
+        with patch.object(arb, "rest_client") as rc:
             rc.get.return_value = {"ok": True}
-            sps.analyze_arbitrage_pair("MSTR", underlying="BTC-USD",
+            arb.analyze_arbitrage_pair("MSTR", underlying="BTC-USD",
                                        days=180, zscore_window=60)
             self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/pairs/MSTR")
             self.assertEqual(rc.get.call_args[1]["underlying"], "BTC-USD")
             self.assertEqual(rc.get.call_args[1]["zscore_window"], 60)
 
     def test_discover_routes_with_its_gate(self):
-        with patch.object(sps, "rest_client") as rc:
+        with patch.object(arb, "rest_client") as rc:
             rc.get.return_value = {"ok": True}
-            sps.discover_arbitrage_pairs("GDX,FCX", references="GC=F",
+            arb.discover_arbitrage_pairs("GDX,FCX", references="GC=F",
                                          min_abs_correlation=0.6,
                                          require_economic_link=False)
             self.assertEqual(rc.get.call_args[0][0], "/api/arbitrage/discover")
             self.assertEqual(rc.get.call_args[1]["symbols"], "GDX,FCX")
             self.assertEqual(rc.get.call_args[1]["references"], "GC=F")
             self.assertFalse(rc.get.call_args[1]["require_economic_link"])
+
+    def test_arbitrage_tools_live_only_on_the_arbitrage_server(self):
+        """Pins the split. These tools were originally bolted onto the
+        stock-price wrapper to avoid standing up a sixth Cloud Run service;
+        that was the wrong trade, and this stops them drifting back."""
+        for tool in ("list_arbitrage_universe", "analyze_arbitrage_pair",
+                     "scan_arbitrage", "discover_arbitrage_pairs"):
+            self.assertTrue(hasattr(arb, tool), f"{tool} missing from arbitrage_server")
+            self.assertFalse(hasattr(sps, tool),
+                             f"{tool} is still on stock_price_server")
+
+    def test_server_reports_its_own_identity(self):
+        self.assertEqual(arb.mcp.name, "arbitrage-server")
+        health = arb.mcp_health_check()
+        self.assertEqual(health["server"], "arbitrage-server")
 
 
 if __name__ == "__main__":

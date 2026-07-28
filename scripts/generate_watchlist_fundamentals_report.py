@@ -125,9 +125,18 @@ document.addEventListener("DOMContentLoaded", () => {
 """
 
 
-def load_watchlist(path: Path) -> list[dict[str, Any]]:
-    with path.open() as fh:
-        rows = yaml.safe_load(fh) or []
+def load_watchlist(path: Path | None = None) -> list[dict[str, Any]]:
+    """The rows to report on: the watchlist table, or a YAML file if given.
+
+    Issue #83 moved the watchlist into the database, so with no `--watchlist`
+    this reports on the same list the UI, the daily job and the screener see.
+    A path is still honoured for ad-hoc lists that were never in the table.
+    """
+    if path is None:
+        rows = get_services().watchlist.list_entries()
+    else:
+        with path.open() as fh:
+            rows = yaml.safe_load(fh) or []
 
     unique: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -394,7 +403,12 @@ def render_report(rows: list[dict[str, Any]], output: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--watchlist", type=Path, default=ROOT / "watchlist.yaml")
+    parser.add_argument(
+        "--watchlist",
+        type=Path,
+        default=None,
+        help="Report on this YAML file instead of the watchlist table.",
+    )
     parser.add_argument(
         "--output",
         type=Path,
@@ -411,8 +425,10 @@ def main() -> int:
         os.environ["FUNDAMENTALS_CACHE_TTL_HOURS"] = "0"
 
     entries = load_watchlist(args.watchlist)
+    source = args.watchlist if args.watchlist else "the watchlist table"
     rows = []
     total = len(entries)
+    print(f"Reporting on {total} entries from {source}.", flush=True)
     for idx, entry in enumerate(entries, 1):
         symbol = entry.get("symbol")
         print(f"[{idx}/{total}] {symbol}", flush=True)

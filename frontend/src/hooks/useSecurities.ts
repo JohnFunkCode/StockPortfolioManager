@@ -169,6 +169,17 @@ export function useRemoveFromPortfolio() {
   });
 }
 
+// A row that is in both lists stays in the table after this succeeds — it just
+// drops back to a plain position — so the same ['securities'] invalidation the
+// portfolio removal uses is what refreshes the source badge.
+export function useRemoveFromWatchlist() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ticker: string) => securitiesApi.removeFromWatchlist(ticker),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['securities'] }),
+  });
+}
+
 export function useAddSecurity() {
   const qc = useQueryClient();
   const invalidate = () => {

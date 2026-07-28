@@ -5,7 +5,7 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 ## Features
 
 - Track stocks portfolio positions including purchase information (price, date, quantity) read from posrtolio.csv
-- Tracks Optional watchlist including per-stock 'tags' loaded from watchlist.yaml
+- Tracks a shared watchlist including per-stock 'tags', stored in the database and editable from the UI (watchlist.yaml is the import format)
 - Fetch real-time stock prices via Yahoo Finance API
 - Calculate gain/loss for individual stocks and total portfolio
 - Support for multiple currencies with real-time conversion
@@ -55,7 +55,18 @@ Amazon.com Inc	     AMZN	$168.97	         $223.21	    100	        $5424.00	32.10
 ```
 
 ### Watchlist Files
-YAML file entries:
+The watchlist lives in the database (the global `watchlist` table — one shared list, no
+per-owner copies). Add and remove symbols from the QuantUI Securities page, or over the REST
+tier (`GET/POST /api/watchlist`, `DELETE /api/watchlist/{ticker}`).
+
+`watchlist.yaml` is the **import format** — nothing reads it at runtime. Seed or re-seed the
+table from it with:
+
+```bash
+python scripts/import_watchlist.py --yaml watchlist.yaml
+```
+
+That is a full-sync replace: the table ends up matching the file exactly. YAML file entries:
 ~~~
 - name: Example Corp
   symbol: EXMPL
@@ -139,7 +150,7 @@ python main.py
 - notifier.py – notification hook.
 - templates/ – Jinja2 HTML template.
 - Tests: test_money.py, test_stock_portfolio_manager.py.
-- Data samples: portfolio.csv, watchlist.csv, watchlist.yaml.
+- Data samples / import files: portfolio.csv, watchlist.csv, watchlist.yaml.
 
 ## REST API (`api/`)
 
@@ -164,6 +175,9 @@ A FastAPI REST API that exposes the Harvester Plan Store and Securities Dashboar
 | GET | `/api/symbols` | List all ticker symbols that have plans |
 | GET | `/api/symbols/<ticker>/price` | Fetch the latest close price for a ticker |
 | GET | `/api/dashboard/stats` | Aggregate stats for the dashboard |
+| GET | `/api/watchlist` | List the shared watchlist (global — no `?owner=`) |
+| POST | `/api/watchlist` | Add a symbol to the shared watchlist (409 if already on it) |
+| DELETE | `/api/watchlist/<ticker>` | Remove a symbol from the shared watchlist (404 if absent) |
 
 ### Starting the API server
 
@@ -543,6 +557,8 @@ should get data, not a 401.
 | `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
 | `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring, exact spread pricing, and trade building |
 | `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
+| `news-sentiment-server` | `fastMCPTest/news_sentiment_server.py` | News collection, per-symbol sentiment, sentiment trend |
+| `portfolio-server` | `fastMCPTest/portfolio_server.py` | Caller's own portfolio (read-only: roll-up, lots, totals) + the shared watchlist (`list_watchlist`, `add_to_watchlist` — no removal tool; removal is a UI action) |
 
 ### Exact Options Contract & Spread Pricing
 

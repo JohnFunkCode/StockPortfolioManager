@@ -162,7 +162,7 @@ jobs:
       - name: Deploy quantcore-arbitrage (prod, image-only)
         # Not in the loop above: that loop has no existence guard, and this
         # service's first prod deploy is a manual one-time creation
-        # (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6006). Skip until
+        # (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007). Skip until
         # it exists rather than failing the whole rollout.
         run: |
           if gcloud run services describe quantcore-arbitrage --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then

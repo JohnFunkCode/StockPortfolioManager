@@ -4,12 +4,15 @@ wrapper uses to reach the REST tier — plus the last 0%-covered wrapper's tool
 bodies (one rest_client call deep, Rule 6). httpx is mocked at the transport
 boundary; no network.
 """
+import json
 import os
+import re
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import httpx
+import yaml
 
 from fastMCPTest import company_fundamentals_server as cfs  # noqa: E402
 from fastMCPTest import arbitrage_server as arb  # noqa: E402
@@ -199,6 +202,79 @@ class TestArbitrageWrapperTools(unittest.TestCase):
         self.assertEqual(arb.mcp.name, "arbitrage-server")
         health = arb.mcp_health_check()
         self.assertEqual(health["server"], "arbitrage-server")
+
+
+class TestWrapperPortMap(unittest.TestCase):
+    """Every wrapper must own a distinct local port.
+
+    Added after a real collision: the portfolio wrapper claimed 6006 while the
+    arbitrage server was being written against a port map that predated it.
+    Cloud Run gives each service its own host so CI stayed green, but the
+    compose stack cannot bind the same port twice and the two `-local` MCP
+    entries pointed at one URL. These checks fail on the next stale port map
+    instead of leaving it for review.
+    """
+
+    REPO = Path(__file__).resolve().parent.parent
+
+    def wrapper_defaults(self) -> dict[str, int]:
+        """Port default parsed from each wrapper's __main__ guard.
+
+        Not every wrapper has one — options_analysis is CLI-first and takes its
+        port purely from the environment — so compose is the authority below
+        and these are cross-checked only where they exist.
+        """
+        ports = {}
+        pattern = re.compile(r'os\.environ\.get\("PORT",\s*"(\d+)"\)')
+        for path in sorted((self.REPO / "fastMCPTest").glob("*.py")):
+            match = pattern.search(path.read_text())
+            if match:
+                ports[path.stem] = int(match.group(1))
+        return ports
+
+    def compose_wrappers(self) -> dict[str, dict]:
+        """Compose services that run an MCP wrapper, keyed by module stem."""
+        compose = yaml.safe_load((self.REPO / "docker-compose.yml").read_text())
+        out = {}
+        for service in compose["services"].values():
+            env = service.get("environment") or {}
+            module = env.get("SERVER_MODULE")
+            if module:
+                out[module.rsplit(".", 1)[-1]] = {
+                    "port": int(env["PORT"]),
+                    "ports": service["ports"],
+                }
+        return out
+
+    def test_every_wrapper_publishes_a_distinct_port(self):
+        wrappers = self.compose_wrappers()
+        self.assertGreaterEqual(len(wrappers), 7, "wrappers not discovered")
+        ports = [w["port"] for w in wrappers.values()]
+        duplicates = {p for p in ports if ports.count(p) > 1}
+        self.assertEqual(duplicates, set(), f"port collision in {wrappers}")
+
+    def test_module_defaults_agree_with_compose(self):
+        defaults = self.wrapper_defaults()
+        duplicates = {p for p in defaults.values() if list(defaults.values()).count(p) > 1}
+        self.assertEqual(duplicates, set(), f"duplicate module defaults: {defaults}")
+        for stem, service in self.compose_wrappers().items():
+            if stem in defaults:
+                self.assertEqual(defaults[stem], service["port"],
+                                 f"{stem}: module default vs compose PORT")
+            self.assertIn(f"{service['port']}:{service['port']}", service["ports"], stem)
+
+    def test_local_mcp_entries_are_unique_and_match_compose(self):
+        config = json.loads((self.REPO / ".mcp.json").read_text())
+        local_urls = [
+            entry["url"] for name, entry in config["mcpServers"].items()
+            if name.endswith("-local")
+        ]
+        self.assertEqual(len(local_urls), len(set(local_urls)),
+                         f"duplicate local MCP URLs: {local_urls}")
+        published = {w["port"] for w in self.compose_wrappers().values()}
+        for url in local_urls:
+            port = int(url.rsplit(":", 1)[1].split("/")[0])
+            self.assertIn(port, published, f"{url} has no compose service")
 
 
 if __name__ == "__main__":

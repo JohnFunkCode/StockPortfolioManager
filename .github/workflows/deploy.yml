@@ -243,7 +243,7 @@ jobs:
           fi
       - name: Deploy quantcore-arbitrage (image-only; env preserved)
         # Same one-time-creation caveat as quantcore-portfolio above: the first
-        # deploy sets SERVER_MODULE=fastMCPTest.arbitrage_server + PORT=6006 and
+        # deploy sets SERVER_MODULE=fastMCPTest.arbitrage_server + PORT=6007 and
         # must be done manually; CI only rolls images onto an existing service.
         run: |
           if gcloud run services describe quantcore-arbitrage --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then

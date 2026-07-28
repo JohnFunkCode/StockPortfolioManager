@@ -162,9 +162,9 @@ services:
     build: { context: ., dockerfile: Dockerfile.mcp }
     environment:
       SERVER_MODULE: fastMCPTest.arbitrage_server
-      PORT: "6006"
+      PORT: "6007"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6006:6006"]
+    ports: ["6007:6007"]
     depends_on:
       quantcore-api:
         condition: service_healthy

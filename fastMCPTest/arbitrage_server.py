@@ -198,4 +198,4 @@ if __name__ == "__main__":
     # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
     # can be reused per wrapper in docker-compose / Cloud Run; default is this
     # server's assigned port.
-    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6006")))
+    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6007")))

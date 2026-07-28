@@ -30,7 +30,8 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio } from '../../hooks/useSecurities';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist } from '../../hooks/useSecurities';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
 import PriceChart from './charts/PriceChart';
@@ -460,6 +461,8 @@ export default function SecurityDetailPage() {
   const [analyticsExpIdx, setAnalyticsExpIdx] = useState(0);
   const [addPortfolioOpen, setAddPortfolioOpen] = useState(false);
   const [removeConfirmOpen, setRemoveConfirmOpen] = useState(false);
+  const [removeWatchlistOpen, setRemoveWatchlistOpen] = useState(false);
+  const [removeWatchlistError, setRemoveWatchlistError] = useState('');
   const [addForm, setAddForm] = useState({ purchase_price: '', quantity: '', purchase_date: '' });
   const [addError, setAddError] = useState('');
 
@@ -471,6 +474,7 @@ export default function SecurityDetailPage() {
 
   const { portfolio: addPortfolio } = useAddSecurity();
   const { mutate: removeFromPortfolio, isPending: removing } = useRemoveFromPortfolio();
+  const { mutate: removeFromWatchlist, isPending: removingWatchlist } = useRemoveFromWatchlist();
 
   const {
     data: techData,
@@ -525,6 +529,17 @@ export default function SecurityDetailPage() {
     });
   };
 
+  const handleRemoveFromWatchlist = () => {
+    setRemoveWatchlistError('');
+    removeFromWatchlist(ticker, {
+      onSuccess: () => { setRemoveWatchlistOpen(false); },
+      // Keep the dialog open on failure. The watchlist is global (issue #83),
+      // so a 404 here usually means someone else already removed it — the user
+      // needs to see that rather than watch the dialog close on a no-op.
+      onError: (e) => setRemoveWatchlistError((e as Error).message),
+    });
+  };
+
   return (
     <Box>
       {/* Header */}
@@ -574,6 +589,20 @@ export default function SecurityDetailPage() {
             onClick={() => setRemoveConfirmOpen(true)}
           >
             Remove from Portfolio
+          </Button>
+        )}
+        {/* On a `both` row these two sit side by side, so each one names its own
+            list and carries its own icon — removing a symbol from the watchlist
+            must never read as deleting the position. */}
+        {(source === 'watchlist' || source === 'both') && (
+          <Button
+            size="small"
+            variant="outlined"
+            color="warning"
+            startIcon={<VisibilityOffIcon />}
+            onClick={() => { setRemoveWatchlistError(''); setRemoveWatchlistOpen(true); }}
+          >
+            Remove from Watchlist
           </Button>
         )}
       </Stack>
@@ -645,6 +674,37 @@ export default function SecurityDetailPage() {
             disabled={removing}
           >
             {removing ? 'Removing…' : 'Remove'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Remove from Watchlist confirmation */}
+      <Dialog open={removeWatchlistOpen} onClose={() => setRemoveWatchlistOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Remove from Watchlist</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Remove <strong>{ticker}</strong> from the watchlist? The watchlist is shared, so
+            this removes it for everyone.{' '}
+            {source === 'both'
+              ? 'Your position stays in the portfolio — this only stops tracking it as a watchlist idea.'
+              : 'Daily reports and options-chain capture will stop covering it.'}
+          </DialogContentText>
+          {removeWatchlistError && (
+            <Typography variant="caption" color="error" sx={{ display: 'block', mt: 2 }}>
+              {removeWatchlistError}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRemoveWatchlistOpen(false)} size="small">Cancel</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            size="small"
+            onClick={handleRemoveFromWatchlist}
+            disabled={removingWatchlist}
+          >
+            {removingWatchlist ? 'Removing…' : 'Remove'}
           </Button>
         </DialogActions>
       </Dialog>

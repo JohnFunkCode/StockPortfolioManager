@@ -82,6 +82,34 @@ class WatchList:
                 self.add_stock(stock)
             return self.stocks
 
+    def read_stocks_from_records(self, records) -> Dict[str, Stock]:
+        """
+        Build Stock objects from already-parsed watchlist records.
+
+        Mirrors Portfolio.read_stocks_from_records: callers pass plain dicts
+        (the shape WatchlistService.list_entries returns) so the domain layer
+        stays decoupled from persistence. ``current_price`` is left unset — it
+        is fetched live by update_all_prices().
+        """
+        for record in records:
+            symbol = record['symbol']
+            tags = record.get('tags') or []
+
+            stock = Stock(
+                name=record.get('name') or symbol,
+                symbol=symbol,
+                purchase_price=None,
+                quantity=None,
+                purchase_date=None,
+                currency=record.get('currency') or self.default_currency,
+                sale_price=None,
+                sale_date=None,
+                current_price=None
+            )
+            setattr(stock, 'tags', tags if isinstance(tags, list) else [tags])
+            self.add_stock(stock)
+        return self.stocks
+
     def read_stocks_from_yaml(self, file_path) -> List[Stock]:
         """
         Read stock data from a YAML file and return a list of Stock objects.

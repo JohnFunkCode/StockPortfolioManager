@@ -1,11 +1,16 @@
 """
-Portfolio MCP Server (issue #126 PR 4, Step 4.8)
+Portfolio MCP Server (issue #126 PR 4, Step 4.8; watchlist tools from issue #83)
 
-Provides three **read-only** tools over the caller's own portfolio:
+Provides three read-only tools over the caller's own portfolio:
 
   get_portfolio         — per-symbol roll-up (value, gain/loss, $/day) + totals
   get_symbol_lots        — the individual lots making up one symbol's position
   get_portfolio_summary  — just the portfolio-wide totals
+
+plus two tools over the shared watchlist:
+
+  list_watchlist         — every symbol on the global watchlist
+  add_to_watchlist       — put a symbol on it
 
 Usage (standalone):
     fastmcp run portfolio_server.py
@@ -18,10 +23,23 @@ REST tier resolves the owner from the caller's authenticated token
 (``require_owner``) — there is no ``owner``/``ticker``-as-cross-user-filter
 argument on any tool here, so a caller can only ever see their own portfolio.
 
-This wrapper is deliberately **read-only**: there are no ``create_lot``,
-``close_lot``, or ``delete_lot`` tools, and ``mcp_gateway.rest_client`` has no
-``put``/``patch``/``delete`` verbs to call even if one were added here. Adding
-write tools is a decision the plan defers (#126 Q19), not an oversight.
+The **portfolio** side stays deliberately read-only: there are no ``create_lot``,
+``close_lot``, or ``delete_lot`` tools. Adding portfolio write tools is a
+decision the plan defers (#126 Q19), not an oversight — a position is
+per-owner financial record-keeping, and a mis-parsed agent call there would
+corrupt cost basis.
+
+``add_to_watchlist`` is the one write tool, and it is here for reasons that do
+not generalise back to the portfolio: the watchlist is a shared, global,
+low-risk list of symbols to track, an agent that can research a name should be
+able to put it on that list without a human retyping it, and the worst case of
+a bad call is a spurious row someone deletes in the UI. It needs no new seam
+verb either — it is a plain ``POST``.
+
+Removal stays out (issue #83 decision 4): ``mcp_gateway.rest_client`` has no
+``put``/``patch``/``delete`` verb, and adding one so an agent could quietly drop
+symbols off a list the whole team shares is not a trade worth making. Removal
+is a UI action.
 """
 
 import os
@@ -102,6 +120,51 @@ def get_portfolio_summary() -> dict:
         total_gain_loss_pct, total_dollars_per_day
     """
     return rest_client.get("/api/portfolio/symbols").get("totals") or {}
+
+
+@mcp.tool()
+def list_watchlist() -> dict:
+    """Return every symbol on the shared watchlist.
+
+    The watchlist is global, not per-owner: this is the same list the QuantUI
+    Securities page shows, the daily report covers, and the options screener
+    scores. Use it to check whether a symbol is already tracked before
+    calling add_to_watchlist.
+
+    Returns:
+        securities — list of dicts with symbol, name, currency, tags, source
+    """
+    return rest_client.get("/api/watchlist")
+
+
+@mcp.tool()
+def add_to_watchlist(
+    symbol: str,
+    name: str | None = None,
+    currency: str = "USD",
+    tags: list[str] | None = None,
+) -> dict:
+    """Add a symbol to the shared watchlist.
+
+    Writes to a list the whole team sees, so add symbols the user actually
+    asked to track — not every ticker that comes up in analysis. Adding a
+    symbol enrolls it in the daily report and the nightly options-chain
+    capture; there is no remove tool, so a mistake has to be undone in the UI.
+
+    Args:
+        symbol: Stock ticker symbol (e.g. 'AAPL')
+        name: Company name; the REST tier looks it up when omitted
+        currency: ISO currency code, defaults to USD
+        tags: Optional grouping labels, e.g. ['Semiconductors']
+
+    Returns:
+        symbol and destination on success. A symbol already on the list is a
+        409 error rather than a silent no-op.
+    """
+    return rest_client.post(
+        "/api/watchlist",
+        json={"symbol": symbol, "name": name, "currency": currency, "tags": tags},
+    )
 
 
 if __name__ == "__main__":

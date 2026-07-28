@@ -17,6 +17,7 @@ import yaml
 from fastMCPTest import company_fundamentals_server as cfs  # noqa: E402
 from fastMCPTest import arbitrage_server as arb  # noqa: E402
 from fastMCPTest import options_analysis as oa  # noqa: E402
+from fastMCPTest import portfolio_server as pfs  # noqa: E402
 from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
 
@@ -350,6 +351,44 @@ class TestOptionsWrapperConsolidation(unittest.TestCase):
                     if name in seen:
                         self.fail(f"'{name}' is on both {seen[name]} and {label}")
                     seen[name] = label
+
+
+class TestPortfolioWatchlistTools(unittest.TestCase):
+    """The watchlist tools on the portfolio wrapper (issue #83).
+
+    ``add_to_watchlist`` is the only write tool on this wrapper, so the
+    boundary it sits on is worth pinning: one POST deep, no delete verb.
+    """
+
+    def test_list_watchlist_is_one_get_deep(self):
+        with patch.object(pfs, "rest_client") as rc:
+            rc.get.return_value = {"securities": [{"symbol": "INTC"}]}
+            out = pfs.list_watchlist()
+            self.assertEqual(rc.get.call_args[0][0], "/api/watchlist")
+            self.assertEqual(out["securities"][0]["symbol"], "INTC")
+
+    def test_add_to_watchlist_posts_the_full_body(self):
+        with patch.object(pfs, "rest_client") as rc:
+            rc.post.return_value = {"symbol": "INTC", "destination": "watchlist"}
+            out = pfs.add_to_watchlist("INTC", name="Intel", tags=["Semis"])
+            self.assertEqual(rc.post.call_args[0][0], "/api/watchlist")
+            self.assertEqual(
+                rc.post.call_args[1]["json"],
+                {"symbol": "INTC", "name": "Intel", "currency": "USD",
+                 "tags": ["Semis"]},
+            )
+            self.assertEqual(out["destination"], "watchlist")
+
+    def test_the_seam_still_has_no_destructive_verb(self):
+        """Decision 4: agents may add to the shared watchlist, never remove.
+
+        The wrapper's docstring claims this, and the claim is only true as
+        long as nobody adds the verb — so assert it rather than trusting the
+        prose. Removal is a UI action.
+        """
+        for verb in ("delete", "put", "patch"):
+            self.assertFalse(hasattr(rest_client, verb), verb)
+        self.assertFalse(hasattr(pfs, "remove_from_watchlist"))
 
 
 if __name__ == "__main__":

@@ -137,6 +137,16 @@ class RemovePositionResponse(BaseModel):
     removed: bool
 
 
+class RemoveWatchlistResponse(BaseModel):
+    """Same shape as ``RemovePositionResponse``, kept separate so the two
+    endpoints name their own component in the OpenAPI docs rather than the
+    watchlist route advertising a "position" model.
+    """
+
+    symbol: str
+    removed: bool
+
+
 class ImportResult(BaseModel):
     owner: str
     imported: int

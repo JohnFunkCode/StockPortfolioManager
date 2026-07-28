@@ -31,7 +31,8 @@ WRAPPERS = [
     ("fastMCPTest.company_fundamentals_server", "company-fundamentals", 1),
     ("fastMCPTest.news_sentiment_server", "news-sentiment", 1),
     ("fastMCPTest.market_analysis_server", "market-analysis", 1),
-    ("fastMCPTest.portfolio_server", "portfolio", 4),
+    # Floor 6 = the four portfolio tools plus list_watchlist/add_to_watchlist (#83).
+    ("fastMCPTest.portfolio_server", "portfolio", 6),
     # Floor 4 = the four scanner tools; mcp_health_check makes five.
     ("fastMCPTest.arbitrage_server", "arbitrage", 4),
 ]

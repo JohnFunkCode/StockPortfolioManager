@@ -376,6 +376,39 @@ class Notifier:
         self.send_notifications(embed)
 
 
+    def send_empty_watchlist_alert(self, portfolio_symbol_count: int) -> None:
+        """Last-resort alarm for an empty watchlist table (issue #83).
+
+        The watchlist moved from a file in the container image to the database,
+        and there is deliberately no fallback to watchlist.yaml when the table
+        reads back empty (plan decision 7) — a silent fallback would re-hide
+        exactly the persistence failure this issue is about. So the empty case
+        has to be loud instead: the report and the portfolio-symbol capture
+        still run, but somebody needs to know the watchlist half is missing
+        before the options open-interest history quietly develops a hole.
+
+        The date is in the title on purpose: send_notifications() dedupes on the
+        title against notification.log, and a condition that persists for a week
+        should alarm on each of those days rather than only the first.
+        """
+        embed = {
+            "content": f"Watchlist Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"Watchlist is empty ({date.today():%Y-%m-%d})",
+                    "description": (
+                        "The watchlist table returned no rows, so options-chain "
+                        f"capture is running on the {portfolio_symbol_count} "
+                        "portfolio symbol(s) only and the report has no "
+                        "watchlist section.\n\n"
+                        "Re-seed it with `python scripts/import_watchlist.py`."
+                    ),
+                    "color": 16776960,  # Yellow — degraded, not failed
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_notifications(self, embed):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 

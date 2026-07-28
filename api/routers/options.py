@@ -233,12 +233,18 @@ def screen_options_symbol(
 def screen_options_watchlist(
     puts_budget: float = 1000.0, top_n: int = 10, include_non_us: bool = False
 ) -> QuantCoreJSONResponse:
-    """Score the server-side watchlist.yaml. The MCP tool's ``watchlist_path`` arg is
-    intentionally not exposed over REST (no arbitrary server filesystem paths)."""
+    """Score the server-side watchlist (the DB-backed one, issue #83).
+
+    The adapter supplies the rows: the service does not read the watchlist
+    table, and the MCP tool's ``watchlist_path`` arg stays unexposed over REST
+    (no arbitrary server filesystem paths)."""
     try:
         return QuantCoreJSONResponse(
             services().options_screening.analyze_watchlist(
-                puts_budget=puts_budget, top_n=top_n, include_non_us=include_non_us
+                entries=load_watchlist(),
+                puts_budget=puts_budget,
+                top_n=top_n,
+                include_non_us=include_non_us,
             )
         )
     except Exception as exc:  # noqa: BLE001

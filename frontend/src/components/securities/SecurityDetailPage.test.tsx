@@ -30,7 +30,11 @@ function armAll(overrides: Record<string, unknown> = {}) {
     }],
     ['/options/iv-rank', { ticker: 'INTC', current_iv: 45, iv_rank: 50, iv_percentile: 55, iv_52w_high: 80, iv_52w_low: 20, data_points: 100, history: ivExpirations() }],
     ['/earnings', { ticker: 'INTC', earnings_date: '2026-08-01', days_to_earnings: 30 }],
-    ['/api/securities', { securities: [securityRow('INTC', { source: 'portfolio' })] }],
+    ['/api/securities', {
+      securities: [securityRow('INTC', { source: overrides.source ?? 'portfolio' })],
+    }],
+    // Must precede the catch-all, which would otherwise swallow the DELETE.
+    ['/api/watchlist/INTC', overrides.watchlistDelete ?? { symbol: 'INTC', removed: true }],
     // Signals tab endpoints + LivePrice + catch-all.
     ['/signals/technical', { ticker: 'INTC', _errors: null }],
     ['/signals/options-flow', { ticker: 'INTC', _errors: null }],
@@ -114,6 +118,80 @@ describe('SecurityDetailPage', () => {
     await waitFor(() =>
       expect(screen.getByText('Remove from Portfolio')).toBeInTheDocument(),
     );
+  });
+
+  // ---- Remove from Watchlist (issue #83) ------------------------------------
+  // The DB-backed watchlist finally has a delete path, so the UI finally has a
+  // remove action. On a `both` row it sits next to the portfolio removal, and
+  // the two must never be confusable.
+
+  it('removes a watchlist name and closes the dialog', async () => {
+    const api = armAll({ source: 'watchlist' });
+    renderPage();
+    fireEvent.click(await screen.findByText('Remove from Watchlist'));
+    fireEvent.click(await screen.findByText('Remove'));
+
+    await waitFor(() =>
+      expect(screen.queryByText(/removes it for everyone/i)).not.toBeInTheDocument(),
+    );
+    const del = api.calls.find(([, init]) => init?.method === 'DELETE');
+    expect(del![0]).toContain('/api/watchlist/INTC');
+  });
+
+  it('keeps the dialog open and shows the reason when the removal fails', async () => {
+    armAll({
+      source: 'watchlist',
+      watchlistDelete: { __status: 404, error: 'INTC not found in watchlist' },
+    });
+    renderPage();
+    fireEvent.click(await screen.findByText('Remove from Watchlist'));
+    fireEvent.click(await screen.findByText('Remove'));
+
+    // Someone else may have removed it already — say so instead of silently
+    // closing on a no-op.
+    expect(await screen.findByText(/not found in watchlist/i)).toBeInTheDocument();
+    expect(screen.getByText(/removes it for everyone/i)).toBeInTheDocument();
+  });
+
+  it('disables the confirm button while the removal is in flight', async () => {
+    armAll({ source: 'watchlist' });
+    const armed = globalThis.fetch;
+    let release: () => void = () => {};
+    const inFlight = new Promise<void>((resolve) => { release = resolve; });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/watchlist/INTC')) await inFlight;
+      return (armed as typeof fetch)(input, init);
+    }));
+
+    renderPage();
+    fireEvent.click(await screen.findByText('Remove from Watchlist'));
+    fireEvent.click(await screen.findByText('Remove'));
+
+    const pending = await screen.findByText('Removing…');
+    expect(pending.closest('button')).toBeDisabled();
+    release();
+    await waitFor(() =>
+      expect(screen.queryByText(/removes it for everyone/i)).not.toBeInTheDocument(),
+    );
+  });
+
+  it('distinguishes the two removals on a name that is in both lists', async () => {
+    armAll({ source: 'both' });
+    renderPage();
+    expect(await screen.findByText('Remove from Watchlist')).toBeInTheDocument();
+    expect(screen.getByText('Remove from Portfolio')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Remove from Watchlist'));
+    // The load-bearing assertion: the watchlist removal must not read as
+    // deleting the position.
+    expect(await screen.findByText(/position stays in the portfolio/i)).toBeInTheDocument();
+  });
+
+  it('offers no watchlist removal for a portfolio-only name', async () => {
+    armAll({ source: 'portfolio' });
+    renderPage();
+    await screen.findByText('Remove from Portfolio');
+    expect(screen.queryByText('Remove from Watchlist')).not.toBeInTheDocument();
   });
 
   it('still renders the page when technicals fail', async () => {

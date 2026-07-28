@@ -151,6 +151,21 @@ CREATE TABLE IF NOT EXISTS lot_sales (
 );
 CREATE INDEX IF NOT EXISTS idx_lot_sales_lot ON lot_sales(lot_id);
 
+-- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
+-- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
+-- `tags` is the schema's first array column. psycopg2 adapts a Python list to
+-- TEXT[] natively. NB: _split_schema() splits this string on a bare
+-- semicolon, so one must never appear here -- not even inside a comment.
+CREATE TABLE IF NOT EXISTS watchlist (
+    watchlist_id SERIAL PRIMARY KEY,
+    symbol_id    INTEGER NOT NULL UNIQUE REFERENCES symbols(symbol_id) ON DELETE CASCADE,
+    name         TEXT,
+    currency     TEXT NOT NULL DEFAULT 'USD',
+    tags         TEXT[] NOT NULL DEFAULT '{}',
+    added_by     TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS plan_instances (
     instance_id SERIAL PRIMARY KEY,
     template_id INTEGER NOT NULL,

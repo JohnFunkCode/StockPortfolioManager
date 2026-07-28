@@ -15,6 +15,7 @@ called for in the plan's testing strategy, not here.
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -213,6 +214,71 @@ class WatchlistHelperTests(unittest.TestCase):
         self.assertEqual([e["symbol"] for e in entries], ["AAPL", "MSFT"])
         self.assertEqual(entries[0]["tags"], ["tech", "core"])
         self.assertEqual(entries[1]["name"], "MSFT")
+
+    def test_normalize_entries_accepts_the_db_row_shape(self):
+        """Issue #83: the route now injects rows from the watchlist table,
+        which carry the full securities shape rather than the YAML's three
+        fields. Same output either way.
+        """
+        svc = _svc()
+
+        entries = svc._normalize_entries([
+            {"symbol": "AAPL", "name": "Apple", "currency": "USD",
+             "tags": ["tech", ""], "purchase_price": None, "quantity": None,
+             "source": "watchlist"},
+            {"symbol": "MSFT", "name": None, "tags": None},
+            {"symbol": "  ", "name": "Nameless"},
+        ])
+
+        self.assertEqual([e["symbol"] for e in entries], ["AAPL", "MSFT"])
+        self.assertEqual(entries[0]["tags"], ["tech"], "blank tags dropped")
+        self.assertEqual(entries[1]["name"], "MSFT", "name falls back to symbol")
+        self.assertEqual(entries[1]["tags"], [])
+        self.assertEqual(set(entries[0]), {"symbol", "name", "tags"})
+
+    def test_analyze_watchlist_with_entries_never_touches_the_filesystem(self):
+        """The point of the change: no watchlist.yaml on the container image
+        means no screener, unless the rows come from the caller.
+        """
+        svc = _svc()
+        captured = {}
+        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+
+        with patch("builtins.open", side_effect=AssertionError("read a file")):
+            svc.analyze_watchlist(entries=[{"symbol": "AAPL", "name": "Apple"}])
+
+        self.assertEqual([e["symbol"] for e in captured["entries"]], ["AAPL"])
+
+    def test_analyze_watchlist_still_filters_non_us_symbols(self):
+        svc = _svc()
+        captured = {}
+        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+
+        rows = [{"symbol": "AAPL"}, {"symbol": "BMW.DE"}]
+        svc.analyze_watchlist(entries=rows)
+        self.assertEqual([e["symbol"] for e in captured["entries"]], ["AAPL"])
+
+        captured.clear()
+        svc.analyze_watchlist(entries=rows, include_non_us=True)
+        self.assertEqual([e["symbol"] for e in captured["entries"]], ["AAPL", "BMW.DE"])
+
+    def test_analyze_watchlist_without_entries_still_reads_the_cli_path(self):
+        """`--watchlist some.yaml` on the standalone CLI keeps working."""
+        svc = _svc()
+        captured = {}
+        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "wl.yaml"
+            path.write_text("- symbol: AAPL\n  name: Apple\n")
+            svc.analyze_watchlist(watchlist_path=str(path))
+
+        self.assertEqual([e["symbol"] for e in captured["entries"]], ["AAPL"])
+
+    def test_analyze_watchlist_reports_a_missing_file_path(self):
+        svc = _svc()
+        with self.assertRaises(FileNotFoundError):
+            svc.analyze_watchlist(watchlist_path="/nonexistent/wl.yaml")
 
 
 # ---------------------------------------------------------------------------

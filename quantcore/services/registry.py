@@ -31,6 +31,7 @@ from quantcore.repositories.owner_identity_repository import OwnerIdentityReposi
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.repositories.user_settings_repository import UserSettingsRepository
+from quantcore.repositories.watchlist_repository import WatchlistRepository
 from quantcore.services.arbitrage import ArbitrageService
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.chat import (
@@ -51,6 +52,7 @@ from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
 from quantcore.services.settings import SettingsService
+from quantcore.services.watchlist import WatchlistService
 
 
 def _truthy(value: str | None) -> bool:
@@ -71,6 +73,7 @@ class Services:
     fundamentals_repository: FundamentalsRepository
     harvester_repository: HarvesterPlanDB
     portfolio_repository: PortfolioRepository
+    watchlist_repository: WatchlistRepository
     user_settings_repository: UserSettingsRepository
     arbitrage_repository: ArbitrageRepository
     owner_identity_repository: OwnerIdentityRepository
@@ -83,6 +86,7 @@ class Services:
     options_screening: OptionsScreeningService
     harvester: HarvesterService
     portfolio: PortfolioService
+    watchlist: WatchlistService
     recommendations: RecommendationsService
     arbitrage: ArbitrageService
     chat: ChatService
@@ -102,6 +106,7 @@ def get_services() -> Services:
     options_repository = OptionsStore()
     harvester_repository = HarvesterPlanDB()
     portfolio_repository = PortfolioRepository()
+    watchlist_repository = WatchlistRepository()
     user_settings_repository = UserSettingsRepository()
     arbitrage_repository = ArbitrageRepository()
     owner_identity_repository = OwnerIdentityRepository()
@@ -217,6 +222,7 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         harvester_repository=harvester_repository,
         portfolio_repository=portfolio_repository,
+        watchlist_repository=watchlist_repository,
         user_settings_repository=user_settings_repository,
         arbitrage_repository=arbitrage_repository,
         owner_identity_repository=owner_identity_repository,
@@ -235,6 +241,7 @@ def get_services() -> Services:
             yfinance_gateway=yfinance_gateway,
         ),
         portfolio=PortfolioService(portfolio_repository=portfolio_repository, prices=prices, options=options),
+        watchlist=WatchlistService(repository=watchlist_repository),
         recommendations=RecommendationsService(
             prices=prices,
             options=options,

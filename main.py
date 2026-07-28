@@ -10,6 +10,7 @@ import io
 import base64
 import webbrowser
 import os
+import sys
 from jinja2 import Environment, FileSystemLoader
 from notifier import Notifier
 from dotenv import load_dotenv
@@ -550,6 +551,35 @@ def create_template_file(template_path):
         f.write(template_content)
 
 
+def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
+    """Alarm — loudly — when the watchlist table comes back empty (issue #83).
+
+    An empty watchlist is a degraded run, not a normal one: the report loses
+    its watchlist section and the options-chain capture loop silently narrows
+    to portfolio symbols, so the open-interest history develops a hole nobody
+    sees until they go looking for it months later.
+
+    There is deliberately no fallback to watchlist.yaml (plan decision 7) —
+    that would re-hide the persistence failure this issue is about. Alarm and
+    keep going instead: everything that does not depend on the watchlist still
+    runs. Returns True when the alarm fired.
+    """
+    if watchlist.list_stocks():
+        return False
+
+    print("ERROR: watchlist is empty; options-chain capture is running on "
+          "portfolio symbols only. Re-seed with scripts/import_watchlist.py.",
+          file=sys.stderr)
+    try:
+        notifier.send_empty_watchlist_alert(len(portfolio.list_stocks()))
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        # The stderr line above already recorded the condition, and the options
+        # capture below still has real work to do.
+        print(f"  (failed to send the empty-watchlist alert: {exc})",
+              file=sys.stderr)
+    return True
+
+
 def save_html_to_s3(html_content):
     """Save HTML content directly to S3 without writing to file system"""
     import boto3
@@ -609,10 +639,12 @@ if __name__ == "__main__":
     # Create a watchlist of stocks to track
     watchlist = watch_list.WatchList()
 
-
-    # read watchlist from yaml file
-    yaml_file = script_dir / "watchlist.yaml"
-    watchlist.read_stocks_from_yaml(yaml_file)
+    # Load the watchlist from the DB-backed source of truth (watchlist table,
+    # issue #83). watchlist.yaml is now only an import file; refresh it via
+    # scripts/import_watchlist.py. There is deliberately no fallback to the
+    # YAML when the table is empty — a silent fallback would re-hide exactly
+    # the failure this issue is about.
+    watchlist.read_stocks_from_records(get_services().watchlist.list_entries())
     watchlist.update_all_prices()
     watchlist.update_metrics()
 
@@ -639,6 +671,8 @@ if __name__ == "__main__":
 
     notifier = Notifier(portfolio)
     notifier.calculate_and_send_notifications()
+
+    alert_if_watchlist_empty(watchlist, portfolio, notifier)
 
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps

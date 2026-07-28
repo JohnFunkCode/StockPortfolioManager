@@ -170,6 +170,12 @@ export const securitiesApi = {
       method: 'DELETE',
     }),
 
+  // The watchlist is global (issue #83) — no owner param, unlike the portfolio.
+  removeFromWatchlist: (ticker: string) =>
+    apiRequest<{ symbol: string; removed: boolean }>(`/api/watchlist/${ticker}`, {
+      method: 'DELETE',
+    }),
+
   getNews: (ticker: string, maxArticles = 10) =>
     apiRequest<NewsResponse>(`/api/securities/${ticker}/news?max_articles=${maxArticles}`),
 

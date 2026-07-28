@@ -1,10 +1,14 @@
+import os
+import tempfile
 import unittest
 from datetime import date
 from decimal import Decimal
 from unittest.mock import patch
 import pandas as pd
+import yaml
 from portfolio.money import Money
 from portfolio import portfolio as spm
+from portfolio import watch_list
 
 
 class TestStockPortfolioManager(unittest.TestCase):
@@ -251,6 +255,66 @@ class TestReadStocksFromRecordsFractionalLots(unittest.TestCase):
         gain_loss = stock.calculate_gain_loss()
         # (100 - 133.33) * 0.0625 = -2.083125 -> quantized to cents by Money
         self.assertEqual(gain_loss.amount, Decimal("-2.08"))
+
+
+class TestWatchListReadStocksFromRecords(unittest.TestCase):
+    """issue #83: the daily report builds its watchlist from the DB rather
+    than watchlist.yaml, so WatchList has to accept the dict shape
+    WatchlistService.list_entries() returns."""
+
+    def test_records_become_stocks_with_tags_attached(self):
+        wl = watch_list.WatchList()
+
+        wl.read_stocks_from_records([
+            {"name": "Zscaler", "symbol": "ZS", "currency": "USD",
+             "tags": ["Cybersecurity"], "purchase_price": None,
+             "quantity": None, "purchase_date": None, "sale_price": None,
+             "sale_date": None, "source": "watchlist"},
+            {"name": "SK Hynix", "symbol": "000660.KS", "currency": "KRW",
+             "tags": []},
+        ])
+
+        self.assertEqual(len(wl.list_stocks()), 2)
+        zs = wl.get_stock("ZS")
+        self.assertEqual(zs.name, "Zscaler")
+        # tags is set by the loader, not by Stock.__init__ — the report groups
+        # watchlist rows by it.
+        self.assertEqual(zs.tags, ["Cybersecurity"])
+        # A watchlist row owns nothing, so nothing may be priced.
+        self.assertIsNone(zs.purchase_price)
+        self.assertIsNone(zs.sale_price)
+        self.assertEqual(wl.get_stock("000660.KS").tags, [])
+
+    def test_missing_name_falls_back_to_the_symbol(self):
+        """A row added through the UI with no name still has to render in the
+        report, which prints stock.name."""
+        wl = watch_list.WatchList()
+
+        wl.read_stocks_from_records([{"symbol": "ZZWL", "name": None}])
+
+        self.assertEqual(wl.get_stock("ZZWL").name, "ZZWL")
+        self.assertEqual(wl.get_stock("ZZWL").tags, [])
+
+    def test_matches_what_the_yaml_loader_produced(self):
+        """The DB path replaces the YAML path in main.py, so the two have to
+        build the same objects from the same data."""
+        record = {"name": "Zscaler", "symbol": "ZS", "currency": "USD",
+                  "tags": ["Cybersecurity"]}
+
+        from_records = watch_list.WatchList()
+        from_records.read_stocks_from_records([record])
+
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as fh:
+            yaml.safe_dump([record], fh)
+            path = fh.name
+        self.addCleanup(os.unlink, path)
+        from_yaml = watch_list.WatchList()
+        from_yaml.read_stocks_from_yaml(path)
+
+        a, b = from_records.get_stock("ZS"), from_yaml.get_stock("ZS")
+        for attr in ("name", "symbol", "quantity", "purchase_price",
+                     "sale_price", "sale_date", "current_price", "tags"):
+            self.assertEqual(getattr(a, attr), getattr(b, attr), attr)
 
 
 if __name__ == "__main__":

@@ -169,6 +169,266 @@ def price_vertical_spread(
 
 
 # ---------------------------------------------------------------------------
+# Chain, flow and positioning tools (issue #159).
+#
+# Moved here from stock_price_server, which had accreted the whole options
+# surface alongside the technicals it owns. One domain per server: anything
+# reading an options chain, its open interest, or its dealer positioning
+# belongs on this server. Bodies are unchanged — one rest_client call deep.
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_full_options_chain(symbol: str) -> dict:
+    """Fetch the full options chain (all strikes, all expirations) for a ticker and persist to DB."""
+    return rest_client.get(f"/api/securities/{symbol}/options/full-chain")
+
+
+@mcp.tool()
+def get_unusual_calls(
+    symbol: str,
+    min_volume: int = 100,
+    min_vol_oi_ratio: float = 0.5,
+    max_expirations: int = 3,
+) -> dict:
+    """Detect unusual call activity (sweeps) to identify smart-money bullish positioning.
+
+    A call sweep is a large, aggressive options buy that crosses multiple exchanges
+    at or above the ask price, signalling urgency and institutional conviction.
+    yfinance does not expose individual trade prints, so this tool identifies
+    sweep-like behaviour from the options chain using four proxy signals:
+
+      1. vol/OI ratio ≥ min_vol_oi_ratio
+         Volume exceeds a meaningful fraction of open interest → fresh positioning,
+         not just rolling existing contracts.  vol/OI > 1.0 means more contracts
+         traded today than exist in OI — a strong sweep indicator.
+
+      2. Aggressive fill: last_price ≥ ask
+         The most recent trade printed AT or ABOVE the ask.  Buyers paid up —
+         the hallmark of an urgent institutional sweep.
+
+      3. OTM positioning
+         Out-of-the-money calls with high volume signal a directional speculative
+         bet, not a covered-call write or hedge.  Strikes > 5% OTM with unusual
+         volume are the most bullish sweep signal.
+
+      4. Absolute volume threshold (min_volume)
+         Filters out noise from low-liquidity strikes.
+
+    Each qualifying contract receives a sweep_score (0–10):
+      +3  vol/OI ≥ 2.0  (major fresh positioning)
+      +2  vol/OI 1.0–2.0
+      +1  vol/OI 0.5–1.0
+      +2  last ≥ ask (aggressive fill confirmed)
+      +1  last ≥ mid (paid above midpoint — somewhat aggressive)
+      +2  strike 5–15% OTM (pure directional bet)
+      +1  strike 1–5% OTM (near-money directional)
+      -1  in-the-money (more likely a hedge than a speculative sweep)
+
+    Args:
+        symbol:           Stock ticker symbol (e.g. 'AAPL')
+        min_volume:       Minimum contract volume to consider (default: 100)
+        min_vol_oi_ratio: Minimum volume/OI ratio to flag (default: 0.5)
+        max_expirations:  Number of nearest expirations to scan (default: 3)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/unusual-calls",
+        min_volume=min_volume,
+        min_vol_oi_ratio=min_vol_oi_ratio,
+        max_expirations=max_expirations,
+    )
+
+
+@mcp.tool()
+def get_delta_adjusted_oi(
+    symbol: str,
+    max_expirations: int = 3,
+    risk_free_rate: float = 0.045,
+) -> dict:
+    """Calculate Delta-Adjusted Open Interest (DAOI) to identify market-maker hedging flows.
+
+    Delta-Adjusted OI multiplies each option contract's open interest by its
+    Black-Scholes delta to convert raw contract counts into share-equivalent
+    directional exposure.  This reveals the NET directional position of market
+    makers — and therefore the direction they must trade the underlying to stay
+    hedged.
+
+    Key concepts:
+      net_daoi > 0  — market makers are net SHORT calls / net LONG puts overall
+                      → they must BUY stock as price rises (supports upward moves)
+      net_daoi < 0  — market makers are net LONG calls / net SHORT puts
+                      → they must SELL stock as price rises (caps upward moves)
+      delta_flip    — the price level where net delta crosses zero.  Price moving
+                      TOWARD the flip level triggers mechanical MM buying or selling.
+
+    Bounce-bottom signals:
+      • Negative net DAOI + price BELOW the delta flip → MM short gamma, forced to
+        buy stock as price recovers → mechanical amplification of any bounce
+      • Gamma wall (highest Black-Scholes gamma × OI strike) acting as a price magnet
+      • Net DAOI shifting toward zero as price approaches the flip → hedging flow
+        accelerating
+
+    Outputs per expiration and aggregated across all scanned expirations:
+      net_daoi_shares   — net share-equivalent exposure (positive = MM net long delta)
+      call_daoi_shares  — calls contribution (always positive)
+      put_daoi_shares   — puts contribution (always negative)
+      delta_flip_strike — strike nearest to zero net delta (price magnet)
+      gamma_wall        — strike with highest aggregate gamma × OI across calls+puts
+      mm_hedge_bias     — 'buy_on_rally' or 'sell_on_rally' (direction MM must trade)
+      signal            — bounce signal strength
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        max_expirations: Number of nearest expirations to analyse (default: 3)
+        risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/delta-adjusted-oi",
+        max_expirations=max_expirations,
+        risk_free_rate=risk_free_rate,
+    )
+
+
+@mcp.tool()
+def get_gamma_wall_history(symbol: str, since_days: int = 90) -> dict:
+    """
+    Return historical daily gamma wall strike and MM hedge bias snapshots for a symbol.
+
+    Data is auto-collected whenever get_delta_adjusted_oi() is called — no manual
+    collection step needed. One row per calendar day; post-close (4:15pm+ ET) calls
+    overwrite intraday calls so settled EOD open interest is always stored.
+
+    INTENDED USE — post-hoc analysis only:
+      - Did price pin near the gamma wall on expiration Fridays?
+      - How did the gamma wall shift after monthly OpEx events?
+      - Is the MM hedge bias (buy_on_rally vs sell_on_rally) persistent for this symbol?
+
+    NOT intended for:
+      - Predicting future gamma wall levels (past values have weak autocorrelation)
+      - Making hold/sell decisions on multi-week equity positions
+      - Replacing VWAP or relative-strength trend analysis
+
+    Note: the gamma wall is computed from Black-Scholes gamma × OI. Each history
+    row carries a `gamma_wall_method` field: "bs_gamma_oi" for current rows, or
+    "abs_daoi" for rows captured before the migration, which used a |delta × OI|
+    proxy biased toward deep-ITM high-OI strikes. Wall levels are only comparable
+    across rows with the same method — filter on it before cross-date analysis.
+
+    Args:
+        symbol: Ticker symbol (e.g. "MSFT")
+        since_days: Number of calendar days of history to return (default 90)
+
+    Returns:
+        dict with keys: symbol, since_days, data_points, history (list of daily rows), note
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/gamma-wall-history", since_days=since_days
+    )
+
+
+@mcp.tool()
+def get_oi_change_analysis(
+    symbol: str,
+    days: int = 30,
+    top_n: int = 10,
+    min_oi: int = 100,
+    expiration: str = None,
+) -> dict:
+    """Analyse open-interest CHANGES over time — the classic 2×2 OI/price read.
+
+    Comparing OI across stored full-chain snapshots reveals what kind of
+    positioning drove a move, which a single-day chain cannot show:
+
+      OI rising + price rising   → new_longs        (fresh bullish positioning)
+      OI rising + price falling  → new_shorts       (fresh bearish positioning)
+      OI falling + price rising  → short_covering   (rally without fresh sponsorship)
+      OI falling + price falling → long_liquidation (longs exiting)
+
+    Options-specific overlay:
+      put_oi_support_strikes     — strikes below spot with large PUT OI builds:
+                                   put writers defend these (support)
+      call_oi_resistance_strikes — strikes above spot with large CALL OI builds:
+                                   the call wall (resistance / pin candidates)
+
+    IMPORTANT — sparse-history caveat: OI history accumulates only when
+    full-chain snapshots are captured (get_full_options_chain; the daily report
+    job captures portfolio + watchlist symbols automatically). If fewer than 2
+    distinct snapshot days exist in the window, the tool returns a note payload
+    with empty oi_changes rather than an error — that is expected on symbols
+    without accumulated history, not a failure.
+
+    Outputs:
+      snapshot_dates_used   — earliest/latest/previous snapshot days compared
+      underlying_change_pct — spot move between earliest and latest snapshot
+      top_oi_builds / top_oi_drains — classified movers with |ΔOI| ≥ min_oi
+      latest_day_change     — call/put OI shift latest vs previous snapshot day
+      summary               — plain-English recap
+
+    Args:
+        symbol:     Stock ticker symbol (e.g. 'AAPL')
+        days:       Rolling window of snapshot history to compare (default: 30)
+        top_n:      Max movers to return per side (default: 10)
+        min_oi:     Minimum |ΔOI| in contracts to count as a mover (default: 100)
+        expiration: Optional 'YYYY-MM-DD' to restrict to one expiration
+    """
+    params = {"days": days, "top_n": top_n, "min_oi": min_oi}
+    if expiration:
+        params["expiration"] = expiration
+    return rest_client.get(f"/api/securities/{symbol}/options/oi-change", **params)
+
+
+@mcp.tool()
+def get_gex_profile(
+    symbol: str,
+    max_expirations: int = 6,
+    risk_free_rate: float = 0.045,
+) -> dict:
+    """Build a signed Gamma Exposure (GEX) profile — dealer hedging pressure by strike.
+
+    GEX signs each contract's dollar gamma by the standard dealer convention
+    (dealers long calls +, short puts −) and aggregates per strike:
+      GEX = gamma × OI × 100 × spot² × 1%   (dollar gamma per 1% move)
+
+    Key levels returned:
+      zero_gamma_level        — where cumulative net GEX flips sign: the
+                                volatility-regime boundary. Above it dealers
+                                dampen moves; below it they amplify them.
+      top_positive_gex_strike — the call wall: heaviest positive GEX; acts as
+                                resistance / an expiry pin magnet.
+      top_negative_gex_strike — put support / the vol trigger: heaviest
+                                negative GEX; breaking it accelerates selling.
+      regime                  — positive_gamma (mean-reverting, dealers buy dips
+                                and sell rips) or negative_gamma (trending /
+                                volatile, dealers chase moves).
+
+    Hedge-flow tilts (aggregate dealer greeks, share-equivalent):
+      net_vanna_exposure — sensitivity of dealer deltas to IV changes: with
+                           positive vanna a vol crush forces dealer BUYING
+                           (supportive), a vol spike forces selling.
+      net_charm_exposure — dealer delta drift from time decay: systematic
+                           buy/sell pressure into expiry (strongest near OpEx).
+
+    INTENDED USE — support/resistance from dealer positioning:
+      - top_negative_gex_strike below price is a defended support zone.
+      - price crossing below zero_gamma_level = regime change: expect wider
+        ranges and momentum moves; tighten stops.
+      - gex_ladder gives the full strike-by-strike wall map near spot.
+
+    A daily summary (net GEX, zero-gamma, regime) is auto-persisted per call —
+    history accumulates like gamma_wall_history.
+
+    Args:
+        symbol:          Stock ticker symbol (e.g. 'AAPL')
+        max_expirations: Number of nearest expirations to scan (default: 6)
+        risk_free_rate:  Annualised risk-free rate as decimal (default: 0.045)
+    """
+    return rest_client.get(
+        f"/api/securities/{symbol}/options/gex-profile",
+        max_expirations=max_expirations,
+        risk_free_rate=risk_free_rate,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Reporting (console presentation — calls the service for analytics)
 # ---------------------------------------------------------------------------
 

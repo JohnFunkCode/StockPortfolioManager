@@ -24,7 +24,10 @@ from fastmcp import Client
 # import / lost registration) must.
 WRAPPERS = [
     ("fastMCPTest.stock_price_server", "stock-price", 1),
-    ("fastMCPTest.options_analysis", "options-analysis", 1),
+    # Floor 11 pins the issue-#159 consolidation: the whole options surface
+    # (chain, contracts, spread pricing, flow, positioning) lives here, so a
+    # regression that quietly moves tools back out fails CI.
+    ("fastMCPTest.options_analysis", "options-analysis", 11),
     ("fastMCPTest.company_fundamentals_server", "company-fundamentals", 1),
     ("fastMCPTest.news_sentiment_server", "news-sentiment", 1),
     ("fastMCPTest.market_analysis_server", "market-analysis", 1),

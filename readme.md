@@ -539,9 +539,9 @@ should get data, not a 401.
 
 | Server | File | Purpose |
 |--------|------|---------|
-| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, exact spread pricing, trade recommendations |
+| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, price/volume history, support levels, trade recommendations |
 | `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
-| `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring, exact spread pricing, and trade building |
+| `options-analysis-server` | `fastMCPTest/options_analysis.py` | The whole options surface: chain + contracts, exact spread pricing, watchlist scoring, flow (unusual calls, OI change) and dealer positioning (GEX, gamma wall) |
 | `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
 
 ### Exact Options Contract & Spread Pricing

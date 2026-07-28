@@ -1,5 +1,6 @@
 """
-Options analysis tool — reads watchlist.yaml, fetches live data via yfinance,
+Options analysis tool — screens a watchlist (the DB-backed one over MCP/REST,
+or a YAML file via ``--watchlist`` on the CLI), fetches live data via yfinance,
 scores each security using Bollinger Band position and options Put/Call ratio,
 and prints ranked long candidates and put trade setups.
 
@@ -84,7 +85,10 @@ def mcp_health_check() -> dict:
         "history_period": HISTORY_PERIOD,
         "bb_period": BB_PERIOD,
         "bb_std_dev": BB_STD_DEV,
-        "watchlist_default": str(PROJECT_ROOT / "watchlist.yaml"),
+        # What the *tools* screen is the server-side DB watchlist (issue #83);
+        # this path is only the CLI's --watchlist default.
+        "watchlist_default": "database (watchlist table)",
+        "watchlist_cli_default": str(PROJECT_ROOT / "watchlist.yaml"),
     }
 
 
@@ -97,8 +101,9 @@ def analyze_options_watchlist(
 ) -> dict:
     """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
     # ``watchlist_path`` is not exposed over HTTP (Step 1 curation — the REST tier
-    # screens the server-side watchlist.yaml) and is accepted here for signature
-    # stability; the parameter is intentionally not forwarded.
+    # screens the server-side watchlist, which since issue #83 is the DB table
+    # rather than a file) and is accepted here for signature stability; the
+    # parameter is intentionally not forwarded.
     return rest_client.get(
         "/api/options/screen-watchlist",
         puts_budget=puts_budget,

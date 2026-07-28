@@ -1152,17 +1152,49 @@ class OptionsScreeningService:
             "put_trades": trades,
         }
 
+    @staticmethod
+    def _normalize_entries(entries: list[dict]) -> list[dict]:
+        """Reduce watchlist rows to the three fields the screener uses.
+
+        Rows from the database carry the full securities shape (currency, the
+        None purchase/sale placeholders, source); rows from the YAML carry only
+        some of it. Both arrive here.
+        """
+        result = []
+        for entry in entries:
+            symbol = (entry.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            name = (entry.get("name") or symbol).strip()
+            result.append({
+                "symbol": symbol,
+                "name": name,
+                "tags": [t for t in (entry.get("tags") or []) if t],
+            })
+        return result
+
     def analyze_watchlist(
         self,
+        entries: list[dict] | None = None,
         watchlist_path: str | None = None,
         puts_budget: float = 1000.0,
         top_n: int = 10,
         include_non_us: bool = False,
     ) -> dict:
-        path = Path(watchlist_path) if watchlist_path else (_PROJECT_ROOT / "watchlist.yaml")
-        if not path.exists():
-            raise FileNotFoundError(f"watchlist not found at {path}")
-        entries = self.load_watchlist(path)
+        """Screen a watchlist. Callers supply the rows; the file is the fallback.
+
+        Issue #83: the watchlist lives in the database now, and a service does
+        not reach for files or repositories it does not own — the route passes
+        ``entries`` from ``deps.load_watchlist()``. ``watchlist_path`` stays for
+        the standalone CLI path, which still screens a YAML file directly.
+        """
+        if entries is not None:
+            entries = self._normalize_entries(entries)
+        else:
+            path = Path(watchlist_path) if watchlist_path else (_PROJECT_ROOT / "watchlist.yaml")
+            if not path.exists():
+                raise FileNotFoundError(f"watchlist not found at {path}")
+            entries = self.load_watchlist(path)
         if not include_non_us:
             entries = [e for e in entries if self.is_us_listed(e["symbol"])]
         return self._run_analysis(entries, puts_budget=puts_budget, top_n=top_n)

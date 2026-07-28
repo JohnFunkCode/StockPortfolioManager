@@ -553,12 +553,13 @@ should get data, not a 401.
 
 | Server | File | Purpose |
 |--------|------|---------|
-| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, options chain, exact spread pricing, trade recommendations |
+| `stock-price-server` | `fastMCPTest/stock_price_server.py` | Technical analysis, price/volume history, support levels, trade recommendations |
 | `market-analysis-server` | `fastMCPTest/market_analysis_server.py` | Dark pool proxy, short interest, bid/ask spread |
-| `options-analysis-server` | `fastMCPTest/options_analysis.py` | Watchlist-level options scoring, exact spread pricing, and trade building |
+| `options-analysis-server` | `fastMCPTest/options_analysis.py` | The whole options surface: chain + contracts, exact spread pricing, watchlist scoring, flow (unusual calls, OI change) and dealer positioning (GEX, gamma wall) |
 | `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
 | `news-sentiment-server` | `fastMCPTest/news_sentiment_server.py` | News collection, per-symbol sentiment, sentiment trend |
 | `portfolio-server` | `fastMCPTest/portfolio_server.py` | Caller's own portfolio (read-only: roll-up, lots, totals) + the shared watchlist (`list_watchlist`, `add_to_watchlist` — no removal tool; removal is a UI action) |
+| `arbitrage-server` | `fastMCPTest/arbitrage_server.py` | Arbitrage universe, pair analysis, scan, and cointegration discovery |
 
 ### Exact Options Contract & Spread Pricing
 

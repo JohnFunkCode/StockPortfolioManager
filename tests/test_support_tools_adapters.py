@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from api.routers import options as options_router  # noqa: E402
 from api.routers import prices as prices_router  # noqa: E402
 from api.routers import recommendations as recommendations_router  # noqa: E402
+from fastMCPTest import options_analysis  # noqa: E402
 from fastMCPTest import stock_price_server  # noqa: E402
 
 
@@ -205,6 +206,8 @@ class TestSupportConfluenceRoute(unittest.TestCase):
 class TestSupportToolMcpWrappers(unittest.TestCase):
     def setUp(self):
         self.rest_get = Mock(return_value={"ok": True})
+        # Both wrappers import the same rest_client module object, so this one
+        # patch covers the options tools that moved to options_analysis in #159.
         patcher = patch.object(stock_price_server.rest_client, "get", self.rest_get)
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -246,7 +249,7 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         )
 
     def test_get_oi_change_analysis_omits_absent_expiration(self):
-        result = stock_price_server.get_oi_change_analysis("NVDA")
+        result = options_analysis.get_oi_change_analysis("NVDA")
         self.assertEqual(result, {"ok": True})
         self.rest_get.assert_called_once_with(
             "/api/securities/NVDA/options/oi-change",
@@ -254,7 +257,7 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         )
 
     def test_get_oi_change_analysis_forwards_expiration(self):
-        stock_price_server.get_oi_change_analysis(
+        options_analysis.get_oi_change_analysis(
             "NVDA", days=14, top_n=5, min_oi=250, expiration="2026-08-21"
         )
         self.rest_get.assert_called_once_with(
@@ -263,7 +266,7 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         )
 
     def test_get_gex_profile_is_one_rest_call(self):
-        result = stock_price_server.get_gex_profile(
+        result = options_analysis.get_gex_profile(
             "NVDA", max_expirations=3, risk_free_rate=0.05
         )
         self.assertEqual(result, {"ok": True})

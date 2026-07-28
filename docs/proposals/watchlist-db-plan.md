@@ -192,8 +192,12 @@ concurrent writers`, merged 2026-07-28):
 
 - The DDL now runs in **autocommit, one statement at a time**, so each statement must be
   individually idempotent and convergent on re-run. `CREATE TABLE IF NOT EXISTS` is.
-- [`_split_schema`](../../quantcore/db.py) splits on a bare `;`, so no semicolon may appear
-  inside a string literal or default expression. `DEFAULT '{}'` is safe.
+- [`_split_schema`](../../quantcore/db.py) splits on a bare `;` with no awareness of SQL
+  syntax, so a semicolon may not appear **anywhere** except as a statement terminator —
+  not in a string literal, not in a default expression, and **not inside a `--` comment**.
+  A semicolon in a comment splits the block mid-comment, and the leading fragment is then
+  all-comment, which psycopg2 rejects with `can't execute an empty query`. (Hit while
+  writing this step; the prose was the only casualty.) `DEFAULT '{}'` is safe.
 - `tests/test_schema_bootstrap.py::test_ddl_executes_every_statement` compares against
   `_split_schema(_SCHEMA)` rather than a hard-coded count, so adding this table needs **no
   test change**. Do not add one.

@@ -11,7 +11,7 @@ regressed before:
    ``symbols`` and ``plan_instances``/``plan_rungs`` in full-suite runs).
 2. It runs **at most once per process per DSN**. ``create_app()`` used to call
    ``init_schema()`` unconditionally, so every ``TestClient(create_app())``
-   re-ran all 65 statements mid-suite.
+   re-ran the whole DDL mid-suite.
 
 These tests use a fake connection, so they need no database -- except
 ``test_create_app_does_not_re_run_the_ddl``, which imports ``api.main`` and so
@@ -121,7 +121,7 @@ class SchemaBootstrapTest(unittest.TestCase):
         init.assert_not_called()
 
     def test_create_app_does_not_re_run_the_ddl(self):
-        """Each TestClient(create_app()) used to re-run all 65 statements.
+        """Each TestClient(create_app()) used to re-run the whole DDL.
 
         Exactly one, not "at most one": create_app() is an entry point and must
         still guarantee the tables exist, so dropping the bootstrap altogether

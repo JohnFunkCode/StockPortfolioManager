@@ -123,3 +123,95 @@ class TestGetFastPrice(unittest.TestCase):
     def test_none_on_gateway_error(self):
         self.gateway.fast_info.side_effect = RuntimeError("yahoo down")
         self.assertIsNone(self.service.get_fast_price("INTC"))
+
+
+class TestGetQuotes(unittest.TestCase):
+    """Issue #126 Step 4.4: batched, TTL-cached live quotes for the portfolio
+    page — one yfinance call per due symbol set, shared cache across calls."""
+
+    def setUp(self):
+        self.repo = Mock()
+        self.gateway = Mock()
+        self.service = make_service(self.repo, self.gateway)
+
+    def test_batches_symbols_into_one_upstream_call(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0, "BBB": 20.0}
+        quotes = self.service.get_quotes(["aaa", "bbb"])
+        self.gateway.get_latest_quotes.assert_called_once_with(["AAA", "BBB"])
+        self.assertEqual(quotes["AAA"]["price"], 10.0)
+        self.assertFalse(quotes["AAA"]["stale"])
+        self.assertEqual(quotes["BBB"]["price"], 20.0)
+
+    def test_second_call_within_ttl_makes_no_upstream_call(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1000.0):
+            self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.reset_mock()
+        with patch("quantcore.services.prices.time.monotonic", return_value=1010.0):
+            quotes = self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.assert_not_called()
+        self.assertEqual(quotes["AAA"]["price"], 10.0)
+
+    def test_call_after_ttl_expires_refetches(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1000.0):
+            self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.reset_mock()
+        self.gateway.get_latest_quotes.return_value = {"AAA": 11.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1031.0):
+            quotes = self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.assert_called_once_with(["AAA"])
+        self.assertEqual(quotes["AAA"]["price"], 11.0)
+
+    def test_force_past_floor_refetches_before_normal_ttl_elapses(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1000.0):
+            self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.reset_mock()
+        self.gateway.get_latest_quotes.return_value = {"AAA": 12.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1011.0):
+            quotes = self.service.get_quotes(["AAA"], force=True)
+        self.gateway.get_latest_quotes.assert_called_once_with(["AAA"])
+        self.assertEqual(quotes["AAA"]["price"], 12.0)
+
+    def test_force_within_floor_makes_no_upstream_call(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1000.0):
+            self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.reset_mock()
+        with patch("quantcore.services.prices.time.monotonic", return_value=1005.0):
+            self.service.get_quotes(["AAA"], force=True)
+        self.gateway.get_latest_quotes.assert_not_called()
+
+    def test_upstream_failure_degrades_to_last_close_stale(self):
+        self.gateway.get_latest_quotes.side_effect = RuntimeError("yahoo down")
+        self.repo.daily_bars_for_symbols.return_value = [
+            {"symbol": "AAA", "ts": ts_for(datetime.date(2026, 7, 24)), "close": 9.5,
+             "volume": 100, "high": 10, "low": 9, "open": 9.5},
+        ]
+        quotes = self.service.get_quotes(["AAA"])
+        self.assertEqual(quotes["AAA"]["price"], 9.5)
+        self.assertTrue(quotes["AAA"]["stale"])
+        self.assertIsNotNone(quotes["AAA"]["as_of"])
+
+    def test_missing_quote_with_no_history_degrades_to_none(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": None}
+        self.repo.daily_bars_for_symbols.return_value = []
+        quotes = self.service.get_quotes(["AAA"])
+        self.assertIsNone(quotes["AAA"]["price"])
+        self.assertTrue(quotes["AAA"]["stale"])
+
+    def test_empty_symbols_returns_empty_dict_and_no_call(self):
+        self.assertEqual(self.service.get_quotes([]), {})
+        self.gateway.get_latest_quotes.assert_not_called()
+
+    def test_partial_failure_preserves_prior_cache_entry(self):
+        self.gateway.get_latest_quotes.return_value = {"AAA": 10.0}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1000.0):
+            self.service.get_quotes(["AAA"])
+        self.gateway.get_latest_quotes.reset_mock()
+        self.gateway.get_latest_quotes.return_value = {"AAA": None}
+        with patch("quantcore.services.prices.time.monotonic", return_value=1031.0):
+            quotes = self.service.get_quotes(["AAA"])
+        self.assertEqual(quotes["AAA"]["price"], 10.0)
+        self.repo.daily_bars_for_symbols.assert_not_called()

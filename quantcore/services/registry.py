@@ -234,7 +234,7 @@ def get_services() -> Services:
             harvester_repository=harvester_repository,
             yfinance_gateway=yfinance_gateway,
         ),
-        portfolio=PortfolioService(portfolio_repository=portfolio_repository),
+        portfolio=PortfolioService(portfolio_repository=portfolio_repository, prices=prices, options=options),
         recommendations=RecommendationsService(
             prices=prices,
             options=options,

@@ -310,6 +310,186 @@ class ApiSmokeTest(unittest.TestCase):
             )
 
 
+class LotRoutesTest(unittest.TestCase):
+    """Issue #126 Step 4.5 — REST routes for lots, including the mandatory
+    cross-owner isolation test (owner A cannot read/patch/delete/close owner
+    B's lot). Two distinct owners: the default local principal resolves to
+    "john"; TEST_IDENTITY resolves to TEST_OWNER via the override helper."""
+
+    SYMBOL = "ZZLOTSMOKE"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = create_app()
+        cls.client = TestClient(cls.app)
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        OwnerIdentityRepository().upsert(TEST_IDENTITY, TEST_OWNER)
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM positions WHERE symbol_id IN "
+                "(SELECT symbol_id FROM symbols WHERE ticker = %s)",
+                (self.SYMBOL,),
+            )
+            conn.execute("DELETE FROM symbols WHERE ticker = %s", (self.SYMBOL,))
+            conn.execute("DELETE FROM owner_identities WHERE identity = %s", (TEST_IDENTITY,))
+            conn.commit()
+
+    def _override_principal(self, identity):
+        principal = Principal(subject=identity, is_local=False)
+        self.app.dependency_overrides[require_principal] = lambda: principal
+        self.addCleanup(self.app.dependency_overrides.pop, require_principal, None)
+
+    def _create_lot(self, **overrides):
+        body = {
+            "symbol": self.SYMBOL,
+            "name": "Lot Smoke Co",
+            "currency": "USD",
+            "purchase_price": "10.00",
+            "quantity": "5",
+            "trade_date": "2026-06-01",
+            **overrides,
+        }
+        resp = self.client.post("/api/portfolio/lots", json=body)
+        self.assertEqual(resp.status_code, 201, resp.text)
+        lots = self.client.get("/api/portfolio/lots").json()["lots"]
+        return max((l for l in lots if l["symbol"] == self.SYMBOL), key=lambda l: l["lot_id"])
+
+    def test_create_lot_missing_symbol_returns_plain_400(self):
+        resp = self.client.post("/api/portfolio/lots", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "symbol is required"})
+
+    def test_create_lot_missing_purchase_price_returns_422(self):
+        resp = self.client.post(
+            "/api/portfolio/lots",
+            json={
+                "symbol": self.SYMBOL, "name": "Lot Smoke Co", "currency": "USD",
+                "quantity": "5", "trade_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_create_lot_zero_quantity_returns_422(self):
+        resp = self.client.post(
+            "/api/portfolio/lots",
+            json={
+                "symbol": self.SYMBOL, "name": "Lot Smoke Co", "currency": "USD",
+                "purchase_price": "10.00", "quantity": "0", "trade_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(resp.status_code, 422, resp.text)
+
+    def test_create_lot_returns_symbol_only(self):
+        resp = self.client.post(
+            "/api/portfolio/lots",
+            json={
+                "symbol": self.SYMBOL, "name": "Lot Smoke Co", "currency": "USD",
+                "purchase_price": "10.00", "quantity": "5", "trade_date": "2026-06-01",
+            },
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json(), {"symbol": self.SYMBOL})
+
+    def test_lots_and_symbols_round_trip(self):
+        lot = self._create_lot()
+        self.assertEqual(lot["symbol"], self.SYMBOL)
+        self.assertEqual(lot["status"], "OPEN")
+
+        body = self.client.get("/api/portfolio/symbols").json()
+        rows = body["symbols"]
+        row = next(r for r in rows if r["symbol"] == self.SYMBOL)
+        self.assertEqual([l["lot_id"] for l in row["lots"]], [lot["lot_id"]])
+        self.assertIn("total_investment", row)
+        self.assertIn("total_investment", body["totals"])
+
+    def test_update_lot_patches_fields(self):
+        lot = self._create_lot()
+        resp = self.client.patch(
+            f"/api/portfolio/lots/{lot['lot_id']}", json={"notes": "corrected"}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"lot_id": lot["lot_id"], "updated": True})
+
+    def test_update_lot_no_fields_returns_plain_400(self):
+        lot = self._create_lot()
+        resp = self.client.patch(f"/api/portfolio/lots/{lot['lot_id']}", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "no fields to update"})
+
+    def test_update_missing_lot_returns_404(self):
+        resp = self.client.patch("/api/portfolio/lots/999999999", json={"notes": "x"})
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "lot 999999999 not found"})
+
+    def test_delete_lot_round_trip(self):
+        lot = self._create_lot()
+        resp = self.client.delete(f"/api/portfolio/lots/{lot['lot_id']}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"lot_id": lot["lot_id"], "deleted": True})
+
+    def test_delete_missing_lot_returns_404(self):
+        resp = self.client.delete("/api/portfolio/lots/999999999")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "lot 999999999 not found"})
+
+    def test_close_lot_round_trip(self):
+        lot = self._create_lot()
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close",
+            json={"shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["symbol"], self.SYMBOL)
+        self.assertEqual(len(body["allocations"]), 1)
+
+    def test_close_missing_lot_returns_404(self):
+        resp = self.client.post(
+            "/api/portfolio/lots/999999999/close",
+            json={"shares": "1", "sale_price": "10.00", "sale_trade_date": "2026-07-01"},
+        )
+        self.assertEqual(resp.status_code, 404)
+        self.assertIn("not found", resp.json()["error"])
+
+    def test_close_lot_oversell_returns_422(self):
+        lot = self._create_lot()
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close",
+            json={"shares": "999", "sale_price": "12.00", "sale_trade_date": "2026-07-01"},
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_cross_owner_read_patch_delete_close_all_404(self):
+        # john creates a lot ...
+        lot = self._create_lot()
+        lot_id = lot["lot_id"]
+
+        # ... then a different owner (TEST_OWNER) must not see, patch, delete,
+        # or close it — the repository's owner-scoped WHERE clause yields no
+        # match, which every route surfaces as a plain 404.
+        self._override_principal(TEST_IDENTITY)
+
+        lots = self.client.get("/api/portfolio/lots").json()["lots"]
+        self.assertNotIn(lot_id, [l["lot_id"] for l in lots])
+
+        resp = self.client.patch(f"/api/portfolio/lots/{lot_id}", json={"notes": "hijack"})
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot_id}/close",
+            json={"shares": "1", "sale_price": "1.00", "sale_trade_date": "2026-07-01"},
+        )
+        self.assertEqual(resp.status_code, 404)
+
+        resp = self.client.delete(f"/api/portfolio/lots/{lot_id}")
+        self.assertEqual(resp.status_code, 404)
+
+
 class Phase3SurfaceGapRouteTest(unittest.TestCase):
     """Phase 3 Step 1 — assert every tool→endpoint coverage-gap route is
     registered on the app (offline; proves assembly + route ordering without

@@ -35,6 +35,13 @@
         "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
       }
     },
+    "portfolio-server": {
+      "type": "http",
+      "url": "https://quantcore-portfolio-swgixldxzq-uc.a.run.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${QUANTCORE_MCP_TOKEN}"
+      }
+    },
     "stock-price-server-local": {
       "type": "http",
       "url": "http://localhost:6001/mcp"
@@ -54,6 +61,10 @@
     "market-analysis-server-local": {
       "type": "http",
       "url": "http://localhost:6005/mcp"
+    },
+    "portfolio-server-local": {
+      "type": "http",
+      "url": "http://localhost:6006/mcp"
     }
   }
 }

@@ -15,6 +15,8 @@ import {
   ArbScanCard,
   DiscoveryCard,
 } from '../components/chat/ArbitrageChartCards';
+import PortfolioTableCard from '../components/chat/PortfolioTableCard';
+import SymbolLotsCard from '../components/chat/SymbolLotsCard';
 import type { ChatDirective } from './types';
 
 type PropKind = 'string' | 'number';
@@ -56,6 +58,11 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   // Universe-wide: no props at all.
   arbitrage_scan: { component: ArbScanCard, spec: {}, titled: false },
   arbitrage_discovery: { component: DiscoveryCard, spec: { symbols: 'string' } },
+  // No props: always the caller's own portfolio via the browser's
+  // authenticated session — never add an `owner` prop (decision #20).
+  portfolio_table: { component: PortfolioTableCard, spec: {}, titled: false },
+  // Carries its own "TICKER — Lots" heading, so no titled wrapper.
+  symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
 };
 
 /**

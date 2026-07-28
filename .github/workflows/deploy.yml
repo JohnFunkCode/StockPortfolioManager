@@ -227,6 +227,20 @@ jobs:
             gcloud run deploy "quantcore-$s" --project "$PROJECT_ID" --region "$REGION" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           done
+      - name: Deploy quantcore-portfolio (image-only; env preserved)
+        # quantcore-portfolio's FIRST deploy is a manual one-time step (create
+        # the service with --allow-unauthenticated + SERVER_MODULE/PORT/
+        # QUANTCORE_REST_URL env, mirroring the other 5 wrappers — see
+        # portfolio-lots-plan.md Step 4.8). That config persists across
+        # image-only redeploys. Until that one-time deploy exists, skip rather
+        # than fail (a fresh service can't be image-only deployed).
+        run: |
+          if gcloud run services describe quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
+          else
+            echo "quantcore-portfolio service not found — first deploy is a manual one-time step; skipping image roll-out."
+          fi
       - name: Update report Job image
         run: |
           gcloud run jobs update quantcore-report --project "$PROJECT_ID" --region "$REGION" \

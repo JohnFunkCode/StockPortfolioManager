@@ -118,6 +118,11 @@ def _handle(response: httpx.Response) -> Any:
     raise RestError(response.status_code, payload)
 
 
+# No put/patch/delete verbs exist here, deliberately (#126 Q19): the
+# portfolio-server wrapper (fastMCPTest/portfolio_server.py) is read-only by
+# decision, and a wrapper physically unable to issue a write is defense in
+# depth that doesn't depend on nobody adding a mutating tool later. If MCP
+# writes are ever revisited, adding the verb here is the first step.
 def get(path: str, *, auth_token: Optional[str] = None, **params: Any) -> Any:
     """``GET {REST}/{path}`` with query params; return parsed JSON or raise ``RestError``.
 
@@ -131,6 +136,7 @@ def get(path: str, *, auth_token: Optional[str] = None, **params: Any) -> Any:
         return _handle(client.get(_path(path), params=clean, headers=_headers(auth_token)))
 
 
+# Same note as get() above — no put/patch/delete verb, deliberately.
 def post(
     path: str,
     *,

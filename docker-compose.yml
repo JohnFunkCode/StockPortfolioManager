@@ -158,6 +158,19 @@ services:
     restart: on-failure
     networks: [quantcore]
 
+  portfolio:
+    build: { context: ., dockerfile: Dockerfile.mcp }
+    environment:
+      SERVER_MODULE: fastMCPTest.portfolio_server
+      PORT: "6006"
+      QUANTCORE_REST_URL: "http://quantcore-api:5001"
+    ports: ["6006:6006"]
+    depends_on:
+      quantcore-api:
+        condition: service_healthy
+    restart: on-failure
+    networks: [quantcore]
+
   # --- QuantUI: React/Vite SPA served + /api reverse-proxied to quantcore-api ---
   # Build context is ./frontend (the repo-root .dockerignore excludes frontend/),
   # so the Dockerfile lives one level up at ../Dockerfile.ui. No QUANTCORE_API_TOKEN

@@ -16,6 +16,7 @@ import yaml
 
 from fastMCPTest import company_fundamentals_server as cfs  # noqa: E402
 from fastMCPTest import arbitrage_server as arb  # noqa: E402
+from fastMCPTest import options_analysis as oa  # noqa: E402
 from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
 
@@ -275,6 +276,80 @@ class TestWrapperPortMap(unittest.TestCase):
         for url in local_urls:
             port = int(url.rsplit(":", 1)[1].split("/")[0])
             self.assertIn(port, published, f"{url} has no compose service")
+
+
+class TestOptionsWrapperConsolidation(unittest.TestCase):
+    """Issue #159: the options surface lives on options-analysis, only.
+
+    `get_option_contracts` and `price_vertical_spread` previously existed on
+    BOTH servers with identical bodies hitting identical routes — an agent
+    connected to both saw duplicate tool names with no way to choose. These
+    tests pin the single owner so the duplication cannot return.
+    """
+
+    MOVED = (
+        "get_full_options_chain",
+        "get_option_contracts",
+        "price_vertical_spread",
+        "get_unusual_calls",
+        "get_delta_adjusted_oi",
+        "get_gamma_wall_history",
+        "get_oi_change_analysis",
+        "get_gex_profile",
+    )
+
+    def test_options_tools_live_on_options_analysis(self):
+        for tool in self.MOVED:
+            self.assertTrue(hasattr(oa, tool), f"{tool} missing from options_analysis")
+
+    def test_options_tools_are_gone_from_stock_price(self):
+        for tool in self.MOVED:
+            self.assertFalse(hasattr(sps, tool),
+                             f"{tool} is still on stock_price_server")
+
+    def test_moved_tools_stay_one_rest_call_deep(self):
+        cases = [
+            (lambda: oa.get_full_options_chain("INTC"), "options/full-chain"),
+            (lambda: oa.get_unusual_calls("INTC"), "unusual-calls"),
+            (lambda: oa.get_delta_adjusted_oi("INTC"), "delta-adjusted-oi"),
+            (lambda: oa.get_gamma_wall_history("INTC"), "gamma-wall-history"),
+            (lambda: oa.get_oi_change_analysis("INTC"), "oi-change"),
+            (lambda: oa.get_gex_profile("INTC"), "gex-profile"),
+        ]
+        for call, fragment in cases:
+            with patch.object(oa, "rest_client") as rc:
+                rc.get.return_value = {"ok": True}
+                self.assertEqual(call(), {"ok": True}, fragment)
+                self.assertEqual(rc.get.call_count, 1, fragment)
+                self.assertIn(fragment, rc.get.call_args[0][0])
+
+    def test_the_deduplicated_pair_still_routes_correctly(self):
+        with patch.object(oa, "rest_client") as rc:
+            rc.get.return_value = {"ok": True}
+            oa.get_option_contracts("INTC", ["2026-08-21"], [120.0])
+            self.assertIn("options/contracts", rc.get.call_args[0][0])
+        with patch.object(oa, "rest_client") as rc:
+            rc.post.return_value = {"ok": True}
+            oa.price_vertical_spread("INTC", "2026-08-21", 120.0, 125.0)
+            self.assertIn("options/vertical-spread", rc.post.call_args[0][0])
+
+    def test_no_tool_name_is_served_by_two_wrappers(self):
+        """The general form of the duplication this issue fixed.
+
+        Covers the arbitrage server too, which landed on main in #158 while
+        this branch was open — a new wrapper is exactly when this class of
+        mistake reappears.
+        """
+        seen: dict[str, str] = {}
+        for module, label in ((oa, "options-analysis"), (sps, "stock-price"),
+                              (cfs, "company-fundamentals"), (arb, "arbitrage")):
+            for name in dir(module):
+                obj = getattr(module, name)
+                if callable(obj) and getattr(obj, "__module__", "") == module.__name__ \
+                        and not name.startswith("_") and name.startswith(("get_", "price_", "analyze_")):
+                    if name in seen:
+                        self.fail(f"'{name}' is on both {seen[name]} and {label}")
+                    seen[name] = label
 
 
 if __name__ == "__main__":

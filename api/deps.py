@@ -8,15 +8,9 @@ loaders) so routers stay exactly one service call deep.
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import yaml
-
 from quantcore.services.registry import Services, get_services
 
 from .json_response import QuantCoreJSONResponse
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def services() -> Services:
@@ -51,26 +45,11 @@ def load_portfolio(owner: str) -> list[dict]:
 
 
 def load_watchlist() -> list[dict]:
-    """Load watchlist entries from ./watchlist.yaml (matches the Flask loader)."""
-    wl_path = PROJECT_ROOT / "watchlist.yaml"
-    if not wl_path.exists():
-        return []
-    with open(wl_path) as fh:
-        entries = yaml.safe_load(fh) or []
-    rows = []
-    for e in entries:
-        rows.append(
-            {
-                "name": e.get("name", ""),
-                "symbol": str(e.get("symbol", "")).upper(),
-                "currency": str(e.get("currency", "USD")).upper(),
-                "purchase_price": None,
-                "quantity": None,
-                "purchase_date": None,
-                "sale_price": None,
-                "sale_date": None,
-                "source": "watchlist",
-                "tags": e.get("tags") or [],
-            }
-        )
-    return rows
+    """Load watchlist entries from the DB-backed watchlist table.
+
+    Issue #83: this read the repo's ``watchlist.yaml``, which is baked into the
+    container image and read-only in Cloud Run, so anything the UI added
+    vanished. Repointing this one function also fixes ``GET /api/securities``,
+    the sentiment summary and the screener, which all go through it.
+    """
+    return get_services().watchlist.list_entries()

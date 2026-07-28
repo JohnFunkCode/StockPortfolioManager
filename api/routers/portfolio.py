@@ -5,12 +5,17 @@ Ports the Flask handlers (api/app.py) for:
   DELETE    /api/portfolio/{ticker}
   POST      /api/portfolio/import    (multipart file OR JSON path)
   GET/POST  /api/watchlist
+  DELETE    /api/watchlist/{ticker}
   GET       /api/securities
   GET       /api/securities/lookup
 
 The owner is resolved from the authenticated principal via ``require_owner``
 (issue #126 decision #1) — there is no ``?owner=`` query param; there is no
 legitimate cross-user read path on this endpoint.
+
+The watchlist routes are the exception: that list is global (issue #83), so
+its writes take ``require_principal`` instead — authenticated, but not
+owner-scoped, since there is no owner to scope them to.
 
 These routes returned the bare ``{"error": message}`` body (no ``status`` key)
 on validation/not-found, so they use ``route_error_plain`` rather than the
@@ -23,12 +28,10 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-import yaml
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 
-from ..auth import require_owner
+from ..auth import Principal, require_owner, require_principal
 from ..deps import (
-    PROJECT_ROOT,
     load_portfolio,
     load_watchlist,
     route_error_plain,
@@ -47,6 +50,7 @@ from ..schemas.portfolio import (
     ImportResult,
     LotsResponse,
     RemovePositionResponse,
+    RemoveWatchlistResponse,
     SecuritiesResponse,
     SymbolLookupResponse,
     SymbolRowsResponse,
@@ -244,33 +248,46 @@ def get_watchlist() -> QuantCoreJSONResponse:
 
 
 @router.post("/watchlist", response_model=AddSecurityResponse, status_code=201)
-def add_to_watchlist(body: AddWatchlistRequest) -> QuantCoreJSONResponse:
-    """Append a new entry to ./watchlist.yaml."""
-    symbol = (body.symbol or "").strip().upper()
-    if not symbol:
-        return route_error_plain("symbol is required", 400)
+def add_to_watchlist(
+    body: AddWatchlistRequest, principal: Principal = Depends(require_principal)
+) -> QuantCoreJSONResponse:
+    """Add a symbol to the global watchlist.
 
-    existing = {s["symbol"] for s in load_watchlist()}
-    if symbol in existing:
-        return route_error_plain(f"{symbol} is already in the watchlist", 409)
+    ``require_principal`` rather than ``require_owner`` (decision 5): the list
+    is shared, so any authenticated caller may write to it; the principal is
+    recorded in ``added_by`` for audit only.
+    """
+    try:
+        result = services().watchlist.add_entry(
+            symbol=body.symbol or "",
+            name=body.name,
+            currency=body.currency or "USD",
+            tags=body.tags,
+            added_by=principal.owner,
+        )
+    except DuplicateSymbolError as exc:
+        return route_error_plain(str(exc), 409)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 400)
 
-    wl_path = PROJECT_ROOT / "watchlist.yaml"
-    name = (body.name or "").strip()
-    currency = (body.currency or "USD").strip().upper()
-    tags = [t.strip() for t in (body.tags or []) if str(t).strip()]
+    return QuantCoreJSONResponse(
+        {"symbol": result["symbol"], "destination": "watchlist"}, status_code=201
+    )
 
-    entry: dict = {"name": name or symbol, "symbol": symbol, "currency": currency}
-    if tags:
-        entry["tags"] = tags
 
-    existing_text = wl_path.read_text() if wl_path.exists() else ""
-    new_block = yaml.dump([entry], default_flow_style=False, allow_unicode=True)
-    with open(wl_path, "a") as fh:
-        if existing_text and not existing_text.endswith("\n"):
-            fh.write("\n")
-        fh.write(new_block)
+@router.delete("/watchlist/{ticker}", response_model=RemoveWatchlistResponse)
+def remove_from_watchlist(
+    ticker: str, principal: Principal = Depends(require_principal)
+) -> QuantCoreJSONResponse:
+    """Remove a symbol from the global watchlist.
 
-    return QuantCoreJSONResponse({"symbol": symbol, "destination": "watchlist"}, status_code=201)
+    New in issue #83 — the YAML-backed watchlist had no delete path at all.
+    """
+    ticker = ticker.strip().upper()
+    removed = services().watchlist.remove_entry(ticker)
+    if removed == 0:
+        return route_error_plain(f"{ticker} not found in watchlist", 404)
+    return QuantCoreJSONResponse({"symbol": ticker, "removed": True})
 
 
 # --------------------------------------------------------------------------- #

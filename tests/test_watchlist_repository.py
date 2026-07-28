@@ -5,9 +5,14 @@ column in the schema and the first table with no `owner` scoping — so these
 tests hit real SQL rather than a fake connection.
 
 The watchlist is global, so `replace_all` truncates whatever the configured
-database holds. Every test here snapshots the full table (including
-`added_by`, which `list_entries` does not return) and restores it on cleanup,
-so running the suite against a populated test database is non-destructive.
+database holds. This class snapshots the full table (including `added_by`,
+which `list_entries` does not return) and restores it on teardown, so running
+the suite against a populated test database is non-destructive.
+
+The snapshot/restore is per-class, not per-test: restoring is one INSERT per
+row, and against a seeded database (227 entries) doing that after every test
+put the suite in the minutes. Individual tests already filter by their own
+synthetic symbols, so they do not need the real rows present in between.
 """
 import unittest
 from contextlib import closing
@@ -33,15 +38,18 @@ ORDER BY s.ticker;
 
 
 class WatchlistRepositoryTest(unittest.TestCase):
-    def setUp(self):
-        self.repo = WatchlistRepository()
+    @classmethod
+    def setUpClass(cls):
+        cls.repo = WatchlistRepository()
         with closing(get_connection()) as conn:
-            self._saved = [dict(r) for r in conn.execute(SQL_SNAPSHOT).fetchall()]
-        self.addCleanup(self._restore)
-        self._purge()
+            cls._saved = [dict(r) for r in conn.execute(SQL_SNAPSHOT).fetchall()]
 
-    def _restore(self):
-        self.repo.replace_all(self._saved)
+    @classmethod
+    def tearDownClass(cls):
+        cls.repo.replace_all(cls._saved)
+
+    def setUp(self):
+        self._purge()
 
     def _purge(self):
         for sym in (SYMBOL, OTHER):
@@ -117,11 +125,18 @@ class WatchlistRepositoryTest(unittest.TestCase):
             self.assertIsNone(entry[key])
 
     def test_list_is_ordered_by_symbol(self):
-        self.repo.add_entry(OTHER)
-        self.repo.add_entry(SYMBOL)
+        """Inserted out of order, returned in order.
+
+        Asserted against a controlled two-row table rather than whatever the
+        database holds: PostgreSQL's collation ignores punctuation at the
+        primary level, so a real seeded list sorts 'TE.PA' after 'TENB' while
+        Python's code-point ``sorted()`` does the opposite. That difference is
+        the collation, not an ordering bug, and it should not fail this test.
+        """
+        self.repo.replace_all([{"symbol": OTHER}, {"symbol": SYMBOL}])
 
         symbols = [e["symbol"] for e in self.repo.list_entries()]
-        self.assertEqual(symbols, sorted(symbols))
+        self.assertEqual(symbols, [SYMBOL, OTHER])
 
     def test_replace_all_is_a_full_sync(self):
         self.repo.add_entry(SYMBOL, name="Doomed")

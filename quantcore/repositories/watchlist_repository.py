@@ -33,6 +33,13 @@ SQL_GET_SYMBOL_ID = """
 SELECT symbol_id FROM symbols WHERE ticker = :ticker;
 """
 
+# The bulk counterpart of SQL_GET_SYMBOL_ID: one round trip for the whole
+# import instead of one per row. psycopg2 adapts the Python list to a
+# PostgreSQL array for ANY().
+SQL_GET_SYMBOL_IDS = """
+SELECT symbol_id, ticker FROM symbols WHERE ticker = ANY(:tickers);
+"""
+
 SQL_LIST_ENTRIES = """
 SELECT
     w.watchlist_id AS watchlist_id,
@@ -52,6 +59,15 @@ INSERT INTO watchlist (symbol_id, name, currency, tags, added_by)
 VALUES (:symbol_id, :name, :currency, :tags, :added_by)
 ON CONFLICT (symbol_id) DO NOTHING
 RETURNING watchlist_id;
+"""
+
+# Same insert without RETURNING, for the batched import path: execute_batch
+# pipelines the statements and discards result sets, so the caller can't read
+# per-row conflicts back out of it.
+SQL_INSERT_ENTRY_BULK = """
+INSERT INTO watchlist (symbol_id, name, currency, tags, added_by)
+VALUES (:symbol_id, :name, :currency, :tags, :added_by)
+ON CONFLICT (symbol_id) DO NOTHING;
 """
 
 SQL_DELETE_ENTRY = """
@@ -173,18 +189,52 @@ class WatchlistRepository:
         """Full-sync: delete every entry and insert `rows`, atomically.
 
         Returns the number of rows actually inserted, which is less than
-        `len(rows)` if the input repeats a symbol — the UNIQUE constraint
-        collapses the duplicates instead of failing the import.
+        `len(rows)` if the input repeats a symbol — the duplicates are
+        collapsed instead of failing the import.
+
+        Batched in three round trips (symbols, ids, entries) rather than the
+        obvious loop over `_insert_entry`, which costs three trips *per row*:
+        at the Cloud SQL proxy's ~90ms RTT that put the 227-entry seed at ~60
+        seconds, and paid it again after every test that restores the table.
         """
-        inserted = 0
+        # Deduped here rather than left to ON CONFLICT, because the batched
+        # insert can't report which rows conflicted — the count has to be
+        # settled before the write. First occurrence wins, matching the
+        # per-row path where the second insert is the one that no-ops.
+        deduped: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            ticker = (row.get("symbol") or "").strip().upper()
+            if ticker and ticker not in deduped:
+                deduped[ticker] = row
+
+        now = _utc_now_iso()
         with closing(get_connection()) as conn:
             try:
                 conn.execute(SQL_DELETE_ALL)
-                for row in rows:
-                    if self._insert_entry(conn, row) is not None:
-                        inserted += 1
+                if deduped:
+                    tickers = list(deduped)
+                    conn.executemany(
+                        SQL_INSERT_SYMBOL,
+                        [{"ticker": t, "created_at": now} for t in tickers],
+                    )
+                    ids = {
+                        r["ticker"]: int(r["symbol_id"])
+                        for r in conn.execute(
+                            SQL_GET_SYMBOL_IDS, {"tickers": tickers}
+                        ).fetchall()
+                    }
+                    conn.executemany(SQL_INSERT_ENTRY_BULK, [
+                        {
+                            "symbol_id": ids[t],
+                            "name": row.get("name"),
+                            "currency": row.get("currency") or "USD",
+                            "tags": list(row.get("tags") or []),
+                            "added_by": row.get("added_by"),
+                        }
+                        for t, row in deduped.items()
+                    ])
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
-        return inserted
+        return len(deduped)

@@ -2,7 +2,7 @@
 
 **Source issue:** [#126](https://github.com/JohnFunkCode/StockPortfolioManager/issues/126)
 **Design decisions:** [#126 consolidated comment](https://github.com/JohnFunkCode/StockPortfolioManager/issues/126#issuecomment-5087339742)
-**Status:** NOT STARTED — no code written
+**Status:** COMPLETE — PR 1-4 merged (#149, #150, #151, #153, #154); see checkpoint log
 **Related:** #83 (watchlist persistence), #145 (realized gain/loss view), #146 (MM delta exposure placement), #147 (decouple `main.py` report)
 
 ---
@@ -1030,3 +1030,8 @@ directory: date, step, what landed, what was verified, anything surprising.
 | Date | Step | Status | Notes |
 |---|---|---|---|
 | 2026-07-26 | — | Plan written | Decisions consolidated on #126; no code written |
+| 2026-07-27 | PR 1 (Steps 1.1-1.3) | Merged (#149) | QuantUI rebrand, dashboard moved to `/harvester`, Portfolio route placeholder added |
+| 2026-07-27 | PR 2 (Steps 2.1-2.7) | Merged (#150) | `owner_identities` migration, owner resolved from authenticated principal, `?owner=` removed from every route, restricted-access screen, atomic onboarding |
+| 2026-07-27 | PR 3 (Steps 3.1-3.4) | Merged (#151) | `V4__portfolio_lots.sql`, repository returns lot identity instead of overwriting, service allows multiple/fractional lots, multi-lot reader fix in the daily job |
+| 2026-07-28 | PR 4 (Steps 4.1-4.6) | Merged (#153) | `portfolio_math.py`, lot allocation, `PortfolioService` lot lifecycle, batched-quote TTL cache, REST lot routes, Portfolio page. Follow-up fix in same PR: validate lot writes and guard `portfolio_math` against missing fields |
+| 2026-07-28 | PR 4 (Steps 4.7-4.8) | Merged (#154) | Sidekick registry parity + read-only `portfolio-server` MCP wrapper. Review fix in same PR: normalize ticker case in `SymbolLotsCard` lookup, added lowercase-ticker regression test |

@@ -28,6 +28,21 @@ describe('SymbolLotsCard', () => {
     expect(screen.queryByText('MSFT')).not.toBeInTheDocument();
   });
 
+  it('normalizes a lowercase ticker to match the API\'s uppercase symbol', async () => {
+    mockApi([
+      [
+        '/api/portfolio/symbols',
+        {
+          symbols: [symbolRow({ symbol: 'INTC', lots: [lotRow({ lot_id: 1 })] })],
+          totals: portfolioTotals(),
+        },
+      ],
+    ]);
+    renderWithProviders(<SymbolLotsCard ticker="intc" />);
+    await waitFor(() => expect(screen.getByTestId('symbol-lots-card')).toBeInTheDocument());
+    expect(screen.getByText('INTC — Lots')).toBeInTheDocument();
+  });
+
   it('shows an info alert when the symbol has no lots', async () => {
     mockApi([
       ['/api/portfolio/symbols', { symbols: [symbolRow({ symbol: 'MSFT' })], totals: portfolioTotals() }],

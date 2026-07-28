@@ -33,6 +33,7 @@ function gainColor(value: number | null): string | undefined {
 }
 
 export default function SymbolLotsCard({ ticker }: { ticker: string }) {
+  const normalizedTicker = ticker.trim().toUpperCase();
   const { data, isLoading, error } = useSymbolRows();
 
   if (isLoading) {
@@ -40,24 +41,24 @@ export default function SymbolLotsCard({ ticker }: { ticker: string }) {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 2 }}>
         <CircularProgress size={18} />
         <Typography variant="body2" color="text.secondary">
-          Loading {ticker} lots…
+          Loading {normalizedTicker} lots…
         </Typography>
       </Box>
     );
   }
   if (error) {
-    return <Alert severity="error">Couldn&apos;t load lots for {ticker}.</Alert>;
+    return <Alert severity="error">Couldn&apos;t load lots for {normalizedTicker}.</Alert>;
   }
 
-  const row = (data?.symbols ?? []).find((s) => s.symbol === ticker);
+  const row = (data?.symbols ?? []).find((s) => s.symbol === normalizedTicker);
   if (!row) {
-    return <Alert severity="info">No {ticker} lots in your portfolio.</Alert>;
+    return <Alert severity="info">No {normalizedTicker} lots in your portfolio.</Alert>;
   }
 
   return (
     <Box data-testid="symbol-lots-card">
       <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
-        {ticker} — Lots
+        {normalizedTicker} — Lots
       </Typography>
       <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
         <Metric label="Investment" value={formatCurrency(row.total_investment)} />

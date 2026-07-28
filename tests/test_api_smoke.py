@@ -34,6 +34,18 @@ from api.main import create_app  # noqa: E402
 TEST_SYMBOL = "ZZAPISMOKE"
 TEST_TEMPLATE = "zz_api_smoke_template"
 
+# The watchlist is global (issue #83), so its tests get their own symbol and
+# clean up after themselves rather than snapshotting the table.
+WATCHLIST_SYMBOL = "ZZWLAPI"
+
+# The exact key set api/deps.load_watchlist() produced from watchlist.yaml.
+# GET /api/securities merges watchlist rows with portfolio rows into one list,
+# so the DB-backed rows have to keep carrying the None placeholders.
+LEGACY_SECURITY_KEYS = {
+    "name", "symbol", "currency", "purchase_price", "quantity",
+    "purchase_date", "sale_price", "sale_date", "source", "tags",
+}
+
 # Owner-scoping (issue #126 PR 2): a principal must resolve through
 # IdentityService.resolve_owner, so tests map a fake identity to the owner
 # handle rather than passing ?owner= directly.
@@ -60,6 +72,19 @@ class ApiSmokeTest(unittest.TestCase):
                 "(SELECT symbol_id FROM symbols WHERE ticker = %s)",
                 (TEST_SYMBOL,),
             )
+            # Watchlist and positions rows both FK to symbols, so they go first
+            # or the symbols delete below fails.
+            conn.execute(
+                "DELETE FROM watchlist WHERE symbol_id IN "
+                "(SELECT symbol_id FROM symbols WHERE ticker = %s)",
+                (WATCHLIST_SYMBOL,),
+            )
+            conn.execute(
+                "DELETE FROM positions WHERE symbol_id IN "
+                "(SELECT symbol_id FROM symbols WHERE ticker = %s)",
+                (WATCHLIST_SYMBOL,),
+            )
+            conn.execute("DELETE FROM symbols WHERE ticker = %s", (WATCHLIST_SYMBOL,))
             conn.execute("DELETE FROM symbols WHERE ticker = %s", (TEST_SYMBOL,))
             conn.execute("DELETE FROM plan_templates WHERE name = %s", (TEST_TEMPLATE,))
             conn.execute("DELETE FROM owner_identities WHERE identity = %s", (TEST_IDENTITY,))
@@ -74,6 +99,35 @@ class ApiSmokeTest(unittest.TestCase):
         principal = Principal(subject=identity, is_local=False)
         self.app.dependency_overrides[require_principal] = lambda: principal
         self.addCleanup(self.app.dependency_overrides.pop, require_principal, None)
+
+    def _route_dependencies(self, method, path):
+        """Every dependency callable reachable from one route's handler.
+
+        Walks nested routers: create_app() includes each module's router, and
+        this FastAPI version keeps them as lazy container objects in
+        app.routes, so the endpoints hang off `original_router` rather than
+        being flattened into the app.
+        """
+        pending = list(self.app.routes)
+        while pending:
+            route = pending.pop()
+            nested = getattr(route, "routes", None) or getattr(
+                getattr(route, "original_router", None), "routes", None
+            )
+            if nested:
+                pending.extend(nested)
+                continue
+            if getattr(route, "path", None) != path or method not in getattr(
+                route, "methods", ()
+            ):
+                continue
+            found, queue = set(), list(route.dependant.dependencies)
+            while queue:
+                dep = queue.pop()
+                found.add(dep.call)
+                queue.extend(dep.dependencies)
+            return found
+        raise AssertionError(f"no route for {method} {path}")
 
     def _seed_plan(self, status="ACTIVE", rungs=((1, 110.0, 10), (2, 120.0, 10))):
         now = _utc_now_iso()
@@ -247,6 +301,97 @@ class ApiSmokeTest(unittest.TestCase):
         resp = self.client.post("/api/watchlist", json={})
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json(), {"error": "symbol is required"})
+
+    # --- Watchlist writes (issue #83) -----------------------------------
+    #
+    # The YAML-backed watchlist appended to a file inside the container image,
+    # so on Cloud Run an add survived until the next request hit a different
+    # instance. These go through the API against the real table.
+
+    def test_add_watchlist_round_trips_through_the_database(self):
+        resp = self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL.lower(),
+            "name": "Watchlist Smoke Co",
+            "currency": "usd",
+            "tags": ["ai", ""],
+        })
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(
+            resp.json(), {"symbol": WATCHLIST_SYMBOL, "destination": "watchlist"}
+        )
+
+        listed = self.client.get("/api/watchlist").json()["securities"]
+        [entry] = [s for s in listed if s["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(set(entry), LEGACY_SECURITY_KEYS)
+        self.assertEqual(entry["source"], "watchlist")
+        self.assertEqual(entry["name"], "Watchlist Smoke Co")
+        self.assertEqual(entry["currency"], "USD", "currency is normalized")
+        self.assertEqual(entry["tags"], ["ai"], "blank tags are dropped")
+        for key in ("purchase_price", "quantity", "purchase_date",
+                    "sale_price", "sale_date"):
+            self.assertIsNone(entry[key])
+
+        resp = self.client.delete(f"/api/watchlist/{WATCHLIST_SYMBOL.lower()}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"symbol": WATCHLIST_SYMBOL, "removed": True})
+
+        listed = self.client.get("/api/watchlist").json()["securities"]
+        self.assertEqual([s for s in listed if s["symbol"] == WATCHLIST_SYMBOL], [])
+
+    def test_add_watchlist_duplicate_returns_409(self):
+        self.client.post("/api/watchlist", json={"symbol": WATCHLIST_SYMBOL})
+        resp = self.client.post("/api/watchlist", json={"symbol": WATCHLIST_SYMBOL})
+        self.assertEqual(resp.status_code, 409)
+        self.assertEqual(
+            resp.json(), {"error": f"{WATCHLIST_SYMBOL} is already in the watchlist"}
+        )
+
+    def test_remove_missing_watchlist_symbol_returns_404(self):
+        resp = self.client.delete("/api/watchlist/ZZNOSUCH")
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "ZZNOSUCH not found in watchlist"})
+
+    def test_watchlist_writes_are_authenticated_but_not_owner_scoped(self):
+        """Plan decision 5: the list is global, so its writes take
+        ``require_principal`` (any authenticated caller) rather than
+        ``require_owner``, which would 403 an identity with no owner mapping.
+
+        Asserted on the dependency graph rather than by calling the routes
+        unauthenticated: with no signing key configured ``require_principal``
+        hands back a local principal, so a 401 never surfaces in this suite —
+        tests/test_auth.py covers the rejection itself.
+        """
+        from api.auth import require_owner
+
+        for method, path in (("POST", "/api/watchlist"),
+                             ("DELETE", "/api/watchlist/{ticker}")):
+            deps = self._route_dependencies(method, path)
+            self.assertIn(require_principal, deps, f"{method} {path}")
+            self.assertNotIn(require_owner, deps, f"{method} {path}")
+
+        # The contrast that gives the assertion above its meaning: adding to
+        # the portfolio *is* owner-scoped. (require_principal alone proves
+        # little — create_app applies it to every business router.)
+        self.assertIn(
+            require_owner, self._route_dependencies("POST", "/api/portfolio")
+        )
+
+    def test_securities_marks_a_symbol_in_both_lists_as_both(self):
+        self._override_principal(TEST_IDENTITY)
+        self.client.post("/api/portfolio", json={
+            "symbol": WATCHLIST_SYMBOL, "purchase_price": 10.0, "quantity": 2,
+            "purchase_date": "2026-06-01",
+        })
+        self.addCleanup(self.client.delete, f"/api/portfolio/{WATCHLIST_SYMBOL}")
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "tags": ["ai"],
+        })
+
+        combined = self.client.get("/api/securities").json()["securities"]
+        [entry] = [s for s in combined if s["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(entry["source"], "both")
+        self.assertEqual(entry["tags"], ["ai"], "watchlist tags win on a merge")
+        self.assertEqual(entry["quantity"], 2, "portfolio fields survive")
 
     def test_lookup_missing_symbol_returns_plain_400(self):
         resp = self.client.get("/api/securities/lookup")

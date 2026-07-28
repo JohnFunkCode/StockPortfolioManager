@@ -162,6 +162,19 @@ class WatchlistRepositoryTest(unittest.TestCase):
         self.assertEqual(inserted, 1)
         self.assertEqual([e["symbol"] for e in self.repo.list_entries()], [SYMBOL])
 
+    def test_replace_all_skips_rows_with_no_symbol(self):
+        """A blank symbol is dropped rather than registered as an empty ticker
+        in `symbols`, and is not counted as imported.
+        """
+        inserted = self.repo.replace_all([
+            {"symbol": SYMBOL},
+            {"symbol": "   "},
+            {"name": "no symbol key at all"},
+        ])
+
+        self.assertEqual(inserted, 1)
+        self.assertEqual([e["symbol"] for e in self.repo.list_entries()], [SYMBOL])
+
     def test_count_tracks_the_table(self):
         before = self.repo.count()
         self.repo.add_entry(SYMBOL)

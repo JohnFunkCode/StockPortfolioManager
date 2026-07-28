@@ -12,6 +12,7 @@ import {
   useOHLCV,
   useRefreshOptionsSnapshots,
   useRemoveFromPortfolio,
+  useRemoveFromWatchlist,
   useSecurities,
   useSymbolLookup,
   useTechnicals,
@@ -92,6 +93,23 @@ describe('mutation hooks', () => {
     result.current.mutate('INTC');
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(api.calls[0][1]?.method).toBe('DELETE');
+  });
+
+  it('useRemoveFromWatchlist DELETEs the global route (no owner param)', async () => {
+    const api = mockApi([['/api/watchlist/INTC', { symbol: 'INTC', removed: true }]]);
+    const { result } = renderHookWithProviders(() => useRemoveFromWatchlist());
+    result.current.mutate('INTC');
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(api.calls[0][0]).toContain('/api/watchlist/INTC');
+    expect(api.calls[0][0]).not.toContain('owner=');
+    expect(api.calls[0][1]?.method).toBe('DELETE');
+  });
+
+  it('useRemoveFromWatchlist surfaces a 404 rather than reporting success', async () => {
+    mockApi([['/api/watchlist/NOPE', { __status: 404, error: 'NOPE not found in watchlist' }]]);
+    const { result } = renderHookWithProviders(() => useRemoveFromWatchlist());
+    result.current.mutate('NOPE');
+    await waitFor(() => expect(result.current.isError).toBe(true));
   });
 
   it('useRefreshOptionsSnapshots posts source and chain type', async () => {

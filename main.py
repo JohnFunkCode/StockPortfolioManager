@@ -609,10 +609,12 @@ if __name__ == "__main__":
     # Create a watchlist of stocks to track
     watchlist = watch_list.WatchList()
 
-
-    # read watchlist from yaml file
-    yaml_file = script_dir / "watchlist.yaml"
-    watchlist.read_stocks_from_yaml(yaml_file)
+    # Load the watchlist from the DB-backed source of truth (watchlist table,
+    # issue #83). watchlist.yaml is now only an import file; refresh it via
+    # scripts/import_watchlist.py. There is deliberately no fallback to the
+    # YAML when the table is empty — a silent fallback would re-hide exactly
+    # the failure this issue is about.
+    watchlist.read_stocks_from_records(get_services().watchlist.list_entries())
     watchlist.update_all_prices()
     watchlist.update_metrics()
 

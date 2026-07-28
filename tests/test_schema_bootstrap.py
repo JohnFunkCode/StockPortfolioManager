@@ -13,7 +13,9 @@ regressed before:
    ``init_schema()`` unconditionally, so every ``TestClient(create_app())``
    re-ran all 65 statements mid-suite.
 
-These tests use a fake connection, so they need no database.
+These tests use a fake connection, so they need no database -- except
+``test_create_app_does_not_re_run_the_ddl``, which imports ``api.main`` and so
+inherits that module's real bootstrap on the first import in the process.
 """
 import unittest
 from unittest.mock import patch
@@ -119,14 +121,25 @@ class SchemaBootstrapTest(unittest.TestCase):
         init.assert_not_called()
 
     def test_create_app_does_not_re_run_the_ddl(self):
-        """Each TestClient(create_app()) used to re-run all 65 statements."""
+        """Each TestClient(create_app()) used to re-run all 65 statements.
+
+        Exactly one, not "at most one": create_app() is an entry point and must
+        still guarantee the tables exist, so dropping the bootstrap altogether
+        has to fail here too.
+        """
+        # api/main.py builds a module-level ``app = create_app()`` for uvicorn,
+        # so the first import of it in a process bootstraps the schema before
+        # the patch below is in place. Clear the record afterwards, or this
+        # test measures which module imported api.main first rather than what
+        # create_app() does.
         from api.main import create_app
+        db._schema_ready_dsns.clear()
 
         with patch.object(db, "init_schema") as init:
             create_app()
             create_app()
 
-        self.assertLessEqual(init.call_count, 1)
+        self.assertEqual(init.call_count, 1)
 
 
 if __name__ == "__main__":

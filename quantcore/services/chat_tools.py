@@ -35,6 +35,11 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # No props: the scan covers the whole curated universe.
     "arbitrage_scan": {},
     "arbitrage_discovery": {"symbols": str},
+    # No props: the card fetches the caller's own portfolio via the browser's
+    # authenticated session. Never add an `owner` prop here — that would let
+    # the model pick whose portfolio to show, a cross-user read (decision #20).
+    "portfolio_table": {},
+    "symbol_lots": {"ticker": str},
 }
 
 
@@ -359,7 +364,14 @@ TOOL_SCHEMAS: list[dict] = [
             "universe (no props), "
             "'arbitrage_discovery' plots a cointegration sweep — correlation "
             "against test statistic, with near-misses visible against the "
-            "critical-value line (requires symbols, comma-separated)."
+            "critical-value line (requires symbols, comma-separated), "
+            "'portfolio_table' shows the caller's own portfolio as a per-symbol "
+            "table with totals (no props — always the caller's own holdings, "
+            "never another user's), "
+            "'symbol_lots' shows the caller's individual lots for one symbol in "
+            "their portfolio (requires ticker). Both portfolio components are "
+            "read-only — there is no component or tool for adding, editing, or "
+            "closing a lot; tell the user to use the Portfolio page for that."
         ),
         "input_schema": {
             "type": "object",

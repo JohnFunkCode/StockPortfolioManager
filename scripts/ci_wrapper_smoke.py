@@ -28,6 +28,7 @@ WRAPPERS = [
     ("fastMCPTest.company_fundamentals_server", "company-fundamentals", 1),
     ("fastMCPTest.news_sentiment_server", "news-sentiment", 1),
     ("fastMCPTest.market_analysis_server", "market-analysis", 1),
+    ("fastMCPTest.portfolio_server", "portfolio", 4),
 ]
 
 

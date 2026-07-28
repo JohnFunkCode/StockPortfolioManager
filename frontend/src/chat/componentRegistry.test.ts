@@ -20,9 +20,37 @@ describe('COMPONENT_REGISTRY', () => {
       'arbitrage_premium',
       'arbitrage_scan',
       'arbitrage_discovery',
+      'portfolio_table',
+      'symbol_lots',
     ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
     }
+  });
+
+  it('portfolio_table takes no props — never an owner prop, never a ticker', () => {
+    // Mirrors test_chat_tools.py: the card resolves the caller's own
+    // portfolio from the authenticated session. A model-settable owner
+    // would allow a cross-user read (decision #20).
+    expect(validateDirective({ component: 'portfolio_table', props: {} }).ok).toBe(true);
+    expect(
+      validateDirective({ component: 'portfolio_table', props: { owner: 'someone_else' } }).ok,
+    ).toBe(false);
+    expect(
+      validateDirective({ component: 'portfolio_table', props: { ticker: 'INTC' } }).ok,
+    ).toBe(false);
+  });
+
+  it('symbol_lots takes a ticker and rejects an owner prop', () => {
+    expect(validateDirective({ component: 'symbol_lots', props: { ticker: 'INTC' } }).ok).toBe(
+      true,
+    );
+    expect(validateDirective({ component: 'symbol_lots', props: {} }).ok).toBe(false);
+    expect(
+      validateDirective({
+        component: 'symbol_lots',
+        props: { ticker: 'INTC', owner: 'someone_else' },
+      }).ok,
+    ).toBe(false);
   });
 
   it('accepts the arbitrage chart directives and rejects wrong props', () => {

@@ -533,3 +533,21 @@ to make loud.
 | 2026-07-28 | — | Plan written | Decisions 1-8 answered by the repo owner; no code written |
 | 2026-07-28 | — | Revised to one PR | Decision 9: four staged PRs → one branch, one commit per step; cut-short point at 2.4 |
 | 2026-07-28 | — | Branch cut | `feat/watchlist-db` off `main` @ `969bf2c` (post-#156). Step 1.0 added to carry the PR #156 review fix; Step 1.1 gained the post-#156 `_SCHEMA` constraints |
+| 2026-07-28 | 1.0 | Done | `a20130e` — the `create_app` schema-bootstrap guard now actually binds (folded-in PR #156 review fix) |
+| 2026-07-28 | 1.1 | Done | `6be0100` — `watchlist` table as Flyway `V5` + `_SCHEMA` mirror in `quantcore/db.py`. No `owner` column (decision 1); `added_by` records the writing principal for audit (decision 5) |
+| 2026-07-28 | 1.2 | Done | `fc3b2c8` — `WatchlistRepository` (SQL only) |
+| 2026-07-28 | 1.3 | Done | `ab9ec31` — `WatchlistService` |
+| 2026-07-28 | 1.4 | Done | `ec6b7d5` — registered in `quantcore/services/registry.py` (constructor-injected, acyclic) |
+| 2026-07-28 | 1.5 | Done | `be75aeb` — `GET/POST /api/watchlist` + `DELETE /api/watchlist/{ticker}` read/write the table. `require_principal`, not `require_owner` (decision 5) |
+| 2026-07-28 | — | Perf follow-up | `b5f48c8` — `replace_all` batched from N round trips to three; fixed an ordering assumption the batching exposed in the repo tests |
+| 2026-07-28 | 1.6 | Done | `532ccca` — `scripts/import_watchlist.py --yaml watchlist.yaml`, full-sync replace, refuses the prod DSN without `--allow-prod` |
+| 2026-07-28 | 1.7 | Done | `911ce20` — watchlist writes covered end-to-end through the API |
+| 2026-07-28 | 2.1 | Done | `ac5c5b5` — `main.py` builds the report's watchlist from `get_services().watchlist.list_entries()` via a new `WatchList.read_stocks_from_records()`. No YAML fallback (decision 7) |
+| 2026-07-28 | 2.2 | Done | `ef88f1d` — `alert_if_watchlist_empty()` fires a Discord alarm and keeps going, rather than degrading quietly (decision 8, "bilge pump") |
+| 2026-07-28 | 2.3 | Done | `0d47100` — the options screener reads the DB watchlist over REST; the `--watchlist` CLI flag stays as an explicit file override |
+| 2026-07-28 | 2.4 | Done | `b88daae` — `scripts/generate_watchlist_fundamentals_report.py` defaults to the table (`--watchlist` still takes a file). Verified both paths return the same 227 entries |
+| 2026-07-28 | 3.1 | Done | `5b2787a` — `securitiesApi.removeFromWatchlist` + `useRemoveFromWatchlist`; no `owner` param, unlike the portfolio hook |
+| 2026-07-28 | 3.2 | Done | `83a5b0e` — Remove-from-Watchlist button + confirmation on **`SecurityDetailPage.tsx`**; the plan said `SecuritiesPage.tsx`, but the portfolio remove affordance it mirrors lives on the detail page. 7 new vitest cases (success, 404 keeps the dialog open, in-flight disable, `both`-row disambiguation, absent for portfolio-only) |
+| 2026-07-28 | 4.1 | Done | `a460665` — `list_watchlist` + `add_to_watchlist` on `portfolio-server`; seam smoke floor 4 → 6. `tests/test_mcp_seam.py` asserts the seam still has no `delete`/`put`/`patch` verb, so decision 4 is enforced by a test rather than by prose |
+| 2026-07-28 | 4.2 | Done | `54855ce` — `CLAUDE.md` + `readme.md`. Also corrected two stale table counts and added the two MCP wrappers the readme's Servers table had never listed |
+| 2026-07-28 | — | Stages 1-4 verified | Full backend suite green on the test DB: **1184 tests, OK (5 skipped)**, coverage **87.0%** (CI floor 65). Frontend: 443 vitest tests across 68 files, 87.7% statements; `tsc --noEmit` clean. `scripts/ci_wrapper_smoke.py` → 6/6 wrappers healthy, `portfolio: listTools=6`. PR not yet opened — awaiting the repo owner's go-ahead |

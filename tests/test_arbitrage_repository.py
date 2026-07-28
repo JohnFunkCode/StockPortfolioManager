@@ -15,7 +15,7 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
-from quantcore.db import get_connection, init_schema  # noqa: E402
+from quantcore.db import get_connection, ensure_schema  # noqa: E402
 from quantcore.repositories.arbitrage_repository import (  # noqa: E402
     ArbitrageRepository,
 )
@@ -153,7 +153,7 @@ class NavSnapshotDbTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        init_schema()
+        ensure_schema()
 
     def setUp(self):
         self.repo = ArbitrageRepository()

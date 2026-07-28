@@ -30,7 +30,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 from typing import Optional
 
-from quantcore.db import get_connection, init_schema
+from quantcore.db import get_connection, ensure_schema
 
 
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ class OptionsStore:
     def __init__(self, dsn: Optional[str] = None) -> None:
         self._dsn = dsn
         if dsn:
-            init_schema(dsn)
+            ensure_schema(dsn)
 
     def _get_connection(self):
         if self._dsn:

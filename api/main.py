@@ -44,9 +44,9 @@ from .json_response import QuantCoreJSONResponse  # noqa: E402
 
 def create_app() -> FastAPI:
     """Application factory mirroring the Flask ``create_app`` contract."""
-    from quantcore.db import init_schema
+    from quantcore.db import ensure_schema
 
-    init_schema()
+    ensure_schema()
 
     app = FastAPI(
         title="QuantCore REST API",

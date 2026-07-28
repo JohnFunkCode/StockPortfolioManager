@@ -502,21 +502,45 @@ class _PGConn:
 
 # Schema is ensured once per process on first connection, so callers never
 # see a missing table regardless of which entry point started the process.
-# Entry points may still call init_schema() explicitly; it sets the flag too,
-# so the DDL is not re-run on the first connection afterwards. The lock keeps
-# concurrent first connections (threaded Flask / MCP servers) from running the
-# DDL in parallel — PostgreSQL's CREATE ... IF NOT EXISTS can fail under
-# concurrent execution.
-_schema_ready = False
-_schema_lock = threading.Lock()
+# Entry points should call ensure_schema() rather than init_schema(): it
+# records the DSN, so the DDL is not re-run on the first connection afterwards.
+# The lock keeps concurrent first connections (threaded Flask / MCP servers)
+# from running the DDL in parallel — PostgreSQL's CREATE ... IF NOT EXISTS can
+# fail under concurrent execution.
+#
+# Keyed by DSN rather than a single bool so that pointing a repository at a
+# second database (OptionsStore(dsn=...)) initializes it once too, instead of
+# on every construction.
+_schema_ready_dsns: set[str] = set()
+# Reentrant: ensure_schema() holds it across init_schema(), which records the
+# DSN under the same lock.
+_schema_lock = threading.RLock()
+
+
+def ensure_schema(dsn: str = None) -> None:
+    """Run the schema DDL at most once per process, per DSN.
+
+    Callers that just need the tables to exist should use this rather than
+    ``init_schema()``: the DDL takes ~3s against a managed instance and locks
+    ~20 tables while it runs, so re-running it on every application factory
+    call or repository construction is both slow and a source of lock
+    contention with concurrent writers.
+    """
+    target_dsn = dsn or DB_DSN
+    if target_dsn in _schema_ready_dsns:
+        return
+    with _schema_lock:
+        if target_dsn in _schema_ready_dsns:
+            return
+        init_schema(target_dsn)
+        # init_schema() records it too; recorded here as well so the
+        # once-per-process gate holds however init_schema is reached.
+        _schema_ready_dsns.add(target_dsn)
 
 
 def get_connection() -> _PGConn:
     """Get a connection to the QuantCore PostgreSQL database."""
-    if not _schema_ready:
-        with _schema_lock:
-            if not _schema_ready:
-                init_schema()
+    ensure_schema()
     return _PGConn(psycopg2.connect(DB_DSN))
 
 
@@ -526,16 +550,29 @@ def _split_schema(schema: str) -> list[str]:
 
 
 def init_schema(dsn: str = None) -> None:
-    """Initialize the database schema if tables don't exist."""
-    global _schema_ready
+    """Initialize the database schema if tables don't exist.
+
+    Each statement commits on its own. The DDL is idempotent
+    (``CREATE ... IF NOT EXISTS`` / ``ADD COLUMN IF NOT EXISTS``), so
+    per-statement commit converges to the same schema, and it keeps the DDL
+    from holding locks on every table it has touched until one final commit.
+    That accumulation is what let a concurrent writer form an AB-BA deadlock:
+    the DDL holds ``symbols`` (statement 1) while reaching for
+    ``plan_instances`` (statement 34), while a writer holds ``plan_instances``
+    and reaches for ``symbols`` through its foreign key.
+
+    ``lock_timeout`` turns a wait behind a live writer into a loud, diagnosable
+    error instead of an indefinite hang.
+    """
     target_dsn = dsn or DB_DSN
     conn = psycopg2.connect(target_dsn)
     try:
+        conn.set_session(autocommit=True)
         with conn.cursor() as cur:
+            cur.execute("SET lock_timeout = '10s'")
             for stmt in _split_schema(_SCHEMA):
                 cur.execute(stmt)
-        conn.commit()
     finally:
         conn.close()
-    if target_dsn == DB_DSN:
-        _schema_ready = True
+    with _schema_lock:
+        _schema_ready_dsns.add(target_dsn)

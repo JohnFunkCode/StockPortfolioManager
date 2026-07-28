@@ -17,9 +17,15 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from quantcore.db import get_connection
+
+MUTABLE_LOT_COLUMNS = {
+    "name", "purchase_price", "quantity", "purchase_date", "currency",
+    "sale_price", "sale_date", "status", "parent_lot_id", "trade_date",
+    "fees", "acquisition_type", "account", "notes",
+}
 
 SQL_INSERT_SYMBOL = """
 INSERT INTO symbols (ticker, created_at)
@@ -247,6 +253,26 @@ class PortfolioRepository:
         })
         return int(cur.fetchone()["position_id"])
 
+    def _apply_lot_fields(self, conn, owner: str, lot_id: int, fields: Dict[str, Any]) -> int:
+        """Patch a lot's mutable columns on an already-open `conn` (no commit —
+        the caller controls the transaction). Returns the rowcount affected.
+        Shared by `update_lot` and `close_lots` so the allowlist/validation
+        logic isn't duplicated.
+        """
+        unknown = set(fields) - MUTABLE_LOT_COLUMNS
+        if unknown:
+            raise ValueError(f"unknown lot field(s): {sorted(unknown)}")
+        if not fields:
+            return 0
+        set_clause = ", ".join(f"{col} = :{col}" for col in fields)
+        sql = (
+            f"UPDATE positions SET {set_clause} "
+            "WHERE owner = :owner AND position_id = :lot_id;"
+        )
+        params = {**fields, "owner": owner, "lot_id": lot_id}
+        cur = conn.execute(sql, params)
+        return cur.rowcount
+
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
@@ -341,26 +367,9 @@ class PortfolioRepository:
         `fields` keys must be a subset of the mutable lot columns; unknown keys
         raise rather than being silently dropped.
         """
-        mutable_columns = {
-            "name", "purchase_price", "quantity", "purchase_date", "currency",
-            "sale_price", "sale_date", "status", "parent_lot_id", "trade_date",
-            "fees", "acquisition_type", "account", "notes",
-        }
-        unknown = set(fields) - mutable_columns
-        if unknown:
-            raise ValueError(f"update_lot: unknown field(s) {sorted(unknown)}")
-        if not fields:
-            return False
-        set_clause = ", ".join(f"{col} = :{col}" for col in fields)
-        sql = (
-            f"UPDATE positions SET {set_clause} "
-            "WHERE owner = :owner AND position_id = :lot_id;"
-        )
-        params = {**fields, "owner": owner, "lot_id": lot_id}
         with closing(get_connection()) as conn:
             try:
-                cur = conn.execute(sql, params)
-                updated = cur.rowcount
+                updated = self._apply_lot_fields(conn, owner, lot_id, fields)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -415,3 +424,89 @@ class PortfolioRepository:
                 conn.rollback()
                 raise
         return sale_id
+
+    def close_lots(
+        self,
+        owner: str,
+        allocation: List[Tuple[int, Any]],
+        sale_price: Any,
+        sale_trade_date: str,
+        fees: Any = None,
+        allocation_method: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Atomically record a sale that may span multiple lots (issue #126
+        Step 4.3). `allocation` is `[(lot_id, shares), ...]` — the output of
+        `portfolio_math.allocate`.
+
+        For each pair: writes a `lot_sales` row, then either marks the lot
+        CLOSED (full close) or splits it — the lot's own `quantity` is set to
+        the shares actually sold and it is marked CLOSED, and a new child lot
+        is inserted for the remainder, carrying the original `trade_date` and
+        `purchase_price` with `parent_lot_id` set (partial close). Every lot
+        must belong to `owner` and be OPEN. One transaction: any failure
+        leaves every lot and `lot_sales` row exactly as it was.
+        """
+        results: List[Dict[str, Any]] = []
+        with closing(get_connection()) as conn:
+            try:
+                for lot_id, shares in allocation:
+                    row = conn.execute(SQL_GET_LOT, {"owner": owner, "lot_id": lot_id}).fetchone()
+                    if row is None:
+                        raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
+                    lot = _row_to_dict(row)
+                    if lot["status"] != "OPEN":
+                        raise ValueError(f"lot {lot_id} is not open")
+                    if shares > lot["quantity"]:
+                        raise ValueError(
+                            f"lot {lot_id}: cannot sell {shares} shares, only "
+                            f"{lot['quantity']} open"
+                        )
+
+                    cur = conn.execute(SQL_INSERT_SALE, {
+                        "lot_id": lot_id,
+                        "shares_sold": shares,
+                        "sale_price": sale_price,
+                        "sale_trade_date": sale_trade_date,
+                        "fees": fees,
+                        "allocation_method": allocation_method,
+                        "notes": notes,
+                    })
+                    sale_id = int(cur.fetchone()["sale_id"])
+
+                    child_lot_id = None
+                    if shares < lot["quantity"]:
+                        remainder = lot["quantity"] - shares
+                        child_lot_id = self._insert_position(conn, owner, {
+                            "symbol": lot["symbol"],
+                            "name": lot["name"],
+                            "purchase_price": lot["purchase_price"],
+                            "quantity": remainder,
+                            "purchase_date": lot["purchase_date"],
+                            "trade_date": lot["trade_date"],
+                            "currency": lot["currency"],
+                            "status": "OPEN",
+                            "parent_lot_id": lot_id,
+                            "fees": lot["fees"],
+                            "acquisition_type": lot["acquisition_type"],
+                            "account": lot["account"],
+                            "notes": lot["notes"],
+                        })
+
+                    self._apply_lot_fields(conn, owner, lot_id, {
+                        "quantity": shares,
+                        "status": "CLOSED",
+                    })
+
+                    results.append({
+                        "lot_id": lot_id,
+                        "sale_id": sale_id,
+                        "shares_sold": shares,
+                        "child_lot_id": child_lot_id,
+                    })
+
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return results

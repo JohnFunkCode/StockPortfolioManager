@@ -16,6 +16,7 @@ import bisect
 import datetime
 import logging
 import math
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -51,6 +52,13 @@ WARM_DAYS: dict[str, int] = {
     "30m": 59,
     "15m": 59,
 }
+
+# Batched quote cache (issue #126 Step 4.4). QUOTE_TTL_SECONDS bounds how
+# often a normal call re-hits yfinance; QUOTE_FORCE_FLOOR_SECONDS is the
+# minimum re-fetch interval even under force=True, so a held-down manual
+# refresh button can't hammer the upstream.
+QUOTE_TTL_SECONDS = 30
+QUOTE_FORCE_FLOOR_SECONDS = 10
 
 
 def _safe_int(val):
@@ -109,6 +117,11 @@ class PricesService:
         self._yf = yfinance_gateway
         self._options = options_repository
         self._sentiment = sentiment_repository
+        # symbol -> {"price": float|None, "as_of": datetime, "stale": bool,
+        # "fetched_at": monotonic-clock float}. Shared across every caller/user
+        # of this PricesService instance — the registry's lru_cache singleton
+        # makes that "shared across users" (decision #15).
+        self._quote_cache: dict[str, dict] = {}
 
     # ------------------------------------------------------------------
     # OHLCV history — fetch-when-stale policy (issue #74; moved here from
@@ -159,6 +172,84 @@ class PricesService:
             return float(price)
         except Exception:
             return None
+
+    def _last_closes(self, symbols: list[str]) -> dict[str, tuple[float, datetime.datetime]]:
+        """Bulk last-close fallback for symbols with no usable live quote,
+        via the repository's multi-symbol bulk read (decision #15's DB half)
+        rather than one get_history call per symbol."""
+        rows = self._ohlcv.daily_bars_for_symbols(symbols)
+        closes: dict[str, tuple[float, datetime.datetime]] = {}
+        for row in rows:  # ordered by symbol, ts ASC — last write per symbol wins
+            as_of = datetime.datetime.fromtimestamp(row["ts"], tz=datetime.timezone.utc)
+            closes[row["symbol"]] = (float(row["close"]), as_of)
+        return closes
+
+    def get_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
+        """Batched, TTL-cached live quotes for many symbols (issue #126 Step
+        4.4) — the portfolio page's alternative to one get_fast_price call per
+        lot. One upstream call covers every symbol whose cached quote is
+        stale or missing; fresh entries are served from the shared in-memory
+        cache without touching yfinance.
+
+        `force=True` bypasses the normal TTL but still can't refetch a symbol
+        more often than every ~QUOTE_FORCE_FLOOR_SECONDS, so a held-down
+        refresh button can't hammer Yahoo. A failed or partial upstream fetch
+        never raises — symbols with no live quote degrade to their last DB
+        close, flagged `stale=True` with an honest `as_of`.
+
+        Returns {symbol: {"price": float|None, "as_of": datetime|None,
+        "stale": bool}}.
+        """
+        symbols = sorted({s.upper() for s in symbols if s})
+        if not symbols:
+            return {}
+
+        now = time.monotonic()
+        ttl = QUOTE_FORCE_FLOOR_SECONDS if force else QUOTE_TTL_SECONDS
+        due = [
+            s for s in symbols
+            if s not in self._quote_cache or (now - self._quote_cache[s]["fetched_at"]) > ttl
+        ]
+
+        if due:
+            try:
+                fetched = self._yf.get_latest_quotes(due)
+            except Exception:
+                logger.warning("get_quotes: batched fetch failed for %s", due, exc_info=True)
+                fetched = {s: None for s in due}
+
+            fetched_at = now
+            as_of = datetime.datetime.now(datetime.timezone.utc)
+            needs_fallback = [s for s in due if fetched.get(s) is None and s not in self._quote_cache]
+            fallback = self._last_closes(needs_fallback) if needs_fallback else {}
+
+            for symbol in due:
+                price = fetched.get(symbol)
+                if price is not None:
+                    self._quote_cache[symbol] = {
+                        "price": price, "as_of": as_of, "stale": False, "fetched_at": fetched_at,
+                    }
+                elif symbol in fallback:
+                    close_price, close_as_of = fallback[symbol]
+                    self._quote_cache[symbol] = {
+                        "price": close_price, "as_of": close_as_of, "stale": True, "fetched_at": fetched_at,
+                    }
+                elif symbol not in self._quote_cache:
+                    self._quote_cache[symbol] = {
+                        "price": None, "as_of": None, "stale": True, "fetched_at": fetched_at,
+                    }
+                # else: upstream had nothing new — keep serving the existing
+                # cache entry (good price or prior fallback) rather than
+                # clobbering it; it stays "due" and is retried next call.
+
+        return {
+            symbol: {
+                "price": self._quote_cache[symbol]["price"],
+                "as_of": self._quote_cache[symbol]["as_of"],
+                "stale": self._quote_cache[symbol]["stale"],
+            }
+            for symbol in symbols
+        }
 
     # ------------------------------------------------------------------
     # Quote + options summary

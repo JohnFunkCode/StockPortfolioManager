@@ -323,3 +323,64 @@ export function painCurve() {
     pain: 100000 - Math.abs(i - 2) * 20000,
   }));
 }
+
+/** A single open lot, enriched as PortfolioService._enrich_lot would return it. */
+export function lotRow(overrides: object = {}) {
+  return {
+    lot_id: 1,
+    symbol: 'INTC',
+    name: 'Intel Corp',
+    status: 'OPEN',
+    parent_lot_id: null,
+    purchase_price: 30,
+    quantity: 10,
+    purchase_date: '2026-01-02',
+    trade_date: '2026-01-02',
+    currency: 'USD',
+    sale_price: null,
+    sale_date: null,
+    fees: null,
+    acquisition_type: 'BUY',
+    account: null,
+    notes: null,
+    current_price: 35,
+    price_as_of: '2026-07-27T15:00:00Z',
+    price_stale: false,
+    gain_loss: 50,
+    gain_loss_pct: 16.67,
+    days_held: 200,
+    dollars_per_day: 0.25,
+    ...overrides,
+  };
+}
+
+/** A symbol's roll-up row, as PortfolioService.symbol_rows would return it. */
+export function symbolRow(overrides: object = {}) {
+  return {
+    symbol: 'INTC',
+    lots: [lotRow()],
+    total_investment: 300,
+    total_current_value: 350,
+    total_gain_loss: 50,
+    total_gain_loss_pct: 16.67,
+    total_dollars_per_day: 0.25,
+    return_7d: 1.2,
+    return_30d: 3.5,
+    return_90d: 8.1,
+    mm_hedge_bias: 'buy_on_rally',
+    mm_hedge_bias_captured_at: '2026-07-27T15:00:00Z',
+    ...overrides,
+  };
+}
+
+/** Portfolio-wide totals, as returned by the /api/portfolio/symbols `totals` field. */
+export function portfolioTotals(overrides: object = {}) {
+  return {
+    total_investment: 300,
+    total_current_value: 350,
+    total_gain_loss: 50,
+    total_gain_loss_pct: 16.67,
+    total_dollars_per_day: 0.25,
+    ...overrides,
+  };
+}

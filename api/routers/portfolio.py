@@ -39,10 +39,19 @@ from ..schemas.portfolio import (
     AddPositionRequest,
     AddSecurityResponse,
     AddWatchlistRequest,
+    CloseLotRequest,
+    CloseLotResponse,
+    CreateLotRequest,
+    CreateLotResponse,
+    DeleteLotResponse,
     ImportResult,
+    LotsResponse,
     RemovePositionResponse,
     SecuritiesResponse,
     SymbolLookupResponse,
+    SymbolRowsResponse,
+    UpdateLotRequest,
+    UpdateLotResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
 
@@ -121,6 +130,101 @@ async def import_portfolio(
         count = services().portfolio.import_csv(path, owner)
 
     return QuantCoreJSONResponse({"owner": owner, "imported": count})
+
+
+# --------------------------------------------------------------------------- #
+# Lots (issue #126 Step 4.5) — owner isolation is enforced at the SQL layer
+# (PortfolioRepository filters WHERE owner=... on every lot lookup/mutation),
+# so these routes trust a None/False/empty-rowcount result rather than doing
+# their own fetch-then-check.
+# --------------------------------------------------------------------------- #
+@router.get("/portfolio/lots", response_model=LotsResponse)
+def get_lots(
+    force: bool = False, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    lots = services().portfolio.list_lots(owner, status="OPEN", force=force)
+    return QuantCoreJSONResponse({"lots": lots})
+
+
+@router.get("/portfolio/symbols", response_model=SymbolRowsResponse)
+def get_symbol_rows(
+    force: bool = False, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    rows = services().portfolio.symbol_rows(owner, force=force)
+    totals = services().portfolio.portfolio_totals(rows)
+    return QuantCoreJSONResponse({"symbols": rows, "totals": totals})
+
+
+@router.post("/portfolio/lots", response_model=CreateLotResponse, status_code=201)
+def create_lot(
+    body: CreateLotRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    symbol = (body.symbol or "").strip().upper()
+    if not symbol:
+        return route_error_plain("symbol is required", 400)
+
+    result = services().portfolio.add_position(
+        owner,
+        name=(body.name or "").strip(),
+        symbol=symbol,
+        purchase_price=body.purchase_price,
+        quantity=body.quantity,
+        trade_date=body.trade_date,
+        currency=body.currency,
+        fees=body.fees,
+        acquisition_type=body.acquisition_type,
+        account=body.account,
+        notes=body.notes,
+    )
+    return QuantCoreJSONResponse(result, status_code=201)
+
+
+@router.patch("/portfolio/lots/{lot_id}", response_model=UpdateLotResponse)
+def update_lot(
+    lot_id: int, body: UpdateLotRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    fields = body.model_dump(exclude_unset=True)
+    if not fields:
+        return route_error_plain("no fields to update", 400)
+    updated = services().portfolio.update_lot(owner, lot_id, **fields)
+    if not updated:
+        return route_error_plain(f"lot {lot_id} not found", 404)
+    return QuantCoreJSONResponse({"lot_id": lot_id, "updated": True})
+
+
+@router.delete("/portfolio/lots/{lot_id}", response_model=DeleteLotResponse)
+def delete_lot(lot_id: int, owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
+    deleted = services().portfolio.delete_lot(owner, lot_id)
+    if not deleted:
+        return route_error_plain(f"lot {lot_id} not found", 404)
+    return QuantCoreJSONResponse({"lot_id": lot_id, "deleted": True})
+
+
+@router.post("/portfolio/lots/{lot_id}/close", response_model=CloseLotResponse)
+def close_lot(
+    lot_id: int, body: CloseLotRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    try:
+        result = services().portfolio.close_lot(
+            owner,
+            lot_id,
+            shares=body.shares,
+            sale_price=body.sale_price,
+            sale_trade_date=body.sale_trade_date,
+            method=body.method,
+            lots=body.lots,
+            fees=body.fees,
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "not found" in message:
+            status = 404
+        elif "is not open" in message:
+            status = 409
+        else:
+            status = 422
+        return route_error_plain(message, status)
+    return QuantCoreJSONResponse(result)
 
 
 # --------------------------------------------------------------------------- #

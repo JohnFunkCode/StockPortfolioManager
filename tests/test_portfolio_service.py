@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from contextlib import closing
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -24,11 +25,43 @@ OWNER_B = "zz_owner_b"
 TEST_SYMBOLS = ["ZZTEST", "ZZTST2", "ZZTST3"]
 
 
+class FakePrices:
+    """Stand-in for PricesService: canned quotes/history, no network/DB."""
+
+    def __init__(self, quotes=None, histories=None):
+        self._quotes = quotes or {}
+        self._histories = histories or {}
+
+    def get_fast_price(self, symbol):
+        return self._quotes.get(symbol)
+
+    def get_quotes(self, symbols, force=False):
+        result = {}
+        for symbol in symbols:
+            price = self._quotes.get(symbol)
+            result[symbol] = {"price": price, "as_of": None, "stale": price is None}
+        return result
+
+    def get_history(self, symbol, interval="1d", days=365):
+        return self._histories.get(symbol)
+
+
+class FakeOptions:
+    """Stand-in for OptionsService: canned gamma-wall history, no I/O."""
+
+    def __init__(self, histories=None):
+        self._histories = histories or {}
+
+    def get_gamma_wall_history(self, symbol, since_days=90):
+        return {"history": self._histories.get(symbol, [])}
+
+
 class PortfolioServiceTest(unittest.TestCase):
     def setUp(self):
         self._purge()
         self.addCleanup(self._purge)
-        self.service = PortfolioService(PortfolioRepository())
+        self.prices = FakePrices()
+        self.service = PortfolioService(PortfolioRepository(), prices=self.prices)
 
     def _purge(self):
         with closing(get_connection()) as conn:
@@ -188,6 +221,210 @@ class PortfolioServiceTest(unittest.TestCase):
 
     def test_remove_missing_position_returns_zero(self):
         self.assertEqual(self.service.remove_position(OWNER_A, "ZZTEST"), 0)
+
+
+class PortfolioServiceLotLifecycleTest(unittest.TestCase):
+    """Issue #126 PR 4 Step 4.3: list_lots/symbol_rows enrichment and the
+    update/delete/close_lot write path.
+    """
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.prices = FakePrices(quotes={"ZZTEST": 15.0, "ZZTST2": 25.0})
+        self.options = FakeOptions()
+        self.service = PortfolioService(
+            PortfolioRepository(), prices=self.prices, options=self.options
+        )
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM positions WHERE owner IN (%s, %s)", (OWNER_A, OWNER_B)
+            )
+            conn.commit()
+
+    def _add(self, **overrides):
+        fields = {
+            "name": "Test Lot", "symbol": "ZZTEST", "purchase_price": "10.00",
+            "quantity": "5", "purchase_date": "2020-01-02", "currency": "USD",
+        }
+        fields.update(overrides)
+        result = self.service.add_position(OWNER_A, **fields)
+        lots = self.service.list_lots(OWNER_A, status=None) if False else self.service.list_positions(OWNER_A)
+        lot = max(
+            (p for p in lots if p["symbol"] == result["symbol"]),
+            key=lambda p: p["lot_id"],
+        )
+        return lot["lot_id"]
+
+    # ------------------------------------------------------------------
+    def test_list_lots_enriches_with_price_and_gain_loss(self):
+        self._add(purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        lots = self.service.list_lots(OWNER_A)
+        self.assertEqual(len(lots), 1)
+        lot = lots[0]
+        self.assertEqual(lot["current_price"], Decimal("15.0"))
+        self.assertEqual(lot["gain_loss"], Decimal("25.00"))
+        self.assertEqual(lot["gain_loss_pct"], Decimal("50.00"))
+        self.assertGreater(lot["days_held"], 0)
+        self.assertIsNotNone(lot["dollars_per_day"])
+
+    def test_list_lots_no_price_available_degrades_to_none(self):
+        self._add(symbol="ZZTST3", purchase_price="10.00", quantity="1")
+
+        lots = self.service.list_lots(OWNER_A)
+        lot = next(p for p in lots if p["symbol"] == "ZZTST3")
+        self.assertIsNone(lot["current_price"])
+        self.assertIsNone(lot["gain_loss"])
+        self.assertIsNone(lot["gain_loss_pct"])
+
+    def test_symbol_rows_groups_and_totals_by_symbol(self):
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+        self._add(symbol="ZZTEST", purchase_price="12.00", quantity="5", purchase_date="2020-02-02")
+        self._add(symbol="ZZTST2", purchase_price="20.00", quantity="2", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        self.assertEqual([r["symbol"] for r in rows], ["ZZTEST", "ZZTST2"])
+
+        zztest = rows[0]
+        self.assertEqual(len(zztest["lots"]), 2)
+        self.assertEqual(zztest["total_investment"], Decimal("110.00"))
+        self.assertEqual(zztest["total_current_value"], Decimal("150.00"))
+        self.assertEqual(zztest["total_gain_loss"], Decimal("40.00"))
+
+    def test_portfolio_totals_aggregates_across_symbols(self):
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+        self._add(symbol="ZZTST2", purchase_price="20.00", quantity="2", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        totals = self.service.portfolio_totals(rows)
+
+        self.assertEqual(totals["total_investment"], Decimal("90.00"))
+        self.assertEqual(totals["total_current_value"], Decimal("125.00"))
+        self.assertEqual(totals["total_gain_loss"], Decimal("35.00"))
+
+    def test_symbol_rows_period_returns_from_history(self):
+        import pandas as pd
+
+        history = pd.DataFrame({"Close": [10.0] * 5 + [15.0]})
+        self.prices = FakePrices(
+            quotes={"ZZTEST": 15.0}, histories={"ZZTEST": history}
+        )
+        self.service = PortfolioService(
+            PortfolioRepository(), prices=self.prices, options=self.options
+        )
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        zztest = rows[0]
+        self.assertIn("return_7d", zztest)
+        self.assertIn("return_30d", zztest)
+        self.assertIn("return_90d", zztest)
+
+    def test_symbol_rows_history_fetch_failure_degrades_to_none(self):
+        class BoomPrices(FakePrices):
+            def get_history(self, symbol, interval="1d", days=365):
+                raise RuntimeError("boom")
+
+        self.prices = BoomPrices(quotes={"ZZTEST": 15.0})
+        self.service = PortfolioService(
+            PortfolioRepository(), prices=self.prices, options=self.options
+        )
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        zztest = rows[0]
+        self.assertIsNone(zztest["return_7d"])
+        self.assertIsNone(zztest["return_30d"])
+        self.assertIsNone(zztest["return_90d"])
+
+    def test_symbol_rows_mm_hedge_bias_none_without_options_service(self):
+        self.service = PortfolioService(PortfolioRepository(), prices=self.prices, options=None)
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        self.assertIsNone(rows[0]["mm_hedge_bias"])
+
+    def test_symbol_rows_mm_hedge_bias_uses_latest_history_row(self):
+        self.options = FakeOptions(histories={
+            "ZZTEST": [
+                {"mm_hedge_bias": "long", "captured_at": "2026-01-01"},
+                {"mm_hedge_bias": "short", "captured_at": "2026-01-02"},
+            ]
+        })
+        self.service = PortfolioService(
+            PortfolioRepository(), prices=self.prices, options=self.options
+        )
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        rows = self.service.symbol_rows(OWNER_A)
+        self.assertEqual(rows[0]["mm_hedge_bias"], "short")
+        self.assertEqual(rows[0]["mm_hedge_bias_captured_at"], "2026-01-02")
+
+    def test_update_lot_patches_field(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        self.assertTrue(self.service.update_lot(OWNER_A, lot_id, notes="corrected"))
+
+        lots = self.service.list_positions(OWNER_A)
+        self.assertEqual(lots[0]["notes"], "corrected")
+
+    def test_delete_lot_removes_entry(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
+        self.assertTrue(self.service.delete_lot(OWNER_A, lot_id))
+        self.assertEqual(self.service.list_positions(OWNER_A), [])
+
+    def test_close_lot_full_close(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="10")
+
+        result = self.service.close_lot(
+            OWNER_A, lot_id, shares="10", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        self.assertEqual(result["symbol"], "ZZTEST")
+        self.assertEqual(len(result["allocations"]), 1)
+        self.assertIsNone(result["allocations"][0]["child_lot_id"])
+
+        open_lots = self.service.list_positions(OWNER_A)
+        self.assertEqual(open_lots, [])
+
+    def test_close_lot_partial_close_creates_child(self):
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="10")
+
+        result = self.service.close_lot(
+            OWNER_A, lot_id, shares="4", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        child_lot_id = result["allocations"][0]["child_lot_id"]
+        self.assertIsNotNone(child_lot_id)
+
+        open_lots = self.service.list_positions(OWNER_A)
+        self.assertEqual(len(open_lots), 1)
+        self.assertEqual(open_lots[0]["lot_id"], child_lot_id)
+        self.assertEqual(open_lots[0]["quantity"], Decimal("6"))
+        self.assertEqual(open_lots[0]["parent_lot_id"], lot_id)
+
+    def test_close_lot_spans_multiple_lots_fifo(self):
+        lot1 = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-01")
+        self._add(symbol="ZZTEST", purchase_price="12.00", quantity="5", purchase_date="2020-02-01")
+
+        result = self.service.close_lot(
+            OWNER_A, lot1, shares="8", sale_price="15.00",
+            sale_trade_date="2026-03-01", method="FIFO",
+        )
+        self.assertEqual(len(result["allocations"]), 2)
+
+        open_lots = self.service.list_positions(OWNER_A)
+        self.assertEqual(len(open_lots), 1)
+        self.assertEqual(open_lots[0]["quantity"], Decimal("2"))
+
+    def test_close_lot_unknown_lot_raises(self):
+        with self.assertRaises(ValueError):
+            self.service.close_lot(
+                OWNER_A, 999999, shares="1", sale_price="15.00",
+                sale_trade_date="2026-03-01",
+            )
 
 
 if __name__ == "__main__":

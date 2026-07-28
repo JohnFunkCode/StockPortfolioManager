@@ -189,3 +189,45 @@ class YFinanceGateway:
             return yf.download(
                 tickers, period=period, auto_adjust=auto_adjust, progress=False
             )
+
+    def get_latest_quotes(self, symbols: list[str]) -> dict[str, float | None]:
+        """Batched last-price quote for many symbols in one yf.download call
+        (issue #126 Step 4.4) — the portfolio page's alternative to one
+        fast_info call per symbol. Never raises: a failed or empty download
+        maps every symbol to None so the caller can degrade to last close.
+        """
+        quotes: dict[str, float | None] = {s: None for s in symbols}
+        if not symbols:
+            return quotes
+        try:
+            with _YF_DOWNLOAD_LOCK:
+                data = yf.download(
+                    tickers=" ".join(symbols),
+                    period="1d",
+                    interval="1m",
+                    progress=False,
+                    group_by="column",
+                    auto_adjust=False,
+                    prepost=True,
+                )
+        except Exception:
+            logger.warning("yfinance batch quote download failed for %s", symbols, exc_info=True)
+            return quotes
+        if data is None or data.empty or "Close" not in data:
+            logger.warning("yfinance returned no quote data for %s", symbols)
+            return quotes
+
+        closes = data["Close"]
+        if isinstance(data.columns, pd.MultiIndex):
+            for symbol in symbols:
+                try:
+                    series = closes[symbol].dropna()
+                except KeyError:
+                    continue
+                if not series.empty:
+                    quotes[symbol] = float(series.iloc[-1])
+        else:
+            series = closes.dropna()
+            if not series.empty:
+                quotes[symbols[0]] = float(series.iloc[-1])
+        return quotes

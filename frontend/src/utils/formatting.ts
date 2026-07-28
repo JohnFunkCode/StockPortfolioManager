@@ -29,3 +29,15 @@ export function formatDateTime(dateString: string | null | undefined): string {
   if (!dateString) return 'N/A';
   return new Date(dateString).toLocaleString('en-US');
 }
+
+/** Fractional shares to at most 4 decimals, trailing zeros trimmed. */
+export function formatShares(value: number | null | undefined): string {
+  if (value == null) return 'N/A';
+  return value.toFixed(4).replace(/\.?0+$/, '') || '0';
+}
+
+/** Dollars-per-day is null when days held is 0 — render that as em dash, not N/A. */
+export function formatDollarsPerDay(value: number | null | undefined): string {
+  if (value == null) return '—';
+  return formatCurrency(value);
+}

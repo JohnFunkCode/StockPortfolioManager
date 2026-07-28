@@ -141,5 +141,121 @@ class PortfolioRepositoryLotsTest(unittest.TestCase):
         self.assertIsInstance(sale_id, int)
 
 
+class PortfolioRepositoryCloseLotsTest(unittest.TestCase):
+    """Issue #126 Step 4.3: close_lots() atomically records a sale that may
+    span multiple lots, splitting a partially-sold lot into a CLOSED parent
+    plus an OPEN child that preserves the original trade_date/purchase_price.
+    """
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM positions WHERE owner = %s", (OWNER,))
+            conn.commit()
+
+    def _row(self, **overrides):
+        row = {
+            "name": "Test Lot",
+            "symbol": SYMBOL,
+            "purchase_price": 10.0,
+            "quantity": 5,
+            "purchase_date": "2026-01-02",
+            "currency": "USD",
+        }
+        row.update(overrides)
+        return row
+
+    def test_full_close_marks_lot_closed_with_no_child(self):
+        lot_id = self.repo.add_position(OWNER, self._row(quantity=10))
+
+        results = self.repo.close_lots(
+            OWNER, [(lot_id, Decimal("10"))], sale_price=Decimal("15.00"),
+            sale_trade_date="2026-03-01", allocation_method="FIFO",
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["lot_id"], lot_id)
+        self.assertIsNone(results[0]["child_lot_id"])
+        self.assertEqual(results[0]["shares_sold"], Decimal("10"))
+
+        lot = self.repo.get_lot(OWNER, lot_id)
+        self.assertEqual(lot["status"], "CLOSED")
+        self.assertEqual(lot["quantity"], Decimal("10"))
+
+    def test_partial_close_creates_child_with_original_lineage(self):
+        lot_id = self.repo.add_position(OWNER, self._row(
+            quantity=10, purchase_price=12.5, purchase_date="2026-01-05",
+        ))
+
+        results = self.repo.close_lots(
+            OWNER, [(lot_id, Decimal("4"))], sale_price=Decimal("20.00"),
+            sale_trade_date="2026-03-01", allocation_method="FIFO",
+        )
+
+        child_lot_id = results[0]["child_lot_id"]
+        self.assertIsNotNone(child_lot_id)
+
+        parent = self.repo.get_lot(OWNER, lot_id)
+        self.assertEqual(parent["status"], "CLOSED")
+        self.assertEqual(parent["quantity"], Decimal("4"))
+
+        child = self.repo.get_lot(OWNER, child_lot_id)
+        self.assertEqual(child["status"], "OPEN")
+        self.assertEqual(child["quantity"], Decimal("6"))
+        self.assertEqual(child["parent_lot_id"], lot_id)
+        self.assertEqual(child["trade_date"].isoformat(), "2026-01-05")
+        self.assertEqual(child["purchase_price"], Decimal("12.5"))
+
+    def test_multi_lot_close_spans_two_lots(self):
+        lot1 = self.repo.add_position(OWNER, self._row(
+            quantity=5, purchase_date="2026-01-01",
+        ))
+        lot2 = self.repo.add_position(OWNER, self._row(
+            quantity=5, purchase_date="2026-02-01",
+        ))
+
+        results = self.repo.close_lots(
+            OWNER, [(lot1, Decimal("5")), (lot2, Decimal("3"))],
+            sale_price=Decimal("18.00"), sale_trade_date="2026-03-01",
+            allocation_method="FIFO",
+        )
+        self.assertEqual(len(results), 2)
+
+        closed_fully = self.repo.get_lot(OWNER, lot1)
+        self.assertEqual(closed_fully["status"], "CLOSED")
+        self.assertIsNone(results[0]["child_lot_id"])
+
+        parent2 = self.repo.get_lot(OWNER, lot2)
+        self.assertEqual(parent2["status"], "CLOSED")
+        self.assertEqual(parent2["quantity"], Decimal("3"))
+        child2 = self.repo.get_lot(OWNER, results[1]["child_lot_id"])
+        self.assertEqual(child2["quantity"], Decimal("2"))
+        self.assertEqual(child2["parent_lot_id"], lot2)
+
+    def test_mid_transaction_failure_leaves_db_unchanged(self):
+        lot_id = self.repo.add_position(OWNER, self._row(quantity=10))
+
+        with self.assertRaises(ValueError):
+            self.repo.close_lots(
+                OWNER, [(lot_id, Decimal("5")), (999999, Decimal("1"))],
+                sale_price=Decimal("20.00"), sale_trade_date="2026-03-01",
+                allocation_method="FIFO",
+            )
+
+        lot = self.repo.get_lot(OWNER, lot_id)
+        self.assertEqual(lot["status"], "OPEN")
+        self.assertEqual(lot["quantity"], Decimal("10"))
+
+        with closing(get_connection()) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM lot_sales WHERE lot_id = %s", (lot_id,)
+            ).fetchone()
+        self.assertEqual(row["n"], 0)
+
+
 if __name__ == "__main__":
     unittest.main()

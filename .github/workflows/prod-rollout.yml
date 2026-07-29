@@ -172,6 +172,21 @@ jobs:
             echo "quantcore-arbitrage not found in prod — first deploy is a manual one-time step; skipping."
           fi
 
+      - name: Deploy quantcore-portfolio (prod, image-only)
+        # Same shape and same reason as the arbitrage step above: outside the
+        # unguarded loop because this service's first prod deploy is a manual
+        # one-time creation (SERVER_MODULE=fastMCPTest.portfolio_server,
+        # PORT=6006). deploy.yml has carried the matching guarded step for test
+        # since portfolio-lots-plan.md Step 4.8; prod was missed, so once the
+        # service is created it would still never receive an image.
+        run: |
+          if gcloud run services describe quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run deploy quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
+          else
+            echo "quantcore-portfolio not found in prod — first deploy is a manual one-time step; skipping."
+          fi
+
       - name: Update report Job image (prod)
         run: |
           gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \

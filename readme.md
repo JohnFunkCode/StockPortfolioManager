@@ -4,24 +4,33 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 
 ## Features
 
-- Track stocks portfolio positions including purchase information (price, date, quantity) read from posrtolio.csv
+- Track portfolio positions with per-lot purchase information (price, date, quantity), stored in
+  the database per owner and editable from the UI (`portfolio.csv` is the import format)
 - Tracks a shared watchlist including per-stock 'tags', stored in the database and editable from the UI (watchlist.yaml is the import format)
 - Fetch real-time stock prices via Yahoo Finance API
 - Calculate gain/loss for individual stocks and total portfolio
 - Support for multiple currencies with real-time conversion
 - Generate HTML reports with portfolio performance metrics
 - Calculate portfolio performance statistics
+- Technical, fundamental, options, and sentiment analytics served over a REST API and to AI
+  agents through seven **MCP servers**
+- An **arbitrage scanner** for securities that have stretched against a structurally linked
+  underlying (NAV vehicles, commodity ETFs, producers)
 - Web dashboard (**QuantUI**) with an AI chat **Sidekick** — each user brings their own Anthropic
   API key (**BYOK**), stored encrypted in the browser and never visible to the backend (see
   [BYOK Sidekick](#byok-sidekick-bring-your-own-llm-api-key))
 
 ## Technologies Used
 
-- Python 3.9+
-- pandas - Data manipulation and analysis
+- Python 3.12 (the version every container image and CI job runs)
+- pandas / numpy - Data manipulation and analysis
 - yfinance - Yahoo Finance API integration
-- requests - HTTP library
-- Jinja2 - HTML template rendering
+- PostgreSQL via psycopg2 - the unified **QuantCore** database
+- FastAPI + Pydantic - the REST tier (`api/`)
+- FastMCP - the MCP servers that expose analysis to AI agents (`fastMCPTest/`)
+- React 19 + TypeScript + Vite + MUI - the QuantUI front end (`frontend/`)
+- Jinja2 + matplotlib - HTML report rendering
+- Docker / Google Cloud Run - how everything is deployed
 
 ## Example Stocks
 
@@ -89,7 +98,16 @@ That is a full-sync replace: the table ends up matching the file exactly. YAML f
    pip install -r requirements.txt
    ```
 
-3. Create a `stocks.csv` file with your portfolio data following the format in the example above.
+3. Point `QUANTCORE_DB_DSN` at a PostgreSQL database (see [Database](#database)) — the schema is
+   created on first start.
+
+4. Seed your holdings. Positions live in the database; `portfolio.csv` (format shown above) is the
+   import format:
+   ```bash
+   python scripts/import_portfolio.py --csv portfolio.csv --owner <you>
+   ```
+   That is a full-sync replace for that owner. You can also add positions directly in the QuantUI
+   Portfolio page or over `POST /api/portfolio`.
 
 ## Configuration
 
@@ -109,6 +127,25 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 - `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database, used to run the app or test suite against a separate copy of the data without touching the primary database
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
+
+**Migrations (Flyway):** versioned SQL lives in `db/migrations/V*.sql`. `db/flyway.conf`
+deliberately holds **no credentials**, so use the wrapper — it derives the JDBC URL and login
+from the DSNs in `.env`, defaults to the **test** database, echoes the target host before
+running, and asks for confirmation before a prod `migrate`:
+
+```bash
+./scripts/flyway.sh info               # test (default)
+./scripts/flyway.sh --prod info
+./scripts/flyway.sh --prod migrate     # prompts before writing
+```
+
+Every schema change ships **both** as a migration file and as a change to `init_schema()`.
+Since `init_schema()` runs on every application startup, a deployed database has usually already
+reached the right *shape* before Flyway sees it — pure-DDL migrations are expected to report
+"already exists, skipping", and **`flyway info` is not evidence of what a deployed database
+actually contains** (check the objects directly). Only migrations that carry data changes —
+backfills, seeds — do real work on a deployed database. That two-owners-of-the-schema problem is
+tracked as [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165).
 
 **Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:
 ```bash
@@ -144,40 +181,53 @@ python main.py
 
 ## Project Structure
 
-- `main.py`: Application entry point, reads CSV data and displays portfolio information
-- portfolio/ – domain modules (stock.py, money.py, metrics.py, portfolio.py, watch_list.py, yfinance_gateway.py).
-- html_summary.py, simple_text_summary.py – reporting utilities.
-- notifier.py – notification hook.
-- templates/ – Jinja2 HTML template.
-- Tests: test_money.py, test_stock_portfolio_manager.py.
-- Data samples / import files: portfolio.csv, watchlist.csv, watchlist.yaml.
+Layered per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md):
+business logic lives in the services layer, and the REST routes and MCP tool bodies are thin
+adapters exactly one service call deep.
+
+| Path | What's in it |
+|------|--------------|
+| `quantcore/` | The core. `db.py` (connection factory + `init_schema()`), `gateways/` (yfinance, Polygon, Anthropic, keyproxy), `repositories/` (SQL only), `analytics/` (pure functions — indicators, options math, pairs, NAV, volume profile), `services/` (the business logic), `services/registry.py` (the composition root) |
+| `api/` | FastAPI REST tier — app factory `api/main.py`, route groups under `routers/`, Pydantic schemas under `schemas/`, JWT verification in `auth.py` |
+| `frontend/` | React 19 + TypeScript + Vite SPA (**QuantUI**), including the Sidekick chat and the browser BYOK vault; `server/` is the Express host used by the deployed container |
+| `fastMCPTest/` | The seven FastMCP servers — thin HTTP gateway wrappers over the REST tier |
+| `mcp_gateway/` | `rest_client.py`, the single seam every MCP wrapper calls through (read verbs only — no `delete`) |
+| `keyproxy/` | Standalone BYOK credential-isolation service; decrypts envelopes in memory, holds no database |
+| `portfolio/` | Legacy domain layer retained for `main.py`'s report path (`stock.py`, `money.py`, `metrics.py`, `portfolio.py`, `watch_list.py`, `yfinance_gateway.py`) |
+| `main.py`, `html_summary.py`, `simple_text_summary.py`, `notifier.py`, `templates/` | The daily report job: fetch, chart, render, upload, and Discord-notify |
+| `experiments/` | `HarvesterExperiment.py` (harvest-ladder algorithm and backtests) plus standalone spread monitors |
+| `db/` | `flyway.conf` + versioned migrations under `db/migrations/` |
+| `scripts/` | Operational scripts — importers, `flyway.sh`, `mint_prod_jwt.py`, IAP/WIF setup, the SQLite→Postgres migration |
+| `tests/` | Backend test suites (`python -m unittest discover -s tests -t .`); front-end tests live beside the code in `frontend/src` |
+| `docs/` | Design proposals, plans with their checkpoint logs, and analysis write-ups |
+| `Dockerfile.*`, `docker-compose.yml`, `cloudbuild.yaml`, `.github/workflows/` | Images, the local container stack, and CI/CD |
+| `portfolio.csv`, `watchlist.yaml`, `arb_universe.yaml` | Import / curation files — none of them are read at runtime except `arb_universe.yaml` |
 
 ## REST API (`api/`)
 
-A FastAPI REST API that exposes the Harvester Plan Store and Securities Dashboard over HTTP for use by the React frontend or other clients. Interactive OpenAPI docs are served at `/docs` and the spec at `/openapi.json`.
+The FastAPI front door for everything: it runs the services in-process and is the *only* thing that
+talks to the database. The React front end and all seven MCP wrappers reach the system through it.
+Interactive OpenAPI docs are served at `/docs` and the spec at `/openapi.json` — **that spec is the
+authoritative endpoint list**; the ~106 routes are too many to mirror here without going stale.
 
 **Entry point:** `api/main.py` (the FastAPI `app`)
 
-### Endpoints
+### Route groups
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/health` | Health check — confirms the API and PostgreSQL database are reachable |
-| GET | `/api/plans` | List harvest plans; filter by `?status=ACTIVE\|SUPERSEDED\|ALL` |
-| POST | `/api/plans` | Create a new harvest plan for a symbol |
-| GET | `/api/plans/<id>` | Get a single plan with its rungs |
-| PATCH | `/api/plans/<id>` | Update plan notes or metadata |
-| DELETE | `/api/plans/<id>` | Delete (supersede) a plan |
-| GET | `/api/plans/<id>/rungs` | List all rungs for a plan |
-| GET | `/api/rungs/<id>` | Get a single rung |
-| POST | `/api/rungs/<id>/achieve` | Mark a rung as achieved at a given trigger price |
-| POST | `/api/rungs/<id>/execute` | Record that shares were sold at a rung (price, quantity, tax) |
-| GET | `/api/symbols` | List all ticker symbols that have plans |
-| GET | `/api/symbols/<ticker>/price` | Fetch the latest close price for a ticker |
-| GET | `/api/dashboard/stats` | Aggregate stats for the dashboard |
-| GET | `/api/watchlist` | List the shared watchlist (global — no `?owner=`) |
-| POST | `/api/watchlist` | Add a symbol to the shared watchlist (409 if already on it) |
-| DELETE | `/api/watchlist/<ticker>` | Remove a symbol from the shared watchlist (404 if absent) |
+| Router | Prefix | What it covers |
+|--------|--------|----------------|
+| `system.py` | `/api/health` | Health check — confirms the API and PostgreSQL database are reachable |
+| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities` | Positions and lots (`?owner=`, defaults to `john`), CSV import, and the **global** shared watchlist (no `?owner=`) |
+| `prices.py` | `/api/securities/{ticker}/…` | OHLCV, technicals and technical/risk signals, RSI, MACD, stochastic, volume + OBV, ATR bands, volume profile, VWAP (+ anchored, + history), candlesticks, higher lows, gaps, drawdown |
+| `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | Chain and contract lookup, exact vertical-spread pricing, IV rank, unusual calls, OI change, GEX profile, gamma-wall history, delta exposure, watchlist screening |
+| `fundamentals.py` | `/api/securities/…` | Fundamental score (+ batch, + changes), revenue growth, earnings acceleration, earnings calendar, history, sector breakdown, cache stats |
+| `sentiment.py` | `/api/securities/…/news…` | News collection, per-symbol sentiment, sentiment trend |
+| `microstructure.py` | `/api/securities/{ticker}/…` | Short interest, dark-pool proxy, bid/ask spread |
+| `recommendations.py` | `/api/securities/{ticker}/…` | `get_trade_recommendation`, stop-loss analysis, relative strength (+ history), support confluence |
+| `arbitrage.py` | `/api/arbitrage/…` | Curated universe, pair analysis, scan, cointegration discovery, spread/premium history |
+| `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | The Harvester: plans and their rungs (create, supersede, mark achieved, record executions), plan symbols, dashboard roll-ups |
+| `settings.py` | `/api/settings` | Per-owner UI preferences (currently the Sidekick chat model) |
+| `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key / envelope validation (see [BYOK Sidekick](#byok-sidekick-bring-your-own-llm-api-key)) |
 
 ### Starting the API server
 
@@ -195,19 +245,22 @@ The server starts on `http://127.0.0.1:5001`. CORS is enabled for all origins on
 
 ## React Frontend (`frontend/`)
 
-A **Harvest Ladder** dashboard built with React 19, TypeScript, Vite, and Material UI. It communicates exclusively with the FastAPI service above.
+**QuantUI** — a portfolio and market-analysis dashboard built with React 19, TypeScript, Vite, and
+Material UI. It communicates exclusively with the FastAPI service above.
 
 ### Pages
 
 | Page | Route | Description |
 |------|-------|-------------|
-| Dashboard | `/` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
-| Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views |
-| Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol |
+| Portfolio | `/` | Your positions and lots — value, gain/loss, and per-lot detail |
+| Harvester | `/harvester` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
+| Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views; add/remove watchlist symbols here |
+| Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol, including the Technical Analysis tab's Support Confluence card |
+| Arbitrage | `/arbitrage` | The arbitrage scanner — universe, scan results, and per-pair factor breakdowns |
 | Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
 | Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |
 | Symbols | `/symbols` | Look up the latest live price for any ticker symbol |
-| Settings | `/settings` | Manage your BYOK API keys (add/rotate/remove, vault unlock) |
+| Settings | `/settings` | Manage your BYOK API key (vault unlock, rotate, remove) and pick your Sidekick chat model |
 
 Every page also carries the **Sidekick** chat rail — an AI assistant powered by the user's own
 Anthropic API key (see [BYOK Sidekick](#byok-sidekick-bring-your-own-llm-api-key)).
@@ -393,9 +446,10 @@ restarts.
 ```
 
 What it does:
+- Starts the **Cloud SQL Auth Proxy** if it isn't already listening — output logged to `cloud-sql-proxy.log`
 - Activates the Python virtualenv (`.venv/`)
 - Starts the FastAPI (uvicorn) server in the background — output logged to `api.log`
-- Starts the Vite frontend dev server in the background — output logged to `frontent.log`
+- Starts the Vite frontend dev server in the background — output logged to `frontend.log`
 - Prints the PID of each process and the URLs for both servers
 
 Both processes run independently; closing the terminal does not stop them. The script prints a `kill` command with both PIDs so you can shut them down when done.
@@ -406,7 +460,7 @@ Both processes run independently; closing the terminal does not stop them. The s
 
 The whole backend runs as containers locally — the team's daily driver and the
 fallback if the GCP deployment has issues. The topology mirrors the Cloud Run
-target: AI agents talk to the five **MCP wrapper** containers over streamable
+target: AI agents talk to the seven **MCP wrapper** containers over streamable
 HTTP; each wrapper is a thin HTTP gateway that calls the **`quantcore-api`**
 FastAPI front door (`QUANTCORE_REST_URL=http://quantcore-api:5001`); the api runs
 the services in-process and reaches **Cloud SQL** through a `cloud-sql-proxy`
@@ -414,7 +468,8 @@ sidecar — all on one bridge network.
 
 ```text
 AI agents ──HTTP──► stock-price :6001 │ options-analysis :6002 │ company-fundamentals :6003
-                    news-sentiment :6004 │ market-analysis :6005
+                    news-sentiment :6004 │ market-analysis :6005 │ portfolio :6006
+                    arbitrage :6007
                               │  QUANTCORE_REST_URL
                               ▼
                        quantcore-api :5001  (FastAPI; services in-process)
@@ -456,7 +511,7 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 | Image | Dockerfile | Deps | Role |
 |-------|-----------|------|------|
 | `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) | FastAPI front door + service execution |
-| MCP wrappers (×5) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
+| MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
@@ -483,10 +538,12 @@ A suite of **FastMCP servers** that expose real-time market analysis as tools co
 
 ### Connecting AI clients to prod (MCP token)
 
-The repo's `.mcp.json` already points the five remote servers at the **prod** wrapper URLs
-(`https://quantcore-<svc>-swgixldxzq-uc.a.run.app/mcp`), each sending
+The repo's `.mcp.json` already points the seven remote servers at the **prod** wrapper URLs
+(`https://quantcore-<svc>-swgixldxzq-uc.a.run.app/mcp`, or the equivalent
+`https://quantcore-<svc>-127961694257.us-central1.run.app/mcp` form), each sending
 `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`. The wrappers do **identity passthrough** — they
-forward that bearer to `quantcore-api`, which enforces an HS256 JWT (`api/auth.py`). So the only
+forward that bearer to `quantcore-api`, whose `api/auth.py` is **dual-mode**: HS256 for these
+service/MCP tokens, ES256 for the per-user tokens QuantUI mints. So the only
 thing each team member supplies is their own prod token in `QUANTCORE_MCP_TOKEN`; without it every
 data tool returns `401: … Not enough segments`.
 
@@ -691,11 +748,65 @@ fastmcp run fastMCPTest/stock_price_server.py
 
 ---
 
+## Harvester System
+
+A "harvest ladder" strategy for systematically selling shares into strength. It computes a
+volatility-based harvest threshold (H) per symbol, builds a forward ladder of price targets
+("rungs"), and tracks each rung from *planned* → *achieved* → *executed*.
+
+- `experiments/HarvesterExperiment.py` — the algorithm and its backtests
+- `quantcore/repositories/harvester_repository.py` — `HarvesterPlanDB` + `PlanBuildParams`; SQL only
+- `quantcore/services/harvester.py` — `HarvesterService`, which scans prices against active rungs
+- REST: `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard`; UI: `/harvester`, `/plans`
+
+It also hooks into notifications: each `main.py` run checks every portfolio stock against the
+active plan rungs and fires a Discord alert for any hit.
+
+## Arbitrage Scanner
+
+Finds securities whose price has stretched against a structurally linked underlying, across three
+families: **nav_vehicle** (treasury companies and trusts — the only family with a computable fair
+value), **commodity_etf** (a fund vs its reference future), and **producer** (a miner or E&P vs the
+commodity it sells). Curated links live in `arb_universe.yaml`; `discover_pairs` additionally
+sweeps for undeclared cointegrated links against a reference panel, gated by a sector/industry
+economic-link filter.
+
+**The scoring is deliberately inverted: spread width only qualifies a candidate, the convergence
+mechanism ranks it.** The score is a product of named factors — `opportunity × evidence ×
+convergence × hedge × carry × trend × freshness` — all returned in the `factors` block alongside
+`reasons` and `breaks_on`, so any score is attributable. Because the account is equity/ETF-only,
+any pair whose only clean hedge is a futures contract is flagged `hedge_available: false` and
+halved. **Expect most scans to return nothing above `watch` — that is the intended behaviour, not
+a bug.**
+
+REST: `GET /api/arbitrage/{universe,scan,discover,pairs/{security}}`; MCP: `arbitrage-server`;
+UI: `/arbitrage`. For example prompts, how to read the `factors` breakdown, the MSTR worked
+example (gross vs net discount), and how to add a pair, see
+[docs/arbitrage-scanner-usage.md](docs/arbitrage-scanner-usage.md).
+
+---
+
 ## Testing
 
-Run the unit tests:
+Backend suites live under `tests/`. The `tests/__init__.py` package initializer swaps in the test
+DSN before `quantcore.db` is imported, so the suite never touches the primary database:
+
+```bash
+python -m unittest discover -s tests -t .
 ```
-python -m unittest discover
+
+Run a single module by dotted path from the repo root:
+
+```bash
+python -m unittest tests.test_money
+```
+
+CI enforces a coverage ratchet on both sides — a floor for the backend (`.coveragerc` + the gate in
+`deploy.yml`) and thresholds for the front end (`frontend/vitest.config.ts`) that only move upward:
+
+```bash
+coverage run -m unittest discover -s tests -t . && coverage report
+cd frontend && npx vitest run --coverage
 ```
 
 ## Report Features

@@ -3,6 +3,42 @@ claude --resume 44dcf10f-5cc7-494e-90b2-1e4d0bc4a672
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation is part of the change (read this first)
+
+**Any change that alters what a reader of the docs would be told must update the docs in the same
+PR.** Docs are not a follow-up task and not a separate ticket — a PR that leaves them stale is
+incomplete, and reviewers should say so.
+
+Update the docs when you:
+
+- add, remove, or rename a **service, repository, gateway, or analytics module**
+- add or change a **REST route group**, an **MCP server or tool**, or a **UI page or route**
+- change the **schema** (which also means a Flyway file *and* `init_schema()` — see Migrations)
+- change **deployment, CI/CD, environment, or auth** wiring
+- add an **operational script**, or change how an existing one is invoked
+- change a **default, environment variable, or configuration file's role**
+- discover that something documented is **already wrong** — fix it while you're there
+
+Where it goes:
+
+| Doc | Audience | Holds |
+|-----|----------|-------|
+| `CLAUDE.md` | agents (auto-loaded every session) | architecture, constraints, and the rules an agent must not violate |
+| `AGENTS.md` | non-Claude agents | a pointer to `CLAUDE.md` plus the non-negotiables — **never a second copy of the architecture** |
+| `readme.md` | humans | the tour: install, configure, run, endpoints, UI, containers, MCP setup |
+| `docs/proposals/*.md` | both | plans and their checkpoint logs — append the checkpoint as each step lands, not at the end |
+
+Two rules that keep this from rotting:
+
+1. **One fact, one home.** If two documents would both state something, one states it and the
+   other links. `AGENTS.md` drifted for months precisely because it was a copy.
+2. **Record the gotcha, not just the outcome.** When something cost real time to figure out — a
+   command that half-succeeded, a flag that behaved differently than documented — write down what
+   misled you, in the plan doc for that work. That is the part nobody can reconstruct later.
+
+Prefer a smaller true statement to a larger stale one: if you can't verify a claim, cut it or
+mark it, rather than leaving a confident sentence that no longer holds.
+
 ## Commands
 
 ```bash
@@ -23,6 +59,13 @@ cd frontend && npx vitest run --coverage
 python -m unittest tests.test_money
 python -m unittest tests.test_stock_portfolio_manager
 
+# Start the REST API
+uvicorn api.main:app --host 127.0.0.1 --port 5001
+
+# Database migrations (defaults to the TEST database; prompts before a prod migrate)
+./scripts/flyway.sh info
+./scripts/flyway.sh --prod info
+
 # Activate virtualenv
 source .venv/bin/activate
 
@@ -38,14 +81,14 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 - **`money.py`** — `Money` value object using `Decimal` for precision. Supports arithmetic operators and currency conversion via the open.er-api.com exchange rate API.
 - **`stock.py`** — `Stock` entity holding purchase info, current price, and a `Metrics` object. Computes gain/loss, gain/loss %, and dollars-per-day.
-- **`portfolio.py`** — `Portfolio` aggregates `Stock` objects (keyed by symbol). Reads holdings from `portfolio.csv`. Delegates price updates and metrics to gateway/metrics modules.
+- **`portfolio.py`** — `Portfolio` aggregates `Stock` objects (keyed by symbol). `read_stocks_from_records()` loads holdings from the DB-backed `positions` table; `read_stocks_from_csv()` remains for the `portfolio.csv` import path. Delegates price updates and metrics to gateway/metrics modules.
 - **`watch_list.py`** — `WatchList` is similar to Portfolio but for non-owned stocks. `read_stocks_from_records()` loads it from the DB-backed `watchlist` table (issue #83); `read_stocks_from_yaml()` remains for the `watchlist.yaml` import path. Supports per-stock `tags`.
 - **`metrics.py`** — `Metrics` dataclass plus `get_historical_metrics()` which bulk-downloads 2 years of daily data via yfinance and computes moving averages (10/30/50/100/200-day), period returns, and percent change today.
 - **`yfinance_gateway.py`** — Thin wrapper around `yf.download()` for latest prices and `yf.Tickers()` for descriptive info (earnings dates, income statements).
 
 ### Report Generation (`main.py`)
 
-`main.py` is the entry point. It loads portfolio from CSV + watchlist from YAML, fetches prices/metrics, generates matplotlib charts (embedded as base64 in HTML via Jinja2 template), optionally uploads to S3, and triggers notifications. It also captures a full options chain snapshot per portfolio/watchlist symbol (in-process `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so open-interest history accumulates daily for `get_oi_change_analysis`.
+`main.py` is the entry point. It loads John's positions and the shared watchlist from the database (via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`), fetches prices/metrics, generates matplotlib charts (embedded as base64 in HTML via Jinja2 template), optionally uploads to S3, and triggers notifications. It also captures a full options chain snapshot per portfolio/watchlist symbol (in-process `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so open-interest history accumulates daily for `get_oi_change_analysis`.
 
 ### Notifications (`notifier.py`)
 
@@ -107,10 +150,10 @@ All repositories under `quantcore/repositories/` and the REST API (`api/main.py`
 
 Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and FastAPI routes (`api/routers/*`, app assembled in `api/main.py`) are thin adapters that are **exactly one service call deep**.
 
-- **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`.
-- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
-- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio).
-- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `SettingsService`, `ArbitrageService`, `RecommendationsService` (composes the other services).
+- **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination), `AnthropicGateway` + `KeyproxyGateway` (the Sidekick/BYOK hops, with `keyproxy_fake.py` for tests). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`.
+- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
+- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups), `market_time.py` (session and trading-day arithmetic).
+- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsContractsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `WatchlistService`, `SettingsService`, `IdentityService`, `ChatService` (+ `chat_tools.py`, `chat_fake.py`), `ArbitrageService`, `RecommendationsService` (composes the other services).
 - **`quantcore/chat_models.py`** — pure-data catalog of the three user-selectable Sidekick chat models (issue #124: `claude-sonnet-5` default, `claude-opus-4-8`, `claude-fable-5`), injected by the registry into both `SettingsService` and `ChatService` so the two never import each other for it. `SettingsService` (backed by `UserSettingsRepository`'s `user_settings` table) resolves a per-owner chat model — falling back to the default if the stored value has since been retired from the allow-list — and validates writes against the same allow-list; exposed via `GET/PUT /api/settings` (`api/routers/settings.py`). The frontend Settings page and the Sidekick chat-header quick-switch both read/write this endpoint, converging on one server-side source of truth rather than sharing a JS module.
 - **`quantcore/services/registry.py`** — the composition root: a lazy `@lru_cache get_services()` returning a frozen `Services` dataclass with all dependencies constructor-injected. Adapters call `get_services().<service>.<method>(...)`; service modules never import each other or the registry (acyclic).
 
@@ -120,7 +163,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 
 The watchlist is DB-backed too (`watchlist` table, `WatchlistRepository` → `WatchlistService`, issue #83) but — unlike positions — it is **global**: one shared list, no `owner` column, with the writing principal recorded in `added_by` for audit only. `watchlist.yaml` is now purely an import format (`scripts/import_watchlist.py`, full-sync replace); every consumer (the daily report, the options screener, the fundamentals report, the REST tier) reads the table, and there is deliberately **no fallback to the YAML file** — an empty table is a loud Discord alarm (`alert_if_watchlist_empty` in `main.py`), not a quiet degrade. Surfaced as `GET/POST /api/watchlist` and `DELETE /api/watchlist/{ticker}`, plus `list_watchlist` / `add_to_watchlist` on the portfolio MCP wrapper. Removal is a UI-only action: the seam `mcp_gateway/rest_client.py` has no `delete` verb, so no agent can drop symbols off a list the whole team shares.
 
-**Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — the Flask app (`api/app.py`) has been retired and rebuilt on FastAPI (app factory `api/main.py`, route groups under `api/routers/*`, Pydantic request/response schemas under `api/schemas/*`), preserving every route path and JSON shape so the React front end runs unmodified; OpenAPI docs are served at `/docs` and the spec at `/openapi.json`. See [`docs/proposals/phase2-fastapi-plan.md`](docs/proposals/phase2-fastapi-plan.md) for the checkpoint log. Run it with `uvicorn api.main:app --host 127.0.0.1 --port 5001` (or `python -m api.main`). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see [`docs/proposals/phase3-gateway-plan.md`](docs/proposals/phase3-gateway-plan.md): the five MCP servers (`fastMCPTest/*_server.py`, `options_analysis.py`) were inverted into thin **HTTP gateway wrappers** that call the REST tier through the single seam `mcp_gateway/rest_client.py` (Rule 6 — `AI Agent → MCP wrapper → REST tier → Service`); `api/auth.py` adds JWT verification (inert until a key is configured, so local/compose stay open); everything is containerized (`Dockerfile.{api,mcp,report}`, `docker-compose.yml` local stack) and deployed to **GCP Cloud Run** — `quantcore-api` (JWT-enforced) + 5 wrapper services + `main.py` as a daily Cloud Run **Job** on Cloud Scheduler (in-process services, never HTTP). CI/CD is `.github/workflows/deploy.yml` (tests + wrapper smoke + OpenAPI surface diff, then build/roll-out; push/PR triggers are gated by a `preflight` job that skips the deploy when the test-WIF secrets are absent — wire them with `scripts/setup_test_wif.sh`). **Production rollout is COMPLETE** — see [`docs/proposals/prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md): rather than a test-service DSN flip, the same stack was stood up in a **dedicated prod project** `quantcore-prod-20260606` (project # `127961694257`, `us-central1`) reaching its own prod Cloud SQL — `quantcore-api` (JWT-enforced) + 5 wrapper services + the report Cloud Run Job on Cloud Scheduler, on images **copied by digest** test→prod (api `ac5cd17f…`, mcp `1b7da905…`, report `65d70659…`). Gated prod CI/CD is `.github/workflows/prod-rollout.yml` (`workflow_dispatch`/`release`, `prod` GitHub Environment with required reviewers, separate prod WIF). `.mcp.json` points AI clients at the prod wrapper `/mcp` URLs (`https://quantcore-<svc>-127961694257.us-central1.run.app`, bearer `${QUANTCORE_MCP_TOKEN}`); the 5 `*-local` entries remain for the docker-compose stack. The deferred `portfolio/yfinance_gateway.py` `get_latest_prices` fragility is now **hardened** (retry/back-off + graceful all-None degrade so a flaky Yahoo response no longer crashes the daily report); rebuilding/redeploying the prod report image with this fix is a pending user/CI step.
+**Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — the Flask app (`api/app.py`) has been retired and rebuilt on FastAPI (app factory `api/main.py`, route groups under `api/routers/*`, Pydantic request/response schemas under `api/schemas/*`), preserving every route path and JSON shape so the React front end runs unmodified; OpenAPI docs are served at `/docs` and the spec at `/openapi.json`. See [`docs/proposals/phase2-fastapi-plan.md`](docs/proposals/phase2-fastapi-plan.md) for the checkpoint log. Run it with `uvicorn api.main:app --host 127.0.0.1 --port 5001` (or `python -m api.main`). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see [`docs/proposals/phase3-gateway-plan.md`](docs/proposals/phase3-gateway-plan.md): the MCP servers (`fastMCPTest/*_server.py`, `options_analysis.py`) were inverted into thin **HTTP gateway wrappers** that call the REST tier through the single seam `mcp_gateway/rest_client.py` (Rule 6 — `AI Agent → MCP wrapper → REST tier → Service`); `api/auth.py` adds JWT verification (inert until a key is configured, so local/compose stay open); everything is containerized (`Dockerfile.{api,mcp,report}`, `docker-compose.yml` local stack) and deployed to **GCP Cloud Run** — `quantcore-api` (JWT-enforced) + 7 wrapper services + `main.py` as a daily Cloud Run **Job** on Cloud Scheduler (in-process services, never HTTP). CI/CD is `.github/workflows/deploy.yml` (tests + wrapper smoke + OpenAPI surface diff, then build/roll-out; push/PR triggers are gated by a `preflight` job that skips the deploy when the test-WIF secrets are absent — wire them with `scripts/setup_test_wif.sh`). **Production rollout is COMPLETE** — see [`docs/proposals/prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md): rather than a test-service DSN flip, the same stack was stood up in a **dedicated prod project** `quantcore-prod-20260606` (project # `127961694257`, `us-central1`) reaching its own prod Cloud SQL — `quantcore-api` (JWT-enforced) + 7 wrapper services + the report Cloud Run Job on Cloud Scheduler, on images **copied by digest** test→prod (api `ac5cd17f…`, mcp `1b7da905…`, report `65d70659…`). Gated prod CI/CD is `.github/workflows/prod-rollout.yml` (`workflow_dispatch`/`release`, `prod` GitHub Environment with required reviewers, separate prod WIF). `.mcp.json` points AI clients at the prod wrapper `/mcp` URLs (`https://quantcore-<svc>-127961694257.us-central1.run.app`, bearer `${QUANTCORE_MCP_TOKEN}`); the 7 `*-local` entries remain for the docker-compose stack. The deferred `portfolio/yfinance_gateway.py` `get_latest_prices` fragility is now **hardened** (retry/back-off + graceful all-None degrade so a flaky Yahoo response no longer crashes the daily report); rebuilding/redeploying the prod report image with this fix is a pending user/CI step.
 
 ### QuantUI front end on Cloud Run (behind IAP)
 
@@ -226,6 +269,16 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 - **`watchlist.yaml`** — *Import format only* (issue #83). Entries with `name`, `symbol`, `currency`, and optional `tags` list; load them into the global `watchlist` table with `python scripts/import_watchlist.py --yaml watchlist.yaml` (full-sync replace). Nothing reads the file at runtime — the table is the source of truth, and the UI's add/remove actions write straight to it.
 
 **Database Initialization:** The unified PostgreSQL database and its 22-table schema are automatically created on startup by any application entry point (`main.py`, REST API, or MCP servers) — `init_schema()` runs before any database operations. The database itself (and its `quantcore` user) must already exist; point `QUANTCORE_DB_DSN` at any reachable PostgreSQL instance — local, or a managed service such as Cloud SQL accessed through the Cloud SQL Auth Proxy (which exposes the remote instance as a local TCP host:port, so no code changes are needed to switch targets).
+
+**Migrations (Flyway):** versioned SQL lives in `db/migrations/V*.sql`, configured by `db/flyway.conf` (which deliberately holds **no credentials** — `baselineOnMigrate=true`, `baselineVersion=1`). Run it with the wrapper, which derives the JDBC URL and login from the DSNs in `.env`, defaults to **test**, echoes the target host before running, and confirms before a prod `migrate`:
+
+```bash
+./scripts/flyway.sh info            # test (default)
+./scripts/flyway.sh --prod info
+./scripts/flyway.sh --prod migrate  # prompts
+```
+
+Every schema change ships as a migration file **and** is mirrored into `init_schema()`. Because `init_schema()` runs on every application startup, a deployed database has usually already reached the right *shape* before Flyway sees it — so pure-DDL migrations are expected to report "already exists, skipping", and **`flyway info` is not evidence of what a deployed database actually contains** (check the objects directly with `to_regclass`/`information_schema.columns`). Only migrations carrying data changes — backfills, seeds — do real work on a deployed DB. That two-owners-of-the-schema problem is tracked as [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165).
 
 ## Key Dependencies
 

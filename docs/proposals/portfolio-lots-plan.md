@@ -986,6 +986,58 @@ grep -n "def put\|def patch\|def delete" mcp_gateway/rest_client.py
 
 **Done when** the smoke script boots six wrappers and the grep returns nothing.
 
+### Step 4.8a — one-time Cloud Run service creation (done 2026-07-29)
+
+Step 4.8 deferred the actual Cloud Run service under "Don't" but never recorded the
+command, so **`quantcore-portfolio` was never created in either project** — the CI
+existence guard printed "skipping" on every run and the wrapper's tools were
+unreachable for weeks. Filed as [#163](https://github.com/JohnFunkCode/StockPortfolioManager/issues/163);
+`prod-rollout.yml` was missing the guarded step entirely until
+[#164](https://github.com/JohnFunkCode/StockPortfolioManager/pull/164).
+
+Both services now exist. Keep this as the template for the **next** wrapper:
+
+**1. Get the image — never hardcode a commit tag.** In test, a tag works because
+`deploy.yml` pushes tags there. In **prod it does not**: `prod-rollout.yml` promotes
+images test→prod **by digest**, so test's commit tags never appear in the prod repo.
+Read the image off a sibling wrapper instead, which also guarantees the new service
+starts in lockstep with the rest:
+
+```bash
+PROJECT=quantcore-prod-20260606   # or quantcore-test-20260606
+IMAGE=$(gcloud run services describe quantcore-arbitrage \
+  --project "$PROJECT" --region us-central1 \
+  --format='value(spec.template.spec.containers[0].image)')
+echo "$IMAGE"   # …/quantcore-mcp@sha256:…
+```
+
+**2. Create the service** (`--set-env-vars` is correct *only* here, on a brand-new
+service; on an existing one always `--update-env-vars`/`--update-secrets`, since
+`--set-*` replaces the whole set):
+
+```bash
+gcloud run deploy quantcore-portfolio \
+  --project "$PROJECT" --region us-central1 --platform managed \
+  --image "$IMAGE" \
+  --allow-unauthenticated --port 6006 \
+  --service-account "quantcore-run@${PROJECT}.iam.gserviceaccount.com" \
+  --set-env-vars SERVER_MODULE=fastMCPTest.portfolio_server,QUANTCORE_REST_URL=<project's quantcore-api URL>/
+```
+
+**3. Verify over MCP**, not just by HTTP status — `initialize`, then `tools/list`,
+then one real data tool. An unauthenticated call returning
+`REST tier returned 401: missing bearer token` is *correct*: it proves identity
+passthrough reached `quantcore-api`. Mint a token with
+`scripts/mint_prod_jwt.py` (add `--project quantcore-test-20260606` for test).
+
+**Gotcha that cost an hour:** a `gcloud run deploy` naming an image tag that is not
+yet in Artifact Registry **still creates the service object** with its full spec —
+env, port, concurrency all persist — and fails only the revision. It looks like a
+clean failure but silently flips CI's `gcloud run services describe` guard to
+passing, so the service exists while nothing serves. Confirm the image is in AR
+*before* running the creation command; `deploy.yml`'s build job takes several
+minutes after a merge.
+
 ### PR 4 acceptance
 
 ```bash

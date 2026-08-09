@@ -381,6 +381,57 @@ later.
   `_SCHEMA` in `quantcore/db.py`, and `db/schema_snapshot.json`.
 - **`readme.md`** Migrations section: same, in human voice.
 
+### What the first parity run found
+
+Three tables, and **nothing else**:
+
+```
+MISSING  table arb_nav_snapshots
+MISSING  table gex_history
+MISSING  table user_settings
+```
+
+All three were added to `_SCHEMA` in `quantcore/db.py` and never given a migration, so a database
+built purely from `db/baseline` + `db/migrations` lacked them entirely. **The migrations were the
+wrong side.** Prod has all three (confirmed read-only on 2026-08-09 against
+`quantcore-prod-20260606`: `schema_check.py --prod` reports `22 tables, 0 missing, 0 extra`, plus a
+direct `information_schema.tables` query naming the three), so under D6 prod reality wins and the
+resolution is `db/migrations/V6__parity_backfill.sql` — idempotent `CREATE TABLE IF NOT EXISTS`
+DDL copied verbatim from `_SCHEMA`. `V2`–`V5` were not touched.
+
+Three things worth recording, because they are the parts nobody can reconstruct later:
+
+1. **The predicted failures did not happen.** This plan expected constraint names dropped by name
+   in `_SCHEMA` (`db.py:100-102`), index-name drift, and a `positions.quantity` numeric-type
+   mismatch. The parity run produced **zero MISMATCH lines** — every table both sides have is
+   identical down to columns, indexes, and constraints. The drift was purely *additive*: new
+   tables shipped through `init_schema()` only. That is a much better start state than assumed,
+   and it means the interesting failure mode here is "someone added a table and forgot the
+   migration", not "the two sources describe the same table differently".
+
+2. **The drift was invisible precisely because nothing broke.** `init_schema()` runs on every
+   application startup, so it created these tables on every deployed database before Flyway ever
+   looked. There was no outage, no error, no log line — the migrations silently stopped describing
+   the schema and the only symptom was that `flyway info` said `V5` while the database had 22
+   tables. This is the concrete instance of the claim in `CLAUDE.md` that `flyway info` is a
+   changelog view, not evidence.
+
+3. **V6 will be a no-op everywhere it runs, and that is correct.** Every deployed database already
+   has these three tables, so applying V6 finds nothing to do and just records the version. Do not
+   mistake the no-op for the migration being unnecessary: its job is to make the *file set* a
+   complete description of the schema, which is what the parity test now enforces. A future
+   database built from empty — a new environment, a scratch database, a restore drill — is the
+   case that would actually have failed.
+
+**Gotcha caught while running the evidence command:** both PR 1 scripts shipped without the
+`sys.path.insert(REPO_ROOT)` preamble every other script in `scripts/` has, so
+`python scripts/schema_check.py --prod` from the repo root died with `ModuleNotFoundError: No
+module named 'quantcore'` before printing anything. CI sets `PYTHONPATH: .` job-wide, which is
+exactly why it passed review — the failure only reproduces interactively, which is the only way
+`schema_check.py` is ever invoked. Fixed in PR 2 for both `scripts/schema_check.py` and
+`scripts/check_schema_snapshot.py`. The general lesson: a command whose entire purpose is
+hand-invocation cannot be validated solely by a CI job that pre-configures its environment.
+
 ---
 
 ## PR 3 — Verify mode
@@ -545,3 +596,4 @@ Append one row per PR **as it lands**, not at the end.
 | PR | Date | Commit | What landed | What it found |
 |----|------|--------|-------------|---------------|
 | 1 (Evidence) | 2026-08-09 | — | `db/baseline/V1__quantcore_baseline.sql` (extracted from `9a9d204^`'s `init_schema()`, 16 tables / 0 `ALTER TABLE`, D3: lives outside `flyway.locations`); `quantcore/schema_introspect.py` (`describe_schema`/`diff_schemas`/`scratch_database`/`snapshot_from_dsn`, D4: MISSING/MISMATCH are errors, EXTRA is a warning) + `tests/test_schema_introspect.py` (13 tests, DB-free); `db/schema_snapshot.json` (generated from a live `init_schema()` run, 22 tables) + `scripts/check_schema_snapshot.py` (`--update`/diff, drift-detection proven with an injected table then reverted); wired into `.github/workflows/deploy.yml`'s `gate` job as a "Schema snapshot up to date" step; `scripts/schema_check.py` (read-only `--test`/`--prod` evidence command, mirrors `flyway.sh`'s DSN selection); docs updated (`readme.md`, `CLAUDE.md`, `scripts/flyway.sh` header) to point at the evidence command instead of "check the objects directly". | Ran `scripts/schema_check.py` against both live databases per Step 5 — **both clean**: test (`127.0.0.1:5434`) and prod (`127.0.0.1:5433`) each report `22 tables, 0 missing, 0 extra`, both with Flyway ledger `applied through V5__watchlist (2026-07-28)`. No MISSING/MISMATCH on either side, so no drift to report — `init_schema()` and Flyway agree on both databases today. This is the evidence PR 2's parity test will hold going forward. |
+| 2 (Enforcement) | 2026-08-09 | — | `tests/test_schema_parity.py` (7 tests): builds one scratch database from `init_schema()` and another from `db/baseline/V1__*.sql` + every `db/migrations/V*.sql` in parsed-integer version order, asserts `diff_schemas(...) == []` with the full diff as the failure message; `MigrationOrderTests` pins `V10`-after-`V9` ordering and baseline-first contiguity; `SkipGuardTests` pins that the skip path *fails* rather than skips when `CI` is set, so a silently-skipping guard can't pass as a green build. `db/migrations/V6__parity_backfill.sql` resolves the first run's finding under D6. Coverage repair carried over from PR 1: `tests/test_schema_introspect_live.py` (5 live-DB tests) + 4 more cases in `tests/test_schema_introspect.py` lift `quantcore/schema_introspect.py` from 52% → 98%. `sys.path.insert(REPO_ROOT)` preamble added to both PR 1 scripts. Docs: `CLAUDE.md`, `AGENTS.md`, `readme.md` now state the three-file rule as CI-enforced rather than a convention. | The first parity run failed as designed, with exactly three `MISSING table` lines and **zero MISMATCH lines** — see ["What the first parity run found"](#what-the-first-parity-run-found) above for the detail, the D6 resolution, and the three lessons. Two process findings alongside it: PR 1's CI run never actually reached the new "Schema snapshot up to date" step (it aborted earlier at the PR-only `Diff coverage` gate, which the post-merge push run then skips), so the step's first real execution was the `main` run `31336550437` — green, 22 tables; and `scripts/schema_check.py` could not be run by hand at all as shipped (the `PYTHONPATH` gotcha recorded above). |

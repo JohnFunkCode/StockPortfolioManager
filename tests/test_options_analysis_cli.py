@@ -282,7 +282,7 @@ class TestMainSingleSymbol(unittest.TestCase):
         argv = ["options_analysis.py", "--symbol", "upp",
                 "--no-persist", "--no-news", "--puts-budget", "500"]
         with patch.object(oa, "get_services", return_value=bag), \
-             patch("quantcore.db.init_schema"), \
+             patch("quantcore.db.ensure_schema"), \
              patch.object(svc, "fetch_security", return_value=sec), \
              patch.object(sys, "argv", argv):
             text = out_of(oa.main)

@@ -14,7 +14,7 @@ import sys
 from jinja2 import Environment, FileSystemLoader
 from notifier import Notifier
 from dotenv import load_dotenv
-from quantcore.db import init_schema
+from quantcore.db import ensure_schema
 from quantcore.services.registry import get_services
 
 def fig_to_base64(fig):
@@ -617,8 +617,9 @@ def save_html_to_s3(html_content):
         return f"https://www.{bucket_name}/{key}"
 
 if __name__ == "__main__":
-    # Initialize database schema (creates tables if missing)
-    init_schema()
+    # Make sure the schema is right (creates tables, or verifies them
+    # where Flyway owns the DDL -- see QUANTCORE_SCHEMA_MODE).
+    ensure_schema()
 
     # Create a portfolio
     portfolio = portfolio.Portfolio()

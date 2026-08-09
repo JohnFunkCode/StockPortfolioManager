@@ -19,3 +19,12 @@ if _env_file.exists():
         if _line.strip().startswith("QUANTCORE_TEST_DB_DSN="):
             os.environ["QUANTCORE_DB_DSN"] = _line.split("=", 1)[1].strip()
             break
+
+# Same reasoning, one layer up: the suite's bootstrap must not depend on
+# whether the target database happens to carry a Flyway ledger. The local test
+# database does (scripts/flyway.sh defaults to test), CI's throwaway Postgres
+# does not, and QUANTCORE_SCHEMA_MODE=auto resolves those two worlds
+# differently -- create vs warn. Pinning it keeps every DB-backed suite on the
+# create path it has always had. The mode logic itself is exercised explicitly
+# in tests/test_schema_bootstrap.py, which sets the variable per case.
+os.environ["QUANTCORE_SCHEMA_MODE"] = "create"

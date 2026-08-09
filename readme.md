@@ -142,10 +142,13 @@ running, and asks for confirmation before a prod `migrate`:
 Every schema change ships **both** as a migration file and as a change to `init_schema()`.
 Since `init_schema()` runs on every application startup, a deployed database has usually already
 reached the right *shape* before Flyway sees it — pure-DDL migrations are expected to report
-"already exists, skipping", and **`flyway info` is not evidence of what a deployed database
-actually contains** (check the objects directly). Only migrations that carry data changes —
-backfills, seeds — do real work on a deployed database. That two-owners-of-the-schema problem is
-tracked as [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165).
+"already exists, skipping", and **`flyway info` is a changelog view, not evidence of what a
+deployed database actually contains** — run `python scripts/schema_check.py --prod` for that (it
+connects read-only and diffs the live schema against the committed `db/schema_snapshot.json`).
+Only migrations that carry data changes — backfills, seeds — do real work on a deployed database.
+That two-owners-of-the-schema problem is tracked as
+[issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) (plan:
+[`docs/proposals/schema-ownership-plan.md`](docs/proposals/schema-ownership-plan.md)).
 
 **Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:
 ```bash

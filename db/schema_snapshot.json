@@ -1,0 +1,1533 @@
+{
+  "tables": {
+    "alerts": {
+      "columns": {
+        "alert_id": {
+          "default": "nextval('alerts_alert_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "alert_type": {
+          "default": "'PRICE_GE'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "channel": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "cooldown_seconds": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "created_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "destination": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "fired_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "fired_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "instance_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "last_checked_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "message_template": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "rung_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "status": {
+          "default": "'ACTIVE'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "threshold_price": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        }
+      },
+      "constraints": {
+        "alerts_instance_id_fkey": "FOREIGN KEY (instance_id) REFERENCES plan_instances(instance_id) ON DELETE CASCADE",
+        "alerts_pkey": "PRIMARY KEY (alert_id)",
+        "alerts_rung_id_fkey": "FOREIGN KEY (rung_id) REFERENCES plan_rungs(rung_id) ON DELETE CASCADE",
+        "alerts_rung_id_key": "UNIQUE (rung_id)",
+        "alerts_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE"
+      },
+      "indexes": {
+        "alerts_pkey": "CREATE UNIQUE INDEX alerts_pkey ON public.alerts USING btree (alert_id)",
+        "alerts_rung_id_key": "CREATE UNIQUE INDEX alerts_rung_id_key ON public.alerts USING btree (rung_id)",
+        "idx_alerts_symbol_status": "CREATE INDEX idx_alerts_symbol_status ON public.alerts USING btree (symbol_id, status)"
+      }
+    },
+    "arb_nav_snapshots": {
+      "columns": {
+        "annual_senior_cost": {
+          "default": "0",
+          "nullable": false,
+          "type": "double precision"
+        },
+        "as_of": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "diluted_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "double precision"
+        },
+        "ingested_at": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "other_assets": {
+          "default": "0",
+          "nullable": false,
+          "type": "double precision"
+        },
+        "security": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "senior_claims": {
+          "default": "0",
+          "nullable": false,
+          "type": "double precision"
+        },
+        "source": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "underlying": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "units": {
+          "default": null,
+          "nullable": false,
+          "type": "double precision"
+        }
+      },
+      "constraints": {
+        "arb_nav_snapshots_annual_senior_cost_check": "CHECK ((annual_senior_cost >= (0)::double precision))",
+        "arb_nav_snapshots_diluted_shares_check": "CHECK (((diluted_shares IS NULL) OR (diluted_shares > (0)::double precision)))",
+        "arb_nav_snapshots_pkey": "PRIMARY KEY (security, as_of)",
+        "arb_nav_snapshots_senior_claims_check": "CHECK ((senior_claims >= (0)::double precision))",
+        "arb_nav_snapshots_units_check": "CHECK ((units >= (0)::double precision))"
+      },
+      "indexes": {
+        "arb_nav_snapshots_pkey": "CREATE UNIQUE INDEX arb_nav_snapshots_pkey ON public.arb_nav_snapshots USING btree (security, as_of)",
+        "idx_arb_nav_latest": "CREATE INDEX idx_arb_nav_latest ON public.arb_nav_snapshots USING btree (security, as_of DESC)"
+      }
+    },
+    "fetch_log": {
+      "columns": {
+        "fetched_at": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "interval": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "fetch_log_pkey": "PRIMARY KEY (symbol, \"interval\")"
+      },
+      "indexes": {
+        "fetch_log_pkey": "CREATE UNIQUE INDEX fetch_log_pkey ON public.fetch_log USING btree (symbol, \"interval\")"
+      }
+    },
+    "fundamentals_history": {
+      "columns": {
+        "data_type": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "fetched_at": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "payload": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "fundamentals_history_pkey": "PRIMARY KEY (symbol, data_type, fetched_at)"
+      },
+      "indexes": {
+        "fundamentals_history_pkey": "CREATE UNIQUE INDEX fundamentals_history_pkey ON public.fundamentals_history USING btree (symbol, data_type, fetched_at)",
+        "idx_fundamentals_latest": "CREATE INDEX idx_fundamentals_latest ON public.fundamentals_history USING btree (symbol, data_type, fetched_at DESC)"
+      }
+    },
+    "gamma_wall_history": {
+      "columns": {
+        "call_daoi_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "captured_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "date_only": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "delta_flip_strike": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "dist_to_flip_pct": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "expirations_scanned": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "gamma_wall_strike": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "id": {
+          "default": "nextval('gamma_wall_history_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "mm_hedge_bias": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "net_daoi_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "payload": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "price": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "put_daoi_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "signal": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "gamma_wall_history_pkey": "PRIMARY KEY (id)",
+        "gamma_wall_history_symbol_date_only_key": "UNIQUE (symbol, date_only)"
+      },
+      "indexes": {
+        "gamma_wall_history_pkey": "CREATE UNIQUE INDEX gamma_wall_history_pkey ON public.gamma_wall_history USING btree (id)",
+        "gamma_wall_history_symbol_date_only_key": "CREATE UNIQUE INDEX gamma_wall_history_symbol_date_only_key ON public.gamma_wall_history USING btree (symbol, date_only)",
+        "idx_gamma_wall_symbol_date": "CREATE INDEX idx_gamma_wall_symbol_date ON public.gamma_wall_history USING btree (symbol, date_only DESC)"
+      }
+    },
+    "gex_history": {
+      "columns": {
+        "captured_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "date_only": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "id": {
+          "default": "nextval('gex_history_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "net_gex": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "payload": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "regime": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "zero_gamma_level": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        }
+      },
+      "constraints": {
+        "gex_history_pkey": "PRIMARY KEY (id)",
+        "gex_history_symbol_date_only_key": "UNIQUE (symbol, date_only)"
+      },
+      "indexes": {
+        "gex_history_pkey": "CREATE UNIQUE INDEX gex_history_pkey ON public.gex_history USING btree (id)",
+        "gex_history_symbol_date_only_key": "CREATE UNIQUE INDEX gex_history_symbol_date_only_key ON public.gex_history USING btree (symbol, date_only)",
+        "idx_gex_history_symbol_date": "CREATE INDEX idx_gex_history_symbol_date ON public.gex_history USING btree (symbol, date_only DESC)"
+      }
+    },
+    "lot_sales": {
+      "columns": {
+        "allocation_method": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "fees": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "lot_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "sale_id": {
+          "default": "nextval('lot_sales_sale_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "sale_price": {
+          "default": null,
+          "nullable": false,
+          "type": "numeric(18,6)"
+        },
+        "sale_trade_date": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        },
+        "shares_sold": {
+          "default": null,
+          "nullable": false,
+          "type": "numeric(18,6)"
+        }
+      },
+      "constraints": {
+        "lot_sales_lot_id_fkey": "FOREIGN KEY (lot_id) REFERENCES positions(position_id) ON DELETE CASCADE",
+        "lot_sales_pkey": "PRIMARY KEY (sale_id)"
+      },
+      "indexes": {
+        "idx_lot_sales_lot": "CREATE INDEX idx_lot_sales_lot ON public.lot_sales USING btree (lot_id)",
+        "lot_sales_pkey": "CREATE UNIQUE INDEX lot_sales_pkey ON public.lot_sales USING btree (sale_id)"
+      }
+    },
+    "news_articles": {
+      "columns": {
+        "article_id": {
+          "default": "nextval('news_articles_article_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "fetched_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "negative_score": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "neutral_score": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "positive_score": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "published_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "publisher": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "sentiment": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "sentiment_score": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "source": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "summary": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "title": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "url": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "news_articles_pkey": "PRIMARY KEY (article_id)",
+        "news_articles_sentiment_check": "CHECK ((sentiment = ANY (ARRAY['positive'::text, 'negative'::text, 'neutral'::text])))",
+        "news_articles_source_check": "CHECK ((source = ANY (ARRAY['rss'::text, 'yfinance'::text])))",
+        "news_articles_symbol_url_key": "UNIQUE (symbol, url)"
+      },
+      "indexes": {
+        "idx_news_symbol_time": "CREATE INDEX idx_news_symbol_time ON public.news_articles USING btree (symbol, published_at DESC)",
+        "idx_news_unscored": "CREATE INDEX idx_news_unscored ON public.news_articles USING btree (symbol) WHERE (sentiment IS NULL)",
+        "news_articles_pkey": "CREATE UNIQUE INDEX news_articles_pkey ON public.news_articles USING btree (article_id)",
+        "news_articles_symbol_url_key": "CREATE UNIQUE INDEX news_articles_symbol_url_key ON public.news_articles USING btree (symbol, url)"
+      }
+    },
+    "ohlcv": {
+      "columns": {
+        "adj_close": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "close": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "data_vendor": {
+          "default": "'yfinance'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "high": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "ingested_at": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "interval": {
+          "default": "'1d'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "low": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "open": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "status": {
+          "default": "'CLOSED'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "ts": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "volume": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        }
+      },
+      "constraints": {
+        "ohlcv_close_check": "CHECK ((close > (0)::double precision))",
+        "ohlcv_pkey": "PRIMARY KEY (symbol, \"interval\", ts)",
+        "ohlcv_status_check": "CHECK ((status = ANY (ARRAY['OPEN'::text, 'CLOSED'::text, 'GAP'::text, 'CORRECTED'::text])))",
+        "ohlcv_volume_check": "CHECK ((volume >= (0)::double precision))"
+      },
+      "indexes": {
+        "idx_ohlcv_lookup": "CREATE INDEX idx_ohlcv_lookup ON public.ohlcv USING btree (symbol, \"interval\", ts DESC)",
+        "idx_ohlcv_needs_action": "CREATE INDEX idx_ohlcv_needs_action ON public.ohlcv USING btree (symbol, \"interval\") WHERE (status = ANY (ARRAY['OPEN'::text, 'CORRECTED'::text]))",
+        "ohlcv_pkey": "CREATE UNIQUE INDEX ohlcv_pkey ON public.ohlcv USING btree (symbol, \"interval\", ts)"
+      }
+    },
+    "options_contracts": {
+      "columns": {
+        "ask": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "bid": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "contract_id": {
+          "default": "nextval('options_contracts_contract_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "expiration_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "implied_vol": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "in_the_money": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "kind": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "last_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "open_interest": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "strike": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "volume": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "options_contracts_expiration_id_fkey": "FOREIGN KEY (expiration_id) REFERENCES options_expirations(expiration_id) ON DELETE CASCADE",
+        "options_contracts_expiration_id_kind_strike_key": "UNIQUE (expiration_id, kind, strike)",
+        "options_contracts_in_the_money_check": "CHECK ((in_the_money = ANY (ARRAY[0, 1])))",
+        "options_contracts_kind_check": "CHECK ((kind = ANY (ARRAY['call'::text, 'put'::text])))",
+        "options_contracts_pkey": "PRIMARY KEY (contract_id)"
+      },
+      "indexes": {
+        "idx_contracts_expiration": "CREATE INDEX idx_contracts_expiration ON public.options_contracts USING btree (expiration_id)",
+        "options_contracts_expiration_id_kind_strike_key": "CREATE UNIQUE INDEX options_contracts_expiration_id_kind_strike_key ON public.options_contracts USING btree (expiration_id, kind, strike)",
+        "options_contracts_pkey": "CREATE UNIQUE INDEX options_contracts_pkey ON public.options_contracts USING btree (contract_id)"
+      }
+    },
+    "options_expirations": {
+      "columns": {
+        "avg_call_iv": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "avg_put_iv": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "expiration": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "expiration_id": {
+          "default": "nextval('options_expirations_expiration_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "put_call_ratio": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "snapshot_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "total_call_oi": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "total_call_vol": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "total_put_oi": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "total_put_vol": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "options_expirations_pkey": "PRIMARY KEY (expiration_id)",
+        "options_expirations_snapshot_id_expiration_key": "UNIQUE (snapshot_id, expiration)",
+        "options_expirations_snapshot_id_fkey": "FOREIGN KEY (snapshot_id) REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE"
+      },
+      "indexes": {
+        "idx_expirations_snapshot": "CREATE INDEX idx_expirations_snapshot ON public.options_expirations USING btree (snapshot_id)",
+        "options_expirations_pkey": "CREATE UNIQUE INDEX options_expirations_pkey ON public.options_expirations USING btree (expiration_id)",
+        "options_expirations_snapshot_id_expiration_key": "CREATE UNIQUE INDEX options_expirations_snapshot_id_expiration_key ON public.options_expirations USING btree (snapshot_id, expiration)"
+      }
+    },
+    "options_positions": {
+      "columns": {
+        "closed_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "contracts": {
+          "default": "1",
+          "nullable": false,
+          "type": "integer"
+        },
+        "expiration": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "kind": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "position_id": {
+          "default": "nextval('options_positions_position_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "purchase_date": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "purchase_price": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "status": {
+          "default": "'ACTIVE'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "strike": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "target_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        }
+      },
+      "constraints": {
+        "options_positions_kind_check": "CHECK ((kind = ANY (ARRAY['call'::text, 'put'::text])))",
+        "options_positions_pkey": "PRIMARY KEY (position_id)",
+        "options_positions_status_check": "CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'CLOSED'::text, 'EXPIRED'::text])))"
+      },
+      "indexes": {
+        "idx_positions_expiration": "CREATE INDEX idx_positions_expiration ON public.options_positions USING btree (expiration)",
+        "idx_positions_symbol": "CREATE INDEX idx_positions_symbol ON public.options_positions USING btree (symbol)",
+        "options_positions_pkey": "CREATE UNIQUE INDEX options_positions_pkey ON public.options_positions USING btree (position_id)"
+      }
+    },
+    "options_snapshots": {
+      "columns": {
+        "bb_lower": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "bb_middle": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "bb_period": {
+          "default": "20",
+          "nullable": true,
+          "type": "integer"
+        },
+        "bb_upper": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "captured_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "chain_type": {
+          "default": "'atm'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "price": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "snapshot_id": {
+          "default": "nextval('options_snapshots_snapshot_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "options_snapshots_pkey": "PRIMARY KEY (snapshot_id)",
+        "options_snapshots_symbol_captured_at_key": "UNIQUE (symbol, captured_at)"
+      },
+      "indexes": {
+        "idx_snapshots_symbol_time": "CREATE INDEX idx_snapshots_symbol_time ON public.options_snapshots USING btree (symbol, captured_at DESC)",
+        "options_snapshots_pkey": "CREATE UNIQUE INDEX options_snapshots_pkey ON public.options_snapshots USING btree (snapshot_id)",
+        "options_snapshots_symbol_captured_at_key": "CREATE UNIQUE INDEX options_snapshots_symbol_captured_at_key ON public.options_snapshots USING btree (symbol, captured_at)"
+      }
+    },
+    "owner_identities": {
+      "columns": {
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "identity": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "owner_identities_pkey": "PRIMARY KEY (identity)"
+      },
+      "indexes": {
+        "idx_owner_identities_owner": "CREATE INDEX idx_owner_identities_owner ON public.owner_identities USING btree (owner)",
+        "owner_identities_pkey": "CREATE UNIQUE INDEX owner_identities_pkey ON public.owner_identities USING btree (identity)"
+      }
+    },
+    "plan_instances": {
+      "columns": {
+        "annual_vol": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "asof_date": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "capital_at_risk": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "created_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "h_threshold": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "history_end_date": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "history_window_days": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "instance_id": {
+          "default": "nextval('plan_instances_instance_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "metadata_json": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "n_iterations": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "position_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "price_asof": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "r_daily": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "shares_initial": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "stats_price_series": {
+          "default": "'adj_close'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "status": {
+          "default": "'ACTIVE'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "supersedes_instance_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "template_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "v0_floor": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        }
+      },
+      "constraints": {
+        "plan_instances_pkey": "PRIMARY KEY (instance_id)",
+        "plan_instances_position_id_fkey": "FOREIGN KEY (position_id) REFERENCES positions(position_id) ON DELETE SET NULL",
+        "plan_instances_supersedes_instance_id_fkey": "FOREIGN KEY (supersedes_instance_id) REFERENCES plan_instances(instance_id) ON DELETE SET NULL",
+        "plan_instances_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE",
+        "plan_instances_template_id_fkey": "FOREIGN KEY (template_id) REFERENCES plan_templates(template_id) ON DELETE CASCADE"
+      },
+      "indexes": {
+        "idx_instances_symbol_status": "CREATE INDEX idx_instances_symbol_status ON public.plan_instances USING btree (symbol_id, status)",
+        "plan_instances_pkey": "CREATE UNIQUE INDEX plan_instances_pkey ON public.plan_instances USING btree (instance_id)",
+        "ux_one_active_plan_per_symbol": "CREATE UNIQUE INDEX ux_one_active_plan_per_symbol ON public.plan_instances USING btree (symbol_id) WHERE (status = 'ACTIVE'::text)"
+      }
+    },
+    "plan_rungs": {
+      "columns": {
+        "cumulative_harvest_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "executed_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "executed_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "expected_date": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "expected_days_from_now": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "gross_harvest_actual": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "gross_harvest_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "instance_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "net_harvest_actual": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "remaining_value_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "rung_id": {
+          "default": "nextval('plan_rungs_rung_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "rung_index": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "shares_after_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "shares_before": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "shares_sold_actual": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "shares_sold_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "status": {
+          "default": "'PENDING'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "target_price": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "tax_paid_actual": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "total_return_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "total_wealth_planned": {
+          "default": null,
+          "nullable": false,
+          "type": "real"
+        },
+        "trigger_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "triggered_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "plan_rungs_instance_id_fkey": "FOREIGN KEY (instance_id) REFERENCES plan_instances(instance_id) ON DELETE CASCADE",
+        "plan_rungs_instance_id_rung_index_key": "UNIQUE (instance_id, rung_index)",
+        "plan_rungs_pkey": "PRIMARY KEY (rung_id)"
+      },
+      "indexes": {
+        "idx_rungs_instance_status": "CREATE INDEX idx_rungs_instance_status ON public.plan_rungs USING btree (instance_id, status)",
+        "plan_rungs_instance_id_rung_index_key": "CREATE UNIQUE INDEX plan_rungs_instance_id_rung_index_key ON public.plan_rungs USING btree (instance_id, rung_index)",
+        "plan_rungs_pkey": "CREATE UNIQUE INDEX plan_rungs_pkey ON public.plan_rungs USING btree (rung_id)"
+      }
+    },
+    "plan_templates": {
+      "columns": {
+        "alpha": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "created_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "drift_method": {
+          "default": "'CAGR'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "fixed_h": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "history_window_days": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "is_dynamic_h": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "max_h": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "metadata_json": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "min_h": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "n_iterations": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "name": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "stats_price_series": {
+          "default": "'adj_close'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "template_id": {
+          "default": "nextval('plan_templates_template_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "vol_method": {
+          "default": "'LOGRET_STD'::text",
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "plan_templates_pkey": "PRIMARY KEY (template_id)"
+      },
+      "indexes": {
+        "plan_templates_pkey": "CREATE UNIQUE INDEX plan_templates_pkey ON public.plan_templates USING btree (template_id)"
+      }
+    },
+    "positions": {
+      "columns": {
+        "account": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "acquisition_type": {
+          "default": "'BUY'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "basis_adjustment": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "cost_basis_total": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "covered": {
+          "default": null,
+          "nullable": true,
+          "type": "boolean"
+        },
+        "currency": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "entry_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "fees": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "fx_rate_at_purchase": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,8)"
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "opened_at": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "owner": {
+          "default": "'john'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "parent_lot_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "position_id": {
+          "default": "nextval('positions_position_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "purchase_date": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "purchase_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "quantity": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "sale_date": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "sale_price": {
+          "default": null,
+          "nullable": true,
+          "type": "real"
+        },
+        "shares": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "status": {
+          "default": "'OPEN'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "trade_date": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
+        },
+        "wash_sale_disallowed": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        }
+      },
+      "constraints": {
+        "positions_parent_lot_id_fkey": "FOREIGN KEY (parent_lot_id) REFERENCES positions(position_id) ON DELETE SET NULL",
+        "positions_pkey": "PRIMARY KEY (position_id)",
+        "positions_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE"
+      },
+      "indexes": {
+        "idx_positions_owner_status": "CREATE INDEX idx_positions_owner_status ON public.positions USING btree (owner, status)",
+        "idx_positions_parent": "CREATE INDEX idx_positions_parent ON public.positions USING btree (parent_lot_id)",
+        "positions_pkey": "CREATE UNIQUE INDEX positions_pkey ON public.positions USING btree (position_id)"
+      }
+    },
+    "sentiment_snapshots": {
+      "columns": {
+        "article_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "articles_json": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "captured_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "id": {
+          "default": "nextval('sentiment_snapshots_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "negative_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "neutral_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "overall_sentiment": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "positive_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "scored_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "sentiment_snapshots_pkey": "PRIMARY KEY (id)"
+      },
+      "indexes": {
+        "idx_sentiment_symbol_ts": "CREATE INDEX idx_sentiment_symbol_ts ON public.sentiment_snapshots USING btree (symbol, captured_at DESC)",
+        "sentiment_snapshots_pkey": "CREATE UNIQUE INDEX sentiment_snapshots_pkey ON public.sentiment_snapshots USING btree (id)"
+      }
+    },
+    "symbols": {
+      "columns": {
+        "created_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "currency": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "exchange": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "symbol_id": {
+          "default": "nextval('symbols_symbol_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "ticker": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        }
+      },
+      "constraints": {
+        "symbols_pkey": "PRIMARY KEY (symbol_id)",
+        "symbols_ticker_key": "UNIQUE (ticker)"
+      },
+      "indexes": {
+        "symbols_pkey": "CREATE UNIQUE INDEX symbols_pkey ON public.symbols USING btree (symbol_id)",
+        "symbols_ticker_key": "CREATE UNIQUE INDEX symbols_ticker_key ON public.symbols USING btree (ticker)"
+      }
+    },
+    "user_settings": {
+      "columns": {
+        "chat_model": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "updated_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        }
+      },
+      "constraints": {
+        "user_settings_pkey": "PRIMARY KEY (owner)"
+      },
+      "indexes": {
+        "user_settings_pkey": "CREATE UNIQUE INDEX user_settings_pkey ON public.user_settings USING btree (owner)"
+      }
+    },
+    "watchlist": {
+      "columns": {
+        "added_by": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "currency": {
+          "default": "'USD'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "name": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "tags": {
+          "default": "'{}'::text[]",
+          "nullable": false,
+          "type": "ARRAY"
+        },
+        "watchlist_id": {
+          "default": "nextval('watchlist_watchlist_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "watchlist_pkey": "PRIMARY KEY (watchlist_id)",
+        "watchlist_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE",
+        "watchlist_symbol_id_key": "UNIQUE (symbol_id)"
+      },
+      "indexes": {
+        "watchlist_pkey": "CREATE UNIQUE INDEX watchlist_pkey ON public.watchlist USING btree (watchlist_id)",
+        "watchlist_symbol_id_key": "CREATE UNIQUE INDEX watchlist_symbol_id_key ON public.watchlist USING btree (symbol_id)"
+      }
+    }
+  }
+}

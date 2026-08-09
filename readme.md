@@ -125,6 +125,7 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 **Environment Variables:**
 - `QUANTCORE_DB_DSN` — PostgreSQL connection string for the unified database, e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`
 - `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database, used to run the app or test suite against a separate copy of the data without touching the primary database
+- `QUANTCORE_SCHEMA_MODE` — what startup does about the schema: `create` (run the DDL), `warn` (check it and log differences), `verify` (check it and refuse to start on a missing or mismatched object), or `auto` (the default: create where no Flyway ledger exists, otherwise warn). See [Migrations](#migrations-flyway) below
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
 
@@ -144,7 +145,7 @@ Every schema change touches **three** files, and CI fails if you miss one:
 | File | What it is |
 |---|---|
 | `db/migrations/V*.sql` | a **new** version — never an edit to a migration that has already been applied |
-| `_SCHEMA` in `quantcore/db.py` | the DDL `init_schema()` runs on every startup |
+| `_SCHEMA` in `quantcore/db.py` | the DDL `init_schema()` runs where nothing else owns the schema |
 | `db/schema_snapshot.json` | the committed expectation — regenerate with `python scripts/check_schema_snapshot.py --update` |
 
 The first two are checked against each other by `tests/test_schema_parity.py`: it builds one
@@ -154,11 +155,13 @@ unless the two are identical. A change that ships to only one owner cannot merge
 check can never quietly skip. The third is checked by `scripts/check_schema_snapshot.py` in the
 `gate` job.
 
-Since `init_schema()` runs on every application startup, a deployed database has usually already
-reached the right *shape* before Flyway sees it — pure-DDL migrations are expected to report
-"already exists, skipping", and **`flyway info` is a changelog view, not evidence of what a
-deployed database actually contains** — run `python scripts/schema_check.py --prod` for that (it
+Historically `init_schema()` ran on every application startup, so a deployed database had usually
+already reached the right *shape* before Flyway saw it — which is why pure-DDL migrations report
+"already exists, skipping" and why **`flyway info` is a changelog view, not evidence of what a
+deployed database actually contains**. Run `python scripts/schema_check.py --prod` for that (it
 connects read-only and diffs the live schema against the committed `db/schema_snapshot.json`).
+`QUANTCORE_SCHEMA_MODE` (above) is what ends the race: where a Flyway ledger exists, startup now
+checks the schema instead of creating it, leaving Flyway the sole owner of the DDL.
 Only migrations that carry data changes — backfills, seeds — do real work on a deployed database.
 That two-owners-of-the-schema problem is tracked as
 [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) (plan:

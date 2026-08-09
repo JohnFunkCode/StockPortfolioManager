@@ -703,8 +703,8 @@ def print_skip_list(results: list[SecurityAnalysis]) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    from quantcore.db import init_schema
-    init_schema()
+    from quantcore.db import ensure_schema
+    ensure_schema()
 
     parser = argparse.ArgumentParser(description="Options analysis from watchlist.yaml")
     parser.add_argument(

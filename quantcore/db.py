@@ -1,20 +1,32 @@
+import json
+import logging
 import os
 import re
 import threading
+from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
+
+from quantcore.schema_introspect import describe_schema, diff_schemas
 
 # Load .env from the project root so every entry point (main.py, REST API,
 # MCP servers) resolves QUANTCORE_DB_DSN consistently. Existing environment
 # variables are not overridden.
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
+logger = logging.getLogger(__name__)
+
 DB_DSN = os.getenv(
     "QUANTCORE_DB_DSN",
     "postgresql://quantcore:changeme@localhost:5432/quantcore",
 )
+
+# The committed expectation, written by scripts/check_schema_snapshot.py
+# --update. Ships in every image (.dockerignore excludes *.db files, not the
+# db/ directory), so warn/verify work in a container as they do locally.
+SCHEMA_SNAPSHOT = Path(__file__).resolve().parent.parent / "db" / "schema_snapshot.json"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS symbols (
@@ -532,14 +544,121 @@ _schema_ready_dsns: set[str] = set()
 _schema_lock = threading.RLock()
 
 
+class SchemaDriftError(RuntimeError):
+    """The live schema is missing something the code expects.
+
+    Raised only in ``verify`` mode. ``EXTRA`` objects never raise: a deployed
+    database is allowed to carry more than the snapshot describes (decision D4
+    in ``docs/proposals/schema-ownership-plan.md``).
+    """
+
+
+SCHEMA_MODES = ("create", "warn", "verify", "auto")
+
+
+def _flyway_managed(dsn: str) -> bool:
+    """Has ``flyway migrate`` ever run against this database?
+
+    ``to_regclass`` returns NULL rather than raising for an absent relation,
+    so this is one cheap read-only query with no error handling around it.
+    """
+    conn = psycopg2.connect(dsn)
+    try:
+        conn.set_session(autocommit=True)
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('public.flyway_schema_history')")
+            return cur.fetchone()[0] is not None
+    finally:
+        conn.close()
+
+
+def _resolve_schema_mode(dsn: str) -> tuple[str, str]:
+    """Return ``(requested, resolved)`` for ``QUANTCORE_SCHEMA_MODE``.
+
+    Read at call time, not frozen at import like ``DB_DSN``: the escape hatch
+    is a ``gcloud run services update --update-env-vars`` away, and tests set
+    it per case.
+
+    An unrecognized value resolves to ``create`` — today's behaviour — and
+    logs an error. That direction is deliberate: a typo is most likely made by
+    an operator reaching for the escape hatch mid-incident, and failing closed
+    there would deny them the very thing they were reaching for.
+    """
+    requested = (os.getenv("QUANTCORE_SCHEMA_MODE") or "auto").strip().lower()
+    if requested not in SCHEMA_MODES:
+        logger.error(
+            "schema check: QUANTCORE_SCHEMA_MODE=%r is not one of %s "
+            "— falling back to create",
+            requested, ", ".join(SCHEMA_MODES),
+        )
+        return requested, "create"
+    if requested != "auto":
+        return requested, requested
+    # A database with a Flyway ledger has an owner for its DDL already; one
+    # without (local dev, CI, compose, a brand-new instance) does not.
+    return "auto", "warn" if _flyway_managed(dsn) else "create"
+
+
+def _check_schema(dsn: str, *, requested: str, resolved: str) -> None:
+    """Diff the live schema against ``db/schema_snapshot.json``, run no DDL.
+
+    Emits one greppable summary line plus one line per difference. Nothing
+    logged here contains the DSN — the never-log policy in ``keyproxy/``
+    applies to every log line in this repo, and a DSN carries a password.
+    """
+    if not SCHEMA_SNAPSHOT.exists():
+        message = f"schema check: snapshot {SCHEMA_SNAPSHOT.name} is missing; cannot verify"
+        if resolved == "verify":
+            raise SchemaDriftError(message)
+        logger.error(message)
+        return
+
+    expected = json.loads(SCHEMA_SNAPSHOT.read_text())
+    conn = psycopg2.connect(dsn)
+    try:
+        actual = describe_schema(conn)
+    finally:
+        conn.close()
+
+    differences = diff_schemas(expected, actual)
+    missing = [d for d in differences if d.startswith("MISSING")]
+    mismatch = [d for d in differences if d.startswith("MISMATCH")]
+    extra = [d for d in differences if d.startswith("EXTRA")]
+
+    logger.info(
+        "schema check: mode=%s resolved=%s tables=%d missing=%d mismatch=%d extra=%d",
+        requested, resolved, len(actual.get("tables", {})),
+        len(missing), len(mismatch), len(extra),
+    )
+    for line in differences:
+        logger.warning("schema check: %s", line)
+
+    if resolved == "verify" and (missing or mismatch):
+        raise SchemaDriftError(
+            "live schema does not match db/schema_snapshot.json:\n  "
+            + "\n  ".join(missing + mismatch)
+            + "\n\nEXTRA objects are not counted. Resolve under decision D6 "
+              "(prod reality wins) in docs/proposals/schema-ownership-plan.md: "
+              "add a NEW db/migrations/V*.sql, never edit an applied one."
+        )
+
+
 def ensure_schema(dsn: str = None) -> None:
-    """Run the schema DDL at most once per process, per DSN.
+    """Make sure the schema is right, at most once per process, per DSN.
+
+    "Right" depends on ``QUANTCORE_SCHEMA_MODE`` (see
+    :func:`_resolve_schema_mode`): on a database Flyway already manages this
+    only *checks*, and on one nobody manages it still creates.
 
     Callers that just need the tables to exist should use this rather than
     ``init_schema()``: the DDL takes ~3s against a managed instance and locks
     ~20 tables while it runs, so re-running it on every application factory
     call or repository construction is both slow and a source of lock
-    contention with concurrent writers.
+    contention with concurrent writers. On a deployed database the check path
+    replaces that entirely with read-only catalog queries (three per table,
+    so ~70 today) that take no locks at all — which is also why
+    the AB-BA deadlock documented on :func:`init_schema` stops being reachable
+    in prod once ``auto`` resolves to a non-creating mode there.
     """
     target_dsn = dsn or DB_DSN
     if target_dsn in _schema_ready_dsns:
@@ -547,7 +666,13 @@ def ensure_schema(dsn: str = None) -> None:
     with _schema_lock:
         if target_dsn in _schema_ready_dsns:
             return
-        init_schema(target_dsn)
+        requested, resolved = _resolve_schema_mode(target_dsn)
+        if resolved == "create":
+            init_schema(target_dsn)
+        else:
+            # Raises in verify mode, and the DSN stays unrecorded below, so a
+            # caller that catches and retries gets a real second check.
+            _check_schema(target_dsn, requested=requested, resolved=resolved)
         # init_schema() records it too; recorded here as well so the
         # once-per-process gate holds however init_schema is reached.
         _schema_ready_dsns.add(target_dsn)

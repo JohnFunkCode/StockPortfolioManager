@@ -269,7 +269,33 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — *Import format only* (issue #83). Entries with `name`, `symbol`, `currency`, and optional `tags` list; load them into the global `watchlist` table with `python scripts/import_watchlist.py --yaml watchlist.yaml` (full-sync replace). Nothing reads the file at runtime — the table is the source of truth, and the UI's add/remove actions write straight to it.
 
-**Database Initialization:** The unified PostgreSQL database and its 22-table schema are automatically created on startup by any application entry point (`main.py`, REST API, or MCP servers) — `init_schema()` runs before any database operations. The database itself (and its `quantcore` user) must already exist; point `QUANTCORE_DB_DSN` at any reachable PostgreSQL instance — local, or a managed service such as Cloud SQL accessed through the Cloud SQL Auth Proxy (which exposes the remote instance as a local TCP host:port, so no code changes are needed to switch targets).
+**Database Initialization:** Every application entry point (`main.py`, REST API, MCP servers) calls
+`ensure_schema()` — never `init_schema()` directly — before any database operations. The database
+itself (and its `quantcore` user) must already exist; point `QUANTCORE_DB_DSN` at any reachable
+PostgreSQL instance — local, or a managed service such as Cloud SQL accessed through the Cloud SQL
+Auth Proxy (which exposes the remote instance as a local TCP host:port, so no code changes are
+needed to switch targets).
+
+What `ensure_schema()` does is set by **`QUANTCORE_SCHEMA_MODE`**, read at call time so the escape
+hatch is one `gcloud run services update --update-env-vars` away:
+
+| Mode | Behaviour |
+|---|---|
+| `create` | Run the 22-table DDL. Historic behaviour, and the escape hatch. |
+| `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
+| `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
+| `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `warn`. |
+
+That is the fix for the two-owners problem: on a database Flyway already manages, the app stops
+creating schema and only checks it. An unrecognized value falls back to `create` and logs an error
+— a typo is most likely made by an operator reaching for the escape hatch mid-incident, and failing
+closed there would deny them exactly what they were reaching for. The check emits one greppable
+line (`schema check: mode=auto resolved=warn tables=22 missing=0 mismatch=0 extra=0`) plus one line
+per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so a
+developer's Flyway-managed test database and CI's bare Postgres behave identically.
+
+`auto` is deliberately still warn-only; flipping it to `verify` is PR 4 of the plan below, gated on
+a clean soak on both projects.
 
 **Migrations (Flyway):** versioned SQL lives in `db/migrations/V*.sql`, configured by `db/flyway.conf` (which deliberately holds **no credentials** — `baselineOnMigrate=true`, `baselineVersion=1`). Run it with the wrapper, which derives the JDBC URL and login from the DSNs in `.env`, defaults to **test**, echoes the target host before running, and confirms before a prod `migrate`:
 

@@ -139,7 +139,21 @@ running, and asks for confirmation before a prod `migrate`:
 ./scripts/flyway.sh --prod migrate     # prompts before writing
 ```
 
-Every schema change ships **both** as a migration file and as a change to `init_schema()`.
+Every schema change touches **three** files, and CI fails if you miss one:
+
+| File | What it is |
+|---|---|
+| `db/migrations/V*.sql` | a **new** version — never an edit to a migration that has already been applied |
+| `_SCHEMA` in `quantcore/db.py` | the DDL `init_schema()` runs on every startup |
+| `db/schema_snapshot.json` | the committed expectation — regenerate with `python scripts/check_schema_snapshot.py --update` |
+
+The first two are checked against each other by `tests/test_schema_parity.py`: it builds one
+throwaway database from `init_schema()` and another from `db/baseline/V1__*.sql` plus every
+migration, and fails with the full list of differing tables, columns, indexes, and constraints
+unless the two are identical. A change that ships to only one owner cannot merge, and in CI that
+check can never quietly skip. The third is checked by `scripts/check_schema_snapshot.py` in the
+`gate` job.
+
 Since `init_schema()` runs on every application startup, a deployed database has usually already
 reached the right *shape* before Flyway sees it — pure-DDL migrations are expected to report
 "already exists, skipping", and **`flyway info` is a changelog view, not evidence of what a

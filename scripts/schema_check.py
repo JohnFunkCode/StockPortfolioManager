@@ -33,6 +33,12 @@ import psycopg2
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SNAPSHOT = REPO_ROOT / "db" / "schema_snapshot.json"
 
+# Run from the repo root without PYTHONPATH=. -- this is an operator command
+# typed by hand, and `ModuleNotFoundError: No module named 'quantcore'` is a
+# poor first impression. Same convention as scripts/import_watchlist.py.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 
 def _dsn_for(target: str) -> str:
     # Mirrors scripts/flyway.sh's mapping exactly, so the two agree on what

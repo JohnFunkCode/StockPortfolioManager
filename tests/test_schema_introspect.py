@@ -1,14 +1,14 @@
-"""Unit tests for quantcore.schema_introspect.diff_schemas.
+"""Unit tests for quantcore.schema_introspect's pure functions.
 
-All cases here are hand-built dicts -- no database connection, no scratch
-database. describe_schema()/scratch_database()/snapshot_from_dsn() need a
-live Postgres and are exercised indirectly by scripts/check_schema_snapshot.py
-and scripts/schema_check.py (both run manually against test/prod), per PR 1
-Step 2 of docs/proposals/schema-ownership-plan.md.
+All cases here are hand-built dicts or plain strings -- no database
+connection, no scratch database. describe_schema()/scratch_database()/
+snapshot_from_dsn() need a live Postgres; those are covered by
+tests/test_schema_introspect_live.py (runs against the CI Postgres service /
+QUANTCORE_DB_DSN), per PR 1 Step 2 of docs/proposals/schema-ownership-plan.md.
 """
 import unittest
 
-from quantcore.schema_introspect import IGNORED_TABLES, diff_schemas
+from quantcore.schema_introspect import IGNORED_TABLES, _column_type, _with_database, diff_schemas
 
 
 def _col(type_="integer", nullable=False, default=None):
@@ -155,6 +155,118 @@ class DiffSchemasTests(unittest.TestCase):
             diff_schemas(expected, actual),
             ["MISSING  table a_table", "MISSING  table z_table"],
         )
+
+    def test_index_definition_mismatch(self):
+        expected = {
+            "tables": {
+                "positions": _table(
+                    indexes={"positions_pkey": "CREATE UNIQUE INDEX positions_pkey ON positions (position_id)"}
+                )
+            }
+        }
+        actual = {
+            "tables": {
+                "positions": _table(
+                    indexes={"positions_pkey": "CREATE UNIQUE INDEX positions_pkey ON positions (owner, position_id)"}
+                )
+            }
+        }
+        self.assertEqual(
+            diff_schemas(expected, actual),
+            [
+                "MISMATCH index positions.positions_pkey"
+                "  expected 'CREATE UNIQUE INDEX positions_pkey ON positions (position_id)'"
+                "  actual 'CREATE UNIQUE INDEX positions_pkey ON positions (owner, position_id)'"
+            ],
+        )
+
+    def test_constraint_definition_mismatch(self):
+        expected = {
+            "tables": {
+                "watchlist": _table(
+                    constraints={"watchlist_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)"}
+                )
+            }
+        }
+        actual = {
+            "tables": {
+                "watchlist": _table(
+                    constraints={
+                        "watchlist_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(id)"
+                    }
+                )
+            }
+        }
+        self.assertEqual(
+            diff_schemas(expected, actual),
+            [
+                "MISMATCH constraint watchlist.watchlist_symbol_id_fkey"
+                "  expected 'FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)'"
+                "  actual 'FOREIGN KEY (symbol_id) REFERENCES symbols(id)'"
+            ],
+        )
+
+
+class ColumnTypeTests(unittest.TestCase):
+    """_column_type() is a pure formatter; describe_schema() (the only other
+    caller) needs a live database, so it's exercised separately in
+    tests/test_schema_introspect_live.py."""
+
+    def _col(self, **overrides):
+        base = {
+            "data_type": "integer",
+            "character_maximum_length": None,
+            "numeric_precision": None,
+            "numeric_scale": None,
+        }
+        base.update(overrides)
+        return base
+
+    def test_plain_type_has_no_suffix(self):
+        self.assertEqual(_column_type(self._col(data_type="integer")), "integer")
+
+    def test_character_type_includes_max_length(self):
+        self.assertEqual(
+            _column_type(self._col(data_type="character varying", character_maximum_length=8)),
+            "character varying(8)",
+        )
+
+    def test_numeric_type_includes_precision_and_scale(self):
+        self.assertEqual(
+            _column_type(
+                self._col(data_type="numeric", numeric_precision=18, numeric_scale=6)
+            ),
+            "numeric(18,6)",
+        )
+
+    def test_numeric_type_defaults_missing_scale_to_zero(self):
+        self.assertEqual(
+            _column_type(self._col(data_type="numeric", numeric_precision=10, numeric_scale=None)),
+            "numeric(10,0)",
+        )
+
+    def test_integer_type_ignores_numeric_precision(self):
+        # numeric_precision is populated for integer types too (e.g. 32), but
+        # only numeric/decimal render it -- an int column shouldn't grow a
+        # spurious "(32,0)" suffix.
+        self.assertEqual(
+            _column_type(self._col(data_type="integer", numeric_precision=32, numeric_scale=0)),
+            "integer",
+        )
+
+
+class WithDatabaseTests(unittest.TestCase):
+    def test_swaps_path_keeps_everything_else(self):
+        dsn = "postgresql://quantcore:secret@localhost:5432/quantcore?sslmode=disable"
+        self.assertEqual(
+            _with_database(dsn, "scratch_db"),
+            "postgresql://quantcore:secret@localhost:5432/scratch_db?sslmode=disable",
+        )
+
+    def test_original_dsn_is_unchanged(self):
+        dsn = "postgresql://quantcore:secret@localhost:5432/quantcore"
+        _with_database(dsn, "postgres")
+        self.assertEqual(dsn, "postgresql://quantcore:secret@localhost:5432/quantcore")
 
 
 if __name__ == "__main__":

@@ -61,8 +61,9 @@ These are the constraints most likely to be violated by an agent that skipped `C
 - **Adapters are one service call deep.** Business logic goes in `quantcore/services/`; REST
   routes (`api/routers/*`) and MCP tool bodies (`fastMCPTest/*`) are thin. Service modules never
   import each other or the registry.
-- **Every schema change ships twice** — as a Flyway file under `db/migrations/` *and* mirrored
-  into `init_schema()` in `quantcore/db.py`.
+- **Every schema change touches three files** — a new `db/migrations/V*.sql`, `_SCHEMA` in
+  `quantcore/db.py`, and the regenerated `db/schema_snapshot.json`. This is no longer a
+  convention: `tests/test_schema_parity.py` fails CI if the first two disagree.
 - **BYOK never-log policy:** no API keys, `Authorization` headers, envelopes, decrypted payloads,
   request bodies, or exception dumps containing credentials may reach any log or print. New
   failure paths must add the corresponding log assertion.

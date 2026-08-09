@@ -13,7 +13,8 @@ Update the docs when you:
 
 - add, remove, or rename a **service, repository, gateway, or analytics module**
 - add or change a **REST route group**, an **MCP server or tool**, or a **UI page or route**
-- change the **schema** (which also means a Flyway file *and* `init_schema()` — see Migrations)
+- change the **schema** (which means **three** files — a Flyway migration, `_SCHEMA` in
+  `quantcore/db.py`, and `db/schema_snapshot.json`; enforced by CI, see Migrations)
 - change **deployment, CI/CD, environment, or auth** wiring
 - add an **operational script**, or change how an existing one is invoked
 - change a **default, environment variable, or configuration file's role**
@@ -278,7 +279,18 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 ./scripts/flyway.sh --prod migrate  # prompts
 ```
 
-Every schema change ships as a migration file **and** is mirrored into `init_schema()` **and** regenerates the committed `db/schema_snapshot.json` (`python scripts/check_schema_snapshot.py --update`) — CI's `gate` job fails if the snapshot drifts from what `init_schema()` actually produces. Because `init_schema()` runs on every application startup, a deployed database has usually already reached the right *shape* before Flyway sees it — so pure-DDL migrations are expected to report "already exists, skipping", and **`flyway info` is a changelog view, not evidence of what a deployed database actually contains** — run `python scripts/schema_check.py --prod` for that (read-only; diffs live objects against `db/schema_snapshot.json` and prints the Flyway changelog separately, labelled for what it is). That two-owners-of-the-schema problem is tracked as [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165); plan and checkpoint log in [`docs/proposals/schema-ownership-plan.md`](docs/proposals/schema-ownership-plan.md).
+Every schema change touches exactly **three** files, and CI fails if you miss one:
+
+| File | What it is | Guarded by |
+|---|---|---|
+| `db/migrations/V*.sql` | a **new** version, never an edit to an applied one | `tests/test_schema_parity.py` |
+| `_SCHEMA` in `quantcore/db.py` | what `init_schema()` creates on startup | `tests/test_schema_parity.py` |
+| `db/schema_snapshot.json` | the committed expectation (`python scripts/check_schema_snapshot.py --update`) | `scripts/check_schema_snapshot.py` in the `gate` job |
+
+`tests/test_schema_parity.py` builds one scratch database from `init_schema()` and another from
+`db/baseline/V1__*.sql` + every `db/migrations/V*.sql`, and fails with the full object-level diff
+unless they are identical — so a change that ships to only one owner cannot merge. It is a hard
+failure in CI, never a skip. Because `init_schema()` runs on every application startup, a deployed database has usually already reached the right *shape* before Flyway sees it — so pure-DDL migrations are expected to report "already exists, skipping", and **`flyway info` is a changelog view, not evidence of what a deployed database actually contains** — run `python scripts/schema_check.py --prod` for that (read-only; diffs live objects against `db/schema_snapshot.json` and prints the Flyway changelog separately, labelled for what it is). That two-owners-of-the-schema problem is tracked as [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165); plan and checkpoint log in [`docs/proposals/schema-ownership-plan.md`](docs/proposals/schema-ownership-plan.md).
 
 ## Key Dependencies
 

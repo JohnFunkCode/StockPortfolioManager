@@ -35,7 +35,13 @@ import os
 import sys
 from pathlib import Path
 
-SNAPSHOT = Path(__file__).resolve().parent.parent / "db" / "schema_snapshot.json"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+SNAPSHOT = REPO_ROOT / "db" / "schema_snapshot.json"
+
+# CI sets PYTHONPATH job-wide, but this also gets run by hand from the repo
+# root; without this it dies on `import quantcore` before printing anything.
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 
 def current_schema() -> dict:

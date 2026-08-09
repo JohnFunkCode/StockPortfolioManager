@@ -19,7 +19,8 @@
 # every application startup, so a deployed database usually already has the right
 # *shape* before Flyway ever runs — pure-DDL migrations are expected to report
 # "already exists, skipping". `flyway info` is therefore NOT evidence of what a
-# deployed database contains; check the objects directly. See issue #165.
+# deployed database contains; run `scripts/schema_check.py --test|--prod` for that
+# (read-only, diffs live objects against db/schema_snapshot.json). See issue #165.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

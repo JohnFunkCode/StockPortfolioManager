@@ -62,7 +62,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      # init_schema() creates all 16 tables on a blank Postgres; AUTH stays inert.
+      # init_schema() creates all 22 tables on a blank Postgres; AUTH stays inert.
       QUANTCORE_DB_DSN: postgresql://quantcore:quantcore@localhost:5432/quantcore
       AUTH_DISABLED: "1"
       PYTHONPATH: .
@@ -111,6 +111,8 @@ jobs:
         run: python scripts/ci_wrapper_smoke.py
       - name: OpenAPI surface diff
         run: python scripts/check_openapi_snapshot.py
+      - name: Schema snapshot up to date
+        run: python scripts/check_schema_snapshot.py
 
   frontend-gate:
     name: Frontend tests + typecheck + coverage

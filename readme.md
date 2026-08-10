@@ -98,6 +98,12 @@ That is a full-sync replace: the table ends up matching the file exactly. YAML f
    pip install -r requirements.txt
    ```
 
+   That installs everything, as it always has. The file is now layered —
+   `requirements-base.txt` (lean: what the containers install) + `requirements-ml.txt`
+   (torch/transformers for FinBERT) + `requirements-report.txt` (matplotlib, jinja2, boto3) — so
+   that the deployed images stop carrying the HTML report's rendering stack. If you deliberately
+   install only the base set, note that `scripts/generate_portfolio_report.py` will not run.
+
 3. Point `QUANTCORE_DB_DSN` at a PostgreSQL database (see [Database](#database)) — the schema is
    created on first start.
 
@@ -207,15 +213,45 @@ developing and validating changes before they're promoted.
 
 ## Usage
 
-### Basic Portfolio Analysis
+### The daily job
 
-Run the main application:
-The application can generate detailed HTML reports with portfolio performance metrics and timestamps in 12-hour format:
+`main.py` is the daily job (deployed as the `quantcore-report` Cloud Run Job). It prices John's
+positions and the shared watchlist, then sends the Discord notifications, captures the day's
+options chains, and warms the fundamentals cache:
 
-```
+```bash
 python main.py
-
 ```
+
+The fundamentals warming pass runs last, oldest-cache-entry first, under a wall-clock budget, and
+can never fail the run — three env vars tune it, and an alarm fires to Discord if the cache falls
+behind anyway:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass |
+| `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
+| `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest cache age |
+
+### The legacy HTML report
+
+Since issue #147 the HTML report is its own script, not part of `main.py`:
+
+```bash
+python scripts/generate_portfolio_report.py                    # writes portfolio_report.html
+python scripts/generate_portfolio_report.py --output /tmp/r.html
+python scripts/generate_portfolio_report.py --publish          # uploads to S3 instead
+```
+
+`--publish` needs `BUCKET_NAME` and `BUCKET_KEY`; without them it exits non-zero rather than
+quietly reporting success.
+
+**Running it from the Raspberry Pi** (`runOnPi.sh`) has four one-time prerequisites: a
+`QUANTCORE_DB_DSN` in `.env`, a running Cloud SQL Auth Proxy, AWS credentials plus
+`BUCKET_NAME`/`BUCKET_KEY`, and `pip install -r requirements.txt` (the base set is not enough —
+the rendering stack lives in `requirements-report.txt`). The Pi deliberately runs *this script*
+and not `main.py`: the Cloud Run Job already sends the notifications and writes the options
+snapshots, so running `main.py` there too would double every alert.
 
 ## Project Structure
 
@@ -231,8 +267,9 @@ adapters exactly one service call deep.
 | `fastMCPTest/` | The seven FastMCP servers — thin HTTP gateway wrappers over the REST tier |
 | `mcp_gateway/` | `rest_client.py`, the single seam every MCP wrapper calls through (read verbs only — no `delete`) |
 | `keyproxy/` | Standalone BYOK credential-isolation service; decrypts envelopes in memory, holds no database |
-| `portfolio/` | Legacy domain layer retained for `main.py`'s report path (`stock.py`, `money.py`, `metrics.py`, `portfolio.py`, `watch_list.py`, `yfinance_gateway.py`) |
-| `main.py`, `html_summary.py`, `simple_text_summary.py`, `notifier.py`, `templates/` | The daily report job: fetch, chart, render, upload, and Discord-notify |
+| `portfolio/` | Legacy domain layer retained for the daily job and the report script (`stock.py`, `money.py`, `metrics.py`, `portfolio.py`, `watch_list.py`, `yfinance_gateway.py`) |
+| `main.py`, `notifier.py` | The daily job: price, Discord-notify, capture options chains, warm the fundamentals cache |
+| `scripts/generate_portfolio_report.py`, `templates/`, `html_summary.py`, `simple_text_summary.py` | The legacy HTML report — chart, render, upload. Run from the Pi, never in a container |
 | `experiments/` | `HarvesterExperiment.py` (harvest-ladder algorithm and backtests) plus standalone spread monitors |
 | `db/` | `flyway.conf` + versioned migrations under `db/migrations/` |
 | `scripts/` | Operational scripts — importers, `flyway.sh`, `mint_prod_jwt.py`, IAP/WIF setup, the SQLite→Postgres migration |
@@ -550,13 +587,14 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 |-------|-----------|------|------|
 | `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) | FastAPI front door + service execution |
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
-| `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) |
+| `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api image carries the heavy ML stack — post-inversion FinBERT scoring
 runs in the api, and `main.py` never scores sentiment, so the wrapper and report
-images stay lean.
+images stay lean. Since issue #147 **no** image carries matplotlib/jinja2/boto3
+either; those live in `requirements-report.txt` for the report script alone.
 
 ### Verify
 
@@ -663,7 +701,7 @@ The stock-price and options-analysis MCP servers both expose exact contract look
 **Tools:**
 - `get_option_contracts(symbol, expirations, strikes, kind="call")` — returns specific call or put contracts by expiration and strike, including bid, ask, mid, IV, volume, open interest, moneyness, and bid/ask spread percentage.
 - `price_vertical_spread(symbol, expiration, long_strike, short_strike, kind="call")` — prices a two-leg vertical spread using exact contracts. Returns conservative debit (`long ask - short bid`), mid-debit estimate, max profit, max loss, breakeven, risk/reward, leg details, liquidity label, cache source, and warnings.
-- `get_full_options_chain(symbol, max_expirations=None)` — still fetches and persists all strikes/all expirations (optionally capped via `max_expirations`), and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the database cache was updated. The daily report job (`main.py`) calls this per portfolio/watchlist symbol so open-interest history accumulates for `get_oi_change_analysis`.
+- `get_full_options_chain(symbol, max_expirations=None)` — still fetches and persists all strikes/all expirations (optionally capped via `max_expirations`), and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the database cache was updated. The daily job (`main.py`) calls this per portfolio/watchlist symbol so open-interest history accumulates for `get_oi_change_analysis`.
 
 **Data flow:**
 - Exact-contract tools use the latest full-chain database snapshot first.

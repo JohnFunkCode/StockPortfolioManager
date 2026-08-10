@@ -791,7 +791,9 @@ front-end/back-end landing is needed.
 
 **5. Announce the reservations up front.** Comment on the tracking issue claiming `V7`/`V8`, the
 `CLOSED` plan status, and the `owner` column before PR 0 merges. Migration numbers and status
-vocabularies are the two things another branch can duplicate without git noticing.
+vocabularies are the two things another branch can duplicate without git noticing. **Done
+2026-08-10**, while PR 0 (#177) was open — see [the reservations comment on
+#147](https://github.com/JohnFunkCode/StockPortfolioManager/issues/147).
 
 **6. Cap in-flight PRs at two, and keep branches short-lived.** The merge cost is a function of how
 long a branch lives, not how big the plan is. Eight sequential small PRs over three weeks conflict
@@ -1078,7 +1080,7 @@ Append a row as each PR lands. Any dev machine can resume by reading the last ro
 |------|-----------|--------|-------|
 | 2026-07-29 | — | Plan written | Approved after nine review rounds; all decisions in "Decisions already settled" answered by the repo owner. No code written |
 | 2026-08-10 | 0 | In review | Seam PR. `frontend/src/navigation.tsx` holds one `routes` array (`{path,label,icon,element,group?,nav?:false}`) that both the `<Stack>` of nav buttons and `<Routes>` map over; the two detail routes carry `nav: false`, `/` stays the index route, and the active-path predicate is hoisted to an exported `isPathActive(path, pathname)` so Part G2's group buttons can reuse it. `App.tsx` drops 16 imports and both lists — behaviour identical, 454 frontend tests green (up 12; new `navigation.test.tsx`), floors cleared at 89.75/87.74/87.63/71.06 and **not raised** (mitigation 2). Migration-version guard landed as `MigrationOrderTests.test_migration_versions_are_unique` rather than a new workflow step — it runs in the existing `gate` job, needs no database, and names both colliding files; verified by planting a duplicate `V6`. Also folded in the plan corrections below |
-| | 1 | | Parts E + F — warmer, report extraction, dependency split, `runOnPi.sh`, docs |
+| 2026-08-10 | 1 | In review | Parts E + F. **E:** new `FundamentalsService.cache_freshness(symbols, data_type)` returns per-symbol age/staleness sorted **never-fetched first, then oldest-first**, plus `coverage`/`oldest_age_seconds` — it reports on the symbols *asked about*, not the cache's contents, so a symbol added this morning shows as a hole. `main.py` gains `warm_fundamentals_cache()` (budgeted, per-symbol guard), `alert_if_fundamentals_stale()` (two independent triggers: coverage floor **or** age ceiling), and `run_fundamentals_warming()` (outer guard, never raises; re-reads freshness *after* warming so the alarm describes the state the run left behind). Three env vars, all falling back loudly on a typo. The alert title carries the date — `send_notifications()` dedupes on title against `notification.log`, so a dateless title would alarm once and then go quiet while the cache stayed stale. **F:** `scripts/generate_portfolio_report.py` (`--output` / `--publish`); the four moved functions are byte-identical apart from one line, `template_dir`, which was `Path(__file__).parent` and would have pointed at `scripts/`. `save_html_to_s3` now **raises** instead of returning `None`, and `main()` checks `BUCKET_NAME`/`BUCKET_KEY` up front — that silent-success path is the original defect. `main.py` 704 → 282 lines. Notes below |
 | | 2 | | Part A — stacked bar on the Portfolio page |
 | | 3 | | Parts B1–B3, B5 — analytics, bulk returns, `WatchlistService`, the new route |
 | | 4 | | Part C — the `/watchlist` page |
@@ -1101,3 +1103,36 @@ approved:
    replaces it is narrower: the `QUANTCORE_SCHEMA_MODE=create` escape hatch stops being trivially
    safe once a `DROP` lives in `_SCHEMA`, which makes statement ordering there load-bearing for the
    first time.
+
+### Notes from PR 1 (2026-08-10)
+
+**The dependency split had a second consumer the plan didn't name: CI.** Part F says to remove
+matplotlib/jinja2/boto3 from `requirements-base.txt`, which is correct — but `requirements-dev.txt`
+is `-r requirements-base.txt` + coverage/diff-cover, and the `gate` job installs *that*. Pulling the
+three packages out of the base set therefore also pulled them out of CI, which would have made
+`tests/test_generate_portfolio_report.py` unimportable there. Fixed by adding `-r
+requirements-report.txt` to `requirements-dev.txt`: CI-only, so no image gains a byte, and the
+script that just moved is the last thing that should be untested. Anyone doing a similar split
+should check the `-r` graph, not just the file being edited.
+
+**What was deliberately left for later PRs.** Part F's docs bullet is written as though the whole
+plan shipped at once — it asks for `/watchlist` and `/fundamentals` in the QuantUI section, the
+`WatchlistService` composition, the `scope` parameter, and `quantcore/analytics/returns.py`, none of
+which exist until PRs 3–5. Only the true half was written. Likewise **`docs/openapi-surface.txt` was
+not regenerated**: PR 1 adds no REST route, so its "one added line" belongs to a later PR, not this
+one.
+
+**#147 was commented on but deliberately *not* closed**, against Part F's instruction. #147 is the
+tracking issue for all nine PRs and now carries the mitigation-5 reservations; closing it here would
+close the tracker two PRs into a nine-PR plan. Its first comment already says as much ("this issue
+stays open — it closes with the implementing PRs, not with the plan"). The declined options Part F
+wants recorded — the rendered-report archive, and extracting `main.py`'s remaining orchestration
+into a service — were written into the comment anyway, so nothing is lost by closing it at PR 8
+instead.
+
+**Unrelated defect found while reading the fundamentals repository, not fixed here:**
+`quantcore/repositories/fundamentals_repository.py` returns the full `QUANTCORE_DB_DSN` as
+`db_path` from `stats()` — on both the success path (`:289`) and the error path (`:296`) — and
+`FundamentalsService.get_cache_stats()` passes it straight through to the `get_cache_stats` MCP
+tool, so a password-bearing DSN is reachable from any AI client holding a token. Out of scope for
+this PR; needs its own issue.

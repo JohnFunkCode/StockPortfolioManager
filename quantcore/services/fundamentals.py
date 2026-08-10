@@ -759,6 +759,76 @@ class FundamentalsService:
     def get_cache_stats(self) -> dict:
         return self._repo.stats()
 
+    def cache_freshness(
+        self,
+        symbols: list[str],
+        data_type: str = "fundamental_score",
+    ) -> dict:
+        """Cache age for each of `symbols`, oldest first.
+
+        This is the ordering primitive the daily warmer needs. A cold pass over
+        the whole universe is ~10 serial yfinance calls per symbol and will not
+        finish inside a Cloud Run Job's timeout, so the warmer refreshes
+        oldest-first under a wall-clock budget and lets the universe converge
+        over a few nights. Symbols that have never been fetched sort ahead of
+        every cached one — they have unbounded age, and they are the rows that
+        make a page look broken rather than merely stale.
+
+        The same numbers answer "is the cache healthy?", which is what the
+        post-run alarm asks: `coverage` is the fraction inside the TTL, and
+        `oldest_age_seconds` is the worst case among symbols that have ever
+        been fetched (`None` when none have).
+
+        Unlike `get_top_fundamental_stocks`, this reports on the symbols asked
+        about rather than on whatever happens to be in the cache — a symbol
+        added to the watchlist this morning is a coverage hole, and a cache-only
+        view would never see it.
+        """
+        requested = [s.upper() for s in symbols]
+        by_symbol = {
+            e.get("symbol"): e.get("_fetched_at_ts")
+            for e in self._repo.get_all_latest(data_type)
+        }
+        ttl_seconds = self._repo.ttl_seconds()
+        now_ts = int(time.time())
+
+        rows = []
+        for sym in requested:
+            fetched_ts = by_symbol.get(sym)
+            age = None if not fetched_ts else max(0, now_ts - fetched_ts)
+            rows.append({
+                "symbol":      sym,
+                "fetched_at":  None if not fetched_ts else datetime.fromtimestamp(
+                    fetched_ts, tz=timezone.utc
+                ).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "age_seconds": age,
+                # A TTL of 0 disables expiry, so nothing is stale by age; a
+                # never-fetched symbol is stale under every TTL.
+                "stale":       age is None or (ttl_seconds > 0 and age > ttl_seconds),
+            })
+
+        # None first (never fetched), then oldest to newest.
+        rows.sort(key=lambda r: (r["age_seconds"] is not None, -(r["age_seconds"] or 0)))
+
+        never_fetched = [r for r in rows if r["age_seconds"] is None]
+        stale = [r for r in rows if r["stale"]]
+        ages = [r["age_seconds"] for r in rows if r["age_seconds"] is not None]
+
+        return {
+            "checked_at":          datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "data_type":           data_type,
+            "ttl_seconds":         ttl_seconds,
+            "requested":           len(rows),
+            "fresh_count":         len(rows) - len(stale),
+            "stale_count":         len(stale),
+            "never_fetched_count": len(never_fetched),
+            # Nothing requested is fully covered, not zero covered — an empty
+            # universe is the empty-watchlist alarm's problem, not this one's.
+            "coverage":            1.0 if not rows else (len(rows) - len(stale)) / len(rows),
+            "oldest_age_seconds":  max(ages) if ages else None,
+            "symbols":             rows,
+        }
+
     def get_sector_fundamental_breakdown(self, sector: str | None = None, top_n: int = 5) -> dict:
         all_entries = self._repo.get_all_latest("fundamental_score")
         queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

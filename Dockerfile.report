@@ -1,10 +1,16 @@
-# Dockerfile.report — the daily portfolio report job (main.py).
+# Dockerfile.report — the daily QuantCore job (main.py).
 #
-# main.py builds the HTML report + Discord notifications, calling the services
-# layer IN-PROCESS (never the REST tier — Rule 6 / anti-pattern 5). It reads
-# John's positions from the DB, fetches prices, renders the Jinja2 template, and
-# (optionally) uploads to S3. It does NOT score sentiment, so this image uses the
-# LEAN dependency set (requirements-base.txt) — no torch/transformers.
+# main.py sends the Discord notifications (price/moving-average breaches and
+# Harvester rung hits), captures the daily options chains, and warms the
+# fundamentals cache, calling the services layer IN-PROCESS (never the REST
+# tier — Rule 6 / anti-pattern 5). It reads John's positions and the shared
+# watchlist from the DB and fetches prices. Since issue #147 it no longer
+# renders the HTML report — that is scripts/generate_portfolio_report.py, run
+# from the Raspberry Pi, and its matplotlib/jinja2/boto3 stack is deliberately
+# not installed here. main.py also does NOT score sentiment, so this image uses
+# the LEAN dependency set (requirements-base.txt) — no torch/transformers.
+#
+# The service name kept the "report" spelling for continuity; the work did not.
 #
 # Designed to run once and exit (a Cloud Run Job triggered by Cloud Scheduler).
 
@@ -29,9 +35,7 @@ FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH" \
-    MPLBACKEND=Agg \
-    MPLCONFIGDIR=/tmp/matplotlib
+    PATH="/opt/venv/bin:$PATH"
 
 RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /opt/venv /opt/venv
@@ -39,9 +43,10 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY . .
 
-# main.py writes portfolio_report.html into the workdir; COPY leaves /app root-owned,
-# so give appuser ownership of the dir (the job runs unprivileged). matplotlib's cache
-# goes to the writable MPLCONFIGDIR above (HOME isn't guaranteed on Cloud Run Jobs).
+# main.py appends to notification.log in the workdir (that file is how
+# send_notifications() dedupes within a run); COPY leaves /app root-owned, so
+# give appuser ownership of the dir. The job runs unprivileged, and a
+# read-only workdir would make every notification the first one.
 RUN chown appuser:appuser /app
 
 USER appuser

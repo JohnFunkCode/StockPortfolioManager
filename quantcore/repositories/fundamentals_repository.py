@@ -18,7 +18,7 @@ from typing import Any
 
 import psycopg2
 
-from quantcore.db import get_connection, DB_DSN
+from quantcore.db import get_connection, describe_dsn
 
 logger = logging.getLogger(__name__)
 
@@ -251,10 +251,13 @@ def cache_get_all_latest(data_type: str) -> list[dict]:
 
 def cache_stats() -> dict:
     """
-    Return cache inventory: symbol counts, date ranges, and DB size per data_type.
+    Return cache inventory: symbol counts and date ranges per data_type.
 
     Returns:
-        Dict with data_types list and db_size_bytes
+        Dict with a ``data_types`` list and ``database`` — the host:port/name
+        identifier from quantcore.db.describe_dsn(). Never the DSN itself:
+        this dict is returned verbatim to REST and MCP callers, and the DSN
+        carries the password.
     """
 
     try:
@@ -286,14 +289,14 @@ def cache_stats() -> dict:
                 })
 
             return {
-                "db_path": DB_DSN,
+                "database": describe_dsn(),
                 "data_types": data_types,
             }
 
     except psycopg2.Error as e:
         logger.error(f"Error reading cache stats: {e}")
         return {
-            "db_path": DB_DSN,
+            "database": describe_dsn(),
             "data_types": [],
             "error": str(e),
         }

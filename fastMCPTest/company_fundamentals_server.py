@@ -202,8 +202,9 @@ def get_upcoming_earnings(days: int = 14, include_stale: bool = False) -> dict:
 def get_cache_stats() -> dict:
     """Return a summary of what is stored in the fundamentals cache.
 
-    Reports symbol counts, date ranges, and DB file size per data type.
-    Zero network calls — reads only from the local SQLite database.
+    Reports symbol counts and date ranges per data type, plus a `database`
+    identifier (host:port/name — never credentials). Zero market-data calls;
+    reads only the QuantCore database.
     """
     return rest_client.get("/api/securities/fundamentals/cache-stats")
 

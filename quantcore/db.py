@@ -4,6 +4,7 @@ import os
 import re
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
@@ -692,6 +693,36 @@ def ensure_schema(dsn: str = None) -> None:
         # init_schema() records it too; recorded here as well so the
         # once-per-process gate holds however init_schema is reached.
         _schema_ready_dsns.add(target_dsn)
+
+
+def describe_dsn(dsn: str = None) -> str:
+    """Return a non-secret identifier for a DSN: ``host:port/database``.
+
+    A DSN carries the password, so it must never reach a log line or an API
+    response (the never-log policy in CLAUDE.md). This is what to name a
+    database with instead — enough to tell test from prod, nothing more.
+
+    Anything that isn't a recognizable ``postgresql://`` URL returns
+    ``"unknown"`` rather than being echoed back: the libpq keyword form
+    (``host=... password=...``) would otherwise leak the very thing this
+    exists to strip.
+    """
+    try:
+        parsed = urlparse(dsn or DB_DSN)
+        if parsed.scheme not in ("postgresql", "postgres"):
+            return "unknown"
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        # A malformed netloc (e.g. a non-numeric port) — say nothing rather
+        # than fall back to any part of the raw string.
+        return "unknown"
+    database = (parsed.path or "").lstrip("/")
+    if not host and not database:
+        return "unknown"
+    where = host or "unknown-host"
+    if port:
+        where = f"{where}:{port}"
+    return f"{where}/{database}" if database else where
 
 
 def get_connection() -> _PGConn:

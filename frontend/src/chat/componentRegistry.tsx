@@ -16,6 +16,7 @@ import {
   DiscoveryCard,
 } from '../components/chat/ArbitrageChartCards';
 import PortfolioTableCard from '../components/chat/PortfolioTableCard';
+import PortfolioAllocationCard from '../components/chat/PortfolioAllocationCard';
 import SymbolLotsCard from '../components/chat/SymbolLotsCard';
 import type { ChatDirective } from './types';
 
@@ -61,6 +62,8 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   // No props: always the caller's own portfolio via the browser's
   // authenticated session — never add an `owner` prop (decision #20).
   portfolio_table: { component: PortfolioTableCard, spec: {}, titled: false },
+  // Same no-props rule, for the same reason (issue #147).
+  portfolio_allocation: { component: PortfolioAllocationCard, spec: {}, titled: false },
   // Carries its own "TICKER — Lots" heading, so no titled wrapper.
   symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
 };

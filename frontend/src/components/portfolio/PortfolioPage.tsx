@@ -26,6 +26,7 @@ import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import EmptyPortfolio from './EmptyPortfolio';
 import PortfolioSummary from './PortfolioSummary';
+import PortfolioAllocationChart from './PortfolioAllocationChart';
 import LotRow from './LotRow';
 import AddLotDialog from './AddLotDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
@@ -141,6 +142,15 @@ export default function PortfolioPage() {
       ) : (
         <>
           {data?.totals && <PortfolioSummary totals={data.totals} />}
+
+          {/* Reuses the rows already fetched above — no second request. The
+              chart draws nothing when no symbol has a price yet, so skip the
+              Paper too rather than leaving an empty panel on the page. */}
+          {rows.some((row) => row.bar_base != null) && (
+            <Paper sx={{ p: 2, mb: 2 }}>
+              <PortfolioAllocationChart rows={rows} />
+            </Paper>
+          )}
 
           <Paper sx={{ overflowX: 'auto' }}>
             <Table size="small">

@@ -333,6 +333,28 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         self.assertEqual(zztest["total_current_value"], Decimal("150.00"))
         self.assertEqual(zztest["total_gain_loss"], Decimal("40.00"))
 
+    def test_symbol_rows_carry_the_allocation_bar_segments(self):
+        """Issue #147 Part A: the chart consumes the same response the page
+        already fetches, so the segments have to arrive on the row itself."""
+        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+
+        row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertEqual(row["bar_base"], row["total_investment"])
+        self.assertEqual(row["bar_gain"], Decimal("25.00"))
+        self.assertEqual(row["bar_loss"], Decimal("0.00"))
+
+    def test_symbol_rows_allocation_segments_are_none_without_a_price(self):
+        self._add(symbol="ZZTST3", purchase_price="10.00", quantity="1", purchase_date="2020-01-02")
+
+        row = next(r for r in self.service.symbol_rows(OWNER_A) if r["symbol"] == "ZZTST3")
+        # summary_totals reports zeroes for a symbol with no priced lot; the
+        # bar must be absent instead, or the chart draws a flat bar that reads
+        # as a worthless position rather than an unknown one.
+        self.assertEqual(row["total_investment"], Decimal("0.00"))
+        self.assertIsNone(row["bar_base"])
+        self.assertIsNone(row["bar_gain"])
+        self.assertIsNone(row["bar_loss"])
+
     def test_portfolio_totals_aggregates_across_symbols(self):
         self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
         self._add(symbol="ZZTST2", purchase_price="20.00", quantity="2", purchase_date="2020-01-02")

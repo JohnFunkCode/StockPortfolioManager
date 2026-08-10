@@ -369,6 +369,9 @@ export function symbolRow(overrides: object = {}) {
     return_90d: 8.1,
     mm_hedge_bias: 'buy_on_rally',
     mm_hedge_bias_captured_at: '2026-07-27T15:00:00Z',
+    bar_base: 300,
+    bar_gain: 50,
+    bar_loss: 0,
     ...overrides,
   };
 }

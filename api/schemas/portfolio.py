@@ -190,7 +190,8 @@ class LotsResponse(BaseModel):
 
 class SymbolRowResponse(BaseModel):
     """One symbol's roll-up: aggregate totals, period returns, MM hedge bias,
-    and its open child lots (issue #126 Step 4.5)."""
+    the allocation bar's segments (issue #147 Part A), and its open child lots
+    (issue #126 Step 4.5)."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -206,6 +207,11 @@ class SymbolRowResponse(BaseModel):
     return_90d: Optional[Decimal] = None
     mm_hedge_bias: Optional[Any] = None
     mm_hedge_bias_captured_at: Optional[Any] = None
+    # Stacked allocation bar (issue #147 Part A). bar_loss is negative — see
+    # quantcore.analytics.portfolio_math.allocation_segments.
+    bar_base: Optional[Decimal] = None
+    bar_gain: Optional[Decimal] = None
+    bar_loss: Optional[Decimal] = None
 
 
 class PortfolioTotals(BaseModel):

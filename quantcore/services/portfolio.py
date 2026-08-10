@@ -249,8 +249,9 @@ class PortfolioService:
         return result
 
     def symbol_rows(self, owner: str, force: bool = False) -> List[Dict[str, Any]]:
-        """Per-symbol roll-up: aggregate totals, period-return columns, and the
-        MM hedge bias (decision #18), each carrying its own open child lots
+        """Per-symbol roll-up: aggregate totals, period-return columns, the MM
+        hedge bias (decision #18), and the stacked allocation bar's three
+        segments (issue #147 Part A), each carrying its own open child lots
         (decision #14). `force` bypasses the quote cache's TTL (Step 4.4).
         """
         lots = self.list_lots(owner, status="OPEN", force=force)
@@ -267,6 +268,16 @@ class PortfolioService:
                 "symbol": symbol,
                 "lots": symbol_lots,
                 **totals,
+                # The allocation chart's segments are a function of numbers
+                # already in `totals`, so they cost nothing extra here and save
+                # the front end from doing the split itself (Rule 8.4). A
+                # symbol with no priced lot gets None rather than the zeroes
+                # summary_totals reports — the chart must drop it, not draw a
+                # flat bar that reads as a worthless position.
+                **portfolio_math.allocation_segments(
+                    totals["total_investment"] if priced_lots else None,
+                    totals["total_gain_loss"] if priced_lots else None,
+                ),
                 **self._period_returns(symbol),
                 **self._latest_mm_hedge_bias(symbol),
             }

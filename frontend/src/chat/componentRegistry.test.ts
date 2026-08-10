@@ -21,6 +21,7 @@ describe('COMPONENT_REGISTRY', () => {
       'arbitrage_scan',
       'arbitrage_discovery',
       'portfolio_table',
+      'portfolio_allocation',
       'symbol_lots',
     ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
@@ -37,6 +38,17 @@ describe('COMPONENT_REGISTRY', () => {
     ).toBe(false);
     expect(
       validateDirective({ component: 'portfolio_table', props: { ticker: 'INTC' } }).ok,
+    ).toBe(false);
+  });
+
+  it('portfolio_allocation takes no props either — same cross-user reason', () => {
+    expect(validateDirective({ component: 'portfolio_allocation', props: {} }).ok).toBe(true);
+    expect(
+      validateDirective({ component: 'portfolio_allocation', props: { owner: 'someone_else' } })
+        .ok,
+    ).toBe(false);
+    expect(
+      validateDirective({ component: 'portfolio_allocation', props: { ticker: 'INTC' } }).ok,
     ).toBe(false);
   });
 

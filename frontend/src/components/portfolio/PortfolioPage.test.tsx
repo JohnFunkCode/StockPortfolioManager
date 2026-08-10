@@ -29,13 +29,41 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
   return api;
 }
 
+// The allocation chart above the table labels its x axis with the same tickers
+// (issue #147 Part A), so a page-wide getByText('INTC') is ambiguous. Symbol
+// lookups scope to the holdings table; the chart has its own tests.
+const holdings = () => within(screen.getByRole('table'));
+
 describe('PortfolioPage', () => {
   it('renders the Portfolio heading and totals once loaded', async () => {
     mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     expect(screen.getByText('Portfolio')).toBeInTheDocument();
-    expect(screen.getByText('AAPL')).toBeInTheDocument();
+    expect(holdings().getByText('AAPL')).toBeInTheDocument();
     expect(screen.getByText('Total Investment')).toBeInTheDocument();
+  });
+
+  it('mounts the allocation chart from the rows it already fetched', async () => {
+    const api = mount();
+    await waitFor(() => expect(screen.getByTestId('portfolio-allocation-chart')).toBeInTheDocument());
+    // One request served both the chart and the table — the chart is passed the
+    // rows, it does not fetch its own.
+    expect(api.calls.filter((c) => c.includes('/api/portfolio/symbols')).length).toBe(1);
+  });
+
+  it('leaves the chart off the page when nothing is priced yet', async () => {
+    mockApi([
+      [
+        '/api/portfolio/symbols',
+        {
+          symbols: [symbolRow({ bar_base: null, bar_gain: null, bar_loss: null })],
+          totals: null,
+        },
+      ],
+    ]);
+    renderWithProviders(<PortfolioPage />);
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByTestId('portfolio-allocation-chart')).not.toBeInTheDocument();
   });
 
   it('shows the empty state when there are no positions', async () => {
@@ -52,7 +80,7 @@ describe('PortfolioPage', () => {
 
   it('expands a symbol row to reveal its lots', async () => {
     mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
 
     const rows = screen.getAllByRole('button');
     const expandButtons = rows.filter((btn) => btn.querySelector('svg[data-testid="KeyboardArrowRightIcon"]'));
@@ -64,7 +92,7 @@ describe('PortfolioPage', () => {
 
   it('toggles sort direction when a column header is clicked', async () => {
     mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
 
     const symbolHeader = screen.getByText('Symbol');
     fireEvent.click(symbolHeader);
@@ -76,22 +104,22 @@ describe('PortfolioPage', () => {
 
   it('navigates to the security detail page when a symbol is clicked', async () => {
     mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
-    fireEvent.click(screen.getByText('INTC'));
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    fireEvent.click(holdings().getByText('INTC'));
     // Navigation happens via react-router; no crash and the row remains rendered.
-    expect(screen.getByText('INTC')).toBeInTheDocument();
+    expect(holdings().getByText('INTC')).toBeInTheDocument();
   });
 
   it('opens the Add Lot dialog', async () => {
     mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /Add Lot/i }));
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
   it('refetches when the Refresh button is clicked', async () => {
     const api = mount();
-    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     const before = api.calls.length;
     fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
     await waitFor(() => expect(api.calls.length).toBeGreaterThan(before));

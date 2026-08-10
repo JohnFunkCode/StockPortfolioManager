@@ -39,6 +39,8 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # authenticated session. Never add an `owner` prop here — that would let
     # the model pick whose portfolio to show, a cross-user read (decision #20).
     "portfolio_table": {},
+    # Same no-props rule as portfolio_table, for the same reason (issue #147).
+    "portfolio_allocation": {},
     "symbol_lots": {"ticker": str},
 }
 
@@ -368,8 +370,13 @@ TOOL_SCHEMAS: list[dict] = [
             "'portfolio_table' shows the caller's own portfolio as a per-symbol "
             "table with totals (no props — always the caller's own holdings, "
             "never another user's), "
+            "'portfolio_allocation' charts the same holdings as a stacked bar "
+            "per symbol — cost basis with the gain stacked above it or the loss "
+            "cut out of it — so relative position size and which positions are "
+            "carrying the portfolio are visible at a glance (no props, same "
+            "caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
-            "their portfolio (requires ticker). Both portfolio components are "
+            "their portfolio (requires ticker). All three portfolio components are "
             "read-only — there is no component or tool for adding, editing, or "
             "closing a lot; tell the user to use the Portfolio page for that."
         ),

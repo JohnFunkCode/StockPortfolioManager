@@ -37,6 +37,13 @@ export interface SymbolRow {
   return_90d: number | null;
   mm_hedge_bias: string | null;
   mm_hedge_bias_captured_at: string | null;
+  // Stacked allocation bar (issue #147 Part A), computed server-side by
+  // quantcore.analytics.portfolio_math.allocation_segments. bar_loss is
+  // negative — it is drawn *down* from bar_base — and all three are null for a
+  // symbol with no priced lot, which the chart drops rather than flattens.
+  bar_base: number | null;
+  bar_gain: number | null;
+  bar_loss: number | null;
 }
 
 export interface PortfolioTotals {

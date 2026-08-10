@@ -79,6 +79,35 @@ def period_return(current_price: Decimal, price_n_days_ago: Decimal) -> Decimal:
     return _pct((current_price - price_n_days_ago) / price_n_days_ago * 100)
 
 
+def allocation_segments(
+    invested: Optional[Decimal], gain_loss_amount: Optional[Decimal]
+) -> Dict[str, Optional[Decimal]]:
+    """The three segments of one symbol's stacked allocation bar (issue #147).
+
+    Reproduces the legacy report's left-hand matplotlib chart exactly: an
+    orange cost-basis block from zero, with the gain stacked *above* it in
+    green, or the loss drawn *down* from it in red.
+
+    ``bar_loss`` is deliberately negative — matplotlib's ``bottom=`` bar with a
+    negative height — so a caller draws it between ``bar_base + bar_loss`` and
+    ``bar_base`` without deciding a sign for itself. Splitting the signed
+    gain/loss into two same-signed segments is the only "math" the chart needs,
+    and it lives here rather than in the front end (Rule 8.4).
+
+    Either input may be ``None`` (an unpriced symbol), in which case there is
+    no bar to draw and all three segments come back ``None``.
+    """
+    if invested is None or gain_loss_amount is None:
+        return {"bar_base": None, "bar_gain": None, "bar_loss": None}
+
+    zero = Decimal("0")
+    return {
+        "bar_base": _money(invested),
+        "bar_gain": _money(max(gain_loss_amount, zero)),
+        "bar_loss": _money(min(gain_loss_amount, zero)),
+    }
+
+
 def summary_totals(lots: Iterable[Dict[str, Any]], as_of: date) -> Dict[str, Optional[Decimal]]:
     """Aggregate Total Investment, Total Current Value, Total Gain/Loss $/%,
     and Dollars Per Day across a set of open lots. USD only (decision #16).

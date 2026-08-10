@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from quantcore.analytics.portfolio_math import (
+    allocation_segments,
     dollars_per_day,
     days_held,
     gain_loss,
@@ -82,6 +83,54 @@ class TestPeriodReturn(unittest.TestCase):
         self.assertEqual(
             period_return(Decimal("90.00"), Decimal("100.00")), Decimal("-10.00")
         )
+
+
+class TestAllocationSegments(unittest.TestCase):
+    """Issue #147 Part A: the legacy report's stacked bar, as three numbers.
+
+    The property that matters for the drawing: the visible top of the bar is
+    always the current value, whichever way the position went. base + gain for
+    a winner, base + loss (loss being negative) for a loser.
+    """
+
+    def test_a_gain_stacks_above_the_cost_basis(self):
+        segments = allocation_segments(Decimal("100.00"), Decimal("25.00"))
+        self.assertEqual(segments["bar_base"], Decimal("100.00"))
+        self.assertEqual(segments["bar_gain"], Decimal("25.00"))
+        self.assertEqual(segments["bar_loss"], Decimal("0.00"))
+        self.assertEqual(
+            segments["bar_base"] + segments["bar_gain"], Decimal("125.00")
+        )
+
+    def test_a_loss_is_negative_so_it_draws_down_from_the_cost_basis(self):
+        segments = allocation_segments(Decimal("100.00"), Decimal("-40.00"))
+        self.assertEqual(segments["bar_base"], Decimal("100.00"))
+        self.assertEqual(segments["bar_gain"], Decimal("0.00"))
+        self.assertEqual(segments["bar_loss"], Decimal("-40.00"))
+        self.assertEqual(
+            segments["bar_base"] + segments["bar_loss"], Decimal("60.00")
+        )
+
+    def test_break_even_has_neither_segment(self):
+        segments = allocation_segments(Decimal("100.00"), Decimal("0"))
+        self.assertEqual(segments["bar_gain"], Decimal("0.00"))
+        self.assertEqual(segments["bar_loss"], Decimal("0.00"))
+
+    def test_an_unpriced_symbol_has_no_bar_at_all(self):
+        """Rather than a zero-height bar, which reads as "worth nothing"."""
+        self.assertEqual(
+            allocation_segments(Decimal("100.00"), None),
+            {"bar_base": None, "bar_gain": None, "bar_loss": None},
+        )
+        self.assertEqual(
+            allocation_segments(None, Decimal("25.00")),
+            {"bar_base": None, "bar_gain": None, "bar_loss": None},
+        )
+
+    def test_segments_are_quantized_to_cents(self):
+        segments = allocation_segments(Decimal("100.005"), Decimal("1.004"))
+        self.assertEqual(segments["bar_base"], Decimal("100.01"))
+        self.assertEqual(segments["bar_gain"], Decimal("1.00"))
 
 
 class TestSummaryTotals(unittest.TestCase):

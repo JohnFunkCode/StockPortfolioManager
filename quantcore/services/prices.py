@@ -31,6 +31,7 @@ from quantcore.analytics.indicators import (
     rsi_series,
     safe_float,
 )
+from quantcore.analytics import returns
 from quantcore.analytics.market_time import latest_completed_session, period_to_days
 from quantcore.analytics.volume_profile import build_volume_profile, find_volume_nodes
 from quantcore.error_text import safe_error_text
@@ -183,6 +184,86 @@ class PricesService:
             as_of = datetime.datetime.fromtimestamp(row["ts"], tz=datetime.timezone.utc)
             closes[row["symbol"]] = (float(row["close"]), as_of)
         return closes
+
+    def bulk_period_returns(
+        self,
+        symbols: list[str],
+        periods: tuple[int, ...] = (5, 30, 60),
+        as_of: datetime.date | None = None,
+    ) -> dict[str, dict]:
+        """Trailing + calendar returns for many symbols in **one** SQL query and
+        zero network calls (issue #147 Part B2).
+
+        Modelled on ``screen_securities`` — one ``daily_bars_for_symbols`` read,
+        group in memory, then pure analytics — and deliberately *not* on
+        ``PortfolioService._period_returns``, which loops per symbol. The whole
+        point of the watchlist fundamentals page is that a 40-symbol table costs
+        a constant number of queries; a per-symbol loop would put that back to
+        40 and reintroduce the multi-minute yfinance walk the legacy report did.
+
+        Returns ``{symbol: {price, as_of, bars, return_5d, return_30d,
+        return_60d, return_ytd, return_1y}}`` with every symbol present, even
+        one with no cached bars at all — a missing key is indistinguishable from
+        a missing symbol at the adapter, and the caller needs to render the row
+        either way. Percentages are floats (Decimal quantized to 0.01 by
+        ``analytics.returns``, then widened for JSON); ``None`` means "not
+        computable from cached history", never zero.
+        """
+        symbols = [s.upper() for s in symbols]
+        out: dict[str, dict] = {
+            sym: {
+                "price": None,
+                "as_of": None,
+                "bars": 0,
+                **{f"return_{n}d": None for n in periods},
+                "return_ytd": None,
+                "return_1y": None,
+            }
+            for sym in symbols
+        }
+        if not symbols:
+            return out
+
+        rows = self._ohlcv.daily_bars_for_symbols(symbols)
+        bars_by_sym: dict[str, list] = defaultdict(list)
+        for r in rows:
+            bars_by_sym[r["symbol"]].append(r)
+
+        def _pct(value) -> float | None:
+            return None if value is None else float(value)
+
+        for sym in symbols:
+            bars = bars_by_sym.get(sym, [])
+            if not bars:
+                continue
+
+            # ts is an epoch integer in the ohlcv table; convert once here so
+            # analytics.returns never sees a repository row shape (Rule 8.4).
+            dated = [
+                (datetime.datetime.fromtimestamp(b["ts"], tz=datetime.timezone.utc).date(),
+                 float(b["close"]))
+                for b in bars
+                if b["close"] is not None
+            ]
+            if not dated:
+                continue
+
+            closes = [c for _, c in dated]
+            # Default the calendar anchor to the newest bar rather than today's
+            # date: on a Sunday, or when a symbol's cache is a few days behind,
+            # "today" would silently widen the YTD/1y windows past the data.
+            anchor = as_of or dated[-1][0]
+
+            row = out[sym]
+            row["price"] = closes[-1]
+            row["as_of"] = dated[-1][0].isoformat()
+            row["bars"] = len(dated)
+            for n in periods:
+                row[f"return_{n}d"] = _pct(returns.trailing_return(closes, n))
+            row["return_ytd"] = _pct(returns.ytd_return(dated, anchor))
+            row["return_1y"] = _pct(returns.one_year_return(dated, anchor))
+
+        return out
 
     def get_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
         """Batched, TTL-cached live quotes for many symbols (issue #126 Step

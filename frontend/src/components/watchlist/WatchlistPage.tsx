@@ -49,7 +49,7 @@ import {
   GridRenderCellParams,
   GridSortModel,
 } from '@mui/x-data-grid';
-import type { GridSortDirection } from '@mui/x-data-grid';
+import type { GridComparatorFn, GridSortDirection } from '@mui/x-data-grid';
 
 import AddSecurityDialog from '../securities/AddSecurityDialog';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -80,12 +80,14 @@ function ReturnCell({ value }: { value: number | null | undefined }) {
   );
 }
 
-/** Composite score descending, then the 30-day return — the order the nightly
- * report ranked by, so the page opens on the same top of the list. */
-const DEFAULT_SORT_MODEL: GridSortModel = [
-  { field: 'composite_score', sort: 'desc' },
-  { field: 'return_30d', sort: 'desc' },
-];
+/** Composite score descending — the order the nightly report ranked by, so the
+ * page opens on the same top of the list.
+ *
+ * One item, not two. The Community DataGrid forces
+ * `disableMultipleColumnsSorting`, and `sanitizeSortModel` truncates a longer
+ * model to `[model[0]]`: a second entry for the tie-break would read as applied
+ * and do nothing. The tie-break lives in `scoreThenReturn` instead. */
+const DEFAULT_SORT_MODEL: GridSortModel = [{ field: 'composite_score', sort: 'desc' }];
 
 const LABEL_COLORS: Record<string, string> = {
   strong: GREEN,
@@ -112,6 +114,51 @@ function nullsLast(direction: GridSortDirection) {
   };
 }
 
+/** Score first, 30-day return to break the tie — the report's ranking, and the
+ * reason `DEFAULT_SORT_MODEL` is a single item. Reaching the other column means
+ * reading it off the row (`api.getRow`), since the comparator is only handed
+ * its own column's two values. */
+function scoreThenReturn(direction: GridSortDirection): GridComparatorFn<number | null> {
+  const compare = nullsLast(direction);
+  return (a, b, paramsA, paramsB) => {
+    const primary = compare(a, b);
+    if (primary !== 0) return primary;
+    const rowA = paramsA.api.getRow(paramsA.id) as WatchlistFundamentalsRow | null;
+    const rowB = paramsB.api.getRow(paramsB.id) as WatchlistFundamentalsRow | null;
+    return compare(rowA?.return_30d ?? null, rowB?.return_30d ?? null);
+  };
+}
+
+/** localStorage is user-writable, and `JSON.parse` succeeding says nothing
+ * about the shape it returned. A stored `null` or `{}` parses fine and then
+ * takes the page down on the first `.length` — so validate, don't just catch. */
+function readTagFilter(): string[] {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('watchlist-tag-filter') ?? 'null');
+    return Array.isArray(parsed) && parsed.every((t) => typeof t === 'string') ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function readSortModel(): GridSortModel {
+  try {
+    const parsed = JSON.parse(localStorage.getItem('watchlist-sort-model') ?? 'null');
+    const usable =
+      Array.isArray(parsed) &&
+      parsed.length > 0 &&
+      parsed.every(
+        (item) =>
+          item != null &&
+          typeof item.field === 'string' &&
+          (item.sort === 'asc' || item.sort === 'desc' || item.sort == null),
+      );
+    return usable ? (parsed as GridSortModel) : DEFAULT_SORT_MODEL;
+  } catch {
+    return DEFAULT_SORT_MODEL;
+  }
+}
+
 export default function WatchlistPage() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useWatchlistFundamentals();
@@ -125,24 +172,8 @@ export default function WatchlistPage() {
   const [tagChips, setTagChips] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
 
-  const [tagFilter, setTagFilter] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem('watchlist-tag-filter');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [sortModel, setSortModel] = useState<GridSortModel>(() => {
-    try {
-      const saved = localStorage.getItem('watchlist-sort-model');
-      const parsed = saved ? JSON.parse(saved) : null;
-      return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SORT_MODEL;
-    } catch {
-      return DEFAULT_SORT_MODEL;
-    }
-  });
+  const [tagFilter, setTagFilter] = useState<string[]>(readTagFilter);
+  const [sortModel, setSortModel] = useState<GridSortModel>(readSortModel);
 
   const setTagFilterPersisted = (tags: string[] | ((prev: string[]) => string[])) => {
     setTagFilter((prev) => {
@@ -288,7 +319,7 @@ export default function WatchlistPage() {
       headerName: 'Score',
       width: 110,
       type: 'number',
-      getSortComparator: nullsLast,
+      getSortComparator: scoreThenReturn,
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => {
         if (p.value == null) {
           return (

@@ -236,6 +236,54 @@ describe('WatchlistPage', () => {
       await mount();
       expect(symbolOrder()).toEqual(['INTC', 'WMT', 'ASSA-B.ST']);
     });
+
+    // Valid JSON of the wrong shape — the `try/catch` never fires, so only a
+    // shape check keeps these out.
+    it.each([
+      ['a bare null', 'null'],
+      ['an object', '{"field":"composite_score","sort":"asc"}'],
+      ['an empty array', '[]'],
+      ['items with no field', '[{"sort":"asc"}]'],
+      ['an unknown direction', '[{"field":"composite_score","sort":"sideways"}]'],
+    ])('falls back to the default sort when the persisted model is %s', async (_label, stored) => {
+      localStorage.setItem('watchlist-sort-model', stored);
+      await mount();
+      expect(symbolOrder()).toEqual(['INTC', 'WMT', 'ASSA-B.ST']);
+    });
+
+    describe('the 30-day tie-break', () => {
+      // Same score, different 30d — the only thing separating these rows. The
+      // tie-break has to live inside the score comparator: the Community grid
+      // truncates a two-item sort model to its first entry, so a second entry
+      // would look applied and rank nothing.
+      const TIED = [
+        watchlistRow('AAA', { composite_score: 61, return_30d: 2 }),
+        watchlistRow('BBB', { composite_score: 61, return_30d: 9 }),
+        watchlistRow('CCC', { composite_score: 61, return_30d: null }),
+      ];
+
+      async function mountTied() {
+        mockApi([['/api/watchlist/fundamentals', watchlistFundamentals(TIED)]]);
+        renderWithProviders(<WatchlistPage />);
+        await waitFor(() => expect(inGrid().getByText('AAA')).toBeInTheDocument());
+      }
+
+      it('breaks a score tie on the 30-day return, descending', async () => {
+        await mountTied();
+        expect(symbolOrder()).toEqual(['BBB', 'AAA', 'CCC']);
+      });
+
+      it('follows the column direction into the tie-break', async () => {
+        localStorage.setItem(
+          'watchlist-sort-model',
+          JSON.stringify([{ field: 'composite_score', sort: 'asc' }]),
+        );
+        await mountTied();
+        // 2 before 9 now — but the unknown return stays at the bottom, because
+        // nulls are pinned outside the direction.
+        expect(symbolOrder()).toEqual(['AAA', 'BBB', 'CCC']);
+      });
+    });
   });
 
   describe('filtering', () => {
@@ -280,6 +328,20 @@ describe('WatchlistPage', () => {
     it('ignores a corrupt persisted filter instead of crashing', async () => {
       localStorage.setItem('watchlist-tag-filter', 'not json');
       await mount();
+      expect(inGrid().getByText('WMT')).toBeInTheDocument();
+    });
+
+    // These parse cleanly, so the `try/catch` above never sees them: a stored
+    // `null` reached `tagFilter.length` and blanked the page.
+    it.each([
+      ['a bare null', 'null'],
+      ['an object', '{}'],
+      ['a string', '"retail"'],
+      ['a mixed array', '["retail",7]'],
+    ])('ignores a persisted filter that is %s', async (_label, stored) => {
+      localStorage.setItem('watchlist-tag-filter', stored);
+      await mount();
+      expect(screen.getByText(/3 of 3 securities/)).toBeInTheDocument();
       expect(inGrid().getByText('WMT')).toBeInTheDocument();
     });
 

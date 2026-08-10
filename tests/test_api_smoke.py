@@ -316,8 +316,14 @@ class ApiSmokeTest(unittest.TestCase):
             "tags": ["ai", ""],
         })
         self.assertEqual(resp.status_code, 201)
+        # The currency in the response is what was *stored*, which the service
+        # resolves off the exchange rather than taking from the body. ZZWLAPI
+        # is not a real ticker, so the lookup misses and the posted value is
+        # the fallback — that fallback path is the one this asserts.
         self.assertEqual(
-            resp.json(), {"symbol": WATCHLIST_SYMBOL, "destination": "watchlist"}
+            resp.json(),
+            {"symbol": WATCHLIST_SYMBOL, "destination": "watchlist",
+             "currency": "USD"},
         )
 
         listed = self.client.get("/api/watchlist").json()["securities"]

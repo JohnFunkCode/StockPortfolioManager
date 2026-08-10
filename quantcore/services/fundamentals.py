@@ -436,6 +436,11 @@ class FundamentalsService:
             "metric_scores":     metric_scores,
             "sector":            info.get("sector"),
             "market_cap":        info.get("marketCap"),
+            # The unit for market_cap, stored with it rather than looked up
+            # separately later: yfinance derives the cap from price × shares,
+            # so it is in the trading currency, and a cap whose unit came from
+            # a different fetch is a number nobody can safely compare.
+            "market_cap_currency": info.get("currency"),
         }
 
     def _compute_revenue_growth(self, sym: str) -> dict:

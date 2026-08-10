@@ -16,11 +16,13 @@ from quantcore.services.watchlist import WatchlistService
 class FakeRepository:
     """Records calls and mimics the repository's return contract."""
 
-    def __init__(self, taken=()):
+    def __init__(self, taken=(), entries=()):
         self.added = []
         self.replaced = None
         self.removed = []
+        self.currency_writes = []
         self._taken = set(taken)
+        self._entries = [dict(e) for e in entries]
 
     def add_entry(self, symbol, name=None, currency="USD", tags=None, added_by=None):
         self.added.append({
@@ -40,11 +42,34 @@ class FakeRepository:
         self.replaced = rows
         return len(rows)
 
+    def set_currency(self, symbol, currency):
+        self.currency_writes.append((symbol, currency))
+        for entry in self._entries:
+            if entry["symbol"] == symbol:
+                entry["currency"] = currency
+                return 1
+        return 0
+
     def list_entries(self):
-        return []
+        return [dict(e) for e in self._entries]
 
     def count(self):
         return len(self._taken)
+
+
+class FakeYFinance:
+    """Stands in for YFinanceGateway.ticker_info."""
+
+    def __init__(self, info_by_symbol=None, raises=False):
+        self._info = info_by_symbol or {}
+        self._raises = raises
+        self.calls = []
+
+    def ticker_info(self, symbol, timeout=15.0):
+        self.calls.append(symbol)
+        if self._raises:
+            raise RuntimeError("yfinance is having a day")
+        return self._info.get(symbol)
 
 
 class WatchlistServiceTest(unittest.TestCase):
@@ -169,6 +194,188 @@ class WatchlistServiceTest(unittest.TestCase):
 
         self.assertEqual(self.svc.import_yaml(path), 0)
         self.assertEqual(self.repo.replaced, [])
+
+
+class WatchlistCurrencyTest(unittest.TestCase):
+    """The currency is a looked-up fact, not a field the caller supplies.
+
+    watchlist.yaml declared ASSA-B.ST, AUTO.OL and NIB.F as USD; they trade in
+    SEK, NOK and EUR. Since the market cap on the fundamentals page is labelled
+    with this value, a wrong one renders a foreign cap as dollars — worse than
+    no cap at all, because it sorts and compares as if it were real.
+    """
+
+    def _service(self, info=None, raises=False, entries=()):
+        self.repo = FakeRepository(entries=entries)
+        self.yf = FakeYFinance(info, raises=raises)
+        return WatchlistService(self.repo, yfinance=self.yf)
+
+    # ---------------------------------------------------------------- add
+    def test_the_exchange_beats_what_the_caller_passed(self):
+        svc = self._service({"ASSA-B.ST": {"currency": "SEK"}})
+
+        result = svc.add_entry("ASSA-B.ST", currency="USD")
+
+        self.assertEqual(self.repo.added[0]["currency"], "SEK")
+        self.assertEqual(result["currency"], "SEK")
+
+    def test_the_override_is_logged_so_it_is_not_silent(self):
+        svc = self._service({"AUTO.OL": {"currency": "NOK"}})
+
+        with self.assertLogs("quantcore.services.watchlist", level="INFO") as logs:
+            svc.add_entry("AUTO.OL", currency="usd")
+
+        self.assertIn("NOK", logs.output[0])
+        self.assertIn("USD", logs.output[0])
+
+    def test_agreeing_with_the_caller_logs_nothing(self):
+        svc = self._service({"NVDA": {"currency": "USD"}})
+
+        with self.assertNoLogs("quantcore.services.watchlist", level="INFO"):
+            svc.add_entry("NVDA", currency="USD")
+
+    def test_no_currency_supplied_at_all_is_the_normal_case(self):
+        svc = self._service({"7203.T": {"currency": "JPY"}})
+
+        self.assertEqual(svc.add_entry("7203.T")["currency"], "JPY")
+
+    def test_a_lookup_failure_falls_back_rather_than_refusing_the_add(self):
+        """Yahoo being down is not a reason to refuse to watch a symbol —
+        the entry lands with the supplied value and a warning."""
+        svc = self._service(raises=True)
+
+        with self.assertLogs("quantcore.services.watchlist", level="WARNING") as logs:
+            result = svc.add_entry("NVDA", currency="usd")
+
+        self.assertEqual(result["currency"], "USD")
+        self.assertEqual(self.repo.added[0]["symbol"], "NVDA")
+        self.assertTrue(any("falling back" in line for line in logs.output))
+
+    def test_an_unknown_symbol_falls_back_to_usd(self):
+        svc = self._service({})
+
+        self.assertEqual(svc.add_entry("ZZNOSUCH")["currency"], "USD")
+
+    def test_a_blank_currency_from_the_exchange_is_not_stored(self):
+        svc = self._service({"NVDA": {"currency": "  "}})
+
+        self.assertEqual(svc.add_entry("NVDA", currency="USD")["currency"], "USD")
+
+    def test_no_gateway_means_no_lookup_and_no_warning(self):
+        """The CRUD half stays constructible from a bare repository — import
+        scripts and the repository tests build it that way, and for them the
+        supplied value is the design rather than a degraded path."""
+        svc = WatchlistService(FakeRepository())
+
+        with self.assertNoLogs("quantcore.services.watchlist", level="WARNING"):
+            result = svc.add_entry("NVDA", currency="eur")
+
+        self.assertEqual(result["currency"], "EUR")
+
+    # ------------------------------------------------------------- resync
+    ENTRIES = (
+        {"symbol": "ASSA-B.ST", "currency": "USD"},
+        {"symbol": "NVDA", "currency": "USD"},
+        {"symbol": "ZZNOSUCH", "currency": "USD"},
+    )
+    INFO = {"ASSA-B.ST": {"currency": "SEK"}, "NVDA": {"currency": "USD"}}
+
+    def test_resync_reports_the_diff_without_writing(self):
+        svc = self._service(self.INFO, entries=self.ENTRIES)
+
+        results = {r["symbol"]: r for r in svc.resync_currencies()}
+
+        self.assertTrue(results["ASSA-B.ST"]["changed"])
+        self.assertFalse(results["ASSA-B.ST"]["updated"])
+        self.assertFalse(results["NVDA"]["changed"])
+        self.assertEqual(self.repo.currency_writes, [], "dry run writes nothing")
+
+    def test_resync_apply_writes_only_what_changed(self):
+        svc = self._service(self.INFO, entries=self.ENTRIES)
+
+        svc.resync_currencies(apply=True)
+
+        self.assertEqual(self.repo.currency_writes, [("ASSA-B.ST", "SEK")])
+
+    def test_resync_leaves_an_unresolvable_symbol_alone(self):
+        """A failed lookup is not evidence the stored value is wrong."""
+        svc = self._service(self.INFO, entries=self.ENTRIES)
+
+        [row] = [r for r in svc.resync_currencies(apply=True)
+                 if r["symbol"] == "ZZNOSUCH"]
+
+        self.assertIsNone(row["resolved"])
+        self.assertFalse(row["changed"])
+        self.assertEqual(row["stored"], "USD")
+
+    def test_resync_can_be_scoped_to_a_subset(self):
+        svc = self._service(self.INFO, entries=self.ENTRIES)
+
+        results = svc.resync_currencies(symbols=["assa-b.st"])
+
+        self.assertEqual([r["symbol"] for r in results], ["ASSA-B.ST"])
+        self.assertEqual(self.yf.calls, ["ASSA-B.ST"], "no lookups for the rest")
+
+    def test_add_passes_a_shorter_deadline_than_the_gateway_default(self):
+        """The add path runs inside a user's POST; 15s is not a UI deadline."""
+        from quantcore.services.watchlist import ADD_LOOKUP_TIMEOUT_SECONDS
+
+        class TimeoutRecordingYFinance(FakeYFinance):
+            def __init__(self):
+                super().__init__({"NVDA": {"currency": "USD"}})
+                self.timeouts = []
+
+            def ticker_info(self, symbol, timeout=15.0):
+                self.timeouts.append(timeout)
+                return super().ticker_info(symbol, timeout=timeout)
+
+        yf = TimeoutRecordingYFinance()
+        WatchlistService(FakeRepository(), yfinance=yf).add_entry("NVDA")
+
+        self.assertEqual(yf.timeouts, [ADD_LOOKUP_TIMEOUT_SECONDS])
+        self.assertLess(ADD_LOOKUP_TIMEOUT_SECONDS, 15.0)
+
+
+class WatchlistAddSurvivesAHangingYahooTest(unittest.TestCase):
+    """Issue #184 review: "fails soft" has to mean soft *and* fast.
+
+    Wired through the real YFinanceGateway, because the defect lived exactly
+    at that seam — the service was correct, the gateway raised the right
+    exception, and the caller still waited for Yahoo. A double for the gateway
+    would have proved nothing, so this test patches ``yf.Ticker`` and lets the
+    real timeout machinery run.
+    """
+
+    def test_add_returns_with_the_fallback_instead_of_holding_the_request(self):
+        from unittest.mock import patch
+
+        from quantcore.gateways import yfinance_gateway as gw_mod
+        from quantcore.gateways.yfinance_gateway import YFinanceGateway
+        from quantcore.services import watchlist as wl_mod
+
+        class HangingTicker:
+            @property
+            def info(self):
+                time.sleep(30)
+                return {"currency": "SEK"}
+
+        repo = FakeRepository()
+        svc = WatchlistService(repo, yfinance=YFinanceGateway())
+
+        with patch.object(gw_mod.yf, "Ticker", lambda s: HangingTicker()), \
+                patch.object(wl_mod, "ADD_LOOKUP_TIMEOUT_SECONDS", 0.25):
+            start = time.monotonic()
+            result = svc.add_entry("ASSA-B.ST", currency="USD")
+            elapsed = time.monotonic() - start
+
+        self.assertLess(
+            elapsed, 5.0,
+            f"add held the caller {elapsed:.2f}s behind a 0.25s lookup deadline",
+        )
+        # Soft, not closed: the symbol is watched, on the supplied fallback.
+        self.assertEqual(result["symbol"], "ASSA-B.ST")
+        self.assertEqual(result["currency"], "USD")
+        self.assertEqual(repo.added[0]["symbol"], "ASSA-B.ST")
 
 
 class ExplodingYFinance:
@@ -322,6 +529,49 @@ class WatchlistReturnsAndFundamentalsTest(unittest.TestCase):
         for key in ("return_5d", "return_30d", "return_60d", "return_ytd", "return_1y"):
             self.assertIsNotNone(row[key], key)
             self.assertGreater(row[key], 0, key)
+
+    def test_cap_unit_comes_from_the_score_not_the_stored_row(self):
+        """The stored currency is the one field known to be wrong.
+
+        ``_build`` stores every entry as USD, which is exactly the state of the
+        rows seeded from ``watchlist.yaml`` before
+        ``scripts/repair_watchlist_currency.py`` runs. The score payload's
+        ``market_cap_currency`` was captured in the same fetch as the cap, so it
+        wins — and a non-USD cap with no FX rate reports no USD figure rather
+        than a number wrong by two orders of magnitude.
+        """
+        svc = self._build(
+            ["ASSA-B.ST"],
+            scores=[{
+                "symbol": "ASSA-B.ST",
+                "composite_score": 60.0,
+                "market_cap": 340_000_000_000,
+                "market_cap_currency": "SEK",
+                "_fetched_at_ts": int(time.time()),
+            }],
+        )
+        row = svc.returns_and_fundamentals()["rows"][0]
+
+        self.assertEqual(row["currency"], "USD")          # what the table says
+        self.assertEqual(row["market_cap_currency"], "SEK")  # what the cap is in
+        self.assertEqual(row["market_cap"], 340_000_000_000)
+        self.assertIsNone(row["market_cap_usd"])
+
+    def test_cap_unit_falls_back_to_the_row_when_the_score_has_none(self):
+        """Scores cached before market_cap_currency existed carry no unit."""
+        svc = self._build(
+            ["NVDA"],
+            scores=[{
+                "symbol": "NVDA",
+                "composite_score": 60.0,
+                "market_cap": 3_000_000_000_000,
+                "_fetched_at_ts": int(time.time()),
+            }],
+        )
+        row = svc.returns_and_fundamentals()["rows"][0]
+
+        self.assertEqual(row["market_cap_currency"], "USD")
+        self.assertEqual(row["market_cap_usd"], 3_000_000_000_000)
 
     def test_unscored_symbol_is_kept_with_null_fundamentals(self):
         """Dropping it would read as "we stopped watching that"."""

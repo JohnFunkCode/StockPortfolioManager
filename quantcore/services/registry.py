@@ -243,6 +243,7 @@ def get_services() -> Services:
         portfolio=PortfolioService(portfolio_repository=portfolio_repository, prices=prices, options=options),
         watchlist=WatchlistService(
             repository=watchlist_repository,
+            yfinance=yfinance_gateway,
             prices=prices,
             fundamentals=fundamentals,
         ),

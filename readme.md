@@ -94,6 +94,26 @@ That is a full-sync replace: the table ends up matching the file exactly. YAML f
     - cloud
 ~~~
 
+#### Currency is looked up, not asked for
+
+When a symbol is added through the UI, the REST tier or the MCP wrapper, the currency is read
+off the exchange (`info["currency"]`, the same unit yfinance's `marketCap` is in) and the
+caller's value is used only if that lookup comes back empty. That is why the Add Security
+dialog offers a currency picker on the Portfolio tab and not on the Watchlist tab.
+
+The `currency:` field above stays in the YAML because import is a bulk path, but it is a
+fallback too. Entries that predate this — `watchlist.yaml` declared ASSA-B.ST (Stockholm),
+AUTO.OL (Oslo) and NIB.F (Frankfurt) as USD — are repaired in place:
+
+```bash
+python scripts/repair_watchlist_currency.py            # dry run: prints the diff
+python scripts/repair_watchlist_currency.py --apply
+```
+
+Dry run by default, one network lookup per symbol (a full pass takes a few minutes), and it
+refuses the production database in `.env` without `--allow-prod`. A symbol whose lookup fails
+is reported and left alone — a failed lookup is not evidence the stored value is wrong.
+
 ## Installation
 
 1. Clone the repository:

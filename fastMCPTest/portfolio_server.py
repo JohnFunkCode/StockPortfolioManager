@@ -141,7 +141,6 @@ def list_watchlist() -> dict:
 def add_to_watchlist(
     symbol: str,
     name: str | None = None,
-    currency: str = "USD",
     tags: list[str] | None = None,
 ) -> dict:
     """Add a symbol to the shared watchlist.
@@ -151,19 +150,22 @@ def add_to_watchlist(
     symbol enrolls it in the daily report and the nightly options-chain
     capture; there is no remove tool, so a mistake has to be undone in the UI.
 
+    There is deliberately no `currency` argument: the REST tier reads it off
+    the exchange. A guessed currency is worse than none — it labels a foreign
+    market cap as dollars, which is a wrong number rather than a missing one.
+
     Args:
         symbol: Stock ticker symbol (e.g. 'AAPL')
         name: Company name; the REST tier looks it up when omitted
-        currency: ISO currency code, defaults to USD
         tags: Optional grouping labels, e.g. ['Semiconductors']
 
     Returns:
-        symbol and destination on success. A symbol already on the list is a
-        409 error rather than a silent no-op.
+        symbol, destination, and the currency that was resolved and stored. A
+        symbol already on the list is a 409 error rather than a silent no-op.
     """
     return rest_client.post(
         "/api/watchlist",
-        json={"symbol": symbol, "name": name, "currency": currency, "tags": tags},
+        json={"symbol": symbol, "name": name, "tags": tags},
     )
 
 

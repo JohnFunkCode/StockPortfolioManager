@@ -368,16 +368,31 @@ class TestPortfolioWatchlistTools(unittest.TestCase):
             self.assertEqual(out["securities"][0]["symbol"], "INTC")
 
     def test_add_to_watchlist_posts_the_full_body(self):
+        """No ``currency`` in the body, deliberately: the REST tier reads it
+        off the exchange, and a currency an agent inferred from a ticker
+        suffix would label a foreign market cap as dollars.
+        """
         with patch.object(pfs, "rest_client") as rc:
-            rc.post.return_value = {"symbol": "INTC", "destination": "watchlist"}
+            rc.post.return_value = {
+                "symbol": "INTC", "destination": "watchlist", "currency": "USD",
+            }
             out = pfs.add_to_watchlist("INTC", name="Intel", tags=["Semis"])
             self.assertEqual(rc.post.call_args[0][0], "/api/watchlist")
             self.assertEqual(
                 rc.post.call_args[1]["json"],
-                {"symbol": "INTC", "name": "Intel", "currency": "USD",
-                 "tags": ["Semis"]},
+                {"symbol": "INTC", "name": "Intel", "tags": ["Semis"]},
             )
             self.assertEqual(out["destination"], "watchlist")
+            self.assertEqual(out["currency"], "USD")
+
+    def test_add_to_watchlist_takes_no_currency_argument(self):
+        """A guard on the tool signature itself — the currency came out of the
+        agent's hands on purpose, and putting it back is a regression.
+        """
+        import inspect
+
+        params = inspect.signature(pfs.add_to_watchlist).parameters
+        self.assertNotIn("currency", params)
 
     def test_the_seam_still_has_no_destructive_verb(self):
         """Decision 4: agents may add to the shared watchlist, never remove.

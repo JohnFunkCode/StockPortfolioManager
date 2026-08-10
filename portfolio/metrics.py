@@ -130,6 +130,15 @@ def ma_regression_slope(
     return return_value
 
 def get_historical_metrics( symbols: list[str] ) -> Dict[str, Metrics]:
+    # The five return columns below are NOT the ones the app serves. They are
+    # open-to-close, their YTD anchor is a bdate_range business-day count (which
+    # treats market holidays as trading days), and `one_year_return` divides by
+    # iloc[0] of a *two-year* frame. The corrected close-to-close versions live
+    # in quantcore/analytics/returns.py (issue #147 Part B1).
+    #
+    # This is left as-is on purpose: it feeds the preserved legacy report
+    # script, and changing it here would silently move numbers on a page nobody
+    # is watching. Do not "fix" it — port the caller to returns.py instead.
     data = yf.download(
         tickers=" ".join(symbols),
         period="2y",

@@ -761,6 +761,25 @@ class FundamentalsService:
             "upcoming":       upcoming,
         }
 
+    def get_all_latest(self, data_type: str) -> list[dict]:
+        """Every symbol's most recent cached entry for one data_type, no TTL
+        filter — one query, no network (issue #147 Part B3).
+
+        Exposed on the service rather than letting callers reach into
+        ``FundamentalsRepository`` directly: crossing into another domain's
+        repository would also mean re-deriving that domain's staleness rule at
+        each call site, and the rule (below) belongs here. Rows are returned
+        stale-but-labelled; deciding to hide one is the caller's policy, not the
+        cache's.
+        """
+        return self._repo.get_all_latest(data_type)
+
+    def cache_ttl_seconds(self) -> int:
+        """The cache TTL, so a bulk caller can age a whole batch against one
+        clock read instead of a per-row lookup. ``0`` disables the notion of
+        staleness entirely (an entry is then never stale)."""
+        return self._repo.ttl_seconds()
+
     def get_cache_stats(self) -> dict:
         return self._repo.stats()
 

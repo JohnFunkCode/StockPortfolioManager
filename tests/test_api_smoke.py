@@ -399,6 +399,45 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(entry["tags"], ["ai"], "watchlist tags win on a merge")
         self.assertEqual(entry["quantity"], 2, "portfolio fields survive")
 
+    # --- Watchlist fundamentals (issue #147) -----------------------------
+
+    def test_watchlist_fundamentals_returns_the_envelope_not_a_ticker(self):
+        """The page's payload, and the only guard on the route ordering.
+
+        ``/watchlist/fundamentals`` sits next to the ``/watchlist/{ticker}``
+        path template. Nothing makes them collide today — ``{ticker}`` is
+        DELETE-only, and a method mismatch is a *partial* match Starlette
+        scans past — so the declaration order in the router is habit, not
+        enforcement. Adding a GET on ``/watchlist/{ticker}`` above this one
+        would quietly turn the page's endpoint into a lookup for a symbol
+        nobody holds. Asserting on the body means that lands here as a
+        failure rather than in the browser as an empty table.
+        """
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "name": "Watchlist Smoke Co",
+        })
+
+        resp = self.client.get("/api/watchlist/fundamentals")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(
+            set(body),
+            {"generated_at", "as_of", "count", "stale_count",
+             "unscored_count", "rows"},
+        )
+        self.assertEqual(body["count"], len(body["rows"]))
+
+        [row] = [r for r in body["rows"] if r["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(row["name"], "Watchlist Smoke Co")
+        # A symbol this suite invented has no bars and no cached fundamentals:
+        # the row still comes back fully keyed, with nulls, and counts as
+        # unscored rather than as stale (nothing was ever fetched to age).
+        self.assertIsNone(row["price"])
+        self.assertIsNone(row["composite_score"])
+        self.assertIsNone(row["fundamentals_stale"])
+        self.assertEqual(row["market_cap_currency"], "USD")
+        self.assertGreaterEqual(body["unscored_count"], 1)
+
     def test_lookup_missing_symbol_returns_plain_400(self):
         resp = self.client.get("/api/securities/lookup")
         self.assertEqual(resp.status_code, 400)

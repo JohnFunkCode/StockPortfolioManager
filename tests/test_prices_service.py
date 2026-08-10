@@ -10,6 +10,7 @@ No DB, no network: repositories and the gateway are Mocks.
 The get_history fetch-when-stale policy itself is pinned separately in
 test_prices_history_policy.py.
 """
+import datetime
 import math
 import unittest
 from types import SimpleNamespace
@@ -578,6 +579,97 @@ class TestScreenSecurities(PricesServiceTestBase):
     def test_no_symbols_short_circuits(self):
         out = self.service.screen_securities({"source": "portfolio"}, [], [])
         self.assertEqual(out, {"results": [], "count": 0})
+
+
+# ---------------------------------------------------------------------------
+# Bulk period returns (issue #147 Part B2)
+# ---------------------------------------------------------------------------
+
+def daily_rows(symbol, start, closes):
+    """ohlcv rows for consecutive calendar days, oldest first — the order
+    daily_bars_for_symbols promises."""
+    return [
+        {
+            "symbol": symbol,
+            "ts": int(datetime.datetime(
+                start.year, start.month, start.day, tzinfo=datetime.timezone.utc
+            ).timestamp()) + i * 86400,
+            "close": float(c),
+        }
+        for i, c in enumerate(closes)
+    ]
+
+
+class TestBulkPeriodReturns(PricesServiceTestBase):
+    # 20 days rising 100 -> 119, then a crash to 10 for the last 10 days. Any
+    # number computed off the post-June-20 tail is unmistakable.
+    RISE = [100.0 + i for i in range(20)]
+    CRASH = [10.0] * 10
+
+    def arm(self, closes):
+        self.ohlcv.daily_bars_for_symbols.return_value = daily_rows(
+            "AAA", datetime.date(2026, 6, 1), closes
+        )
+
+    def test_single_query_regardless_of_symbol_count(self):
+        self.ohlcv.daily_bars_for_symbols.return_value = []
+        self.service.bulk_period_returns(["AAA", "BBB", "CCC"])
+        self.assertEqual(self.ohlcv.daily_bars_for_symbols.call_count, 1)
+
+    def test_symbol_with_no_bars_still_gets_a_row(self):
+        self.ohlcv.daily_bars_for_symbols.return_value = []
+        out = self.service.bulk_period_returns(["AAA"])
+        self.assertEqual(
+            out["AAA"],
+            {"price": None, "as_of": None, "bars": 0, "return_5d": None,
+             "return_30d": None, "return_60d": None, "return_ytd": None,
+             "return_1y": None},
+        )
+
+    def test_without_as_of_the_newest_bar_wins(self):
+        self.arm(self.RISE + self.CRASH)
+        row = self.service.bulk_period_returns(["AAA"])["AAA"]
+        self.assertEqual(row["price"], 10.0)
+        self.assertEqual(row["as_of"], "2026-06-30")
+        self.assertEqual(row["bars"], 30)
+
+    def test_as_of_truncates_every_column_not_just_the_calendar_ones(self):
+        """Regression: bars after as_of must not reach price/bars/return_Nd.
+
+        ytd_return and one_year_return filter on their anchor internally, so
+        the calendar columns were already correct; trailing_return is
+        date-blind and read straight off the newest bar. Ask for June 20 and
+        the crash that follows it must be invisible in every field.
+        """
+        self.arm(self.RISE + self.CRASH)
+        row = self.service.bulk_period_returns(
+            ["AAA"], as_of=datetime.date(2026, 6, 20)
+        )["AAA"]
+
+        self.assertEqual(row["price"], 119.0)
+        self.assertEqual(row["as_of"], "2026-06-20")
+        self.assertEqual(row["bars"], 20)
+        # 114 -> 119 over the last five sessions of the retained window.
+        self.assertAlmostEqual(row["return_5d"], 4.39, places=2)
+        # First close of 2026 is the June 1 bar at 100.
+        self.assertAlmostEqual(row["return_ytd"], 19.0, places=2)
+
+    def test_as_of_before_the_first_bar_yields_an_empty_row(self):
+        self.arm(self.RISE)
+        row = self.service.bulk_period_returns(
+            ["AAA"], as_of=datetime.date(2026, 1, 15)
+        )["AAA"]
+        self.assertIsNone(row["price"])
+        self.assertIsNone(row["as_of"])
+        self.assertEqual(row["bars"], 0)
+
+    def test_as_of_on_a_non_trading_date_falls_back_to_the_prior_bar(self):
+        self.arm(self.RISE)
+        row = self.service.bulk_period_returns(
+            ["AAA"], as_of=datetime.date(2026, 12, 25)
+        )["AAA"]
+        self.assertEqual(row["as_of"], "2026-06-20")
+        self.assertEqual(row["price"], 119.0)
 
 
 if __name__ == "__main__":

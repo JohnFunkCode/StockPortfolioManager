@@ -6,6 +6,7 @@ decides — normalization, the duplicate policy, and full-sync import.
 """
 import os
 import tempfile
+import time
 import unittest
 
 from quantcore.services.portfolio import DuplicateSymbolError
@@ -314,6 +315,245 @@ class WatchlistCurrencyTest(unittest.TestCase):
 
         self.assertEqual([r["symbol"] for r in results], ["ASSA-B.ST"])
         self.assertEqual(self.yf.calls, ["ASSA-B.ST"], "no lookups for the rest")
+
+
+class ExplodingYFinance:
+    """Any attribute touched is a network call that should not have happened."""
+
+    def __init__(self):
+        self.touched = []
+
+    def __getattr__(self, name):
+        self.touched.append(name)
+        raise AssertionError(
+            f"returns_and_fundamentals reached yfinance via {name}() — it must "
+            "read cache only"
+        )
+
+
+class CountingOhlcvRepository:
+    """Counts SQL round trips and serves bars from an in-memory dict."""
+
+    def __init__(self, bars_by_symbol):
+        self._bars = bars_by_symbol
+        self.queries = 0
+
+    def daily_bars_for_symbols(self, symbols):
+        self.queries += 1
+        rows = []
+        for sym in symbols:
+            for ts, close in self._bars.get(sym, []):
+                rows.append({"symbol": sym, "ts": ts, "close": close,
+                             "volume": 1, "high": close, "low": close, "open": close})
+        return rows
+
+
+class CountingFundamentalsRepository:
+    def __init__(self, by_type=None):
+        self._by_type = by_type or {}
+        self.queries = 0
+        self.requested = []
+
+    def get_all_latest(self, data_type):
+        self.queries += 1
+        self.requested.append(data_type)
+        return self._by_type.get(data_type, [])
+
+    def ttl_seconds(self):
+        return 86400.0   # env read, not a query
+
+
+class ListingRepository(FakeRepository):
+    def __init__(self, entries):
+        super().__init__()
+        self._entries = entries
+        self.queries = 0
+
+    def list_entries(self):
+        self.queries += 1
+        return list(self._entries)
+
+
+class WatchlistReturnsAndFundamentalsTest(unittest.TestCase):
+    """Issue #147 Part B3.
+
+    The value of this method is entirely in its cost — the report script it
+    replaces did the same work with two network calls *per symbol*. So the load
+    profile is what's asserted here, not just the output shape: a version that
+    loops per symbol would still return correct rows and must still fail.
+    """
+
+    DAY = 86400
+    # 2026-08-10 as an epoch second, and a year of daily bars behind it.
+    LAST_TS = 1786665600
+
+    def _bars(self, start_price, end_price, n=400):
+        step = (end_price - start_price) / max(1, n - 1)
+        first_ts = self.LAST_TS - (n - 1) * self.DAY
+        return [(first_ts + i * self.DAY, start_price + i * step) for i in range(n)]
+
+    def _build(self, symbols, scores=None):
+        from quantcore.services.fundamentals import FundamentalsService
+        from quantcore.services.prices import PricesService
+
+        entries = [
+            {"symbol": s, "name": f"{s} Inc", "currency": "USD", "tags": ["chips"]}
+            for s in symbols
+        ]
+        self.repo = ListingRepository(entries)
+        self.ohlcv = CountingOhlcvRepository({s: self._bars(100.0, 150.0) for s in symbols})
+        self.fund_repo = CountingFundamentalsRepository(
+            {"fundamental_score": scores or []}
+        )
+        self.yf = ExplodingYFinance()
+
+        prices = PricesService(
+            ohlcv_repository=self.ohlcv,
+            yfinance_gateway=self.yf,
+            options_repository=None,
+            sentiment_repository=None,
+        )
+        fundamentals = FundamentalsService(
+            fundamentals_repository=self.fund_repo,
+            yfinance_gateway=self.yf,
+        )
+        return WatchlistService(self.repo, prices=prices, fundamentals=fundamentals)
+
+    def test_six_queries_and_no_yfinance_regardless_of_list_size(self):
+        for size in (1, 3, 25):
+            with self.subTest(symbols=size):
+                svc = self._build([f"SYM{i}" for i in range(size)])
+                result = svc.returns_and_fundamentals()
+
+                total = self.repo.queries + self.ohlcv.queries + self.fund_repo.queries
+                self.assertEqual(total, 6, f"{size} symbols cost {total} queries")
+                self.assertEqual(self.ohlcv.queries, 1)
+                self.assertEqual(self.fund_repo.queries, 4)
+                self.assertEqual(self.yf.touched, [])
+                self.assertEqual(result["count"], size)
+
+    def test_queries_the_four_expected_fundamentals_data_types(self):
+        svc = self._build(["NVDA"])
+        svc.returns_and_fundamentals()
+        self.assertEqual(
+            sorted(self.fund_repo.requested),
+            ["earnings_acceleration", "earnings_calendar", "fundamental_score",
+             "revenue_growth"],
+        )
+
+    def test_row_carries_returns_and_scored_fundamentals(self):
+        svc = self._build(
+            ["NVDA"],
+            scores=[{
+                "symbol": "NVDA",
+                "composite_score": 82.5,
+                "fundamental_label": "Strong",
+                "coverage": 0.9,
+                "sector": "Technology",
+                "market_cap": 3_000_000_000_000,
+                "metric_scores": {"RevCAGR3Y": {"value": 45.0, "score": 9.0}},
+                "fetched_at": "2026-08-10T00:00:00Z",
+                "_fetched_at_ts": int(time.time()),
+            }],
+        )
+        row = svc.returns_and_fundamentals()["rows"][0]
+
+        self.assertEqual(row["symbol"], "NVDA")
+        self.assertEqual(row["composite_score"], 82.5)
+        self.assertEqual(row["rev_cagr_3y"], 45.0)
+        self.assertEqual(row["rev_cagr_score"], 9.0)
+        self.assertEqual(row["market_cap_usd"], 3_000_000_000_000)
+        self.assertFalse(row["fundamentals_stale"])
+        # Rising series, so every return window is positive and present.
+        for key in ("return_5d", "return_30d", "return_60d", "return_ytd", "return_1y"):
+            self.assertIsNotNone(row[key], key)
+            self.assertGreater(row[key], 0, key)
+
+    def test_cap_unit_comes_from_the_score_not_the_stored_row(self):
+        """The stored currency is the one field known to be wrong.
+
+        ``_build`` stores every entry as USD, which is exactly the state of the
+        rows seeded from ``watchlist.yaml`` before
+        ``scripts/repair_watchlist_currency.py`` runs. The score payload's
+        ``market_cap_currency`` was captured in the same fetch as the cap, so it
+        wins — and a non-USD cap with no FX rate reports no USD figure rather
+        than a number wrong by two orders of magnitude.
+        """
+        svc = self._build(
+            ["ASSA-B.ST"],
+            scores=[{
+                "symbol": "ASSA-B.ST",
+                "composite_score": 60.0,
+                "market_cap": 340_000_000_000,
+                "market_cap_currency": "SEK",
+                "_fetched_at_ts": int(time.time()),
+            }],
+        )
+        row = svc.returns_and_fundamentals()["rows"][0]
+
+        self.assertEqual(row["currency"], "USD")          # what the table says
+        self.assertEqual(row["market_cap_currency"], "SEK")  # what the cap is in
+        self.assertEqual(row["market_cap"], 340_000_000_000)
+        self.assertIsNone(row["market_cap_usd"])
+
+    def test_cap_unit_falls_back_to_the_row_when_the_score_has_none(self):
+        """Scores cached before market_cap_currency existed carry no unit."""
+        svc = self._build(
+            ["NVDA"],
+            scores=[{
+                "symbol": "NVDA",
+                "composite_score": 60.0,
+                "market_cap": 3_000_000_000_000,
+                "_fetched_at_ts": int(time.time()),
+            }],
+        )
+        row = svc.returns_and_fundamentals()["rows"][0]
+
+        self.assertEqual(row["market_cap_currency"], "USD")
+        self.assertEqual(row["market_cap_usd"], 3_000_000_000_000)
+
+    def test_unscored_symbol_is_kept_with_null_fundamentals(self):
+        """Dropping it would read as "we stopped watching that"."""
+        svc = self._build(["NVDA"])
+        result = svc.returns_and_fundamentals()
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["unscored_count"], 1)
+        row = result["rows"][0]
+        self.assertIsNone(row["composite_score"])
+        self.assertIsNone(row["fundamentals_stale"])
+        self.assertIsNotNone(row["price"])
+
+    def test_stale_fundamentals_are_labelled_not_dropped(self):
+        old_ts = int(time.time()) - 10 * 86400
+        svc = self._build(
+            ["NVDA"],
+            scores=[{"symbol": "NVDA", "composite_score": 50.0,
+                     "fetched_at": "2026-07-31T00:00:00Z", "_fetched_at_ts": old_ts}],
+        )
+        result = svc.returns_and_fundamentals()
+        row = result["rows"][0]
+
+        self.assertEqual(result["stale_count"], 1)
+        self.assertTrue(row["fundamentals_stale"])
+        self.assertGreater(row["fundamentals_age_hours"], 200)
+        self.assertEqual(row["composite_score"], 50.0)
+
+    def test_scored_symbols_sort_above_unscored(self):
+        svc = self._build(
+            ["AAA", "BBB", "CCC"],
+            scores=[
+                {"symbol": "CCC", "composite_score": 40.0, "_fetched_at_ts": int(time.time())},
+                {"symbol": "AAA", "composite_score": 90.0, "_fetched_at_ts": int(time.time())},
+            ],
+        )
+        order = [r["symbol"] for r in svc.returns_and_fundamentals()["rows"]]
+        self.assertEqual(order, ["AAA", "CCC", "BBB"])
+
+    def test_without_injected_services_it_refuses_rather_than_half_answering(self):
+        svc = WatchlistService(FakeRepository())
+        with self.assertRaises(RuntimeError):
+            svc.returns_and_fundamentals()
 
 
 if __name__ == "__main__":

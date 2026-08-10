@@ -68,6 +68,15 @@ The watchlist lives in the database (the global `watchlist` table — one shared
 per-owner copies). Add and remove symbols from the QuantUI Securities page, or over the REST
 tier (`GET/POST /api/watchlist`, `DELETE /api/watchlist/{ticker}`).
 
+`GET /api/watchlist/fundamentals` returns the whole list with price returns (5d/30d/60d/YTD/1y)
+and its cached fundamental scores in one request — the data the nightly
+`generate_watchlist_fundamentals_report.py` HTML used to produce. It reads cache only and never
+calls Yahoo, so it answers in well under a second. Fundamentals older than the cache TTL are
+returned **labelled** (`fundamentals_stale`, `fundamentals_age_hours`) rather than dropped, and a
+symbol the cache has never scored comes back with null fundamentals instead of zeros. Market caps
+carry their own currency: `market_cap` is the native figure and only `market_cap_usd` — populated
+just for USD-denominated names for now — is comparable across securities.
+
 `watchlist.yaml` is the **import format** — nothing reads it at runtime. Seed or re-seed the
 table from it with:
 

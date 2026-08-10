@@ -208,6 +208,12 @@ class PricesService:
         either way. Percentages are floats (Decimal quantized to 0.01 by
         ``analytics.returns``, then widened for JSON); ``None`` means "not
         computable from cached history", never zero.
+
+        ``as_of`` rewinds the whole row, not just the calendar columns: each
+        symbol's frame is truncated to bars on or before that date, and the
+        newest surviving bar becomes the effective ``as_of`` every other number
+        is measured from. A symbol whose history starts after that date drops
+        to the all-``None`` row rather than reporting a future price.
         """
         symbols = [s.upper() for s in symbols]
         out: dict[str, dict] = {
@@ -245,14 +251,20 @@ class PricesService:
                 for b in bars
                 if b["close"] is not None
             ]
+            if as_of is not None:
+                # Trim before anything is derived. ytd_return/one_year_return
+                # filter on their anchor internally, but trailing_return is
+                # date-blind — so without this the calendar columns would honour
+                # as_of while price/bars/return_Nd silently read future bars.
+                dated = [(d, c) for d, c in dated if d <= as_of]
             if not dated:
                 continue
 
             closes = [c for _, c in dated]
-            # Default the calendar anchor to the newest bar rather than today's
-            # date: on a Sunday, or when a symbol's cache is a few days behind,
-            # "today" would silently widen the YTD/1y windows past the data.
-            anchor = as_of or dated[-1][0]
+            # Anchor to the newest bar we actually kept, never to a bare
+            # calendar date: on a Sunday, or when a symbol's cache is a few days
+            # behind, that date would widen the YTD/1y windows past the data.
+            anchor = dated[-1][0]
 
             row = out[sym]
             row["price"] = closes[-1]

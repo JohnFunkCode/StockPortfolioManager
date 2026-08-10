@@ -1130,6 +1130,24 @@ wants recorded — the rendered-report archive, and extracting `main.py`'s remai
 into a service — were written into the comment anyway, so nothing is lost by closing it at PR 8
 instead.
 
+**Review caught a documented knob that was dead code.** `FUNDAMENTALS_WARM_BUDGET_SECONDS` was
+declared, defaulted, and written into three documents, but `warm_fundamentals_cache()` resolved its
+default as `DEFAULT_WARM_BUDGET_SECONDS if budget_seconds is None else …` — never through
+`_env_float`. The two *alarm* thresholds a few lines below did read the environment, which is what
+made it invisible: the block looked consistent. Because the one production caller
+(`run_fundamentals_warming`) passes no budget, setting the env var on the Cloud Run Job would have
+changed nothing. The general shape: **a default resolved at the call site is only as good as the
+call sites, and the one that matters here passes nothing** — so the resolution belongs inside the
+function. Tests now pin all three directions (env honoured, explicit argument wins, and the value
+reaching the warmer through the real caller).
+
+The same review flagged `tests/test_generate_portfolio_report.py` asserting
+`REPO_ROOT.name == "StockPortfolioManager"`, which ties the suite to the checkout directory name —
+it passed in CI only because Actions checks out into a directory named for the repo, and failed in
+a checkout at `/tmp/spm-pr178`. Now asserted as a path relationship (`REPO_ROOT` is the script's
+parent, and holds `main.py` and `templates/`). Worth remembering that **CI agreeing is not evidence
+a path assumption is portable** — CI has the most conventional layout there is.
+
 **Unrelated defect found while reading the fundamentals repository, not fixed here:**
 `quantcore/repositories/fundamentals_repository.py` returns the full `QUANTCORE_DB_DSN` as
 `db_path` from `stats()` — on both the success path (`:289`) and the error path (`:296`) — and

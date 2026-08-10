@@ -105,11 +105,17 @@ class LocalOutputTest(unittest.TestCase):
             self.assertEqual(target.read_text(), "<html>ok</html>")
 
     def test_the_default_output_lands_in_the_repo_root(self):
-        """Not scripts/ — the Pi and the S3 key both assume the old location."""
-        self.assertEqual(
-            report.parse_args([]).output, None
-        )
-        self.assertEqual(report.REPO_ROOT.name, "StockPortfolioManager")
+        """Not scripts/ — the Pi and the S3 key both assume the old location.
+
+        Asserted as a path relationship rather than a directory name: the
+        checkout is not required to be called anything in particular.
+        """
+        self.assertIsNone(report.parse_args([]).output)
+
+        script_dir = Path(report.__file__).resolve().parent
+        self.assertEqual(report.REPO_ROOT, script_dir.parent)
+        self.assertTrue((report.REPO_ROOT / "main.py").is_file())
+        self.assertTrue((report.REPO_ROOT / "templates").is_dir())
 
 
 class TemplateLocationTest(unittest.TestCase):

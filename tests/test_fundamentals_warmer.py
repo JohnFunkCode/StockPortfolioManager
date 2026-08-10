@@ -120,6 +120,33 @@ class WarmFundamentalsCacheTest(unittest.TestCase):
         self.assertFalse(summary["budget_exhausted"])
         self.assertEqual(summary["skipped"], 0)
 
+    def test_the_budget_comes_from_the_environment_when_not_passed(self):
+        """The knob is documented in CLAUDE.md, the readme and the Cloud Run
+        env; resolving it inside the function is what makes it real for the
+        one caller that passes nothing."""
+        self.fundamentals.cache_freshness.return_value = _freshness([
+            ("A", 999, True), ("B", 998, True), ("C", 997, True), ("D", 996, True),
+        ])
+
+        with patch.dict("os.environ", {main.WARM_BUDGET_SECONDS_ENV: "2.5"}):
+            summary = main.warm_fundamentals_cache(
+                ["A", "B", "C", "D"], self.fundamentals, clock=_FakeClock(step=1.0)
+            )
+
+        self.assertEqual(summary["budget_seconds"], 2.5)
+        self.assertEqual(summary["attempted"], 2)
+        self.assertTrue(summary["budget_exhausted"])
+
+    def test_an_explicit_budget_still_beats_the_environment(self):
+        self.fundamentals.cache_freshness.return_value = _freshness([("A", 999, True)])
+
+        with patch.dict("os.environ", {main.WARM_BUDGET_SECONDS_ENV: "2.5"}):
+            summary = main.warm_fundamentals_cache(
+                ["A"], self.fundamentals, budget_seconds=60
+            )
+
+        self.assertEqual(summary["budget_seconds"], 60)
+
     def test_nothing_stale_means_no_fetches_at_all(self):
         self.fundamentals.cache_freshness.return_value = _freshness([("A", 10, False)])
 
@@ -218,6 +245,27 @@ class RunFundamentalsWarmingIsolationTest(unittest.TestCase):
         self.notifier.send_stale_fundamentals_alert.side_effect = RuntimeError("boom")
 
         main.run_fundamentals_warming(["A"], self.fundamentals, self.notifier)
+
+    def test_the_env_budget_reaches_the_warmer_through_this_caller(self):
+        """The regression the review caught: this is the only production call
+        site and it passes no budget, so a budget resolved at the call site
+        would leave the env var documented but dead."""
+        self.fundamentals.cache_freshness.return_value = _freshness([("A", 999, True)])
+
+        with patch.dict("os.environ", {main.WARM_BUDGET_SECONDS_ENV: "1234"}), \
+                patch.object(main, "warm_fundamentals_cache") as warm:
+            warm.return_value = {"warmed": 0, "failed": 0, "skipped": 0,
+                                 "attempted": 0, "candidates": 0,
+                                 "budget_seconds": 1234.0, "budget_exhausted": False}
+            main.run_fundamentals_warming(["A"], self.fundamentals, self.notifier)
+
+        self.assertIsNone(warm.call_args.kwargs.get("budget_seconds"))
+
+        # ...and unpatched, that omission resolves to the env value.
+        self.fundamentals.cache_freshness.return_value = _freshness([("A", 999, True)])
+        with patch.dict("os.environ", {main.WARM_BUDGET_SECONDS_ENV: "1234"}):
+            summary = main.warm_fundamentals_cache(["A"], self.fundamentals)
+        self.assertEqual(summary["budget_seconds"], 1234.0)
 
     def test_the_alarm_reads_the_state_the_run_left_behind(self):
         """Re-query after warming, not before -- alarming on the pre-warm

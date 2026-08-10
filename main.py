@@ -104,7 +104,10 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
     One bad symbol degrades one row: the per-symbol ``try/except`` here is the
     inner guard, and ``run_fundamentals_warming`` is the outer one.
     """
-    budget = DEFAULT_WARM_BUDGET_SECONDS if budget_seconds is None else budget_seconds
+    # Resolved here rather than at the call site so every caller — including
+    # run_fundamentals_warming, which passes nothing — honours the env var.
+    budget = _env_float(WARM_BUDGET_SECONDS_ENV, DEFAULT_WARM_BUDGET_SECONDS) \
+        if budget_seconds is None else budget_seconds
 
     before = fundamentals.cache_freshness(symbols)
     candidates = [row["symbol"] for row in before["symbols"] if row["stale"]]

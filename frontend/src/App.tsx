@@ -4,28 +4,13 @@ import {
   AppBar, Toolbar, Typography, Button, Container, Box, Stack, alpha,
   IconButton, Tooltip,
 } from '@mui/material';
-import DashboardIcon from '@mui/icons-material/Dashboard';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
-import ListAltIcon from '@mui/icons-material/ListAlt';
-import ShowChartIcon from '@mui/icons-material/ShowChart';
-import BarChartIcon from '@mui/icons-material/BarChart';
-import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
-import SettingsIcon from '@mui/icons-material/Settings';
 import LightModeIcon from '@mui/icons-material/LightMode';
 import DarkModeIcon from '@mui/icons-material/DarkMode';
 import ChatIcon from '@mui/icons-material/Chat';
 import ChatRail from './components/chat/ChatRail';
 import { useChat } from './chat/ChatContext';
-import DashboardPage from './components/dashboard/DashboardPage';
-import PortfolioPage from './components/portfolio/PortfolioPage';
-import PlansPage from './components/plans/PlansPage';
-import PlanDetailPage from './components/plans/PlanDetailPage';
-import SymbolsPage from './components/symbols/SymbolsPage';
-import SecuritiesPage from './components/securities/SecuritiesPage';
-import SecurityDetailPage from './components/securities/SecurityDetailPage';
-import ArbitragePage from './components/arbitrage/ArbitragePage';
-import SettingsPage from './components/settings/SettingsPage';
 import RestrictedAccess from './components/access/RestrictedAccess';
+import { isPathActive, navItems, routes } from './navigation';
 import { useAppTheme } from './ThemeContext';
 import { onNotProvisioned } from './api/client';
 
@@ -35,16 +20,6 @@ function Layout() {
   const { railOpen, setRailOpen, expanded } = useChat();
   const chatFullscreen = railOpen && expanded;
   const isLight = themeName === 'light';
-
-  const navItems = [
-    { label: 'Portfolio', path: '/', icon: <AccountBalanceWalletIcon /> },
-    { label: 'Harvester', path: '/harvester', icon: <DashboardIcon /> },
-    { label: 'Securities', path: '/securities', icon: <BarChartIcon /> },
-    { label: 'Arbitrage', path: '/arbitrage', icon: <CompareArrowsIcon /> },
-    { label: 'Plans', path: '/plans', icon: <ListAltIcon /> },
-    { label: 'Symbols', path: '/symbols', icon: <ShowChartIcon /> },
-    { label: 'Settings', path: '/settings', icon: <SettingsIcon /> },
-  ];
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
@@ -68,8 +43,7 @@ function Layout() {
 
           <Stack direction="row" spacing={1}>
             {navItems.map((item) => {
-              const active = location.pathname === item.path ||
-                (item.path !== '/' && location.pathname.startsWith(item.path));
+              const active = isPathActive(item.path, location.pathname);
               return (
                 <Button
                   key={item.path}
@@ -183,15 +157,9 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Layout />}>
-        <Route path="/" element={<PortfolioPage />} />
-        <Route path="/harvester" element={<DashboardPage />} />
-        <Route path="/securities" element={<SecuritiesPage />} />
-        <Route path="/securities/:symbol" element={<SecurityDetailPage />} />
-        <Route path="/arbitrage" element={<ArbitragePage />} />
-        <Route path="/plans" element={<PlansPage />} />
-        <Route path="/plans/:id" element={<PlanDetailPage />} />
-        <Route path="/symbols" element={<SymbolsPage />} />
-        <Route path="/settings" element={<SettingsPage />} />
+        {routes.map((route) => (
+          <Route key={route.path} path={route.path} element={route.element} />
+        ))}
         <Route path="*" element={<Typography variant="h5" sx={{ mt: 4 }}>Page not found</Typography>} />
       </Route>
     </Routes>

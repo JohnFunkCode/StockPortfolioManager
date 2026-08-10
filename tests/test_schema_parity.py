@@ -12,6 +12,7 @@ MISSING/EXTRA/MISMATCH line, which names the object and which side has it.
 import os
 import re
 import unittest
+from collections import Counter
 from contextlib import closing
 from pathlib import Path
 
@@ -104,6 +105,29 @@ class MigrationOrderTests(unittest.TestCase):
     def test_non_migration_filename_is_rejected(self):
         with self.assertRaises(ValueError):
             _version(Path("afterMigrate__seed.sql"))
+
+    def test_migration_versions_are_unique(self):
+        """Two branches numbering their migration V7 is the one collision git
+        allows silently: both files apply cleanly on the branch that wrote them,
+        and the merge produces two V7 files rather than a conflict. Flyway then
+        refuses to migrate ("Found more than one migration with version 7"), on
+        a deployed database, at rollout time. Catch it in CI instead.
+
+        The contiguity check below would also fail on a duplicate, but on the
+        wrong grounds -- it would report a gap at the far end of the sequence.
+        """
+        counts = Counter(_version(p) for p in MIGRATIONS_DIR.glob("V*.sql"))
+        duplicates = {
+            version: sorted(p.name for p in MIGRATIONS_DIR.glob(f"V{version}__*.sql"))
+            for version, count in counts.items()
+            if count > 1
+        }
+        self.assertEqual(
+            duplicates,
+            {},
+            f"duplicate Flyway migration versions: {duplicates}. Renumber the "
+            f"newer file -- Flyway keys its ledger on the version, not the name.",
+        )
 
     def test_baseline_comes_first_and_files_are_contiguous(self):
         paths = sql_files_in_order()

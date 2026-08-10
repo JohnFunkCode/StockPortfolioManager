@@ -1,7 +1,7 @@
 # Retire the legacy HTML report into QuantUI
 
 **Source issue:** [#147](https://github.com/JohnFunkCode/StockPortfolioManager/issues/147)
-**Status:** APPROVED — no code written
+**Status:** IN PROGRESS — PR 0 (the seam) in review; PRs 1–8 not started
 **Shape:** nine PRs (0–8) across three tracks that different people can work in parallel; see
 [Sequencing](#sequencing) and [Working alongside other people](#working-alongside-other-people)
 **Related:** [`watchlist-db-plan.md`](watchlist-db-plan.md) (#83, the DB-backed watchlist this plan
@@ -561,25 +561,45 @@ symbol held by that owner.** When the last share is sold, the plan closes with i
 
 ### H1. Schema — `owner` on `plan_instances`
 
-`db/migrations/V6__plan_owner.sql`, mirrored into `init_schema()` (both, per CLAUDE.md):
+`db/migrations/V7__plan_owner.sql`, mirrored into `init_schema()` (both, per CLAUDE.md):
+
+> **Renumbered 2026-08-10.** This part originally claimed `V6`, which #165's PR 3 took for
+> `V6__parity_backfill.sql`. `V7` here and `V8` in H8; the uniqueness guard added in PR 0
+> (`tests/test_schema_parity.MigrationOrderTests.test_migration_versions_are_unique`) fails CI on a
+> collision rather than letting it reach `flyway migrate`.
+
 
 - `ALTER TABLE plan_instances ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT 'john'` — the
   exact V2 move that gave `positions` its owner (`V2__positions_multi_owner.sql:13`). Existing rows
   backfill to `john`, which is correct: he is the only owner holding positions.
 - **Swap the uniqueness key**: `DROP INDEX IF EXISTS ux_one_active_plan_per_symbol`, then
   `CREATE UNIQUE INDEX IF NOT EXISTS ux_one_active_plan_per_owner_symbol ON plan_instances(owner, symbol_id) WHERE status = 'ACTIVE'`.
-  Both statements go in `init_schema()` too, in that order — the DROP is what makes the two schema
-  owners converge instead of fighting. It is also the first non-additive statement in that function,
-  so flag it there in a comment pointing at
-  [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) — and **add a
-  comment to #165** recording this escalation: until now the two schema owners merely duplicated each
-  other, and this is the first case where they can actively disagree about what the database holds.
-  Do not open a new issue; #165 already tracks exactly this problem.
+  Both statements go in `init_schema()` too, **in that order** — see the ordering note below.
 - `CREATE INDEX IF NOT EXISTS idx_instances_owner_status ON plan_instances(owner, status)`, mirroring
   `idx_positions_owner_status`.
 
 `position_id` stays as-is — still unused, still NULL. Ownership is carried by `owner`, not by a lot
 FK, because a plan spans *all* lots of a symbol and lots come and go beneath it.
+
+**Ordering in `_SCHEMA` is load-bearing here, for a reason that changed under this plan's feet.**
+That `DROP INDEX` is the first non-additive statement to enter `init_schema()`. When this part was
+written, two owners of the schema were both executing DDL on deployed databases, and the escalation
+this bullet asked to record on
+[#165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) was that they could now
+disagree rather than merely duplicate each other. **That escalation is resolved** —
+[#165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) shipped 2026-08-09/10, and
+`QUANTCORE_SCHEMA_MODE=auto` now resolves to `verify` wherever a `flyway_schema_history` ledger
+exists, so on test and prod `init_schema()` runs no DDL at all. Flyway performs the DROP exactly
+once; startup only checks the result. There is nothing left to interleave, and
+`tests/test_schema_parity.py` proves both owners still express the swap identically.
+
+What survives is narrower and worth a comment in `_SCHEMA` explaining *why*, not just pointing at
+the issue: `QUANTCORE_SCHEMA_MODE=create` is the escape hatch an operator reaches for mid-incident.
+Today every statement in `_SCHEMA` is additive and idempotent, so flipping to `create` costs only
+wasted work. After this part, flipping to `create` on a deployed database executes a `DROP INDEX` —
+recreated by the very next statement, so it converges, but there is a window with no uniqueness
+constraint on a database serving traffic. Keep the two statements adjacent and in that order, and
+say so in the comment.
 
 ### H2. A terminal status distinct from SUPERSEDED
 
@@ -678,11 +698,22 @@ treating it as routine housekeeping would defeat the point.
 
 ### H8. Migrations — two files, because only one of them is dangerous
 
-`V6__plan_owner.sql` is the H1 DDL and nothing else. Per the "flyway info is not evidence" rule it
-will report "already exists, skipping" against a deployed DB that `init_schema()` has already
-converged — expected, and harmless.
+`V7__plan_owner.sql` is the H1 DDL and nothing else.
 
-`V7__close_orphan_plans.sql` is one data statement: close every ACTIVE plan with no OPEN lot for its
+> **This paragraph used to say the DDL would report "already exists, skipping" against a deployed
+> database, and that this was expected and harmless. That is no longer true**, and the inversion
+> matters. It relied on `init_schema()` having already converged the shape at startup; since
+> [#165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) shipped (2026-08-10),
+> startup on test and prod only *verifies*. So the `ALTER TABLE … ADD COLUMN owner`, the
+> `DROP INDEX`, and the `CREATE UNIQUE INDEX` all genuinely execute there, against live tables. That
+> is a strict improvement — the migration is now the thing that actually happens, which was the whole
+> point of #165 — but it is no longer a rehearsed no-op, and it inherits the rule that came with it:
+> **migrate before the image carrying the schema change deploys, in both projects**
+> (`./scripts/flyway.sh migrate` before merging to `main`, `./scripts/flyway.sh --prod migrate`
+> before dispatching `prod-rollout.yml`). Nothing creates the column for you now, and a drifted
+> schema aborts startup with `SchemaDriftError`.
+
+`V8__close_orphan_plans.sql` is one data statement: close every ACTIVE plan with no OPEN lot for its
 owner. **This is the part that does real work**, and the only statement in this whole plan that
 mutates existing rows, so it ships as its own reviewable file rather than hiding behind the DDL.
 
@@ -715,10 +746,10 @@ work is concentrated in a handful of files that *any* feature branch also touche
 
 | File | Touched by | Why it collides |
 |------|-----------|-----------------|
-| `frontend/src/App.tsx` | C, D, G | Flat `navItems` array (`:39-47`) **and** a flat `<Routes>` list (`:186-197`) — two places, same PR, and the only place anyone adds a page |
+| `frontend/src/navigation.tsx` | C, D, G | ~~Flat `navItems` array **and** a flat `<Routes>` list in `App.tsx` — two places, same PR~~ **Resolved by PR 0:** one `routes` array, and adding a page is a one-object append. Still the only place anyone adds a page, so appends can still collide — but on adjacent lines rather than in two files |
 | `frontend/vitest.config.ts` | A, C, D, G | One 4-line `thresholds` block with a dated comment — a per-PR ratchet conflicts with *every* concurrent frontend PR |
 | `quantcore/services/registry.py` | B4, H5 | Single `Services` dataclass + single `get_services()` body; anyone adding a service edits it |
-| `db/migrations/` + `init_schema()` | H1 | `V5` is the latest, so `V6`/`V7` are unclaimed — and a duplicate version number is a **runtime** Flyway failure, not a merge conflict, so git won't warn anyone |
+| `db/migrations/` + `init_schema()` | H1 | `V6` is the latest, so `V7`/`V8` are unclaimed — a duplicate version number used to be a **runtime** Flyway failure rather than a merge conflict, so git wouldn't warn anyone; PR 0 added the CI guard that now catches it |
 | `quantcore/repositories/harvester_repository.py` | H3 | ~15 method signatures at once — the single largest mechanical diff in the plan |
 | `chat_tools.py` + `componentRegistry.tsx` | A, C, D | Dual GenUI registration; two literals every new component appends to |
 | `requirements-base.txt` | F | Installed by `Dockerfile.{api,mcp,report}`; anyone adding a dependency edits it, and a bad merge here breaks three images rather than one file |
@@ -758,7 +789,7 @@ must land in this series — not be deferred — or the window becomes permanent
 existing route, field, or default changes**, so nobody's branch breaks on a rebase and no coordinated
 front-end/back-end landing is needed.
 
-**5. Announce the reservations up front.** Comment on the tracking issue claiming `V6`/`V7`, the
+**5. Announce the reservations up front.** Comment on the tracking issue claiming `V7`/`V8`, the
 `CLOSED` plan status, and the `owner` column before PR 0 merges. Migration numbers and status
 vocabularies are the two things another branch can duplicate without git noticing.
 
@@ -804,12 +835,12 @@ order to put conflict-free and seam-clearing work first:
 4. **Part C** — the `/watchlist` page and sidekick card. *This is the report replacement; everything
    after it is additive.*
 5. **Parts B4 + D** — `scope` plumbing and the `/fundamentals` page.
-6. **Parts H1–H4** — `owner` on `plan_instances` (`V6`), the index swap, owner threaded through the
+6. **Parts H1–H4** — `owner` on `plan_instances` (`V7`), the index swap, owner threaded through the
    repository/service/routes/`notifier.py` (keyword-only with a default, per mitigation 3), `CLOSED`
    in the vocabulary. Behaviour-preserving for the single-owner world, which is what makes it safe to
    ship on its own.
 7. **Parts H5–H8** — drop the `owner` default, the holding invariant, the portfolio chip, the orphan
-   flag, and the `V7` orphan-close backfill. Separate because this is the one PR that mutates existing
+   flag, and the `V8` orphan-close backfill. Separate because this is the one PR that mutates existing
    rows and the one that can break a live plan; it deserves an unhurried review on its own.
 8. **Part G** — remove `/symbols` and group the nav; raise the vitest floors once, here. Ships after H
    (which supplies the symbol→plan link `/symbols` was carrying) and after the two new pages, so the
@@ -1046,12 +1077,27 @@ Append a row as each PR lands. Any dev machine can resume by reading the last ro
 | Date | PR / Item | Status | Notes |
 |------|-----------|--------|-------|
 | 2026-07-29 | — | Plan written | Approved after nine review rounds; all decisions in "Decisions already settled" answered by the repo owner. No code written |
-| | 0 | | Seam PR — `frontend/src/navigation.tsx` + migration-version CI guard |
+| 2026-08-10 | 0 | In review | Seam PR. `frontend/src/navigation.tsx` holds one `routes` array (`{path,label,icon,element,group?,nav?:false}`) that both the `<Stack>` of nav buttons and `<Routes>` map over; the two detail routes carry `nav: false`, `/` stays the index route, and the active-path predicate is hoisted to an exported `isPathActive(path, pathname)` so Part G2's group buttons can reuse it. `App.tsx` drops 16 imports and both lists — behaviour identical, 454 frontend tests green (up 12; new `navigation.test.tsx`), floors cleared at 89.75/87.74/87.63/71.06 and **not raised** (mitigation 2). Migration-version guard landed as `MigrationOrderTests.test_migration_versions_are_unique` rather than a new workflow step — it runs in the existing `gate` job, needs no database, and names both colliding files; verified by planting a duplicate `V6`. Also folded in the plan corrections below |
 | | 1 | | Parts E + F — warmer, report extraction, dependency split, `runOnPi.sh`, docs |
 | | 2 | | Part A — stacked bar on the Portfolio page |
 | | 3 | | Parts B1–B3, B5 — analytics, bulk returns, `WatchlistService`, the new route |
 | | 4 | | Part C — the `/watchlist` page |
 | | 5 | | Parts B4 + D — `scope` plumbing and the `/fundamentals` page |
 | | 6 | | Parts H1–H4 — `owner` on `plan_instances`, index swap, `CLOSED` |
-| | 7 | | Parts H5–H8 — holding invariant, portfolio chip, orphan flag, `V7` backfill |
+| | 7 | | Parts H5–H8 — holding invariant, portfolio chip, orphan flag, `V8` backfill |
 | | 8 | | Part G — remove `/symbols`, group the nav, ratchet the vitest floors |
+
+**Corrections folded in with PR 0** (2026-08-10), all of them consequences of
+[#165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) landing after this plan was
+approved:
+
+1. **Part H's migration versions were renumbered `V6`/`V7` → `V7`/`V8`.** #165's PR 3 took `V6` for
+   `V6__parity_backfill.sql`. PR 0's CI guard now catches exactly this class of collision.
+2. **H8's "already exists, skipping … harmless" paragraph was wrong as written** and is replaced.
+   `init_schema()` no longer converges the schema on test or prod, so Part H's DDL genuinely
+   executes there and must be migrated ahead of the deploy in both projects.
+3. **Part H1's escalation to #165 is closed rather than pending.** The two schema owners can no
+   longer disagree on a deployed database, because only one of them executes DDL there. What
+   replaces it is narrower: the `QUANTCORE_SCHEMA_MODE=create` escape hatch stops being trivially
+   safe once a `DROP` lives in `_SCHEMA`, which makes statement ordering there load-bearing for the
+   first time.

@@ -36,6 +36,9 @@ class AddWatchlistRequest(BaseModel):
 
     symbol: Optional[str] = None
     name: Optional[str] = ""
+    # A fallback, not an instruction: the server looks the currency up from the
+    # exchange and only falls back to this when the lookup comes up empty. Kept
+    # on the request for the import path, which has no better source.
     currency: Optional[str] = None
     tags: Optional[List[str]] = None
 
@@ -130,6 +133,20 @@ class SymbolLookupResponse(BaseModel):
 class AddSecurityResponse(BaseModel):
     symbol: str
     destination: str
+
+
+class AddWatchlistResponse(BaseModel):
+    """POST /api/watchlist response.
+
+    Carries ``currency`` where the portfolio's ``AddSecurityResponse`` does
+    not: the server resolves it from the exchange rather than taking it from
+    the body, so echoing it back is the caller's only way to learn what was
+    actually stored.
+    """
+
+    symbol: str
+    destination: str
+    currency: str
 
 
 class RemovePositionResponse(BaseModel):

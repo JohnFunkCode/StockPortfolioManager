@@ -101,11 +101,13 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
     const base = {
       symbol,
       name: form.name.trim() || undefined,
-      currency: form.currency,
     };
 
     try {
       if (destination === 0) {
+        // No currency: the watchlist reads the real one off the exchange.
+        // watchlist.yaml had three European names declared USD, which is what
+        // asking a human for it buys you.
         await watchlist.mutateAsync({
           ...base,
           tags: tagChips.length ? tagChips : undefined,
@@ -113,6 +115,7 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
       } else {
         await portfolio.mutateAsync({
           ...base,
+          currency: form.currency,
           purchase_price: form.purchase_price ? parseFloat(form.purchase_price) : undefined,
           quantity: form.quantity ? parseInt(form.quantity, 10) : undefined,
           purchase_date: form.purchase_date || undefined,
@@ -179,19 +182,23 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
             />
           </Stack>
 
-          {/* Currency */}
-          <FormControl size="small" sx={{ width: 120 }}>
-            <InputLabel>Currency</InputLabel>
-            <Select
-              value={form.currency}
-              label="Currency"
-              onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
-            >
-              {CURRENCIES.map((c) => (
-                <MenuItem key={c} value={c}>{c}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          {/* Currency — portfolio only. A watchlist entry's currency is
+              resolved server-side from the exchange, so offering the field
+              there would only be an invitation to contradict it. */}
+          {!isWatchlist && (
+            <FormControl size="small" sx={{ width: 120 }}>
+              <InputLabel>Currency</InputLabel>
+              <Select
+                value={form.currency}
+                label="Currency"
+                onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value }))}
+              >
+                {CURRENCIES.map((c) => (
+                  <MenuItem key={c} value={c}>{c}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          )}
 
           {/* Watchlist-only: tags */}
           {isWatchlist && (

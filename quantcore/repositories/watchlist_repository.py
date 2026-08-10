@@ -70,6 +70,12 @@ VALUES (:symbol_id, :name, :currency, :tags, :added_by)
 ON CONFLICT (symbol_id) DO NOTHING;
 """
 
+SQL_UPDATE_CURRENCY = """
+UPDATE watchlist
+SET currency = :currency
+WHERE symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
+"""
+
 SQL_DELETE_ENTRY = """
 DELETE FROM watchlist
 WHERE symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
@@ -172,6 +178,26 @@ class WatchlistRepository:
                 conn.rollback()
                 raise
         return entry_id
+
+    def set_currency(self, symbol: str, currency: str) -> int:
+        """Set `symbol`'s currency. Returns rows updated — 0 means unwatched.
+
+        Narrow on purpose: the repair script fixes currencies on entries seeded
+        from watchlist.yaml, and a general `update_entry` would invite a caller
+        to overwrite tags or a name it never read.
+        """
+        with closing(get_connection()) as conn:
+            try:
+                cur = conn.execute(SQL_UPDATE_CURRENCY, {
+                    "ticker": symbol.strip().upper(),
+                    "currency": str(currency or "").strip().upper(),
+                })
+                updated = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return int(updated)
 
     def remove_entry(self, symbol: str) -> int:
         """Delete `symbol` from the watchlist. Returns rows removed (0 or 1)."""

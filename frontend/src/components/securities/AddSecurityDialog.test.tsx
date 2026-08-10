@@ -54,6 +54,47 @@ describe('AddSecurityDialog', () => {
     expect(JSON.parse(String(post![1]?.body)).symbol).toBe('INTC');
   });
 
+  it('offers no currency field for a watchlist entry, and sends none', async () => {
+    // The server resolves the watchlist currency off the exchange; a picker
+    // here would only let a user contradict it, which is how three European
+    // names in watchlist.yaml came to be labelled USD.
+    const api = mockApi([
+      ['/api/securities/lookup', { symbol: 'ASSA-B.ST', name: 'Assa Abloy' }],
+      ['/api/watchlist', { added: true }],
+    ]);
+    const onClose = vi.fn();
+    renderWithProviders(<AddSecurityDialog open onClose={onClose} />);
+
+    // The Currency <Select> is the dialog's only combobox.
+    expect(screen.queryByRole('combobox')).toBeNull();
+
+    fireEvent.change(symbolInput(), { target: { value: 'ASSA-B.ST' } });
+    fireEvent.click(screen.getByText(/Add to Watchlist/i));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const post = api.calls.find((c) => c[0].includes('/api/watchlist') && c[1]?.method === 'POST');
+    expect(JSON.parse(String(post![1]?.body))).not.toHaveProperty('currency');
+  });
+
+  it('still offers currency on the Portfolio tab, where the caller sets it', async () => {
+    const api = mockApi([
+      ['/api/securities/lookup', { symbol: 'INTC', name: 'Intel', suggested_tags: [] }],
+      ['/api/portfolio', { added: true }],
+    ]);
+    const onClose = vi.fn();
+    renderWithProviders(<AddSecurityDialog open onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Portfolio' }));
+    expect(screen.getByRole('combobox')).toHaveTextContent('USD');
+
+    fireEvent.change(symbolInput(), { target: { value: 'INTC' } });
+    fireEvent.click(screen.getByText(/Add to Portfolio/i));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const post = api.calls.find((c) => c[0].includes('/api/portfolio') && c[1]?.method === 'POST');
+    expect(JSON.parse(String(post![1]?.body)).currency).toBe('USD');
+  });
+
   it('adds tag chips on Enter', async () => {
     mockApi([['/api/securities/lookup', { symbol: 'INTC', name: 'Intel', suggested_tags: [] }]]);
     renderWithProviders(<AddSecurityDialog open onClose={() => {}} />);

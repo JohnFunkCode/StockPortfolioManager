@@ -266,6 +266,9 @@ export interface SymbolLookupResponse {
 export interface AddSecurityPayload {
   symbol: string;
   name?: string;
+  // Portfolio only. The watchlist resolves its own currency from the
+  // exchange, so sending one there is at best ignored and at worst a wrong
+  // guess the server has to talk you out of.
   currency?: string;
   // watchlist only
   tags?: string[];
@@ -277,6 +280,9 @@ export interface AddSecurityPayload {
 export interface AddSecurityResponse {
   symbol: string;
   destination: 'watchlist' | 'portfolio';
+  // Watchlist only: the currency the server resolved off the exchange and
+  // actually stored, which is not necessarily anything the client sent.
+  currency?: string;
 }
 
 // Polygon.io historical backfill

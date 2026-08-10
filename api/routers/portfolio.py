@@ -42,6 +42,7 @@ from ..schemas.portfolio import (
     AddPositionRequest,
     AddSecurityResponse,
     AddWatchlistRequest,
+    AddWatchlistResponse,
     CloseLotRequest,
     CloseLotResponse,
     CreateLotRequest,
@@ -247,7 +248,7 @@ def get_watchlist() -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"securities": load_watchlist()})
 
 
-@router.post("/watchlist", response_model=AddSecurityResponse, status_code=201)
+@router.post("/watchlist", response_model=AddWatchlistResponse, status_code=201)
 def add_to_watchlist(
     body: AddWatchlistRequest, principal: Principal = Depends(require_principal)
 ) -> QuantCoreJSONResponse:
@@ -256,12 +257,15 @@ def add_to_watchlist(
     ``require_principal`` rather than ``require_owner`` (decision 5): the list
     is shared, so any authenticated caller may write to it; the principal is
     recorded in ``added_by`` for audit only.
+
+    ``body.currency`` is passed through as a fallback only — the service reads
+    the real one off the exchange — so the response echoes what was stored.
     """
     try:
         result = services().watchlist.add_entry(
             symbol=body.symbol or "",
             name=body.name,
-            currency=body.currency or "USD",
+            currency=body.currency,
             tags=body.tags,
             added_by=principal.owner,
         )
@@ -271,7 +275,12 @@ def add_to_watchlist(
         return route_error_plain(str(exc), 400)
 
     return QuantCoreJSONResponse(
-        {"symbol": result["symbol"], "destination": "watchlist"}, status_code=201
+        {
+            "symbol": result["symbol"],
+            "destination": "watchlist",
+            "currency": result["currency"],
+        },
+        status_code=201,
     )
 
 

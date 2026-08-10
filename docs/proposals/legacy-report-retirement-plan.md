@@ -1154,3 +1154,19 @@ a path assumption is portable** — CI has the most conventional layout there is
 `FundamentalsService.get_cache_stats()` passes it straight through to the `get_cache_stats` MCP
 tool, so a password-bearing DSN is reachable from any AI client holding a token. Out of scope for
 this PR; needs its own issue.
+
+**Resolved** as [#179](https://github.com/JohnFunkCode/StockPortfolioManager/issues/179), fixed in
+[#180](https://github.com/JohnFunkCode/StockPortfolioManager/pull/180) (`295f5b8`). `quantcore/db.py`
+gained `describe_dsn()` → `host:port/database`, and `cache_stats()` returns that as `database` on
+both paths; the `db_path` key is gone, having had no consumer. Two things worth carrying forward
+from that fix:
+
+1. **The never-log policy didn't cover this case, and now says so.** It was written for logs, about
+   API keys and envelopes — so a DSN in a *response* fell outside both halves of what it named.
+   `CLAUDE.md` now states that the DSN counts as a credential and that the policy covers API/MCP
+   responses, not just log lines.
+2. **"No substring of the password" is not a testable assertion against CI's DSN**, where user,
+   password and database name are all `quantcore` — a correctly redacted `host:port/quantcore`
+   trips it. `tests/test_dsn_redaction.py` therefore checks the password substring offline against
+   a synthetic DSN, and `tests/test_repositories_db.py` checks *structure* (no `://`, no `@`, no
+   `user:`) against the live one. Any future redaction guard needs the same split.

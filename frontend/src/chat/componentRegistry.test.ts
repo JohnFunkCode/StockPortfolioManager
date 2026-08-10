@@ -23,6 +23,7 @@ describe('COMPONENT_REGISTRY', () => {
       'portfolio_table',
       'portfolio_allocation',
       'symbol_lots',
+      'watchlist_fundamentals',
     ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
     }

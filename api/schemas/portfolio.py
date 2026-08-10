@@ -43,6 +43,19 @@ class AddWatchlistRequest(BaseModel):
     tags: Optional[List[str]] = None
 
 
+class UpdateWatchlistTagsRequest(BaseModel):
+    """PATCH /api/watchlist/{ticker} body — tags only (issue #147 Part C).
+
+    Tags are the only editable field, and they are **replaced**, not merged:
+    the watchlist page sends the full chip set it is displaying, so a merge
+    could never remove one. Required rather than Optional — an omitted list
+    and an empty list would otherwise be indistinguishable, and clearing every
+    tag is a legitimate edit.
+    """
+
+    tags: List[str]
+
+
 class ImportPortfolioRequest(BaseModel):
     """JSON branch of POST /api/portfolio/import (multipart 'file' takes priority)."""
 
@@ -162,6 +175,17 @@ class RemoveWatchlistResponse(BaseModel):
 
     symbol: str
     removed: bool
+
+
+class UpdateWatchlistTagsResponse(BaseModel):
+    """PATCH /api/watchlist/{ticker} response.
+
+    Echoes the tags as **stored**, which is not necessarily what was posted —
+    the service strips whitespace, drops blanks, and collapses duplicates.
+    """
+
+    symbol: str
+    tags: List[str]
 
 
 class ImportResult(BaseModel):

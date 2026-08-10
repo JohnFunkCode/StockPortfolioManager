@@ -352,6 +352,48 @@ class ApiSmokeTest(unittest.TestCase):
             resp.json(), {"error": f"{WATCHLIST_SYMBOL} is already in the watchlist"}
         )
 
+    def test_patch_watchlist_tags_replaces_them_and_leaves_the_rest(self):
+        """Tags are the only editable field (issue #147 Part C). The currency
+        in particular is resolved from the exchange and must not become
+        something a client can overwrite through this route.
+        """
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "name": "Watchlist Smoke Co",
+            "tags": ["ai", "semis"],
+        })
+
+        resp = self.client.patch(
+            f"/api/watchlist/{WATCHLIST_SYMBOL.lower()}",
+            json={"tags": [" value ", "", "value"]},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(), {"symbol": WATCHLIST_SYMBOL, "tags": ["value"]},
+            "the response echoes what was stored, not what was posted",
+        )
+
+        listed = self.client.get("/api/watchlist").json()["securities"]
+        [entry] = [s for s in listed if s["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(entry["tags"], ["value"])
+        self.assertEqual(entry["name"], "Watchlist Smoke Co")
+        self.assertEqual(entry["currency"], "USD")
+
+    def test_patch_watchlist_tags_can_clear_them(self):
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "tags": ["ai"],
+        })
+
+        resp = self.client.patch(
+            f"/api/watchlist/{WATCHLIST_SYMBOL}", json={"tags": []}
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["tags"], [])
+
+    def test_patch_missing_watchlist_symbol_returns_404(self):
+        resp = self.client.patch("/api/watchlist/ZZNOSUCH", json={"tags": ["ai"]})
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "ZZNOSUCH not found in watchlist"})
+
     def test_remove_missing_watchlist_symbol_returns_404(self):
         resp = self.client.delete("/api/watchlist/ZZNOSUCH")
         self.assertEqual(resp.status_code, 404)
@@ -370,6 +412,7 @@ class ApiSmokeTest(unittest.TestCase):
         from api.auth import require_owner
 
         for method, path in (("POST", "/api/watchlist"),
+                             ("PATCH", "/api/watchlist/{ticker}"),
                              ("DELETE", "/api/watchlist/{ticker}")):
             deps = self._route_dependencies(method, path)
             self.assertIn(require_principal, deps, f"{method} {path}")
@@ -405,8 +448,8 @@ class ApiSmokeTest(unittest.TestCase):
         """The page's payload, and the only guard on the route ordering.
 
         ``/watchlist/fundamentals`` sits next to the ``/watchlist/{ticker}``
-        path template. Nothing makes them collide today — ``{ticker}`` is
-        DELETE-only, and a method mismatch is a *partial* match Starlette
+        path template. Nothing makes them collide today — ``{ticker}`` carries
+        no GET, and a method mismatch is a *partial* match Starlette
         scans past — so the declaration order in the router is habit, not
         enforcement. Adding a GET on ``/watchlist/{ticker}`` above this one
         would quietly turn the page's endpoint into a lookup for a symbol

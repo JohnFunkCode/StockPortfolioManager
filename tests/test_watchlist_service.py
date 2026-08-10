@@ -21,6 +21,7 @@ class FakeRepository:
         self.replaced = None
         self.removed = []
         self.currency_writes = []
+        self.tag_writes = []
         self._taken = set(taken)
         self._entries = [dict(e) for e in entries]
 
@@ -49,6 +50,10 @@ class FakeRepository:
                 entry["currency"] = currency
                 return 1
         return 0
+
+    def set_tags(self, symbol, tags):
+        self.tag_writes.append((symbol, tags))
+        return 1 if symbol.upper() in self._taken else 0
 
     def list_entries(self):
         return [dict(e) for e in self._entries]
@@ -123,6 +128,44 @@ class WatchlistServiceTest(unittest.TestCase):
 
     def test_add_returns_the_normalized_symbol(self):
         self.assertEqual(self.svc.add_entry(" nvda ")["symbol"], "NVDA")
+
+    # --------------------------------------------------------------- tags
+    def test_set_tags_normalizes_like_add_does(self):
+        self.svc.add_entry("NVDA")
+
+        stored = self.svc.set_tags("nvda", [" ai ", "", "   ", "semis"])
+
+        self.assertEqual(stored, ["ai", "semis"])
+        self.assertEqual(self.repo.tag_writes[0], ("NVDA", ["ai", "semis"]))
+
+    def test_set_tags_collapses_duplicates_keeping_the_first(self):
+        self.svc.add_entry("NVDA")
+
+        self.assertEqual(
+            self.svc.set_tags("NVDA", ["ai", "semis", "ai"]), ["ai", "semis"]
+        )
+
+    def test_set_tags_replaces_rather_than_merges(self):
+        """The UI sends the full chip set; a merge could never remove one."""
+        self.svc.add_entry("NVDA", tags=["ai", "semis"])
+
+        self.assertEqual(self.svc.set_tags("NVDA", ["semis"]), ["semis"])
+        self.assertEqual(self.repo.tag_writes[-1], ("NVDA", ["semis"]))
+
+    def test_clearing_every_tag_is_a_legitimate_edit_not_a_no_op(self):
+        self.svc.add_entry("NVDA", tags=["ai"])
+
+        self.assertEqual(self.svc.set_tags("NVDA", []), [])
+        self.assertEqual(self.repo.tag_writes[-1], ("NVDA", []))
+
+    def test_set_tags_on_an_unwatched_symbol_returns_none(self):
+        """None, not [] — the router turns it into a 404, and an empty list is
+        already the legitimate 'cleared every tag' answer."""
+        self.assertIsNone(self.svc.set_tags("AAPL", ["ai"]))
+
+    def test_set_tags_with_no_symbol_raises(self):
+        with self.assertRaises(ValueError):
+            self.svc.set_tags("  ", ["ai"])
 
     # ------------------------------------------------------------- remove
     def test_remove_returns_the_rowcount(self):

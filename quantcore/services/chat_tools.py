@@ -42,6 +42,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # Same no-props rule as portfolio_table, for the same reason (issue #147).
     "portfolio_allocation": {},
     "symbol_lots": {"ticker": str},
+    # No props: the watchlist is one global shared list (issue #83), so unlike
+    # the portfolio components there is not even an owner to withhold.
+    "watchlist_fundamentals": {},
 }
 
 
@@ -376,9 +379,13 @@ TOOL_SCHEMAS: list[dict] = [
             "carrying the portfolio are visible at a glance (no props, same "
             "caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
-            "their portfolio (requires ticker). All three portfolio components are "
-            "read-only — there is no component or tool for adding, editing, or "
-            "closing a lot; tell the user to use the Portfolio page for that."
+            "their portfolio (requires ticker), "
+            "'watchlist_fundamentals' shows the shared watchlist ranked by "
+            "fundamental score with 30-day and year-to-date returns (no props — "
+            "the watchlist is one global list, not per-user). All three portfolio "
+            "components are read-only — there is no component or tool for adding, "
+            "editing, or closing a lot; tell the user to use the Portfolio page "
+            "for that."
         ),
         "input_schema": {
             "type": "object",

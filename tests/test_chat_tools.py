@@ -83,5 +83,27 @@ class TestSymbolLotsDirective(unittest.TestCase):
         self.assertIn("owner", reason)
 
 
+class TestWatchlistFundamentalsDirective(unittest.TestCase):
+    """Issue #147 Part C. The watchlist is one global list (#83), so the card
+    takes no props at all — not a ticker, and not an owner."""
+
+    def test_registered_with_no_props(self):
+        self.assertEqual(BACKEND_COMPONENT_REGISTRY["watchlist_fundamentals"], {})
+
+    def test_empty_props_accepted(self):
+        ok, reason = validate_directive("watchlist_fundamentals", {})
+        self.assertTrue(ok, reason)
+
+    def test_ticker_prop_rejected(self):
+        ok, reason = validate_directive("watchlist_fundamentals", {"ticker": "INTC"})
+        self.assertFalse(ok)
+        self.assertIn("ticker", reason)
+
+    def test_owner_prop_rejected(self):
+        ok, reason = validate_directive("watchlist_fundamentals", {"owner": "someone_else"})
+        self.assertFalse(ok)
+        self.assertIn("owner", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,8 +1,19 @@
-export function formatCurrency(value: number | null | undefined): string {
+/**
+ * A money figure in its own currency, dollars by default.
+ *
+ * The `currency` argument exists for the same reason `formatMarketCap` has one:
+ * a watchlist price is quoted in the security's trading currency, and stamping
+ * a `$` on a Stockholm or Seoul quote is a wrong number rather than a missing
+ * one. Callers with a genuinely dollar figure can keep omitting it.
+ */
+export function formatCurrency(
+  value: number | null | undefined,
+  currency?: string | null,
+): string {
   if (value == null) return 'N/A';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: (currency || 'USD').toUpperCase(),
   }).format(value);
 }
 
@@ -40,4 +51,34 @@ export function formatShares(value: number | null | undefined): string {
 export function formatDollarsPerDay(value: number | null | undefined): string {
   if (value == null) return '—';
   return formatCurrency(value);
+}
+
+/**
+ * Market cap as `$2.94T` / `$412.8B` / `$918.2M`, or with a currency code in
+ * front of the unit when it is not dollars (`KRW 1,456.6T`).
+ *
+ * The currency argument is not decoration. A cap is quoted in the security's
+ * trading currency, and rendering ₩1,456T as `$1.46T` is a wrong number rather
+ * than a missing one — the exact bug that put SK hynix at the top of a dollar
+ * column. Callers pass the figure's own currency; a null figure is an em dash,
+ * because "not known" and zero are different answers.
+ */
+export function formatMarketCap(
+  value: number | null | undefined,
+  currency?: string | null,
+): string {
+  if (value == null) return '—';
+
+  const abs = Math.abs(value);
+  const [scaled, unit] =
+    abs >= 1e12 ? [value / 1e12, 'T']
+      : abs >= 1e9 ? [value / 1e9, 'B']
+        : abs >= 1e6 ? [value / 1e6, 'M']
+          : [value, ''];
+
+  const digits = Math.abs(scaled) >= 100 ? 1 : 2;
+  const figure = `${scaled.toFixed(unit ? digits : 0)}${unit}`;
+
+  const code = (currency || 'USD').toUpperCase();
+  return code === 'USD' ? `$${figure}` : `${code} ${figure}`;
 }

@@ -5,6 +5,7 @@ Ports the Flask handlers (api/app.py) for:
   DELETE    /api/portfolio/{ticker}
   POST      /api/portfolio/import    (multipart file OR JSON path)
   GET/POST  /api/watchlist
+  PATCH     /api/watchlist/{ticker}   (tags only — issue #147 Part C)
   DELETE    /api/watchlist/{ticker}
   GET       /api/securities
   GET       /api/securities/lookup
@@ -57,6 +58,8 @@ from ..schemas.portfolio import (
     SymbolRowsResponse,
     UpdateLotRequest,
     UpdateLotResponse,
+    UpdateWatchlistTagsRequest,
+    UpdateWatchlistTagsResponse,
     WatchlistFundamentalsResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
@@ -249,9 +252,10 @@ def get_watchlist() -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"securities": load_watchlist()})
 
 
-# Declared before /watchlist/{ticker} out of habit, not necessity: that route is
-# DELETE-only, and Starlette treats a path match with the wrong method as a
-# *partial* match and keeps scanning, so this GET is found either way today.
+# Declared before /watchlist/{ticker} out of habit, not necessity: that path
+# template carries no GET (PATCH and DELETE only), and Starlette treats a path
+# match with the wrong method as a *partial* match and keeps scanning, so this
+# GET is found either way today.
 # What would make the order load-bearing is adding a GET on /watchlist/{ticker}
 # — a plausible detail endpoint — after which the reverse order swallows
 # "fundamentals" as a ticker and returns a 404 for a symbol nobody holds. The
@@ -301,6 +305,32 @@ def add_to_watchlist(
         },
         status_code=201,
     )
+
+
+@router.patch("/watchlist/{ticker}", response_model=UpdateWatchlistTagsResponse)
+def update_watchlist_tags(
+    ticker: str,
+    body: UpdateWatchlistTagsRequest,
+    principal: Principal = Depends(require_principal),
+) -> QuantCoreJSONResponse:
+    """Replace a watched symbol's tags (issue #147 Part C).
+
+    PATCH, not PUT: tags are the only editable field, and the rest of the entry
+    — name, currency, added_by — is deliberately not addressable here. The
+    currency in particular is resolved from the exchange and must not become
+    something a client can overwrite.
+
+    ``require_principal`` for the same reason as the POST: the list is shared,
+    so any authenticated caller may retag it.
+    """
+    ticker = ticker.strip().upper()
+    try:
+        stored = services().watchlist.set_tags(ticker, body.tags)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 400)
+    if stored is None:
+        return route_error_plain(f"{ticker} not found in watchlist", 404)
+    return QuantCoreJSONResponse({"symbol": ticker, "tags": stored})
 
 
 @router.delete("/watchlist/{ticker}", response_model=RemoveWatchlistResponse)

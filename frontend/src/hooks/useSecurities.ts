@@ -172,11 +172,18 @@ export function useRemoveFromPortfolio() {
 // A row that is in both lists stays in the table after this succeeds — it just
 // drops back to a plain position — so the same ['securities'] invalidation the
 // portfolio removal uses is what refreshes the source badge.
+//
+// It also drops off the /watchlist page, which reads a different key: the
+// mutation is shared, so the invalidation has to cover both or the page the
+// user removed from is the one that keeps showing the row.
 export function useRemoveFromWatchlist() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (ticker: string) => securitiesApi.removeFromWatchlist(ticker),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['securities'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['securities'] });
+      qc.invalidateQueries({ queryKey: ['watchlist-fundamentals'] });
+    },
   });
 }
 
@@ -184,6 +191,8 @@ export function useAddSecurity() {
   const qc = useQueryClient();
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['securities'] });
+    // Same dialog adds from the /watchlist page — see useRemoveFromWatchlist.
+    qc.invalidateQueries({ queryKey: ['watchlist-fundamentals'] });
   };
   const watchlist = useMutation({
     mutationFn: (payload: AddSecurityPayload) => securitiesApi.addToWatchlist(payload),

@@ -360,6 +360,22 @@ describe('WatchlistPage', () => {
   });
 
   describe('tag editor', () => {
+    /** Waits for the save to land and returns the PATCH that was issued.
+     *
+     * The dialog unmounts behind a MUI exit transition, so waiting on its
+     * removal at the default 1s timeout is timing-sensitive: this test timed
+     * out in a full-suite run and passed in isolation. Assert on the PATCH
+     * first — that is the behaviour under test and it settles as soon as the
+     * request goes out — and give the transition room to finish afterwards.
+     */
+    async function savedPatch(api: MockedApi) {
+      await waitFor(() =>
+        expect(api.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true),
+      );
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull(), { timeout: 5000 });
+      return api.calls.find(([, init]) => init?.method === 'PATCH')!;
+    }
+
     it('PATCHes the whole chip set, including a newly added chip', async () => {
       const api = await mount([['/api/watchlist/INTC', { symbol: 'INTC', tags: ['chips', 'ai'] }]]);
       fireEvent.click(screen.getByRole('button', { name: 'Edit tags for INTC' }));
@@ -369,8 +385,7 @@ describe('WatchlistPage', () => {
       fireEvent.keyDown(input, { key: 'Enter' });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-      const patch = api.calls.find(([, init]) => init?.method === 'PATCH')!;
+      const patch = await savedPatch(api);
       expect(patch[0]).toContain('/api/watchlist/INTC');
       expect(JSON.parse(String(patch[1]?.body))).toEqual({ tags: ['chips', 'ai'] });
     });
@@ -388,8 +403,7 @@ describe('WatchlistPage', () => {
       ).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-      const patch = api.calls.find(([, init]) => init?.method === 'PATCH')!;
+      const patch = await savedPatch(api);
       expect(JSON.parse(String(patch[1]?.body))).toEqual({ tags: [] });
     });
 

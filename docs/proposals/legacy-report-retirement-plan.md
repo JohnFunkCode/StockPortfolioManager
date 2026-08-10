@@ -1211,6 +1211,25 @@ the page at the first `tagFilter.length`. Validate the shape (`Array.isArray` pl
 type), and treat "valid JSON, wrong shape" as its own test case rather than assuming the corrupt-
 text case covers it.
 
+**A near-duplicate method makes the diff blame you for its neighbour's uncovered lines.** #186
+merged with the `gate` job red — `diff-cover` at 81% against an 85% floor — naming
+`quantcore/repositories/watchlist_repository.py:202-206`, which is the *tail of `set_currency`*, a
+method that landed in #184 and is untouched by this PR. The first instinct, that the reviewer's
+diff base was stale, was wrong: `git diff -U0` reports the hunk as `@@ -195,0 +202,22 @@`, because
+the new `set_tags` is textually near-identical to `set_currency` and git anchored the insertion
+*early* — marking `set_currency`'s tail plus `set_tags`'s head as added, and treating `set_tags`'s
+own tail as unchanged context. The line numbers are real, the attribution is an artifact, and the
+gate is right to fail either way: neither rollback arm had a test, and `set_currency` had no direct
+repository test at all (only a fake in `tests/test_watchlist_service.py`). The lesson is not to
+argue with the gate when a diff looks misattributed — write the missing test for whichever body the
+lines belong to, since a method worth copying is a method worth covering.
+
+The other thing that run surfaced: **`WatchlistPage.test.tsx`'s tag-editor saves timed out under
+full-suite CPU contention while passing in isolation.** The cause was waiting on the MUI dialog's
+*removal* at the default 1s timeout — an exit transition, not the behaviour under test. Wait on the
+PATCH going out, which settles immediately, and give the transition its own generous timeout
+afterwards.
+
 Three smaller traps in the same suite, all of them the kind that make a correct assertion fail:
 
 1. **DataGrid emits `onSortModelChange` during mount normalization**, so `localStorage` already

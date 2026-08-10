@@ -225,7 +225,12 @@ Anthropic API key; the backend never holds a usable key at rest.
   SSE from Anthropic back through the chain.
 - **Never-log policy (enforced by tests):** no API keys, `Authorization` headers, envelopes,
   decrypted payloads, request bodies, or exception dumps containing credentials may reach any log
-  or print. Any new failure path must add the corresponding log assertion.
+  or print. Any new failure path must add the corresponding log assertion. The **database DSN**
+  counts as a credential — it carries the password — and the policy covers API/MCP **responses**,
+  not just logs: name a database with `quantcore.db.describe_dsn()` (`host:port/name`), never with
+  the DSN. `tests/test_dsn_redaction.py` guards the case that got through
+  (`cache_stats()` returned the DSN as `db_path` all the way out to the `get_cache_stats` MCP
+  tool).
 - **Auth layers:** keyproxy is **IAM-locked on Cloud Run** (`--no-allow-unauthenticated`;
   `run.invoker` only for `quantcore-run@`; the api attaches a Google ID token in
   `X-Serverless-Authorization`) and runs as dedicated SA `keyproxy-runtime@` (zero project roles,

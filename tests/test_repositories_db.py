@@ -2,11 +2,13 @@
 coverage (85%-campaign): FundamentalsRepository, NewsStore,
 OptionsPositionStore, and the OhlcvRepository facade. Test database only.
 """
+import json
 import os
 import unittest
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pandas as pd
 
@@ -75,6 +77,21 @@ class TestFundamentalsRepository(RepoTestBase):
         stats = self.repo.stats()
         self.assertIn("data_types", stats)
         self.assertGreater(self.repo.ttl_seconds(), 0)
+
+    def test_stats_carries_no_credentials_from_the_real_dsn(self):
+        # stats() is returned verbatim to REST and MCP callers, so nothing
+        # derived from the live DSN may appear in it. tests/test_dsn_redaction.py
+        # covers the password substring against a synthetic DSN — this is the
+        # same assertion against whatever this process is actually connected to.
+        dsn = os.environ["QUANTCORE_DB_DSN"]
+        parsed = urlparse(dsn)
+        blob = json.dumps(self.repo.stats())
+        self.assertNotIn("db_path", blob)
+        self.assertNotIn(dsn, blob)
+        self.assertNotIn("://", blob)
+        if parsed.username:
+            self.assertNotIn(f"{parsed.username}:", blob)   # userinfo pair
+        self.assertNotIn("@", blob)
 
 
 def article(i, published_days_ago=0.5):

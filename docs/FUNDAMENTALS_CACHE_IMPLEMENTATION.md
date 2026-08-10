@@ -80,7 +80,9 @@ Surfaces stocks with earnings within N days. Days-to-earnings recomputed at quer
 Respects TTL by default; can include stale entries if flagged explicitly.
 
 #### `get_cache_stats()`
-Inventory of what's cached: symbol counts, date ranges, DB file size per data type.
+Inventory of what's cached: symbol counts and date ranges per data type, plus a `database`
+identifier (`host:port/name` via `quantcore.db.describe_dsn()`). Never the DSN — it holds the
+password, and this dict is returned verbatim to REST and MCP callers.
 
 #### `get_sector_fundamental_breakdown(sector=None, top_n=5)`
 Groups cached scores by sector. Returns top N per sector or single sector if specified.

@@ -16,13 +16,30 @@ synthetic symbols, so they do not need the real rows present in between.
 """
 import unittest
 from contextlib import closing
+from unittest.mock import patch
 
 from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
 from quantcore.db import get_connection  # noqa: E402
+from quantcore.repositories import watchlist_repository  # noqa: E402
 from quantcore.repositories.watchlist_repository import WatchlistRepository  # noqa: E402
+
+# Well-formed enough to bind the same parameters, guaranteed to fail in the
+# database — the way to reach the writers' except/rollback/raise arm without
+# faking the connection out from under the SQL under test.
+BROKEN_TAGS_SQL = """
+UPDATE watchlist
+SET tags = :tags
+WHERE symbol_id = (SELECT no_such_column FROM symbols WHERE ticker = :ticker);
+"""
+
+BROKEN_CURRENCY_SQL = """
+UPDATE watchlist
+SET currency = :currency
+WHERE symbol_id = (SELECT no_such_column FROM symbols WHERE ticker = :ticker);
+"""
 
 # Synthetic symbols that won't collide with anything real.
 SYMBOL = "ZZWL1"
@@ -125,6 +142,54 @@ class WatchlistRepositoryTest(unittest.TestCase):
 
     def test_set_tags_on_an_unwatched_symbol_returns_zero(self):
         self.assertEqual(self.repo.set_tags("ZZNOSUCH", ["ai"]), 0)
+
+    def test_set_currency_replaces_only_the_currency(self):
+        """`set_currency` had no direct test until now — it was exercised only
+        through a fake in the service tests, so the real SQL was never run.
+        It is what `scripts/repair_watchlist_currency.py` drives over rows
+        seeded from watchlist.yaml with a wrong currency.
+        """
+        self.repo.add_entry(SYMBOL, name="Test Co", currency="USD", tags=["ai"])
+
+        self.assertEqual(self.repo.set_currency(SYMBOL, "sek"), 1)
+
+        [entry] = [e for e in self.repo.list_entries() if e["symbol"] == SYMBOL]
+        self.assertEqual(entry["currency"], "SEK", "stored upper-cased")
+        self.assertEqual(entry["name"], "Test Co")
+        self.assertEqual(entry["tags"], ["ai"])
+
+    def test_set_currency_on_an_unwatched_symbol_returns_zero(self):
+        self.assertEqual(self.repo.set_currency("ZZNOSUCH", "USD"), 0)
+
+    # -- the rollback paths -------------------------------------------------
+    # Both writers wrap their statement in try/except/rollback/raise. The
+    # property worth pinning is that a failing statement propagates rather
+    # than being swallowed into a 0-rows-updated return, which a caller would
+    # read as "symbol not watched" and answer 404 to.
+
+    def test_set_tags_propagates_a_failed_statement_and_writes_nothing(self):
+        self.repo.add_entry(SYMBOL, name="Test Co", tags=["ai"])
+
+        with patch.object(watchlist_repository, "SQL_UPDATE_TAGS", BROKEN_TAGS_SQL):
+            with self.assertRaises(Exception):
+                self.repo.set_tags(SYMBOL, ["value"])
+
+        [entry] = [e for e in self.repo.list_entries() if e["symbol"] == SYMBOL]
+        self.assertEqual(entry["tags"], ["ai"], "the failed write left the row alone")
+        self.assertEqual(self.repo.set_tags(SYMBOL, ["value"]), 1,
+                         "the repository still works after a rolled-back failure")
+
+    def test_set_currency_propagates_a_failed_statement_and_writes_nothing(self):
+        self.repo.add_entry(SYMBOL, name="Test Co", currency="USD")
+
+        with patch.object(watchlist_repository, "SQL_UPDATE_CURRENCY",
+                          BROKEN_CURRENCY_SQL):
+            with self.assertRaises(Exception):
+                self.repo.set_currency(SYMBOL, "SEK")
+
+        [entry] = [e for e in self.repo.list_entries() if e["symbol"] == SYMBOL]
+        self.assertEqual(entry["currency"], "USD")
+        self.assertEqual(self.repo.set_currency(SYMBOL, "SEK"), 1)
 
     def test_remove_missing_symbol_returns_zero(self):
         self.assertEqual(self.repo.remove_entry("ZZNOSUCH"), 0)

@@ -394,6 +394,16 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 404)
         self.assertEqual(resp.json(), {"error": "ZZNOSUCH not found in watchlist"})
 
+    def test_patch_blank_watchlist_symbol_returns_400(self):
+        """A whitespace-only ticker reaches the route and strips to nothing, so
+        `WatchlistService.set_tags` raises and the route answers 400 — not the
+        404 a missing symbol gets. Distinct because a blank ticker is a
+        malformed request, not a lookup that came up empty.
+        """
+        resp = self.client.patch("/api/watchlist/%20", json={"tags": ["ai"]})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "symbol is required"})
+
     def test_remove_missing_watchlist_symbol_returns_404(self):
         resp = self.client.delete("/api/watchlist/ZZNOSUCH")
         self.assertEqual(resp.status_code, 404)

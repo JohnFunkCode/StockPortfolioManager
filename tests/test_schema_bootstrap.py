@@ -223,6 +223,16 @@ class SchemaModeTest(unittest.TestCase):
 
         init.assert_not_called()
 
+    def test_auto_enforces_on_a_flyway_managed_database(self):
+        """The PR 4 flip: auto resolves to verify, not warn, where Flyway owns the DDL.
+
+        Soaked warn-only on both projects first (decision D5). A forgotten
+        migration now aborts startup rather than being silently papered over by
+        the app's own CREATE TABLE.
+        """
+        with self.assertRaises(db.SchemaDriftError):
+            self._ensure("auto", flyway=True, live=("symbols",))
+
     # -- create ----------------------------------------------------------
 
     def test_create_runs_the_ddl_even_on_a_flyway_managed_database(self):
@@ -269,7 +279,7 @@ class SchemaModeTest(unittest.TestCase):
 
     def test_extras_never_raise_in_any_mode(self):
         """Decision D4: a deployed database may carry more than the snapshot."""
-        for mode in ("warn", "verify"):
+        for mode in ("warn", "verify", "auto"):
             with self.subTest(mode=mode):
                 self._restore()
                 db._schema_ready_dsns.clear()

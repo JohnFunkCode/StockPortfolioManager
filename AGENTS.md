@@ -64,6 +64,12 @@ These are the constraints most likely to be violated by an agent that skipped `C
 - **Every schema change touches three files** — a new `db/migrations/V*.sql`, `_SCHEMA` in
   `quantcore/db.py`, and the regenerated `db/schema_snapshot.json`. This is no longer a
   convention: `tests/test_schema_parity.py` fails CI if the first two disagree.
+- **Migrations are load-bearing: migrate before you deploy.** On test and prod, startup checks the
+  schema and raises `SchemaDriftError` rather than creating anything, so
+  `./scripts/flyway.sh --prod migrate` must run *before* an image carrying a schema change rolls
+  out, and the migration must be complete DDL. A failing revision never takes traffic — that is the
+  intended behaviour, not an outage. Escape hatch: `QUANTCORE_SCHEMA_MODE=create` via
+  `--update-env-vars`.
 - **BYOK never-log policy:** no API keys, `Authorization` headers, envelopes, decrypted payloads,
   request bodies, or exception dumps containing credentials may reach any log or print. New
   failure paths must add the corresponding log assertion.

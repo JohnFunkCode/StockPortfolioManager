@@ -128,7 +128,27 @@ tag/service — tags built before those images existed skip them cleanly.)
    stack (the team's daily driver) — the prod images are byte-identical, so a problem on
    test is a problem in prod.
 
-2. **Dispatch the workflow** with the chosen tag:
+2. **If the change carries a schema change, migrate prod first.** Startup no longer creates
+   tables on a Flyway-managed database — it checks them and raises `SchemaDriftError`, which
+   fails the revision's health check (issue #165). So the migration has to land *before* the
+   image that expects it:
+
+   ```bash
+   ./scripts/flyway.sh --prod migrate
+   ```
+
+   Then confirm the live schema actually matches what the new image expects — `flyway info` is
+   a changelog view, not evidence:
+
+   ```bash
+   python scripts/schema_check.py --prod
+   ```
+
+   Skip this step only when nothing under `db/migrations/` changed between the deployed tag and
+   the one you're promoting. Getting the order wrong is not an outage: the new revision fails
+   its check and never takes traffic, so the previous revision keeps serving while you migrate.
+
+3. **Dispatch the workflow** with the chosen tag:
 
    ```bash
    gh workflow run prod-rollout.yml \
@@ -138,7 +158,7 @@ tag/service — tags built before those images existed skip them cleanly.)
 
    (Or in the UI: Actions → **prod-rollout** → Run workflow → enter the tag.)
 
-3. **Watch the gate job.** It spins up Postgres and runs unit tests + the wrapper smoke
+4. **Watch the gate job.** It spins up Postgres and runs unit tests + the wrapper smoke
    (`ci_wrapper_smoke.py`) + the OpenAPI surface diff (`check_openapi_snapshot.py`). If
    any fail, the promotion stops before touching prod — fix forward and re-dispatch.
 
@@ -146,7 +166,7 @@ tag/service — tags built before those images existed skip them cleanly.)
    gh run watch --repo JohnFunkCode/StockPortfolioManager
    ```
 
-4. **Approve the prod gate.** After the gate passes, the `promote-and-deploy` job pauses
+5. **Approve the prod gate.** After the gate passes, the `promote-and-deploy` job pauses
    for the `prod` Environment's required reviewer. Approve it in the UI (the run page
    shows "Review deployments") or:
 
@@ -155,7 +175,7 @@ tag/service — tags built before those images existed skip them cleanly.)
    # then approve via the "Review deployments" button on the run page
    ```
 
-5. **The deploy runs automatically** after approval: it resolves each image's source
+6. **The deploy runs automatically** after approval: it resolves each image's source
    digest, `imagetools`-copies test AR → prod AR, verifies the original digest resolves
    in the prod AR, then `gcloud run deploy` (api + 5 wrappers + `quantui` +
    `quantcore-keyproxy`) and `gcloud run jobs update` (report) **by digest**. The

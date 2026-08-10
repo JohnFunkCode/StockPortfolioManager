@@ -391,6 +391,31 @@ class WatchlistService:
             })
         return results
 
+    def set_tags(self, symbol: str, tags: Optional[List[str]]) -> Optional[List[str]]:
+        """Replace `symbol`'s tags. Returns the stored list, or ``None`` if the
+        symbol isn't watched (the router's 404, same convention as
+        ``remove_entry`` returning 0).
+
+        The list is normalized here rather than trusted from the body: blanks
+        dropped, whitespace stripped, and duplicates collapsed **case-sensitively
+        on first occurrence**, so a UI that lets someone type "AI" twice stores
+        it once. An empty list is a legitimate edit — it means "no tags" — which
+        is why this returns the stored value rather than a count the caller
+        would have to interpret.
+        """
+        symbol = str(symbol or "").strip().upper()
+        if not symbol:
+            raise ValueError("symbol is required")
+
+        cleaned: List[str] = []
+        for tag in _clean_tags(tags):
+            if tag not in cleaned:
+                cleaned.append(tag)
+
+        if self._repo.set_tags(symbol, cleaned) == 0:
+            return None
+        return cleaned
+
     def remove_entry(self, symbol: str) -> int:
         """Remove `symbol`. Returns rows removed — 0 means it wasn't watched."""
         if not str(symbol or "").strip():

@@ -387,3 +387,63 @@ export function portfolioTotals(overrides: object = {}) {
     ...overrides,
   };
 }
+
+/**
+ * A row of GET /api/watchlist/fundamentals (issue #147 Part C).
+ *
+ * Returns are **percent**, matching quantcore/analytics/returns.py — a fixture
+ * that used fractions here would let a formatPercent/formatPercentRaw mix-up
+ * pass the suite.
+ */
+export function watchlistRow(symbol = 'INTC', overrides: object = {}) {
+  return {
+    symbol,
+    name: `${symbol} Corp`,
+    currency: 'USD',
+    tags: [],
+    price: 42.5,
+    price_as_of: '2026-08-07T20:00:00Z',
+    return_5d: 1.2,
+    return_30d: 4.8,
+    return_60d: -2.5,
+    return_ytd: 12.3,
+    return_1y: 30.1,
+    composite_score: 72,
+    fundamental_label: 'strong',
+    coverage: 0.9,
+    sector: 'Technology',
+    market_cap: 2_000_000_000,
+    market_cap_currency: 'USD',
+    market_cap_usd: 2_000_000_000,
+    rev_cagr_3y: 8.1,
+    rev_cagr_score: 70,
+    rev_accel_score: 60,
+    op_margin_score: 65,
+    fcf_margin_score: 75,
+    valuation_score: 55,
+    momentum_score: 80,
+    revenue_trajectory: 'accelerating',
+    earnings_date: '2026-10-22',
+    eps_acceleration: 'positive',
+    fundamentals_cached_at: '2026-08-08T06:00:00Z',
+    fundamentals_stale: false,
+    fundamentals_age_hours: 30,
+    ...overrides,
+  };
+}
+
+/** The whole GET /api/watchlist/fundamentals envelope around some rows. */
+export function watchlistFundamentals(
+  rows: Array<ReturnType<typeof watchlistRow>> = [watchlistRow()],
+  overrides: object = {},
+) {
+  return {
+    generated_at: '2026-08-09T12:00:00Z',
+    as_of: '2026-08-07T20:00:00Z',
+    count: rows.length,
+    stale_count: rows.filter((r) => r.fundamentals_stale === true).length,
+    unscored_count: rows.filter((r) => r.composite_score == null).length,
+    rows,
+    ...overrides,
+  };
+}

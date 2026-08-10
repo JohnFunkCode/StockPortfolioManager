@@ -18,6 +18,7 @@ import {
 import PortfolioTableCard from '../components/chat/PortfolioTableCard';
 import PortfolioAllocationCard from '../components/chat/PortfolioAllocationCard';
 import SymbolLotsCard from '../components/chat/SymbolLotsCard';
+import WatchlistFundamentalsCard from '../components/chat/WatchlistFundamentalsCard';
 import type { ChatDirective } from './types';
 
 type PropKind = 'string' | 'number';
@@ -66,6 +67,8 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   portfolio_allocation: { component: PortfolioAllocationCard, spec: {}, titled: false },
   // Carries its own "TICKER — Lots" heading, so no titled wrapper.
   symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
+  // The watchlist is one global list — there is no symbol or owner to name.
+  watchlist_fundamentals: { component: WatchlistFundamentalsCard, spec: {}, titled: false },
 };
 
 /**

@@ -102,6 +102,30 @@ class WatchlistRepositoryTest(unittest.TestCase):
         self.assertEqual(len(matches), 1)
         self.assertEqual(matches[0]["name"], "First", "conflict must not overwrite")
 
+    def test_set_tags_replaces_the_whole_array(self):
+        self.repo.add_entry(SYMBOL, name="Test Co", tags=["ai", "semis"])
+
+        self.assertEqual(self.repo.set_tags(SYMBOL, ["value"]), 1)
+
+        [entry] = [e for e in self.repo.list_entries() if e["symbol"] == SYMBOL]
+        self.assertEqual(entry["tags"], ["value"])
+
+    def test_set_tags_touches_nothing_but_the_tags(self):
+        """The reason this verb is narrow rather than a general update_entry:
+        a caller editing tags cannot blank a name or a currency it never read.
+        """
+        self.repo.add_entry(SYMBOL, name="Test Co", currency="SEK", tags=["ai"])
+
+        self.repo.set_tags(SYMBOL, [])
+
+        [entry] = [e for e in self.repo.list_entries() if e["symbol"] == SYMBOL]
+        self.assertEqual(entry["tags"], [])
+        self.assertEqual(entry["name"], "Test Co")
+        self.assertEqual(entry["currency"], "SEK")
+
+    def test_set_tags_on_an_unwatched_symbol_returns_zero(self):
+        self.assertEqual(self.repo.set_tags("ZZNOSUCH", ["ai"]), 0)
+
     def test_remove_missing_symbol_returns_zero(self):
         self.assertEqual(self.repo.remove_entry("ZZNOSUCH"), 0)
 

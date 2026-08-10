@@ -27,7 +27,8 @@ describe('routes', () => {
 describe('navItems', () => {
   it('is every route except the detail routes', () => {
     expect(navItems.map((item) => item.path)).toEqual([
-      '/', '/harvester', '/securities', '/arbitrage', '/plans', '/symbols', '/settings',
+      '/', '/harvester', '/securities', '/watchlist', '/arbitrage', '/plans', '/symbols',
+      '/settings',
     ]);
   });
 

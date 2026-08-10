@@ -6,7 +6,9 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 
 - Track portfolio positions with per-lot purchase information (price, date, quantity), stored in
   the database per owner and editable from the UI (`portfolio.csv` is the import format)
-- Tracks a shared watchlist including per-stock 'tags', stored in the database and editable from the UI (watchlist.yaml is the import format)
+- Tracks a shared watchlist including per-stock 'tags', stored in the database and editable from the
+  UI's Watchlist page (`/watchlist`, which also ranks it by fundamental score); `watchlist.yaml` is
+  the import format
 - Fetch real-time stock prices via Yahoo Finance API
 - Calculate gain/loss for individual stocks and total portfolio
 - Support for multiple currencies with real-time conversion
@@ -65,8 +67,13 @@ Amazon.com Inc	     AMZN	$168.97	         $223.21	    100	        $5424.00	32.10
 
 ### Watchlist Files
 The watchlist lives in the database (the global `watchlist` table — one shared list, no
-per-owner copies). Add and remove symbols from the QuantUI Securities page, or over the REST
-tier (`GET/POST /api/watchlist`, `DELETE /api/watchlist/{ticker}`).
+per-owner copies). Add and remove symbols from the QuantUI Watchlist page (`/watchlist`) or the
+Securities page, or over the REST tier (`GET/POST /api/watchlist`,
+`DELETE /api/watchlist/{ticker}`, `PATCH /api/watchlist/{ticker}` for tags).
+
+`PATCH /api/watchlist/{ticker}` takes `{"tags": [...]}` and **replaces** the symbol's tag set
+rather than merging into it — an empty array is the only way to clear the last tag, so it has to
+be expressible. The list is shared, so a tag edit (like a removal) changes what everyone sees.
 
 `GET /api/watchlist/fundamentals` returns the whole list with price returns (5d/30d/60d/YTD/1y)
 and its cached fundamental scores in one request — the data the nightly
@@ -75,7 +82,10 @@ calls Yahoo, so it answers in well under a second. Fundamentals older than the c
 returned **labelled** (`fundamentals_stale`, `fundamentals_age_hours`) rather than dropped, and a
 symbol the cache has never scored comes back with null fundamentals instead of zeros. Market caps
 carry their own currency: `market_cap` is the native figure and only `market_cap_usd` — populated
-just for USD-denominated names for now — is comparable across securities.
+just for USD-denominated names for now ([issue #185](https://github.com/JohnFunkCode/StockPortfolioManager/issues/185)
+tracks the missing FX source) — is comparable across securities. That is why the Watchlist page
+sorts on the USD column and leaves the native one unsortable: ordering mixed currencies ranks
+exchange rates, not companies.
 
 `watchlist.yaml` is the **import format** — nothing reads it at runtime. Seed or re-seed the
 table from it with:
@@ -360,6 +370,7 @@ Material UI. It communicates exclusively with the FastAPI service above.
 | Harvester | `/harvester` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
 | Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views; add/remove watchlist symbols here |
 | Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol, including the Technical Analysis tab's Support Confluence card |
+| Watchlist | `/watchlist` | The whole shared watchlist ranked by fundamental score, with returns, market caps, staleness, and tag editing — the replacement for the nightly `generate_watchlist_fundamentals_report.py` HTML |
 | Arbitrage | `/arbitrage` | The arbitrage scanner — universe, scan results, and per-pair factor breakdowns |
 | Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
 | Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |

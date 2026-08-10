@@ -76,6 +76,12 @@ SET currency = :currency
 WHERE symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
 """
 
+SQL_UPDATE_TAGS = """
+UPDATE watchlist
+SET tags = :tags
+WHERE symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
+"""
+
 SQL_DELETE_ENTRY = """
 DELETE FROM watchlist
 WHERE symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
@@ -191,6 +197,28 @@ class WatchlistRepository:
                 cur = conn.execute(SQL_UPDATE_CURRENCY, {
                     "ticker": symbol.strip().upper(),
                     "currency": str(currency or "").strip().upper(),
+                })
+                updated = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return int(updated)
+
+    def set_tags(self, symbol: str, tags: List[str]) -> int:
+        """Replace `symbol`'s tags wholesale. Returns rows updated — 0 means
+        unwatched.
+
+        Narrow for the same reason as `set_currency`: the caller edits tags and
+        nothing else, so there is no way to blank a name or a currency it never
+        read. Replace rather than merge — the UI sends the full chip set it is
+        displaying, and a merge could never remove one.
+        """
+        with closing(get_connection()) as conn:
+            try:
+                cur = conn.execute(SQL_UPDATE_TAGS, {
+                    "ticker": symbol.strip().upper(),
+                    "tags": list(tags),
                 })
                 updated = cur.rowcount
                 conn.commit()

@@ -1,6 +1,12 @@
 # Dev/CI-only tooling. The Docker images install requirements-base.txt, so
 # nothing here ships to Cloud Run. CI's gate job installs this file.
 -r requirements-base.txt
+# The report stack left requirements-base.txt in issue #147 so the containers
+# stop carrying matplotlib. CI still needs it, because the test suite imports
+# scripts/generate_portfolio_report.py — untested is how that script drifted
+# into being un-runnable in the first place. This is the CI-only file, so
+# pulling it in here does not put matplotlib back into any image.
+-r requirements-report.txt
 coverage
 diff-cover
 # `cryptography` moved into requirements-base.txt in BYOK packet 7a (ES256

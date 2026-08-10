@@ -22,7 +22,6 @@ for _path in (ROOT, FAST_MCP_DIR):
         sys.path.insert(0, str(_path))
 
 from quantcore.services.registry import get_services  # noqa: E402
-from quantcore.services.registry import get_services  # noqa: E402
 
 
 SORT_TABLE_JS = """

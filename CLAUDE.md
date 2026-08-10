@@ -87,9 +87,49 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 - **`metrics.py`** — `Metrics` dataclass plus `get_historical_metrics()` which bulk-downloads 2 years of daily data via yfinance and computes moving averages (10/30/50/100/200-day), period returns, and percent change today.
 - **`yfinance_gateway.py`** — Thin wrapper around `yf.download()` for latest prices and `yf.Tickers()` for descriptive info (earnings dates, income statements).
 
-### Report Generation (`main.py`)
+### The daily job (`main.py`) and the legacy report script
 
-`main.py` is the entry point. It loads John's positions and the shared watchlist from the database (via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`), fetches prices/metrics, generates matplotlib charts (embedded as base64 in HTML via Jinja2 template), optionally uploads to S3, and triggers notifications. It also captures a full options chain snapshot per portfolio/watchlist symbol (in-process `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so open-interest history accumulates daily for `get_oi_change_analysis`.
+`main.py` is the daily Cloud Run Job (`quantcore-report` — the service name kept the old
+spelling; the work did not). It loads John's positions and the shared watchlist from the database
+(via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`),
+fetches prices/metrics, and then does three things **in this order, which is a deliberate
+isolation property** — the cheap, high-value side effects land before anything that can run long:
+
+1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
+   `alert_if_watchlist_empty()`.
+2. **Options capture** — a full options chain snapshot per symbol (in-process
+   `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so
+   open-interest history accumulates daily for `get_oi_change_analysis`. The universe
+   (`capture_symbols`) is John's positions + the global watchlist + **every other owner's**
+   positions (issue #126 decision #5).
+3. **Fundamentals warming** — `run_fundamentals_warming(capture_symbols, …)` refreshes the
+   fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
+   budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;
+   the universe converges over a few nights. Ordering comes from
+   `FundamentalsService.cache_freshness()`; the pass is wrapped in an outer `try/except` that
+   never raises, so a warmer failure cannot retroactively fail a run whose notifications already
+   went out. That silence is then made loud by `alert_if_fundamentals_stale()`, which re-reads
+   freshness **after** warming and fires a Discord alarm on either trigger — coverage below a
+   floor, or an oldest-age above a ceiling. Tunable per-deployment without a code change:
+
+   | Env var | Default | Meaning |
+   |---|---|---|
+   | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass |
+   | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
+   | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
+
+   An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
+   var must not silently disarm the alarm.
+
+Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
+**`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),
+which the Raspberry Pi runs via `runOnPi.sh`. Two consequences worth keeping straight:
+
+- The Pi runs the script and **not** `main.py`, because the Cloud Run Job already sends the
+  notifications and captures the snapshots — running both would double every alert.
+- `--publish` now **fails loudly** when `BUCKET_NAME`/`BUCKET_KEY` are missing, checked up front
+  before minutes of price fetching. The old code returned `None` and let the caller report
+  success, which is how the public page could stop updating unnoticed (the original #147 defect).
 
 ### Notifications (`notifier.py`)
 
@@ -336,4 +376,22 @@ failure in CI, never a skip. Because `init_schema()` runs on every application s
 
 ## Key Dependencies
 
-pandas, yfinance, matplotlib, jinja2, python-dotenv, boto3, PyYAML, requests, psycopg2
+pandas, numpy, yfinance, python-dotenv, PyYAML, requests, psycopg2, fastapi, uvicorn, pydantic,
+fastmcp, httpx.
+
+Requirements are **layered**, and the split is load-bearing — it is what keeps matplotlib out of
+the API and MCP images:
+
+| File | Holds | Installed by |
+|---|---|---|
+| `requirements-base.txt` | the lean set above | every `Dockerfile.*` |
+| `requirements-ml.txt` | torch / transformers (FinBERT) | the sentiment path only |
+| `requirements-report.txt` | **matplotlib, jinja2, boto3** | nothing in any container |
+| `requirements-dev.txt` | base + report + coverage/diff-cover | CI's `gate` job |
+| `requirements.txt` | base + ml + report | local dev, and the Pi |
+
+**matplotlib, jinja2, and boto3 are report-script-only** (issue #147). They serve
+`scripts/generate_portfolio_report.py`, the legacy root scripts `html_summary.py` /
+`simple_text_summary.py`, and nothing else. Importing any of them from code that runs in a
+container is the mistake this split exists to make visible — add the dependency to
+`requirements-base.txt` deliberately, or don't add the import.

@@ -1,0 +1,15 @@
+# requirements-report.txt — the rendering stack for the legacy HTML report.
+#
+# Needed only by scripts/generate_portfolio_report.py (and the Raspberry Pi
+# that runs it), plus the two legacy root scripts html_summary.py /
+# simple_text_summary.py. No container's CMD imports any of this.
+#
+# These three lived in requirements-base.txt until issue #147, which meant the
+# api, mcp, and report images were all carrying matplotlib for a report only
+# one machine has ever generated. Adding an import of any of them to code that
+# runs in a container is the mistake this file exists to make visible.
+#
+# requirements.txt = base + ml + report, so a local dev install is unchanged.
+matplotlib>=3.10.3
+boto3>=1.39.13
+jinja2>=3.1.6

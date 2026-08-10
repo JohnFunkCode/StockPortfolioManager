@@ -1,563 +1,67 @@
 #!/usr/bin/env python3
+"""The daily QuantCore job: notifications, options capture, fundamentals warming.
 
-from datetime import datetime
-from portfolio import portfolio
-from portfolio import watch_list
-from pathlib import Path
-import matplotlib.pyplot as plt
-import numpy as np
-import io
-import base64
-import webbrowser
+Runs as the ``quantcore-report`` Cloud Run Job on Cloud Scheduler, and locally
+as ``python main.py``. It no longer builds the HTML report — that moved to
+``scripts/generate_portfolio_report.py``, which the Raspberry Pi runs
+(issue #147). The service name kept its old spelling; the work it does did not.
+
+The step order is an isolation property, not an accident. The cheap,
+high-value work runs first (Discord notifications and the Harvester rung
+checks), then the options-chain capture that keeps the open-interest history
+accumulating, and only then the fundamentals warmer — the one step with a
+wall-clock budget. Each of the last two swallows its own failures, so a slow
+or broken tail cannot take down the useful side effects that already
+succeeded. That defect — "a failure in the report path can fail the job and
+take the *useful* side effects down with it" — is what issue #147 was about,
+and the warmer is exactly the kind of long-running step that would inherit it.
+"""
+
 import os
 import sys
-from jinja2 import Environment, FileSystemLoader
+import time
+
+from portfolio import portfolio
+from portfolio import watch_list
 from notifier import Notifier
-from dotenv import load_dotenv
 from quantcore.db import ensure_schema
 from quantcore.services.registry import get_services
 
-def fig_to_base64(fig):
-    """Convert matplotlib figure to base64 string for HTML embedding"""
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', bbox_inches='tight')
-    buf.seek(0)
-    img_str = base64.b64encode(buf.read()).decode('utf-8')
-    return img_str
+# Warming knobs, all env-overridable because the right values differ between a
+# laptop and a Cloud Run Job task with a hard timeout.
+WARM_BUDGET_SECONDS_ENV = "FUNDAMENTALS_WARM_BUDGET_SECONDS"
+STALE_COVERAGE_FLOOR_ENV = "FUNDAMENTALS_STALE_COVERAGE_FLOOR"
+STALE_MAX_AGE_HOURS_ENV = "FUNDAMENTALS_STALE_MAX_AGE_HOURS"
 
-def create_portfolio_charts(portfolio):
-    """Create charts for the portfolio and return as base64"""
-    # Prepare data for charts
-    labels = []
-    purchase_values = []
-    current_values = []
-
-    for stock in portfolio.list_stocks():
-        labels.append(f"{stock.name} ({stock.symbol})")
-        purchase_value = (stock.purchase_price * stock.quantity).amount
-        purchase_values.append(float(purchase_value))
-        current_value = stock.get_current_value()
-        current_values.append(float(current_value.amount) if current_value else 0)
-
-    # Pie chart data
-    total_purchase = sum(purchase_values)
-    total_current = sum(current_values)
-    max_total = max(total_purchase, total_current)
-    radius_current = 1.0
-    radius_purchase = np.sqrt(total_purchase / max_total) if max_total > 0 else 1
-
-    # Bar chart data
-    gain_loss_values = [curr - purch for curr, purch in zip(current_values, purchase_values)]
-    x = np.arange(len(labels))
-
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 8))
-
-    # Stacked bar chart (left)
-    bars_purchase = ax1.bar(x, purchase_values, label="Purchase Value", color="orange")
-
-    # Split gain/loss into positive (green) and negative (red)
-    gain_loss_pos = [max(v, 0) for v in gain_loss_values]
-    gain_loss_neg = [min(v, 0) for v in gain_loss_values]
-
-    bars_gain_loss_pos = ax1.bar(
-        x,
-        gain_loss_pos,
-        bottom=purchase_values,
-        label="Gain (positive)",
-        color="green",
-    )
-
-    bars_gain_loss_neg = ax1.bar(
-        x,
-        gain_loss_neg,
-        bottom=purchase_values,
-        label="Loss (negative)",
-        color="red",
-    )
-
-    ax1.set_xticks(x)
-    ax1.set_xticklabels(labels, rotation=45, ha="right")
-    ax1.set_ylabel("Value ($)")
-    ax1.set_title("Stock Purchase vs Current Value (Stacked Bar)")
-    ax1.legend(loc="upper right")
-
-    # Add value labels inside the bars
-    ax1.bar_label(
-        bars_purchase,
-        labels=[f"${v:,.2f}" for v in purchase_values],
-        label_type="center",
-        fontsize=10,
-    )
-
-    pos_labels = [f"${v:,.2f}" if v != 0 else "" for v in gain_loss_pos]
-    neg_labels = [f"${v:,.2f}" if v != 0 else "" for v in gain_loss_neg]
-
-    ax1.bar_label(bars_gain_loss_pos, labels=pos_labels, label_type="center", fontsize=10)
-    ax1.bar_label(bars_gain_loss_neg, labels=neg_labels, label_type="center", fontsize=10)
-
-    # Overlayed pie chart (right)
-    wedges_current, _ = ax2.pie(
-        current_values,
-        labels=None,
-        autopct=None,
-        startangle=140,
-        radius=radius_current,
-        colors=plt.cm.Greens(np.linspace(0.5, 1, len(current_values))),
-        wedgeprops=dict(width=radius_current, alpha=0.5)
-    )
-    wedges_purchase, texts, autotexts = ax2.pie(
-        purchase_values,
-        labels=labels,
-        autopct='%1.1f%%',
-        startangle=140,
-        radius=radius_purchase,
-        colors=plt.cm.Oranges(np.linspace(0.5, 1, len(purchase_values))),
-        wedgeprops=dict(width=radius_purchase, edgecolor='w')
-    )
-    ax2.set_title(
-        f"Overlay: Initial Purchase (front, orange, total ${total_purchase:,.2f})\n"
-        f"Current Value (back, green, total ${total_current:,.2f})"
-    )
-    ax2.axis('equal')
-
-    plt.tight_layout()
-
-    # Convert plots to base64 for embedding in HTML
-    chart_img = fig_to_base64(fig)
-    plt.close(fig)
-
-    return chart_img, total_purchase, total_current
-
-def create_portfolio_html(portfolio, watchlist):
-    """Create HTML content for the portfolio using Jinja2 templates"""
-    # Set up Jinja2 environment
-    script_dir = Path(__file__).parent
-    template_dir = script_dir / "templates"
-
-    # Create templates directory if it doesn't exist
-    template_dir.mkdir(exist_ok=True)
-
-    env = Environment(loader=FileSystemLoader(template_dir))
-
-    # Generate the template file if it doesn't exist
-    template_path = template_dir / "portfolio_template.html"
-    if not template_path.exists():
-        create_template_file(template_path)
-
-    template = env.get_template("portfolio_template.html")
-
-    # Get current date and time
-    current_datetime = datetime.now().strftime("%Y-%m-%d at %-I:%M%p").lower()
-
-    # Portfolio summary data
-    total_investment = portfolio.get_total_investment()
-    total_current_value = portfolio.get_total_current_value()
-    total_gain_loss = portfolio.get_total_gain_loss()
-    total_gain_loss_pct = portfolio.get_total_gain_loss_percentage()
-    total_dollars_per_day = portfolio.get_total_dollars_per_day()
-
-    # Generate stock details
-    stock_details = []
-    for stock in portfolio.list_stocks():
-        gain_loss = stock.calculate_gain_loss()
-        gain_loss_pct = stock.calculate_gain_loss_percentage()
-        dollars_per_day = stock.get_dollars_per_day()
+DEFAULT_WARM_BUDGET_SECONDS = 900.0   # 15 minutes
+DEFAULT_STALE_COVERAGE_FLOOR = 0.80   # alarm below 80% of symbols inside the TTL
+DEFAULT_STALE_MAX_AGE_HOURS = 168.0   # ...or when anything is older than a week
 
 
-        stock_details.append({
-            'name': stock.name,
-            'symbol': stock.symbol,
-            'purchase_price': float(stock.purchase_price.amount),
-            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'quantity': stock.quantity,
-            'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
-            'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
-            'days_held': (datetime.now().date() - stock.purchase_date).days,
-            'dollars_per_day': float(dollars_per_day.amount) if dollars_per_day else "N/A",
-            'earnings_date': stock.earnings_date.strftime("%Y-%m-%d") if stock.earnings_date else "N/A",
-            'ten_day_moving_average' : stock.metrics.ten_day_moving_average if stock.metrics else "N/A",
-            'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics else "N/A",
-            'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
-            'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics else "N/A",
-            'two_hundred_day_moving_average' : stock.metrics.two_hundred_day_moving_average if stock.metrics else "N/A",
-            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
-            'five_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
-            'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics else "N/A",
-            'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics else "N/A",
-            'ytd_return': stock.metrics.ytd_return if stock.metrics else "N/A",
-            'one_year_return': stock.metrics.one_year_return if stock.metrics else "N/A"
-        })
+def _env_float(name: str, default: float) -> float:
+    """Read a float from the environment, falling back *loudly* on garbage.
 
-    #generate watchlist data
-    watchlist_details = []
-    for stock in watchlist.list_stocks():
-        watchlist_details.append({
-            'name': stock.name,
-            'symbol': stock.symbol,
-            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'ten_day_moving_average': stock.metrics.ten_day_moving_average if stock.metrics.ten_day_moving_average else "N/A",
-            'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics.thirty_day_moving_average else "N/A",
-            'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics.fifty_day_moving_average else "N/A",
-            'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics.one_hundred_day_moving_average else "N/A",
-            'two_hundred_day_moving_average': stock.metrics.two_hundred_day_moving_average if stock.metrics.two_hundred_day_moving_average else "N/A",
-            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
-            'five_day_return': stock.metrics.five_day_return if stock.metrics.five_day_return else "N/A",
-            'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics.thirty_day_return else "N/A",
-            'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics.ninety_day_return else "N/A",
-            'ytd_return': stock.metrics.ytd_return if stock.metrics.ytd_return else "N/A",
-            'one_year_return': stock.metrics.one_year_return if stock.metrics.one_year_return else "N/A"
-        })
-
-    # Create charts
-    chart_img, total_purchase, total_current = create_portfolio_charts(portfolio)
-
-    # Render template with context data
-    return template.render(
-        current_datetime=current_datetime,
-        total_investment=total_investment,
-        total_current=total_current_value,
-        total_gain_loss=total_gain_loss,
-        total_gain_loss_pct=total_gain_loss_pct,
-        total_dollars_per_day=total_dollars_per_day.amount,
-        stock_details=stock_details,
-        watchlist_details=watchlist_details,
-        chart_img=chart_img,
-        total_purchase=total_purchase
-    )
-
-def create_template_file(template_path):
-    """Create the Jinja2 template file"""
-    template_content = """
-
- <!DOCTYPE html>
- <html lang="en">
- <head>
-     <meta charset="UTF-8">
-     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     <title>Stock Portfolio Report</title>
-     <style>
-         body { font-family: Arial, sans-serif; margin: 20px; }
-         h1, h2 { color: #333; }
-         .datetime { font-size: 0.6em; color: #666; font-weight: normal; }
-         .summary { background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-         table { border-collapse: collapse; width: 100%; margin-bottom: 20px; }
-         th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-         th { background-color: #f2f2f2; }
-         tr:nth-child(even) { background-color: #f9f9f9; }
-         .chart-container { margin: 20px 0; text-align: center; }
-         .gain { color: green; }
-         .loss { color: red; }
-     </style>
- </head>
- <body>
-     <h1>Stock Portfolio Report created on {{ current_datetime }}<span class="datetime"></span></h1>
- 
-     <div class="summary">
-         <h2>Portfolio Summary</h2>
-        <p><strong>Total Investment:</strong> {{ total_investment }}</p>
-        <p><strong>Total Current Value:</strong> {{ total_current }}</p>
-        <p><strong>Total Gain/Loss:</strong> 
-            <span class="{% if total_gain_loss.amount >= 0 %}gain{% else %}loss{% endif %}">
-                {{ total_gain_loss }}
-            </span>
-        </p>
-        <p><strong>Total Gain/Loss %:</strong> 
-            <span class="{% if total_gain_loss_pct >= 0 %}gain{% else %}loss{% endif %}">
-                {{ "%.2f"|format(total_gain_loss_pct) }}%
-            </span>
-        </p>
-        <p><strong>Dollars Per Day Gain/Loss:</strong>
-            <span class="{% if total_dollars_per_day >= 0 %}gain{% else %}loss{% endif %}">
-                ${{ "%.2f"|format(total_dollars_per_day) }}
-            </span>
-    </div>
-
-    <h2>Individual Stock Holdings</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Symbol</th>
-                <th>Purchase Price</th>
-                <th>Current Price</th>
-                <th>Quantity</th>
-                <th>Gain/Loss</th>
-                <th>Gain/Loss %</th>
-                <th>Days Held</th>
-                <th>Dollars per day</th>
-                <th>10 day average price</th>
-                <th>30 day average price</th>
-                <th>50 day average price</th>
-                <th>100 day average price</th>
-                <th>200 day average price</th>
-                <th>Today's Change</th>
-                <th>5 Day Return</th>
-                <th>30 day Return</th>
-                <th>90 Day Return</th>
-                <th>YTD Return</th>
-                <th>1 Year Return</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for stock in stock_details %}
-            <tr>
-                <td>{{ stock.name }}</td>
-                <td>{{ stock.symbol }}</td>
-                <td>${{ "%.2f"|format(stock.purchase_price) }}</td>
-                <td>
-                    {% if stock.current_price != "N/A" %}
-                        ${{ "%.2f"|format(stock.current_price) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>{{ stock.quantity }}</td>
-                <td class="{% if stock.gain_loss != "N/A" %}{% if stock.gain_loss >= 0 %}gain{% else %}loss{% endif %}{% endif %}">
-                    {% if stock.gain_loss != "N/A" %}
-                        ${{ "%.2f"|format(stock.gain_loss) }}
-
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td class="{% if stock.gain_loss != "N/A" %}{% if stock.gain_loss >= 0 %}gain{% else %}loss{% endif %}{% endif %}">
-                    {% if stock.gain_loss_pct != "N/A" %}
-                        {{ "%.2f"|format(stock.gain_loss_pct) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.days_held != "N/A" %}
-                        {{ stock.days_held }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.dollars_per_day != "N/A" %}
-                        ${{ "%.2f"|format(stock.dollars_per_day) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.ten_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.fifty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.two_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.percent_change_today != "N/A" %}
-                        {{ "%.2f"|format(stock.percent_change_today) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.five_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.five_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.thirty_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.ninety_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.ninety_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.ytd_return != "N/A" %}
-                        {{ "%.2f"|format(stock.ytd_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_year_return != "N/A" %}
-                        {{ "%.2f"|format(stock.one_year_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-    <div class="chart-container">
-        <h2>Portfolio Visualization</h2>
-        <img src="data:image/png;base64,{{ chart_img }}" alt="Portfolio Charts">
-    </div>
-
-    <h2>Watchlist</h2>
-    <table>
-        <thead>
-            <tr>
-                <th>Name</th>
-                <th>Symbol</th>
-                <th>Current Price</th>
-                <th>10 day average price</th>
-                <th>30 day average price</th>
-                <th>50 day average price</th>
-                <th>100 day average price</th>
-                <th>200 day average price</th>
-                <th>Today's Change</th>
-                <th>5 Day Return</th>
-                <th>30 day Return</th>
-                <th>90 Day Return</th>
-                <th>YTD Return</th>
-                <th>1 Year Return</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for stock in watchlist_details %}
-            <tr>
-                <td>{{ stock.name }}</td>
-                <td>{{ stock.symbol }}</td>
-                <td>
-                    {% if stock.current_price != "N/A" %}
-                        ${{ "%.2f"|format(stock.current_price) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-
-                <td>
-                    {% if stock.ten_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.ten_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.thirty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.fifty_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.fifty_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.one_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.two_hundred_day_moving_average != "N/A" %}
-                        ${{ "%.2f"|format(stock.two_hundred_day_moving_average) }}
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.percent_change_today != "N/A" %}
-                        {{ "%.2f"|format(stock.percent_change_today) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.five_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.five_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.thirty_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.thirty_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.ninety_day_return != "N/A" %}
-                        {{ "%.2f"|format(stock.ninety_day_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.ytd_return != "N/A" %}
-                        {{ "%.2f"|format(stock.ytd_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-                <td>
-                    {% if stock.one_year_return != "N/A" %}
-                        {{ "%.2f"|format(stock.one_year_return) }}%
-                    {% else %}
-                        N/A
-                    {% endif %}
-                </td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-
-
-</body>
-</html>
-"""
-    with open(template_path, 'w') as f:
-        f.write(template_content)
+    A typo in a Cloud Run env var should not silently give the warmer a zero
+    budget — that would look exactly like a warmer that finished instantly.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        print(f"WARNING: {name}={raw!r} is not a number; using {default}.",
+              file=sys.stderr)
+        return default
 
 
 def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     """Alarm — loudly — when the watchlist table comes back empty (issue #83).
 
-    An empty watchlist is a degraded run, not a normal one: the report loses
-    its watchlist section and the options-chain capture loop silently narrows
-    to portfolio symbols, so the open-interest history develops a hole nobody
-    sees until they go looking for it months later.
+    An empty watchlist is a degraded run, not a normal one: the options-chain
+    capture loop silently narrows to portfolio symbols, so the open-interest
+    history develops a hole nobody sees until they go looking for it months
+    later, and the published report loses its watchlist section.
 
     There is deliberately no fallback to watchlist.yaml (plan decision 7) —
     that would re-hide the persistence failure this issue is about. Alarm and
@@ -580,41 +84,135 @@ def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     return True
 
 
-def save_html_to_s3(html_content):
-    """Save HTML content directly to S3 without writing to file system"""
-    import boto3
+def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
+                            clock=time.monotonic) -> dict:
+    """Refresh the fundamentals cache oldest-first until the budget runs out.
 
-    # Initialize S3 client
-    s3 = boto3.client('s3')
+    Nothing else refreshes this cache, so without a warming pass the
+    fundamentals views serve whatever a human last happened to ask for.
 
-    # Get bucket and key for the HTML file from the environment variables
-    load_dotenv()
-    bucket_name = os.environ.get("BUCKET_NAME")
-    key = os.environ.get("BUCKET_KEY")
-    if not bucket_name or not key:
-        # # Missing configuration, store locally
-        # script_dir = Path(__file__).parent
-        # local_file = script_dir / "portfolio_report.html"
-        # with open(local_file, 'w') as f:
-        #     f.write(html_content)
-        #
-        # print(f'file saved locally at file://{local_file}')
-        # return f'file://{local_file}'
-        return None
-    else:
-        #store it in S3 Bucket
+    The pass is bounded because it cannot afford not to be: a cold sweep is
+    roughly ten serial yfinance calls per symbol across a couple of hundred
+    symbols, which will not finish inside a Cloud Run Job's task timeout.
+    Oldest-first ordering plus a wall-clock budget converges the whole universe
+    over a few nights while keeping any single night's cost predictable.
 
-        # Upload HTML content directly to S3
-        s3.put_object(
-            Bucket=bucket_name,
-            Key=key,
-            Body=html_content,
-            ContentType='text/html',
-            CacheControl='no-store,no-cache,private,max-age=60'
+    Only symbols outside the TTL are candidates. ``get_full_fundamental_profile``
+    writes all four data types in one pass, so they age together and
+    ``fundamental_score`` freshness stands in for the set.
+
+    One bad symbol degrades one row: the per-symbol ``try/except`` here is the
+    inner guard, and ``run_fundamentals_warming`` is the outer one.
+    """
+    # Resolved here rather than at the call site so every caller — including
+    # run_fundamentals_warming, which passes nothing — honours the env var.
+    budget = _env_float(WARM_BUDGET_SECONDS_ENV, DEFAULT_WARM_BUDGET_SECONDS) \
+        if budget_seconds is None else budget_seconds
+
+    before = fundamentals.cache_freshness(symbols)
+    candidates = [row["symbol"] for row in before["symbols"] if row["stale"]]
+
+    print(f"Warming fundamentals for {len(candidates)} stale of "
+          f"{before['requested']} symbol(s), budget {budget:.0f}s "
+          f"(coverage {before['coverage']:.0%})...")
+
+    started = clock()
+    warmed = 0
+    failed = 0
+    attempted = 0
+
+    for sym in candidates:
+        if clock() - started >= budget:
+            break
+        attempted += 1
+        try:
+            fundamentals.get_full_fundamental_profile(sym)
+            warmed += 1
+        except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the pass
+            failed += 1
+            print(f"  {sym}: fundamentals warm failed: {exc}")
+
+    elapsed = clock() - started
+    summary = {
+        "candidates":       len(candidates),
+        "attempted":        attempted,
+        "warmed":           warmed,
+        "failed":           failed,
+        "skipped":          len(candidates) - attempted,
+        "elapsed_seconds":  round(elapsed, 1),
+        "budget_seconds":   budget,
+        "budget_exhausted": attempted < len(candidates),
+    }
+    print(f"  warmed {warmed}, failed {failed}, skipped {summary['skipped']} "
+          f"in {summary['elapsed_seconds']}s"
+          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
+    return summary
+
+
+def alert_if_fundamentals_stale(freshness, notifier, coverage_floor=None,
+                                max_age_hours=None) -> bool:
+    """Alarm when the cache is still stale *after* a warming pass.
+
+    Same bilge-pump shape as ``alert_if_watchlist_empty``: the warmer swallows
+    its failures so the job survives, and this makes the resulting degradation
+    loud. Without it, a warmer that quietly does nothing is indistinguishable
+    from one that finished, and the fundamentals views keep serving month-old
+    scores. Returns True when the alarm fired.
+
+    Two independent triggers, because they catch different failures: coverage
+    catches a warmer that is not keeping up across the board, and the age
+    ceiling catches a handful of symbols that fail every night while the
+    average stays healthy.
+    """
+    floor = _env_float(STALE_COVERAGE_FLOOR_ENV, DEFAULT_STALE_COVERAGE_FLOOR) \
+        if coverage_floor is None else coverage_floor
+    ceiling = _env_float(STALE_MAX_AGE_HOURS_ENV, DEFAULT_STALE_MAX_AGE_HOURS) \
+        if max_age_hours is None else max_age_hours
+
+    coverage = freshness["coverage"]
+    oldest_seconds = freshness.get("oldest_age_seconds")
+    oldest_hours = None if oldest_seconds is None else oldest_seconds / 3600.0
+
+    too_thin = coverage < floor
+    too_old = oldest_hours is not None and oldest_hours > ceiling
+    if not (too_thin or too_old):
+        return False
+
+    print(f"ERROR: fundamentals cache is stale — {freshness['stale_count']} of "
+          f"{freshness['requested']} symbol(s) outside the TTL "
+          f"({coverage:.0%} coverage, floor {floor:.0%}"
+          + (f", oldest {oldest_hours:.0f}h, ceiling {ceiling:.0f}h" if oldest_hours is not None else "")
+          + ").", file=sys.stderr)
+    try:
+        notifier.send_stale_fundamentals_alert(
+            coverage=coverage,
+            stale_count=freshness["stale_count"],
+            requested=freshness["requested"],
+            oldest_age_hours=oldest_hours,
         )
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        print(f"  (failed to send the stale-fundamentals alert: {exc})",
+              file=sys.stderr)
+    return True
 
-        print(f"Portfolio report uploaded to S3: s3://{bucket_name}/{key}")
-        return f"https://www.{bucket_name}/{key}"
+
+def run_fundamentals_warming(symbols, fundamentals, notifier) -> None:
+    """Warm the cache, then alarm if it is still stale. Never raises.
+
+    The per-symbol guard inside ``warm_fundamentals_cache`` is not sufficient
+    on its own — a failure in the freshness query, the service registry, or the
+    database connection happens outside any per-symbol block. This runs last in
+    the job, so letting anything here propagate would mark a run that already
+    sent its notifications and captured its options chains as failed.
+    """
+    try:
+        warm_fundamentals_cache(symbols, fundamentals)
+        # Re-read after warming: the alarm should describe the state the run
+        # actually left behind, not the one it started from.
+        alert_if_fundamentals_stale(fundamentals.cache_freshness(symbols), notifier)
+    except Exception as exc:  # noqa: BLE001 — the last step must not fail the job
+        print(f"ERROR: fundamentals warming pass failed: {exc}", file=sys.stderr)
+
 
 if __name__ == "__main__":
     # Make sure the schema is right (creates tables, or verifies them
@@ -623,9 +221,6 @@ if __name__ == "__main__":
 
     # Create a portfolio
     portfolio = portfolio.Portfolio()
-
-    # Get the directory where the script is located
-    script_dir = Path(__file__).parent
 
     # Load John's positions from the DB-backed source of truth (positions table).
     # portfolio.csv remains John's import file; refresh it via
@@ -649,27 +244,8 @@ if __name__ == "__main__":
     watchlist.update_all_prices()
     watchlist.update_metrics()
 
-
-    # Create HTML report
-    html_content = create_portfolio_html(portfolio,watchlist)
-
-    # Save HTML to S3
-    s3_url = save_html_to_s3(html_content)
-
-    # Write HTML to file
-    html_file = script_dir / "portfolio_report.html"
-    with open(html_file, 'w') as f:
-        f.write(html_content)
-
-
-
-    # Open HTML in default browser
-    # webbrowser.open('file://' + os.path.abspath(html_file))
-    # webbrowser.open(s3_url)
-
-
-    print(f"Portfolio report generated and opened in your browser: {html_file}")
-
+    # Notifications first: they are the cheapest step and the one people
+    # actually read, so nothing slower gets to stand in front of them.
     notifier = Notifier(portfolio)
     notifier.calculate_and_send_notifications()
 
@@ -678,7 +254,7 @@ if __name__ == "__main__":
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps
     # accumulating (issue #93 Phases 4/5). In-process services, capped at 6
-    # expirations per symbol; a failed fetch must never fail the report.
+    # expirations per symbol; a failed fetch must never fail the job.
     capture_symbols = []
     for stock in portfolio.list_stocks() + watchlist.list_stocks():
         if stock.symbol not in capture_symbols:
@@ -703,3 +279,7 @@ if __name__ == "__main__":
                   + ("" if chain.get('persisted') else " (not persisted — duplicate)"))
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the job
             print(f"  {sym}: options chain capture failed: {exc}")
+
+    # Last, and budgeted: the same universe the options capture just walked is
+    # the one the fundamentals views read, so warm exactly that.
+    run_fundamentals_warming(capture_symbols, get_services().fundamentals, notifier)

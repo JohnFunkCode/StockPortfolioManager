@@ -1,6 +1,8 @@
-# requirements.txt — full local/dev install (base + ML stack).
+# requirements.txt — full local/dev install (base + ML stack + report stack).
 #
 # Layered to keep container images lean (see requirements-base.txt /
-# requirements-ml.txt). `pip install -r requirements.txt` installs everything,
-# exactly as before, so the local dev workflow is unchanged.
+# requirements-ml.txt / requirements-report.txt). `pip install -r
+# requirements.txt` installs everything, exactly as before, so the local dev
+# workflow and the Raspberry Pi's report install are unchanged.
 -r requirements-ml.txt
+-r requirements-report.txt

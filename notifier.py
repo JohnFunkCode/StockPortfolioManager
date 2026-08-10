@@ -409,6 +409,51 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_stale_fundamentals_alert(
+        self,
+        coverage: float,
+        stale_count: int,
+        requested: int,
+        oldest_age_hours: float | None,
+    ) -> None:
+        """Last-resort alarm for a fundamentals cache the warmer isn't keeping up with.
+
+        The warmer runs last in the daily job, under a wall-clock budget, and
+        swallows its own failures so the notifications and options capture that
+        already succeeded still decide the job's exit status. That is the right
+        trade, but it means a warmer that silently does nothing looks exactly
+        like a warmer that finished — and the fundamentals pages downstream
+        would keep serving month-old scores with a fresh-looking timestamp on
+        the row. So the degradation gets its own alarm: swallow the exception,
+        then make the resulting staleness loud.
+
+        The date is in the title on purpose: send_notifications() dedupes on the
+        title against notification.log, and a cache that stays stale for a week
+        should alarm on each of those days rather than only the first.
+        """
+        oldest_line = (
+            f"Oldest entry: {oldest_age_hours:.0f}h old.\n"
+            if oldest_age_hours is not None else ""
+        )
+        embed = {
+            "content": f"Fundamentals Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"Fundamentals cache is stale ({date.today():%Y-%m-%d})",
+                    "description": (
+                        f"{stale_count} of {requested} symbol(s) are outside the "
+                        f"cache TTL — {coverage:.0%} coverage.\n"
+                        f"{oldest_line}\n"
+                        "The nightly warmer is not keeping up. Check the job log "
+                        "for warming errors, or raise "
+                        "`FUNDAMENTALS_WARM_BUDGET_SECONDS`."
+                    ),
+                    "color": 16776960,  # Yellow — degraded, not failed
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_notifications(self, embed):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 

@@ -15,12 +15,18 @@
 # The target database is echoed (host:port/name only) before Flyway runs. The
 # password is exported to Flyway's environment and never printed.
 #
-# NOTE: `init_schema()` in `quantcore/db.py` runs 22 tables of idempotent DDL on
-# every application startup, so a deployed database usually already has the right
-# *shape* before Flyway ever runs — pure-DDL migrations are expected to report
-# "already exists, skipping". `flyway info` is therefore NOT evidence of what a
-# deployed database contains; run `scripts/schema_check.py --test|--prod` for that
-# (read-only, diffs live objects against db/schema_snapshot.json). See issue #165.
+# NOTE: Flyway is now the sole owner of the DDL on any database carrying a
+# `flyway_schema_history` ledger — which is test and prod. Startup checks the
+# schema there instead of creating it (QUANTCORE_SCHEMA_MODE=auto -> verify), so
+# `migrate` must run BEFORE deploying an image that carries a schema change, and
+# the migration must be complete DDL: nothing creates the object for you any more,
+# and a drifted schema aborts startup with SchemaDriftError.
+#
+# Migrations written before that flip may still report "already exists, skipping"
+# because `init_schema()` had already converged the shape. `flyway info` is a
+# changelog view, NOT evidence of what a deployed database contains; run
+# `scripts/schema_check.py --test|--prod` for that (read-only, diffs live objects
+# against db/schema_snapshot.json). See issue #165.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

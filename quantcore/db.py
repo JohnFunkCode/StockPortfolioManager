@@ -579,10 +579,20 @@ def _resolve_schema_mode(dsn: str) -> tuple[str, str]:
     is a ``gcloud run services update --update-env-vars`` away, and tests set
     it per case.
 
-    An unrecognized value resolves to ``create`` — today's behaviour — and
+    An unrecognized value resolves to ``create`` — the historic behaviour — and
     logs an error. That direction is deliberate: a typo is most likely made by
     an operator reaching for the escape hatch mid-incident, and failing closed
     there would deny them the very thing they were reaching for.
+
+    **The escape hatch.** ``auto`` enforces on a Flyway-managed database, so a
+    missing migration now fails a deploy. To get the old create-on-startup
+    behaviour back without a code change::
+
+        gcloud run services update quantcore-api --project <project> \\
+          --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=create
+
+    ``--update-env-vars``, never ``--set-env-vars``: the latter replaces the
+    whole set and has taken prod down before.
     """
     requested = (os.getenv("QUANTCORE_SCHEMA_MODE") or "auto").strip().lower()
     if requested not in SCHEMA_MODES:
@@ -595,8 +605,10 @@ def _resolve_schema_mode(dsn: str) -> tuple[str, str]:
     if requested != "auto":
         return requested, requested
     # A database with a Flyway ledger has an owner for its DDL already; one
-    # without (local dev, CI, compose, a brand-new instance) does not.
-    return "auto", "warn" if _flyway_managed(dsn) else "create"
+    # without (local dev, CI, compose, a brand-new instance) does not. This
+    # resolved to `warn` for one deploy cycle on both projects (decision D5);
+    # both reported missing=0 mismatch=0, so it now enforces.
+    return "auto", "verify" if _flyway_managed(dsn) else "create"
 
 
 def _check_schema(dsn: str, *, requested: str, resolved: str) -> None:
@@ -648,7 +660,11 @@ def ensure_schema(dsn: str = None) -> None:
 
     "Right" depends on ``QUANTCORE_SCHEMA_MODE`` (see
     :func:`_resolve_schema_mode`): on a database Flyway already manages this
-    only *checks*, and on one nobody manages it still creates.
+    *checks* and raises :class:`SchemaDriftError` on drift rather than papering
+    over it with DDL; on one nobody manages it still creates. Raising here
+    aborts startup, which is the point — a Cloud Run revision that fails its
+    startup check never takes traffic, so the previous revision keeps serving
+    instead of the mismatch surfacing as query errors later.
 
     Callers that just need the tables to exist should use this rather than
     ``init_schema()``: the DDL takes ~3s against a managed instance and locks

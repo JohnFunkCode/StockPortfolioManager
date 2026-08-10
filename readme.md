@@ -120,12 +120,12 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 - Fundamental metrics and earnings dates
 - Harvester plan instances and alert logs
 
-**The schema is automatically created** when any application component starts (main.py, REST API, or MCP servers) — `init_schema()` runs before any database operations. The PostgreSQL server, database, and `quantcore` user must already exist; point the app at any reachable PostgreSQL instance via the DSN below — a local server, or a managed service such as Cloud SQL connected through the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) (which exposes the remote database as a local `host:port`, so no code changes are needed to switch targets).
+**The schema is automatically created** when any application component starts (main.py, REST API, or MCP servers) on a database nothing else manages — local dev, CI, compose, a brand-new instance. Where a Flyway ledger exists (test and prod), startup instead **checks** the schema and refuses to start on drift; see `QUANTCORE_SCHEMA_MODE` below and [Migrations](#migrations-flyway). The PostgreSQL server, database, and `quantcore` user must already exist; point the app at any reachable PostgreSQL instance via the DSN below — a local server, or a managed service such as Cloud SQL connected through the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) (which exposes the remote database as a local `host:port`, so no code changes are needed to switch targets).
 
 **Environment Variables:**
 - `QUANTCORE_DB_DSN` — PostgreSQL connection string for the unified database, e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`
 - `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database, used to run the app or test suite against a separate copy of the data without touching the primary database
-- `QUANTCORE_SCHEMA_MODE` — what startup does about the schema: `create` (run the DDL), `warn` (check it and log differences), `verify` (check it and refuse to start on a missing or mismatched object), or `auto` (the default: create where no Flyway ledger exists, otherwise warn). See [Migrations](#migrations-flyway) below
+- `QUANTCORE_SCHEMA_MODE` — what startup does about the schema: `create` (run the DDL), `warn` (check it and log differences), `verify` (check it and refuse to start on a missing or mismatched object), or `auto` (the default: create where no Flyway ledger exists, otherwise verify). See [Migrations](#migrations-flyway) below
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
 
@@ -162,10 +162,28 @@ deployed database actually contains**. Run `python scripts/schema_check.py --pro
 connects read-only and diffs the live schema against the committed `db/schema_snapshot.json`).
 `QUANTCORE_SCHEMA_MODE` (above) is what ends the race: where a Flyway ledger exists, startup now
 checks the schema instead of creating it, leaving Flyway the sole owner of the DDL.
-Only migrations that carry data changes — backfills, seeds — do real work on a deployed database.
-That two-owners-of-the-schema problem is tracked as
+That two-owners-of-the-schema problem was
 [issue #165](https://github.com/JohnFunkCode/StockPortfolioManager/issues/165) (plan:
 [`docs/proposals/schema-ownership-plan.md`](docs/proposals/schema-ownership-plan.md)).
+
+**Migrations are load-bearing — this changes how you ship a schema change.** Startup no longer
+creates anything on test or prod, so:
+
+1. **Migrate first, deploy second — in both projects.** `./scripts/flyway.sh migrate` before the
+   merge to `main` (`deploy.yml` auto-rolls test), and `./scripts/flyway.sh --prod migrate` before
+   dispatching `prod-rollout.yml`. Nothing else will create the object for you.
+2. **The migration must be complete DDL.** A forgotten column used to be invisible, because
+   `init_schema()` created it at startup anyway. Now it is a `MISSING`/`MISMATCH` line and it
+   fails the deploy.
+3. **Failing early is the point.** Startup raises `SchemaDriftError`, so the new Cloud Run
+   revision never passes its health check and never takes traffic — the previous revision keeps
+   serving. Drift surfaces at deploy time instead of hours later as query errors on live traffic.
+4. **If you need the old behaviour back**, it is one command and no code change:
+   ```bash
+   gcloud run services update quantcore-api --project quantcore-prod-20260606 --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=create
+   ```
+   Always `--update-env-vars`, never `--set-env-vars` — the latter replaces the whole variable set
+   and has broken prod before.
 
 **Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:
 ```bash

@@ -284,18 +284,34 @@ hatch is one `gcloud run services update --update-env-vars` away:
 | `create` | Run the 22-table DDL. Historic behaviour, and the escape hatch. |
 | `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
 | `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
-| `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `warn`. |
+| `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `verify`. |
 
 That is the fix for the two-owners problem: on a database Flyway already manages, the app stops
 creating schema and only checks it. An unrecognized value falls back to `create` and logs an error
 — a typo is most likely made by an operator reaching for the escape hatch mid-incident, and failing
 closed there would deny them exactly what they were reaching for. The check emits one greppable
-line (`schema check: mode=auto resolved=warn tables=22 missing=0 mismatch=0 extra=0`) plus one line
-per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so a
-developer's Flyway-managed test database and CI's bare Postgres behave identically.
+line (`schema check: mode=verify resolved=verify tables=22 missing=0 mismatch=0 extra=0`) plus one
+line per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so
+a developer's Flyway-managed test database and CI's bare Postgres behave identically.
 
-`auto` is deliberately still warn-only; flipping it to `verify` is PR 4 of the plan below, gated on
-a clean soak on both projects.
+**Migrations are now load-bearing** (`auto` soaked warn-only on both projects for a full deploy
+cycle — missing=0, mismatch=0 — and now enforces):
+
+- Migrate **before** the image carrying the schema change deploys, in **both** projects:
+  `./scripts/flyway.sh migrate` before the merge to `main` (`deploy.yml` auto-rolls test), and
+  `./scripts/flyway.sh --prod migrate` before dispatching `prod-rollout.yml`. `init_schema()` is
+  no longer the safety net on a deployed database; nothing else will create the object for you.
+- A migration must now be **complete DDL**. A forgotten column used to be invisible because
+  `_SCHEMA` created it at startup anyway; now it is a `MISSING`/`MISMATCH` line and the deploy
+  fails.
+- **Failing early is the feature.** `ensure_schema()` raises `SchemaDriftError` during startup, so
+  the Cloud Run revision never passes its health check and never takes traffic — the previous
+  revision keeps serving. The alternative is the drift surfacing hours later as query errors on
+  live traffic.
+- Escape hatch, one command, no code change:
+  `gcloud run services update quantcore-api --project <project> --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=create`
+  (`--update-env-vars`, never `--set-env-vars` — the latter replaces the whole set and has taken
+  prod down before).
 
 **Migrations (Flyway):** versioned SQL lives in `db/migrations/V*.sql`, configured by `db/flyway.conf` (which deliberately holds **no credentials** — `baselineOnMigrate=true`, `baselineVersion=1`). Run it with the wrapper, which derives the JDBC URL and login from the DSNs in `.env`, defaults to **test**, echoes the target host before running, and confirms before a prod `migrate`:
 

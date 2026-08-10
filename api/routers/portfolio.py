@@ -56,6 +56,7 @@ from ..schemas.portfolio import (
     SymbolRowsResponse,
     UpdateLotRequest,
     UpdateLotResponse,
+    WatchlistFundamentalsResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
 
@@ -245,6 +246,24 @@ def close_lot(
 @router.get("/watchlist", response_model=SecuritiesResponse)
 def get_watchlist() -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"securities": load_watchlist()})
+
+
+# Declared before /watchlist/{ticker} out of habit, not necessity: that route is
+# DELETE-only, and Starlette treats a path match with the wrong method as a
+# *partial* match and keeps scanning, so this GET is found either way today.
+# What would make the order load-bearing is adding a GET on /watchlist/{ticker}
+# — a plausible detail endpoint — after which the reverse order swallows
+# "fundamentals" as a ticker and returns a 404 for a symbol nobody holds. The
+# guard against that is behavioural, in test_api_smoke.py, not this comment.
+@router.get("/watchlist/fundamentals", response_model=WatchlistFundamentalsResponse)
+def get_watchlist_fundamentals() -> QuantCoreJSONResponse:
+    """Returns + cached fundamentals for the whole watchlist, in six queries
+    and no network calls (issue #147 Part B3/B5).
+
+    This is the page that replaces the nightly HTML report. No ``?owner=`` —
+    the watchlist is global (issue #83).
+    """
+    return QuantCoreJSONResponse(services().watchlist.returns_and_fundamentals())
 
 
 @router.post("/watchlist", response_model=AddSecurityResponse, status_code=201)

@@ -263,3 +263,64 @@ class CloseLotResponse(BaseModel):
     sale_price: Decimal
     sale_trade_date: str
     allocations: List[CloseLotAllocation]
+
+
+class WatchlistFundamentalsRow(BaseModel):
+    """One row of the watchlist returns + fundamentals table (issue #147 Part B5).
+
+    Every analytical field is Optional and every one means "not known" when
+    absent — a symbol the fundamentals cache has never scored, or one whose
+    price history is too short for a 1y window. None of them default to 0: a
+    zero score and an unscored symbol sort to very different places.
+    """
+
+    symbol: str
+    name: str
+    currency: str
+    tags: List[str] = []
+
+    price: Optional[float] = None
+    price_as_of: Optional[str] = None
+    return_5d: Optional[float] = None
+    return_30d: Optional[float] = None
+    return_60d: Optional[float] = None
+    return_ytd: Optional[float] = None
+    return_1y: Optional[float] = None
+
+    composite_score: Optional[float] = None
+    fundamental_label: Optional[str] = None
+    coverage: Optional[float] = None
+    sector: Optional[str] = None
+
+    # Three fields, not one: market_cap is the native figure in
+    # market_cap_currency, and only market_cap_usd is comparable across
+    # securities. Sorting a mixed-currency column on market_cap is the bug that
+    # put SK hynix's ₩1,456T at the top of a dollar column.
+    market_cap: Optional[float] = None
+    market_cap_currency: Optional[str] = None
+    market_cap_usd: Optional[float] = None
+
+    rev_cagr_3y: Optional[float] = None
+    rev_cagr_score: Optional[float] = None
+    rev_accel_score: Optional[float] = None
+    op_margin_score: Optional[float] = None
+    fcf_margin_score: Optional[float] = None
+    valuation_score: Optional[float] = None
+    momentum_score: Optional[float] = None
+
+    revenue_trajectory: Optional[str] = None
+    earnings_date: Optional[str] = None
+    eps_acceleration: Optional[str] = None
+
+    fundamentals_cached_at: Optional[str] = None
+    fundamentals_stale: Optional[bool] = None
+    fundamentals_age_hours: Optional[float] = None
+
+
+class WatchlistFundamentalsResponse(BaseModel):
+    generated_at: str
+    as_of: Optional[str] = None
+    count: int
+    stale_count: int
+    unscored_count: int
+    rows: List[WatchlistFundamentalsRow]

@@ -31,6 +31,12 @@ from quantcore.services.portfolio import DuplicateSymbolError
 
 logger = logging.getLogger(__name__)
 
+# How long an add is willing to wait on Yahoo before storing the fallback
+# currency. Deliberately well under the gateway's 15s default: this runs
+# inside the user's POST /api/watchlist, and a wrong-but-repairable currency
+# beats a dialog that appears to have frozen.
+ADD_LOOKUP_TIMEOUT_SECONDS = 6.0
+
 
 def _metric(score: Dict[str, Any], name: str) -> Dict[str, Any]:
     """One scored metric out of a cached fundamental_score payload, or ``{}``.
@@ -93,7 +99,9 @@ class WatchlistService:
     # ------------------------------------------------------------------
     # Currency resolution
     # ------------------------------------------------------------------
-    def resolve_currency(self, symbol: str) -> Optional[str]:
+    def resolve_currency(
+        self, symbol: str, timeout: float = ADD_LOOKUP_TIMEOUT_SECONDS
+    ) -> Optional[str]:
         """The currency `symbol` actually trades in, or ``None`` if unknown.
 
         ``info["currency"]`` is the trading currency, which is the one that
@@ -104,11 +112,16 @@ class WatchlistService:
         Returns ``None`` rather than raising on any failure: Yahoo being slow
         or wrong is not a reason to refuse to watch a symbol. The caller
         decides what to fall back to.
+
+        The timeout is shorter than the gateway's 15s default because this sits
+        on the synchronous add path, where the deadline is a person watching a
+        dialog. Missing the currency costs one repair-script run; a dialog that
+        hangs for fifteen seconds costs the user's trust in the button.
         """
         if self._yf is None:
             return None
         try:
-            info = self._yf.ticker_info(symbol) or {}
+            info = self._yf.ticker_info(symbol, timeout=timeout) or {}
         except Exception as exc:  # noqa: BLE001 — any gateway failure is a miss
             logger.warning("currency lookup failed for %s: %s", symbol, exc)
             return None
@@ -299,7 +312,13 @@ class WatchlistService:
         if not row["symbol"]:
             raise ValueError("symbol is required")
 
-        looked_up = self.resolve_currency(row["symbol"])
+        # Passed explicitly rather than left to the signature default: this is
+        # the call that sits inside a user's POST, and the deadline belongs at
+        # the site that has one. It also resolves at call time, so the ceiling
+        # is a module constant a test can pin.
+        looked_up = self.resolve_currency(
+            row["symbol"], timeout=ADD_LOOKUP_TIMEOUT_SECONDS
+        )
         if looked_up:
             if currency and looked_up != str(currency).strip().upper():
                 logger.info(

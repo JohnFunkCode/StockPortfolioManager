@@ -316,6 +316,67 @@ class WatchlistCurrencyTest(unittest.TestCase):
         self.assertEqual([r["symbol"] for r in results], ["ASSA-B.ST"])
         self.assertEqual(self.yf.calls, ["ASSA-B.ST"], "no lookups for the rest")
 
+    def test_add_passes_a_shorter_deadline_than_the_gateway_default(self):
+        """The add path runs inside a user's POST; 15s is not a UI deadline."""
+        from quantcore.services.watchlist import ADD_LOOKUP_TIMEOUT_SECONDS
+
+        class TimeoutRecordingYFinance(FakeYFinance):
+            def __init__(self):
+                super().__init__({"NVDA": {"currency": "USD"}})
+                self.timeouts = []
+
+            def ticker_info(self, symbol, timeout=15.0):
+                self.timeouts.append(timeout)
+                return super().ticker_info(symbol, timeout=timeout)
+
+        yf = TimeoutRecordingYFinance()
+        WatchlistService(FakeRepository(), yfinance=yf).add_entry("NVDA")
+
+        self.assertEqual(yf.timeouts, [ADD_LOOKUP_TIMEOUT_SECONDS])
+        self.assertLess(ADD_LOOKUP_TIMEOUT_SECONDS, 15.0)
+
+
+class WatchlistAddSurvivesAHangingYahooTest(unittest.TestCase):
+    """Issue #184 review: "fails soft" has to mean soft *and* fast.
+
+    Wired through the real YFinanceGateway, because the defect lived exactly
+    at that seam — the service was correct, the gateway raised the right
+    exception, and the caller still waited for Yahoo. A double for the gateway
+    would have proved nothing, so this test patches ``yf.Ticker`` and lets the
+    real timeout machinery run.
+    """
+
+    def test_add_returns_with_the_fallback_instead_of_holding_the_request(self):
+        from unittest.mock import patch
+
+        from quantcore.gateways import yfinance_gateway as gw_mod
+        from quantcore.gateways.yfinance_gateway import YFinanceGateway
+        from quantcore.services import watchlist as wl_mod
+
+        class HangingTicker:
+            @property
+            def info(self):
+                time.sleep(30)
+                return {"currency": "SEK"}
+
+        repo = FakeRepository()
+        svc = WatchlistService(repo, yfinance=YFinanceGateway())
+
+        with patch.object(gw_mod.yf, "Ticker", lambda s: HangingTicker()), \
+                patch.object(wl_mod, "ADD_LOOKUP_TIMEOUT_SECONDS", 0.25):
+            start = time.monotonic()
+            result = svc.add_entry("ASSA-B.ST", currency="USD")
+            elapsed = time.monotonic() - start
+
+        self.assertLess(
+            elapsed, 5.0,
+            f"add held the caller {elapsed:.2f}s behind a 0.25s lookup deadline",
+        )
+        # Soft, not closed: the symbol is watched, on the supplied fallback.
+        self.assertEqual(result["symbol"], "ASSA-B.ST")
+        self.assertEqual(result["currency"], "USD")
+        self.assertEqual(repo.added[0]["symbol"], "ASSA-B.ST")
+
 
 class ExplodingYFinance:
     """Any attribute touched is a network call that should not have happened."""

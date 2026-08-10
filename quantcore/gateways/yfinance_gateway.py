@@ -12,7 +12,6 @@ corruption). Every download is serialized on _YF_DOWNLOAD_LOCK, enforced by
 test_architecture_guards.py.
 """
 
-import concurrent.futures
 import datetime
 import logging
 import threading
@@ -112,18 +111,45 @@ class YFinanceGateway:
         """Fetch ticker.info with a hard timeout to prevent callers from hanging.
 
         yfinance's ticker.info hits a slow Yahoo Finance endpoint that can block
-        indefinitely.  We run it in a thread and abandon it after `timeout` seconds.
+        indefinitely. We run it in a thread and abandon it after `timeout`.
+
+        Abandoning has to be literal, which is why this is a bare daemon thread
+        and not a ThreadPoolExecutor. Under `with ThreadPoolExecutor(...)`,
+        `__exit__` calls `shutdown(wait=True)`, so raising TimeoutError inside
+        the block blocks on the way out until the hung worker returns anyway —
+        the timeout chose when the exception was *built*, not when the caller
+        got control back. Measured: a 1s timeout against a 6s hang took 6.01s.
+        `Thread.join(timeout)` has no such back door, and a daemon thread also
+        can't wedge interpreter exit the way a pool worker can (the executor's
+        atexit hook joins its threads).
+
+        The cost is an orphaned thread per timeout, alive until Yahoo answers.
+        That is the right trade: it is bounded by the request rate, it holds no
+        lock, and the alternative is holding a user's HTTP request instead.
         """
         ticker = yf.Ticker(symbol)
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(lambda: ticker.info)
+        box: dict = {}
+
+        def _fetch() -> None:
             try:
-                return future.result(timeout=timeout)
-            except concurrent.futures.TimeoutError:
-                raise TimeoutError(
-                    f"Yahoo Finance .info request timed out after {timeout}s for {symbol}. "
-                    "The endpoint is temporarily slow or rate-limiting. Try again in a moment."
-                )
+                box["value"] = ticker.info
+            except BaseException as exc:  # noqa: BLE001 — re-raised on the caller's thread
+                box["error"] = exc
+
+        worker = threading.Thread(
+            target=_fetch, daemon=True, name=f"yf-info-{symbol}"
+        )
+        worker.start()
+        worker.join(timeout)
+
+        if worker.is_alive():
+            raise TimeoutError(
+                f"Yahoo Finance .info request timed out after {timeout}s for {symbol}. "
+                "The endpoint is temporarily slow or rate-limiting. Try again in a moment."
+            )
+        if "error" in box:
+            raise box["error"]
+        return box.get("value") or {}
 
     def fast_info(self, symbol: str):
         """Live quote snapshot (bid/ask/last price) — yfinance fast_info object."""

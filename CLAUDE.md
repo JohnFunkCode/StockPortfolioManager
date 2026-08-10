@@ -216,6 +216,16 @@ missing one. Consequences to keep straight:
 
 - The lookup **fails soft, never closed** — Yahoo being down must not block adding a symbol.
   A miss falls back to the supplied value and logs a warning; it never raises.
+- Soft is not enough on its own: it must also be **fast**, because this runs inside the user's
+  `POST /api/watchlist`. `add_entry` passes `ADD_LOOKUP_TIMEOUT_SECONDS` (6s, under the
+  gateway's 15s default) and `YFinanceGateway.ticker_info` enforces it with a bare **daemon
+  thread + `join(timeout)`** — deliberately *not* a `ThreadPoolExecutor`. `Executor.__exit__`
+  calls `shutdown(wait=True)`, so raising `TimeoutError` inside `with ThreadPoolExecutor(...)`
+  blocks on the way out until the hung worker returns anyway: the timeout picks when the
+  exception is *built*, not when the caller regains control (measured — a 1s timeout against a
+  6s hang took 6.01s, and the add path held a caller 30s behind a 0.25s deadline). Don't
+  "tidy" it back into an executor; `tests/test_yfinance_gateway.py` and
+  `tests/test_watchlist_service.py` assert on elapsed wall clock for exactly that reason.
 - `add_to_watchlist` on the portfolio MCP wrapper has **no `currency` parameter** at all, and
   the Add Security dialog shows its currency picker on the Portfolio tab only. Don't add
   either back; `tests/test_mcp_seam.py` and `AddSecurityDialog.test.tsx` guard both.

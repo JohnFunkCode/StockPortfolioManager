@@ -68,6 +68,35 @@ describe('CreatePlanDialog', () => {
     expect(screen.getByRole('button', { name: /^Create/i })).toBeEnabled();
   });
 
+  it('does not show the pre-selection before its option exists', async () => {
+    // The holdings land after `initialSymbol` is seeded, so a naive value would
+    // spend the opening frames out of range: MUI warns, and the field is blank.
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApi([holdings('INTC', 'WMT')]);
+    renderWithProviders(
+      <CreatePlanDialog open initialSymbol="WMT" onClose={() => {}} onCreated={() => {}} />,
+    );
+
+    expect(screen.getByRole('button', { name: /^Create/i })).toBeDisabled();
+    await screen.findByText('WMT'); // …and it arrives once the option does
+    expect(warn.mock.calls.flat().join(' ')).not.toMatch(/out-of-range/i);
+    warn.mockRestore();
+  });
+
+  it('stays blank for a pre-selection the caller does not hold', async () => {
+    // Nothing in the picker to show, and submitting it would only earn the 422.
+    // A disabled button beats a blank field that posts an invisible symbol.
+    mockApi([holdings('INTC')]);
+    renderWithProviders(
+      <CreatePlanDialog open initialSymbol="WMT" onClose={() => {}} onCreated={() => {}} />,
+    );
+
+    const combo = await screen.findByRole('combobox');
+    await waitFor(() => expect(combo).not.toHaveAttribute('aria-disabled', 'true'));
+    expect(screen.queryByText('WMT')).toBeNull();
+    expect(screen.getByRole('button', { name: /^Create/i })).toBeDisabled();
+  });
+
   it('submits a new plan', async () => {
     const api = mockApi([holdings('INTC'), ['/api/plans', { instance_id: 3, symbol: 'INTC' }]]);
     renderWithProviders(<CreatePlanDialog open onClose={() => {}} onCreated={() => {}} />);

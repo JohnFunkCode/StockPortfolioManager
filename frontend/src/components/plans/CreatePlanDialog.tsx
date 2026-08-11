@@ -77,6 +77,15 @@ export default function CreatePlanDialog({ open, onClose, onCreated, initialSymb
 
   const noHoldings = !freeText && !holdingsPending && symbols.length === 0;
 
+  // A `select` whose value matches no MenuItem renders blank *and* warns, and
+  // the holdings arrive after `initialSymbol` is seeded — so every pre-selected
+  // open flashes through that state. Show nothing until the option exists.
+  // This also covers the case that outlives the fetch: an `initialSymbol` the
+  // caller does not hold, where the field would sit blank while the Create
+  // button submitted a symbol nobody could see. Blank field, disabled button,
+  // one story. Free text has no options by design and is exempt.
+  const shownSymbol = freeText || symbols.includes(symbol) ? symbol : '';
+
   return (
     <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
       <DialogTitle>Create Harvest Plan</DialogTitle>
@@ -89,7 +98,7 @@ export default function CreatePlanDialog({ open, onClose, onCreated, initialSymb
           ) : (
             <TextField
               label="Symbol"
-              value={symbol}
+              value={shownSymbol}
               onChange={(e) => setSymbol(e.target.value)}
               select={!freeText}
               fullWidth
@@ -140,7 +149,7 @@ export default function CreatePlanDialog({ open, onClose, onCreated, initialSymb
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose}>Cancel</Button>
-        <Button onClick={handleSubmit} variant="contained" disabled={!symbol.trim() || mutation.isPending}>
+        <Button onClick={handleSubmit} variant="contained" disabled={!shownSymbol.trim() || mutation.isPending}>
           {mutation.isPending ? 'Creating...' : 'Create Plan'}
         </Button>
       </DialogActions>

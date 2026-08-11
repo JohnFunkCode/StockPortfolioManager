@@ -452,6 +452,14 @@ class HarvesterPlanDB:
 
                 shares_initial = int(forward_plan["s0"])
                 v0_floor = float(forward_plan["V0"])
+                # The planner leaves annual_vol unset when a caller supplies a
+                # fixed H (or when there are too few usable returns to measure
+                # volatility). The persisted column is required and this value
+                # is informational in that case, so keep the plan buildable
+                # with an explicit zero rather than float(None).
+                annual_vol = forward_plan["annual_vol"]
+                if annual_vol is None:
+                    annual_vol = 0.0
 
                 cur = conn.execute(
                     """
@@ -489,7 +497,7 @@ class HarvesterPlanDB:
                         "history_end_date": history_end_date,
                         "history_window_days": params.history_window_days,
                         "r_daily": float(forward_plan["r_daily"]),
-                        "annual_vol": float(forward_plan["annual_vol"]),
+                        "annual_vol": float(annual_vol),
                         "h_threshold": float(forward_plan["H"]),
                         "n_iterations": int(forward_plan["n_iterations"]),
                         "supersedes_instance_id": supersedes,

@@ -7,6 +7,7 @@ import os
 import unittest
 from contextlib import closing
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -79,6 +80,45 @@ class HarvesterRepoTest(unittest.TestCase):
         # H respects the configured bounds.
         self.assertGreaterEqual(float(plan["H"]), 0.05)
         self.assertLessEqual(float(plan["H"]), 0.30)
+
+    def test_build_plan_persists_zero_when_annual_volatility_is_unavailable(self):
+        # A fixed-H/short-history planner result can legitimately omit the
+        # informational volatility value. The required DB column must not turn
+        # that into float(None).
+        forward_plan = {
+            "s0": 10,
+            "P_current": 100.0,
+            "r_daily": 0.001,
+            "H": 0.05,
+            "annual_vol": None,
+            "V0": 1000.0,
+            "n_iterations": 1,
+            "ladder": [{
+                "harvest": 1,
+                "price_target": 105.0,
+                "shares_before": 10,
+                "shares_sold": 1,
+                "shares_after": 9,
+                "expected_days_from_now": None,
+                "gross_harvest": 105.0,
+                "cumulative_harvest": 105.0,
+                "remaining_value": 945.0,
+                "total_wealth": 1050.0,
+                "total_return_vs_initial": 0.05,
+            }],
+        }
+        with patch(
+            "quantcore.repositories.harvester_repository.design_forward_ladder_from_history",
+            return_value=forward_plan,
+        ):
+            plan = self.build()
+
+        with closing(get_connection()) as conn:
+            row = conn.execute(
+                "SELECT annual_vol FROM plan_instances WHERE instance_id = %s",
+                (plan["instance_id"],),
+            ).fetchone()
+        self.assertEqual(float(row["annual_vol"]), 0.0)
 
     def test_rebuild_supersedes_previous_active_plan(self):
         first = self.build()

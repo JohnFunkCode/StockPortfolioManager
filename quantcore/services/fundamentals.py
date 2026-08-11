@@ -9,12 +9,15 @@ experiments/CompositScoreExperiment.py and EarningsAccelerationExperiment.py.
 Dependencies are constructor-injected (see quantcore.services.registry):
   - FundamentalsRepository — append-only TTL cache (fundamentals_history table)
   - YFinanceGateway        — all yfinance network access
+  - tracked_symbols        — an optional callable naming the tracked universe,
+                             late-bound (see ``_tracked_symbols``)
 """
 
 from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable, Iterable
 from datetime import date, datetime, timezone
 from typing import Any, Optional, Tuple
 
@@ -266,9 +269,53 @@ class FundamentalsService:
         self,
         fundamentals_repository: FundamentalsRepository,
         yfinance_gateway: YFinanceGateway,
+        tracked_symbols: Callable[[], Iterable[str]] | None = None,
     ):
         self._repo = fundamentals_repository
         self._yf = yfinance_gateway
+        # A *callable*, not the watchlist and portfolio services themselves:
+        # WatchlistService composes this service (issue #147 Part B3), so naming
+        # it here would be a construction cycle in the registry. Late binding
+        # also keeps the roster a per-request read rather than a startup one.
+        # Optional because most construction sites (tests, scripts, the MCP
+        # tools) only ever ask for scope="all" and shouldn't have to wire it.
+        self._tracked_symbols_provider = tracked_symbols
+
+    # -- scoping ------------------------------------------------------------
+
+    SCOPES = ("all", "tracked")
+
+    def _tracked_symbols(self) -> set[str]:
+        """The tracked universe, upper-cased: the shared watchlist plus *every*
+        owner's positions.
+
+        Deliberately the same set ``main.py`` builds for the nightly options
+        capture and hands to the fundamentals warmer (issue #126 decision #5).
+        Matching it exactly is what makes ``scope="tracked"`` honest in both
+        directions: it never shows a symbol the warmer is not refreshing, and it
+        never hides one the warmer is paying for every night.
+        """
+        if self._tracked_symbols_provider is None:
+            raise ValueError(
+                "scope='tracked' needs a tracked_symbols provider; this "
+                "FundamentalsService was constructed without one"
+            )
+        return {str(s).strip().upper() for s in self._tracked_symbols_provider() if s}
+
+    def _apply_scope(self, entries: list[dict], scope: str) -> list[dict]:
+        """Narrow cached entries to `scope`, *before* any ranking happens.
+
+        Order matters and is the whole point: the cache holds every symbol
+        anyone has ever asked about, so the top N of the cache is not the top N
+        of the roster. Ranking first and filtering after would quietly serve a
+        shorter list of the wrong names.
+        """
+        if scope == "all":
+            return entries
+        if scope not in self.SCOPES:
+            raise ValueError(f"Invalid scope {scope!r}. Must be one of: {list(self.SCOPES)}")
+        tracked = self._tracked_symbols()
+        return [e for e in entries if str(e.get("symbol") or "").upper() in tracked]
 
     # -- compute paths (yfinance-backed, cache-wrapped) ---------------------
 
@@ -678,8 +725,12 @@ class FundamentalsService:
             "earnings_acceleration": eps,
         }
 
-    def get_top_fundamental_stocks(self, n: int = 10, min_coverage: float = 0.5) -> dict:
-        all_entries = self._repo.get_all_latest("fundamental_score")
+    def get_top_fundamental_stocks(
+        self, n: int = 10, min_coverage: float = 0.5, scope: str = "all"
+    ) -> dict:
+        all_entries = self._apply_scope(
+            self._repo.get_all_latest("fundamental_score"), scope
+        )
         ranked_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         eligible = [
@@ -704,14 +755,19 @@ class FundamentalsService:
         return {
             "ranked_at":         ranked_at,
             "n_requested":       n,
+            "scope":             scope,
             "total_in_cache":    len(all_entries),
             "eligible_count":    len(eligible),
             "min_coverage":      min_coverage,
             "rankings":          rankings,
         }
 
-    def get_upcoming_earnings(self, days: int = 14, include_stale: bool = False) -> dict:
-        all_entries = self._repo.get_all_latest("earnings_calendar")
+    def get_upcoming_earnings(
+        self, days: int = 14, include_stale: bool = False, scope: str = "all"
+    ) -> dict:
+        all_entries = self._apply_scope(
+            self._repo.get_all_latest("earnings_calendar"), scope
+        )
         queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         today = date.today()
         now_ts = int(time.time())
@@ -754,6 +810,7 @@ class FundamentalsService:
         return {
             "queried_at":     queried_at,
             "days_window":    days,
+            "scope":          scope,
             "include_stale":  include_stale,
             "stale_excluded": stale_excluded,
             "total_in_cache": len(all_entries),
@@ -853,8 +910,12 @@ class FundamentalsService:
             "symbols":             rows,
         }
 
-    def get_sector_fundamental_breakdown(self, sector: str | None = None, top_n: int = 5) -> dict:
-        all_entries = self._repo.get_all_latest("fundamental_score")
+    def get_sector_fundamental_breakdown(
+        self, sector: str | None = None, top_n: int = 5, scope: str = "all"
+    ) -> dict:
+        all_entries = self._apply_scope(
+            self._repo.get_all_latest("fundamental_score"), scope
+        )
         queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         sectors_dict: dict[str, list] = {}
@@ -891,6 +952,7 @@ class FundamentalsService:
         return {
             "queried_at": queried_at,
             "sector_filter": sector,
+            "scope": scope,
             "top_n": top_n,
             "sectors": result_sectors,
             "sector_count": len(result_sectors),
@@ -902,8 +964,13 @@ class FundamentalsService:
         min_delta: int = 2,
         since_days: int = 90,
         direction: str = "both",
+        scope: str = "all",
     ) -> dict:
-        all_symbols = self._repo.get_all_latest("fundamental_score")
+        # Scoping this one also cuts the work sharply, not just the output: the
+        # loop below runs a history query per surviving symbol.
+        all_symbols = self._apply_scope(
+            self._repo.get_all_latest("fundamental_score"), scope
+        )
         queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         symbols_evaluated = 0
@@ -960,6 +1027,7 @@ class FundamentalsService:
             "since_days": since_days,
             "min_delta": min_delta,
             "direction": direction,
+            "scope": scope,
             "symbols_evaluated": symbols_evaluated,
             "symbols_with_insufficient_history": symbols_insufficient,
             "changes": changes,

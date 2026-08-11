@@ -24,8 +24,26 @@ describe('COMPONENT_REGISTRY', () => {
       'portfolio_allocation',
       'symbol_lots',
       'watchlist_fundamentals',
+      'fundamentals_top',
+      'fundamentals_score_changes',
     ]) {
       expect(COMPONENT_REGISTRY[name]?.component, name).toBeTypeOf('function');
+    }
+  });
+
+  it('the fundamentals cards take no props — the universe is not addressable', () => {
+    // Mirrors test_chat_tools.py::TestFundamentalsDirectives. Both cover the
+    // shared watchlist plus every owner's positions, so there is no symbol and
+    // no owner to name (issue #147 Part D).
+    for (const name of ['fundamentals_top', 'fundamentals_score_changes']) {
+      expect(validateDirective({ component: name, props: {} }).ok, name).toBe(true);
+      expect(validateDirective({ component: name, props: { ticker: 'INTC' } }).ok, name).toBe(
+        false,
+      );
+      expect(
+        validateDirective({ component: name, props: { owner: 'someone_else' } }).ok,
+        name,
+      ).toBe(false);
     }
   });
 

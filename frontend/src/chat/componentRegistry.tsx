@@ -19,6 +19,10 @@ import PortfolioTableCard from '../components/chat/PortfolioTableCard';
 import PortfolioAllocationCard from '../components/chat/PortfolioAllocationCard';
 import SymbolLotsCard from '../components/chat/SymbolLotsCard';
 import WatchlistFundamentalsCard from '../components/chat/WatchlistFundamentalsCard';
+import {
+  FundamentalsTopCard,
+  FundamentalsScoreChangesCard,
+} from '../components/chat/FundamentalsCards';
 import type { ChatDirective } from './types';
 
 type PropKind = 'string' | 'number';
@@ -69,6 +73,9 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
   // The watchlist is one global list — there is no symbol or owner to name.
   watchlist_fundamentals: { component: WatchlistFundamentalsCard, spec: {}, titled: false },
+  // Both cover the whole tracked universe — no symbol and no owner to name.
+  fundamentals_top: { component: FundamentalsTopCard, spec: {}, titled: false },
+  fundamentals_score_changes: { component: FundamentalsScoreChangesCard, spec: {}, titled: false },
 };
 
 /**

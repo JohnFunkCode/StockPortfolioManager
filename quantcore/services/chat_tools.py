@@ -45,6 +45,10 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # No props: the watchlist is one global shared list (issue #83), so unlike
     # the portfolio components there is not even an owner to withhold.
     "watchlist_fundamentals": {},
+    # No props: both cover the whole tracked universe (the shared watchlist plus
+    # every owner's positions), so there is neither a symbol nor an owner to name.
+    "fundamentals_top": {},
+    "fundamentals_score_changes": {},
 }
 
 
@@ -382,7 +386,14 @@ TOOL_SCHEMAS: list[dict] = [
             "their portfolio (requires ticker), "
             "'watchlist_fundamentals' shows the shared watchlist ranked by "
             "fundamental score with 30-day and year-to-date returns (no props — "
-            "the watchlist is one global list, not per-user). All three portfolio "
+            "the watchlist is one global list, not per-user), "
+            "'fundamentals_top' ranks the whole tracked universe — the shared "
+            "watchlist plus every owner's positions — by composite fundamental "
+            "score, with how many of those symbols actually have a cached score "
+            "(no props), "
+            "'fundamentals_score_changes' shows which of those symbols' scores "
+            "moved over the last 90 days and by how much, biggest improvements "
+            "first (no props). All three portfolio "
             "components are read-only — there is no component or tool for adding, "
             "editing, or closing a lot; tell the user to use the Portfolio page "
             "for that."

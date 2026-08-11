@@ -105,5 +105,38 @@ class TestWatchlistFundamentalsDirective(unittest.TestCase):
         self.assertIn("owner", reason)
 
 
+class TestFundamentalsDirectives(unittest.TestCase):
+    """Issue #147 Part D. Both cards cover the whole tracked universe — the
+    shared watchlist plus every owner's positions — so there is neither a
+    symbol nor an owner for the model to name."""
+
+    NAMES = ("fundamentals_top", "fundamentals_score_changes")
+
+    def test_registered_with_no_props(self):
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                self.assertEqual(BACKEND_COMPONENT_REGISTRY[name], {})
+
+    def test_empty_props_accepted(self):
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                ok, reason = validate_directive(name, {})
+                self.assertTrue(ok, reason)
+
+    def test_ticker_prop_rejected(self):
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                ok, reason = validate_directive(name, {"ticker": "INTC"})
+                self.assertFalse(ok)
+                self.assertIn("ticker", reason)
+
+    def test_owner_prop_rejected(self):
+        for name in self.NAMES:
+            with self.subTest(name=name):
+                ok, reason = validate_directive(name, {"owner": "someone_else"})
+                self.assertFalse(ok)
+                self.assertIn("owner", reason)
+
+
 if __name__ == "__main__":
     unittest.main()

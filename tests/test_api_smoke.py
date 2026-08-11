@@ -832,6 +832,68 @@ class Phase3SurfaceGapRouteTest(unittest.TestCase):
         )
 
 
+class FundamentalsScopeParamTest(unittest.TestCase):
+    """Issue #147 Part B4: ?scope=all|tracked on the four collection routes.
+
+    Service-stubbed rather than DB-backed — what's under test is the parameter
+    reaching the service unchanged, and that an unrecognized value is refused at
+    the boundary instead of arriving as a ValueError from inside a service.
+    """
+
+    ROUTES = [
+        "/api/securities/fundamentals/top",
+        "/api/securities/fundamentals/upcoming-earnings",
+        "/api/securities/fundamentals/sector-breakdown",
+        "/api/securities/fundamentals/score-changes",
+    ]
+
+    class RecordingFundamentals:
+        def __init__(self):
+            self.scopes = []
+
+        def _record(self, *args, scope="all", **kwargs):
+            self.scopes.append(scope)
+            return {"scope": scope}
+
+        get_top_fundamental_stocks = _record
+        get_upcoming_earnings = _record
+        get_sector_fundamental_breakdown = _record
+        get_fundamental_score_changes = _record
+
+    def setUp(self):
+        from unittest.mock import patch
+
+        from api.routers import fundamentals as fundamentals_router
+
+        self.fundamentals = self.RecordingFundamentals()
+        stub = type("StubServices", (), {"fundamentals": self.fundamentals})()
+        patcher = patch.object(fundamentals_router, "services", lambda: stub)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.client = TestClient(create_app())
+
+    def test_scope_defaults_to_all(self):
+        for route in self.ROUTES:
+            with self.subTest(route=route):
+                self.assertEqual(self.client.get(route).json()["scope"], "all")
+        self.assertEqual(self.fundamentals.scopes, ["all"] * len(self.ROUTES))
+
+    def test_scope_tracked_reaches_the_service(self):
+        for route in self.ROUTES:
+            with self.subTest(route=route):
+                resp = self.client.get(route, params={"scope": "tracked"})
+                self.assertEqual(resp.json()["scope"], "tracked")
+        self.assertEqual(self.fundamentals.scopes, ["tracked"] * len(self.ROUTES))
+
+    def test_unknown_scope_is_rejected_at_the_boundary(self):
+        for route in self.ROUTES:
+            with self.subTest(route=route):
+                self.assertEqual(
+                    self.client.get(route, params={"scope": "watchlist"}).status_code, 422
+                )
+        self.assertEqual(self.fundamentals.scopes, [])
+
+
 if __name__ == "__main__":
     unittest.main()
 

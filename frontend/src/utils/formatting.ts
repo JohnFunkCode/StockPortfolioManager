@@ -27,8 +27,28 @@ export function formatPercentRaw(value: number | null | undefined, decimals = 2)
   return `${value.toFixed(decimals)}%`;
 }
 
+/**
+ * A calendar date, `Aug 10, 2026`.
+ *
+ * A bare `YYYY-MM-DD` is parsed **component-wise into local time**, not handed
+ * to `new Date()`, which reads a date-only string as UTC midnight — one day
+ * early for every viewer west of Greenwich. That is not a rounding nicety: the
+ * earnings strip showed "Aug 9" beside "today" for a date the API had given as
+ * 2026-08-10, and the watchlist's `prices <date>` chip was a day behind all
+ * afternoon. Strings carrying a time (`…T12:00:00Z`) are real instants and keep
+ * their timezone handling.
+ */
 export function formatDate(dateString: string | null | undefined): string {
   if (!dateString) return 'N/A';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateString);
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
   return new Date(dateString).toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'short',

@@ -9,6 +9,8 @@ A Python-based stock portfolio tracker with real-time price updates, multi-curre
 - Tracks a shared watchlist including per-stock 'tags', stored in the database and editable from the
   UI's Watchlist page (`/watchlist`, which also ranks it by fundamental score); `watchlist.yaml` is
   the import format
+- Rank the whole tracked universe — the shared watchlist plus every owner's positions — by
+  composite fundamental score on the UI's Fundamentals page (`/fundamentals`)
 - Fetch real-time stock prices via Yahoo Finance API
 - Calculate gain/loss for individual stocks and total portfolio
 - Support for multiple currencies with real-time conversion
@@ -123,6 +125,33 @@ python scripts/repair_watchlist_currency.py --apply
 Dry run by default, one network lookup per symbol (a full pass takes a few minutes), and it
 refuses the production database in `.env` without `--allow-prod`. A symbol whose lookup fails
 is reported and left alone — a failed lookup is not evidence the stored value is wrong.
+
+### Fundamentals across the tracked universe
+
+Five collection-level reads under `/api/securities/fundamentals` cover everything the cache knows,
+rather than one symbol at a time — they are what the `/fundamentals` page is built from:
+
+| Endpoint | Answers |
+|----------|---------|
+| `GET …/top?n=&min_coverage=&scope=` | Ranked by composite score, best first |
+| `GET …/sector-breakdown?top_n=&scope=` | The same ranking cut by sector |
+| `GET …/score-changes?min_delta=&since_days=&direction=&scope=` | Which scores moved, and by how much |
+| `GET …/upcoming-earnings?days=&include_stale=&scope=` | Who reports inside the window |
+| `GET …/cache-stats` | Per `data_type`: symbols held, oldest and newest entry |
+
+All of them read `fundamentals_history` and make **no network calls**, which is why the page can
+issue five in parallel.
+
+`scope` (`all` — the default — or `tracked`) is the parameter worth knowing about. The cache holds
+every symbol anyone has ever asked about, including one-off sidekick lookups, so ranking the cache
+answers a different question from ranking the roster. `tracked` narrows it to the shared watchlist
+plus **every owner's** positions — deliberately the same universe `main.py` captures options for and
+warms fundamentals over. The filter is applied **before** the ranking, not after: taking the top ten
+of the cache and then discarding the untracked ones would return however many happen to survive.
+An unknown value is a 422 from FastAPI, not a 500 from the service.
+
+`cache-stats` takes no `scope` on purpose. It reports on the cache itself, and narrowing it to the
+roster would hide the case worth seeing — a cache thin on the symbols the team actually follows.
 
 ## Installation
 
@@ -334,7 +363,7 @@ authoritative endpoint list**; the ~106 routes are too many to mirror here witho
 | `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities` | Positions and lots (`?owner=`, defaults to `john`), CSV import, and the **global** shared watchlist (no `?owner=`) |
 | `prices.py` | `/api/securities/{ticker}/…` | OHLCV, technicals and technical/risk signals, RSI, MACD, stochastic, volume + OBV, ATR bands, volume profile, VWAP (+ anchored, + history), candlesticks, higher lows, gaps, drawdown |
 | `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | Chain and contract lookup, exact vertical-spread pricing, IV rank, unusual calls, OI change, GEX profile, gamma-wall history, delta exposure, watchlist screening |
-| `fundamentals.py` | `/api/securities/…` | Fundamental score (+ batch, + changes), revenue growth, earnings acceleration, earnings calendar, history, sector breakdown, cache stats |
+| `fundamentals.py` | `/api/securities/…` | Fundamental score (+ batch, + changes), revenue growth, earnings acceleration, earnings calendar, history, sector breakdown, cache stats. The four collection reads take `?scope=all\|tracked` (see [Fundamentals across the tracked universe](#fundamentals-across-the-tracked-universe)) |
 | `sentiment.py` | `/api/securities/…/news…` | News collection, per-symbol sentiment, sentiment trend |
 | `microstructure.py` | `/api/securities/{ticker}/…` | Short interest, dark-pool proxy, bid/ask spread |
 | `recommendations.py` | `/api/securities/{ticker}/…` | `get_trade_recommendation`, stop-loss analysis, relative strength (+ history), support confluence |
@@ -371,6 +400,7 @@ Material UI. It communicates exclusively with the FastAPI service above.
 | Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views; add/remove watchlist symbols here |
 | Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol, including the Technical Analysis tab's Support Confluence card |
 | Watchlist | `/watchlist` | The whole shared watchlist ranked by fundamental score, with returns, market caps, staleness, and tag editing — the replacement for the nightly `generate_watchlist_fundamentals_report.py` HTML |
+| Fundamentals | `/fundamentals` | The tracked universe (shared watchlist + every owner's positions) ranked by composite fundamental score, cut by sector, with 90-day score movement, the earnings calendar, and how fresh the cache behind all of it is |
 | Arbitrage | `/arbitrage` | The arbitrage scanner — universe, scan results, and per-pair factor breakdowns |
 | Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
 | Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |

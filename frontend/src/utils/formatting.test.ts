@@ -43,6 +43,15 @@ describe('formatting utils', () => {
     expect(formatDate('')).toBe('N/A');
   });
 
+  it('formatDate keeps the day a date-only string names, west of Greenwich', () => {
+    // `new Date('2026-08-10')` is UTC midnight, which is Aug 9 in any US zone —
+    // the earnings strip rendered "Aug 9 · today" for the API's 2026-08-10.
+    expect(formatDate('2026-08-10')).toBe('Aug 10, 2026');
+    expect(formatDate('2026-01-01')).toBe('Jan 1, 2026');
+    // A string carrying a time is a real instant and keeps timezone handling.
+    expect(formatDate('2026-08-10T18:00:00Z')).toMatch(/Aug/);
+  });
+
   it('formatDateTime', () => {
     expect(formatDateTime('2026-07-24T12:00:00Z')).toMatch(/2026/);
     expect(formatDateTime(null)).toBe('N/A');

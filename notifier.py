@@ -31,6 +31,7 @@ class Notifier:
         portfolio: spm.Portfolio,
         harvester_db_path: str | None = None,
         options_db_path: str | None = None,
+        owner: str = "john",
     ):
         load_dotenv()
         self.discord_webhook_url = os.environ.get("DISCORD_WEBHOOK_URL")
@@ -39,6 +40,10 @@ class Notifier:
         self.portfolio = portfolio
         self.notification = None
         self._options_positions = OptionsPositionStore()
+        # Harvest plans are owned since #147 Part H1. The daily job runs on
+        # John's portfolio, so that is the default; the argument exists so a
+        # second owner's run scopes to their own ladders rather than his.
+        self.owner = owner
 
     
     def calculate_and_send_notifications(self):
@@ -47,12 +52,14 @@ class Notifier:
             hits = harvester.harvest_hit_for_symbol(
                 symbol=stock.symbol,
                 current_price=float(stock.current_price.amount),
+                owner=self.owner,
             )
             if hits:
                 rung_ids = [hit["rung_id"] for hit in hits if hit.get("rung_id") is not None]
                 harvester.mark_rungs_achieved(
                     rung_ids=rung_ids,
                     trigger_price=float(stock.current_price.amount),
+                    owner=self.owner,
                 )
                 self.send_harvest_alert(hits)
 

@@ -931,6 +931,11 @@
           "nullable": true,
           "type": "text"
         },
+        "owner": {
+          "default": "'john'::text",
+          "nullable": false,
+          "type": "text"
+        },
         "position_id": {
           "default": null,
           "nullable": true,
@@ -990,9 +995,10 @@
         "plan_instances_template_id_fkey": "FOREIGN KEY (template_id) REFERENCES plan_templates(template_id) ON DELETE CASCADE"
       },
       "indexes": {
+        "idx_instances_owner_status": "CREATE INDEX idx_instances_owner_status ON public.plan_instances USING btree (owner, status)",
         "idx_instances_symbol_status": "CREATE INDEX idx_instances_symbol_status ON public.plan_instances USING btree (symbol_id, status)",
         "plan_instances_pkey": "CREATE UNIQUE INDEX plan_instances_pkey ON public.plan_instances USING btree (instance_id)",
-        "ux_one_active_plan_per_symbol": "CREATE UNIQUE INDEX ux_one_active_plan_per_symbol ON public.plan_instances USING btree (symbol_id) WHERE (status = 'ACTIVE'::text)"
+        "ux_one_active_plan_per_owner_symbol": "CREATE UNIQUE INDEX ux_one_active_plan_per_owner_symbol ON public.plan_instances USING btree (owner, symbol_id) WHERE (status = 'ACTIVE'::text)"
       }
     },
     "plan_rungs": {

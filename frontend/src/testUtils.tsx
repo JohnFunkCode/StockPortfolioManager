@@ -276,6 +276,7 @@ export function planRow(overrides: object = {}) {
   return {
     instance_id: 1,
     symbol: 'INTC',
+    owner: 'john',
     status: 'ACTIVE',
     created_at: '2026-07-01T00:00:00Z',
     shares_initial: 100,

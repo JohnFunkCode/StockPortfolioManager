@@ -29,7 +29,8 @@ class Plan(BaseModel):
 
     instance_id: int
     symbol: str
-    status: Literal["ACTIVE", "SUPERSEDED"]
+    owner: str
+    status: Literal["ACTIVE", "SUPERSEDED", "CLOSED"]
     created_at: str
     asof_date: str
     price_asof: float

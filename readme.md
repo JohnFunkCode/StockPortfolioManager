@@ -908,6 +908,12 @@ volatility-based harvest threshold (H) per symbol, builds a forward ladder of pr
 It also hooks into notifications: each `main.py` run checks every portfolio stock against the
 active plan rungs and fires a Discord alert for any hit.
 
+Plans belong to an owner, the same way positions do. The plans, rungs, dashboard, and symbol-list
+routes take no `?owner=` parameter — they resolve the owner from whoever is authenticated — and a
+plan belonging to somebody else answers **404**, identically to an id that does not exist. Two
+owners may each keep an active ladder on the same ticker; a plan's status is `ACTIVE`,
+`SUPERSEDED`, or `CLOSED`.
+
 ## Arbitrage Scanner
 
 Finds securities whose price has stretched against a structurally linked underlying, across three

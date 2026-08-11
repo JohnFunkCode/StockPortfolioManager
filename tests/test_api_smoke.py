@@ -236,8 +236,8 @@ class ApiSmokeTest(unittest.TestCase):
         resp = self.client.get(f"/api/plans/{instance_id}")
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
-        expected_plan = svc.get_plan_by_id(instance_id)
-        expected_rungs = svc.get_rungs_for_plan(instance_id)
+        expected_plan = svc.get_plan_by_id(instance_id, owner="john")
+        expected_rungs = svc.get_rungs_for_plan(instance_id, owner="john")
         self.assertEqual(set(body["plan"].keys()), set(expected_plan.keys()))
         self.assertEqual(set(body["rungs"][0].keys()), set(expected_rungs[0].keys()))
         self.assertEqual([r["rung_id"] for r in body["rungs"]], rung_ids)
@@ -255,7 +255,7 @@ class ApiSmokeTest(unittest.TestCase):
         resp = self.client.delete(f"/api/plans/{instance_id}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"instance_id": instance_id, "deleted": True})
-        self.assertEqual(svc.get_plan_by_id(instance_id)["status"], "SUPERSEDED")
+        self.assertEqual(svc.get_plan_by_id(instance_id, owner="john")["status"], "SUPERSEDED")
 
     def test_create_plan_missing_symbol_returns_legacy_400(self):
         resp = self.client.post("/api/plans", json={})

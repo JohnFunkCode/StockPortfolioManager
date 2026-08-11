@@ -176,6 +176,31 @@ An experimental "harvest ladder" strategy for systematically selling shares as p
 
 The Harvester integrates with the notification system: when `main.py` runs, it checks each portfolio stock against active harvest plan rungs (via `HarvesterService`) and sends Discord alerts for any hits.
 
+**Plans are owned (#147 Part H1, `V7`).** `plan_instances.owner` matches `positions.owner`, and the
+database invariant moved with it: `ux_one_active_plan_per_symbol` was dropped for
+`ux_one_active_plan_per_owner_symbol`, so two owners may each run a ladder on the same ticker.
+Consequences to keep straight:
+
+- `owner` is a **required keyword-only argument** on every public repository and service method that
+  touches a plan, a rung, or an alert — not a defaulted one. Forgetting it is a `TypeError` at the
+  call site rather than a silent read of John's ladders.
+- **Isolation is enforced in SQL, never in a route.** Every statement carries an `owner` predicate,
+  so another owner's plan reads as `None` and mutates zero rows; the routes turn that into a 404 —
+  the same answer as an id that never existed, which is what keeps the endpoint from leaking which
+  ids are taken. **No exceptions, including private helpers.** `_ensure_next_rung_alert` and the
+  two SQL constants the scan path executes directly (`SQL_GET_NEXT_PENDING_RUNG`,
+  `SQL_GET_ACTIVE_ALERT_FOR_RUNG`) all carry the predicate, even though every caller reaches them
+  with an id already resolved through a scoped query. The required keyword catches the caller that
+  forgot to scope; the predicate contains the damage when one is wrong anyway — and those two
+  failures are not equally bad, since the alternative to a no-op is a write onto another owner's
+  ladder.
+- Routes resolve the owner from the authenticated principal via `Depends(require_owner)`; there is
+  no `?owner=` on the plans/rungs/dashboard routes. `GET /api/symbols/{ticker}/price` reads no owned
+  data and deliberately takes no owner at all.
+- `Notifier(portfolio, owner=…)` defaults to `"john"` because the daily job runs on John's
+  portfolio; the argument exists so a second owner's run scopes to their own ladders.
+- The status vocabulary is `ACTIVE` | `SUPERSEDED` | `CLOSED`.
+
 ### Unified Database (`quantcore/`)
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:

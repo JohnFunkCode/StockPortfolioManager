@@ -538,5 +538,154 @@ class AllSymbolsTest(unittest.TestCase):
         self.assertEqual(service.all_symbols(), [])
 
 
+class RecordingHarvesterRepo:
+    """Stand-in for HarvesterPlanDB, recording the exit seam's calls.
+
+    The SQL those two methods run is pinned in test_harvester_repository_db;
+    what is being pinned here is *when* the portfolio service reaches for them.
+    """
+
+    def __init__(self, plan_ids=None, raises=False):
+        self._plan_ids = plan_ids or {}
+        self._raises = raises
+        self.closed = []
+        self.id_lookups = 0
+
+    def close_active_plan_for_symbol(self, ticker, *, owner, reason=None):
+        if self._raises:
+            raise RuntimeError("harvester is down")
+        self.closed.append((ticker, owner, reason))
+        return 1
+
+    def active_plan_ids(self, *, owner):
+        self.id_lookups += 1
+        if self._raises:
+            raise RuntimeError("harvester is down")
+        return dict(self._plan_ids)
+
+
+class PlanExitSeamTest(unittest.TestCase):
+    """Issue #147 Part H5 — the exit half of the holding invariant: going flat
+    on a symbol closes the ladder that was selling into it.
+    """
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.harvester = RecordingHarvesterRepo()
+        self.service = self._service(self.harvester)
+
+    def _service(self, harvester):
+        return PortfolioService(
+            PortfolioRepository(),
+            prices=FakePrices(quotes={"ZZTEST": 15.0}),
+            harvester_repository=harvester,
+        )
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM positions WHERE owner IN (%s, %s)", (OWNER_A, OWNER_B)
+            )
+            conn.commit()
+
+    def _add(self, quantity="10", symbol="ZZTEST"):
+        self.service.add_position(
+            OWNER_A, name="Test Lot", symbol=symbol, purchase_price="10.00",
+            quantity=quantity, purchase_date="2020-01-02", currency="USD",
+        )
+        lots = [p for p in self.service.list_positions(OWNER_A) if p["symbol"] == symbol]
+        return max(lots, key=lambda p: p["lot_id"])["lot_id"]
+
+    def test_closing_the_last_open_lot_closes_the_ladder(self):
+        lot_id = self._add(quantity="10")
+        self.service.close_lot(
+            OWNER_A, lot_id, shares="10", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        self.assertEqual(
+            self.harvester.closed, [("ZZTEST", OWNER_A, "last open lot closed")]
+        )
+
+    def test_a_partial_close_leaves_the_ladder_running(self):
+        # The off-by-one that matters: shares remain, so the plan still has
+        # something to sell. Closing it here would silently kill a live ladder
+        # in the middle of a harvest.
+        lot_id = self._add(quantity="10")
+        self.service.close_lot(
+            OWNER_A, lot_id, shares="4", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        self.assertEqual(self.harvester.closed, [])
+
+    def test_a_second_lot_still_open_leaves_the_ladder_running(self):
+        first = self._add(quantity="5")
+        self._add(quantity="5")
+        self.service.close_lot(
+            OWNER_A, first, shares="5", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        self.assertEqual(self.harvester.closed, [])
+
+    def test_deleting_the_last_lot_closes_the_ladder(self):
+        lot_id = self._add()
+        self.assertTrue(self.service.delete_lot(OWNER_A, lot_id))
+        self.assertEqual(
+            self.harvester.closed, [("ZZTEST", OWNER_A, "last lot deleted")]
+        )
+
+    def test_removing_the_position_closes_the_ladder(self):
+        self._add()
+        self.assertEqual(self.service.remove_position(OWNER_A, "ZZTEST"), 1)
+        self.assertEqual(
+            self.harvester.closed, [("ZZTEST", OWNER_A, "position removed")]
+        )
+
+    def test_a_broken_harvester_does_not_undo_the_write_that_committed(self):
+        # The sale is already committed on its own connection; a harvester
+        # failure must not surface as a failed sale. The orphan flag is the
+        # backstop for what didn't get closed.
+        service = self._service(RecordingHarvesterRepo(raises=True))
+        self.service = service
+        lot_id = self._add(quantity="10")
+        result = service.close_lot(
+            OWNER_A, lot_id, shares="10", sale_price="15.00",
+            sale_trade_date="2026-03-01",
+        )
+        self.assertEqual(result["symbol"], "ZZTEST")
+        self.assertEqual(service.list_positions(OWNER_A), [])
+
+    def test_without_a_harvester_repository_nothing_is_attempted(self):
+        service = PortfolioService(PortfolioRepository(), prices=FakePrices())
+        self.service = service
+        lot_id = self._add()
+        self.assertTrue(service.delete_lot(OWNER_A, lot_id))
+
+    # -- the Plan chip's id (issue #147 Part H6) ---------------------------
+    def test_symbol_rows_carry_the_active_plan_id(self):
+        service = self._service(RecordingHarvesterRepo(plan_ids={"ZZTEST": 42}))
+        self.service = service
+        self._add()
+        rows = {r["symbol"]: r for r in service.symbol_rows(OWNER_A)}
+        self.assertEqual(rows["ZZTEST"]["active_plan_id"], 42)
+
+    def test_symbol_rows_degrade_to_no_chip_when_the_lookup_fails(self):
+        # A harvester outage costs the chip, not the portfolio table.
+        service = self._service(RecordingHarvesterRepo(raises=True))
+        self.service = service
+        self._add()
+        rows = service.symbol_rows(OWNER_A)
+        self.assertIsNone(rows[0]["active_plan_id"])
+
+    def test_symbol_rows_look_the_plan_ids_up_once_not_per_row(self):
+        harvester = RecordingHarvesterRepo(plan_ids={"ZZTEST": 42})
+        service = self._service(harvester)
+        self.service = service
+        self._add(symbol="ZZTEST")
+        self._add(symbol="ZZTST2")
+        service.symbol_rows(OWNER_A)
+        self.assertEqual(harvester.id_lookups, 1)
+
+
 if __name__ == "__main__":
     unittest.main()

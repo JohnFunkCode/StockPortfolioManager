@@ -2,10 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { securitiesApi } from '../api/securities';
 import type { AddSecurityPayload } from '../api/securitiesTypes';
 
-export function useSecurities(source?: 'portfolio' | 'watchlist') {
+// `enabled` exists for callers that mount the hook long before they need it —
+// CreatePlanDialog stays mounted while shut, and a closed dialog should not be
+// fetching a symbol list nobody is looking at.
+export function useSecurities(source?: 'portfolio' | 'watchlist', enabled = true) {
   return useQuery({
     queryKey: ['securities', source ?? 'all'],
     queryFn: () => securitiesApi.getAll(source),
+    enabled,
     staleTime: 5 * 60 * 1000,
   });
 }

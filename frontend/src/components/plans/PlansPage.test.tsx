@@ -120,6 +120,46 @@ describe('PlansPage', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
+  // Orphan flag (issue #147 Part H7) — a ladder whose shares are gone.
+  it('flags an ACTIVE plan the owner no longer holds', async () => {
+    mockApi([
+      [
+        '/api/plans',
+        {
+          plans: [
+            planRow({ instance_id: 1, symbol: 'INTC', in_portfolio: false }),
+            planRow({ instance_id: 2, symbol: 'WMT', in_portfolio: true }),
+          ],
+        },
+      ],
+    ]);
+    renderWithProviders(<PlansPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    // One flag, on the orphan only — the held plan stays quiet.
+    expect(screen.getAllByText('No position')).toHaveLength(1);
+    expect(screen.getAllByText('ACTIVE')).toHaveLength(2);
+  });
+
+  it('does not flag a plan the server said nothing about', async () => {
+    // `undefined` means the route did not carry the field — not the same as
+    // "they sold out of it", and guessing would cry wolf on every old client.
+    mockApi([['/api/plans', { plans: [planRow({ symbol: 'INTC' })] }]]);
+    renderWithProviders(<PlansPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByText('No position')).toBeNull();
+  });
+
+  it('does not flag a plan that is no longer ACTIVE', async () => {
+    // A closed ladder having no shares under it is the expected end state.
+    mockApi([
+      ['/api/plans', { plans: [planRow({ symbol: 'INTC', status: 'CLOSED', in_portfolio: false })] }],
+    ]);
+    renderWithProviders(<PlansPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    expect(screen.getByText('CLOSED')).toBeInTheDocument();
+    expect(screen.queryByText('No position')).toBeNull();
+  });
+
   it('cancelling the archive dialog sends no request', async () => {
     const api = mockApi([['/api/plans', twoPlans()]]);
     renderWithProviders(<PlansPage />);

@@ -892,6 +892,66 @@ class HarvesterPlanDB:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def active_plan_ids(self, *, owner: str) -> Dict[str, int]:
+        """`{ticker: instance_id}` for `owner`'s ACTIVE plans.
+
+        Deliberately narrower than ``list_all_symbols()``: the portfolio page
+        needs a plan id for the handful of symbols the owner actually holds,
+        and ``list_all_symbols()`` walks the whole shared ``symbols`` table to
+        answer that. This one query is driven by ``idx_instances_owner_status``
+        and returns at most one row per ACTIVE plan (issue #147 Part H6).
+        """
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                """
+                SELECT s.ticker, pi.instance_id
+                FROM plan_instances pi
+                JOIN symbols s ON s.symbol_id = pi.symbol_id
+                WHERE pi.owner = ? AND pi.status = 'ACTIVE';
+                """,
+                (owner,),
+            ).fetchall()
+        return {row["ticker"]: int(row["instance_id"]) for row in rows}
+
+    def close_active_plan_for_symbol(
+        self, ticker: str, *, owner: str, reason: Optional[str] = None
+    ) -> int:
+        """Close `owner`'s ACTIVE plan on `ticker`. Returns rows closed (0 or 1).
+
+        The exit half of the holding invariant (issue #147 Part H5): a ladder
+        with no shares left under it is not a plan, it is an alert that will
+        fire on a position nobody holds. CLOSED rather than SUPERSEDED because
+        nothing replaced it.
+
+        Owner-scoped in SQL like every other statement here, so closing on a
+        symbol another owner also runs a ladder on leaves theirs ACTIVE.
+        """
+        with closing(get_connection()) as conn:
+            try:
+                cur = conn.execute(
+                    """
+                    UPDATE plan_instances
+                       SET status = 'CLOSED',
+                           notes = CASE
+                               WHEN :reason IS NULL THEN notes
+                               WHEN notes IS NULL OR notes = '' THEN :reason
+                               ELSE notes || ' | ' || :reason
+                           END
+                     WHERE owner = :owner
+                       AND status = 'ACTIVE'
+                       AND symbol_id IN (
+                           SELECT symbol_id FROM symbols WHERE ticker = :ticker
+                       );
+                    """,
+                    {"owner": owner, "ticker": ticker.strip().upper(), "reason": reason},
+                )
+                closed = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return int(closed)
+
     def get_alerts_for_plan(self, instance_id: int, *, owner: str) -> List[Dict[str, Any]]:
         """Get all alerts for a plan instance."""
         with closing(get_connection()) as conn:

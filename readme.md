@@ -395,14 +395,14 @@ Material UI. It communicates exclusively with the FastAPI service above.
 
 | Page | Route | Description |
 |------|-------|-------------|
-| Portfolio | `/` | Your positions and lots — value, gain/loss, and per-lot detail |
+| Portfolio | `/` | Your positions and lots — value, gain/loss, and per-lot detail, plus a **Plan** chip linking each holding to its running harvest ladder (or a *Create plan* affordance where there is none) |
 | Harvester | `/harvester` | Summary stats: total active plans, rungs hit, shares harvested, and estimated proceeds |
 | Securities | `/securities` | Securities dashboard with per-symbol technical/fundamental views; add/remove watchlist symbols here |
 | Security Detail | `/securities/:symbol` | Deep-dive charts and analytics for one symbol, including the Technical Analysis tab's Support Confluence card |
 | Watchlist | `/watchlist` | The whole shared watchlist ranked by fundamental score, with returns, market caps, staleness, and tag editing — the replacement for the nightly `generate_watchlist_fundamentals_report.py` HTML |
 | Fundamentals | `/fundamentals` | The tracked universe (shared watchlist + every owner's positions) ranked by composite fundamental score, cut by sector, with 90-day score movement, the earnings calendar, and how fresh the cache behind all of it is |
 | Arbitrage | `/arbitrage` | The arbitrage scanner — universe, scan results, and per-pair factor breakdowns |
-| Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans |
+| Plans | `/plans` | Table of all harvest plans with status badges; create or delete plans. A plan can only be created for a symbol you hold, and an ACTIVE plan whose shares are gone is flagged **No position** |
 | Plan Detail | `/plans/:id` | Full rung ladder for a plan; mark rungs as achieved or record executions |
 | Symbols | `/symbols` | Look up the latest live price for any ticker symbol |
 | Settings | `/settings` | Manage your BYOK API key (vault unlock, rotate, remove) and pick your Sidekick chat model |

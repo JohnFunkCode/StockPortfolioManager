@@ -44,6 +44,10 @@ export interface SymbolRow {
   bar_base: number | null;
   bar_gain: number | null;
   bar_loss: number | null;
+  // The owner's ACTIVE harvest plan on this symbol (issue #147 Part H6), or
+  // null when there is no ladder yet — which the page turns into a create
+  // affordance rather than an empty cell.
+  active_plan_id: number | null;
 }
 
 export interface PortfolioTotals {

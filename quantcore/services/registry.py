@@ -161,7 +161,20 @@ def get_services() -> Services:
     # instances the REST tier serves from. Both are constructed after
     # FundamentalsService because WatchlistService composes it.
     portfolio = PortfolioService(
-        portfolio_repository=portfolio_repository, prices=prices, options=options
+        portfolio_repository=portfolio_repository,
+        prices=prices,
+        options=options,
+        harvester_repository=harvester_repository,
+    )
+    # The holding invariant (issue #147 Part H5) runs in both directions —
+    # HarvesterService refuses to build a ladder for a symbol the owner does
+    # not hold, PortfolioService closes the ladder when the last lot goes. Both
+    # sides inject the *repository* they need; injecting the services would
+    # close a construction cycle.
+    harvester = HarvesterService(
+        harvester_repository=harvester_repository,
+        yfinance_gateway=yfinance_gateway,
+        portfolio_repository=portfolio_repository,
     )
     watchlist = WatchlistService(
         repository=watchlist_repository,
@@ -257,10 +270,7 @@ def get_services() -> Services:
             yfinance_gateway=yfinance_gateway,
             prices=prices,
         ),
-        harvester=HarvesterService(
-            harvester_repository=harvester_repository,
-            yfinance_gateway=yfinance_gateway,
-        ),
+        harvester=harvester,
         portfolio=portfolio,
         watchlist=watchlist,
         recommendations=RecommendationsService(

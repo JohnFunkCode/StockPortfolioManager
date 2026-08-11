@@ -253,6 +253,9 @@ class SymbolRowResponse(BaseModel):
     bar_base: Optional[Decimal] = None
     bar_gain: Optional[Decimal] = None
     bar_loss: Optional[Decimal] = None
+    # The owner's ACTIVE harvest plan on this symbol, if any (issue #147 Part
+    # H6). None means no ladder yet, which the page offers to create.
+    active_plan_id: Optional[int] = None
 
 
 class PortfolioTotals(BaseModel):

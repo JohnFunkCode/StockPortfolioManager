@@ -22,6 +22,10 @@ export interface Plan {
   supersedes_instance_id: number | null;
   notes: string | null;
   metadata_json: string | null;
+  // Orphan flag (issue #147 Part H7): false on an ACTIVE plan means the owner
+  // no longer holds the symbol, so the ladder has no shares under it. Only the
+  // list route carries it — undefined elsewhere, which is not the same as false.
+  in_portfolio?: boolean;
 }
 
 export interface Rung {

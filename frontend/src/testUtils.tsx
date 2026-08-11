@@ -373,6 +373,7 @@ export function symbolRow(overrides: object = {}) {
     bar_base: 300,
     bar_gain: 50,
     bar_loss: 0,
+    active_plan_id: null,
     ...overrides,
   };
 }

@@ -25,14 +25,19 @@ export default defineConfig({
       // Ratchet floors: pinned ~1pt under the measured baseline; only ever
       // raised (see deploy.yml frontend-gate). Not aspirations — regressions.
       thresholds: {
-        // Measured 2026-07-27 after the Portfolio page suite (PR 4 / issue #126):
-        // lines 89.6, statements 87.6, funcs 87.5, branches 70.8.
-        // (Previous 2026-07-27: 89.2 / 87.4 / 86.8 / 70.5.)
-        // Floors pinned ~1pt under; ratchet only up.
-        lines: 89,
-        statements: 87,
-        functions: 86,
-        branches: 70,
+        // Measured 2026-08-11 at the end of issue #147 (Part G, 608 tests):
+        // lines 90.75, statements 88.81, funcs 88.65, branches 73.39.
+        // (Previous 2026-07-27: 89.6 / 87.6 / 87.5 / 70.8.)
+        //
+        // The floors were deliberately left alone through #147's intermediate
+        // PRs — the Watchlist and Fundamentals pages arrived with their tests
+        // but the numbers moved every PR, and ratcheting each time would have
+        // made an unrelated red build the way you learn a page shipped. This
+        // is the single ratchet the plan reserved for the end.
+        lines: 90,
+        statements: 88,
+        functions: 88,
+        branches: 72,
       },
     },
   },

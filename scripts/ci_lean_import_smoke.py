@@ -51,7 +51,7 @@ def module_names() -> list[str]:
 
 
 def main() -> int:
-    failures: list[tuple[str, str]] = []
+    failures: list[tuple[str, BaseException, str]] = []
     skipped: list[tuple[str, str]] = []
 
     names = module_names()
@@ -61,24 +61,38 @@ def main() -> int:
         except unittest.SkipTest as exc:
             # A guarded import declaring a report-only dependency. Sanctioned.
             skipped.append((name, str(exc)))
-        except BaseException:  # noqa: BLE001 - a bare SystemExit here is still a failure
-            failures.append((name, traceback.format_exc()))
+        except BaseException as exc:  # noqa: BLE001 - a bare SystemExit is still a failure
+            failures.append((name, exc, traceback.format_exc()))
 
     for name, reason in skipped:
         print(f"SKIP {name}: {reason}")
-    for name, tb in failures:
+    for name, _, tb in failures:
         print(f"\nFAIL {name}\n{tb}", file=sys.stderr)
 
     print(
         f"\nlean import smoke: {len(names)} modules, "
         f"{len(failures)} failed, {len(skipped)} skipped"
     )
-    if failures:
+
+    # Diagnose, don't just fail. A module that imports something outside the lean set
+    # and a job whose Postgres service is unreachable both land here, and pointing the
+    # second one at requirements-base.txt would send the reader somewhere useless:
+    # api/main.py builds the app at import time, so a DB problem surfaces as an import
+    # failure without being one.
+    if any(isinstance(exc, ImportError) for _, exc, _ in failures):
         print(
             "A module above cannot be imported on requirements-base.txt — the lean set "
             "the containers ship and prod-rollout.yml tests against. Either move the "
             "dependency into requirements-base.txt deliberately, or guard the import "
             "(see tests/test_generate_portfolio_report.py).",
+            file=sys.stderr,
+        )
+    elif failures:
+        print(
+            "Nothing above failed on a missing module, so this is not a lean-install "
+            "problem — read the tracebacks. A connection error is the environment, not "
+            "the dependency set: importing api.main runs create_app() -> ensure_schema(), "
+            "which needs the job's Postgres service reachable at QUANTCORE_DB_DSN.",
             file=sys.stderr,
         )
     return 1 if failures else 0

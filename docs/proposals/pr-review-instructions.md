@@ -43,6 +43,21 @@ Check for:
 - Missing or insufficient tests, including edge cases and behavior required by the associated issue.
 - Relevant automated checks and test results. Clearly identify checks that could not run and why.
 
+## Test quality and significance
+
+Review tests for meaningful behavioral coverage, not merely increased line or branch coverage:
+
+- Identify the behavior, risk, bug, or issue objective each new or changed test is intended to protect.
+- Confirm that assertions would fail if the relevant production behavior regressed; flag tests that only execute code without checking meaningful outcomes.
+- Check that tests exercise important success, failure, boundary, authorization, persistence, integration, and user-visible paths where applicable.
+- Check that fixtures, mocks, and snapshots do not make the test pass while bypassing the behavior under test. Flag over-mocking, tautological assertions, assertions on implementation details, and tests that simply reproduce the implementation logic.
+- Evaluate whether the test cases are representative of real inputs and failure modes, especially those described by the associated issue.
+- Look for missing negative cases, edge cases, interaction cases, and regression cases that could allow the reported bug to return.
+- Treat coverage percentages as supporting evidence only, never as proof that the tests matter or that the change is adequately tested.
+- Report tests that are flaky, order-dependent, excessively broad, or otherwise unable to provide reliable protection.
+
+For the review report, summarize whether the tests provide meaningful protection for the PR's behavior and issue objectives, and distinguish genuine test gaps from mere coverage-percentage gaps.
+
 ## Verdict
 
 - **APPROVE**: No blocking issues and associated issue objectives are met or there is no associated issue.

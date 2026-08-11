@@ -1,9 +1,10 @@
 # Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
 #
-# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff) plus a
-# gitleaks secret scan (BYOK packet 8a — a pasted API key or PEM in a diff fails CI
-# before it ever lands; allowlist in .gitleaks.toml). Pushes to main additionally build
-# the 5 images (Cloud Build, native amd64) and roll them out to
+# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff), the lean
+# install import smoke (requirements-base.txt — the set the containers ship, which the
+# gate does NOT install), and a gitleaks secret scan (BYOK packet 8a — a pasted API key
+# or PEM in a diff fails CI before it ever lands; allowlist in .gitleaks.toml).
+# Pushes to main additionally build the 5 images (Cloud Build, native amd64) and roll them out to
 # the Cloud Run services + the report Job in the TEST project. Deploys carry ONLY the
 # image tag — every service's env/secrets/Cloud-SQL binding is preserved from its last
 # manual deploy (Steps 8–9), so CI never needs the DB DSN or JWT secret.
@@ -114,6 +115,48 @@ jobs:
       - name: Schema snapshot up to date
         run: python scripts/check_schema_snapshot.py
 
+  # The gate above installs requirements-dev.txt (base + report), but the
+  # containers — and prod-rollout.yml's own gate — run on requirements-base.txt
+  # alone. Without this job that difference is invisible until a promotion:
+  # a module importing matplotlib/jinja2/boto3 passes every PR and fails at the
+  # prod gate, which is exactly what happened on 2026-08-10. Separate job rather
+  # than a step, because the two dependency sets cannot share a Python
+  # environment. Import-only — the gate already runs the tests.
+  lean-import:
+    name: Lean install import smoke (requirements-base.txt)
+    runs-on: ubuntu-latest
+    services:
+      # api/main.py builds the app at import time, which calls ensure_schema() —
+      # so even an import-only smoke needs a database to reach.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantcore
+          POSTGRES_PASSWORD: quantcore
+          POSTGRES_DB: quantcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      QUANTCORE_DB_DSN: postgresql://quantcore:quantcore@localhost:5432/quantcore
+      AUTH_DISABLED: "1"
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install lean deps (the set the containers ship)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-base.txt
+      - name: Import smoke
+        run: python scripts/ci_lean_import_smoke.py
+
   frontend-gate:
     name: Frontend tests + typecheck + coverage
     runs-on: ubuntu-latest
@@ -200,7 +243,7 @@ jobs:
 
   deploy:
     name: Build + roll out to Cloud Run (test project)
-    needs: [gate, frontend-gate, secret-scan, preflight]
+    needs: [gate, lean-import, frontend-gate, secret-scan, preflight]
     if: needs.preflight.outputs.has_creds == 'true'
     runs-on: ubuntu-latest
     permissions:

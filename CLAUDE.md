@@ -483,3 +483,23 @@ the API and MCP images:
 `simple_text_summary.py`, and nothing else. Importing any of them from code that runs in a
 container is the mistake this split exists to make visible — add the dependency to
 `requirements-base.txt` deliberately, or don't add the import.
+
+**The test suite has to stay importable under the lean set, and the two CI jobs disagree about
+it.** `deploy.yml` installs `requirements-dev.txt` (base + report), but `prod-rollout.yml` runs
+`unittest discover` on `requirements-base.txt` alone — so a test module that imports a
+report-only package passes every PR and then fails the **prod promotion**, which is the worst
+possible place to learn it. A test that genuinely needs matplotlib/jinja2/boto3 wraps its import
+and raises `unittest.SkipTest`, tolerating **only** those three packages;
+`tests/test_generate_portfolio_report.py` is the pattern. Anything else failing to import is a
+real defect and must still error the run.
+
+That disagreement is now checked at PR time rather than discovered at a promotion.
+`deploy.yml`'s **`lean-import` job** installs `requirements-base.txt` into its own runner and runs
+**`scripts/ci_lean_import_smoke.py`**, which imports — and only imports — `main.py`, `api/main.py`,
+every MCP wrapper (the list is read from `scripts/ci_wrapper_smoke.py`, so a new server is covered
+for free), and every `tests/test_*.py`. A module that raises `SkipTest` at import is reported as
+skipped; anything else that fails to import is a red build, and `deploy` won't roll out to test
+until it's green. It needs a Postgres service despite being import-only, because `api/main.py`
+builds the app at module level and that calls `ensure_schema()`. It deliberately does not run the
+tests — the `gate` job already does, and a second full execution would cost minutes to answer a
+question about imports.

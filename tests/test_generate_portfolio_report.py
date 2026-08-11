@@ -9,6 +9,15 @@ noticing. These tests pin the two halves of that fix — a precondition check
 before the expensive work, and a hard failure at the upload itself.
 
 The template-path test guards the one line that could not move verbatim.
+
+**Why the import below is guarded.** The script under test is the one place
+that legitimately imports matplotlib/jinja2/boto3 at module level — it runs on
+the Pi, never in a container, which is what ``requirements-report.txt`` exists
+to say. But ``prod-rollout.yml`` runs the whole suite on the *lean* install
+(``requirements-base.txt``), so an unguarded import here is not a failing test,
+it is a promotion that cannot leave the gate. The skip is deliberately narrow:
+only the three report-only packages are tolerated, so a genuine broken import
+in the script still errors the run.
 """
 import io
 import os
@@ -17,7 +26,19 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
-import scripts.generate_portfolio_report as report
+# requirements-report.txt — installed by requirements-dev.txt (deploy.yml, where
+# these tests actually run and are measured for coverage) and by nothing lean.
+REPORT_ONLY_DEPENDENCIES = {"matplotlib", "jinja2", "boto3"}
+
+try:
+    import scripts.generate_portfolio_report as report
+except ImportError as exc:
+    if (exc.name or "").split(".")[0] not in REPORT_ONLY_DEPENDENCIES:
+        raise
+    raise unittest.SkipTest(
+        f"{exc.name} is not installed; the report script's tests need the "
+        "report dependency set (pip install -r requirements-report.txt)"
+    ) from exc
 
 
 def _no_dotenv():

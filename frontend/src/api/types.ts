@@ -1,7 +1,8 @@
 export interface Plan {
   instance_id: number;
   symbol: string;
-  status: 'ACTIVE' | 'SUPERSEDED';
+  owner: string;
+  status: 'ACTIVE' | 'SUPERSEDED' | 'CLOSED';
   created_at: string;
   asof_date: string;
   price_asof: number;

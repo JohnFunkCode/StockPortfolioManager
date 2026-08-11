@@ -35,7 +35,7 @@ class TestBuildPlanFetchSeam(unittest.TestCase):
     def test_build_plan_fetches_raw_history_and_passes_bars(self):
         self.gateway.fetch_history.return_value = bars_df()
         params = PlanBuildParams()
-        self.service.build_plan(symbol="intc", template_name="tmpl", params=params)
+        self.service.build_plan(symbol="intc", template_name="tmpl", params=params, owner="john")
 
         args, kwargs = self.gateway.fetch_history.call_args
         self.assertEqual(args[0], "INTC")
@@ -50,7 +50,9 @@ class TestBuildPlanFetchSeam(unittest.TestCase):
 
     def test_missing_adj_close_falls_back_to_close(self):
         self.gateway.fetch_history.return_value = bars_df(include_adj=False)
-        self.service.build_plan(symbol="INTC", template_name="t", params=PlanBuildParams())
+        self.service.build_plan(
+            symbol="INTC", template_name="t", params=PlanBuildParams(), owner="john"
+        )
         bars = self.repo.build_plan.call_args.kwargs["bars"]
         self.assertIn("Adj Close", bars.columns)
         self.assertEqual(list(bars["Adj Close"]), list(bars["Close"]))
@@ -78,7 +80,7 @@ class TestLatestClose(unittest.TestCase):
         self.assertIsNone(self.service.poll_latest_close("ZZNONE"))
 
     def test_symbols_at_harvest_points_injects_price_lookup(self):
-        self.service.symbols_at_harvest_points()
+        self.service.symbols_at_harvest_points(owner="john")
         _, kwargs = self.repo.symbols_at_harvest_points.call_args
         self.assertIn("price_lookup", kwargs)
         self.assertTrue(callable(kwargs["price_lookup"]))

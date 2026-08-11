@@ -92,6 +92,7 @@ export default function PlansPage() {
       >
         <ToggleButton value="ACTIVE">Active</ToggleButton>
         <ToggleButton value="SUPERSEDED">Superseded</ToggleButton>
+        <ToggleButton value="CLOSED">Closed</ToggleButton>
         <ToggleButton value="ALL">All</ToggleButton>
       </ToggleButtonGroup>
 

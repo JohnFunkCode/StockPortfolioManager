@@ -66,6 +66,16 @@ describe('PlansPage', () => {
     );
   });
 
+  it('offers the CLOSED filter and refetches with it', async () => {
+    const api = mockApi([['/api/plans', twoPlans()]]);
+    renderWithProviders(<PlansPage />);
+    await waitFor(() => expect(screen.getByText('INTC')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Closed' }));
+    await waitFor(() =>
+      expect(api.calls.some(([url]) => url.includes('status=CLOSED'))).toBe(true),
+    );
+  });
+
   it('opens the create dialog from the New Plan button', async () => {
     mockApi([['/api/plans', twoPlans()]]);
     renderWithProviders(<PlansPage />);

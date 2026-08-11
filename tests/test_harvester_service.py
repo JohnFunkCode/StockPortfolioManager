@@ -14,6 +14,9 @@ from quantcore.services.harvester import HarvesterService  # noqa: E402
 # Synthetic ticker + template name that won't collide with real Harvester data.
 TEST_SYMBOL = "ZZHARV"
 TEST_TEMPLATE = "zz_test_template"
+# Plans are owned since #147 Part H1; the suite runs as a synthetic owner so it
+# can never read or supersede a real one.
+OWNER = "zzharvsvcowner"
 
 
 class HarvesterServiceTest(unittest.TestCase):
@@ -64,12 +67,12 @@ class HarvesterServiceTest(unittest.TestCase):
             instance_id = conn.execute(
                 """
                 INSERT INTO plan_instances (
-                  template_id, symbol_id, status, created_at, asof_date,
+                  template_id, symbol_id, owner, status, created_at, asof_date,
                   price_asof, shares_initial, v0_floor, capital_at_risk,
                   history_end_date, history_window_days,
                   r_daily, annual_vol, h_threshold, n_iterations
                 ) VALUES (
-                  :template_id, :symbol_id, :status, :now, :now,
+                  :template_id, :symbol_id, :owner, :status, :now, :now,
                   100.0, 20, 2000.0, 2000.0,
                   '2026-06-01', 360,
                   0.0005, 0.25, 0.1, 4
@@ -79,6 +82,7 @@ class HarvesterServiceTest(unittest.TestCase):
                 {
                     "template_id": template_id,
                     "symbol_id": symbol_id,
+                    "owner": OWNER,
                     "status": status,
                     "now": now,
                 },
@@ -118,49 +122,49 @@ class HarvesterServiceTest(unittest.TestCase):
         return int(instance_id), rung_ids
 
     def _rung_status(self, rung_id):
-        return self.service.get_rung_by_id(rung_id)["status"]
+        return self.service.get_rung_by_id(rung_id, owner=OWNER)["status"]
 
     # ------------------------------------------------------------------
     def test_get_plan_and_rungs(self):
         instance_id, rung_ids = self._seed_plan()
 
-        plan = self.service.get_plan_by_id(instance_id)
+        plan = self.service.get_plan_by_id(instance_id, owner=OWNER)
         self.assertIsNotNone(plan)
         self.assertEqual(plan["symbol"], TEST_SYMBOL)
         self.assertEqual(plan["status"], "ACTIVE")
 
-        rungs = self.service.get_rungs_for_plan(instance_id)
+        rungs = self.service.get_rungs_for_plan(instance_id, owner=OWNER)
         self.assertEqual([r["rung_id"] for r in rungs], rung_ids)
         self.assertEqual([r["rung_index"] for r in rungs], [1, 2])
 
     def test_display_all_plans_filters_by_status(self):
         instance_id, _ = self._seed_plan(status="ACTIVE")
-        active = self.service.display_all_plans(status="ACTIVE")
+        active = self.service.display_all_plans(status="ACTIVE", owner=OWNER)
         self.assertIn(instance_id, [p["instance_id"] for p in active])
 
-        superseded = self.service.display_all_plans(status="SUPERSEDED")
+        superseded = self.service.display_all_plans(status="SUPERSEDED", owner=OWNER)
         self.assertNotIn(instance_id, [p["instance_id"] for p in superseded])
 
     def test_harvest_hit_for_symbol_returns_pending_rungs_at_or_below_price(self):
         instance_id, rung_ids = self._seed_plan()
 
         # Price reaches only the first rung's target (110).
-        hits = self.service.harvest_hit_for_symbol(TEST_SYMBOL, current_price=115.0)
+        hits = self.service.harvest_hit_for_symbol(TEST_SYMBOL, current_price=115.0, owner=OWNER)
         self.assertEqual([h["rung_id"] for h in hits], [rung_ids[0]])
         self.assertEqual(hits[0]["shares_to_sell"], 10)
 
         # Price reaches both targets.
-        hits = self.service.harvest_hit_for_symbol(TEST_SYMBOL, current_price=125.0)
+        hits = self.service.harvest_hit_for_symbol(TEST_SYMBOL, current_price=125.0, owner=OWNER)
         self.assertEqual([h["rung_id"] for h in hits], rung_ids)
 
         # Below the first target — no hits.
-        self.assertEqual(self.service.harvest_hit_for_symbol(TEST_SYMBOL, 100.0), [])
+        self.assertEqual(self.service.harvest_hit_for_symbol(TEST_SYMBOL, 100.0, owner=OWNER), [])
 
     def test_mark_rungs_achieved_updates_status(self):
         _, rung_ids = self._seed_plan()
 
         updated = self.service.mark_rungs_achieved(
-            rung_ids=[rung_ids[0]], trigger_price=111.0
+            rung_ids=[rung_ids[0]], trigger_price=111.0, owner=OWNER
         )
         self.assertEqual(updated, 1)
         self.assertEqual(self._rung_status(rung_ids[0]), "ACHIEVED")
@@ -168,30 +172,31 @@ class HarvesterServiceTest(unittest.TestCase):
 
         # Re-marking an already-ACHIEVED rung updates nothing (PENDING guard).
         self.assertEqual(
-            self.service.mark_rungs_achieved([rung_ids[0]], 111.0), 0
+            self.service.mark_rungs_achieved([rung_ids[0]], 111.0, owner=OWNER), 0
         )
 
     def test_get_next_actions_returns_first_pending_rung(self):
         instance_id, rung_ids = self._seed_plan()
 
-        actions = [a for a in self.service.get_next_actions() if a["instance_id"] == instance_id]
+        actions = [a for a in self.service.get_next_actions(owner=OWNER) if a["instance_id"] == instance_id]
         self.assertEqual(len(actions), 1)
         self.assertEqual(actions[0]["rung_id"], rung_ids[0])
         self.assertEqual(actions[0]["rung_index"], 1)
 
         # Once the first rung is achieved, the next action advances to rung 2.
-        self.service.mark_rungs_achieved([rung_ids[0]], 111.0)
-        actions = [a for a in self.service.get_next_actions() if a["instance_id"] == instance_id]
+        self.service.mark_rungs_achieved([rung_ids[0]], 111.0, owner=OWNER)
+        actions = [a for a in self.service.get_next_actions(owner=OWNER) if a["instance_id"] == instance_id]
         self.assertEqual(actions[0]["rung_id"], rung_ids[1])
 
     def test_record_execution_marks_rung_executed(self):
         instance_id, rung_ids = self._seed_plan()
-        self.service.mark_rungs_achieved([rung_ids[0]], 111.0)
+        self.service.mark_rungs_achieved([rung_ids[0]], 111.0, owner=OWNER)
 
         self.service.record_execution(
-            rung_id=rung_ids[0], executed_price=112.0, shares_sold=10, tax_paid=5.0
+            rung_id=rung_ids[0], executed_price=112.0, shares_sold=10, tax_paid=5.0,
+            owner=OWNER,
         )
-        rung = self.service.get_rung_by_id(rung_ids[0])
+        rung = self.service.get_rung_by_id(rung_ids[0], owner=OWNER)
         self.assertEqual(rung["status"], "EXECUTED")
         self.assertEqual(rung["shares_sold_actual"], 10)
         self.assertAlmostEqual(rung["executed_price"], 112.0)
@@ -199,14 +204,14 @@ class HarvesterServiceTest(unittest.TestCase):
 
     def test_delete_plan_archives_to_superseded(self):
         instance_id, _ = self._seed_plan()
-        self.assertTrue(self.service.delete_plan(instance_id))
-        self.assertEqual(self.service.get_plan_by_id(instance_id)["status"], "SUPERSEDED")
+        self.assertTrue(self.service.delete_plan(instance_id, owner=OWNER))
+        self.assertEqual(self.service.get_plan_by_id(instance_id, owner=OWNER)["status"], "SUPERSEDED")
 
     def test_get_alerts_for_plan(self):
         instance_id, rung_ids = self._seed_plan()
         # build_plan would create the alert; seed path doesn't, so refresh it.
         self.service._repo._ensure_next_rung_alert(instance_id)
-        alerts = self.service.get_alerts_for_plan(instance_id)
+        alerts = self.service.get_alerts_for_plan(instance_id, owner=OWNER)
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["rung_id"], rung_ids[0])
         self.assertEqual(alerts[0]["status"], "ACTIVE")

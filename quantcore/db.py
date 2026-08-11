@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS plan_instances (
     template_id INTEGER NOT NULL,
     symbol_id INTEGER NOT NULL,
     position_id INTEGER,
+    owner TEXT NOT NULL DEFAULT 'john',
     status TEXT NOT NULL DEFAULT 'ACTIVE',
     created_at TEXT NOT NULL,
     asof_date TEXT NOT NULL,
@@ -207,11 +208,29 @@ CREATE TABLE IF NOT EXISTS plan_instances (
     FOREIGN KEY(supersedes_instance_id) REFERENCES plan_instances(instance_id) ON DELETE SET NULL
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS ux_one_active_plan_per_symbol
-    ON plan_instances(symbol_id) WHERE status = 'ACTIVE';
+-- CREATE TABLE IF NOT EXISTS above is a no-op on a database that predates the
+-- column, so `owner` has to be added explicitly the same way positions' did --
+-- and it has to happen before the index below, which is built on it.
+ALTER TABLE plan_instances ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT 'john';
+
+-- One ACTIVE plan per (owner, symbol), not per symbol -- two owners may each
+-- run a ladder on the same ticker (#147 Part H1, V7).
+--
+-- This DROP is the only non-additive statement in _SCHEMA, and the pair must
+-- stay adjacent and in this order: under QUANTCORE_SCHEMA_MODE=create against a
+-- live database there is a window between them with no uniqueness constraint on
+-- active plans at all. Anything inserted between the two -- another statement,
+-- a reordering -- widens that window.
+DROP INDEX IF EXISTS ux_one_active_plan_per_symbol;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_one_active_plan_per_owner_symbol
+    ON plan_instances(owner, symbol_id) WHERE status = 'ACTIVE';
 
 CREATE INDEX IF NOT EXISTS idx_instances_symbol_status
     ON plan_instances(symbol_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_instances_owner_status
+    ON plan_instances(owner, status);
 
 CREATE TABLE IF NOT EXISTS plan_rungs (
     rung_id SERIAL PRIMARY KEY,

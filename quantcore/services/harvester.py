@@ -47,6 +47,8 @@ class HarvesterService:
         symbol: str,
         template_name: str,
         params: PlanBuildParams,
+        *,
+        owner: str,
     ) -> Dict[str, Any]:
         symbol = symbol.upper().strip()
         days = max(params.history_window_days + 60, 420)
@@ -57,48 +59,51 @@ class HarvesterService:
             bars = bars.copy()
             bars["Adj Close"] = bars["Close"]
         return self._repo.build_plan(
-            symbol=symbol, template_name=template_name, params=params, bars=bars
+            symbol=symbol, template_name=template_name, params=params, bars=bars,
+            owner=owner,
         )
 
-    def display_all_plans(self, status: str = "ACTIVE") -> List[Dict[str, Any]]:
-        return self._repo.display_all_plans(status=status)
+    def display_all_plans(self, status: str = "ACTIVE", *, owner: str) -> List[Dict[str, Any]]:
+        return self._repo.display_all_plans(status=status, owner=owner)
 
-    def get_plan_by_id(self, instance_id: int) -> Optional[Dict[str, Any]]:
-        return self._repo.get_plan_by_id(instance_id)
+    def get_plan_by_id(self, instance_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._repo.get_plan_by_id(instance_id, owner=owner)
 
-    def get_rungs_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
-        return self._repo.get_rungs_for_plan(instance_id)
+    def get_rungs_for_plan(self, instance_id: int, *, owner: str) -> List[Dict[str, Any]]:
+        return self._repo.get_rungs_for_plan(instance_id, owner=owner)
 
     def update_plan_metadata(
         self,
         instance_id: int,
         notes: Optional[str] = None,
         metadata_json: Optional[str] = None,
+        *,
+        owner: str,
     ) -> int:
         return self._repo.update_plan_metadata(
-            instance_id, notes=notes, metadata_json=metadata_json
+            instance_id, notes=notes, metadata_json=metadata_json, owner=owner
         )
 
-    def delete_plan(self, instance_id: int) -> int:
-        return self._repo.delete_plan(instance_id)
+    def delete_plan(self, instance_id: int, *, owner: str) -> int:
+        return self._repo.delete_plan(instance_id, owner=owner)
 
-    def get_rung_by_id(self, rung_id: int) -> Optional[Dict[str, Any]]:
-        return self._repo.get_rung_by_id(rung_id)
+    def get_rung_by_id(self, rung_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        return self._repo.get_rung_by_id(rung_id, owner=owner)
 
-    def get_alerts_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
-        return self._repo.get_alerts_for_plan(instance_id)
+    def get_alerts_for_plan(self, instance_id: int, *, owner: str) -> List[Dict[str, Any]]:
+        return self._repo.get_alerts_for_plan(instance_id, owner=owner)
 
-    def purge_superseded_plans(self) -> int:
-        return self._repo.purge_superseded_plans()
+    def purge_superseded_plans(self, *, owner: str) -> int:
+        return self._repo.purge_superseded_plans(owner=owner)
 
     # ------------------------------------------------------------------
     # Symbols / prices / dashboard
     # ------------------------------------------------------------------
-    def list_all_symbols(self) -> List[Dict[str, Any]]:
-        return self._repo.list_all_symbols()
+    def list_all_symbols(self, *, owner: str) -> List[Dict[str, Any]]:
+        return self._repo.list_all_symbols(owner=owner)
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
-        return self._repo.get_dashboard_stats()
+    def get_dashboard_stats(self, *, owner: str) -> Dict[str, Any]:
+        return self._repo.get_dashboard_stats(owner=owner)
 
     def poll_latest_close(self, ticker: str) -> Optional[float]:
         return self._latest_close(ticker)
@@ -113,35 +118,44 @@ class HarvesterService:
         except Exception:
             return None
 
-    def symbols_at_harvest_points(self) -> List[Dict[str, Any]]:
-        return self._repo.symbols_at_harvest_points(price_lookup=self._latest_close)
+    def symbols_at_harvest_points(self, *, owner: str) -> List[Dict[str, Any]]:
+        return self._repo.symbols_at_harvest_points(
+            price_lookup=self._latest_close, owner=owner
+        )
 
     # ------------------------------------------------------------------
     # Notifier integration (per-symbol hit checks)
     # ------------------------------------------------------------------
-    def harvest_hit_for_symbol(self, symbol: str, current_price: float) -> List[Dict[str, Any]]:
-        return self._repo.harvest_hit_for_symbol(symbol=symbol, current_price=current_price)
+    def harvest_hit_for_symbol(
+        self, symbol: str, current_price: float, *, owner: str
+    ) -> List[Dict[str, Any]]:
+        return self._repo.harvest_hit_for_symbol(
+            symbol=symbol, current_price=current_price, owner=owner
+        )
 
     def mark_rungs_achieved(
         self,
         rung_ids: List[int],
         trigger_price: float,
         triggered_at: Optional[str] = None,
+        *,
+        owner: str,
     ) -> int:
         return self._repo.mark_rungs_achieved(
             rung_ids=rung_ids,
             trigger_price=trigger_price,
             triggered_at=triggered_at,
+            owner=owner,
         )
 
     # ------------------------------------------------------------------
     # Controller behaviour (relocated from HarvesterController)
     # ------------------------------------------------------------------
-    def get_next_actions(self) -> List[Dict[str, Any]]:
-        """Return the next pending rung for each ACTIVE plan."""
+    def get_next_actions(self, *, owner: str) -> List[Dict[str, Any]]:
+        """Return the next pending rung for each of `owner`'s ACTIVE plans."""
         actions: List[Dict[str, Any]] = []
         with closing(get_connection()) as conn:
-            active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
+            active = conn.execute(SQL_LIST_ACTIVE_PLANS, {"owner": owner}).fetchall()
 
         for row in active:
             instance_id = int(row["instance_id"])
@@ -160,8 +174,8 @@ class HarvesterService:
             })
         return actions
 
-    def scan_and_fire_alerts(self) -> List[Dict[str, Any]]:
-        """Poll prices for active plans, and mark alert/rung when target is reached.
+    def scan_and_fire_alerts(self, *, owner: str) -> List[Dict[str, Any]]:
+        """Poll prices for `owner`'s active plans, and mark alert/rung when target is reached.
 
         Returns a list of achieved rungs with context for execution.
         """
@@ -169,7 +183,7 @@ class HarvesterService:
         now = _utc_now_iso()
 
         with closing(get_connection()) as conn:
-            active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
+            active = conn.execute(SQL_LIST_ACTIVE_PLANS, {"owner": owner}).fetchall()
 
         for row in active:
             instance_id = int(row["instance_id"])
@@ -206,6 +220,7 @@ class HarvesterService:
                         "rung_id": rung_id,
                         "ts": now,
                         "price": current_price,
+                        "owner": owner,
                     })
                     conn.commit()
                 except Exception:
@@ -231,8 +246,15 @@ class HarvesterService:
         tax_paid: float = 0.0,
         executed_at: Optional[str] = None,
         notes: Optional[str] = None,
+        *,
+        owner: str,
     ) -> None:
-        """Record the actual execution of a triggered rung and refresh the next-rung alert."""
+        """Record the actual execution of a triggered rung and refresh the next-rung alert.
+
+        A rung on another owner's plan matches nothing: the UPDATE affects no
+        row and the follow-up instance lookup comes back empty, so the call is
+        a no-op rather than a cross-owner write.
+        """
         ts = executed_at or _utc_now_iso()
         gross = executed_price * shares_sold
         net = gross - tax_paid
@@ -246,11 +268,18 @@ class HarvesterService:
                     "shares_sold": shares_sold,
                     "tax_paid": tax_paid,
                     "net_harvest": net,
+                    "owner": owner,
                 })
                 if notes:
                     conn.execute(
-                        "UPDATE plan_rungs SET notes = :notes WHERE rung_id = :rung_id;",
-                        {"notes": notes, "rung_id": rung_id},
+                        """
+                        UPDATE plan_rungs SET notes = :notes
+                        WHERE rung_id = :rung_id
+                          AND instance_id IN (
+                              SELECT instance_id FROM plan_instances WHERE owner = :owner
+                          );
+                        """,
+                        {"notes": notes, "rung_id": rung_id, "owner": owner},
                     )
                 conn.commit()
             except Exception:
@@ -258,6 +287,8 @@ class HarvesterService:
                 raise
 
         with closing(get_connection()) as conn:
-            row = conn.execute(SQL_GET_RUNG_INSTANCE, {"rung_id": rung_id}).fetchone()
+            row = conn.execute(
+                SQL_GET_RUNG_INSTANCE, {"rung_id": rung_id, "owner": owner}
+            ).fetchone()
         if row:
             self._repo._ensure_next_rung_alert(int(row["instance_id"]))

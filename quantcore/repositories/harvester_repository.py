@@ -33,6 +33,16 @@ def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# The plan status vocabulary (#147 Part H2). `status` is free-text TEXT with no
+# CHECK constraint, so this set -- not the schema -- is what validates a filter.
+#   ACTIVE      the plan is running
+#   SUPERSEDED  a newer plan replaced it for the same (owner, symbol)
+#   CLOSED      the position was exited, so the ladder no longer applies
+# CLOSED is deliberately distinct from SUPERSEDED: nothing replaced the plan,
+# there is simply nothing left to harvest.
+PLAN_STATUSES = {"ACTIVE", "SUPERSEDED", "CLOSED"}
+
+
 # Schema is now managed by quantcore.db
 # SQL snippets (queries)
 
@@ -67,11 +77,16 @@ ON CONFLICT(symbol, interval, ts) DO UPDATE SET
   ingested_at = excluded.ingested_at;
 """
 
+# Owner isolation is enforced here, in the SQL, rather than by the callers
+# (#147 Part H3 -- same rule PortfolioRepository already follows). Every
+# statement below that reaches plan_instances carries an `owner` predicate, so
+# a caller that forgets to scope gets a missing-parameter error rather than
+# another owner's plans.
 SQL_GET_ACTIVE_INSTANCE_FOR_TICKER = """
 SELECT pi.*
 FROM plan_instances pi
 JOIN symbols s ON s.symbol_id = pi.symbol_id
-WHERE s.ticker = :ticker AND pi.status = 'ACTIVE'
+WHERE s.ticker = :ticker AND pi.owner = :owner AND pi.status = 'ACTIVE'
 ORDER BY pi.created_at DESC
 LIMIT 1;
 """
@@ -128,7 +143,10 @@ SET status = 'ACHIEVED',
     triggered_at = :ts,
     trigger_price = :price
 WHERE rung_id = :rung_id
-  AND status = 'PENDING';
+  AND status = 'PENDING'
+  AND instance_id IN (
+      SELECT instance_id FROM plan_instances WHERE owner = :owner
+  );
 """
 
 SQL_GET_ACTIVE_ALERT_FOR_RUNG = """
@@ -148,13 +166,18 @@ SET status = 'EXECUTED',
     tax_paid_actual = :tax_paid,
     net_harvest_actual = :net_harvest
 WHERE rung_id = :rung_id
-  AND status IN ('ACHIEVED', 'PENDING');
+  AND status IN ('ACHIEVED', 'PENDING')
+  AND instance_id IN (
+      SELECT instance_id FROM plan_instances WHERE owner = :owner
+  );
 """
 
 SQL_GET_RUNG_INSTANCE = """
-SELECT instance_id
-FROM plan_rungs
-WHERE rung_id = :rung_id
+SELECT pr.instance_id
+FROM plan_rungs pr
+JOIN plan_instances pi ON pi.instance_id = pr.instance_id
+WHERE pr.rung_id = :rung_id
+  AND pi.owner = :owner
 LIMIT 1;
 """
 
@@ -171,9 +194,11 @@ SELECT
   pi.h_threshold,
   pi.n_iterations,
   pi.annual_vol,
-  pi.r_daily
+  pi.r_daily,
+  pi.owner
 FROM plan_instances pi
 JOIN symbols s ON s.symbol_id = pi.symbol_id
+WHERE pi.owner = ?
 ORDER BY pi.created_at DESC;
 """
 
@@ -187,12 +212,14 @@ SELECT
   pi.n_iterations
 FROM plan_instances pi
 JOIN symbols s ON s.symbol_id = pi.symbol_id
-WHERE pi.status = 'ACTIVE';
+WHERE pi.status = 'ACTIVE'
+  AND pi.owner = :owner;
 """
 
 SQL_PURGE_SUPERSEDED_PLANS = """
 DELETE FROM plan_instances
-WHERE status = 'SUPERSEDED';
+WHERE status = 'SUPERSEDED'
+  AND owner = :owner;
 """
 
 # -----------------------------
@@ -259,7 +286,15 @@ class HarvesterPlanDB:
     # Public API methods
     # -------------------------
 
-    def build_plan(self, symbol: str, template_name: str, params: PlanBuildParams, bars: pd.DataFrame = None) -> Dict[str, Any]:
+    def build_plan(
+        self,
+        symbol: str,
+        template_name: str,
+        params: PlanBuildParams,
+        bars: pd.DataFrame = None,
+        *,
+        owner: str,
+    ) -> Dict[str, Any]:
         """
         Build a forward plan for `symbol` using the existing planner from HarvesterExperiment.py,
         persist it to SQLite, and return a summary.
@@ -397,12 +432,13 @@ class HarvesterPlanDB:
                 template_id = cur.fetchone()[0]
                 conn.commit()
 
-        # 6) Insert plan_instance (supersede any active plan for that symbol)
+        # 6) Insert plan_instance (supersede this owner's active plan for that
+        #    symbol -- another owner's plan on the same ticker is untouched).
         with closing(get_connection()) as conn:
             try:
                 prev = conn.execute(
-                    "SELECT instance_id FROM plan_instances WHERE symbol_id=? AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1;",
-                    (symbol_id,),
+                    "SELECT instance_id FROM plan_instances WHERE symbol_id=? AND owner=? AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1;",
+                    (symbol_id, owner),
                 ).fetchone()
                 supersedes = int(prev["instance_id"]) if prev else None
                 if prev:
@@ -417,7 +453,7 @@ class HarvesterPlanDB:
                 cur = conn.execute(
                     """
                     INSERT INTO plan_instances (
-                      template_id, symbol_id, position_id, status,
+                      template_id, symbol_id, position_id, owner, status,
                       created_at, asof_date,
                       price_asof,
                       shares_initial, v0_floor, capital_at_risk,
@@ -426,7 +462,7 @@ class HarvesterPlanDB:
                       stats_price_series,
                       supersedes_instance_id
                     ) VALUES (
-                      :template_id, :symbol_id, NULL, 'ACTIVE',
+                      :template_id, :symbol_id, NULL, :owner, 'ACTIVE',
                       :created_at, :asof_date,
                       :price_asof,
                       :shares_initial, :v0_floor, :capital_at_risk,
@@ -440,6 +476,7 @@ class HarvesterPlanDB:
                     {
                         "template_id": template_id,
                         "symbol_id": symbol_id,
+                        "owner": owner,
                         "created_at": now,
                         "asof_date": now,
                         "price_asof": price_asof,
@@ -522,33 +559,33 @@ class HarvesterPlanDB:
             "n_iterations": int(forward_plan["n_iterations"]),
         }
 
-    def display_all_plans(self, status: str = "ACTIVE") -> List[Dict[str, Any]]:
+    def display_all_plans(self, status: str = "ACTIVE", *, owner: str) -> List[Dict[str, Any]]:
         """
-        Return plan instances by status (most recent first).
-        status: 'ACTIVE' (default), 'SUPERSEDED', or 'ALL'
+        Return one owner's plan instances by status (most recent first).
+        status: 'ACTIVE' (default), 'SUPERSEDED', 'CLOSED', or 'ALL'
         """
         status = status.upper()
-        if status not in {"ACTIVE", "SUPERSEDED", "ALL"}:
-            raise ValueError("status must be 'ACTIVE', 'SUPERSEDED', or 'ALL'")
+        if status not in PLAN_STATUSES | {"ALL"}:
+            raise ValueError("status must be 'ACTIVE', 'SUPERSEDED', 'CLOSED', or 'ALL'")
 
         sql = SQL_LIST_PLANS
-        params: tuple = ()
+        params: tuple = (owner,)
         if status != "ALL":
             sql = SQL_LIST_PLANS.replace(
                 "ORDER BY pi.created_at DESC;",
-                "WHERE pi.status = ? ORDER BY pi.created_at DESC;",
+                "AND pi.status = ? ORDER BY pi.created_at DESC;",
             )
-            params = (status,)
+            params = (owner, status)
 
         with closing(get_connection()) as conn:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
-    def symbols_at_harvest_points(self, price_lookup=None) -> List[Dict[str, Any]]:
+    def symbols_at_harvest_points(self, price_lookup=None, *, owner: str) -> List[Dict[str, Any]]:
         """
         Poll current prices and return a list of:
           { "symbol": <ticker>, "shares_to_sell": <int> }
-        for ACTIVE plans whose NEXT pending rung has been reached/exceeded.
+        for `owner`'s ACTIVE plans whose NEXT pending rung has been reached/exceeded.
 
         Notes:
         - Uses yfinance to fetch the most recent close (period=2d, interval=1d).
@@ -558,7 +595,7 @@ class HarvesterPlanDB:
         now = _utc_now_iso()
 
         with closing(get_connection()) as conn:
-            active = conn.execute(SQL_LIST_ACTIVE_PLANS).fetchall()
+            active = conn.execute(SQL_LIST_ACTIVE_PLANS, {"owner": owner}).fetchall()
 
         for row in active:
             instance_id = int(row["instance_id"])
@@ -600,10 +637,12 @@ class HarvesterPlanDB:
         self,
         symbol: str,
         current_price: float,
+        *,
+        owner: str,
     ) -> List[Dict[str, Any]]:
         """
-        For a given symbol and current price, return all pending rungs hit
-        (ordered by rung_index). Returns an empty list if no hit.
+        For a given symbol and current price, return all pending rungs hit on
+        `owner`'s active plan (ordered by rung_index). Empty list if no hit.
         """
         if current_price is None:
             return []
@@ -612,7 +651,7 @@ class HarvesterPlanDB:
         with closing(get_connection()) as conn:
             instance = conn.execute(
                 SQL_GET_ACTIVE_INSTANCE_FOR_TICKER,
-                {"ticker": symbol},
+                {"ticker": symbol, "owner": owner},
             ).fetchone()
             if not instance:
                 return []
@@ -650,9 +689,12 @@ class HarvesterPlanDB:
         rung_ids: List[int],
         trigger_price: float,
         triggered_at: Optional[str] = None,
+        *,
+        owner: str,
     ) -> int:
         """
-        Mark the given rungs as TRIGGERED. Returns the number of rows updated.
+        Mark the given rungs as TRIGGERED. Returns the number of rows updated;
+        rungs belonging to another owner's plan simply do not match.
         """
         if not rung_ids:
             return 0
@@ -664,7 +706,12 @@ class HarvesterPlanDB:
                 for rung_id in rung_ids:
                     cur = conn.execute(
                         SQL_MARK_RUNG_ACHIEVED,
-                        {"rung_id": rung_id, "ts": ts, "price": trigger_price},
+                        {
+                            "rung_id": rung_id,
+                            "ts": ts,
+                            "price": trigger_price,
+                            "owner": owner,
+                        },
                     )
                     updated += cur.rowcount
                 conn.commit()
@@ -676,13 +723,14 @@ class HarvesterPlanDB:
     def purge_superseded_plans(
         self,
         *,
+        owner: str,
         symbol: Optional[str] = None,
         older_than_days: Optional[int] = None,
         dry_run: bool = False,
         return_ids: bool = False,
     ) -> Any:
         """
-        Delete SUPERSEDED plan instances and all related artifacts via cascades.
+        Delete `owner`'s SUPERSEDED plan instances and all related artifacts via cascades.
         Options:
           - symbol: only purge plans for this ticker
           - older_than_days: only purge plans created at or before now - N days
@@ -691,8 +739,8 @@ class HarvesterPlanDB:
         Returns the number of plan instances matched (or removed if not dry_run),
         or a dict with count and instance_ids if return_ids is True.
         """
-        conditions = ["status = 'SUPERSEDED'"]
-        params: List[Any] = []
+        conditions = ["status = 'SUPERSEDED'", "owner = ?"]
+        params: List[Any] = [owner]
 
         if symbol:
             conditions.append(
@@ -734,39 +782,49 @@ class HarvesterPlanDB:
     # Query methods (used by REST API)
     # -------------------------
 
-    def get_plan_by_id(self, instance_id: int) -> Optional[Dict[str, Any]]:
-        """Get a single plan instance by ID, joined with symbol ticker."""
+    def get_plan_by_id(self, instance_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
+        """Get a single plan instance by ID, joined with symbol ticker.
+
+        Another owner's plan reads as absent (None), which the routes turn into
+        a 404 -- the same answer as an id that does not exist, so the endpoint
+        does not leak which ids are taken.
+        """
         with closing(get_connection()) as conn:
             row = conn.execute(
                 """
                 SELECT pi.*, s.ticker AS symbol
                 FROM plan_instances pi
                 JOIN symbols s ON s.symbol_id = pi.symbol_id
-                WHERE pi.instance_id = ?;
+                WHERE pi.instance_id = ? AND pi.owner = ?;
                 """,
-                (instance_id,),
+                (instance_id, owner),
             ).fetchone()
         return dict(row) if row else None
 
-    def get_rungs_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
+    def get_rungs_for_plan(self, instance_id: int, *, owner: str) -> List[Dict[str, Any]]:
         """Get all rungs for a plan instance, ordered by rung_index."""
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
-                SELECT * FROM plan_rungs
-                WHERE instance_id = ?
-                ORDER BY rung_index ASC;
+                SELECT pr.* FROM plan_rungs pr
+                JOIN plan_instances pi ON pi.instance_id = pr.instance_id
+                WHERE pr.instance_id = ? AND pi.owner = ?
+                ORDER BY pr.rung_index ASC;
                 """,
-                (instance_id,),
+                (instance_id, owner),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_rung_by_id(self, rung_id: int) -> Optional[Dict[str, Any]]:
+    def get_rung_by_id(self, rung_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
         """Get a single rung by ID."""
         with closing(get_connection()) as conn:
             row = conn.execute(
-                "SELECT * FROM plan_rungs WHERE rung_id = ?;",
-                (rung_id,),
+                """
+                SELECT pr.* FROM plan_rungs pr
+                JOIN plan_instances pi ON pi.instance_id = pr.instance_id
+                WHERE pr.rung_id = ? AND pi.owner = ?;
+                """,
+                (rung_id, owner),
             ).fetchone()
         return dict(row) if row else None
 
@@ -775,6 +833,8 @@ class HarvesterPlanDB:
         instance_id: int,
         notes: Optional[str] = None,
         metadata_json: Optional[str] = None,
+        *,
+        owner: str,
     ) -> bool:
         """Update notes and/or metadata_json for a plan instance. Returns True if a row was updated."""
         parts: List[str] = []
@@ -787,25 +847,30 @@ class HarvesterPlanDB:
             params.append(metadata_json)
         if not parts:
             return False
-        params.append(instance_id)
-        sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ?;"
+        params.extend([instance_id, owner])
+        sql = f"UPDATE plan_instances SET {', '.join(parts)} WHERE instance_id = ? AND owner = ?;"
         with closing(get_connection()) as conn:
             cur = conn.execute(sql, params)
             conn.commit()
             return cur.rowcount > 0
 
-    def delete_plan(self, instance_id: int) -> bool:
+    def delete_plan(self, instance_id: int, *, owner: str) -> bool:
         """Archive a plan by setting its status to SUPERSEDED. Returns True if updated."""
         with closing(get_connection()) as conn:
             cur = conn.execute(
-                "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND status = 'ACTIVE';",
-                (instance_id,),
+                "UPDATE plan_instances SET status = 'SUPERSEDED' WHERE instance_id = ? AND owner = ? AND status = 'ACTIVE';",
+                (instance_id, owner),
             )
             conn.commit()
             return cur.rowcount > 0
 
-    def list_all_symbols(self) -> List[Dict[str, Any]]:
-        """List all symbols with their active plan instance_id (if any)."""
+    def list_all_symbols(self, *, owner: str) -> List[Dict[str, Any]]:
+        """List all symbols with `owner`'s active plan instance_id (if any).
+
+        The symbol rows themselves are shared -- `symbols` has no owner -- but
+        `active_plan_id` must not be another owner's plan, or the UI would offer
+        a link that 404s.
+        """
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
@@ -813,28 +878,37 @@ class HarvesterPlanDB:
                        ap.instance_id AS active_plan_id
                 FROM symbols s
                 LEFT JOIN plan_instances ap
-                  ON ap.symbol_id = s.symbol_id AND ap.status = 'ACTIVE'
+                  ON ap.symbol_id = s.symbol_id
+                 AND ap.status = 'ACTIVE'
+                 AND ap.owner = ?
                 ORDER BY s.ticker;
                 """,
+                (owner,),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_alerts_for_plan(self, instance_id: int) -> List[Dict[str, Any]]:
+    def get_alerts_for_plan(self, instance_id: int, *, owner: str) -> List[Dict[str, Any]]:
         """Get all alerts for a plan instance."""
         with closing(get_connection()) as conn:
             rows = conn.execute(
-                "SELECT * FROM alerts WHERE instance_id = ? ORDER BY alert_id;",
-                (instance_id,),
+                """
+                SELECT a.* FROM alerts a
+                JOIN plan_instances pi ON pi.instance_id = a.instance_id
+                WHERE a.instance_id = ? AND pi.owner = ?
+                ORDER BY a.alert_id;
+                """,
+                (instance_id, owner),
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_dashboard_stats(self) -> Dict[str, Any]:
-        """Return aggregate statistics for the dashboard."""
+    def get_dashboard_stats(self, *, owner: str) -> Dict[str, Any]:
+        """Return aggregate statistics for one owner's dashboard."""
         stats: Dict[str, Any] = {}
         with closing(get_connection()) as conn:
             # Plan counts by status
             for row in conn.execute(
-                "SELECT status, COUNT(*) AS cnt FROM plan_instances GROUP BY status;"
+                "SELECT status, COUNT(*) AS cnt FROM plan_instances WHERE owner = ? GROUP BY status;",
+                (owner,),
             ).fetchall():
                 stats[f"{row['status'].lower()}_plans"] = int(row["cnt"])
             stats["total_plans"] = sum(
@@ -846,20 +920,25 @@ class HarvesterPlanDB:
                 "SELECT pr.status, COUNT(*) AS cnt "
                 "FROM plan_rungs pr "
                 "JOIN plan_instances pi ON pi.instance_id = pr.instance_id "
-                "WHERE pi.status = 'ACTIVE'"
-                "GROUP BY pr.status;"
+                "WHERE pi.status = 'ACTIVE' AND pi.owner = ? "
+                "GROUP BY pr.status;",
+                (owner,),
             ).fetchall():
                 stats[f"{row['status'].lower()}_rungs"] = int(row["cnt"])
 
             # Unique symbols with plans
             row = conn.execute(
-                "SELECT COUNT(DISTINCT symbol_id) AS cnt FROM plan_instances;"
+                "SELECT COUNT(DISTINCT symbol_id) AS cnt FROM plan_instances WHERE owner = ?;",
+                (owner,),
             ).fetchone()
             stats["symbols_tracked"] = int(row["cnt"]) if row else 0
 
             # Active alerts
             row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM alerts WHERE status = 'ACTIVE';"
+                "SELECT COUNT(*) AS cnt FROM alerts a "
+                "JOIN plan_instances pi ON pi.instance_id = a.instance_id "
+                "WHERE a.status = 'ACTIVE' AND pi.owner = ?;",
+                (owner,),
             ).fetchone()
             stats["active_alerts"] = int(row["cnt"]) if row else 0
 
@@ -872,6 +951,10 @@ class HarvesterPlanDB:
     def _ensure_next_rung_alert(self, instance_id: int) -> None:
         """
         Create/refresh an alert for the next pending rung and disable others for the instance.
+
+        Deliberately not owner-scoped: it is internal and only ever reached with
+        an instance_id a caller has already resolved through an owner-scoped
+        query, so re-checking here would only hide a caller that skipped that.
         """
         now = _utc_now_iso()
         with closing(get_connection()) as conn:

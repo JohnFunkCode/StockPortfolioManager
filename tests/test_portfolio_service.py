@@ -507,5 +507,36 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
             )
 
 
+class AllSymbolsTest(unittest.TestCase):
+    """Half of the "tracked" roster the fundamentals views scope to (#147 B4).
+
+    Repository-mocked rather than DB-backed: what's being pinned is the walk
+    across owners, and the SQL underneath it is already covered above.
+    """
+
+    class Repo:
+        def __init__(self, by_owner):
+            self._by_owner = by_owner
+
+        def list_owners(self):
+            return list(self._by_owner)
+
+        def list_positions(self, owner):
+            return [{"symbol": s} for s in self._by_owner[owner]]
+
+    def test_walks_every_owner_and_dedupes(self):
+        # Other owners have no daily job of their own, so their symbols are part
+        # of the tracked universe too (issue #126 decision #5).
+        service = PortfolioService(
+            self.Repo({"john": ["AAA", "BBB"], "thomas": ["BBB", "CCC"]}),
+            prices=FakePrices(),
+        )
+        self.assertEqual(service.all_symbols(), ["AAA", "BBB", "CCC"])
+
+    def test_no_positions_is_an_empty_roster(self):
+        service = PortfolioService(self.Repo({}), prices=FakePrices())
+        self.assertEqual(service.all_symbols(), [])
+
+
 if __name__ == "__main__":
     unittest.main()

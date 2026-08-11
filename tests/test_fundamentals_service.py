@@ -8,6 +8,7 @@ cache wrappers, batch scorer, profile composer, and rankings are covered
 fully with a mocked repository.
 """
 import math
+import time
 import unittest
 from unittest.mock import Mock, patch
 
@@ -590,6 +591,111 @@ class TestScoreChanges(FundamentalsServiceTestBase):
         out = self.service.get_fundamental_score_changes()
         self.assertEqual(out["symbols_with_insufficient_history"], 1)
         self.assertEqual(out["changes"], [])
+
+
+class TestScope(FundamentalsServiceTestBase):
+    """?scope=tracked narrows the cache to the watchlist + every owner's
+    positions before anything ranks (issue #147 Part B4)."""
+
+    ENTRIES = [
+        {"symbol": "AAA", "composite_score": 5, "coverage": 0.9, "sector": "Tech",
+         "fundamental_label": "good", "fetched_at": "t"},
+        {"symbol": "BBB", "composite_score": 9, "coverage": 0.9, "sector": "Tech",
+         "fundamental_label": "great", "fetched_at": "t"},
+        # Highest score in the cache, and on nobody's list — the whole reason
+        # the filter has to run before the ranking rather than after it.
+        {"symbol": "STRANGER", "composite_score": 99, "coverage": 0.9, "sector": "Energy",
+         "fundamental_label": "best", "fetched_at": "t"},
+    ]
+
+    def setUp(self):
+        super().setUp()
+        self.roster = ["aaa", "BBB", None]  # mixed case + a null: both survivable
+        self.service = FundamentalsService(
+            fundamentals_repository=self.repo,
+            yfinance_gateway=Mock(),
+            tracked_symbols=lambda: self.roster,
+        )
+        self.repo.get_all_latest.return_value = list(self.ENTRIES)
+
+    def test_top_excludes_untracked_before_ranking(self):
+        out = self.service.get_top_fundamental_stocks(n=10, min_coverage=0.5, scope="tracked")
+        self.assertEqual([r["symbol"] for r in out["rankings"]], ["BBB", "AAA"])
+        self.assertEqual(out["total_in_cache"], 2)
+        self.assertEqual(out["scope"], "tracked")
+
+    def test_top_n_is_the_top_of_the_roster_not_of_the_cache(self):
+        # n=1 over the whole cache returns STRANGER; over the roster, BBB.
+        self.assertEqual(
+            self.service.get_top_fundamental_stocks(n=1, scope="all")["rankings"][0]["symbol"],
+            "STRANGER",
+        )
+        self.assertEqual(
+            self.service.get_top_fundamental_stocks(n=1, scope="tracked")["rankings"][0]["symbol"],
+            "BBB",
+        )
+
+    def test_default_scope_is_the_whole_cache(self):
+        out = self.service.get_top_fundamental_stocks(n=10, min_coverage=0.5)
+        self.assertEqual(out["total_in_cache"], 3)
+        self.assertEqual(out["scope"], "all")
+
+    def test_sector_breakdown_scoped(self):
+        out = self.service.get_sector_fundamental_breakdown(scope="tracked")
+        self.assertEqual(sorted(out["sectors"]), ["Tech"])
+        self.assertEqual(out["total_symbols"], 2)
+        self.assertEqual(out["scope"], "tracked")
+
+    def test_upcoming_earnings_scoped(self):
+        soon = (date.today() + timedelta(days=3)).isoformat()
+        self.repo.get_all_latest.return_value = [
+            {"symbol": s, "earnings_date": soon, "_fetched_at_ts": int(time.time())}
+            for s in ("AAA", "STRANGER")
+        ]
+        self.repo.ttl_seconds.return_value = 86400
+        out = self.service.get_upcoming_earnings(days=14, scope="tracked")
+        self.assertEqual([u["symbol"] for u in out["upcoming"]], ["AAA"])
+        self.assertEqual(out["scope"], "tracked")
+
+    def test_score_changes_scoped_skips_the_per_symbol_history_query(self):
+        self.repo.history.return_value = [
+            {"composite_score": 1, "fundamental_label": "poor", "fetched_at": "t0"},
+            {"composite_score": 8, "fundamental_label": "good", "fetched_at": "t1"},
+        ]
+        out = self.service.get_fundamental_score_changes(scope="tracked")
+        self.assertEqual([c["symbol"] for c in out["changes"]], ["AAA", "BBB"])
+        self.assertEqual(out["scope"], "tracked")
+        # Scoping cuts the work, not just the output — no history query is run
+        # for a symbol that can never appear in the result.
+        self.assertEqual(
+            [c.args[0] for c in self.repo.history.call_args_list], ["AAA", "BBB"]
+        )
+
+    def test_unknown_scope_is_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            self.service.get_top_fundamental_stocks(scope="watchlist")
+        self.assertIn("watchlist", str(ctx.exception))
+
+    def test_tracked_without_a_provider_is_rejected(self):
+        # An empty result would read as "nothing scores well", which is a wrong
+        # answer rather than a missing one. Fail instead.
+        bare = FundamentalsService(
+            fundamentals_repository=self.repo, yfinance_gateway=Mock()
+        )
+        with self.assertRaises(ValueError):
+            bare.get_top_fundamental_stocks(scope="tracked")
+
+    def test_provider_is_only_called_when_scope_is_tracked(self):
+        provider = Mock(return_value=["AAA"])
+        svc = FundamentalsService(
+            fundamentals_repository=self.repo,
+            yfinance_gateway=Mock(),
+            tracked_symbols=provider,
+        )
+        svc.get_top_fundamental_stocks()
+        provider.assert_not_called()
+        svc.get_top_fundamental_stocks(scope="tracked")
+        provider.assert_called_once_with()
 
 
 class TestFundamentalHistory(FundamentalsServiceTestBase):

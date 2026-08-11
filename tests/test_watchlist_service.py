@@ -467,6 +467,21 @@ class CountingFundamentalsRepository:
         return 86400.0   # env read, not a query
 
 
+class WatchlistSymbolsTest(unittest.TestCase):
+    """Half of the "tracked" roster the fundamentals views scope to (#147 B4)."""
+
+    def test_symbols_returns_tickers_and_drops_blanks(self):
+        repo = FakeRepository(entries=[
+            {"symbol": "NVDA", "name": "Nvidia"},
+            {"symbol": "AVGO", "name": "Broadcom"},
+            {"name": "a row with no ticker"},
+        ])
+        self.assertEqual(WatchlistService(repo).symbols(), ["NVDA", "AVGO"])
+
+    def test_empty_list_is_an_empty_roster(self):
+        self.assertEqual(WatchlistService(FakeRepository()).symbols(), [])
+
+
 class ListingRepository(FakeRepository):
     def __init__(self, entries):
         super().__init__()

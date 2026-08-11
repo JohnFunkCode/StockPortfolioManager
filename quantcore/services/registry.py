@@ -144,9 +144,30 @@ def get_services() -> Services:
         sentiment_repository=sentiment_repository,
         yfinance_gateway=yfinance_gateway,
     )
+    # The roster behind scope="tracked" on the fundamentals views (issue #147
+    # Part B4). It is a closure over locals bound *below* on purpose:
+    # WatchlistService composes FundamentalsService (Part B3), so passing those
+    # services into this constructor would be a construction cycle. Nothing
+    # calls this until a request arrives, long after get_services() returns.
+    def tracked_symbols() -> list[str]:
+        return watchlist.symbols() + portfolio.all_symbols()
+
     fundamentals = FundamentalsService(
         fundamentals_repository=fundamentals_repository,
         yfinance_gateway=yfinance_gateway,
+        tracked_symbols=tracked_symbols,
+    )
+    # Hoisted so the tracked_symbols closure above resolves to the live
+    # instances the REST tier serves from. Both are constructed after
+    # FundamentalsService because WatchlistService composes it.
+    portfolio = PortfolioService(
+        portfolio_repository=portfolio_repository, prices=prices, options=options
+    )
+    watchlist = WatchlistService(
+        repository=watchlist_repository,
+        yfinance=yfinance_gateway,
+        prices=prices,
+        fundamentals=fundamentals,
     )
     # Chat client factory precedence (BYOK packet 3c):
     #   CHAT_FAKE=1            → deterministic scripted FakeChatClient
@@ -240,13 +261,8 @@ def get_services() -> Services:
             harvester_repository=harvester_repository,
             yfinance_gateway=yfinance_gateway,
         ),
-        portfolio=PortfolioService(portfolio_repository=portfolio_repository, prices=prices, options=options),
-        watchlist=WatchlistService(
-            repository=watchlist_repository,
-            yfinance=yfinance_gateway,
-            prices=prices,
-            fundamentals=fundamentals,
-        ),
+        portfolio=portfolio,
+        watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,
             options=options,

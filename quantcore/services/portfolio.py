@@ -125,6 +125,22 @@ class PortfolioService:
     def list_owners(self) -> List[str]:
         return self._repo.list_owners()
 
+    def all_symbols(self) -> List[str]:
+        """Every symbol held by *any* owner, de-duplicated, first-seen order.
+
+        Not just John's: other owners have no daily job of their own (issue #126
+        decision #5), so anything the nightly capture and the fundamentals
+        warmer walk on their behalf belongs in this roster too. Half of the
+        "tracked" universe the fundamentals views scope to (issue #147 Part B4).
+        """
+        symbols: List[str] = []
+        for owner in self._repo.list_owners():
+            for row in self._repo.list_positions(owner):
+                sym = row.get("symbol")
+                if sym and sym not in symbols:
+                    symbols.append(sym)
+        return symbols
+
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------

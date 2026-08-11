@@ -8,9 +8,14 @@ fundamentals surface-gap endpoints, each one call deep over FundamentalsService:
   GET /api/securities/{ticker}/fundamentals/revenue-growth
   GET /api/securities/{ticker}/fundamentals/earnings-acceleration
   GET /api/securities/{ticker}/fundamentals/history?data_type=&since_days=365
+
+The collection routes additionally take ``?scope=all|tracked`` (issue #147
+Part B4) — see the ``Scope`` alias below.
 """
 
 from __future__ import annotations
+
+from typing import Literal
 
 from fastapi import APIRouter
 
@@ -19,6 +24,16 @@ from ..json_response import QuantCoreJSONResponse
 from ..schemas.fundamentals import ScoresBatchRequest
 
 router = APIRouter(prefix="/api/securities", tags=["fundamentals"])
+
+# The four collection routes below take ?scope=all|tracked (issue #147 Part B4).
+# "all" is the whole cache — every symbol anyone has ever asked about — and stays
+# the default so existing callers (the MCP tools, the sidekick) are unchanged.
+# "tracked" narrows to the shared watchlist plus every owner's positions, which
+# is what the /fundamentals page reads. Typing it as a Literal makes an
+# unrecognized value a 422 at the boundary rather than a ValueError from the
+# service, and puts the allowed values in the OpenAPI schema; the surface
+# snapshot (docs/openapi-surface.txt) is route-level, so none of this moves it.
+Scope = Literal["all", "tracked"]
 
 
 # --------------------------------------------------------------------------- #
@@ -34,16 +49,20 @@ def get_fundamental_scores_batch(body: ScoresBatchRequest) -> QuantCoreJSONRespo
 
 
 @router.get("/fundamentals/top")
-def get_top_fundamental_stocks(n: int = 10, min_coverage: float = 0.5) -> QuantCoreJSONResponse:
+def get_top_fundamental_stocks(
+    n: int = 10, min_coverage: float = 0.5, scope: Scope = "all"
+) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
-        services().fundamentals.get_top_fundamental_stocks(n, min_coverage)
+        services().fundamentals.get_top_fundamental_stocks(n, min_coverage, scope=scope)
     )
 
 
 @router.get("/fundamentals/upcoming-earnings")
-def get_upcoming_earnings(days: int = 14, include_stale: bool = False) -> QuantCoreJSONResponse:
+def get_upcoming_earnings(
+    days: int = 14, include_stale: bool = False, scope: Scope = "all"
+) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
-        services().fundamentals.get_upcoming_earnings(days, include_stale)
+        services().fundamentals.get_upcoming_earnings(days, include_stale, scope=scope)
     )
 
 
@@ -54,19 +73,21 @@ def get_cache_stats() -> QuantCoreJSONResponse:
 
 @router.get("/fundamentals/sector-breakdown")
 def get_sector_fundamental_breakdown(
-    sector: str | None = None, top_n: int = 5
+    sector: str | None = None, top_n: int = 5, scope: Scope = "all"
 ) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
-        services().fundamentals.get_sector_fundamental_breakdown(sector, top_n)
+        services().fundamentals.get_sector_fundamental_breakdown(sector, top_n, scope=scope)
     )
 
 
 @router.get("/fundamentals/score-changes")
 def get_fundamental_score_changes(
-    min_delta: int = 2, since_days: int = 90, direction: str = "both"
+    min_delta: int = 2, since_days: int = 90, direction: str = "both", scope: Scope = "all"
 ) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
-        services().fundamentals.get_fundamental_score_changes(min_delta, since_days, direction)
+        services().fundamentals.get_fundamental_score_changes(
+            min_delta, since_days, direction, scope=scope
+        )
     )
 
 

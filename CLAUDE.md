@@ -254,6 +254,26 @@ stale/unscored counts (Rule 8.4); the page sorts on `market_cap_usd` and leaves 
 `market_cap` column deliberately **unsortable**, because ordering mixed currencies ranks exchange
 rates rather than companies.
 
+The **Fundamentals page** (`/fundamentals`, issue #147 Part D) answers "what's good?" across the
+**tracked universe** — the shared watchlist plus *every* owner's positions, deliberately the same
+set `main.py` captures options for and warms fundamentals over. Five panels
+(`frontend/src/components/fundamentals/`), five independent cache-backed reads, and **no page-level
+loading gate**: each panel owns its loading and error state, so one slow or failed query leaves the
+other four standing. All four ranked reads pass `scope=tracked`; `cache-stats` takes no scope
+because it reports on the cache, not on a roster — and a failure there renders *nothing* rather than
+an alert, since it is the one panel whose absence costs no analysis. Two of the panels are also
+sidekick components (`fundamentals_top`, `fundamentals_score_changes`), registered with **empty**
+prop specs and rendered as the panels' own `variant="rail"` — a card and the open page then share
+one hook and one react-query key rather than duplicating the fetch.
+
+`scope` (`all` | `tracked`) is threaded through `FundamentalsService`'s four collection methods and
+their routes. Two things about it are load-bearing: the filter runs **before** the ranking (top-N of
+the cache is not top-N of the roster), and the roster is supplied to `FundamentalsService` as a
+late-bound `tracked_symbols` **callable** wired in `registry.py` — `WatchlistService` already
+composes `FundamentalsService`, so injecting the services directly would close a construction cycle.
+At the route boundary it is a `Literal["all","tracked"]`, so a bad value is a 422 rather than a
+service `ValueError` escaping over HTTP.
+
 The security detail page's Technical Analysis tab includes the **Support Confluence card**
 (`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the
 `GET /api/securities/{ticker}/support-confluence` composite support/resistance zones.

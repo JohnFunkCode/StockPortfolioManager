@@ -20,6 +20,7 @@ import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import AssessmentIcon from '@mui/icons-material/Assessment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PortfolioPage from './components/portfolio/PortfolioPage';
@@ -30,6 +31,7 @@ import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
 import ArbitragePage from './components/arbitrage/ArbitragePage';
 import WatchlistPage from './components/watchlist/WatchlistPage';
+import FundamentalsPage from './components/fundamentals/FundamentalsPage';
 import SettingsPage from './components/settings/SettingsPage';
 
 type BaseRoute = {
@@ -58,6 +60,7 @@ export const routes: AppRoute[] = [
   { path: '/securities', label: 'Securities', icon: <BarChartIcon />, element: <SecuritiesPage /> },
   { path: '/securities/:symbol', label: 'Security detail', nav: false, element: <SecurityDetailPage /> },
   { path: '/watchlist', label: 'Watchlist', icon: <VisibilityIcon />, element: <WatchlistPage /> },
+  { path: '/fundamentals', label: 'Fundamentals', icon: <AssessmentIcon />, element: <FundamentalsPage /> },
   { path: '/arbitrage', label: 'Arbitrage', icon: <CompareArrowsIcon />, element: <ArbitragePage /> },
   { path: '/plans', label: 'Plans', icon: <ListAltIcon />, element: <PlansPage /> },
   { path: '/plans/:id', label: 'Plan detail', nav: false, element: <PlanDetailPage /> },

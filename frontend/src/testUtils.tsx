@@ -447,3 +447,148 @@ export function watchlistFundamentals(
     ...overrides,
   };
 }
+
+// --- fundamentals page (issue #147 Part D) ---------------------------------
+// The routes under /api/securities/fundamentals are pass-throughs with no
+// Pydantic response model, so these fixtures — like api/fundamentalsTypes.ts —
+// mirror the service dicts by hand.
+
+/** One row of GET /api/securities/fundamentals/top, already ranked. */
+export function fundamentalRanking(symbol = 'INTC', overrides: object = {}) {
+  return {
+    rank: 1,
+    symbol,
+    composite_score: 72,
+    fundamental_label: 'strong',
+    coverage: 0.9,
+    cached_at: '2026-08-09T06:00:00Z',
+    ...overrides,
+  };
+}
+
+export function topFundamentals(
+  rankings: Array<ReturnType<typeof fundamentalRanking>> = [fundamentalRanking()],
+  overrides: object = {},
+) {
+  return {
+    ranked_at: '2026-08-09T12:00:00Z',
+    n_requested: 25,
+    scope: 'tracked',
+    min_coverage: 0.5,
+    total_in_cache: rankings.length,
+    eligible_count: rankings.length,
+    rankings,
+    ...overrides,
+  };
+}
+
+/** One row of GET /api/securities/fundamentals/score-changes. */
+export function scoreChange(symbol = 'INTC', overrides: object = {}) {
+  return {
+    symbol,
+    delta: 12,
+    direction: 'improving',
+    score_then: 60,
+    score_now: 72,
+    label_then: 'mixed',
+    label_now: 'strong',
+    first_snapshot: '2026-05-12T06:00:00Z',
+    last_snapshot: '2026-08-09T06:00:00Z',
+    ...overrides,
+  };
+}
+
+export function scoreChanges(
+  changes: Array<ReturnType<typeof scoreChange>> = [scoreChange()],
+  overrides: object = {},
+) {
+  return {
+    queried_at: '2026-08-09T12:00:00Z',
+    since_days: 90,
+    min_delta: 2,
+    direction: 'both',
+    scope: 'tracked',
+    symbols_evaluated: changes.length,
+    symbols_with_insufficient_history: 0,
+    changes,
+    ...overrides,
+  };
+}
+
+/** One row inside a sector bucket. */
+export function sectorRanking(symbol = 'INTC', overrides: object = {}) {
+  return {
+    rank: 1,
+    symbol,
+    composite_score: 72,
+    fundamental_label: 'strong',
+    coverage: 0.9,
+    ...overrides,
+  };
+}
+
+export function sectorBreakdown(
+  sectors: Record<string, Array<ReturnType<typeof sectorRanking>>> = {
+    Technology: [sectorRanking('INTC')],
+  },
+  overrides: object = {},
+) {
+  return {
+    queried_at: '2026-08-09T12:00:00Z',
+    sector_filter: null,
+    scope: 'tracked',
+    top_n: 5,
+    sectors,
+    sector_count: Object.keys(sectors).length,
+    total_symbols: Object.values(sectors).reduce((n, list) => n + list.length, 0),
+    ...overrides,
+  };
+}
+
+export function upcomingEarning(symbol = 'INTC', overrides: object = {}) {
+  return {
+    symbol,
+    earnings_date: '2026-08-14',
+    days_to_earnings: 4,
+    risk_level: 'elevated',
+    pre_earnings_setup: false,
+    historical_avg_move_pct: 5.2,
+    cached_at: '2026-08-09T06:00:00Z',
+    stale: false,
+    ...overrides,
+  };
+}
+
+export function upcomingEarnings(
+  upcoming: Array<ReturnType<typeof upcomingEarning>> = [upcomingEarning()],
+  overrides: object = {},
+) {
+  return {
+    queried_at: '2026-08-09T12:00:00Z',
+    days_window: 14,
+    scope: 'tracked',
+    include_stale: false,
+    stale_excluded: 0,
+    total_in_cache: upcoming.length,
+    count: upcoming.length,
+    upcoming,
+    ...overrides,
+  };
+}
+
+/** GET /api/securities/fundamentals/cache-stats. Names the database
+ *  host:port/name — never the DSN (never-log policy). */
+export function fundamentalsCacheStats(overrides: object = {}) {
+  return {
+    database: 'localhost:5434/quantcore_test',
+    data_types: [
+      {
+        data_type: 'income_statement',
+        symbol_count: 2,
+        oldest: '2026-08-01T06:00:00Z',
+        newest: '2026-08-09T06:00:00Z',
+      },
+    ],
+    ...overrides,
+  };
+}

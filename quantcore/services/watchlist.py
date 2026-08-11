@@ -138,6 +138,16 @@ class WatchlistService:
     def count(self) -> int:
         return self._repo.count()
 
+    def symbols(self) -> List[str]:
+        """Just the tickers on the shared list.
+
+        Half of the "tracked" universe the fundamentals views scope to (issue
+        #147 Part B4); the other half is every owner's positions. Kept here
+        rather than making the caller pick ``symbol`` out of ``list_entries()``
+        so the roster stays this service's answer to give.
+        """
+        return [e["symbol"] for e in self._repo.list_entries() if e.get("symbol")]
+
     def returns_and_fundamentals(self, as_of: Optional[date] = None) -> Dict[str, Any]:
         """The whole watchlist fundamentals table, in **six queries and zero
         network calls** (issue #147 Part B3).

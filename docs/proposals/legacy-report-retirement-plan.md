@@ -1,11 +1,16 @@
 # Retire the legacy HTML report into QuantUI
 
 **Source issue:** [#147](https://github.com/JohnFunkCode/StockPortfolioManager/issues/147)
-**Status:** CODE COMPLETE (2026-08-11) — all nine PRs (0–8) merged to `main`; see the
-[Checkpoint log](#checkpoint-log). Two operational steps remain, both deliberately manual:
-`./scripts/flyway.sh --prod migrate` to carry prod's changelog from `V7` to `V8` (a no-op backfill
-there — prod holds no plans — but the row belongs in the changelog), and a `prod-rollout.yml`
-dispatch to promote Part G's UI to prod
+**Status:** COMPLETE (2026-08-11) — all nine PRs (0–8) merged to `main` and issue #147 closed; see
+the [Checkpoint log](#checkpoint-log). Prod is migrated through **`V8`** and verified: 22 tables,
+0 missing / 0 extra against `db/schema_snapshot.json`,
+`ux_one_active_plan_per_owner_symbol` present with the old per-symbol index gone, and zero
+violations of the H5 invariant (the backfill closed **0 rows** — prod holds no plans, so the row
+belongs in the changelog rather than doing work). **One deliberately manual step remains:** a
+`prod-rollout.yml` dispatch to promote Part G's UI to prod, which still runs `e17d21c`. **Two
+things stay unproven until they happen on their own schedule** — see
+[Verification](#verification): the first prod execution of the post-#147 `main.py`, and which code
+path the Raspberry Pi is actually running
 **Shape:** nine PRs (0–8) across three tracks that different people can work in parallel; see
 [Sequencing](#sequencing) and [Working alongside other people](#working-alongside-other-people)
 **Related:** [`watchlist-db-plan.md`](watchlist-db-plan.md) (#83, the DB-backed watchlist this plan
@@ -1065,6 +1070,27 @@ just above.
 **Deploy:** merge to `main` → `deploy.yml` rolls test automatically (api, ui, report job). Verify on
 `https://quantui-493357101423.us-central1.run.app`, then promote with a manual `prod-rollout.yml`
 dispatch using the 7-char SHA.
+
+**The two checks that cannot be made by finishing the code** — both are about prod running on its own
+schedule, and both look like success from the outside if they are wrong:
+
+1. **The first prod execution of the post-#147 `main.py`.** The Job (`quantcore-report`, Cloud
+   Scheduler `0 17 * * 1-5 America/New_York`) was carrying the new image within hours of the
+   2026-08-11 rollout, but that day's 17:00 ET run *predates* it and therefore ran the old code — so
+   the first real one is the next weekday firing. What it proves and nothing earlier can: Discord
+   notifications arrive **once**, no HTML rendering or S3 upload is attempted, and the fundamentals
+   warmer plus `alert_if_fundamentals_stale` still behave with the report path gone. Supporting
+   evidence already gathered: the Job's env is exactly `QUANTCORE_DB_DSN` + `DISCORD_WEBHOOK_URL`,
+   with **no `BUCKET_NAME`/`BUCKET_KEY`** — correct for a job that no longer publishes.
+2. **Which code path the Pi is running.** `runOnPi.sh` is repointed at
+   `scripts/generate_portfolio_report.py --publish` in the repo, but the box has its own checkout and
+   its own crontab, and neither is visible from here. On 2026-08-11 the published page was fresh
+   (`last-modified: Tue, 11 Aug 2026 20:41:16 GMT`, 657KB, HTTP/2 200) and it cannot have come from
+   Cloud Run, since that Job has no bucket credentials — so the Pi published it. That does **not**
+   establish it used the new script. If the checkout is stale and cron still runs `main.py`, the page
+   updates correctly *and every Discord alert doubles*, which is precisely the failure the Part F
+   split exists to prevent and is invisible in the artifact. Check `git log -1` and the crontab on
+   the Pi; this is the one item in this plan with no remote evidence.
 
 ---
 

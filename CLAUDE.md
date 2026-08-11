@@ -483,3 +483,12 @@ the API and MCP images:
 `simple_text_summary.py`, and nothing else. Importing any of them from code that runs in a
 container is the mistake this split exists to make visible — add the dependency to
 `requirements-base.txt` deliberately, or don't add the import.
+
+**The test suite has to stay importable under the lean set, and the two CI jobs disagree about
+it.** `deploy.yml` installs `requirements-dev.txt` (base + report), but `prod-rollout.yml` runs
+`unittest discover` on `requirements-base.txt` alone — so a test module that imports a
+report-only package passes every PR and then fails the **prod promotion**, which is the worst
+possible place to learn it. A test that genuinely needs matplotlib/jinja2/boto3 wraps its import
+and raises `unittest.SkipTest`, tolerating **only** those three packages;
+`tests/test_generate_portfolio_report.py` is the pattern. Anything else failing to import is a
+real defect and must still error the run.

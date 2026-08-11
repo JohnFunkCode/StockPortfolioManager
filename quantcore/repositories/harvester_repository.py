@@ -97,6 +97,7 @@ SELECT pr.rung_id, pr.instance_id, pr.rung_index, pr.target_price,
 FROM plan_rungs pr
 JOIN plan_instances pi ON pi.instance_id = pr.instance_id
 WHERE pi.instance_id = :instance_id
+  AND pi.owner = :owner
   AND pi.status = 'ACTIVE'
   AND pr.status = 'PENDING'
 ORDER BY pr.rung_index ASC
@@ -150,10 +151,12 @@ WHERE rung_id = :rung_id
 """
 
 SQL_GET_ACTIVE_ALERT_FOR_RUNG = """
-SELECT alert_id
-FROM alerts
-WHERE rung_id = :rung_id
-  AND status = 'ACTIVE'
+SELECT a.alert_id
+FROM alerts a
+JOIN plan_instances pi ON pi.instance_id = a.instance_id
+WHERE a.rung_id = :rung_id
+  AND a.status = 'ACTIVE'
+  AND pi.owner = :owner
 LIMIT 1;
 """
 
@@ -546,7 +549,7 @@ class HarvesterPlanDB:
                 raise
 
         # 7) Create/refresh alert for the next pending rung only
-        self._ensure_next_rung_alert(instance_id)
+        self._ensure_next_rung_alert(instance_id, owner=owner)
 
         return {
             "symbol": symbol,
@@ -604,7 +607,9 @@ class HarvesterPlanDB:
 
             next_rung = None
             with closing(get_connection()) as conn:
-                next_rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
+                next_rung = conn.execute(
+                    SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id, "owner": owner}
+                ).fetchone()
 
             if not next_rung:
                 continue
@@ -948,17 +953,24 @@ class HarvesterPlanDB:
     # Internal helpers
     # -------------------------
 
-    def _ensure_next_rung_alert(self, instance_id: int) -> None:
+    def _ensure_next_rung_alert(self, instance_id: int, *, owner: str) -> None:
         """
         Create/refresh an alert for the next pending rung and disable others for the instance.
 
-        Deliberately not owner-scoped: it is internal and only ever reached with
-        an instance_id a caller has already resolved through an owner-scoped
-        query, so re-checking here would only hide a caller that skipped that.
+        Owner-scoped like everything else, even though every caller reaches it
+        with an instance_id already resolved through an owner-scoped query. The
+        required keyword is what catches a caller that forgot to scope; the
+        predicate is what contains the damage if one is wrong anyway, and the
+        two failures are not equally bad. Without it, a mismatched instance_id
+        writes an alert onto someone else's ladder; with it, the lookup comes
+        back empty and the call no-ops, which is the same shape every other
+        cross-owner access in this repository takes.
         """
         now = _utc_now_iso()
         with closing(get_connection()) as conn:
-            rung = conn.execute(SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}).fetchone()
+            rung = conn.execute(
+                SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id, "owner": owner}
+            ).fetchone()
             if not rung:
                 return
 

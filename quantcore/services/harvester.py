@@ -161,7 +161,7 @@ class HarvesterService:
             instance_id = int(row["instance_id"])
             with closing(get_connection()) as conn:
                 rung = conn.execute(
-                    SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}
+                    SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id, "owner": owner}
                 ).fetchone()
             if not rung:
                 continue
@@ -191,7 +191,7 @@ class HarvesterService:
 
             with closing(get_connection()) as conn:
                 rung = conn.execute(
-                    SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id}
+                    SQL_GET_NEXT_PENDING_RUNG, {"instance_id": instance_id, "owner": owner}
                 ).fetchone()
             if not rung:
                 continue
@@ -208,7 +208,7 @@ class HarvesterService:
                 try:
                     alert = conn.execute(
                         SQL_GET_ACTIVE_ALERT_FOR_RUNG,
-                        {"rung_id": rung_id},
+                        {"rung_id": rung_id, "owner": owner},
                     ).fetchone()
                     if alert:
                         conn.execute(SQL_MARK_ALERT_FIRED, {
@@ -291,4 +291,4 @@ class HarvesterService:
                 SQL_GET_RUNG_INSTANCE, {"rung_id": rung_id, "owner": owner}
             ).fetchone()
         if row:
-            self._repo._ensure_next_rung_alert(int(row["instance_id"]))
+            self._repo._ensure_next_rung_alert(int(row["instance_id"]), owner=owner)

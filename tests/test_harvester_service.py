@@ -210,11 +210,21 @@ class HarvesterServiceTest(unittest.TestCase):
     def test_get_alerts_for_plan(self):
         instance_id, rung_ids = self._seed_plan()
         # build_plan would create the alert; seed path doesn't, so refresh it.
-        self.service._repo._ensure_next_rung_alert(instance_id)
+        self.service._repo._ensure_next_rung_alert(instance_id, owner=OWNER)
         alerts = self.service.get_alerts_for_plan(instance_id, owner=OWNER)
         self.assertEqual(len(alerts), 1)
         self.assertEqual(alerts[0]["rung_id"], rung_ids[0])
         self.assertEqual(alerts[0]["status"], "ACTIVE")
+
+    def test_ensure_next_rung_alert_writes_nothing_for_another_owner(self):
+        """The helper's own predicate, not just its callers, is what stops the write.
+
+        Every caller reaches it with an already-scoped instance_id, so this
+        asserts the containment directly rather than through a route.
+        """
+        instance_id, _ = self._seed_plan()
+        self.service._repo._ensure_next_rung_alert(instance_id, owner="zznotthisowner")
+        self.assertEqual(self.service.get_alerts_for_plan(instance_id, owner=OWNER), [])
 
 
 if __name__ == "__main__":

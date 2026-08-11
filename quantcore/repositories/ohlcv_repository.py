@@ -57,6 +57,17 @@ class OHLCV:
 # ohlcv and fetch_log tables are in the unified database
 
 
+def _utc_now() -> datetime.datetime:
+    """Timezone-aware "now" in UTC.
+
+    Everything in this module that reaches epoch seconds goes through here.
+    ``datetime.utcnow()`` returns a *naive* datetime carrying UTC's value with
+    no tzinfo, and ``.timestamp()`` then assumes local time — so the pair reads
+    correctly and computes wrong by the machine's UTC offset.
+    """
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 # ---------------------------------------------------------------------------
 # Bar classification (persistence semantics; clock logic in analytics.market_time)
 # ---------------------------------------------------------------------------
@@ -199,7 +210,7 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
             INSERT INTO fetch_log (symbol, interval, fetched_at) VALUES (%s,%s,%s)
             ON CONFLICT (symbol, interval) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
             """,
-            (symbol, interval, int(datetime.datetime.utcnow().timestamp())),
+            (symbol, interval, int(_utc_now().timestamp())),
         )
         conn.commit()
 
@@ -209,8 +220,12 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
     Return cached bars as a DataFrame (columns: Open, High, Low, Close, Volume).
     GAP bars are excluded; CORRECTED bars are included.
     """
+    # Aware, not naive: .timestamp() on a naive datetime interprets it as *local*
+    # time, so utcnow().timestamp() lands the cutoff a whole UTC offset away from
+    # where it belongs — six hours late in US/Mountain, six hours early the other
+    # way. Bars ts is epoch seconds, so the skew silently trims or pads the window.
     cutoff = int(
-        (datetime.datetime.utcnow() - datetime.timedelta(days=days)).timestamp()
+        (_utc_now() - datetime.timedelta(days=days)).timestamp()
     )
     with closing(get_connection()) as conn:
         rows = conn.execute(

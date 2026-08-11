@@ -223,9 +223,12 @@ services** — `HarvesterService` takes `portfolio_repository`, `PortfolioServic
   carries `in_portfolio` per plan and `/plans` flags an ACTIVE row whose shares are gone. `None`
   where the holdings could not be read — "we can't tell" is not "they sold out of it", and the
   page only flags an explicit `False`.
-- `GET /api/symbols` carries `active_plan_id` for the Portfolio page's Plan chip, looked up **once
-  per request** (`HarvesterPlanDB.active_plan_ids`), degrading to `None` rather than failing the
-  table.
+- The Portfolio page's Plan chip reads `active_plan_id` off **`GET /api/portfolio/symbols`**
+  (`PortfolioService._active_plan_ids` → `HarvesterPlanDB.active_plan_ids`), looked up **once per
+  request** and degrading to `None` rather than failing the table. The Harvester-era
+  `GET /api/symbols` list independently carries the same field (its own owner-scoped join in
+  `HarvesterPlanDB`) and is now **MCP/API-only** — no page reads it, since `/symbols` was retired
+  from the front end in #147 Part G1.
 - `V8__close_orphan_plans.sql` closes rows that predate the invariant. It is a **data** migration:
   deliberately *not* mirrored into `_SCHEMA` or the snapshot, because `init_schema()` runs on every
   startup and a re-running backfill would close plans built moments earlier.
@@ -300,6 +303,20 @@ code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/qu
 
 - **Test:** `https://quantui-493357101423.us-central1.run.app` (`quantcore-test-20260606`)
 - **Prod:** `https://quantui-127961694257.us-central1.run.app` (`quantcore-prod-20260606`)
+
+**Pages are declared once, in `frontend/src/navigation.tsx`** — one array that both `<Routes>` and
+the nav bar map over, so adding a page is a one-object append rather than two edits that can
+disagree. Two fields carry decisions rather than data: `nav: false` marks a drill-down
+(`/plans/:id`) that must never get a button, and `group` names which of the two dropdown menus the
+page sits under — `MY_POSITIONS` (what you own) or `RESEARCH` (what you're looking at), with an
+ungrouped entry staying a top-level button (`Settings` is neither, and costs one click rather than
+two). Grouping is keyed on the **label, in first-appearance order** (`buildNavSections`), not on
+adjacency, so a page appended mid-array joins the existing menu instead of opening a second one
+with the same name. The bar itself is `frontend/src/components/layout/NavBar.tsx` and not `App.tsx`,
+because each group owns a menu-anchor `useState`. The active page is marked with **`aria-current`**
+— `'page'` on the link, plain `true` on a group trigger that is not itself the page — which is both
+the accessible signal and what the tests assert on, so don't replace it with a CSS-only highlight.
+The readme's Pages table is the human-facing tour of the same array (issue #147 Part G).
 
 The **Watchlist page** (`/watchlist`, issue #147 Part C) renders the whole shared list ranked by
 fundamental score off the single `GET /api/watchlist/fundamentals` call, and is the replacement for

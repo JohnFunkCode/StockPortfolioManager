@@ -60,14 +60,6 @@ export interface PlanWithRungs {
   rungs: Rung[];
 }
 
-export interface SymbolInfo {
-  symbol_id: number;
-  ticker: string;
-  name: string | null;
-  currency: string | null;
-  active_plan_id: number | null;
-}
-
 export interface DashboardStats {
   total_plans: number;
   active_plans?: number;

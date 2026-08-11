@@ -19,7 +19,7 @@ assert_not_production()
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository  # noqa: E402
 from quantcore.repositories.news_repository import NewsStore  # noqa: E402
-from quantcore.repositories.ohlcv_repository import OhlcvRepository  # noqa: E402
+from quantcore.repositories.ohlcv_repository import OhlcvRepository, _utc_now  # noqa: E402
 from quantcore.repositories.options_position_repository import OptionsPositionStore  # noqa: E402
 from quantcore.repositories.user_settings_repository import UserSettingsRepository  # noqa: E402
 
@@ -193,8 +193,14 @@ class TestOptionsPositionStore(RepoTestBase):
 
 
 def bars_df(n=5, start_price=100.0):
-    # Fixed past business days: deterministic, and always CLOSED bars.
-    idx = pd.bdate_range(end="2026-07-17", periods=n, tz="UTC")
+    # Recent past business days: always CLOSED bars, and always inside the
+    # `days=30` window `get_bars` reads. Anchored to today rather than to a
+    # fixed date: the old `end="2026-07-17"` aged out of that window on
+    # 2026-08-11 and failed with no code change behind it, which is the least
+    # useful kind of red build. Three business days back keeps every bar off
+    # the current session, so they classify CLOSED.
+    end = pd.Timestamp.now(tz="UTC").normalize() - pd.offsets.BDay(3)
+    idx = pd.bdate_range(end=end, periods=n, tz="UTC")
     prices = [start_price + i for i in range(n)]
     return pd.DataFrame(
         {"Open": prices, "High": [p + 1 for p in prices],
@@ -208,6 +214,16 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
     def setUp(self):
         super().setUp()
         self.repo = OhlcvRepository()
+
+    def test_utc_now_is_timezone_aware(self):
+        # The guard on the actual defect. Every epoch-seconds value this module
+        # writes or compares goes through _utc_now(), and a naive datetime's
+        # .timestamp() is read as local time — so reverting to utcnow() would
+        # shift the cutoff by the machine's UTC offset. That skew is invisible
+        # in CI, which runs in UTC; this assertion is not.
+        now = _utc_now()
+        self.assertIsNotNone(now.tzinfo)
+        self.assertEqual(now.utcoffset(), timedelta(0))
 
     def test_store_and_read_back(self):
         self.assertEqual(self.repo.count_cached(SYM, "1d"), 0)

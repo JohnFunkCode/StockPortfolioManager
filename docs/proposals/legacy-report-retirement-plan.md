@@ -717,9 +717,7 @@ treating it as routine housekeeping would defeat the point.
 owner. **This is the part that does real work**, and the only statement in this whole plan that
 mutates existing rows, so it ships as its own reviewable file rather than hiding behind the DDL.
 
-**Prod holds exactly one open position** — ZS, 8 shares, owner `john` (verified 2026-07-29 via the
-portfolio MCP server against prod). Every ACTIVE plan on any other symbol will be closed. Run this
-read-only pre-flight in **both** environments and read the output before migrating:
+Run this read-only pre-flight in **both** environments and read the output before migrating:
 
 ```sql
 SELECT pi.owner, s.ticker, pi.instance_id, pi.created_at FROM plan_instances pi JOIN symbols s ON s.symbol_id = pi.symbol_id WHERE pi.status = 'ACTIVE' AND NOT EXISTS (SELECT 1 FROM positions p WHERE p.symbol_id = pi.symbol_id AND p.owner = pi.owner AND p.status = 'OPEN');
@@ -730,11 +728,29 @@ Since H1 made plans owned, a hardcoded owner reports another owner's plan as an 
 would correctly leave it alone, and a pre-flight that disagrees with the migration is worse than no
 pre-flight: it is read once, believed, and never checked again.
 
-**Test returns zero rows because `plan_instances` is empty there** (run 2026-08-11: 0 plans of any
-status, against 5 OPEN positions across `john` and `thomas`). So migrating test proves the statement
-parses and Flyway applies it, and proves *nothing* about the backfill's behaviour — it has no rows to
-act on. The prod pre-flight is the only run that answers "what will this close", and it has to be
-read before `--prod migrate`, not after.
+**Both environments return zero rows, because there are no plans anywhere.** Pre-flight run
+2026-08-11, both read-only:
+
+| | `plan_templates` / `plan_instances` / `plan_rungs` | OPEN positions | Rows `V8` closes |
+|---|---|---|---|
+| **test** | 0 / 0 / 0 | 5 (`john`, `thomas`) | **0** |
+| **prod** | 0 / 0 / 0 | 4 — GEV, GLW, TER, ZS, all `john` | **0** |
+
+So `V8` is a **no-op in both environments**: it repairs a class of row that does not currently
+exist, and it ships as the guard for plans built before the invariant lands rather than as a
+cleanup of plans built before it was written. Two corrections to what this section used to claim,
+both of which would have misled whoever ran it:
+
+- **"Prod holds exactly one open position — ZS"** was true on 2026-07-29 and is not now; prod holds
+  four. Position counts date faster than the documents that quote them, which is the argument for
+  running the pre-flight rather than trusting a number written three weeks earlier.
+- **"Expect prod to close every ACTIVE plan except any on ZS"** set the operator up to read an empty
+  result as a broken query. Expect **zero rows**, and read that as the migration having nothing to
+  do — confirmed against the row counts above, not inferred from the empty result alone.
+
+Migrating either environment therefore proves the statement parses and Flyway applies it, and
+proves *nothing* about the backfill's behaviour. That is fine — but do not let a green `--prod
+migrate` be read as evidence that the orphan-closing logic works. The tests are that evidence.
 
 **Mirror the DDL into `init_schema()`; never the backfill.** That function runs on every application
 startup, so a data statement living there would silently close plans on every boot — including ones
@@ -958,8 +974,14 @@ and the two right-hand `IconButton`s is a tighter bar than the flat seven were.
 review the list of plans it would close before running the migration anywhere:
 
 ```bash
-./.claude/with-test-db.sh psql -f /tmp/orphan_plans_preflight.sql
+./.claude/with-test-db.sh sh -c 'psql "$QUANTCORE_DB_DSN" -f /tmp/orphan_plans_preflight.sql'
 ```
+
+The `sh -c` wrapper is load-bearing: the helper **exports** `QUANTCORE_DB_DSN`, and `psql` does not
+read that variable — invoked as `with-test-db.sh psql -f …` it falls through to the local socket and
+connects to the wrong database, or fails authentication and looks like the proxy is down. Same reason
+the DSN is passed as `"$QUANTCORE_DB_DSN"` rather than interpolated: it carries a password and must
+never reach a log, a shell history, or a terminal.
 
 ```bash
 ./scripts/flyway.sh info
@@ -970,8 +992,12 @@ review the list of plans it would close before running the migration anywhere:
 ```
 
 Re-run the pre-flight afterwards: it should return zero rows. Only then repeat with `--prod`
-(which prompts). Expect prod to close every ACTIVE plan except any on **ZS**, the only open
-position there.
+(which prompts). **Expect zero rows on prod too** — see H8 for the row counts behind that; both
+environments have no plans at all, so this migration is a no-op in both and its value is entirely
+prospective.
+
+**Status:** test migrated 2026-08-11, schema version 7 → 8, pre-flight clean before and after. Prod
+still at **V7** — its `--prod migrate` runs before `prod-rollout.yml` is dispatched.
 
 Then verify the schema **directly**, not with `flyway info` — the index swap is the one change where
 `init_schema()` and Flyway could each believe they succeeded while the database holds the other's

@@ -29,6 +29,7 @@ import PortfolioSummary from './PortfolioSummary';
 import PortfolioAllocationChart from './PortfolioAllocationChart';
 import LotRow from './LotRow';
 import AddLotDialog from './AddLotDialog';
+import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { SymbolRow } from '../../api/portfolioTypes';
 
@@ -72,6 +73,9 @@ export default function PortfolioPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [addOpen, setAddOpen] = useState(false);
+  // The symbol whose "Create plan" affordance was clicked (issue #147 Part H6);
+  // null keeps the dialog shut.
+  const [planSymbol, setPlanSymbol] = useState<string | null>(null);
 
   const rows = data?.symbols ?? [];
 
@@ -169,6 +173,7 @@ export default function PortfolioPage() {
                     </TableCell>
                   ))}
                   <TableCell>MM Hedge Bias</TableCell>
+                  <TableCell>Plan</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -219,9 +224,33 @@ export default function PortfolioPage() {
                             '—'
                           )}
                         </TableCell>
+                        {/* The harvest ladder (issue #147 Part H6). A chip when
+                            one is running, a quiet invitation when none is —
+                            deliberately not the next rung's price, which would
+                            be a second number competing with the returns. */}
+                        <TableCell>
+                          {row.active_plan_id != null ? (
+                            <Chip
+                              size="small"
+                              label="Plan"
+                              clickable
+                              onClick={() => navigate(`/plans/${row.active_plan_id}`)}
+                              sx={{ bgcolor: '#1e2a3a', color: '#60a5fa' }}
+                            />
+                          ) : (
+                            <Button
+                              size="small"
+                              color="inherit"
+                              sx={{ color: 'text.secondary', textTransform: 'none', minWidth: 0 }}
+                              onClick={() => setPlanSymbol(row.symbol)}
+                            >
+                              Create plan
+                            </Button>
+                          )}
+                        </TableCell>
                       </TableRow>
                       <TableRow>
-                        <TableCell colSpan={COLUMNS.length + 2} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
+                        <TableCell colSpan={COLUMNS.length + 3} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
                           <Collapse in={isOpen} unmountOnExit>
                             <Box sx={{ pl: 6, pr: 2, py: 1 }}>
                               <Table size="small">
@@ -257,6 +286,13 @@ export default function PortfolioPage() {
       )}
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />
+
+      <CreatePlanDialog
+        open={planSymbol !== null}
+        initialSymbol={planSymbol ?? undefined}
+        onClose={() => setPlanSymbol(null)}
+        onCreated={(id) => navigate(`/plans/${id}`)}
+      />
     </Box>
   );
 }

@@ -33,11 +33,24 @@ from quantcore.repositories.harvester_repository import (
 
 
 class HarvesterService:
-    def __init__(self, harvester_repository: HarvesterPlanDB, yfinance_gateway=None) -> None:
+    def __init__(
+        self,
+        harvester_repository: HarvesterPlanDB,
+        yfinance_gateway=None,
+        portfolio_repository=None,
+    ) -> None:
         self._repo = harvester_repository
         # Price fetching goes through the gateway (single fetch seam, #74);
         # the repository only persists and queries.
         self._yf = yfinance_gateway
+        # PortfolioRepository — the holding invariant (issue #147 Part H5)
+        # needs to know whether the owner still holds the symbol. It is the
+        # *repository*, not PortfolioService: PortfolioService already composes
+        # this repository for the exit half of the same invariant, and services
+        # in both directions would be a construction cycle. Optional so a
+        # unit test can build the service without the portfolio stack; when it
+        # is absent the invariant is not enforced.
+        self._portfolio_repo = portfolio_repository
 
     # ------------------------------------------------------------------
     # Plan CRUD / queries (passthrough to the repository)
@@ -51,6 +64,7 @@ class HarvesterService:
         owner: str,
     ) -> Dict[str, Any]:
         symbol = symbol.upper().strip()
+        self._require_open_lot(symbol, owner=owner)
         days = max(params.history_window_days + 60, 420)
         bars = self._yf.fetch_history(
             symbol, "1d", days, auto_adjust=False, include_adj_close=True
@@ -63,8 +77,71 @@ class HarvesterService:
             owner=owner,
         )
 
+    def _open_symbols(self, owner: str) -> Optional[set]:
+        """The symbols `owner` currently holds at least one OPEN lot of.
+
+        ``None`` — not an empty set — when no portfolio repository was
+        injected: "we cannot tell" and "they hold nothing" are different
+        answers, and conflating them would flag every plan as an orphan.
+        """
+        if self._portfolio_repo is None:
+            return None
+        return {
+            (row.get("symbol") or "").upper()
+            for row in self._portfolio_repo.list_positions(owner, status="OPEN")
+            if row.get("symbol")
+        }
+
+    def _require_open_lot(self, symbol: str, *, owner: str) -> None:
+        """The entry half of the holding invariant (issue #147 Part H5).
+
+        A harvest ladder sells shares as the price rises; building one for a
+        symbol the owner does not hold produces alerts that can never be
+        executed. RuntimeError because ``POST /api/plans`` already turns that
+        into a 422 — the request is well-formed, the portfolio just doesn't
+        support it.
+
+        Skipped when no portfolio repository was injected (a bare unit-test
+        construction); the registry always injects one.
+        """
+        held = self._open_symbols(owner)
+        if held is None:
+            return
+        if symbol.upper() not in held:
+            raise RuntimeError(
+                f"No open position in {symbol} for {owner} — "
+                "a harvest plan needs shares to sell"
+            )
+
+    def close_active_plan_for_symbol(
+        self, symbol: str, *, owner: str, reason: Optional[str] = None
+    ) -> int:
+        return self._repo.close_active_plan_for_symbol(symbol, owner=owner, reason=reason)
+
+    def active_plan_ids(self, *, owner: str) -> Dict[str, int]:
+        return self._repo.active_plan_ids(owner=owner)
+
     def display_all_plans(self, status: str = "ACTIVE", *, owner: str) -> List[Dict[str, Any]]:
-        return self._repo.display_all_plans(status=status, owner=owner)
+        """One owner's plans, each flagged with whether they still hold the symbol.
+
+        ``in_portfolio`` is the orphan flag (issue #147 Part H7): the exit seam
+        that closes a plan when the last lot goes runs on its own connection
+        after the sale commits, so a crash in between leaves an ACTIVE plan
+        with nothing under it. This surfaces that state loudly rather than
+        letting it fire alerts unnoticed.
+
+        ``None`` where no portfolio repository was injected and the holdings
+        therefore cannot be read: "we don't know" is not "they sold out of it",
+        and the flag must stay quiet on the difference.
+        """
+        plans = self._repo.display_all_plans(status=status, owner=owner)
+        held = self._open_symbols(owner)
+        for plan in plans:
+            plan["in_portfolio"] = (
+                None if held is None
+                else (plan.get("symbol") or "").upper() in held
+            )
+        return plans
 
     def get_plan_by_id(self, instance_id: int, *, owner: str) -> Optional[Dict[str, Any]]:
         return self._repo.get_plan_by_id(instance_id, owner=owner)

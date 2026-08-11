@@ -105,7 +105,13 @@ def _normalize_row(raw: Dict[str, Any]) -> Dict[str, Any]:
 
 
 class PortfolioService:
-    def __init__(self, portfolio_repository: PortfolioRepository, prices, options=None) -> None:
+    def __init__(
+        self,
+        portfolio_repository: PortfolioRepository,
+        prices,
+        options=None,
+        harvester_repository=None,
+    ) -> None:
         self._repo = portfolio_repository
         # PricesService — one batched, TTL-cached get_quotes() call per
         # list_lots() instead of one get_fast_price() per lot (issue #126
@@ -115,6 +121,13 @@ class PortfolioService:
         # symbol_rows(). Optional so light-weight/unit-test construction
         # doesn't have to wire the whole options stack.
         self._options = options
+        # HarvesterPlanDB — the exit half of the holding invariant (issue #147
+        # Part H5) and the portfolio page's plan chip (Part H6). The
+        # *repository*, not HarvesterService, because HarvesterService already
+        # composes this service's repository for the entry half and services in
+        # both directions would be a construction cycle. Optional for the same
+        # reason as `options`.
+        self._harvester_repo = harvester_repository
 
     # ------------------------------------------------------------------
     # Reads
@@ -179,7 +192,48 @@ class PortfolioService:
 
     def remove_position(self, owner: str, symbol: str) -> int:
         """Remove every lot of `symbol` for `owner`. Returns rows removed."""
-        return self._repo.remove_position(owner, symbol)
+        removed = self._repo.remove_position(owner, symbol)
+        if removed:
+            self._close_plan_if_flat(owner, symbol, "position removed")
+        return removed
+
+    # ------------------------------------------------------------------
+    # Holding invariant, exit half (issue #147 Part H5)
+    # ------------------------------------------------------------------
+    def _close_plan_if_flat(self, owner: str, symbol: str, reason: str) -> None:
+        """Close `owner`'s ACTIVE plan on `symbol` once no OPEN lot remains.
+
+        Deliberately *after* the mutation and on its own connection, so this
+        cannot roll back a recorded sale — the sale is the fact, the plan is
+        bookkeeping about it. That makes the seam eventually consistent by
+        design: a crash between the two leaves an ACTIVE plan with nothing
+        under it, which ``display_all_plans``' ``in_portfolio`` flag (Part H7)
+        surfaces on the Plans page rather than letting it fire alerts unseen.
+
+        A partial close leaves lots open and therefore leaves the plan ACTIVE —
+        that off-by-one is the difference between finishing a harvest and
+        silently killing a live ladder.
+        """
+        if self._harvester_repo is None:
+            return
+        try:
+            if self._repo.list_lots_for_symbol(owner, symbol, status="OPEN"):
+                return
+            closed = self._harvester_repo.close_active_plan_for_symbol(
+                symbol, owner=owner, reason=reason
+            )
+            if closed:
+                logger.info(
+                    "closed harvest plan for %s/%s: %s (no open lots remain)",
+                    owner, symbol, reason,
+                )
+        except Exception:
+            # Never fail the write that already committed. The orphan flag is
+            # the backstop.
+            logger.warning(
+                "failed to close harvest plan for %s/%s after %s",
+                owner, symbol, reason, exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Lot lifecycle (issue #126 PR 4 Step 4.3)
@@ -264,6 +318,19 @@ class PortfolioService:
         result["mm_hedge_bias_captured_at"] = latest.get("captured_at")
         return result
 
+    def _active_plan_ids(self, owner: str) -> Dict[str, int]:
+        """`{symbol: instance_id}` for the Plan chip, or `{}` if unavailable.
+
+        A harvester outage must degrade the chip, not the portfolio table.
+        """
+        if self._harvester_repo is None:
+            return {}
+        try:
+            return self._harvester_repo.active_plan_ids(owner=owner)
+        except Exception:
+            logger.warning("symbol_rows(%s): active plan lookup failed", owner, exc_info=True)
+            return {}
+
     def symbol_rows(self, owner: str, force: bool = False) -> List[Dict[str, Any]]:
         """Per-symbol roll-up: aggregate totals, period-return columns, the MM
         hedge bias (decision #18), and the stacked allocation bar's three
@@ -275,6 +342,7 @@ class PortfolioService:
         for lot in lots:
             by_symbol.setdefault(lot["symbol"], []).append(lot)
 
+        plan_ids = self._active_plan_ids(owner)
         as_of = date.today()
         rows = []
         for symbol, symbol_lots in sorted(by_symbol.items()):
@@ -296,6 +364,10 @@ class PortfolioService:
                 ),
                 **self._period_returns(symbol),
                 **self._latest_mm_hedge_bias(symbol),
+                # The Plan chip (issue #147 Part H6). One extra query for the
+                # whole page, not one per symbol; None means "no ladder yet",
+                # which the page turns into a create affordance.
+                "active_plan_id": plan_ids.get(symbol),
             }
             rows.append(row)
         return rows
@@ -323,7 +395,13 @@ class PortfolioService:
 
     def delete_lot(self, owner: str, lot_id: int) -> bool:
         """Remove a mistaken lot entry. Returns True if a lot was deleted."""
-        return self._repo.delete_lot(owner, lot_id)
+        # Read the symbol first — after the delete there is no row to read it
+        # from, and the plan close needs to know which ladder to check.
+        lot = self._repo.get_lot(owner, lot_id)
+        deleted = self._repo.delete_lot(owner, lot_id)
+        if deleted and lot is not None:
+            self._close_plan_if_flat(owner, lot["symbol"], "last lot deleted")
+        return deleted
 
     def close_lot(
         self,
@@ -359,6 +437,7 @@ class PortfolioService:
             owner, allocation, sale_price, sale_trade_date,
             fees=fees, allocation_method=method,
         )
+        self._close_plan_if_flat(owner, anchor["symbol"], "last open lot closed")
         return {
             "symbol": anchor["symbol"],
             "shares_sold": shares,

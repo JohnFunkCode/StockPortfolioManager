@@ -117,6 +117,57 @@ describe('PortfolioPage', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
+  // The harvest ladder column (issue #147 Part H6).
+  it('links to the running plan and invites one where there is none', async () => {
+    mockApi([
+      [
+        '/api/portfolio/symbols',
+        {
+          symbols: [
+            symbolRow({ symbol: 'INTC', active_plan_id: 7 }),
+            symbolRow({ symbol: 'AAPL', active_plan_id: null }),
+          ],
+          totals: null,
+        },
+      ],
+    ]);
+    renderWithProviders(<PortfolioPage />);
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+
+    // One row has a ladder, the other an invitation — never both on a row.
+    // By role, because the column header is also the word "Plan".
+    expect(holdings().getAllByRole('button', { name: 'Plan' })).toHaveLength(1);
+    expect(holdings().getAllByRole('button', { name: /Create plan/i })).toHaveLength(1);
+  });
+
+  it('opens the create dialog pre-seeded with the row that was clicked', async () => {
+    mockApi([
+      [
+        '/api/portfolio/symbols',
+        { symbols: [symbolRow({ symbol: 'AAPL', active_plan_id: null })], totals: null },
+      ],
+      ['/api/portfolio', { securities: [{ symbol: 'AAPL', name: 'AAPL Corp', source: 'portfolio', tags: [], currency: 'USD' }] }],
+    ]);
+    renderWithProviders(<PortfolioPage />);
+    await waitFor(() => expect(holdings().getByText('AAPL')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /Create plan/i }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Create Harvest Plan')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(dialog).getByRole('combobox')).toHaveTextContent('AAPL'),
+    );
+  });
+
+  it('does not fetch holdings for a create dialog nobody has opened', async () => {
+    // The dialog stays mounted so it can animate shut; a closed one must not
+    // put a request on every portfolio page load.
+    const api = mount();
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(api.unmatched).toHaveLength(0);
+    expect(api.calls.every(([url]) => url.includes('/api/portfolio/symbols'))).toBe(true);
+  });
+
   it('refetches when the Refresh button is clicked', async () => {
     const api = mount();
     await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());

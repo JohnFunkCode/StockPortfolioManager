@@ -8,7 +8,11 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 assert_not_production()
 
 from quantcore.db import get_connection  # noqa: E402
-from quantcore.repositories.harvester_repository import HarvesterPlanDB, _utc_now_iso  # noqa: E402
+from quantcore.repositories.harvester_repository import (  # noqa: E402
+    HarvesterPlanDB,
+    PlanBuildParams,
+    _utc_now_iso,
+)
 from quantcore.services.harvester import HarvesterService  # noqa: E402
 
 # Synthetic ticker + template name that won't collide with real Harvester data.
@@ -225,6 +229,144 @@ class HarvesterServiceTest(unittest.TestCase):
         instance_id, _ = self._seed_plan()
         self.service._repo._ensure_next_rung_alert(instance_id, owner="zznotthisowner")
         self.assertEqual(self.service.get_alerts_for_plan(instance_id, owner=OWNER), [])
+
+
+class FakePortfolioRepo:
+    """Stand-in for PortfolioRepository: canned OPEN lots, no DB."""
+
+    def __init__(self, by_owner):
+        self._by_owner = by_owner
+        self.calls = []
+
+    def list_positions(self, owner, status="OPEN"):
+        self.calls.append((owner, status))
+        return [{"symbol": s} for s in self._by_owner.get(owner, [])]
+
+
+class FakePlanRepo:
+    """Stand-in for HarvesterPlanDB, recording what the service asked for."""
+
+    def __init__(self, plans=()):
+        self._plans = [dict(p) for p in plans]
+        self.built = []
+        self.closed = []
+
+    def build_plan(self, **kwargs):
+        self.built.append(kwargs)
+        return {"instance_id": 1, "symbol": kwargs["symbol"]}
+
+    def display_all_plans(self, status="ACTIVE", *, owner):
+        return [dict(p) for p in self._plans]
+
+    def close_active_plan_for_symbol(self, ticker, *, owner, reason=None):
+        self.closed.append((ticker, owner, reason))
+        return 1
+
+    def active_plan_ids(self, *, owner):
+        return {"ZZHELD": 5}
+
+
+class ExplodingGateway:
+    """A fetch is a failure here: the invariant has to refuse *before* paying
+    for two years of bars, not after."""
+
+    def fetch_history(self, *args, **kwargs):
+        raise AssertionError("fetched history for a symbol the owner does not hold")
+
+
+class EmptyBarsGateway:
+    def __init__(self):
+        self.calls = []
+
+    def fetch_history(self, symbol, *args, **kwargs):
+        import pandas as pd
+
+        self.calls.append(symbol)
+        return pd.DataFrame()
+
+
+class HoldingInvariantTest(unittest.TestCase):
+    """Issue #147 Part H5/H7 — the entry half of the holding invariant and the
+    orphan flag. Repository-faked: what is being pinned is the service's
+    decision, and the SQL underneath is covered in test_harvester_repository_db.
+    """
+
+    HOLDER = "zzholder"
+    OTHER = "zzotherholder"
+
+    def _service(self, held=None, gateway=None, plans=(), with_portfolio=True):
+        self.plan_repo = FakePlanRepo(plans)
+        self.portfolio_repo = FakePortfolioRepo(held or {}) if with_portfolio else None
+        return HarvesterService(
+            self.plan_repo,
+            yfinance_gateway=gateway or EmptyBarsGateway(),
+            portfolio_repository=self.portfolio_repo,
+        )
+
+    # -- entry half ---------------------------------------------------------
+    def test_build_plan_refuses_a_symbol_with_no_open_lot(self):
+        service = self._service(held={self.HOLDER: ["ZZOTHER"]}, gateway=ExplodingGateway())
+        with self.assertRaises(RuntimeError) as ctx:
+            service.build_plan("ZZHELD", TEST_TEMPLATE, PlanBuildParams(), owner=self.HOLDER)
+        # The message reaches the user through the route's 422, so it has to
+        # name both the symbol and whose portfolio was checked.
+        self.assertIn("ZZHELD", str(ctx.exception))
+        self.assertIn(self.HOLDER, str(ctx.exception))
+        self.assertEqual(self.plan_repo.built, [])
+
+    def test_build_plan_refuses_when_only_another_owner_holds_it(self):
+        service = self._service(
+            held={self.OTHER: ["ZZHELD"]}, gateway=ExplodingGateway()
+        )
+        with self.assertRaises(RuntimeError):
+            service.build_plan("ZZHELD", TEST_TEMPLATE, PlanBuildParams(), owner=self.HOLDER)
+
+    def test_build_plan_proceeds_when_the_owner_holds_the_symbol(self):
+        gateway = EmptyBarsGateway()
+        service = self._service(held={self.HOLDER: ["ZZHELD"]}, gateway=gateway)
+        service.build_plan("  zzheld  ", TEST_TEMPLATE, PlanBuildParams(), owner=self.HOLDER)
+        # Normalised once, up front — the guard and the fetch see the same symbol.
+        self.assertEqual(gateway.calls, ["ZZHELD"])
+        self.assertEqual(self.plan_repo.built[0]["symbol"], "ZZHELD")
+        self.assertEqual(self.portfolio_repo.calls, [(self.HOLDER, "OPEN")])
+
+    def test_without_a_portfolio_repository_the_invariant_is_not_enforced(self):
+        # A bare unit-test construction must not start refusing every build;
+        # the registry is what wires the real check.
+        gateway = EmptyBarsGateway()
+        service = self._service(gateway=gateway, with_portfolio=False)
+        service.build_plan("ZZHELD", TEST_TEMPLATE, PlanBuildParams(), owner=self.HOLDER)
+        self.assertEqual(gateway.calls, ["ZZHELD"])
+
+    # -- orphan flag --------------------------------------------------------
+    def test_display_all_plans_flags_only_the_ladders_with_nothing_under_them(self):
+        service = self._service(
+            held={self.HOLDER: ["ZZHELD"]},
+            plans=[{"symbol": "ZZHELD"}, {"symbol": "ZZGONE"}],
+        )
+        flags = {p["symbol"]: p["in_portfolio"] for p in service.display_all_plans(owner=self.HOLDER)}
+        self.assertEqual(flags, {"ZZHELD": True, "ZZGONE": False})
+
+    def test_display_all_plans_says_nothing_when_it_cannot_tell(self):
+        # None, not False: the page flags orphans on an explicit False, and
+        # "no portfolio repository" is not evidence the shares are gone.
+        service = self._service(plans=[{"symbol": "ZZHELD"}], with_portfolio=False)
+        self.assertIsNone(service.display_all_plans(owner=self.HOLDER)[0]["in_portfolio"])
+
+    def test_display_all_plans_matches_holdings_case_insensitively(self):
+        service = self._service(
+            held={self.HOLDER: ["zzheld"]}, plans=[{"symbol": "ZZHELD"}]
+        )
+        self.assertTrue(service.display_all_plans(owner=self.HOLDER)[0]["in_portfolio"])
+
+    # -- passthroughs the portfolio service and page depend on --------------
+    def test_close_and_active_ids_pass_through_to_the_repository(self):
+        service = self._service()
+        self.assertEqual(
+            service.close_active_plan_for_symbol("ZZHELD", owner=self.HOLDER, reason="sold"), 1
+        )
+        self.assertEqual(self.plan_repo.closed, [("ZZHELD", self.HOLDER, "sold")])
+        self.assertEqual(service.active_plan_ids(owner=self.HOLDER), {"ZZHELD": 5})
 
 
 if __name__ == "__main__":

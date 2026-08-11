@@ -352,6 +352,56 @@ class HarvesterOwnerIsolationTest(HarvesterRepoTest):
             self.assertEqual(len(row), 1)
             self.assertEqual(row[0]["active_plan_id"], plan["instance_id"])
 
+    # -- the holding invariant's SQL (issue #147 Parts H5/H6) --------------
+
+    def test_active_plan_ids_maps_only_the_owners_active_plans(self):
+        self.assertEqual(self.db.active_plan_ids(owner=OWNER)[SYM], self.mine["instance_id"])
+        self.assertEqual(self.db.active_plan_ids(owner=OTHER)[SYM], self.theirs["instance_id"])
+
+        # Archiving drops the symbol rather than leaving the chip pointing at a
+        # ladder nobody runs; the other owner's is untouched.
+        self.db.delete_plan(self.mine["instance_id"], owner=OWNER)
+        self.assertNotIn(SYM, self.db.active_plan_ids(owner=OWNER))
+        self.assertIn(SYM, self.db.active_plan_ids(owner=OTHER))
+
+    def test_close_active_plan_closes_one_owners_ladder_only(self):
+        closed = self.db.close_active_plan_for_symbol(
+            SYM.lower(), owner=OWNER, reason="sold out"
+        )
+        self.assertEqual(closed, 1)
+
+        mine = self.db.get_plan_by_id(self.mine["instance_id"], owner=OWNER)
+        # CLOSED, not SUPERSEDED -- nothing replaced this plan.
+        self.assertEqual(mine["status"], "CLOSED")
+        self.assertIn("sold out", mine["notes"])
+        self.assertEqual(
+            self.db.get_plan_by_id(self.theirs["instance_id"], owner=OTHER)["status"],
+            "ACTIVE",
+        )
+
+    def test_close_active_plan_is_a_no_op_when_nothing_is_active(self):
+        self.assertEqual(self.db.close_active_plan_for_symbol(SYM, owner=OWNER), 1)
+        # Selling the rest of an already-flat position must not keep writing.
+        self.assertEqual(self.db.close_active_plan_for_symbol(SYM, owner=OWNER), 0)
+        self.assertEqual(self.db.close_active_plan_for_symbol("ZZNOSUCH", owner=OWNER), 0)
+
+    def test_close_active_plan_appends_rather_than_overwrites_notes(self):
+        self.db.update_plan_metadata(
+            self.mine["instance_id"], notes="hand-tuned", owner=OWNER
+        )
+        self.db.close_active_plan_for_symbol(SYM, owner=OWNER, reason="position removed")
+        notes = self.db.get_plan_by_id(self.mine["instance_id"], owner=OWNER)["notes"]
+        self.assertEqual(notes, "hand-tuned | position removed")
+
+    def test_close_active_plan_without_a_reason_leaves_notes_alone(self):
+        self.db.update_plan_metadata(
+            self.mine["instance_id"], notes="hand-tuned", owner=OWNER
+        )
+        self.assertEqual(self.db.close_active_plan_for_symbol(SYM, owner=OWNER), 1)
+        plan = self.db.get_plan_by_id(self.mine["instance_id"], owner=OWNER)
+        self.assertEqual(plan["status"], "CLOSED")
+        self.assertEqual(plan["notes"], "hand-tuned")
+
     def test_purge_leaves_the_other_owners_superseded_plans_alone(self):
         self.build(owner=OWNER)          # supersedes self.mine
         self.build(owner=OTHER)          # supersedes self.theirs

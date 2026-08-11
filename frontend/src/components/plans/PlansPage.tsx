@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Box, Typography, Button, ToggleButtonGroup, ToggleButton, Stack } from '@mui/material';
+import { Box, Typography, Button, Chip, ToggleButtonGroup, ToggleButton, Stack, Tooltip } from '@mui/material';
 import { DataGrid, GridColDef } from '@mui/x-data-grid';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -26,7 +26,29 @@ export default function PlansPage() {
   const columns: GridColDef[] = [
     { field: 'symbol', headerName: 'Symbol', width: 100, sortable: true },
     {
-      field: 'status', headerName: 'Status', width: 110,
+      field: 'status', headerName: 'Status', width: 190,
+      renderCell: (params) => {
+        const plan = params.row as Plan;
+        // Orphan flag (issue #147 Part H7). `in_portfolio === false` is the
+        // only case worth flagging — undefined means the server did not say,
+        // which is not the same as "they sold out of it". Flag only: no filter,
+        // no bulk action. Closing a live ladder is the owner's call.
+        const orphan = plan.status === 'ACTIVE' && plan.in_portfolio === false;
+        return (
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <span>{plan.status}</span>
+            {orphan && (
+              <Tooltip title="No open position in this symbol — the ladder has no shares under it.">
+                <Chip
+                  size="small"
+                  label="No position"
+                  sx={{ bgcolor: '#3a2f1e', color: '#f59e0b' }}
+                />
+              </Tooltip>
+            )}
+          </Stack>
+        );
+      },
     },
     {
       field: 'created_at', headerName: 'Created', width: 140,

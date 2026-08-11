@@ -50,6 +50,9 @@ class Plan(BaseModel):
     supersedes_instance_id: Optional[int] = None
     notes: Optional[str] = None
     metadata_json: Optional[str] = None
+    # Orphan flag (issue #147 Part H7): False on an ACTIVE plan means the owner
+    # no longer holds the symbol. Present on the list route only.
+    in_portfolio: Optional[bool] = None
 
 
 class Rung(BaseModel):

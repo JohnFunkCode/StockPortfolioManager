@@ -239,6 +239,33 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertIsNotNone(ts)
         self.assertFalse(self.repo.has_open_bar(SYM, "1d"))  # all bars days old
 
+    def test_a_price_refresh_never_blanks_an_adjusted_close(self):
+        # `ohlcv` has two writers. This one fetches with auto_adjust=True and
+        # has no adjusted close to offer; the harvester's plan build writes a
+        # real one for the same rows. When its ON CONFLICT set
+        # adj_close = EXCLUDED.adj_close, any price lookup wiped those values
+        # back to NULL, and the next plan build hit float(None) — the reported
+        # "float() argument must be ... not 'NoneType'".
+        self.repo.store_bars(SYM, "1d", bars_df())
+        ts = self.repo.latest_closed_ts(SYM, "1d")
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "UPDATE ohlcv SET adj_close = 123.45 "
+                "WHERE symbol = %s AND interval = '1d' AND ts = %s",
+                (SYM, ts),
+            )
+            conn.commit()
+
+        self.repo.store_bars(SYM, "1d", bars_df())   # a routine price refresh
+
+        with closing(get_connection()) as conn:
+            kept = conn.execute(
+                "SELECT adj_close FROM ohlcv "
+                "WHERE symbol = %s AND interval = '1d' AND ts = %s",
+                (SYM, ts),
+            ).fetchone()["adj_close"]
+        self.assertAlmostEqual(float(kept), 123.45, places=2)
+
     def test_daily_bars_for_symbols(self):
         self.repo.store_bars(SYM, "1d", bars_df())
         rows = self.repo.daily_bars_for_symbols([SYM])

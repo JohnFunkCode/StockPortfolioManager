@@ -329,25 +329,34 @@ class HarvesterPlanDB:
         if bars.empty:
             raise RuntimeError(f"No price history supplied for {symbol}")
 
+        # One executemany, not a row-at-a-time loop: conn.executemany() pages
+        # through psycopg2's execute_batch, so ~580 daily bars cost ~2 round
+        # trips instead of 580. Through the Cloud SQL auth proxy (~90ms RTT)
+        # that is the difference between a minute of Create Plan and a second.
+        # execute_batch sends separate statements per page, which is what keeps
+        # the ON CONFLICT safe — folded into one multi-VALUES insert instead, a
+        # repeated bar_date would fail with "cannot affect row a second time".
+        ingested_at = int(time())
+        bar_rows = [
+            {
+                "symbol": symbol,
+                # Convert YYYY-MM-DD string to Unix timestamp (midnight UTC)
+                "ts": int(pd.to_datetime(r["bar_date"]).timestamp()),
+                "open": float(r["Open"]) if pd.notna(r["Open"]) else None,
+                "high": float(r["High"]) if pd.notna(r["High"]) else None,
+                "low": float(r["Low"]) if pd.notna(r["Low"]) else None,
+                "close": float(r["Close"]),
+                "adj_close": float(r["Adj Close"]),
+                "volume": float(r["Volume"]) if pd.notna(r["Volume"]) else None,
+                "data_vendor": "yfinance",
+                "ingested_at": ingested_at,
+            }
+            for _, r in bars.iterrows()
+        ]
+
         with closing(get_connection()) as conn:
             try:
-                for _, r in bars.iterrows():
-                    # Convert YYYY-MM-DD string to Unix timestamp (midnight UTC)
-                    bar_date_dt = pd.to_datetime(r["bar_date"])
-                    ts = int(bar_date_dt.timestamp())
-
-                    conn.execute(SQL_UPSERT_DAILY_BAR, {
-                        "symbol": symbol,
-                        "ts": ts,
-                        "open": float(r["Open"]) if pd.notna(r["Open"]) else None,
-                        "high": float(r["High"]) if pd.notna(r["High"]) else None,
-                        "low": float(r["Low"]) if pd.notna(r["Low"]) else None,
-                        "close": float(r["Close"]),
-                        "adj_close": float(r["Adj Close"]),
-                        "volume": float(r["Volume"]) if pd.notna(r["Volume"]) else None,
-                        "data_vendor": "yfinance",
-                        "ingested_at": int(time()),
-                    })
+                conn.executemany(SQL_UPSERT_DAILY_BAR, bar_rows)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -371,6 +380,28 @@ class HarvesterPlanDB:
 
         # Reverse to chronological order
         prices_rows = list(reversed(prices_rows))
+
+        # `ohlcv` has two writers with different `adj_close` semantics: the
+        # block above stores a real adjusted close, while OhlcvRepository (the
+        # prices cache) fetches with auto_adjust=True and stores NULL. A read
+        # window wider than what the caller managed to fetch therefore lands on
+        # rows with no adjusted close. Say so, rather than letting float(None)
+        # escape as a bare TypeError into the Create Plan dialog — and do NOT
+        # substitute `close`, because splicing raw closes onto adjusted ones
+        # puts a fake step at the boundary and inflates the volatility that
+        # sizes the whole ladder.
+        gaps = [r for r in prices_rows if r["adj_close"] is None]
+        if gaps:
+            oldest = datetime.fromtimestamp(
+                gaps[0]["ts"], tz=timezone.utc
+            ).strftime("%Y-%m-%d")
+            raise RuntimeError(
+                f"Cannot build a plan for {symbol}: {len(gaps)} of the "
+                f"{len(prices_rows)} bars in the {params.history_window_days}-bar "
+                f"history window have no adjusted close (oldest {oldest}). "
+                "Fetch a longer price history, or lower history_window_days."
+            )
+
         prices_adj = [float(r["adj_close"]) for r in prices_rows]
         prices_close = [float(r["close"]) for r in prices_rows]
 

@@ -198,7 +198,13 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
                 close       = EXCLUDED.close,
                 volume      = EXCLUDED.volume,
                 status      = EXCLUDED.status,
-                adj_close   = EXCLUDED.adj_close,
+                -- COALESCE, not EXCLUDED: this writer fetches with
+                -- auto_adjust=True and has no adjusted close to offer, but it
+                -- is not the only writer of `ohlcv`. The harvester's plan
+                -- build stores a real `adj_close` for the same rows, and
+                -- overwriting that with NULL destroys data a price refresh
+                -- never had. Only fill the column, never blank it.
+                adj_close   = COALESCE(EXCLUDED.adj_close, ohlcv.adj_close),
                 data_vendor = EXCLUDED.data_vendor,
                 ingested_at = EXCLUDED.ingested_at
             """,

@@ -65,7 +65,15 @@ class HarvesterService:
     ) -> Dict[str, Any]:
         symbol = symbol.upper().strip()
         self._require_open_lot(symbol, owner=owner)
-        days = max(params.history_window_days + 60, 420)
+        # `history_window_days` is a count of *bars* — the repository reads the
+        # plan's history back as `LIMIT history_window_days` rows — but
+        # `fetch_history` takes *calendar* days. Asking for 420 calendar days
+        # to satisfy a 360-row read buys ~288 sessions and leaves the oldest
+        # ~72 rows of the read window to whatever else has written `ohlcv`;
+        # the prices cache writes `adj_close = NULL` there, which used to
+        # surface as `float() argument must be ... not 'NoneType'`. ~252
+        # sessions a year, so scale by 365/252 and keep the old +60 slack.
+        days = max(int(params.history_window_days * 365 / 252) + 60, 420)
         bars = self._yf.fetch_history(
             symbol, "1d", days, auto_adjust=False, include_adj_close=True
         )

@@ -43,7 +43,14 @@ def bars(n=500, start=50.0, end=150.0):
     )
 
 
-class HarvesterRepoTest(unittest.TestCase):
+class HarvesterRepoFixture:
+    """A clean symbol/template, and the one call that builds a plan on it.
+
+    Deliberately **not** a TestCase: a suite that needs only the fixture must be
+    able to take it without also inheriting — and so rerunning — another suite's
+    test methods.
+    """
+
     def setUp(self):
         self._purge()
         self.addCleanup(self._purge)
@@ -66,6 +73,8 @@ class HarvesterRepoTest(unittest.TestCase):
             owner=owner,
         )
 
+
+class HarvesterRepoTest(HarvesterRepoFixture, unittest.TestCase):
     # -- build_plan ---------------------------------------------------------
 
     def test_build_plan_creates_instance_and_ladder(self):
@@ -413,9 +422,10 @@ class HarvesterOwnerIsolationTest(HarvesterRepoTest):
         )
 
 
-# A sibling of HarvesterRepoTest rather than a member of it: the two scan/owner
-# suites above *subclass* the base, so a case added there runs three times.
-class HarvesterAdjCloseGapTest(HarvesterRepoTest):
+# Takes the fixture, not HarvesterRepoTest: added to that class these two cases
+# would run three times (the scan and owner suites subclass it), and subclassing
+# it here would instead rerun its whole suite under this name.
+class HarvesterAdjCloseGapTest(HarvesterRepoFixture, unittest.TestCase):
     """A read window that reaches rows the fetch never covered (issue: the
     Create Plan dialog died on `float() argument must be ... not 'NoneType'`).
     """

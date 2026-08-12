@@ -242,6 +242,24 @@ All persistence is consolidated into a single **QuantCore** PostgreSQL database,
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
+**`ohlcv` has two writers, and they disagree about `adj_close`.** `OhlcvRepository` (the prices
+cache) fetches with `auto_adjust=True`, so the adjustment is already baked into `close` and it
+writes `adj_close = NULL`; `HarvesterPlanDB.build_plan` fetches with `auto_adjust=False,
+include_adj_close=True` and writes a real adjusted close for the same `(symbol, '1d', ts)` rows.
+Two rules follow, and both exist because breaking either produced the same crash — `float(None)`
+escaping as a bare `TypeError` into the Create Plan dialog:
+
+- **A price refresh may fill `adj_close`, never blank it.** `OhlcvRepository`'s upsert uses
+  `adj_close = COALESCE(EXCLUDED.adj_close, ohlcv.adj_close)`; with plain `EXCLUDED` a routine
+  symbol lookup silently destroyed every adjusted close the harvester had computed.
+- **A window measured in bars must be fetched in trading days.** `PlanBuildParams.history_window_days`
+  is a row count (`LIMIT history_window_days`), so `HarvesterService.build_plan` scales it by
+  `365/252` before calling `fetch_history`, which takes calendar days. The old `max(n + 60, 420)`
+  covered ~288 sessions of a 360-bar read, and the shortfall was served by whatever the prices cache
+  had left there. When a gap survives anyway, the repository raises a `RuntimeError` naming it
+  (→ 422) rather than substituting `close` — an unadjusted bar beside adjusted ones is a fake step
+  that inflates the volatility sizing the ladder.
+
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 
 ### Services Layer (`quantcore/`)

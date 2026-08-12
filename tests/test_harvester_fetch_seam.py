@@ -48,6 +48,27 @@ class TestBuildPlanFetchSeam(unittest.TestCase):
         self.assertIn("bars", repo_kwargs)
         self.assertIn("Adj Close", repo_kwargs["bars"].columns)
 
+    def test_the_fetch_span_covers_the_read_window_in_trading_days(self):
+        # The defect this pins: history_window_days counts *bars* (the
+        # repository reads back LIMIT history_window_days rows) but
+        # fetch_history takes *calendar* days. 420 calendar days buys ~288
+        # sessions, so the oldest ~72 rows of a 360-bar window came from
+        # whatever else had written ohlcv — the prices cache, with
+        # adj_close = NULL — and the build died on float(None).
+        self.gateway.fetch_history.return_value = bars_df()
+        params = PlanBuildParams()
+        self.service.build_plan(
+            symbol="INTC", template_name="t", params=params, owner="john"
+        )
+        requested_calendar_days = self.gateway.fetch_history.call_args[0][2]
+        end = pd.Timestamp("2026-08-11")
+        sessions = len(
+            pd.bdate_range(
+                start=end - pd.Timedelta(days=requested_calendar_days), end=end
+            )
+        )
+        self.assertGreaterEqual(sessions, params.history_window_days)
+
     def test_missing_adj_close_falls_back_to_close(self):
         self.gateway.fetch_history.return_value = bars_df(include_adj=False)
         self.service.build_plan(

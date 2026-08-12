@@ -411,3 +411,57 @@ class HarvesterOwnerIsolationTest(HarvesterRepoTest):
             self.db.get_plan_by_id(self.theirs["instance_id"], owner=OTHER)["status"],
             "SUPERSEDED",
         )
+
+
+# A sibling of HarvesterRepoTest rather than a member of it: the two scan/owner
+# suites above *subclass* the base, so a case added there runs three times.
+class HarvesterAdjCloseGapTest(HarvesterRepoTest):
+    """A read window that reaches rows the fetch never covered (issue: the
+    Create Plan dialog died on `float() argument must be ... not 'NoneType'`).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self._purge_bars)
+        self._purge_bars()
+
+    def _purge_bars(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM ohlcv WHERE symbol = %s AND interval = '1d'", (SYM,)
+            )
+            conn.commit()
+
+    def _seed_unadjusted_rows(self, n=40, first_date="2024-01-02"):
+        """Rows as the prices cache writes them: a close, and adj_close NULL.
+
+        Older than anything `bars()` supplies, so they only enter the picture
+        when the read window is wider than the fetch reached.
+        """
+        with closing(get_connection()) as conn:
+            for day in pd.bdate_range(start=first_date, periods=n):
+                conn.execute(
+                    "INSERT INTO ohlcv (symbol, interval, ts, open, high, low, "
+                    "close, volume, status, adj_close, data_vendor, ingested_at) "
+                    "VALUES (%s,'1d',%s,%s,%s,%s,%s,%s,'CLOSED',NULL,'yfinance',0) "
+                    "ON CONFLICT (symbol, interval, ts) DO NOTHING",
+                    (SYM, int(day.timestamp()), 10.0, 10.5, 9.5, 10.0, 1_000_000),
+                )
+            conn.commit()
+
+    def test_a_read_window_reaching_unadjusted_rows_says_so(self):
+        # Splicing `close` in instead would be worse than useless: an
+        # unadjusted bar next to adjusted ones is a fake step, and it inflates
+        # the volatility that sizes the whole ladder. So this must be a legible
+        # refusal — which POST /api/plans already maps to 422.
+        self._seed_unadjusted_rows()
+        with self.assertRaises(RuntimeError) as ctx:
+            self.build(history_window_days=520)      # bars() supplies only 500
+        message = str(ctx.exception)
+        self.assertIn("adjusted close", message)
+        self.assertIn(SYM, message)
+
+    def test_unadjusted_rows_outside_the_window_are_harmless(self):
+        self._seed_unadjusted_rows()
+        plan = self.build(history_window_days=360)
+        self.assertIn("instance_id", plan)

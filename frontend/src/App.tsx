@@ -26,6 +26,15 @@ function Layout() {
             minWidth: 0,
             minHeight: 0,
             overflowY: 'auto',
+            // CSS coerces a lone overflowY: 'auto' into overflowX: 'auto' too
+            // (the "auto -> auto" overflow rule), which put a second,
+            // easy-to-miss horizontal scrollbar on this Container itself
+            // whenever a page's content (e.g. the Watchlist DataGrid) ran
+            // wider than the maxWidth="xl" cap — on top of the DataGrid's
+            // own internal horizontal scrollbar. Pin it shut; components
+            // that need horizontal scroll (like DataGrid) already manage
+            // their own.
+            overflowX: 'hidden',
             display: chatFullscreen ? 'none' : 'block',
           }}
         >

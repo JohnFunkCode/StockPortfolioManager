@@ -261,7 +261,7 @@ export default function WatchlistPage() {
     {
       field: 'price',
       headerName: 'Price',
-      width: 110,
+      width: 100,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <Typography variant="body2">
@@ -272,7 +272,7 @@ export default function WatchlistPage() {
     {
       field: 'return_5d',
       headerName: '5d',
-      width: 80,
+      width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <ReturnCell value={p.value} />
@@ -281,7 +281,7 @@ export default function WatchlistPage() {
     {
       field: 'return_30d',
       headerName: '30d',
-      width: 80,
+      width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <ReturnCell value={p.value} />
@@ -290,7 +290,7 @@ export default function WatchlistPage() {
     {
       field: 'return_60d',
       headerName: '60d',
-      width: 80,
+      width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <ReturnCell value={p.value} />
@@ -299,7 +299,7 @@ export default function WatchlistPage() {
     {
       field: 'return_ytd',
       headerName: 'YTD',
-      width: 80,
+      width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <ReturnCell value={p.value} />
@@ -308,7 +308,7 @@ export default function WatchlistPage() {
     {
       field: 'return_1y',
       headerName: '1y',
-      width: 80,
+      width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
         <ReturnCell value={p.value} />
@@ -317,7 +317,7 @@ export default function WatchlistPage() {
     {
       field: 'composite_score',
       headerName: 'Score',
-      width: 110,
+      width: 92,
       type: 'number',
       getSortComparator: scoreThenReturn,
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => {
@@ -338,7 +338,7 @@ export default function WatchlistPage() {
         );
       },
     },
-    { field: 'sector', headerName: 'Sector', width: 150 },
+    { field: 'sector', headerName: 'Sector', width: 120 },
     {
       field: 'market_cap_usd',
       headerName: 'Cap (USD)',
@@ -357,7 +357,7 @@ export default function WatchlistPage() {
     {
       field: 'market_cap',
       headerName: 'Cap (native)',
-      width: 130,
+      width: 112,
       // Deliberately not sortable: the values are in different currencies, so
       // ordering them ranks exchange rates rather than companies.
       sortable: false,
@@ -370,7 +370,7 @@ export default function WatchlistPage() {
     {
       field: 'fundamentals_age_hours',
       headerName: 'Cached',
-      width: 100,
+      width: 86,
       type: 'number',
       getSortComparator: nullsLast,
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => {
@@ -399,7 +399,7 @@ export default function WatchlistPage() {
       field: 'tags',
       headerName: 'Tags',
       flex: 1,
-      minWidth: 180,
+      minWidth: 150,
       sortable: false,
       renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, string[]>) => (
         <Stack

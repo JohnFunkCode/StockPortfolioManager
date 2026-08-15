@@ -9,6 +9,11 @@ sealed envelope/scope plus the caller's principal, and hands it to the
 service opaquely. ``require_principal`` here is the same dependency the app
 already applies router-wide, so FastAPI's per-request dependency cache means
 the token is verified once, not twice.
+
+The context also carries a **soft-resolved** owner (issue #208), which is why
+this route does not depend on ``require_owner``: most chat tools are not
+owner-scoped, and one unprovisioned identity should cost the caller the
+portfolio tools, not the whole turn.
 """
 from __future__ import annotations
 
@@ -17,7 +22,7 @@ from fastapi.responses import StreamingResponse
 
 from quantcore.services.chat import TurnContext
 
-from ..auth import Principal, require_principal
+from ..auth import Principal, require_principal, resolve_owner_or_none
 from ..deps import services
 from ..schemas.chat import ChatRequest
 from ..sse import event_stream
@@ -40,6 +45,10 @@ def chat(
         auth_token=principal.token,
         subject=principal.subject,
         model=body.model,
+        # Soft-resolved, not required: an unmapped identity must still get
+        # prices and technicals out of this turn. The portfolio tools are the
+        # only ones that fail on a None here — see resolve_owner_or_none.
+        owner=resolve_owner_or_none(principal),
     )
     events = services().chat.stream_chat(
         [{"role": m.role, "content": m.content} for m in body.messages],

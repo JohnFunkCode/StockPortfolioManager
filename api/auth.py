@@ -263,3 +263,39 @@ def require_owner(principal: Principal = Depends(require_principal)) -> str:
             datetime.now(timezone.utc).isoformat(),
         )
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="not_provisioned")
+
+
+def resolve_owner_or_none(principal: Principal) -> str | None:
+    """Resolve a principal to its canonical owner, or ``None`` if unmapped.
+
+    The soft sibling of :func:`require_owner`, for a request that is only
+    *partly* owner-scoped. A Sidekick chat turn serves many tools, most of which
+    read nobody's private data; 403-ing the whole turn because the caller's
+    portfolio identity is unprovisioned would kill ``get_stock_price`` along with
+    ``get_portfolio_summary``. So the resolution is soft here and the *tool call*
+    fails closed instead (``ChatService`` refuses to touch ``PortfolioService``
+    with a ``None`` owner) — the degrade is per capability, not per request.
+
+    Not a ``Depends``: it takes the principal a route has already resolved, so a
+    route can thread the answer into a context object rather than a parameter.
+
+    Every other property of ``require_owner`` is deliberately identical — the
+    local exemption, and above all **never auto-provisioning** (issue #126
+    decision #2). Softening the failure must not soften the mapping rule; the
+    only difference is that the caller gets to decide what the miss costs. The
+    security event is logged under a **distinct** name so the soft path stays
+    separable from the hard 403 in monitoring.
+    """
+    if principal.is_local:
+        return "john"
+
+    try:
+        return get_services().identity.resolve_owner(principal.owner)
+    except UnknownIdentityError:
+        # Identity only — never the token, header, or raw claims.
+        _security_logger.warning(
+            "SECURITY unmapped_principal_soft identity=%s at=%s",
+            principal.owner,
+            datetime.now(timezone.utc).isoformat(),
+        )
+        return None

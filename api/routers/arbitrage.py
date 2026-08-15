@@ -20,14 +20,19 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from quantcore.services.arbitrage import (  # noqa: F401  (re-exported for callers/tests)
+    MAX_DISCOVER_REFERENCES,
+    MAX_DISCOVER_SYMBOLS,
+)
+
 from ..deps import services
 from ..json_response import QuantCoreJSONResponse
 
 router = APIRouter(prefix="/api/arbitrage", tags=["arbitrage"])
 
-# Each swept symbol costs a history fetch plus a ticker_info lookup.
-MAX_DISCOVER_SYMBOLS = 25
-MAX_DISCOVER_REFERENCES = 10
+# Each swept symbol costs a history fetch plus a ticker_info lookup. The
+# numbers live on the service module so this route and the Sidekick tool
+# handler share one definition (issue #208).
 
 # Below ~30 daily bars the service reports "no price history" anyway; the
 # ceiling is a sanity bound, well past the gateway's 730-day fetch cap.

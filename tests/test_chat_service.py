@@ -11,6 +11,8 @@ the db_safety preamble); services are plain Mocks.
 import json
 import math
 import unittest
+from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -73,14 +75,16 @@ class ChatServiceTestBase(unittest.TestCase):
         self.sentiment = Mock()
         self.options = Mock()
         self.arbitrage = Mock()
+        self.portfolio = Mock()
 
-    def make_service(self, client, max_iterations=8, arbitrage=_UNSET):
+    def make_service(self, client, max_iterations=8, arbitrage=_UNSET, portfolio=_UNSET):
         return ChatService(
             prices=self.prices,
             fundamentals=self.fundamentals,
             sentiment=self.sentiment,
             options=self.options,
             arbitrage=self.arbitrage if arbitrage is _UNSET else arbitrage,
+            portfolio=self.portfolio if portfolio is _UNSET else portfolio,
             max_iterations=max_iterations,
             client_factory=lambda context: client,
         )
@@ -88,6 +92,20 @@ class ChatServiceTestBase(unittest.TestCase):
     def run_chat(self, client, **kwargs):
         service = self.make_service(client, **kwargs)
         return list(service.stream_chat([{"role": "user", "content": "hi"}]))
+
+    def tool_turn(self, name, args, context=None, **service_kwargs):
+        """One tool_use turn followed by a text turn; returns (events, client)."""
+        client = ScriptedClient(
+            [
+                {"final": final("tool_use", tool_use("tu_1", name, args))},
+                {"final": final("end_turn", text_block("done"))},
+            ]
+        )
+        service = self.make_service(client, **service_kwargs)
+        events = list(
+            service.stream_chat([{"role": "user", "content": "hi"}], context=context)
+        )
+        return events, client
 
 
 class TestTextOnlyTurn(ChatServiceTestBase):
@@ -935,18 +953,6 @@ class TestModelResolution(ChatServiceTestBase):
 class TestArbitrageTools(ChatServiceTestBase):
     """The sidekick's arbitrage tools dispatch into ArbitrageService."""
 
-    def tool_turn(self, name, args, **service_kwargs):
-        """One tool_use turn followed by a text turn; returns the events."""
-        client = ScriptedClient(
-            [
-                {"final": final("tool_use", tool_use("tu_1", name, args))},
-                {"final": final("end_turn", text_block("done"))},
-            ]
-        )
-        service = self.make_service(client, **service_kwargs)
-        events = list(service.stream_chat([{"role": "user", "content": "hi"}]))
-        return events, client
-
     def test_analyze_pair_dispatch_with_defaults(self):
         self.arbitrage.analyze_pair.return_value = {"security": "MSTR", "score": 9.7}
         self.tool_turn("analyze_arbitrage_pair", {"security": "MSTR"})
@@ -1019,6 +1025,202 @@ class TestArbitrageTools(ChatServiceTestBase):
         result_block = client.calls[1]["messages"][-1]["content"][0]
         self.assertTrue(result_block["is_error"])
         self.assertIn("Unknown tool", result_block["content"])
+
+
+class TestArbitrageDiscoveryTool(ChatServiceTestBase):
+    """discover_arbitrage_pairs — the one tool whose caps live in two files."""
+
+    def test_caps_match_the_service_definition(self):
+        """chat.py mirrors these constants rather than importing them, because
+        a service module never imports another service module. Mirrored numbers
+        drift; this is the guard the mirroring comment promises."""
+        from quantcore.services import arbitrage as arbitrage_service
+        from quantcore.services import chat as chat_service
+
+        self.assertEqual(
+            chat_service.MAX_DISCOVER_SYMBOLS,
+            arbitrage_service.MAX_DISCOVER_SYMBOLS,
+        )
+        self.assertEqual(
+            chat_service.MAX_DISCOVER_REFERENCES,
+            arbitrage_service.MAX_DISCOVER_REFERENCES,
+        )
+
+    def test_splits_and_upcases_the_symbol_string(self):
+        self.arbitrage.discover_pairs.return_value = {"pairs": []}
+        self.tool_turn("discover_arbitrage_pairs", {"symbols": "mstr, coin ,mara"})
+        self.arbitrage.discover_pairs.assert_called_once_with(
+            ["MSTR", "COIN", "MARA"],
+            references=None,
+            days=365,
+            min_abs_correlation=0.4,
+            require_economic_link=True,
+        )
+
+    def test_forwards_references_and_tuning_arguments(self):
+        self.arbitrage.discover_pairs.return_value = {"pairs": []}
+        self.tool_turn(
+            "discover_arbitrage_pairs",
+            {
+                "symbols": "RIOT",
+                "references": "BTC-USD, GLD",
+                "days": 730,
+                "min_abs_correlation": 0.7,
+                "require_economic_link": False,
+            },
+        )
+        self.arbitrage.discover_pairs.assert_called_once_with(
+            ["RIOT"],
+            references=["BTC-USD", "GLD"],
+            days=730,
+            min_abs_correlation=0.7,
+            require_economic_link=False,
+        )
+
+    def test_over_cap_symbol_list_is_rejected_before_the_service_is_touched(self):
+        """The REST route caps this; Sidekick bypasses the route, so an
+        uncapped model-authored sweep would otherwise reach the service as
+        O(symbols x references) history fetches."""
+        from quantcore.services.chat import MAX_DISCOVER_SYMBOLS
+
+        symbols = ",".join(f"SYM{i}" for i in range(MAX_DISCOVER_SYMBOLS + 1))
+        events, client = self.tool_turn("discover_arbitrage_pairs", {"symbols": symbols})
+        self.arbitrage.discover_pairs.assert_not_called()
+        statuses = [e for e in events if isinstance(e, ToolStatus)]
+        self.assertEqual([s.state for s in statuses], ["running", "error"])
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(result_block["is_error"])
+        self.assertIn("too many symbols", result_block["content"])
+
+    def test_over_cap_reference_list_is_rejected(self):
+        from quantcore.services.chat import MAX_DISCOVER_REFERENCES
+
+        references = ",".join(f"REF{i}" for i in range(MAX_DISCOVER_REFERENCES + 1))
+        _, client = self.tool_turn(
+            "discover_arbitrage_pairs", {"symbols": "MSTR", "references": references}
+        )
+        self.arbitrage.discover_pairs.assert_not_called()
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertIn("too many references", result_block["content"])
+
+    def test_blank_symbol_string_is_a_recoverable_error(self):
+        _, client = self.tool_turn("discover_arbitrage_pairs", {"symbols": " , "})
+        self.arbitrage.discover_pairs.assert_not_called()
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(result_block["is_error"])
+
+
+class TestPortfolioTools(ChatServiceTestBase):
+    """get_portfolio_summary / get_symbol_lots — owner comes from the turn,
+    never from the model."""
+
+    OWNED = TurnContext(owner="john")
+
+    def setUp(self):
+        super().setUp()
+        self.portfolio.symbol_rows.return_value = [
+            {
+                "symbol": "AAPL",
+                "lots": [{"id": 1}, {"id": 2}],
+                "total_investment": Decimal("1000.00"),
+                "total_current_value": Decimal("1250.00"),
+                "total_gain_loss": Decimal("250.00"),
+                "total_gain_loss_pct": 25.0,
+                "total_dollars_per_day": Decimal("0.50"),
+                # Columns the tool deliberately drops.
+                "allocation_segments": [{"pct": 100}],
+                "hedge_bias": "neutral",
+            }
+        ]
+        self.portfolio.portfolio_totals.return_value = {
+            "total_investment": Decimal("1000.00"),
+            "total_gain_loss": Decimal("250.00"),
+        }
+        self.portfolio.list_lots.return_value = [
+            {
+                "symbol": "AAPL",
+                "quantity": Decimal("10"),
+                "purchase_price": Decimal("100.00"),
+                "trade_date": date(2026, 1, 15),
+                "current_price": Decimal("125.00"),
+                "gain_loss": Decimal("250.00"),
+                "gain_loss_pct": 25.0,
+                "days_held": 200,
+                "dollars_per_day": Decimal("1.25"),
+                "price_stale": False,
+            },
+            {"symbol": "MSFT", "quantity": Decimal("5")},
+        ]
+
+    def test_summary_reads_the_resolved_owner(self):
+        self.tool_turn("get_portfolio_summary", {}, context=self.OWNED)
+        self.portfolio.symbol_rows.assert_called_once_with("john")
+
+    def test_summary_projects_a_compact_row_not_the_page_payload(self):
+        """The Portfolio page's row carries lots, allocation segments and hedge
+        bias; a conversation needs none of it. Same context-budget reasoning as
+        scan_arbitrage's summary rows."""
+        _, client = self.tool_turn("get_portfolio_summary", {}, context=self.OWNED)
+        payload = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+        position = payload["positions"][0]
+        self.assertEqual(position["symbol"], "AAPL")
+        self.assertEqual(position["lot_count"], 2)
+        self.assertEqual(position["total_current_value"], 1250.0)
+        self.assertNotIn("lots", position)
+        self.assertNotIn("allocation_segments", position)
+        self.assertEqual(payload["totals"]["total_gain_loss"], 250.0)
+
+    def test_symbol_lots_filters_to_the_requested_symbol_and_serializes_dates(self):
+        _, client = self.tool_turn(
+            "get_symbol_lots", {"ticker": "aapl"}, context=self.OWNED
+        )
+        self.portfolio.list_lots.assert_called_once_with("john", status="OPEN")
+        payload = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+        self.assertEqual(payload["symbol"], "AAPL")
+        self.assertEqual(payload["lot_count"], 1)
+        self.assertEqual(payload["lots"][0]["trade_date"], "2026-01-15")
+        self.assertEqual(payload["lots"][0]["purchase_price"], 100.0)
+
+    def test_a_model_supplied_owner_is_discarded_not_forwarded(self):
+        """No schema declares an `owner`, so its presence means the model
+        invented one — passing it through would be a cross-user read."""
+        self.tool_turn(
+            "get_portfolio_summary", {"owner": "thomas"}, context=self.OWNED
+        )
+        self.portfolio.symbol_rows.assert_called_once_with("john")
+
+    def test_unresolved_owner_degrades_without_touching_the_service(self):
+        """An identity with no owner mapping loses the portfolio tools and
+        nothing else — the route soft-resolves rather than 403-ing the turn."""
+        events, client = self.tool_turn(
+            "get_portfolio_summary", {}, context=TurnContext(owner=None)
+        )
+        self.assertEqual(self.portfolio.mock_calls, [])
+        statuses = [e for e in events if isinstance(e, ToolStatus)]
+        self.assertEqual([s.state for s in statuses], ["error"])
+        result_block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(result_block["is_error"])
+        self.assertIn("not linked to a portfolio", result_block["content"])
+
+    def test_the_resolved_owner_never_reaches_the_rendered_tool_status(self):
+        """ToolStatus is streamed to the browser and rendered; the owner is
+        plumbing, and echoing it there would put one identity's resolved owner
+        on another's screen in a shared transcript."""
+        events, _ = self.tool_turn(
+            "get_symbol_lots", {"ticker": "AAPL"}, context=self.OWNED
+        )
+        for status in (e for e in events if isinstance(e, ToolStatus)):
+            self.assertNotIn("owner", status.args)
+
+    def test_without_the_service_the_tools_degrade_to_a_recoverable_error(self):
+        events, client = self.tool_turn(
+            "get_portfolio_summary", {}, context=self.OWNED, portfolio=None
+        )
+        statuses = [e for e in events if isinstance(e, ToolStatus)]
+        self.assertEqual([s.state for s in statuses], ["running", "error"])
+        self.assertIn(
+            "Unknown tool", client.calls[1]["messages"][-1]["content"][0]["content"]
+        )
 
 
 if __name__ == "__main__":

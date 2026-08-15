@@ -33,6 +33,8 @@ import math
 import os
 import uuid
 from dataclasses import dataclass, field
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Callable, Iterator, Protocol
 
 from quantcore.error_text import safe_error_text
@@ -45,23 +47,37 @@ from quantcore.services.chat_tools import (
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are the QuantCore sidekick — a market-analysis assistant embedded in the
-QuantUI portfolio dashboard. You have data tools for prices, technical signals,
-RSI, MACD, fundamental scores, news sentiment, and vertical option spread
-pricing (price_vertical_spread — real contracts, real bid/ask).
+QuantUI portfolio dashboard. Your data tools span prices and technical signals
+(RSI, MACD, and the rest), company fundamental scores, news sentiment,
+vertical option spread pricing (price_vertical_spread — real contracts, real
+bid/ask), arbitrage (the curated pair universe, a scan across it, a workup on
+one pair, and a statistical sweep for undeclared links), and the signed-in
+user's own portfolio (totals, and the lots behind a single symbol). Each
+tool's own description — not this prompt — is the authority on what it takes,
+what it returns, and what it deliberately leaves out; read it before reaching
+for the tool.
+
+The portfolio tools always read the holdings of whoever is signed in. They
+take no owner, there is no way to ask for anyone else's, and you must never
+try. If one comes back saying the account is not linked to a portfolio, say
+exactly that and that an administrator has to link it — never guess at,
+estimate, or invent positions to fill the gap.
 
 You can also render live UI components inline in the conversation with the
-show_component tool: 'signals' (full technical/options/risk signal panel),
-'live_price' (compact auto-refreshing price chip), 'price_chart' (price
-history chart with moving averages), and 'spread_payoff' (interactive risk
-graph for a vertical spread — expiration payoff plus a value-today curve).
-After pricing a spread with price_vertical_spread, always render it with
-show_component('spread_payoff', {ticker, expiration, long_strike,
-short_strike, kind}) using the exact same parameters. After discussing a
-single ticker, prefer showing the relevant component so the user sees live
-data — the component fetches its own data; don't restate numbers that a
-component you just rendered is already showing. Components are single-ticker
-only: when the user asks about several symbols at once, give the numbers in
-prose instead.
+show_component tool. Its own description lists every available component and
+the exact props each one takes; treat that list as the authority rather than
+anything you remember. They cover technical signals and price history, spread
+payoff diagrams, the arbitrage cards, portfolio and per-symbol lot views, and
+the watchlist and fundamentals rankings. After pricing a spread with
+price_vertical_spread, always render it with show_component('spread_payoff',
+{ticker, expiration, long_strike, short_strike, kind}) using the exact same
+parameters. After discussing a single ticker, prefer showing the relevant
+component so the user sees live data — the component fetches its own data;
+don't restate numbers that a component you just rendered is already showing.
+Most components are single-ticker: when the user asks about several symbols at
+once, give the numbers in prose instead, unless a component already covers the
+whole set (the scan, discovery, portfolio, watchlist, and fundamentals cards
+each do).
 
 Rendered components are interactive: when the user clicks inside one (a
 strike on a spread_payoff chart, a point on a price_chart), their message
@@ -206,6 +222,13 @@ class TurnContext:
     # allow-list and the caller's stored setting before use — see
     # ChatService._resolve_model.
     model: str | None = None
+    # Canonical owner for this turn's owner-scoped tools, soft-resolved by the
+    # route (issue #208). ``None`` means the caller's identity has no
+    # owner_identities mapping — the portfolio tools refuse rather than guess,
+    # and every other tool in the turn is unaffected. Never model-supplied:
+    # no tool schema carries an ``owner`` parameter, and the dispatch strips
+    # one if a model invents it.
+    owner: str | None = None
 
 
 ENVELOPE_REQUIRED_MESSAGE = (
@@ -213,6 +236,27 @@ ENVELOPE_REQUIRED_MESSAGE = (
 )
 CHAT_NOT_CONFIGURED_MESSAGE = (
     "The chat sidekick is not configured on this deployment."
+)
+
+# Tools that read the caller's own holdings. The dispatch loop injects
+# TurnContext.owner into these and only these — none of them declares an
+# `owner` parameter in its schema, so the model can neither choose nor
+# influence whose data it sees (the same rule show_component's props follow).
+OWNER_SCOPED_TOOLS = frozenset({"get_portfolio_summary", "get_symbol_lots"})
+
+# Mirrors quantcore/services/arbitrage.py's caps of the same name. They are
+# copied rather than imported because a service module never imports another
+# service module (registry.py's acyclic rule) — and copied numbers drift, so
+# tests/test_chat_service.py asserts the two definitions are equal.
+MAX_DISCOVER_SYMBOLS = 25
+MAX_DISCOVER_REFERENCES = 10
+
+# Returned to the *model* (as a recoverable tool error), not to the user, so it
+# can explain the situation in its own words rather than parroting a string.
+OWNER_UNRESOLVED_MESSAGE = (
+    "This account is not linked to a portfolio, so holdings are unavailable. "
+    "Tell the user their sign-in has no portfolio mapping yet and that an "
+    "administrator has to link it; do not guess at or invent any positions."
 )
 
 
@@ -250,6 +294,39 @@ def _sanitize(value):
         return {k: _sanitize(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [_sanitize(v) for v in value]
+    return value
+
+
+def _split_csv(raw) -> list[str]:
+    """Comma-separated tool argument -> upper-cased ticker list.
+
+    Models pass lists as strings here (every multi-symbol tool schema declares
+    a string), and they pass them untidily: trailing commas, stray spaces,
+    lower case. All three are the caller's problem to absorb, not the
+    service's."""
+    if raw is None:
+        return []
+    if isinstance(raw, (list, tuple)):
+        parts = raw
+    else:
+        parts = str(raw).split(",")
+    return [str(p).strip().upper() for p in parts if str(p).strip()]
+
+
+def _plain(value):
+    """Coerce a repository/service value into something json.dumps accepts.
+
+    The portfolio service speaks Decimal and date — correct for money and for
+    the REST tier, which has QuantCoreJSONResponse to encode them. A tool result
+    is hand-serialized with json.dumps instead, and chat.py must not import the
+    api package to borrow its encoder, so the conversion happens here. Decimals
+    become floats deliberately: the model is going to talk about these numbers,
+    not settle a trade with them.
+    """
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     return value
 
 
@@ -299,6 +376,7 @@ class ChatService:
         sentiment,
         options,
         arbitrage=None,
+        portfolio=None,
         model: str = "claude-sonnet-5",
         effort: str = "medium",
         max_iterations: int = 8,
@@ -311,6 +389,7 @@ class ChatService:
         self._sentiment = sentiment
         self._options = options
         self._arbitrage = arbitrage
+        self._portfolio = portfolio
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
@@ -368,7 +447,117 @@ class ChatService:
                     )
                 ),
                 "list_arbitrage_universe": lambda: self._arbitrage.get_universe(),
+                "discover_arbitrage_pairs": self._discover_arbitrage_pairs,
             })
+        if portfolio is not None:
+            self._handlers.update({
+                "get_portfolio_summary": self._portfolio_summary,
+                "get_symbol_lots": self._symbol_lots,
+            })
+
+    # ------------------------------------------------------------------
+    # Tool handlers that need more than a lambda (issue #208)
+    # ------------------------------------------------------------------
+    def _discover_arbitrage_pairs(
+        self,
+        symbols,
+        references=None,
+        days=365,
+        min_abs_correlation=0.4,
+        require_economic_link=True,
+    ):
+        """Cointegration sweep over an ad-hoc symbol list.
+
+        The caps are re-asserted here on purpose. They are declared in
+        api/routers/arbitrage.py, but Sidekick calls ArbitrageService directly
+        (the documented in-process exception to Rule 6) and so never passes
+        through that route — leaving the service's own `discover_pairs`, which
+        enforces nothing, reachable from a model-authored argument list. A
+        sweep is O(symbols x references) fetches; an LLM that decides to pass
+        200 tickers should get a tool error it can read and retry, which is
+        what raising ValueError here produces.
+        """
+        tickers = _split_csv(symbols)
+        refs = _split_csv(references)
+        if not tickers:
+            raise ValueError("symbols is required: pass at least one ticker.")
+        if len(tickers) > MAX_DISCOVER_SYMBOLS:
+            raise ValueError(
+                f"too many symbols ({len(tickers)}); "
+                f"discovery accepts at most {MAX_DISCOVER_SYMBOLS} per call."
+            )
+        if len(refs) > MAX_DISCOVER_REFERENCES:
+            raise ValueError(
+                f"too many references ({len(refs)}); "
+                f"discovery accepts at most {MAX_DISCOVER_REFERENCES} per call."
+            )
+        return self._arbitrage.discover_pairs(
+            tickers,
+            references=refs or None,
+            days=days,
+            min_abs_correlation=min_abs_correlation,
+            require_economic_link=require_economic_link,
+        )
+
+    def _portfolio_summary(self, owner: str):
+        """Portfolio-wide totals plus one compact line per symbol.
+
+        Deliberately not `symbol_rows()` as-is: each of those rows carries its
+        open lots, period-return columns, hedge bias and allocation segments —
+        the Portfolio page needs all of it to draw, and a conversation needs
+        none of it to answer "how am I doing?". Same reasoning as
+        `scan_arbitrage`'s summary rows. Per-lot detail is a separate tool the
+        model can reach for on one symbol (`get_symbol_lots`).
+        """
+        rows = self._portfolio.symbol_rows(owner)
+        totals = self._portfolio.portfolio_totals(rows)
+        return {
+            "totals": {k: _plain(v) for k, v in totals.items()},
+            "positions": [
+                {
+                    "symbol": row["symbol"],
+                    "lot_count": len(row["lots"]),
+                    **{
+                        k: _plain(row.get(k))
+                        for k in (
+                            "total_investment",
+                            "total_current_value",
+                            "total_gain_loss",
+                            "total_gain_loss_pct",
+                            "total_dollars_per_day",
+                        )
+                    },
+                }
+                for row in rows
+            ],
+        }
+
+    def _symbol_lots(self, owner: str, ticker: str):
+        """The caller's open lots for one symbol, with per-lot gain/loss.
+
+        Filtered from the batched `list_lots()` rather than a per-symbol query
+        so the tool inherits its one cached quote fetch.
+        """
+        symbol = (ticker or "").strip().upper()
+        lots = [
+            {
+                key: _plain(lot.get(key))
+                for key in (
+                    "quantity",
+                    "purchase_price",
+                    "trade_date",
+                    "current_price",
+                    "gain_loss",
+                    "gain_loss_pct",
+                    "days_held",
+                    "dollars_per_day",
+                    "price_stale",
+                )
+            }
+            for lot in self._portfolio.list_lots(owner, status="OPEN")
+            if lot["symbol"] == symbol
+        ]
+        return {"symbol": symbol, "lot_count": len(lots), "lots": lots}
 
     def _resolve_model(self, context: TurnContext) -> str:
         """Requested model wins if allow-listed; else fall back to the
@@ -460,6 +649,29 @@ class ChatService:
                             degraded.append(tu.name)
                         continue
 
+                    call_args = args
+                    if tu.name in OWNER_SCOPED_TOOLS:
+                        # The model never chooses whose holdings it reads. Drop
+                        # any `owner` it invented — no schema declares one, so
+                        # its presence means a hallucination, and passing it
+                        # through would be a cross-user read.
+                        args.pop("owner", None)
+                        if context.owner is None:
+                            # Fail closed on this tool alone: the rest of the
+                            # turn's tools do not need an identity and keep
+                            # working. Never reaches PortfolioService.
+                            yield ToolStatus(tool=tu.name, args=args, state="error")
+                            results.append(
+                                _tool_result(tu.id, OWNER_UNRESOLVED_MESSAGE, is_error=True)
+                            )
+                            degraded.append(tu.name)
+                            continue
+                        # Resolved identity goes to the handler, not into the
+                        # ToolStatus the UI renders — it is plumbing, and the
+                        # user already knows whose portfolio they are asking
+                        # about.
+                        call_args = {**args, "owner": context.owner}
+
                     yield ToolStatus(tool=tu.name, args=args, state="running")
                     handler = self._handlers.get(tu.name)
                     if handler is None:
@@ -470,7 +682,7 @@ class ChatService:
                         degraded.append(tu.name)
                         continue
                     try:
-                        out = handler(**args)
+                        out = handler(**call_args)
                     except Exception as exc:  # noqa: BLE001 — model gets to recover
                         safe_exc = safe_error_text(exc)
                         logger.warning("chat tool %s failed: %s", tu.name, safe_exc)

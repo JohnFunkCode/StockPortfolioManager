@@ -73,6 +73,15 @@ REFERENCE_PANEL = {
 STALE_HOLDINGS_DAYS = 45
 DEFAULT_HORIZON_DAYS = 180
 
+# Discovery caps. ``discover_pairs`` itself does not enforce these — an
+# in-process caller with a deliberate list is allowed a big sweep — but every
+# caller that takes its symbol list from *outside* must, because the work is
+# O(symbols x references) history fetches. The constants live here rather than
+# in api/routers/arbitrage.py so the REST route and the Sidekick tool handler
+# (issue #208) cannot drift to different numbers; they are the same limit.
+MAX_DISCOVER_SYMBOLS = 25
+MAX_DISCOVER_REFERENCES = 10
+
 
 def _round(val, digits: int = 2):
     try:

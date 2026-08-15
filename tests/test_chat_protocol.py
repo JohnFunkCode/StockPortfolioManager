@@ -330,8 +330,12 @@ class TestToolSchemas(unittest.TestCase):
         "analyze_arbitrage_pair",
         "scan_arbitrage",
         "list_arbitrage_universe",
+        "discover_arbitrage_pairs",
+        "get_portfolio_summary",
+        "get_symbol_lots",
         "show_component",
     }
+    OWNER_SCOPED_TOOLS = {"get_portfolio_summary", "get_symbol_lots"}
 
     def test_expected_tool_names_present(self):
         names = {t["name"] for t in TOOL_SCHEMAS}
@@ -377,6 +381,29 @@ class TestToolSchemas(unittest.TestCase):
         self.assertIn("premium_discount_pct", description)
         self.assertIn("gross_premium_discount_pct", description)
         self.assertIn("senior", description.lower())
+
+    def test_portfolio_tools_declare_no_owner_parameter(self):
+        """The model never chooses whose holdings it reads (issue #126 decision
+        #20). The component registry already refuses an `owner` prop; the tool
+        schemas have to refuse it too, or the same cross-user read arrives one
+        layer earlier. ChatService drops a hallucinated `owner` at dispatch —
+        this keeps the model from ever being told the argument exists.
+        """
+        for name in self.OWNER_SCOPED_TOOLS:
+            tool = next(t for t in TOOL_SCHEMAS if t["name"] == name)
+            properties = tool["input_schema"].get("properties", {})
+            self.assertNotIn("owner", properties, name)
+            self.assertNotIn("owner", tool["input_schema"].get("required", []), name)
+
+    def test_discovery_tool_disclaims_a_convergence_verdict(self):
+        """A discovered pair is a curation candidate, not a signal: there is no
+        NAV, no fair value, and no convergence mechanism behind it. A model that
+        presents correlation as an opportunity reproduces exactly what the
+        curated universe exists to prevent."""
+        tool = next(t for t in TOOL_SCHEMAS if t["name"] == "discover_arbitrage_pairs")
+        description = tool["description"].lower()
+        self.assertIn("candidate", description)
+        self.assertIn("convergence", description)
 
     def test_scan_tool_frames_an_empty_result_as_a_finding(self):
         """Most scans return nothing above 'watch'; the model must report that

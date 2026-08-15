@@ -230,6 +230,7 @@ def get_services() -> Services:
         sentiment=sentiment,
         options=options,
         arbitrage=arbitrage,
+        portfolio=portfolio,
         model=chat_model,
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),

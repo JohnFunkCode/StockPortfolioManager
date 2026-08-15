@@ -120,7 +120,8 @@ Thin adapters to external systems (yfinance, Polygon.io, future broker). Own API
 
 - Thin semantic wrappers: expose tool schemas, translate tool calls into HTTP requests against the REST tier, forward auth headers.
 - Generated from the FastAPI OpenAPI spec where sensible (`FastMCP.from_fastapi()` / `fastapi-mcp`), with **hand-curated** tool selection and LLM-facing descriptions.
-- **Never blanket-mirror the whole API.** Exposing an endpoint as a tool is a deliberate curation decision.
+- **The AI surface is a first-class client, and most REST capabilities should reach it.** What is forbidden is the *mechanical* mirror — one tool per endpoint, with parameters and descriptions inherited verbatim from the HTTP shape. A tool is designed against a model's context budget, not against the endpoint's response shape: `scan_arbitrage` returns summary rows rather than full per-pair statistics, because ten candidates with complete statistics each would crowd out the conversation they were meant to inform.
+- **Every new REST capability owes one of two artifacts, in the same PR:** a designed MCP tool — name, parameters, LLM-facing description, and what it deliberately omits — or a written decision recording why it stays REST-only. **Silence is not a decision.** The point of the rule is to force the design conversation while the endpoint is still being written, not to bias the answer toward "no": both outcomes are fine, and only the unrecorded one is a defect. Record it wherever the capability's design lives (the plan doc under `docs/proposals/`, or the [capabilities matrix](../capabilities-matrix.md) row), so the next reader can tell a deliberate omission from an oversight — the two are indistinguishable after the fact, which is how `discover_arbitrage_pairs` shipped a registered UI component with no tool to feed it.
 - Read-only by default. Write operations (plan mutations, future order placement) require explicit gating: confirmation step, idempotency key, full audit trail.
 
 ### 5.6 CLI / Cron
@@ -201,7 +202,7 @@ Target state for every capability in the [capabilities matrix](../capabilities-m
 
 1. **One service function** is the canonical implementation.
 2. **REST is the canonical remote surface** — every capability that any remote client needs gets an endpoint.
-3. **MCP and WebUI exposure are per-capability curation decisions**, not defaults. The matrix's surface columns become a checklist, not an accident of history.
+3. **MCP and WebUI exposure are per-capability design decisions that must be recorded** — see §5.5 for the MCP obligation. The matrix's surface columns become a checklist, not an accident of history: an empty cell should mean someone decided, and wrote down why.
 
 Approved idiom carried over from the matrix: **"MCP writes, REST reads"** for snapshot-style data (e.g., the options-chain flow where collection persists a snapshot and dashboards read the store) — provided both sides go through the same service.
 

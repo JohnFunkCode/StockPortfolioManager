@@ -172,6 +172,10 @@ def discover_arbitrage_pairs(
     Discovered pairs get no NAV math and no convergence claim — they are
     candidates for curation, not trades.
 
+    `symbols_tested` and `skipped` partition the tickers you passed, so
+    coverage is checkable rather than assumed — `count` is out of
+    `symbols_tested`, not out of the submitted list.
+
     Args:
         symbols:               Comma-separated tickers to sweep (max 25 per
                                call — each one costs a history fetch plus a

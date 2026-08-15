@@ -171,6 +171,9 @@ export interface DiscoveryResponse {
   pairs: Array<{ security: string; underlying: string; correlation: number | null }>;
   skipped: Array<{ symbol: string; reason: string }>;
   references: string[];
+  /** Coverage accounting: these two partition the submitted ticker list. */
+  symbols_requested?: string[];
+  symbols_tested?: string[];
   /** Present only with include_all — every tested pair, near-misses included. */
   tested?: TestedPair[];
   critical_values?: Record<string, number>;

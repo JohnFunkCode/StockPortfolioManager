@@ -45,6 +45,24 @@ def period_to_days(period: str) -> int:
     return PERIOD_DAYS.get(period.lower(), 182)
 
 
+def market_date(now: datetime.datetime | None = None) -> datetime.date:
+    """Today's calendar date in market (Eastern) time.
+
+    The date a *holding period* is measured against. ``datetime.date.today()``
+    is the host's date, which on Cloud Run is UTC — so from roughly 5pm ET
+    until midnight ET it is already tomorrow, and every calendar-day count
+    anchored to it comes out one day long. That is not cosmetic: a lot bought
+    eight days ago reports nine, and any per-day rate divided by it is
+    understated by the same ratio (~11% on a nine-day hold).
+
+    Deliberately *not* ``latest_completed_session()`` — that rolls back to the
+    prior trading day overnight and on weekends, which is right for "is there a
+    newer bar?" and wrong here, since a holding period keeps accruing over a
+    weekend.
+    """
+    return _now_et(now).date()
+
+
 def is_market_open(now: datetime.datetime | None = None) -> bool:
     """Approximate regular-hours check — weekdays 9:30–16:00 ET, not holiday-aware."""
     current = _now_et(now)

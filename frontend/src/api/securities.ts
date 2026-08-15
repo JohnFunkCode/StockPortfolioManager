@@ -58,8 +58,13 @@ export interface VerticalSpreadResponse {
   symbol: string;
   expiration: string;
   kind: string;
+  /** Conservative fill (long ask - short bid). max_profit, max_loss,
+   *  breakeven and risk_reward are all derived from this one, so it is the
+   *  figure that has to be shown beside them. */
   debit: number;
-  mid_debit: number;
+  /** Mid-to-mid fill; null when either leg has no mid. The payoff curves are
+   *  drawn at this debit when it exists (see SpreadCurves.params.debit). */
+  mid_debit: number | null;
   max_profit: number;
   max_loss: number;
   breakeven: number;

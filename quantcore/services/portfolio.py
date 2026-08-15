@@ -19,6 +19,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import portfolio_math
+from quantcore.analytics.market_time import market_date
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 
 logger = logging.getLogger(__name__)
@@ -278,7 +279,7 @@ class PortfolioService:
         """
         lots = self._repo.list_positions(owner, status=status)
         quotes = self._prices.get_quotes([lot["symbol"] for lot in lots], force=force)
-        as_of = date.today()
+        as_of = market_date()
         return [
             self._enrich_lot(lot, quotes.get(lot["symbol"]), as_of)
             for lot in lots
@@ -343,7 +344,7 @@ class PortfolioService:
             by_symbol.setdefault(lot["symbol"], []).append(lot)
 
         plan_ids = self._active_plan_ids(owner)
-        as_of = date.today()
+        as_of = market_date()
         rows = []
         for symbol, symbol_lots in sorted(by_symbol.items()):
             priced_lots = [lot for lot in symbol_lots if lot["current_price"] is not None]
@@ -380,7 +381,7 @@ class PortfolioService:
         all_lots = [
             lot for row in rows for lot in row["lots"] if lot["current_price"] is not None
         ]
-        return portfolio_math.summary_totals(all_lots, as_of=date.today())
+        return portfolio_math.summary_totals(all_lots, as_of=market_date())
 
     def update_lot(self, owner: str, lot_id: int, **fields: Any) -> bool:
         """Correct a single lot's fields. Returns True if a lot was updated.

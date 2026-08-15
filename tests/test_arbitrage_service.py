@@ -590,5 +590,133 @@ class DiscoverPairsTest(unittest.TestCase):
         self.assertEqual(found["skipped"][0]["symbol"], "GHOST")
 
 
+class EconomicLinkGateTest(unittest.TestCase):
+    """The gate must name the commodity, not the industry around it.
+
+    It used to be a bare substring test against sector + industry + summary,
+    with generic keywords ("mining", "energy", "technology") in the panel. Two
+    distinct false links came out of that, and both are guarded here: a
+    *bitcoin* miner reading as "mining" and getting cointegration-tested
+    against gold and copper, and "Goldman" reading as "gold".
+    """
+
+    link = staticmethod(ArbitrageService._economic_link)
+
+    BITCOIN_MINER = (
+        "financial services capital markets marathon digital is a digital "
+        "asset technology company that mines cryptocurrencies, operating "
+        "bitcoin mining facilities and sourcing low-cost energy."
+    ).lower()
+    GOLD_MINER = (
+        "basic materials gold newmont engages in the exploration and mining "
+        "of gold, silver, copper and other precious metals."
+    ).lower()
+    INVESTMENT_BANK = (
+        "financial services capital markets the goldman sachs group is a "
+        "leading global investment banking and asset management firm."
+    ).lower()
+    SOFTWARE = (
+        "technology software - infrastructure builds enterprise software and "
+        "cloud platforms for large organizations."
+    ).lower()
+
+    def test_a_bitcoin_miner_links_only_to_bitcoin(self):
+        self.assertTrue(self.link("BTC-USD", self.BITCOIN_MINER))
+        for ref in ("GC=F", "HG=F", "CL=F", "NG=F"):
+            self.assertFalse(self.link(ref, self.BITCOIN_MINER), ref)
+
+    def test_a_gold_miner_still_links_to_gold(self):
+        self.assertTrue(self.link("GC=F", self.GOLD_MINER))
+        self.assertTrue(self.link("HG=F", self.GOLD_MINER))  # says "copper"
+        self.assertFalse(self.link("BTC-USD", self.GOLD_MINER))
+
+    def test_goldman_is_not_gold(self):
+        """Word boundaries: the substring match put an investment bank
+        against gold futures."""
+        self.assertFalse(self.link("GC=F", self.INVESTMENT_BANK))
+        self.assertFalse(self.link("BTC-USD", self.INVESTMENT_BANK))
+
+    def test_a_software_company_links_to_nothing(self):
+        for ref in ("GC=F", "HG=F", "CL=F", "NG=F", "BTC-USD"):
+            self.assertFalse(self.link(ref, self.SOFTWARE), ref)
+
+    def test_stems_reach_their_inflections(self):
+        """A trailing ``*`` is the escape hatch for the cases where the word
+        boundary is the thing in the way."""
+        self.assertTrue(self.link("BTC-USD", "holds digital assets on its balance sheet"))
+        self.assertTrue(self.link("BTC-USD", "a cryptocurrency exchange"))
+        self.assertTrue(self.link("GC=F", "a precious metals royalty company"))
+
+    def test_an_unknown_reference_never_links(self):
+        self.assertFalse(self.link("ZZZ=F", self.GOLD_MINER))
+
+
+class DiscoveryCoverageTest(unittest.TestCase):
+    """``symbols_tested`` and ``skipped`` must partition ``symbols_requested``.
+
+    The return used to name only the symbols that found something, so an agent
+    splitting a long list across several calls could drop a ticker and still
+    report full coverage (issue #208). The partition makes the claim checkable.
+    """
+
+    def setUp(self):
+        y, x = cointegrated_pair(seed=12)
+        self.frames = {"MINER": price_frame(y), "FOODCO": price_frame(y),
+                       "GC=F": price_frame(x)}
+        self.info = {
+            "MINER": {"sector": "Basic Materials", "industry": "Gold Mining"},
+            "FOODCO": {"sector": "Consumer Staples", "industry": "Packaged Foods"},
+        }
+
+    def discover(self, symbols, **kwargs):
+        svc = build([], self.frames, info=self.info)
+        return svc.discover_pairs(symbols, references=["GC=F"], **kwargs)
+
+    def assert_partitions(self, result):
+        accounted = list(result["symbols_tested"]) + [s["symbol"] for s in result["skipped"]]
+        self.assertCountEqual(accounted, result["symbols_requested"])
+        self.assertEqual(len(set(accounted)), len(accounted), "a symbol in two buckets")
+
+    def test_every_requested_symbol_lands_in_exactly_one_bucket(self):
+        result = self.discover(["MINER", "FOODCO", "GHOST"])
+        self.assertEqual(result["symbols_requested"], ["MINER", "FOODCO", "GHOST"])
+        self.assertEqual(result["symbols_tested"], ["MINER"])
+        self.assert_partitions(result)
+
+    def test_a_skip_carries_the_reason_it_was_skipped(self):
+        reasons = {s["symbol"]: s["reason"]
+                   for s in self.discover(["FOODCO", "GHOST"])["skipped"]}
+        self.assertEqual(reasons["GHOST"], "no price history")
+        # Never "not cointegrated": it was never run through the test.
+        self.assertEqual(reasons["FOODCO"], "no economic link to any reference")
+
+    def test_a_gate_blocked_symbol_is_not_counted_as_tested(self):
+        result = self.discover(["FOODCO"])
+        self.assertEqual(result["symbols_tested"], [])
+        self.assertEqual(result["count"], 0)
+
+    def test_disabling_the_gate_moves_that_symbol_into_tested(self):
+        result = self.discover(["FOODCO"], require_economic_link=False)
+        self.assertEqual(result["symbols_tested"], ["FOODCO"])
+        self.assertEqual(result["skipped"], [])
+        self.assert_partitions(result)
+
+    def test_duplicates_and_casing_collapse_to_one_entry(self):
+        result = self.discover(["MINER", "miner", " MINER ", ""])
+        self.assertEqual(result["symbols_requested"], ["MINER"])
+        self.assert_partitions(result)
+
+    def test_count_is_out_of_tested_not_out_of_requested(self):
+        result = self.discover(["MINER", "FOODCO", "GHOST"])
+        self.assertEqual(result["count"], len(result["pairs"]))
+        self.assertLessEqual(result["count"], len(result["symbols_tested"]))
+
+    def test_an_unusable_reference_panel_says_so_rather_than_blaming_the_symbol(self):
+        svc = build([], self.frames, info=self.info)
+        result = svc.discover_pairs(["MINER"], references=["NOSUCH=F"])
+        self.assertEqual(result["references"], [])
+        self.assertEqual(result["skipped"][0]["reason"], "no reference price history")
+
+
 if __name__ == "__main__":
     unittest.main()

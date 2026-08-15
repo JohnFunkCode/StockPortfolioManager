@@ -97,8 +97,21 @@ reliably find statistically significant pairs with no causal relationship at all
 checks the symbol's sector/industry plausibly connects to the reference before keeping it.
 Turning it off is for exploration, not for trade generation.
 
+The gate's keywords name **the commodity itself**, matched on word boundaries — never the
+industry around it. That is deliberate and was measured: generic terms like "mining" and
+"energy" doubled the pass rate without adding a true positive, because they linked *bitcoin*
+miners to gold and copper, while a real gold miner says "gold" anyway. The boundary matters
+too — as a substring, "Goldman" contains "gold", which put an investment bank against gold
+futures. If you add a keyword, add the commodity's own name.
+
 Each symbol costs a price-history fetch plus a profile lookup, which is why the list is
 capped at 25.
+
+**Coverage is reported, not implied.** `symbols_tested` and `skipped` partition
+`symbols_requested`, so every ticker you passed comes back in exactly one bucket, and
+`count` is out of `symbols_tested` rather than out of the list you submitted. When a sweep
+spans several calls, reconcile the union of those lists against what you meant to cover
+before calling the set done.
 
 ---
 
@@ -185,8 +198,10 @@ Two practical consequences:
 - **Don't treat discovery output as stable.** Re-running tomorrow can add or drop
   boundary pairs. If you care about one, pin it with `analyze_arbitrage_pair` and read the
   statistic rather than the boolean.
-- **`count: 0` with an empty `skipped` list means the pairs were tested and rejected** —
-  not that data was missing. Symbols with no usable history appear in `skipped` instead.
+- **Read `symbols_tested` before concluding anything from `count: 0`.** A symbol in that
+  list was measured and rejected; a symbol in `skipped` was never tested at all, and the
+  entry says why — `no price history`, or `no economic link to any reference`. Calling a
+  gate-blocked symbol "not cointegrated" reports a test that never ran.
 
 Discovered pairs carry no NAV math and no convergence claim — they're candidates for
 *curation*, not for trading.

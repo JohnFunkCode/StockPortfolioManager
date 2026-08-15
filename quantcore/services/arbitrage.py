@@ -28,6 +28,7 @@ and explains.
 from __future__ import annotations
 
 import datetime
+import re
 from typing import Optional
 
 import pandas as pd
@@ -60,14 +61,41 @@ CONVERGENCE_NOTES = {
 # Reference series the statistical sweep tests candidates against, with the
 # sector/industry keywords that make an economic link plausible. Without this
 # gate a wide enough sweep will always manufacture cointegrated pairs.
+#
+# Every keyword must name *the commodity itself*, never the industry around it.
+# The generic words this list used to carry ("mining", "energy", "materials",
+# "industrial", "technology") were what a false link travelled on: a *bitcoin*
+# miner reads as "mining" and got cointegration-tested against gold and copper,
+# and "software"/"technology" on BTC-USD meant every technology company in a
+# sweep was eligible to be paired with bitcoin. Measured on live profiles over a
+# 28-name sample, the generic terms more than doubled the gate's pass rate (72
+# symbol/reference pairs, against 29 here) while adding no true positive — a
+# real gold miner says "gold", so the specific term already carried the link.
+#
+# Matching is word-boundary anchored, so "Goldman" no longer reads as "gold"
+# (which put an investment bank against gold futures). A trailing ``*`` marks a
+# stem, for the cases where the boundary is the thing in the way:
+# "crypto*" must reach "cryptocurrency", "digital asset*" must reach "assets".
 REFERENCE_PANEL = {
-    "GC=F": ("gold", "silver", "precious", "mining", "miner", "materials"),
-    "HG=F": ("copper", "mining", "miner", "materials", "industrial"),
-    "CL=F": ("oil", "petroleum", "energy", "refin", "drilling", "exploration"),
-    "NG=F": ("gas", "energy", "utilities", "exploration", "pipeline"),
-    "BTC-USD": ("crypto", "bitcoin", "blockchain", "digital asset", "capital markets",
-                "software", "technology"),
-    "DX-Y.NYB": ("multinational", "export", "materials", "commodit"),
+    "GC=F": ("gold", "silver", "precious metal*", "bullion"),
+    "HG=F": ("copper",),
+    "CL=F": ("oil", "petroleum", "crude"),
+    "NG=F": ("natural gas", "lng", "midstream"),
+    "BTC-USD": ("bitcoin", "crypto*", "blockchain", "digital asset*"),
+    "DX-Y.NYB": ("multinational", "export*", "commodit*"),
+}
+
+
+def _compile_keyword(keyword: str) -> re.Pattern:
+    """Compile a REFERENCE_PANEL keyword to a word-boundary-anchored pattern."""
+    is_stem = keyword.endswith("*")
+    body = re.escape(keyword[:-1] if is_stem else keyword)
+    return re.compile(r"\b" + body + ("" if is_stem else r"\b"))
+
+
+_REFERENCE_PATTERNS = {
+    reference: tuple(_compile_keyword(k) for k in keywords)
+    for reference, keywords in REFERENCE_PANEL.items()
 }
 
 STALE_HOLDINGS_DAYS = 45
@@ -466,9 +494,21 @@ class ArbitrageService:
         Engle-Granger statistic landing 0.17 short of the loosest critical
         value. ``pairs`` stays passes-only either way, so existing callers are
         unaffected.
+
+        **Every requested symbol comes back in exactly one bucket.**
+        ``symbols_tested`` and ``skipped`` partition ``symbols_requested``, so a
+        caller can prove coverage instead of assuming it. This is not
+        bookkeeping for its own sake: the return used to name only the symbols
+        that *found* something, which left a caller splitting a large list
+        across several calls with no way to reconcile the answers against the
+        input. An agent doing exactly that (issue #208) dropped a ticker
+        silently and then reported full coverage — the omission was
+        undetectable from the response, so a confident wrong answer was the
+        only answer available to it.
         """
         refs = [r.strip() for r in (references or list(REFERENCE_PANEL))]
         found, skipped, tested = [], [], []
+        requested, swept, seen = [], [], set()
 
         ref_closes: dict[str, pd.Series] = {}
         for ref in refs:
@@ -478,13 +518,17 @@ class ArbitrageService:
 
         for raw in symbols or []:
             symbol = (raw or "").strip().upper()
-            if not symbol:
+            if not symbol or symbol in seen:
                 continue
+            seen.add(symbol)
+            requested.append(symbol)
+
             sec_closes = self._closes(symbol, days)
             if sec_closes is None:
                 skipped.append({"symbol": symbol, "reason": "no price history"})
                 continue
             profile = self._sector_text(symbol)
+            analyzed = False
 
             for ref, ref_series in ref_closes.items():
                 linked = self._economic_link(ref, profile)
@@ -493,6 +537,7 @@ class ArbitrageService:
                         tested.append(self._tested_row(
                             symbol, ref, linked, None, "no economic link"))
                     continue
+                analyzed = True
                 stats = pairs.analyze_pair(sec_closes, ref_series)
                 corr = stats.get("correlation")
                 cointegrated = stats["cointegration"]["cointegrated"]
@@ -523,9 +568,24 @@ class ArbitrageService:
                             "structure, so no NAV math and no convergence claim.",
                 })
 
+            # A symbol the gate blocked against every reference was never run
+            # through a cointegration test, so calling it "tested and found
+            # nothing" would misreport it. It is excluded, with the reason —
+            # and the reason distinguishes the symbol's own failing from the
+            # panel having no usable series at all, which is not its fault.
+            if analyzed:
+                swept.append(symbol)
+            else:
+                skipped.append({
+                    "symbol": symbol,
+                    "reason": "no economic link to any reference" if ref_closes
+                              else "no reference price history",
+                })
+
         found.sort(key=lambda f: abs(f["zscore"] or 0), reverse=True)
-        result = {"count": len(found), "pairs": found, "skipped": skipped,
-                  "references": list(ref_closes)}
+        result = {"count": len(found), "pairs": found,
+                  "symbols_requested": requested, "symbols_tested": swept,
+                  "skipped": skipped, "references": list(ref_closes)}
         if include_all:
             # Most negative statistic first — the order a reader scans for
             # near-misses against the critical value.
@@ -563,10 +623,10 @@ class ArbitrageService:
 
     @staticmethod
     def _economic_link(reference: str, profile_text: str) -> bool:
-        keywords = REFERENCE_PANEL.get(reference)
-        if not keywords:
+        patterns = _REFERENCE_PATTERNS.get(reference)
+        if not patterns:
             return False
-        return any(k in profile_text for k in keywords)
+        return any(p.search(profile_text) for p in patterns)
 
     # ------------------------------------------------------------------ #
     # Internals

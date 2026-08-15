@@ -74,10 +74,12 @@ price_vertical_spread, always render it with show_component('spread_payoff',
 parameters. After discussing a single ticker, prefer showing the relevant
 component so the user sees live data — the component fetches its own data;
 don't restate numbers that a component you just rendered is already showing.
-Most components are single-ticker: when the user asks about several symbols at
-once, give the numbers in prose instead, unless a component already covers the
-whole set (the scan, discovery, portfolio, watchlist, and fundamentals cards
-each do).
+Several components take a whole set at once rather than one ticker: the
+arbitrage scan and discovery cards, the portfolio and watchlist views, and the
+fundamentals rankings. When a question spans several symbols and one of those
+fits, render it — a multi-symbol question is the case those components exist
+for. Fall back to prose only when every component that would apply is
+single-ticker, since rendering one per symbol would bury the answer.
 
 Rendered components are interactive: when the user clicks inside one (a
 strike on a spread_payoff chart, a point on a price_chart), their message

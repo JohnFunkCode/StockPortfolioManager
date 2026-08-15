@@ -86,9 +86,58 @@ describe('SpreadPayoffCard', () => {
     expect(screen.getByTestId('spread-payoff-card')).toBeInTheDocument();
     expect(screen.getByTestId('spread-payoff-chart')).toBeInTheDocument();
     const card = screen.getByTestId('spread-payoff-card');
-    expect(card.textContent).toContain('4.80'); // mid debit
+    expect(card.textContent).toContain('Debit: $4.94'); // conservative
     expect(card.textContent).toContain('15.06'); // max profit
     expect(card.textContent).toContain('144.94'); // breakeven
+  });
+
+  // The card used to headline mid_debit beside a max_loss derived from the
+  // conservative debit, so it read "Debit: $4.80 · Max loss: $4.94" — the one
+  // invariant a reader checks on a vertical, broken on the risk card itself.
+  describe('debit chips', () => {
+    const renderWith = (over: Record<string, unknown>) => {
+      useVerticalSpreadMock.mockReturnValue({
+        data: { ...SPREAD_RESPONSE, expiration: PROPS.expiration, ...over },
+        isLoading: false,
+        error: null,
+      });
+      usePricePollingMock.mockReturnValue({ data: { ticker: 'INTC', price: 150 } });
+      render(<SpreadPayoffCard {...PROPS} />);
+      return screen.getByTestId('spread-payoff-card').textContent ?? '';
+    };
+
+    it('headlines the debit that max loss and breakeven are derived from', () => {
+      const text = renderWith({});
+      expect(text).toContain('Debit: $4.94');
+      expect(text).toContain('Max loss: $4.94');
+      // max_loss === debit, and breakeven === long_strike + debit.
+      expect(text).toContain('Breakeven: $144.94');
+      expect(text).not.toContain('Debit: $4.80');
+    });
+
+    it('shows the mid debit as its own labelled chip, not in place of the debit', () => {
+      const text = renderWith({});
+      expect(text).toContain('Mid debit: $4.80');
+    });
+
+    it('omits the mid chip when the server returns no mid', () => {
+      const text = renderWith({ mid_debit: null });
+      expect(text).toContain('Debit: $4.94');
+      expect(text).not.toContain('Mid debit');
+    });
+
+    it('omits the mid chip when mid and conservative agree', () => {
+      const text = renderWith({ mid_debit: 4.94 });
+      expect(text).toContain('Debit: $4.94');
+      expect(text).not.toContain('Mid debit');
+    });
+
+    it('still shows a zero mid rather than silently falling back', () => {
+      // `data.mid_debit || data.debit` treated a mid of exactly 0 as absent.
+      const text = renderWith({ mid_debit: 0 });
+      expect(text).toContain('Debit: $4.94');
+      expect(text).toContain('Mid debit: $0.00');
+    });
   });
 
   it('shows the loading state while pricing', () => {

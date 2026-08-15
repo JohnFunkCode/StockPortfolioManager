@@ -12,6 +12,7 @@ from quantcore.analytics.market_time import (
     ET,
     is_market_open,
     latest_completed_session,
+    market_date,
     period_to_days,
 )
 
@@ -60,6 +61,41 @@ class TestLatestCompletedSession(unittest.TestCase):
             latest_completed_session(now=et(2026, 7, 12, 12, 0)),  # Sunday
             datetime.date(2026, 7, 10),
         )
+
+
+class TestMarketDate(unittest.TestCase):
+    """The date a holding period is measured against.
+
+    On Cloud Run ``date.today()`` is the host's UTC date, so from ~5pm ET until
+    midnight ET it is already tomorrow and every calendar-day count anchored to
+    it comes out one day long — an 8-day hold reporting 9, with any per-day
+    rate deflated by the same ratio.
+    """
+
+    def test_evening_et_is_still_today_not_tomorrow_utc(self):
+        # 23:35 ET on the 14th is 03:35 UTC on the 15th.
+        evening = et(2026, 8, 14, 23, 35)
+        self.assertEqual(evening.astimezone(pytz.utc).date(), datetime.date(2026, 8, 15))
+        self.assertEqual(market_date(now=evening), datetime.date(2026, 8, 14))
+
+    def test_morning_et_agrees_with_utc(self):
+        self.assertEqual(market_date(now=et(2026, 8, 14, 9, 45)), datetime.date(2026, 8, 14))
+
+    def test_accepts_an_aware_datetime_in_any_zone(self):
+        utc_moment = pytz.utc.localize(datetime.datetime(2026, 8, 15, 3, 35))
+        self.assertEqual(market_date(now=utc_moment), datetime.date(2026, 8, 14))
+
+    def test_does_not_roll_back_over_a_weekend(self):
+        # Deliberately not latest_completed_session: a holding period keeps
+        # accruing on a Sunday, so rolling back to Friday would undercount it.
+        sunday = et(2026, 8, 16, 12, 0)
+        self.assertEqual(market_date(now=sunday), datetime.date(2026, 8, 16))
+        self.assertEqual(latest_completed_session(now=sunday), datetime.date(2026, 8, 14))
+
+    def test_does_not_roll_back_overnight(self):
+        premarket = et(2026, 8, 14, 6, 0)  # Friday, before the open
+        self.assertEqual(market_date(now=premarket), datetime.date(2026, 8, 14))
+        self.assertEqual(latest_completed_session(now=premarket), datetime.date(2026, 8, 13))
 
 
 class TestPeriodToDays(unittest.TestCase):

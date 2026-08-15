@@ -233,10 +233,23 @@ export default function SpreadPayoffCard({
   }
 
   const dte = Math.round(daysToExpiration(expiration));
-  const debit = data.mid_debit || data.debit;
+  // The headline figure has to be the conservative debit, because max profit,
+  // max loss, breakeven and R:R are all derived from that one server-side.
+  // This chip used to show mid_debit instead, so a risk card could read
+  // "Debit $4.80 · Max loss $5.20" — the one invariant a reader checks on a
+  // vertical (max loss *is* the debit) visibly broken, with the smaller of the
+  // two numbers in the position that looks like what you pay. Mid is worth
+  // showing, but as its own labelled chip, never in place of this one.
+  const debit = data.debit;
   const isCredit = debit < 0;
+  const midDiffers =
+    data.mid_debit != null && Math.abs(data.mid_debit - debit) >= 0.005;
   const chips: [string, string][] = [
     [isCredit ? 'Credit' : 'Debit', `$${Math.abs(debit).toFixed(2)}`],
+    ...(midDiffers
+      ? ([[isCredit ? 'Mid credit' : 'Mid debit',
+           `$${Math.abs(data.mid_debit!).toFixed(2)}`]] as [string, string][])
+      : []),
     ['Max profit', `$${data.max_profit.toFixed(2)}`],
     ['Max loss', `$${data.max_loss.toFixed(2)}`],
     ['Breakeven', `$${data.breakeven.toFixed(2)}`],
@@ -264,6 +277,7 @@ export default function SpreadPayoffCard({
       </Box>
       <Typography variant="caption" color="text.secondary">
         Solid: P/L at expiration · Dashed: value today (BS, per-leg IV) · per contract (×100)
+        {midDiffers && ' · curves drawn at the mid debit, chips at the conservative one'}
         {interactions.enabled && ' · Click the chart to select a strike'}
         {interactions.locked && shownStrike != null && ' · Selection locked (answered)'}
       </Typography>

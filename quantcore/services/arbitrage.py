@@ -18,7 +18,7 @@ list in July 2026 on a 37% headline gap that was really ~10% once $16.5B of
 converts and preferred were netted out — against negative carry, no redemption
 right, and the GBTC precedent where the identical structure widened from -15%
 to -50% over three years. Every penalty in ``_score`` traces to one of those
-holes; see docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md.
+holes; see docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md.
 
 Analytics are delegated: spread statistics to ``quantcore.analytics.pairs``,
 NAV arithmetic to ``quantcore.analytics.nav``. This module composes, scores,

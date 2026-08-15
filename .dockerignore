@@ -47,5 +47,5 @@ gcp-key*.json
 
 # --- Generated reports / analysis output ---
 portfolio_report.html
-docs/analysis results/
+docs/analysis_results/
 *.png

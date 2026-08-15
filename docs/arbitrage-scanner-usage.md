@@ -157,7 +157,7 @@ reported only so the difference is visible.
 leaves the position materially net long.
 
 The reasoning behind every penalty is written up in
-`docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`.
+`docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`.
 
 ### Example scan output (live prod, 2026-07-26)
 

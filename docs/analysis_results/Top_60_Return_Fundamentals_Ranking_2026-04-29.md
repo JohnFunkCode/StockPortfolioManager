@@ -3,7 +3,7 @@
 Generated: 2026-04-29
 
 Universe:
-- Top 60 symbols by 30-day return from `docs/analysis results/portfolio_report.html` (snapshot dated 2026-04-26 9:54am)
+- Top 60 symbols by 30-day return from `docs/analysis_results/portfolio_report.html` (snapshot dated 2026-04-26 9:54am)
 - Symbols sourced from `portfolio.csv` and `watchlist.yaml`
 
 Method:
@@ -96,7 +96,7 @@ The `composite_score` is built from seven factors:
 Use this process to rebuild the report:
 
 1. Start with the combined symbol universe from `portfolio.csv` and `watchlist.yaml`.
-2. Pull `30 day Return` for each symbol from `docs/analysis results/portfolio_report.html`.
+2. Pull `30 day Return` for each symbol from `docs/analysis_results/portfolio_report.html`.
 3. Sort all symbols by `30 day Return` descending.
 4. Keep the top 60 unique symbols by `30 day Return`.
 5. For each of those 60 symbols, fetch live `composite_score` and `fundamental_label` from `get_fundamental_score(symbol)`.

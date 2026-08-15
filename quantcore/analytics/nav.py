@@ -6,7 +6,7 @@ produce the discount a common holder is actually being offered — and what it
 costs to hold while waiting.
 
 The whole module exists because of one recurring error, documented in
-``docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md``: quoting
+``docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md``: quoting
 a vehicle's discount against *gross* holdings. Common shareholders do not own
 the gross stack. Converts and preferred sit senior to them, so a headline 37%
 discount to gross BTC was really ~10% once ~$16B of senior claims were netted

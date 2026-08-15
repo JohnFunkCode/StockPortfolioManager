@@ -2,7 +2,7 @@
 
 ## Context
 
-Identify which watchlist stocks could deliver higher near-term (~1 month) gains than the current 7 portfolio holdings. Output a single ranked markdown report to `analysis results/`.
+Identify which watchlist stocks could deliver higher near-term (~1 month) gains than the current 7 portfolio holdings. Output a single ranked markdown report to `analysis_results/`.
 
 The draft plan proposed 6–9 individual MCP tool calls per stock (~150–200 calls total). The codebase already has `analyze_options_watchlist` (options-analysis-server) which runs a full scored analysis across the entire USD-listed watchlist in one call — use this as the fast Phase 2 screening pass and `analyze_options_symbol` for per-stock baseline, collapsing the tool call count dramatically.
 
@@ -161,7 +161,7 @@ Skip `get_delta_adjusted_oi` and `get_bid_ask_spread` unless needed for a top-5 
 
 ## Phase 6: Output File
 
-**Path:** `analysis results/Watchlist_vs_Portfolio_Analysis_2026-04-25.md`
+**Path:** `analysis_results/Watchlist_vs_Portfolio_Analysis_2026-04-25.md`
 
 **Structure:**
 1. **Executive Summary** — top 3–5 swap recommendations with one-line rationale each
@@ -188,8 +188,8 @@ Skip `get_delta_adjusted_oi` and `get_bid_ask_spread` unless needed for a top-5 
 | `fastMCPTest/stock_price_server.py:350` | `get_rsi` |
 | `fastMCPTest/stock_price_server.py:401` | `get_macd` |
 | `fastMCPTest/market_analysis_server.py:82` | `get_short_interest` |
-| `analysis results/APPL_Analysis_2026-04-14.md` | Reference format for output style |
-| `analysis results/Watchlist_vs_Portfolio_Analysis_2026-04-25.md` | **New output file** |
+| `analysis_results/APPL_Analysis_2026-04-14.md` | Reference format for output style |
+| `analysis_results/Watchlist_vs_Portfolio_Analysis_2026-04-25.md` | **New output file** |
 
 ---
 

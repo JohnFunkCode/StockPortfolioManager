@@ -1,7 +1,7 @@
 """NAV math tests — the regression guard against the wrong-denominator error.
 
 The centrepiece is ``MstrRegressionTest``: the inputs from
-``docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`` must
+``docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`` must
 reproduce that document's conclusions — a ~10% net discount rather than the
 ~37% headline, ~2.2%/yr of carry drag, and ~1.6x of underlying exposure per
 dollar of equity. If a future refactor starts dividing gross assets by share

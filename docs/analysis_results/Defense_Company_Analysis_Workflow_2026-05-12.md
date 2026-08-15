@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This document captures the repeatable workflow used to build and analyze a defense-company stock universe in `docs/analysis results/defense_report.html`.
+This document captures the repeatable workflow used to build and analyze a defense-company stock universe in `docs/analysis_results/defense_report.html`.
 
 The goal was to move from a broad defense watchlist to a focused set of actionable candidates by combining price momentum, fundamental quality, technical signals, options context, market-structure signals, earnings risk, and news sentiment.
 
 ## Inputs
 
 - `defense_watchlist.yaml` — the source universe of publicly traded defense-related companies.
-- `docs/analysis results/defense_report.html` — the generated HTML report containing current prices, return history, fundamentals, screens, and deep analysis.
+- `docs/analysis_results/defense_report.html` — the generated HTML report containing current prices, return history, fundamentals, screens, and deep analysis.
 - MCP tool servers:
   - `company_fundamentals_server`
   - `stock_price_server`
@@ -55,7 +55,7 @@ Run the application against the defense watchlist to generate the base report wi
 The resulting report for this run was:
 
 ```text
-docs/analysis results/defense_report.html
+docs/analysis_results/defense_report.html
 ```
 
 The base report provided the first table, `watchlist`, with columns such as current price, today's change, 5-day return, 30-day return, YTD return, 1-year return, and moving averages.
@@ -222,13 +222,13 @@ The completed HTML report contains these sections:
 Primary output:
 
 ```text
-docs/analysis results/defense_report.html
+docs/analysis_results/defense_report.html
 ```
 
 Workflow documentation:
 
 ```text
-docs/analysis results/Defense_Company_Analysis_Workflow_2026-05-12.md
+docs/analysis_results/Defense_Company_Analysis_Workflow_2026-05-12.md
 ```
 
 ## Validation Checklist
@@ -280,7 +280,7 @@ class TableParser(HTMLParser):
         elif self.in_table and tag == "table":
             self.in_table = False
 
-text = Path("docs/analysis results/defense_report.html").read_text()
+text = Path("docs/analysis_results/defense_report.html").read_text()
 for table_id in ["watchlistFoundation", "watchlist", "fundamentals", "positiveFundamentals", "deepActionability"]:
     parser = TableParser(table_id)
     parser.feed(text)

@@ -149,7 +149,7 @@ convergence mechanism ranks it.** `ArbitrageService._score` multiplies named fac
 `opportunity × evidence × convergence × hedge × carry × trend × freshness` — all returned in
 the `factors` block alongside `reasons` and `breaks_on`, so any score is attributable. The
 design and every penalty trace to
-[`docs/analysis results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`](docs/analysis%20results/MSTR_BTC_arbitrage_assessment_2026-07-14.md);
+[`docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`](docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md);
 `tests/test_arbitrage_nav.py` is a regression guard that the MSTR inputs still produce a ~10%
 **net** discount rather than the ~37% headline against gross assets. Because the account is
 equity/ETF-only, any pair whose sole clean hedge is a futures contract is flagged

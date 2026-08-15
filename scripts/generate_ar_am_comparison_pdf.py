@@ -18,7 +18,7 @@ from reportlab.platypus import (
 OUTPUT_PATH = (
     Path(__file__).parent.parent
     / "docs"
-    / "analysis results"
+    / "analysis_results"
     / "AR_AM_comparison_2026-05-28.pdf"
 )
 

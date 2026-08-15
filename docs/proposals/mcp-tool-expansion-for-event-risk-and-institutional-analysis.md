@@ -529,7 +529,7 @@ At `T-2` trading days before a portfolio holding reports earnings:
 
 Recommended v1 report path:
 
-- `docs/analysis results/earnings/`
+- `docs/analysis_results/earnings/`
 
 Recommended filename pattern:
 
@@ -856,7 +856,7 @@ Build:
 
 - `gap_risk_tool`
 - automated `T-2` pre-earnings report generation for portfolio holdings
-- markdown report output in `docs/analysis results/earnings/`
+- markdown report output in `docs/analysis_results/earnings/`
 - `Updated Earnings` UI tab with report links
 - Discord notification links for generated reports
 - confidence-based section suppression and hold / trim / exit summary framing

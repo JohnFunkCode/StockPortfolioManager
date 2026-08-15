@@ -411,7 +411,7 @@ def main() -> int:
     parser.add_argument(
         "--output",
         type=Path,
-        default=ROOT / "docs" / "analysis results" / f"Watchlist_Returns_Fundamentals_{datetime.now():%Y-%m-%d}.html",
+        default=ROOT / "docs" / "analysis_results" / f"Watchlist_Returns_Fundamentals_{datetime.now():%Y-%m-%d}.html",
     )
     parser.add_argument(
         "--use-fresh-fundamentals",

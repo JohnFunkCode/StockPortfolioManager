@@ -446,7 +446,10 @@ analysis on test, treat prod as read-only" operating rule — now that changes s
 (`deploy.yml` → test, `prod-rollout.yml` → prod), prod is the live system everyone reads from. The
 deployed `quantui` UI and the `.mcp.json` AI-client remotes both already target prod.
 
-The 5 remote MCP servers in `.mcp.json` send `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`, which
+The 7 remote MCP servers in `.mcp.json` (stock-price, company-fundamentals, options-analysis,
+portfolio, arbitrage, news-sentiment, market-analysis — carrying **62 tools**; count them with the
+**anchored** `grep -c "^@mcp.tool" fastMCPTest/*.py`, since the unanchored form counts a mention
+inside `options_analysis.py`'s module docstring) send `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`, which
 the wrappers forward unchanged to `quantcore-api` (identity passthrough → the legacy HS256
 service-token path in the now dual-mode `api/auth.py`). So real analysis requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the
 environment Claude Code launches from; if it's unset, every data tool returns `401: … Not enough

@@ -350,6 +350,110 @@ TOOL_SCHEMAS: list[dict] = [
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
     {
+        "name": "discover_arbitrage_pairs",
+        "description": (
+            "Sweep an ad-hoc list of symbols for statistically cointegrated "
+            "links against a reference panel, gated by a sector/industry "
+            "economic-link filter. Use when the user names symbols the curated "
+            "universe does not cover ('is there a pair trade in MARA and "
+            "RIOT?').\n\n"
+            "What this does NOT produce: no NAV, no fair value, no convergence "
+            "mechanism, no verdict. A discovered pair is a statistical "
+            "relationship and a candidate for curation into arb_universe.yaml "
+            "— never present one as a trade or imply the spread will close. "
+            "list_arbitrage_universe and analyze_arbitrage_pair are the tools "
+            "that carry an actual convergence claim.\n\n"
+            "Render the result with "
+            "show_component('arbitrage_discovery', {'symbols': SYMBOLS}) using "
+            "the same comma-separated list you passed here."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "symbols": {
+                    "type": "string",
+                    "description": (
+                        "Comma-separated tickers to sweep, at most 25. Each one "
+                        "costs a price-history fetch, so pass what the user "
+                        "actually asked about rather than a broad list."
+                    ),
+                },
+                "references": {
+                    "type": "string",
+                    "description": (
+                        "Optional comma-separated tickers to test against, at "
+                        "most 10. Omit to use the built-in reference panel."
+                    ),
+                },
+                "days": {
+                    "type": "integer",
+                    "minimum": 30,
+                    "maximum": 3650,
+                    "description": "Days of daily history per pair (default 365)",
+                },
+                "min_abs_correlation": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1,
+                    "description": (
+                        "Correlation floor a pair must clear before the "
+                        "cointegration test runs (default 0.4)"
+                    ),
+                },
+                "require_economic_link": {
+                    "type": "boolean",
+                    "description": (
+                        "Keep only pairs with a plausible sector/industry link "
+                        "(default true). Setting this false surfaces spurious "
+                        "correlations — say so if you use it."
+                    ),
+                },
+            },
+            "required": ["symbols"],
+        },
+    },
+    {
+        "name": "get_portfolio_summary",
+        "description": (
+            "The user's own holdings: portfolio-wide cost basis, current value, "
+            "gain/loss in dollars and percent, and dollars-per-day, plus the "
+            "same five figures per symbol. Use for 'how's my portfolio doing?', "
+            "'what do I own?', or before advising on a symbol, to check whether "
+            "they already hold it.\n\n"
+            "Summary only — no per-lot detail. Call get_symbol_lots for one "
+            "symbol's individual purchases. Pair with "
+            "show_component('portfolio_table', {}) when the user wants the "
+            "table, or 'portfolio_allocation' for the allocation view.\n\n"
+            "Takes no parameters: it always reads the signed-in user's own "
+            "portfolio, and there is no way to ask for anyone else's."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "get_symbol_lots",
+        "description": (
+            "The user's individual open purchase lots for one symbol they own — "
+            "quantity, purchase price, trade date, current price, and each "
+            "lot's own gain/loss and days held. Use for 'how many shares of X "
+            "do I have?', 'what's my basis in X?', or when a harvest/trim "
+            "question needs to know which lots exist.\n\n"
+            "Returns an empty lots list if the user does not hold the symbol — "
+            "that means they own none of it, not that the lookup failed. Pair "
+            "with show_component('symbol_lots', {'ticker': SYMBOL}).\n\n"
+            "Always reads the signed-in user's own holdings."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ticker": {
+                    "type": "string",
+                    "description": "Stock symbol, e.g. AAPL",
+                },
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
         "name": "show_component",
         "description": (
             "Render a live, data-bound UI component inline in the conversation. "

@@ -5,9 +5,8 @@ the claims that sit ahead of the common, and the share count, these functions
 produce the discount a common holder is actually being offered — and what it
 costs to hold while waiting.
 
-The whole module exists because of one recurring error, documented in
-``docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md``: quoting
-a vehicle's discount against *gross* holdings. Common shareholders do not own
+The whole module exists because of one recurring error: quoting a vehicle's
+discount against *gross* holdings. Common shareholders do not own
 the gross stack. Converts and preferred sit senior to them, so a headline 37%
 discount to gross BTC was really ~10% once ~$16B of senior claims were netted
 out. ``net_nav_per_share`` subtracts senior claims before dividing, and there

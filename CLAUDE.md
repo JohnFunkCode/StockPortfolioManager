@@ -147,9 +147,11 @@ links against a reference panel, gated by a sector/industry economic-link filter
 **The scoring is deliberately inverted: spread width only qualifies a candidate, the
 convergence mechanism ranks it.** `ArbitrageService._score` multiplies named factors —
 `opportunity × evidence × convergence × hedge × carry × trend × freshness` — all returned in
-the `factors` block alongside `reasons` and `breaks_on`, so any score is attributable. The
-design and every penalty trace to
-[`docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`](docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md);
+the `factors` block alongside `reasons` and `breaks_on`, so any score is attributable. The design
+principle is stated in the `ArbitrageService` module docstring; the penalties are applied in
+six numbered steps in `_score`, and every one of them emits a `reasons` entry explaining
+itself (plus a `breaks_on` entry where it names a way the trade fails), so the scorer is its
+own documentation rather than pointing at a write-up that can drift from it.
 `tests/test_arbitrage_nav.py` is a regression guard that the MSTR inputs still produce a ~10%
 **net** discount rather than the ~37% headline against gross assets. Because the account is
 equity/ETF-only, any pair whose sole clean hedge is a futures contract is flagged

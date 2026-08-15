@@ -156,8 +156,9 @@ reported only so the difference is visible.
 `exposure_ratio 1.70` says each $1 of MSTR carries $1.70 of BTC — so a 1:1 dollar short
 leaves the position materially net long.
 
-The reasoning behind every penalty is written up in
-`docs/analysis_results/MSTR_BTC_arbitrage_assessment_2026-07-14.md`.
+Every penalty explains itself in the `reasons` and `breaks_on` entries it emits, so a score
+never needs a separate write-up to interpret; the numbered steps in `ArbitrageService._score`
+are where they are applied.
 
 ### Example scan output (live prod, 2026-07-26)
 

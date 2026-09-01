@@ -28,6 +28,7 @@ from quantcore.error_text import safe_error_text
 from quantcore.analytics.market_time import market_date
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
+from quantcore.services.batch_limits import normalize_symbol_batch
 
 logger = logging.getLogger(__name__)
 
@@ -631,6 +632,8 @@ class FundamentalsService:
         return result
 
     def get_fundamental_scores_batch(self, symbols: list[str]) -> dict:
+        symbols = normalize_symbol_batch(symbols)
+        started = time.monotonic()
         cache_hits = 0
         fetched = 0
         errors = 0
@@ -658,13 +661,20 @@ class FundamentalsService:
 
         results.sort(key=lambda x: x.get("composite_score", -999), reverse=True)
 
-        return {
+        result = {
             "requested": len(symbols),
             "cache_hits": cache_hits,
             "fetched": fetched,
             "errors": errors,
             "results": results,
         }
+        logger.info(
+            "fundamental batch scoring completed symbols=%d duration_ms=%d "
+            "cache_hits=%d fetched=%d errors=%d",
+            len(symbols), round((time.monotonic() - started) * 1000),
+            cache_hits, fetched, errors,
+        )
+        return result
 
     def get_full_fundamental_profile(self, symbol: str) -> dict:
         sym = symbol.upper()

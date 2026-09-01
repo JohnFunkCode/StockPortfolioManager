@@ -131,6 +131,12 @@ is reported and left alone — a failed lookup is not evidence the stored value 
 Five collection-level reads under `/api/securities/fundamentals` cover everything the cache knows,
 rather than one symbol at a time — they are what the `/fundamentals` page is built from:
 
+`POST /api/securities/fundamentals/scores-batch` accepts at most 25 unique symbols per request.
+Symbols are trimmed, case-normalized, and deduplicated before the limit is applied; blank or
+oversized batches return HTTP 422 before any provider or database work. Split larger universes
+into multiple calls. The matching `get_fundamental_scores_batch` MCP tool applies the same
+normalization for fast feedback, while the REST boundary remains authoritative.
+
 | Endpoint | Answers |
 |----------|---------|
 | `GET …/top?n=&min_coverage=&scope=` | Ranked by composite score, best first |

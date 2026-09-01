@@ -8,7 +8,12 @@ from __future__ import annotations
 
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from quantcore.services.batch_limits import (
+    MAX_FUNDAMENTAL_BATCH_SYMBOLS,
+    normalize_symbol_batch,
+)
 
 
 class ScoresBatchRequest(BaseModel):
@@ -19,3 +24,10 @@ class ScoresBatchRequest(BaseModel):
     """
 
     symbols: List[str]
+
+    @field_validator("symbols", mode="before")
+    @classmethod
+    def normalize_and_bound_symbols(cls, value):
+        return normalize_symbol_batch(
+            value, max_symbols=MAX_FUNDAMENTAL_BATCH_SYMBOLS
+        )

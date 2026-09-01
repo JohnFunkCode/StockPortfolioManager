@@ -70,7 +70,7 @@ steps are numbered and **each step is one commit**. Append a row to the
    ```
    DB-backed suites need a reachable Postgres. Locally, run them against **test**, never prod:
    ```bash
-   ./.claude/with-test-db.sh .venv/bin/python -m unittest discover -s tests -t .
+   ./scripts/with-test-db.sh .venv/bin/python -m unittest discover -s tests -t .
    ```
 7. CI enforces `diff-cover --fail-under 85` on changed lines. Every new module in this plan ships
    its own unit tests in the same commit.
@@ -260,7 +260,7 @@ Generate the snapshot and commit it in this step.
 
 **Verify:**
 ```bash
-./.claude/with-test-db.sh python scripts/check_schema_snapshot.py    # exits 0, prints "schema snapshot up to date"
+./scripts/with-test-db.sh python scripts/check_schema_snapshot.py    # exits 0, prints "schema snapshot up to date"
 ```
 
 Then confirm it actually bites: add a throwaway `CREATE TABLE IF NOT EXISTS zzz_drift (id INT);` to
@@ -357,7 +357,7 @@ Sort migration files by parsed integer version (`V10` after `V9`), not lexicogra
 
 **Verify:**
 ```bash
-./.claude/with-test-db.sh python -m unittest tests.test_schema_parity -v
+./scripts/with-test-db.sh python -m unittest tests.test_schema_parity -v
 ```
 
 **Expect the first run to fail.** The two owners have never been compared. Likely differences:

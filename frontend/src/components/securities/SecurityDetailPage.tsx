@@ -27,7 +27,6 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
@@ -43,6 +42,7 @@ import OptionsChainChart from './charts/OptionsChainChart';
 import PCRatioChart from './charts/PCRatioChart';
 import MaxPainChart from './charts/MaxPainChart';
 import IVTermStructureChart from './charts/IVTermStructureChart';
+import PriceTooltip from './PriceTooltip';
 import ErrorAlert from '../common/ErrorAlert';
 
 function daysToExpiry(expiration: string): number {
@@ -454,7 +454,6 @@ function ChartSkeleton({ height = 200 }: { height?: number }) {
 }
 
 export default function SecurityDetailPage() {
-  const theme = useTheme();
   const { symbol = '' } = useParams<{ symbol: string }>();
   const navigate = useNavigate();
   const [tab, setTab] = useState(0);
@@ -1526,24 +1525,8 @@ export default function SecurityDetailPage() {
       {/* --- Tab 5: Signals --- */}
       {tab === 5 && <SignalsTab ticker={ticker} />}
 
-      {/* Global D3 tooltip div (shared across all charts) */}
-      <div
-        id="price-tooltip"
-        style={{
-          display: 'none',
-          position: 'fixed',
-          background: theme.palette.background.paper,
-          color: theme.palette.text.primary,
-          border: `1px solid ${theme.palette.divider}`,
-          padding: '6px 10px',
-          borderRadius: 6,
-          fontSize: 12,
-          pointerEvents: 'none',
-          zIndex: 9999,
-          boxShadow: theme.shadows[4],
-          lineHeight: 1.6,
-        }}
-      />
+      {/* Global D3 tooltip host shared across all charts */}
+      <PriceTooltip />
     </Box>
   );
 }

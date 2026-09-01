@@ -224,8 +224,8 @@ export default function PriceChart({
           .attr('cy', yScale(d.close!));
         tooltip
           .style('display', 'block')
-          .style('left', `${event.pageX + 12}px`)
-          .style('top', `${event.pageY - 28}px`)
+          .style('left', `${event.clientX + 12}px`)
+          .style('top', `${event.clientY - 28}px`)
           .html(
             `<strong>${d.date}</strong><br/>` +
             `Close: <strong>$${d.close?.toFixed(2) ?? '—'}</strong>` +

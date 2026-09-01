@@ -122,8 +122,8 @@ export default function MACDChart({ data, height = 150 }: Props) {
         const d = valid[Math.min(i, valid.length - 1)];
         tooltip
           .style('display', 'block')
-          .style('left', `${event.pageX + 12}px`)
-          .style('top', `${event.pageY - 28}px`)
+          .style('left', `${event.clientX + 12}px`)
+          .style('top', `${event.clientY - 28}px`)
           .html(
             `<strong>${d.date}</strong><br/>` +
             `MACD: ${d.macd?.toFixed(3) ?? '—'}<br/>` +

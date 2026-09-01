@@ -63,6 +63,14 @@ python -m unittest tests.test_stock_portfolio_manager
 # Start the REST API
 uvicorn api.main:app --host 127.0.0.1 --port 5001
 
+# Cloud SQL Auth Proxy (prod = :5433 by default, test = :5434); targets come from .env
+./runProxy-MAC.sh
+./runProxy-MAC.sh --test
+
+# Run a one-off against the TEST database (swaps QUANTCORE_TEST_DB_DSN in for the child only).
+# The test suite needs no wrapper — tests/__init__.py already does the same swap.
+./scripts/with-test-db.sh python scripts/check_schema_snapshot.py
+
 # Database migrations (defaults to the TEST database; prompts before a prod migrate)
 ./scripts/flyway.sh info
 ./scripts/flyway.sh --prod info
@@ -467,7 +475,7 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 
 ## Configuration
 
-- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing; `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload.
+- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing; `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload; `CLOUDSQL_CONNECTION_NAME`/`_PORT`/`_QUOTA_PROJECT` and the parallel `CLOUDSQL_TEST_*` trio are the Cloud SQL Auth Proxy targets for prod (`:5433`) and test (`:5434`).
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — *Import format only* (issue #83). Entries with `name`, `symbol`, `currency`, and optional `tags` list; load them into the global `watchlist` table with `python scripts/import_watchlist.py --yaml watchlist.yaml` (full-sync replace). Nothing reads the file at runtime — the table is the source of truth, and the UI's add/remove actions write straight to it. The `currency:` field is a fallback: single adds resolve it from the exchange, and `scripts/repair_watchlist_currency.py` fixes imported rows.
 

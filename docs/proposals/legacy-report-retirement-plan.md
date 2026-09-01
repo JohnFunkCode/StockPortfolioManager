@@ -983,7 +983,7 @@ and the two right-hand `IconButton`s is a tighter bar than the flat seven were.
 review the list of plans it would close before running the migration anywhere:
 
 ```bash
-./.claude/with-test-db.sh sh -c 'psql "$QUANTCORE_DB_DSN" -f /tmp/orphan_plans_preflight.sql'
+./scripts/with-test-db.sh sh -c 'psql "$QUANTCORE_DB_DSN" -f /tmp/orphan_plans_preflight.sql'
 ```
 
 The `sh -c` wrapper is load-bearing: the helper **exports** `QUANTCORE_DB_DSN`, and `psql` does not
@@ -1023,7 +1023,7 @@ Expect `NULL`, a non-NULL oid, and `1`. Restart the API once afterwards and re-r
 capture still fire first:
 
 ```bash
-./.claude/with-test-db.sh python main.py
+./scripts/with-test-db.sh python main.py
 ```
 
 Confirm freshness actually moved via the fundamentals MCP server's `get_cache_stats` — prod `newest`

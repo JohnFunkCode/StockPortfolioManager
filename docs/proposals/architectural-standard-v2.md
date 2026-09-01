@@ -194,6 +194,47 @@ Rationale: the sidekick is a first-class consumer of every analytical visual. A 
 
 A PR that adds or materially changes a component under `frontend/src` includes vitest coverage of its load-bearing behavior in the same PR: loading/error/success states and the key computed values it renders (not render-only smoke). The vitest coverage thresholds in `frontend/vitest.config.ts` are a ratchet — they only move up, and a PR that meaningfully raises frontend coverage bumps them. Components reachable from the sidekick get a `CHAT_FAKE=1` Playwright beat when a fake script exists for their flow.
 
+### Rule 10 — Complexity is bounded and measurable
+
+New or materially changed executable units (functions, methods, route handlers, MCP tools, service
+functions, and provider-gateway methods) must be evaluated using both Cyclomatic Complexity and
+Cognitive Complexity. Measure the complete unit after the change, not only the added lines, using
+the repository's configured analyzer and configuration. The PR records the analyzer, version,
+configuration, exact unit location, and both metric values.
+
+The default limits are:
+
+| Unit | Cyclomatic goal | Cognitive goal | Request changes above |
+|---|---:|---:|---:|
+| Service, domain, provider, CLI, or UI function | `<= 10` | `<= 15` | `> 15` or `> 25` |
+| REST route handler or MCP wrapper | `<= 5` | `<= 7` | `> 10` or `> 15` |
+
+Values between the goal and the request-changes threshold are warning bands. A warning is
+acceptable only when the PR explains why the complexity is cohesive and difficult to reduce, and
+adds tests for its meaningful branches and failure paths. A value above a request-changes
+threshold must be split or simplified, or have a specific, technically supported exception
+documented in the PR. “Necessary complexity” by itself is not an exception.
+
+Reviewers must also enforce these rules:
+
+1. A refactor must not increase either metric beyond its previous value without an explanation of
+   the trade-off. A PR whose stated purpose is simplification should reduce at least one metric.
+2. Do not use a file, module, or repository average to conceal a high-complexity unit. Findings name
+   the function/method and exact location and show both values.
+3. Thin adapters are held to the stricter limits above. Branching, validation, retries, or business
+   decisions in a route or MCP wrapper is an architectural violation even if its score is below the
+   limit; move that behavior to the appropriate service or provider gateway.
+4. Complexity must be considered with test design: each new decision path needs a meaningful test
+   or a documented reason it is unreachable. Coverage percentage alone does not satisfy this rule.
+5. Generated code, vendored code, and declarative configuration are excluded unless the PR changes
+   them and the selected analyzer measures them. If a changed unit cannot be measured, mark the
+   check **Unverifiable**, state why, and do not claim compliance.
+
+The CI quality gate should fail for changed units above a request-changes threshold and should
+report warning-band units for reviewer disposition. Until that gate exists, the analyzer output
+and the reviewer's disposition are required evidence in the PR. This is a ratchet: an approved
+exception must not become the new default for unrelated code.
+
 ---
 
 ## 7. Capability Surface Policy

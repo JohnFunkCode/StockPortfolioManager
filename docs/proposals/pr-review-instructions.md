@@ -40,8 +40,45 @@ Check for:
 - Security issues, including injection, auth bypass, secrets, SSRF, and unsafe data handling.
 - Performance problems, including N+1 queries, unbounded loops, and memory leaks.
 - Missing error handling, regressions, dead code, and actionable code-quality issues.
+- Overly complex changed code, using the Cyclomatic Complexity and Cognitive Complexity goals below.
 - Missing or insufficient tests, including edge cases and behavior required by the associated issue.
 - Relevant automated checks and test results. Clearly identify checks that could not run and why.
+
+## Complexity goals
+
+Apply these goals to every new or materially changed function, method, or other executable unit.
+Measure the complete unit after the PR is applied, not only the added lines. Use the repository's
+configured analyzer when one exists; otherwise use a consistently versioned analyzer available in
+the review environment. Record the analyzer, version, and metric values in the review.
+
+| Metric | Goal | Warning | Request changes |
+|---|---:|---:|---:|
+| Cyclomatic Complexity | `<= 10` | `11–15` | `> 15` |
+| Cognitive Complexity | `<= 15` | `16–25` | `> 25` |
+
+Reviewers should apply the following measurable rules:
+
+- A changed unit above a **Request changes** threshold must be split, simplified, or have an
+  explicit, technically supported exception in the PR description. A vague statement that the
+  code is “necessarily complex” is not sufficient.
+- A changed unit in a **Warning** band may be accepted only when the PR explains why refactoring
+  is disproportionate and includes tests for its meaningful branches and failure paths. Otherwise,
+  request simplification.
+- A refactor that preserves behavior must not increase either metric beyond the applicable band
+  without the same explanation and tests. Prefer a reduction in at least one metric when the PR's
+  stated purpose is to simplify code.
+- Do not use an aggregate file or repository average to hide a high-complexity function. Report the
+  exact function/method, location, and both metric values. Review generated code, vendored code,
+  and declarative configuration only when the analyzer includes them and the PR changes them.
+- If the metric cannot be measured, mark the complexity check **Unverifiable**, state why, and do
+  not claim that the complexity goals were met. A missing analyzer is a verification gap, not a
+  zero score.
+
+For each warning or exception, require at least one concrete simplification consideration in the
+review (for example: guard clauses, extracting a cohesive helper, replacing nested conditionals
+with a lookup or strategy, or separating validation from side effects). Complexity findings must
+remain actionable: include the exact location, measured values, why they matter, and the smallest
+reasonable refactoring or test change.
 
 ## Test quality and significance
 
@@ -98,6 +135,14 @@ For each code finding:
 - **Fix** — how to fix it
 
 Include verification results and clearly note checks that could not run.
+
+For complexity findings, include:
+
+- **Unit:** function or method and exact file/line location
+- **Metrics:** Cyclomatic Complexity and Cognitive Complexity values
+- **Analyzer:** tool and version
+- **Severity:** Warning / Suggestion, or the review verdict's applicable blocking level
+- **Action:** refactor, add branch/failure-path tests, or document a specific exception
 ```
 
 If there are no qualifying pull requests, respond exactly:

@@ -44,6 +44,7 @@ env:
   PROJECT_ID: quantcore-test-20260606
   REGION: us-central1
   AR_REPO: quantcore
+  MCP_REQUEST_TIMEOUT: 900s
 
 jobs:
   gate:
@@ -270,6 +271,7 @@ jobs:
         run: |
           for s in stock-price options-analysis company-fundamentals news-sentiment market-analysis; do
             gcloud run deploy "quantcore-$s" --project "$PROJECT_ID" --region "$REGION" \
+              --timeout "$MCP_REQUEST_TIMEOUT" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           done
       - name: Deploy quantcore-portfolio (image-only; env preserved)
@@ -282,6 +284,7 @@ jobs:
         run: |
           if gcloud run services describe quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" \
+              --timeout "$MCP_REQUEST_TIMEOUT" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           else
             echo "quantcore-portfolio service not found — first deploy is a manual one-time step; skipping image roll-out."
@@ -293,6 +296,7 @@ jobs:
         run: |
           if gcloud run services describe quantcore-arbitrage --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-arbitrage --project "$PROJECT_ID" --region "$REGION" \
+              --timeout "$MCP_REQUEST_TIMEOUT" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           else
             echo "quantcore-arbitrage service not found — first deploy is a manual one-time step; skipping image roll-out."

@@ -118,6 +118,23 @@ def _handle(response: httpx.Response) -> Any:
     raise RestError(response.status_code, payload)
 
 
+def _request(client: httpx.Client, method: str, path: str, **kwargs: Any) -> Any:
+    """Run one REST request and translate transport failures safely."""
+    try:
+        response = getattr(client, method)(path, **kwargs)
+    except httpx.TimeoutException as exc:
+        raise RestError(
+            504,
+            {"error": "REST_TIMEOUT", "message": "REST tier request timed out"},
+        ) from exc
+    except httpx.RequestError as exc:
+        raise RestError(
+            503,
+            {"error": "REST_UNAVAILABLE", "message": "REST tier is unavailable"},
+        ) from exc
+    return _handle(response)
+
+
 # No put/patch/delete verbs exist here, deliberately (#126 Q19): the
 # portfolio-server wrapper (fastMCPTest/portfolio_server.py) is read-only by
 # decision, and a wrapper physically unable to issue a write is defense in
@@ -133,7 +150,9 @@ def get(path: str, *, auth_token: Optional[str] = None, **params: Any) -> Any:
     """
     clean = {k: v for k, v in params.items() if v is not None}
     with httpx.Client(base_url=_base_url(), timeout=_timeout()) as client:
-        return _handle(client.get(_path(path), params=clean, headers=_headers(auth_token)))
+        return _request(
+            client, "get", _path(path), params=clean, headers=_headers(auth_token)
+        )
 
 
 # Same note as get() above — no put/patch/delete verb, deliberately.
@@ -147,6 +166,11 @@ def post(
     """``POST {REST}/{path}`` with an optional JSON body + query params."""
     clean = {k: v for k, v in params.items() if v is not None}
     with httpx.Client(base_url=_base_url(), timeout=_timeout()) as client:
-        return _handle(
-            client.post(_path(path), params=clean, json=json, headers=_headers(auth_token))
+        return _request(
+            client,
+            "post",
+            _path(path),
+            params=clean,
+            json=json,
+            headers=_headers(auth_token),
         )

@@ -30,6 +30,29 @@ the prod rollout. Per-service prod config (Cloud SQL binding, secrets, ingress,
 resources) was set once during the manual first deploy (P5–P7) and is **preserved** on
 every promotion — the workflow only carries the new image.
 
+### MCP service request timeout
+
+All streamable HTTP MCP wrappers use a 900-second Cloud Run request timeout. The value is carried
+by `MCP_REQUEST_TIMEOUT` in both deployment workflows and passed explicitly on each image rollout,
+so a later promotion cannot restore the former 300-second default. The shared `mcp_gateway.serve`
+launcher also installs FastMCP's 30-second `PingMiddleware` keepalive. These settings bound the
+transport connection; they do not make slow tool work unbounded. The REST seam remains limited by
+`QUANTCORE_REST_TIMEOUT` (60 seconds by default).
+
+For a first/manual service creation or an existing service that predates this policy, apply and
+verify the setting without replacing environment variables or secrets:
+
+```bash
+gcloud run services update quantcore-stock-price \
+  --project quantcore-prod-20260606 --region us-central1 --timeout 900s
+gcloud run services describe quantcore-stock-price \
+  --project quantcore-prod-20260606 --region us-central1 \
+  --format='value(spec.template.timeoutSeconds)'
+```
+
+Repeat the update for the other MCP wrapper services before production verification. A successful
+check should report `900` and subsequent `/mcp` requests should no longer end at 300 seconds.
+
 ```
 push to main ──► deploy.yml builds+tests, tags <SHA>, deploys TEST
                                    │

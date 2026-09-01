@@ -380,7 +380,7 @@ class OptionsService:
         max_expirations: int = 3,
         risk_free_rate: float = 0.045,
         *,
-        now=None,
+        now: datetime.datetime | None = None,
     ) -> dict:
         info   = self._yf.fast_info(symbol.upper())
         price  = getattr(info, "last_price", None)
@@ -737,7 +737,7 @@ class OptionsService:
         max_expirations: int = 6,
         risk_free_rate: float = 0.045,
         *,
-        now=None,
+        now: datetime.datetime | None = None,
     ) -> dict:
         info  = self._yf.fast_info(symbol.upper())
         price = getattr(info, "last_price", None)
@@ -1056,7 +1056,9 @@ class OptionsService:
     # REST: options-flow signals (fan-out) + portfolio delta exposure
     # ------------------------------------------------------------------
 
-    def get_options_flow_signals(self, ticker: str, *, now=None) -> dict:
+    def get_options_flow_signals(
+        self, ticker: str, *, now: datetime.datetime | None = None
+    ) -> dict:
         ticker = ticker.upper()
 
         tasks = {
@@ -1083,7 +1085,9 @@ class OptionsService:
             )
         return {"ticker": ticker, "_errors": errors if errors else None, **results}
 
-    def get_portfolio_delta_exposure(self, portfolio: list[dict], *, now=None) -> dict:
+    def get_portfolio_delta_exposure(
+        self, portfolio: list[dict], *, now: datetime.datetime | None = None
+    ) -> dict:
         today = market_date(now)
         RISK_FREE = 0.045
 
@@ -1165,7 +1169,7 @@ class OptionsService:
 
     def backfill_options_history(
         self, ticker: str, days: int = 90, skip_existing: bool = True,
-        *, now=None,
+        *, now: datetime.datetime | None = None,
     ) -> tuple[dict, int]:
         """Backfill historical P/C ratio data via the Polygon snapshot API.
 

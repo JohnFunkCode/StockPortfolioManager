@@ -320,7 +320,7 @@ class FundamentalsService:
 
     # -- compute paths (yfinance-backed, cache-wrapped) ---------------------
 
-    def _compute_earnings_calendar(self, sym: str, *, now=None) -> dict:
+    def _compute_earnings_calendar(self, sym: str, *, now: datetime | None = None) -> dict:
         """Compute earnings calendar data for a symbol (called by cache wrapper)."""
         result: dict[str, Any] = {
             "symbol":                  sym,
@@ -594,12 +594,12 @@ class FundamentalsService:
 
     # -- public API (one method per MCP tool / REST route) ------------------
 
-    def get_earnings_calendar(self, symbol: str) -> dict:
+    def get_earnings_calendar(self, symbol: str, *, now: datetime | None = None) -> dict:
         sym = symbol.upper()
         cached = self._repo.get(sym, "earnings_calendar")
         if cached is not None:
             return cached
-        result = self._compute_earnings_calendar(sym)
+        result = self._compute_earnings_calendar(sym, now=now)
         self._repo.set(sym, "earnings_calendar", result)
         return result
 
@@ -766,7 +766,8 @@ class FundamentalsService:
         }
 
     def get_upcoming_earnings(
-        self, days: int = 14, include_stale: bool = False, scope: str = "all", *, now=None
+        self, days: int = 14, include_stale: bool = False, scope: str = "all",
+        *, now: datetime | None = None
     ) -> dict:
         all_entries = self._apply_scope(
             self._repo.get_all_latest("earnings_calendar"), scope

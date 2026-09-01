@@ -20,6 +20,7 @@ helpers all delegate the analytics here.
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -512,7 +513,7 @@ class OptionsScreeningService:
     # ------------------------------------------------------------------
 
     def fetch_earnings_proximity(
-        self, symbol: str, *, now=None
+        self, symbol: str, *, now: datetime | None = None
     ) -> Optional[int]:
         """
         Return the number of calendar days until the next earnings date,

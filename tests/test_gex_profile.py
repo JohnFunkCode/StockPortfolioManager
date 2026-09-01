@@ -3,11 +3,12 @@ issue #93). No DB, no network — a stub yfinance gateway serves synthetic
 chains and a Mock OptionsStore captures the persistence call."""
 
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
+import pytz
 
 from quantcore.services.options import OptionsService
 
@@ -61,6 +62,20 @@ def _default_chains():
 
 
 class TestGexProfile(unittest.TestCase):
+    def test_late_evening_uses_eastern_market_date_for_dte(self):
+        evening = pytz.timezone("America/New_York").localize(
+            datetime(2026, 8, 14, 23, 35)
+        )
+        exp = "2026-08-15"
+        gateway = _StubGateway(
+            expirations=[exp],
+            chains={exp: SimpleNamespace(
+                calls=_side([100.0], [100]), puts=_side([], []),
+            )},
+        )
+        result = _service(gateway).get_gex_profile("NVDA", now=evening)
+        self.assertEqual(result["by_expiration"][0]["days_to_expiry"], 1)
+
     def test_signs_follow_dealer_convention(self):
         result = _service(_StubGateway(chains=_default_chains())).get_gex_profile("nvda")
 

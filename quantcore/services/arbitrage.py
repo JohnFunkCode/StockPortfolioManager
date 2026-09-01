@@ -132,7 +132,7 @@ class ArbitrageService:
     # ------------------------------------------------------------------ #
     # Universe
     # ------------------------------------------------------------------ #
-    def get_universe(self, *, now=None) -> dict:
+    def get_universe(self, *, now: datetime.datetime | None = None) -> dict:
         """The curated pair list, with holdings staleness surfaced per entry."""
         entries = self._repo.load_universe()
         today = market_date(now)
@@ -162,7 +162,7 @@ class ArbitrageService:
     # ------------------------------------------------------------------ #
     def analyze_pair(self, security: str, underlying: Optional[str] = None,
                      days: int = 365, zscore_window: Optional[int] = None,
-                     *, now=None) -> dict:
+                     *, now: datetime.datetime | None = None) -> dict:
         """Full workup for one pair: spread stats, NAV math, score, verdict."""
         security = (security or "").strip().upper()
         if not security:
@@ -226,7 +226,7 @@ class ArbitrageService:
     # Scan
     # ------------------------------------------------------------------ #
     def scan(self, kinds: Optional[list[str]] = None, top_n: int = 20,
-             days: int = 365, *, now=None) -> dict:
+             days: int = 365, *, now: datetime.datetime | None = None) -> dict:
         """Rank the curated universe. Errors on one pair never sink the scan.
 
         ``top_n`` is clamped at or above zero: the REST edge rejects
@@ -263,7 +263,7 @@ class ArbitrageService:
         }
 
     def scan_summary(self, kinds: Optional[list[str]] = None, top_n: int = 10,
-                     days: int = 365, *, now=None) -> dict:
+                     days: int = 365, *, now: datetime.datetime | None = None) -> dict:
         """``scan`` trimmed to one row per candidate, for the chat sidekick.
 
         A full scan returns ten candidates each carrying complete spread
@@ -393,7 +393,9 @@ class ArbitrageService:
             "trend": pairs.spread_trend(spread),
         }
 
-    def get_premium_history(self, security: str, days: int = 365, *, now=None) -> dict:
+    def get_premium_history(
+        self, security: str, days: int = 365, *, now: datetime.datetime | None = None
+    ) -> dict:
         """Discount-to-NAV over time for a NAV vehicle.
 
         Only the current capital structure is known (one curated snapshot, or
@@ -651,7 +653,8 @@ class ArbitrageService:
             return None
 
     def _nav_block(self, entry: dict, sec_closes: pd.Series,
-                   und_closes: pd.Series, *, now=None) -> Optional[dict]:
+                   und_closes: pd.Series,
+                   *, now: datetime.datetime | None = None) -> Optional[dict]:
         """NAV workup for nav_vehicle entries with enough curated data."""
         if entry["kind"] != "nav_vehicle":
             return None

@@ -9,7 +9,7 @@ refresh orchestrator are integration surfaces left to wave 3.
 """
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pandas as pd
 import pytz
@@ -232,6 +232,26 @@ class TestRepoBackedSurfaces(OptionsServiceTestBase):
 
 
 class TestFlowSignalsAndPortfolioDelta(OptionsServiceTestBase):
+    def test_portfolio_delta_uses_market_date_for_dte(self):
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        self.options.get_full_chain.return_value = {
+            "price": 100.0,
+            "expirations": [{
+                "expiration": "2026-08-16",
+                "contracts": [{
+                    "kind": "call", "strike": 100.0,
+                    "open_interest": 100, "implied_vol": 30.0,
+                }],
+            }],
+        }
+        with patch("quantcore.services.options.bs_delta", return_value=0.5) as delta:
+            self.service.get_portfolio_delta_exposure(
+                [{"symbol": "INTC", "quantity": 1}], now=evening
+            )
+        self.assertAlmostEqual(delta.call_args.args[2], 2 / 365.0)
+
     def test_flow_signals_isolate_failures(self):
         ok = {"sweep_signal": "none"}
         with unittest.mock.patch.object(self.service, "get_unusual_calls",

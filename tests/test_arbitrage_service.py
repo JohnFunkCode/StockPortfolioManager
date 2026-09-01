@@ -218,6 +218,8 @@ class NavVehicleTest(unittest.TestCase):
         self.assertEqual(nav["source"], "db")
 
     def test_stale_holdings_reduce_the_score(self):
+        # The fixture's 2026-07-14 snapshot is 31 days old at this injected
+        # 2026-08-14 clock, intentionally below the 45-day stale threshold.
         evening = pytz.timezone("America/New_York").localize(
             pd.Timestamp("2026-08-14 23:35").to_pydatetime()
         )
@@ -434,6 +436,15 @@ class PremiumHistoryTest(unittest.TestCase):
         self.assertAlmostEqual(point["nav_per_share"], 40.0, places=4)
         self.assertAlmostEqual(point["premium_discount_pct"], 150.0, places=4)
         self.assertEqual(result["latest"], point)
+
+    def test_late_evening_does_not_add_a_nav_age_day(self):
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        result = build([self.entry], self.frames).get_premium_history(
+            "MSTR", now=evening
+        )
+        self.assertEqual(result["holdings_age_days"], 31)
 
     def test_approximation_is_declared_not_implied(self):
         """The series applies today's capital structure to past prices; a

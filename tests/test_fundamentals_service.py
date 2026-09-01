@@ -470,6 +470,18 @@ class TestComputeEarningsCalendar(FundamentalsServiceTestBase):
         self.assertEqual(out["risk_level"], "LOW")
         self.assertEqual(out["earnings_date"], earn.isoformat())
 
+    def test_public_calendar_path_propagates_injected_clock(self):
+        self.arm_history()
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        self.service._repo.get.return_value = None
+        self.service._yf.calendar.return_value = pd.DataFrame(
+            {0: [pd.Timestamp("2026-08-15")]}, index=["Earnings Date"]
+        )
+        out = self.service.get_earnings_calendar("INTC", now=evening)
+        self.assertEqual(out["days_to_earnings"], 1)
+
     def test_calendar_failure_stays_unknown(self):
         self.arm_history()
         self.service._yf.calendar.side_effect = RuntimeError("yahoo calendar down")

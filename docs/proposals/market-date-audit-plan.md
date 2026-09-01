@@ -39,3 +39,13 @@ needs deterministic coverage. Existing callers retain their default behavior.
 - Focused non-database suites pass: 184 tests.
 - Repository integration tests remain to be run in an environment with the test
   PostgreSQL service available; the sandbox could not connect to `127.0.0.1:5434`.
+
+## Review follow-up checkpoint — 2026-09-01
+
+- Threaded the injectable clock through the public `get_earnings_calendar()` path,
+  so the yfinance date-label conversion is reachable in production and tests.
+- Added late-evening coverage for the expiration alert, GEX, portfolio delta,
+  backfill window, and premium-history age paths.
+- Tightened the `quantcore/` architecture guard to deduplicate findings, state
+  its scope, and reject naive zero-argument `datetime.now()` calls.
+- Annotated all injected `now` parameters consistently.

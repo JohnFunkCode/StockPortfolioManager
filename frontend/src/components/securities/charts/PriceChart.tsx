@@ -25,6 +25,31 @@ const MA_COLORS = {
   ma200: '#ef4444',
 };
 
+const INDICATOR_TOOLTIP_FIELDS = [
+  ['ma30', 'MA30'],
+  ['ma50', 'MA50'],
+  ['ma200', 'MA200'],
+  ['bb_upper', 'BB upper'],
+  ['bb_middle', 'BB middle'],
+  ['bb_lower', 'BB lower'],
+] as const;
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return value != null && Number.isFinite(value);
+}
+
+function tooltipHtml(d: TechnicalIndicator): string {
+  const lines = [`<strong>${d.date}</strong>`];
+  if (isFiniteNumber(d.close)) lines.push(`Close: <strong>$${d.close.toFixed(2)}</strong>`);
+
+  INDICATOR_TOOLTIP_FIELDS.forEach(([field, label]) => {
+    const value = d[field];
+    if (isFiniteNumber(value)) lines.push(`${label}: $${value.toFixed(2)}`);
+  });
+
+  return lines.join('<br/>');
+}
+
 export default function PriceChart({
   data,
   showMAs = { ma50: true, ma200: true },
@@ -36,7 +61,11 @@ export default function PriceChart({
   const ref = useRef<SVGSVGElement>(null);
 
   useEffect(() => {
-    if (!ref.current || data.length === 0) return;
+    const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');
+    if (!ref.current || data.length === 0) {
+      tooltip.style('display', 'none');
+      return;
+    }
     const svg = d3.select(ref.current);
     svg.selectAll('*').remove();
 
@@ -44,7 +73,13 @@ export default function PriceChart({
     const W = width - MARGIN.left - MARGIN.right;
     const H = height - MARGIN.top - MARGIN.bottom;
 
-    const valid = data.filter((d) => d.close != null);
+    const valid = data.filter(
+      (d) => isFiniteNumber(d.close) && Number.isFinite(new Date(d.date).getTime()),
+    );
+    if (valid.length === 0) {
+      tooltip.style('display', 'none');
+      return;
+    }
     const dates = valid.map((d) => new Date(d.date));
 
     const xScale = d3.scaleTime().domain(d3.extent(dates) as [Date, Date]).range([0, W]);
@@ -189,7 +224,6 @@ export default function PriceChart({
     }
 
     // Crosshair tooltip
-    const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');
     const bisect = d3.bisector<TechnicalIndicator, Date>((d) => new Date(d.date)).left;
 
     const focus = g.append('g').style('display', 'none');
@@ -217,26 +251,37 @@ export default function PriceChart({
         const x0 = xScale.invert(mx);
         const i = bisect(valid, x0, 1);
         const d = valid[Math.min(i, valid.length - 1)];
+        if (!d || !isFiniteNumber(d.close)) return;
+
+        const tooltipHtmlContent = tooltipHtml(d);
+        if (!tooltip.node() || !tooltipHtmlContent) return;
+
         focus.style('display', null);
         focus.select('.x-line').attr('transform', `translate(${xScale(new Date(d.date))},0)`);
         focus.select('circle')
           .attr('cx', xScale(new Date(d.date)))
           .attr('cy', yScale(d.close!));
         tooltip
-          .style('display', 'block')
-          .style('left', `${event.pageX + 12}px`)
-          .style('top', `${event.pageY - 28}px`)
-          .html(
-            `<strong>${d.date}</strong><br/>` +
-            `Close: <strong>$${d.close?.toFixed(2) ?? '—'}</strong>` +
-            (d.ma50 ? `<br/>MA50: $${d.ma50.toFixed(2)}` : '') +
-            (d.ma200 ? `<br/>MA200: $${d.ma200.toFixed(2)}` : ''),
-          );
+          .html(tooltipHtmlContent)
+          .style('display', 'block');
+
+        const tooltipNode = tooltip.node();
+        if (!tooltipNode) return;
+        const left = Math.min(
+          event.clientX + 12,
+          Math.max(0, window.innerWidth - tooltipNode.offsetWidth - 8),
+        );
+        const top = Math.max(8, event.clientY - tooltipNode.offsetHeight - 12);
+        tooltip.style('left', `${left}px`).style('top', `${top}px`);
       })
       .on('mouseleave', () => {
         focus.style('display', 'none');
         tooltip.style('display', 'none');
       });
+
+    return () => {
+      tooltip.style('display', 'none');
+    };
   }, [data, showMAs, showBB, height, earningsDates, onPointClick]);
 
   const latest = data[data.length - 1];

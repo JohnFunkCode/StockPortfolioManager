@@ -80,18 +80,32 @@ else
         > "$LOG" 2>&1 &
     PROXY_PID=$!
 
-    echo "Waiting for proxy to start listening on port ${PORT}..."
-    for i in $(seq 1 30); do
-        if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
-            echo "Proxy is ready."
-            break
-        fi
-        if ! kill -0 "$PROXY_PID" 2>/dev/null; then
-            echo "✗ Proxy exited during startup — see $(basename "$LOG")" >&2
+    # A live process is not a listening one: the proxy can survive startup and
+    # still never bind (bad instance name, port already taken, ADC expired).
+    # Report success only when the port actually answers, so the caller does
+    # not go on to open a connection that cannot exist.
+    if ! command -v nc >/dev/null 2>&1; then
+        echo "! nc not found — cannot confirm the port is listening; check $(basename "$LOG")" >&2
+    else
+        echo "Waiting for proxy to start listening on port ${PORT}..."
+        READY=""
+        for i in $(seq 1 30); do
+            if nc -z 127.0.0.1 "$PORT" 2>/dev/null; then
+                READY=1
+                echo "Proxy is ready."
+                break
+            fi
+            if ! kill -0 "$PROXY_PID" 2>/dev/null; then
+                echo "✗ Proxy exited during startup — see $(basename "$LOG")" >&2
+                exit 1
+            fi
+            sleep 1
+        done
+        if [ -z "$READY" ]; then
+            echo "✗ Proxy did not listen on port ${PORT} within 30s (PID $PROXY_PID still alive) — see $(basename "$LOG")" >&2
             exit 1
         fi
-        sleep 1
-    done
+    fi
 fi
 
 echo ""

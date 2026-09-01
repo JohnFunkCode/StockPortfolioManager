@@ -899,6 +899,33 @@ source .venv/bin/activate
 fastmcp run fastMCPTest/stock_price_server.py
 ```
 
+### MCP HTTP timeout policy
+
+Cloud Run MCP services use a 900-second request timeout. This is intentionally longer than the
+previous 300-second boundary observed on `/mcp`, while the shared REST gateway keeps individual
+upstream calls bounded by `QUANTCORE_REST_TIMEOUT` (60 seconds by default). The container launcher
+adds FastMCP protocol pings every 30 seconds so an active session is not mistaken for an idle
+connection by an intermediate proxy. The pings do not extend Cloud Run's absolute request
+deadline; the 900-second setting is what moves that hard boundary. Deployment workflows apply the
+900-second setting to every MCP wrapper; after a manual first deploy, verify the effective service
+timeout before inviting remote clients.
+
+Large symbol universes should be split into bounded tool calls. Bounding batch requests at the REST
+boundary is planned in [#249](https://github.com/JohnFunkCode/StockPortfolioManager/issues/249).
+
+To verify a deployed wrapper, use the bounded smoke utility with one endpoint and tool per entry.
+It initializes the session, optionally holds it open, calls the selected tool, and reports only
+metadata rather than response payloads:
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/mcp_http_smoke.py \
+  --endpoint stock-price=https://example.run.app/mcp \
+  --tool stock-price=get_stock_price \
+  --arguments 'stock-price={"symbol":"AAPL"}' \
+  --hold-seconds 301 \
+  --auth-token "$QUANTCORE_MCP_TOKEN"
+```
+
 ---
 
 ## Harvester System

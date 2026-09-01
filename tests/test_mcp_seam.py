@@ -20,6 +20,8 @@ from fastMCPTest import options_analysis as oa  # noqa: E402
 from fastMCPTest import portfolio_server as pfs  # noqa: E402
 from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
+from mcp_gateway import serve  # noqa: E402
+from scripts import ci_wrapper_smoke  # noqa: E402
 
 
 def http_response(status=200, json_body=None, text_body=None):
@@ -92,6 +94,91 @@ class TestRestClientVerbs(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 402)
         _, kwargs = client.post.call_args
         self.assertEqual(kwargs["json"], {"a": 1})
+
+    def test_get_translates_upstream_timeout_without_leaking_exception_details(self):
+        client = self.arm_client(http_response(200))
+        client.get.side_effect = httpx.ReadTimeout("upstream credentials must not appear")
+        with patch.object(httpx, "Client", return_value=client):
+            with self.assertRaises(rest_client.RestError) as ctx:
+                rest_client.get("/api/slow")
+        self.assertEqual(ctx.exception.status_code, 504)
+        self.assertEqual(ctx.exception.payload, {
+            "error": "REST_TIMEOUT",
+            "message": "REST tier request timed out",
+        })
+
+    def test_post_translates_upstream_connection_failure(self):
+        client = self.arm_client(http_response(200))
+        client.post.side_effect = httpx.ConnectError("connection details")
+        with patch.object(httpx, "Client", return_value=client):
+            with self.assertRaises(rest_client.RestError) as ctx:
+                rest_client.post("/api/unavailable")
+        self.assertEqual(ctx.exception.status_code, 503)
+        self.assertEqual(ctx.exception.payload["error"], "REST_UNAVAILABLE")
+
+
+class TestMcpServeConfig(unittest.TestCase):
+    def test_ping_interval_defaults_and_rejects_invalid_values(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(serve._ping_interval_ms(), serve.DEFAULT_PING_INTERVAL_MS)
+        with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: "45000"}):
+            self.assertEqual(serve._ping_interval_ms(), 45000)
+        for value in ("0", "-1", "not-a-number"):
+            with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: value}):
+                self.assertEqual(serve._ping_interval_ms(), serve.DEFAULT_PING_INTERVAL_MS)
+
+    def test_configure_keepalive_uses_fastmcp_ping_middleware(self):
+        mcp = Mock()
+        with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: "15000"}):
+            serve._configure_keepalive(mcp)
+        middleware = mcp.add_middleware.call_args.args[0]
+        self.assertEqual(type(middleware).__name__, "PingMiddleware")
+        self.assertEqual(middleware.interval_ms, 15000)
+
+    def test_main_wires_keepalive_before_starting_server(self):
+        module = Mock()
+        module.mcp = Mock()
+        with patch.dict(os.environ, {
+            "SERVER_MODULE": "fake.wrapper",
+            "PORT": "6123",
+        }), patch.object(serve.importlib, "import_module", return_value=module), \
+                patch.object(serve, "_configure_keepalive") as configure:
+            serve.main()
+        configure.assert_called_once_with(module.mcp)
+        module.mcp.run.assert_called_once_with(
+            transport="http", host="0.0.0.0", port=6123
+        )
+
+
+class TestMcpDeploymentPolicy(unittest.TestCase):
+    REPO = Path(__file__).resolve().parent.parent
+
+    def test_every_wrapper_rollout_carries_the_timeout_policy(self):
+        services = {
+            friendly_name for _, friendly_name, _ in ci_wrapper_smoke.WRAPPERS
+        }
+        self.assertEqual(services, {
+            "stock-price", "options-analysis", "company-fundamentals",
+            "news-sentiment", "market-analysis", "portfolio", "arbitrage",
+        })
+        for workflow_name in ("deploy.yml", "prod-rollout.yml"):
+            text = (self.REPO / ".github" / "workflows" / workflow_name).read_text()
+            self.assertIn("MCP_REQUEST_TIMEOUT: 900s", text, workflow_name)
+            self.assertIn(
+                "for s in stock-price options-analysis company-fundamentals "
+                "news-sentiment market-analysis; do\n"
+                "            gcloud run deploy \"quantcore-$s\"",
+                text,
+                workflow_name,
+            )
+            for service in ("portfolio", "arbitrage"):
+                marker = f"gcloud run deploy quantcore-{service}"
+                start = text.index(marker)
+                block = text[start:text.find("\n      - name:", start)]
+                self.assertIn(
+                    '--timeout "$MCP_REQUEST_TIMEOUT"', block,
+                    f"{workflow_name}: {service}",
+                )
 
 
 class TestCompanyFundamentalsWrapper(unittest.TestCase):

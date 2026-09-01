@@ -25,7 +25,10 @@ PyYAML>=6.0.3
 fastapi>=0.110.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.0.0
-fastmcp>=2.0.0
+# PingMiddleware is used by mcp_gateway.serve for long-lived HTTP sessions.
+# It was introduced in the FastMCP 3.x API; keep the shared wrapper image from
+# resolving a 2.x release that cannot import the launcher.
+fastmcp>=3.2.3
 httpx>=0.27.0
 feedparser>=6.0.0
 psycopg2-binary>=2.9

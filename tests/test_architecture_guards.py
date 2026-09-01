@@ -12,6 +12,7 @@ Turns the July 2026 audit findings into permanent CI guarantees:
 If one of these tests fails, a provider import leaked outside the gateway
 seam — move the call behind YFinanceGateway instead of editing the allowlist.
 """
+import ast
 import re
 import unittest
 from pathlib import Path
@@ -86,6 +87,40 @@ class TestYfinanceFence(unittest.TestCase):
         locked_blocks = src.count("with _YF_DOWNLOAD_LOCK:")
         self.assertGreaterEqual(locked_blocks, calls,
                                 "a yf.download call site is missing the lock")
+
+
+class TestMarketDateFence(unittest.TestCase):
+    """Production date arithmetic must not depend on the host timezone."""
+
+    def test_quantcore_has_no_direct_today_calls(self):
+        violations = set()
+        for f in (REPO / "quantcore").rglob("*.py"):
+            tree = ast.parse(f.read_text(errors="replace"), filename=str(f))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                    continue
+                rel = f.relative_to(REPO).as_posix()
+                if node.func.attr == "today":
+                    violations.add((rel, ".today()"))
+                elif (
+                    node.func.attr == "now"
+                    and not node.args
+                    and not node.keywords
+                    and (
+                        (isinstance(node.func.value, ast.Name)
+                         and node.func.value.id in {"datetime", "_datetime"})
+                        or (isinstance(node.func.value, ast.Attribute)
+                            and node.func.value.attr == "datetime")
+                    )
+                ):
+                    violations.add((rel, "naive datetime.now()"))
+        violations = sorted(violations)
+        self.assertEqual(
+            violations, [],
+            "quantcore date arithmetic must use market_date() or an explicit "
+            "timezone-aware clock (quantcore/ only): "
+            f"{violations}",
+        )
 
 
 if __name__ == "__main__":

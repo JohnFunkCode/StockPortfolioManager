@@ -5,11 +5,12 @@ is walked branch by branch with literal Polygon payloads.
 """
 import os
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
 import requests
+import pytz
 
 from quantcore.gateways.polygon_gateway import PolygonPlanError  # noqa: E402
 from quantcore.services.options import OptionsService  # noqa: E402
@@ -54,6 +55,21 @@ class OrchestratorTestBase(unittest.TestCase):
 
 
 class TestBackfill(OrchestratorTestBase):
+    def test_late_evening_starts_from_eastern_calendar_date(self):
+        self.polygon.has_key = True
+        self.polygon.option_snapshots.return_value = []
+        evening = pytz.timezone("America/New_York").localize(
+            datetime(2026, 8, 14, 23, 35)
+        )
+        payload, status = self.service.backfill_options_history(
+            "INTC", days=3, skip_existing=False, now=evening
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            [call.args[1] for call in self.polygon.option_snapshots.call_args_list],
+            ["2026-08-11", "2026-08-12", "2026-08-13"],
+        )
+
     def test_missing_api_key_is_a_400(self):
         self.polygon.has_key = False
         payload, status = self.service.backfill_options_history("intc")

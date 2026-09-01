@@ -5,6 +5,7 @@ OptionsPositionStore, and the OhlcvRepository facade. Test database only.
 import json
 import os
 import unittest
+import pytz
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -179,6 +180,18 @@ class TestOptionsPositionStore(RepoTestBase):
         active = self.store.get_active_positions()
         self.assertEqual([p["position_id"] for p in active], [live])
 
+    def test_late_evening_does_not_expire_next_market_day(self):
+        self.store.add_position(
+            symbol=SYM, kind="call", strike=100.0, expiration="2026-08-15",
+            contracts=2, purchase_price=3.0, purchase_date="2026-08-14",
+            target_price=None,
+        )
+        evening = pytz.timezone("America/New_York").localize(
+            datetime(2026, 8, 14, 23, 35)
+        )
+        expired = self.store.auto_expire_past_positions(now=evening)
+        self.assertEqual(expired, [])
+
     def test_pending_alerts_itm_and_expiry(self):
         self.add(kind="call", strike=100.0, expiration_days=5,
                  purchase_price=1.0)                   # ITM + <=7d expiry
@@ -190,6 +203,20 @@ class TestOptionsPositionStore(RepoTestBase):
         self.assertEqual(itm["intrinsic_value"], 10.0)
         # Missing price -> position silently skipped.
         self.assertEqual(self.store.get_pending_alerts({}), [])
+
+    def test_late_evening_expiration_warning_uses_market_date(self):
+        self.store.add_position(
+            symbol=SYM, kind="call", strike=100.0, expiration="2026-08-16",
+            contracts=1, purchase_price=1.0, purchase_date="2026-08-14",
+            target_price=None,
+        )
+        evening = pytz.timezone("America/New_York").localize(
+            datetime(2026, 8, 14, 23, 35)
+        )
+        alerts = self.store.get_pending_alerts({SYM: 100.0}, now=evening)
+        expiry_alerts = [a for a in alerts if a["alert_type"] == "EXPIRATION_1D"]
+        self.assertEqual(expiry_alerts, [])
+        self.assertEqual(alerts[0]["days_to_expiry"], 2)
 
 
 def bars_df(n=5, start_price=100.0):

@@ -12,6 +12,7 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import pandas as pd
+import pytz
 
 from quantcore.services.options_screening import (  # noqa: E402
     OptionsScreeningService,
@@ -157,6 +158,17 @@ class TestFetchIvAnalysis(FetchTestBase):
 
 
 class TestEarningsProximity(FetchTestBase):
+    def test_late_evening_uses_eastern_market_date(self):
+        # 23:35 ET on Aug 14 is already Aug 15 in UTC.
+        evening = pytz.timezone("America/New_York").localize(
+            datetime(2026, 8, 14, 23, 35)
+        )
+        earn = date(2026, 8, 15)
+        self.yf.calendar.return_value = pd.DataFrame(
+            {0: [pd.Timestamp(earn)]}, index=["Earnings Date"]
+        )
+        self.assertEqual(self.service.fetch_earnings_proximity("INTC", now=evening), 1)
+
     def test_dataframe_calendar(self):
         earn = date.today() + timedelta(days=10)
         self.yf.calendar.return_value = pd.DataFrame(

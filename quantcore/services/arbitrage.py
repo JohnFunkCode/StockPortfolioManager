@@ -35,6 +35,7 @@ import pandas as pd
 
 from quantcore.analytics import nav as nav_math
 from quantcore.analytics import pairs
+from quantcore.analytics.market_time import market_date
 from quantcore.error_text import safe_error_text
 
 # How much each convergence mechanism is trusted to actually close a gap.
@@ -131,10 +132,10 @@ class ArbitrageService:
     # ------------------------------------------------------------------ #
     # Universe
     # ------------------------------------------------------------------ #
-    def get_universe(self) -> dict:
+    def get_universe(self, *, now: datetime.datetime | None = None) -> dict:
         """The curated pair list, with holdings staleness surfaced per entry."""
         entries = self._repo.load_universe()
-        today = datetime.date.today()
+        today = market_date(now)
         out = []
         for e in entries:
             item = dict(e)
@@ -160,7 +161,8 @@ class ArbitrageService:
     # Single pair
     # ------------------------------------------------------------------ #
     def analyze_pair(self, security: str, underlying: Optional[str] = None,
-                     days: int = 365, zscore_window: Optional[int] = None) -> dict:
+                     days: int = 365, zscore_window: Optional[int] = None,
+                     *, now: datetime.datetime | None = None) -> dict:
         """Full workup for one pair: spread stats, NAV math, score, verdict."""
         security = (security or "").strip().upper()
         if not security:
@@ -200,7 +202,7 @@ class ArbitrageService:
 
         stats = pairs.analyze_pair(sec_closes, und_closes,
                                    zscore_window=zscore_window)
-        nav_block = self._nav_block(entry, sec_closes, und_closes)
+        nav_block = self._nav_block(entry, sec_closes, und_closes, now=now)
         hedge = self._hedge_block(entry)
         scored = self._score(entry, stats, nav_block, hedge)
 
@@ -224,7 +226,7 @@ class ArbitrageService:
     # Scan
     # ------------------------------------------------------------------ #
     def scan(self, kinds: Optional[list[str]] = None, top_n: int = 20,
-             days: int = 365) -> dict:
+             days: int = 365, *, now: datetime.datetime | None = None) -> dict:
         """Rank the curated universe. Errors on one pair never sink the scan.
 
         ``top_n`` is clamped at or above zero: the REST edge rejects
@@ -239,7 +241,7 @@ class ArbitrageService:
             if wanted and entry["kind"] not in wanted:
                 continue
             try:
-                result = self.analyze_pair(entry["security"], days=days)
+                result = self.analyze_pair(entry["security"], days=days, now=now)
             except Exception as exc:  # one bad symbol must not sink the scan
                 errors.append({"security": entry["security"],
                                "error": safe_error_text(exc)})
@@ -261,7 +263,7 @@ class ArbitrageService:
         }
 
     def scan_summary(self, kinds: Optional[list[str]] = None, top_n: int = 10,
-                     days: int = 365) -> dict:
+                     days: int = 365, *, now: datetime.datetime | None = None) -> dict:
         """``scan`` trimmed to one row per candidate, for the chat sidekick.
 
         A full scan returns ten candidates each carrying complete spread
@@ -276,7 +278,7 @@ class ArbitrageService:
         omitted here entirely rather than trimmed to it — a summary row is
         exactly where a misread would happen.
         """
-        full = self.scan(kinds=kinds, top_n=top_n, days=days)
+        full = self.scan(kinds=kinds, top_n=top_n, days=days, now=now)
         rows = []
         for c in full["candidates"]:
             nav = c.get("nav") or {}
@@ -391,7 +393,9 @@ class ArbitrageService:
             "trend": pairs.spread_trend(spread),
         }
 
-    def get_premium_history(self, security: str, days: int = 365) -> dict:
+    def get_premium_history(
+        self, security: str, days: int = 365, *, now: datetime.datetime | None = None
+    ) -> dict:
         """Discount-to-NAV over time for a NAV vehicle.
 
         Only the current capital structure is known (one curated snapshot, or
@@ -451,7 +455,7 @@ class ArbitrageService:
             diluted_shares=float(shares), senior_claims=float(senior),
             other_assets=float(other),
         )
-        age = self._age_days(as_of, datetime.date.today())
+        age = self._age_days(as_of, market_date(now))
         return {
             "security": security,
             "name": entry.get("name", security),
@@ -649,7 +653,8 @@ class ArbitrageService:
             return None
 
     def _nav_block(self, entry: dict, sec_closes: pd.Series,
-                   und_closes: pd.Series) -> Optional[dict]:
+                   und_closes: pd.Series,
+                   *, now: datetime.datetime | None = None) -> Optional[dict]:
         """NAV workup for nav_vehicle entries with enough curated data."""
         if entry["kind"] != "nav_vehicle":
             return None
@@ -697,7 +702,7 @@ class ArbitrageService:
             annual_senior_cost=float(annual),
             other_assets=float(other),
         )
-        age = self._age_days(as_of, datetime.date.today())
+        age = self._age_days(as_of, market_date(now))
         result.update({
             "available": True,
             "units": float(units),

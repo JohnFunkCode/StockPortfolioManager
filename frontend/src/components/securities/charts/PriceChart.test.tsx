@@ -97,6 +97,28 @@ describe('PriceChart', () => {
     }
   });
 
+  it('shows readable tooltip content at viewport coordinates', () => {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'price-tooltip';
+    document.body.appendChild(tooltip);
+    const { container } = render(<PriceChart data={indicatorRows(60)} />);
+    const overlay = container.querySelector('rect[pointer-events="all"]')!;
+
+    fireEvent.mouseMove(overlay, {
+      clientX: 100,
+      clientY: 50,
+      pageX: 900,
+      pageY: 850,
+    });
+
+    expect(tooltip.style.left).toBe('112px');
+    expect(tooltip.style.top).toBe('38px');
+    expect(tooltip.innerHTML).toContain('Close: <strong>$');
+    expect(tooltip.innerHTML).toContain('MA50: $');
+    expect(tooltip.innerHTML).toContain('MA200: $');
+    tooltip.remove();
+  });
+
   it('renders an empty shell with no data', () => {
     const { container } = render(<PriceChart data={[]} />);
     expect(container.querySelector('svg')!.querySelectorAll('path').length).toBe(0);

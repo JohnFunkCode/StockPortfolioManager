@@ -114,8 +114,8 @@ export default function RSIChart({ data, height = 140 }: Props) {
           .attr('cy', yScale(d.rsi!));
         tooltip
           .style('display', 'block')
-          .style('left', `${event.pageX + 12}px`)
-          .style('top', `${event.pageY - 28}px`)
+          .style('left', `${event.clientX + 12}px`)
+          .style('top', `${event.clientY - 28}px`)
           .html(`<strong>${d.date}</strong><br/>RSI: <strong>${d.rsi?.toFixed(1)}</strong>`);
       })
       .on('mouseleave', () => {

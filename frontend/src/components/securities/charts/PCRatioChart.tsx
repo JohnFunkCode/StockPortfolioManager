@@ -147,8 +147,8 @@ export default function PCRatioChart({ data, height = 200 }: Props) {
         const d = valid[Math.min(i, valid.length - 1)];
         tooltip
           .style('display', 'block')
-          .style('left', `${event.pageX + 12}px`)
-          .style('top', `${event.pageY - 28}px`)
+          .style('left', `${event.clientX + 12}px`)
+          .style('top', `${event.clientY - 28}px`)
           .html(
             `<strong>${d.captured_at.slice(0, 10)}</strong><br/>` +
             `P/C: <strong>${d.put_call_ratio?.toFixed(2) ?? '—'}</strong><br/>` +

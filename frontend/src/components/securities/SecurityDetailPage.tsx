@@ -42,6 +42,7 @@ import OptionsChainChart from './charts/OptionsChainChart';
 import PCRatioChart from './charts/PCRatioChart';
 import MaxPainChart from './charts/MaxPainChart';
 import IVTermStructureChart from './charts/IVTermStructureChart';
+import PriceTooltip from './PriceTooltip';
 import ErrorAlert from '../common/ErrorAlert';
 
 function daysToExpiry(expiration: string): number {
@@ -1524,23 +1525,8 @@ export default function SecurityDetailPage() {
       {/* --- Tab 5: Signals --- */}
       {tab === 5 && <SignalsTab ticker={ticker} />}
 
-      {/* Global D3 tooltip div (shared across all charts) */}
-      <div
-        id="price-tooltip"
-        style={{
-          display: 'none',
-          position: 'fixed',
-          background: 'rgba(17,24,39,0.92)',
-          color: '#f9fafb',
-          padding: '6px 10px',
-          borderRadius: 6,
-          fontSize: 12,
-          pointerEvents: 'none',
-          zIndex: 9999,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
-          lineHeight: 1.6,
-        }}
-      />
+      {/* Global D3 tooltip host shared across all charts */}
+      <PriceTooltip />
     </Box>
   );
 }

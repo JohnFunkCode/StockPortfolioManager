@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import pandas as pd
+import pytz
 
 from quantcore.services.fundamentals import (
     FundamentalsService,
@@ -510,6 +511,19 @@ def cal_entry(sym, days_out, fetched_ago_s=60, risk="MODERATE"):
 
 
 class TestUpcomingEarnings(FundamentalsServiceTestBase):
+    def test_late_evening_uses_eastern_market_date(self):
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        self.repo.ttl_seconds.return_value = 3600.0
+        self.repo.get_all_latest.return_value = [{
+            "symbol": "INTC",
+            "earnings_date": "2026-08-15",
+            "_fetched_at_ts": int(_time.time()),
+        }]
+        out = self.service.get_upcoming_earnings(days=1, now=evening)
+        self.assertEqual(out["upcoming"][0]["days_to_earnings"], 1)
+
     def test_window_staleness_and_ordering(self):
         self.repo.ttl_seconds.return_value = 3600.0
         self.repo.get_all_latest.return_value = [

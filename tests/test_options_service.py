@@ -12,6 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pandas as pd
+import pytz
 
 from quantcore.services.options import OptionsService
 
@@ -95,6 +96,17 @@ class TestUnusualCalls(OptionsServiceTestBase):
 
 
 class TestDeltaAdjustedOi(OptionsServiceTestBase):
+    def test_late_evening_uses_eastern_market_date_for_dte(self):
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        self.arm_price(expirations=("2026-08-15",))
+        self.yf.option_chain.return_value = chain_frames([
+            call_row(100, volume=0, oi=100, last=4, bid=3.9, ask=4.1, iv=0.3),
+        ])
+        out = self.service.get_delta_adjusted_oi("INTC", now=evening)
+        self.assertEqual(out["by_expiration"][0]["days_to_expiry"], 1)
+
     def test_put_heavy_book_flips_mm_to_buy_on_rally_strong(self):
         self.arm_price()
         self.yf.option_chain.return_value = chain_frames(

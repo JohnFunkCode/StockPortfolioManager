@@ -25,7 +25,7 @@ from typing import Optional
 
 import numpy as np
 
-from quantcore.analytics.market_time import period_to_days
+from quantcore.analytics.market_time import market_date, period_to_days
 import yaml
 
 # Project root (…/StockPortfolioManager) — for resolving the default watchlist.
@@ -511,7 +511,9 @@ class OptionsScreeningService:
     # Guardrail data helpers
     # ------------------------------------------------------------------
 
-    def fetch_earnings_proximity(self, symbol: str) -> Optional[int]:
+    def fetch_earnings_proximity(
+        self, symbol: str, *, now=None
+    ) -> Optional[int]:
         """
         Return the number of calendar days until the next earnings date,
         or None if the information is unavailable.
@@ -540,7 +542,9 @@ class OptionsScreeningService:
             else:
                 return None
 
-            today = _date.today()
+            # yfinance supplies date-only earnings labels; compare them with
+            # the US market date rather than the host's UTC date.
+            today = market_date(now)
             future_days = []
             for d in raw_dates:
                 if d is None:

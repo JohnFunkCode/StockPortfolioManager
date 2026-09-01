@@ -157,6 +157,15 @@ class TestFetchIvAnalysis(FetchTestBase):
 
 
 class TestEarningsProximity(FetchTestBase):
+    def test_late_evening_uses_eastern_market_date(self):
+        # 23:35 ET on Aug 14 is already Aug 15 in UTC.
+        evening = pd.Timestamp("2026-08-14 23:35", tz="America/New_York").to_pydatetime()
+        earn = date(2026, 8, 15)
+        self.yf.calendar.return_value = pd.DataFrame(
+            {0: [pd.Timestamp(earn)]}, index=["Earnings Date"]
+        )
+        self.assertEqual(self.service.fetch_earnings_proximity("INTC", now=evening), 1)
+
     def test_dataframe_calendar(self):
         earn = date.today() + timedelta(days=10)
         self.yf.calendar.return_value = pd.DataFrame(

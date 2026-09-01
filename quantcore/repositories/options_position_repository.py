@@ -30,6 +30,7 @@ from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from quantcore.db import get_connection
+from quantcore.analytics.market_time import market_date
 
 # Alert type constants
 ALERT_ITM           = "ITM"
@@ -132,12 +133,12 @@ class OptionsPositionStore:
             )
             conn.commit()
 
-    def auto_expire_past_positions(self) -> list[dict]:
+    def auto_expire_past_positions(self, *, now: datetime | None = None) -> list[dict]:
         """
         Mark all ACTIVE positions whose expiration date has passed as EXPIRED.
         Returns the list of positions that were expired.
         """
-        today_str = date.today().isoformat()
+        today_str = market_date(now).isoformat()
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
@@ -183,7 +184,9 @@ class OptionsPositionStore:
     # Alert logic
     # ------------------------------------------------------------------
 
-    def get_pending_alerts(self, current_prices: dict[str, float]) -> list[dict]:
+    def get_pending_alerts(
+        self, current_prices: dict[str, float], *, now: datetime | None = None
+    ) -> list[dict]:
         """
         Evaluate every ACTIVE position against current market prices and
         return a list of alert dicts.  The caller is responsible for
@@ -200,7 +203,7 @@ class OptionsPositionStore:
             EXPIRATION_1D  — expiration ≤ 1 day away (fires every day)
             PROFIT_TARGET  — intrinsic value ≥ PROFIT_TARGET_MULTIPLIER × cost
         """
-        today = date.today()
+        today = market_date(now)
         alerts = []
 
         for pos in self.get_active_positions():

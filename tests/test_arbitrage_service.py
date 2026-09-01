@@ -13,6 +13,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
+import pytz
 
 from quantcore.services.arbitrage import ArbitrageService
 
@@ -217,9 +218,12 @@ class NavVehicleTest(unittest.TestCase):
         self.assertEqual(nav["source"], "db")
 
     def test_stale_holdings_reduce_the_score(self):
-        fresh = build([self.entry], self.frames).analyze_pair("MSTR")
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        fresh = build([self.entry], self.frames).analyze_pair("MSTR", now=evening)
         stale_entry = {**self.entry, "holdings_as_of": "2020-01-01"}
-        stale = build([stale_entry], self.frames).analyze_pair("MSTR")
+        stale = build([stale_entry], self.frames).analyze_pair("MSTR", now=evening)
         self.assertEqual(fresh["factors"]["freshness"], 1.0)
         self.assertEqual(stale["factors"]["freshness"], 0.85)
         self.assertIn("Stale holdings data", stale["breaks_on"])
@@ -511,6 +515,15 @@ class DiscoveryIncludeAllTest(unittest.TestCase):
 
 
 class UniverseTest(unittest.TestCase):
+    def test_late_evening_does_not_add_a_holdings_age_day(self):
+        entries = [entry(security="OLD", holdings_as_of="2026-08-14")]
+        evening = pytz.timezone("America/New_York").localize(
+            pd.Timestamp("2026-08-14 23:35").to_pydatetime()
+        )
+        universe = build(entries, {}).get_universe(now=evening)
+        row = universe["entries"][0]
+        self.assertEqual(row["holdings_age_days"], 0)
+
     def test_flags_stale_holdings_and_hedge_availability(self):
         entries = [
             entry(security="OLD", holdings_as_of="2020-01-01", hedge=None),

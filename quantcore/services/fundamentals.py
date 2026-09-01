@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from quantcore.error_text import safe_error_text
+from quantcore.analytics.market_time import market_date
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 
@@ -319,7 +320,7 @@ class FundamentalsService:
 
     # -- compute paths (yfinance-backed, cache-wrapped) ---------------------
 
-    def _compute_earnings_calendar(self, sym: str) -> dict:
+    def _compute_earnings_calendar(self, sym: str, *, now=None) -> dict:
         """Compute earnings calendar data for a symbol (called by cache wrapper)."""
         result: dict[str, Any] = {
             "symbol":                  sym,
@@ -334,7 +335,9 @@ class FundamentalsService:
         # ── Next earnings date ────────────────────────────────────────────────
         try:
             cal = self._yf.calendar(sym)
-            today = date.today()
+            # yfinance's calendar values are date-only exchange-calendar
+            # labels, so compare them with the US market date.
+            today = market_date(now)
 
             if cal is not None:
                 if hasattr(cal, "index"):
@@ -763,13 +766,13 @@ class FundamentalsService:
         }
 
     def get_upcoming_earnings(
-        self, days: int = 14, include_stale: bool = False, scope: str = "all"
+        self, days: int = 14, include_stale: bool = False, scope: str = "all", *, now=None
     ) -> dict:
         all_entries = self._apply_scope(
             self._repo.get_all_latest("earnings_calendar"), scope
         )
         queried_at = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        today = date.today()
+        today = market_date(now)
         now_ts = int(time.time())
         ttl_seconds = self._repo.ttl_seconds()
 

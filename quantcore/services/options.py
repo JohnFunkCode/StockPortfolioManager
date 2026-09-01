@@ -39,6 +39,7 @@ from quantcore.analytics.options_math import (
     compute_max_pain,
     safe_int as _safe_int,
 )
+from quantcore.analytics.market_time import market_date
 from quantcore.error_text import safe_error_text
 from quantcore.gateways.polygon_gateway import PolygonGateway, PolygonPlanError
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
@@ -378,6 +379,8 @@ class OptionsService:
         symbol: str,
         max_expirations: int = 3,
         risk_free_rate: float = 0.045,
+        *,
+        now=None,
     ) -> dict:
         info   = self._yf.fast_info(symbol.upper())
         price  = getattr(info, "last_price", None)
@@ -394,7 +397,7 @@ class OptionsService:
                 "interpretation": "No options data available.",
             }
 
-        today = datetime.date.today()
+        today = market_date(now)
 
         total_call_daoi = 0.0
         total_put_daoi  = 0.0
@@ -733,6 +736,8 @@ class OptionsService:
         symbol: str,
         max_expirations: int = 6,
         risk_free_rate: float = 0.045,
+        *,
+        now=None,
     ) -> dict:
         info  = self._yf.fast_info(symbol.upper())
         price = getattr(info, "last_price", None)
@@ -749,7 +754,7 @@ class OptionsService:
                 "interpretation": "No options data available.",
             }
 
-        today = datetime.date.today()
+        today = market_date(now)
 
         strike_gex: dict[float, dict] = {}   # strike → {"call_gex": .., "put_gex": ..}
         net_vanna = 0.0
@@ -1051,12 +1056,12 @@ class OptionsService:
     # REST: options-flow signals (fan-out) + portfolio delta exposure
     # ------------------------------------------------------------------
 
-    def get_options_flow_signals(self, ticker: str) -> dict:
+    def get_options_flow_signals(self, ticker: str, *, now=None) -> dict:
         ticker = ticker.upper()
 
         tasks = {
             "unusual_calls":      lambda: self.get_unusual_calls(ticker),
-            "delta_adjusted_oi":  lambda: self.get_delta_adjusted_oi(ticker),
+            "delta_adjusted_oi":  lambda: self.get_delta_adjusted_oi(ticker, now=now),
         }
 
         results: dict = {}
@@ -1078,8 +1083,8 @@ class OptionsService:
             )
         return {"ticker": ticker, "_errors": errors if errors else None, **results}
 
-    def get_portfolio_delta_exposure(self, portfolio: list[dict]) -> dict:
-        today = datetime.date.today()
+    def get_portfolio_delta_exposure(self, portfolio: list[dict], *, now=None) -> dict:
+        today = market_date(now)
         RISK_FREE = 0.045
 
         exposure_list = []
@@ -1160,6 +1165,7 @@ class OptionsService:
 
     def backfill_options_history(
         self, ticker: str, days: int = 90, skip_existing: bool = True,
+        *, now=None,
     ) -> tuple[dict, int]:
         """Backfill historical P/C ratio data via the Polygon snapshot API.
 
@@ -1176,7 +1182,7 @@ class OptionsService:
             }, 400
 
         # Determine which dates to fetch (weekdays only)
-        today = datetime.date.today()
+        today = market_date(now)
         existing_dates = (
             self._options.get_snapshot_dates(ticker, days=days_back + 7)
             if skip_existing else set()

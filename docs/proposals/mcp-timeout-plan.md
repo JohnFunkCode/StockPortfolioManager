@@ -7,8 +7,10 @@ Issue: [#241](https://github.com/JohnFunkCode/StockPortfolioManager/issues/241)
 The reported 301-second truncated `/mcp` responses are treated as a Cloud Run request-timeout
 mismatch, with an additional keepalive requirement for long-lived streamable HTTP sessions.
 MCP wrapper requests use a 900-second Cloud Run timeout. The shared launcher installs FastMCP's
-30-second `PingMiddleware`, and the REST seam translates bounded upstream transport failures into
-safe 503/504 errors.
+30-second `PingMiddleware`, which addresses idle intermediaries but cannot extend Cloud Run's
+absolute deadline. The REST seam translates bounded upstream transport failures into safe 503/504
+errors. The repository includes a bounded live smoke utility for post-deploy session and tool
+verification; it is intentionally run against deployed endpoints rather than in ordinary CI.
 
 The report Job timeout in issue #234 is a separate execution model and is not changed here.
 
@@ -19,6 +21,7 @@ The report Job timeout in issue #234 is a separate execution model and is not ch
 | 2026-09-01 | Repository audit | Confirmed FastMCP 3.2.3 streamable HTTP launcher, shared MCP image, image-only Cloud Run rollouts, and 60-second REST upstream timeout. |
 | 2026-09-01 | Runtime hardening | Added launcher keepalive and REST transport-error translation; added unit coverage. |
 | 2026-09-01 | Deployment policy | Added `MCP_REQUEST_TIMEOUT=900s` to test and production rollouts and documented first-deploy verification. |
+| 2026-09-01 | Operational verification | Added `scripts/mcp_http_smoke.py` for per-endpoint initialize/hold/tool checks without printing response payloads. |
 
 ## Verification after rollout
 

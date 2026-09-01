@@ -36,7 +36,8 @@ All streamable HTTP MCP wrappers use a 900-second Cloud Run request timeout. The
 by `MCP_REQUEST_TIMEOUT` in both deployment workflows and passed explicitly on each image rollout,
 so a later promotion cannot restore the former 300-second default. The shared `mcp_gateway.serve`
 launcher also installs FastMCP's 30-second `PingMiddleware` keepalive. These settings bound the
-transport connection; they do not make slow tool work unbounded. The REST seam remains limited by
+transport connection; the pings help clients and intermediaries that enforce idle limits, but they
+do not extend Cloud Run's absolute request deadline. The REST seam remains limited by
 `QUANTCORE_REST_TIMEOUT` (60 seconds by default).
 
 For a first/manual service creation or an existing service that predates this policy, apply and
@@ -52,6 +53,12 @@ gcloud run services describe quantcore-stock-price \
 
 Repeat the update for the other MCP wrapper services before production verification. A successful
 check should report `900` and subsequent `/mcp` requests should no longer end at 300 seconds.
+
+For the end-to-end check, run `scripts/mcp_http_smoke.py` with one `--endpoint name=url` and
+matching `--tool name=tool` per wrapper. Use `--hold-seconds 301` for the stock-price endpoint
+when explicitly checking the former boundary. The tool prints status metadata only; do not add
+tokens or response bodies to logs. A request that ends at roughly 901 seconds is the expected new
+Cloud Run hard boundary and is distinct from the old 301-second failure.
 
 ```
 push to main ──► deploy.yml builds+tests, tags <SHA>, deploys TEST

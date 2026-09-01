@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -29,10 +29,43 @@ function renderNav(route: string) {
 /** The dropdown trigger — a button, not a link, so it is unambiguous. */
 const trigger = (name: string) => screen.getByRole('button', { name: new RegExp(name) });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+
+function setMobileViewport(isMobile: boolean) {
+  vi.stubGlobal('matchMedia', (query: string) => ({
+    matches: isMobile && query.includes('max-width'),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
 
 describe('NavBar', () => {
+  it('collapses all destinations into one reachable menu on mobile', async () => {
+    setMobileViewport(true);
+    const user = userEvent.setup();
+    renderNav('/');
+
+    expect(screen.getByTestId('mobile-nav-menu')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /My Positions/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /Settings/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId('mobile-nav-menu'));
+    const menu = await screen.findByRole('menu');
+    expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
+      'Portfolio', 'Plans', 'Harvester', 'Securities', 'Watchlist', 'Fundamentals', 'Arbitrage', 'Settings',
+    ]);
+  });
+
   it('shows only the two menus and Settings until a menu is opened', () => {
+    setMobileViewport(false);
     renderNav('/');
     expect(trigger('My Positions')).toBeInTheDocument();
     expect(trigger('Research')).toBeInTheDocument();

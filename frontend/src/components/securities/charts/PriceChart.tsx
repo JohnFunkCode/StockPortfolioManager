@@ -38,16 +38,29 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value);
 }
 
-function tooltipHtml(d: TechnicalIndicator): string {
-  const lines = [`<strong>${d.date}</strong>`];
-  if (isFiniteNumber(d.close)) lines.push(`Close: <strong>$${d.close.toFixed(2)}</strong>`);
+function renderTooltip(node: HTMLDivElement, d: TechnicalIndicator): void {
+  node.replaceChildren();
 
+  const date = document.createElement('strong');
+  date.textContent = d.date;
+  node.append(date);
+
+  const appendValue = (label: string, value: number, emphasize = false) => {
+    node.append(document.createElement('br'), document.createTextNode(`${label}: `));
+    if (emphasize) {
+      const strong = document.createElement('strong');
+      strong.textContent = `$${value.toFixed(2)}`;
+      node.append(strong);
+    } else {
+      node.append(document.createTextNode(`$${value.toFixed(2)}`));
+    }
+  };
+
+  if (isFiniteNumber(d.close)) appendValue('Close', d.close, true);
   INDICATOR_TOOLTIP_FIELDS.forEach(([field, label]) => {
     const value = d[field];
-    if (isFiniteNumber(value)) lines.push(`${label}: $${value.toFixed(2)}`);
+    if (isFiniteNumber(value)) appendValue(label, value);
   });
-
-  return lines.join('<br/>');
 }
 
 export default function PriceChart({
@@ -253,20 +266,17 @@ export default function PriceChart({
         const d = valid[Math.min(i, valid.length - 1)];
         if (!d || !isFiniteNumber(d.close)) return;
 
-        const tooltipHtmlContent = tooltipHtml(d);
-        if (!tooltip.node() || !tooltipHtmlContent) return;
+        const tooltipNode = tooltip.node();
+        if (!tooltipNode) return;
 
         focus.style('display', null);
         focus.select('.x-line').attr('transform', `translate(${xScale(new Date(d.date))},0)`);
         focus.select('circle')
           .attr('cx', xScale(new Date(d.date)))
           .attr('cy', yScale(d.close!));
-        tooltip
-          .html(tooltipHtmlContent)
-          .style('display', 'block');
+        renderTooltip(tooltipNode, d);
+        tooltip.style('display', 'block');
 
-        const tooltipNode = tooltip.node();
-        if (!tooltipNode) return;
         const left = Math.min(
           event.clientX + 12,
           Math.max(0, window.innerWidth - tooltipNode.offsetWidth - 8),

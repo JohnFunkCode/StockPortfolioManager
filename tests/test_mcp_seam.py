@@ -208,7 +208,7 @@ class TestCompanyFundamentalsWrapper(unittest.TestCase):
 
             cfs.get_fundamental_scores_batch(["a", "b"])
             self.assertIn("scores-batch", rc.post.call_args[0][0])
-            self.assertEqual(rc.post.call_args[1]["json"], {"symbols": ["a", "b"]})
+            self.assertEqual(rc.post.call_args[1]["json"], {"symbols": ["A", "B"]})
 
             cfs.get_top_fundamental_stocks(n=5, min_coverage=0.7)
             self.assertIn("fundamentals/top", rc.get.call_args[0][0])

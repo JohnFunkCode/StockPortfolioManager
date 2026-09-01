@@ -122,6 +122,10 @@ isolation property** — the cheap, high-value side effects land before anything
    An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
    var must not silently disarm the alarm.
 
+   The fundamentals batch endpoint accepts at most 25 unique symbols. It trims, uppercases, and
+   deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
+   before provider/database work begins. Larger universes must be split across requests.
+
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),
 which the Raspberry Pi runs via `runOnPi.sh`. Two consequences worth keeping straight:

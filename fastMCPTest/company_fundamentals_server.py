@@ -27,6 +27,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 from fastmcp import FastMCP
 
 from mcp_gateway import rest_client
+from quantcore.services.batch_limits import normalize_symbol_batch
 
 logging.basicConfig(level=logging.INFO)
 
@@ -136,8 +137,9 @@ def get_fundamental_scores_batch(symbols: list[str]) -> dict:
     Args:
         symbols: List of ticker symbols (e.g. ['NVDA', 'AAPL', 'MSFT'])
     """
+    normalized = normalize_symbol_batch(symbols)
     return rest_client.post(
-        "/api/securities/fundamentals/scores-batch", json={"symbols": symbols}
+        "/api/securities/fundamentals/scores-batch", json={"symbols": normalized}
     )
 
 

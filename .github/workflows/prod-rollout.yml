@@ -194,7 +194,10 @@ jobs:
       - name: Update report Job image (prod)
         run: |
           gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \
-            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-report@$QUANTCORE_REPORT_DIGEST"
+            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-report@$QUANTCORE_REPORT_DIGEST" \
+            --task-timeout 1800s \
+            --max-retries 0 \
+            --update-env-vars REPORT_TASK_TIMEOUT_SECONDS=1800,FUNDAMENTALS_WARM_BUDGET_SECONDS=900
 
       - name: Deploy quantui (prod, image-only)
         # First prod deploy of quantui is MANUAL with full config (--iap,

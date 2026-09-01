@@ -17,6 +17,7 @@ take the *useful* side effects down with it" — is what issue #147 was about,
 and the warmer is exactly the kind of long-running step that would inherit it.
 """
 
+import math
 import os
 import sys
 import time
@@ -30,10 +31,13 @@ from quantcore.services.registry import get_services
 # Warming knobs, all env-overridable because the right values differ between a
 # laptop and a Cloud Run Job task with a hard timeout.
 WARM_BUDGET_SECONDS_ENV = "FUNDAMENTALS_WARM_BUDGET_SECONDS"
+REPORT_TASK_TIMEOUT_SECONDS_ENV = "REPORT_TASK_TIMEOUT_SECONDS"
 STALE_COVERAGE_FLOOR_ENV = "FUNDAMENTALS_STALE_COVERAGE_FLOOR"
 STALE_MAX_AGE_HOURS_ENV = "FUNDAMENTALS_STALE_MAX_AGE_HOURS"
 
-DEFAULT_WARM_BUDGET_SECONDS = 900.0   # 15 minutes
+DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
+WARM_DEADLINE_MARGIN_SECONDS = 60.0
+DEFAULT_WARM_BUDGET_SECONDS = 900.0   # 15 minutes, below the 30-minute task limit
 DEFAULT_STALE_COVERAGE_FLOOR = 0.80   # alarm below 80% of symbols inside the TTL
 DEFAULT_STALE_MAX_AGE_HOURS = 168.0   # ...or when anything is older than a week
 
@@ -48,11 +52,33 @@ def _env_float(name: str, default: float) -> float:
     if raw is None or not raw.strip():
         return default
     try:
-        return float(raw)
+        value = float(raw)
+        if value <= 0 or not math.isfinite(value):
+            raise ValueError
+        return value
     except ValueError:
         print(f"WARNING: {name}={raw!r} is not a number; using {default}.",
               file=sys.stderr)
-        return default
+    return default
+
+
+def _warm_budget_seconds(budget_seconds: float | None) -> float:
+    requested = (_env_float(WARM_BUDGET_SECONDS_ENV, DEFAULT_WARM_BUDGET_SECONDS)
+                 if budget_seconds is None else budget_seconds)
+    if requested <= 0 or not math.isfinite(requested):
+        print(f"WARNING: {WARM_BUDGET_SECONDS_ENV}={requested!r} is not a positive finite number; "
+              f"using {DEFAULT_WARM_BUDGET_SECONDS}.", file=sys.stderr)
+        requested = DEFAULT_WARM_BUDGET_SECONDS
+
+    task_timeout = _env_float(
+        REPORT_TASK_TIMEOUT_SECONDS_ENV, DEFAULT_REPORT_TASK_TIMEOUT_SECONDS
+    )
+    safe_limit = max(1.0, task_timeout - WARM_DEADLINE_MARGIN_SECONDS)
+    if requested > safe_limit:
+        print(f"WARNING: fundamentals warm budget {requested:.0f}s exceeds the report task "
+              f"deadline; clamping to {safe_limit:.0f}s.", file=sys.stderr)
+        return safe_limit
+    return requested
 
 
 def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
@@ -106,8 +132,7 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
     """
     # Resolved here rather than at the call site so every caller — including
     # run_fundamentals_warming, which passes nothing — honours the env var.
-    budget = _env_float(WARM_BUDGET_SECONDS_ENV, DEFAULT_WARM_BUDGET_SECONDS) \
-        if budget_seconds is None else budget_seconds
+    budget = _warm_budget_seconds(budget_seconds)
 
     before = fundamentals.cache_freshness(symbols)
     candidates = [row["symbol"] for row in before["symbols"] if row["stale"]]

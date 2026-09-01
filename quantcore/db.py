@@ -303,6 +303,20 @@ CREATE TABLE IF NOT EXISTS options_snapshots (
 CREATE INDEX IF NOT EXISTS idx_snapshots_symbol_time
     ON options_snapshots(symbol, captured_at DESC);
 
+CREATE TABLE IF NOT EXISTS options_capture_claims (
+    capture_id SERIAL PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    chain_type TEXT NOT NULL,
+    trading_day DATE NOT NULL,
+    claimed_at TEXT NOT NULL,
+    snapshot_id INTEGER UNIQUE,
+    UNIQUE(symbol, chain_type, trading_day),
+    FOREIGN KEY(snapshot_id) REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_options_capture_claims_day
+    ON options_capture_claims(symbol, trading_day DESC);
+
 CREATE TABLE IF NOT EXISTS options_expirations (
     expiration_id SERIAL PRIMARY KEY,
     snapshot_id INTEGER NOT NULL,

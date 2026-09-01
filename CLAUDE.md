@@ -114,7 +114,8 @@ isolation property** — the cheap, high-value side effects land before anything
 
    | Env var | Default | Meaning |
    |---|---|---|
-   | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass |
+   | `REPORT_TASK_TIMEOUT_SECONDS` | `1800` | report Job task deadline used to cap the warming pass |
+   | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass; capped 60 seconds before the task deadline |
    | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
    | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
 
@@ -240,7 +241,7 @@ services** — `HarvesterService` takes `portfolio_repository`, `PortfolioServic
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
 - **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 22 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences, e.g. the Sidekick chat model), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences, e.g. the Sidekick chat model), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 

@@ -28,6 +28,7 @@ import psycopg2
 import psycopg2.errors
 from contextlib import closing
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Optional
 
 from quantcore.db import get_connection, ensure_schema
@@ -64,6 +65,14 @@ class OptionsStore:
     @staticmethod
     def _now_utc() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def _trading_day(captured_at: str) -> str:
+        """Return the capture's calendar day in the US equity market timezone."""
+        value = captured_at.replace("Z", "+00:00")
+        return datetime.fromisoformat(value).astimezone(
+            ZoneInfo("America/New_York")
+        ).date().isoformat()
 
     # ------------------------------------------------------------------
     # Write
@@ -229,9 +238,24 @@ class OptionsStore:
         ts = captured_at or self._now_utc()
         symbol = symbol.upper()
         bb = bollinger_bands or {}
+        trading_day = self._trading_day(ts)
 
         with closing(self._get_connection()) as conn:
             try:
+                claim = conn.execute(
+                    """
+                    INSERT INTO options_capture_claims
+                        (symbol, chain_type, trading_day, claimed_at)
+                    VALUES (%s, 'full', %s, %s)
+                    ON CONFLICT (symbol, chain_type, trading_day) DO NOTHING
+                    RETURNING capture_id
+                    """,
+                    (symbol, trading_day, ts),
+                ).fetchone()
+                if claim is None:
+                    conn.rollback()
+                    return None
+
                 cur = conn.execute(
                     """
                     INSERT INTO options_snapshots
@@ -250,6 +274,14 @@ class OptionsStore:
                     ),
                 )
                 snapshot_id = cur.fetchone()[0]
+                conn.execute(
+                    """
+                    UPDATE options_capture_claims
+                       SET snapshot_id = %s
+                     WHERE capture_id = %s
+                    """,
+                    (snapshot_id, claim[0]),
+                )
             except psycopg2.errors.UniqueViolation:
                 conn.rollback()
                 return None

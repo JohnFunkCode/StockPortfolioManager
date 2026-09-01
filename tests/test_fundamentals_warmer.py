@@ -147,6 +147,28 @@ class WarmFundamentalsCacheTest(unittest.TestCase):
 
         self.assertEqual(summary["budget_seconds"], 60)
 
+    def test_budget_is_clamped_below_report_task_timeout(self):
+        self.fundamentals.cache_freshness.return_value = _freshness([])
+
+        with patch.dict("os.environ", {
+            main.REPORT_TASK_TIMEOUT_SECONDS_ENV: "120",
+        }, clear=False):
+            summary = main.warm_fundamentals_cache(
+                [], self.fundamentals, budget_seconds=120
+            )
+
+        self.assertEqual(summary["budget_seconds"], 60)
+
+    def test_invalid_budget_uses_safe_default(self):
+        self.fundamentals.cache_freshness.return_value = _freshness([])
+
+        with patch.dict("os.environ", {
+            main.WARM_BUDGET_SECONDS_ENV: "nan",
+        }, clear=False):
+            summary = main.warm_fundamentals_cache([], self.fundamentals)
+
+        self.assertEqual(summary["budget_seconds"], main.DEFAULT_WARM_BUDGET_SECONDS)
+
     def test_nothing_stale_means_no_fetches_at_all(self):
         self.fundamentals.cache_freshness.return_value = _freshness([("A", 10, False)])
 

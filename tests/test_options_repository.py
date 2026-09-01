@@ -53,6 +53,8 @@ class OptionsRepositoryTest(unittest.TestCase):
 
     def _purge(self):
         with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM options_capture_claims WHERE symbol = %s",
+                         (TEST_SYMBOL,))
             conn.execute("DELETE FROM options_snapshots WHERE symbol = %s",
                          (TEST_SYMBOL,))
             conn.execute("DELETE FROM gamma_wall_history WHERE symbol = %s",
@@ -94,6 +96,25 @@ class OptionsRepositoryTest(unittest.TestCase):
         )
         self.assertIsNotNone(sid)
         self.assertEqual(self.store.snapshot_count(TEST_SYMBOL), 1)
+
+    def test_full_chain_is_idempotent_for_a_market_day(self):
+        first = self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=101.0, bollinger_bands=None,
+            expirations_data=[], captured_at="2026-08-10T13:00:00Z",
+        )
+        second = self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=999.0, bollinger_bands=None,
+            expirations_data=[], captured_at="2026-08-10T20:00:00Z",
+        )
+        next_day = self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=102.0, bollinger_bands=None,
+            expirations_data=[], captured_at="2026-08-11T13:00:00Z",
+        )
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertIsNotNone(next_day)
+        self.assertEqual(self.store.snapshot_count(TEST_SYMBOL), 2)
 
     def test_symbols_dates_and_counts(self):
         self.seed(days_ago=2.0)

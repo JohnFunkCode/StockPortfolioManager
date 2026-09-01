@@ -576,6 +576,52 @@
         "ohlcv_pkey": "CREATE UNIQUE INDEX ohlcv_pkey ON public.ohlcv USING btree (symbol, \"interval\", ts)"
       }
     },
+    "options_capture_claims": {
+      "columns": {
+        "capture_id": {
+          "default": "nextval('options_capture_claims_capture_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "chain_type": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "claimed_at": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "snapshot_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "symbol": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "trading_day": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        }
+      },
+      "constraints": {
+        "options_capture_claims_pkey": "PRIMARY KEY (capture_id)",
+        "options_capture_claims_snapshot_id_fkey": "FOREIGN KEY (snapshot_id) REFERENCES options_snapshots(snapshot_id) ON DELETE CASCADE",
+        "options_capture_claims_snapshot_id_key": "UNIQUE (snapshot_id)",
+        "options_capture_claims_symbol_chain_type_trading_day_key": "UNIQUE (symbol, chain_type, trading_day)"
+      },
+      "indexes": {
+        "idx_options_capture_claims_day": "CREATE INDEX idx_options_capture_claims_day ON public.options_capture_claims USING btree (symbol, trading_day DESC)",
+        "options_capture_claims_pkey": "CREATE UNIQUE INDEX options_capture_claims_pkey ON public.options_capture_claims USING btree (capture_id)",
+        "options_capture_claims_snapshot_id_key": "CREATE UNIQUE INDEX options_capture_claims_snapshot_id_key ON public.options_capture_claims USING btree (snapshot_id)",
+        "options_capture_claims_symbol_chain_type_trading_day_key": "CREATE UNIQUE INDEX options_capture_claims_symbol_chain_type_trading_day_key ON public.options_capture_claims USING btree (symbol, chain_type, trading_day)"
+      }
+    },
     "options_contracts": {
       "columns": {
         "ask": {

@@ -133,26 +133,28 @@ class OiChangeDbTest(unittest.TestCase):
         self.assertEqual(day1_call_110[0]["open_interest"], 1000)
         self.assertEqual(float(day1_call_110[0]["underlying_price"]), 100.0)
 
-    def test_oi_timeseries_distinct_on_keeps_last_snapshot_of_day(self):
+    def test_oi_timeseries_uses_the_single_snapshot_claimed_for_the_day(self):
         store = self._store()
-        # Two snapshots the SAME day: 12:00 stale OI, 18:00 revised OI.
-        store.save_full_chain(
+        # A second same-day capture is rejected by the retry-safe claim.
+        first = store.save_full_chain(
             symbol=TEST_SYMBOL, price=100.0, bollinger_bands=None,
             expirations_data=_chain({120.0: 111}, {90.0: 222}),
             captured_at=f"{DAY1}T12:00:00Z",
         )
-        store.save_full_chain(
+        second = store.save_full_chain(
             symbol=TEST_SYMBOL, price=101.0, bollinger_bands=None,
             expirations_data=_chain({120.0: 333}, {90.0: 444}),
             captured_at=f"{DAY1}T18:00:00Z",
         )
 
         rows = store.get_oi_timeseries(TEST_SYMBOL, days=30)
-        self.assertEqual(len(rows), 2)  # one call + one put, deduped to 18:00
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(len(rows), 2)  # one call + one put
         by_kind = {r["kind"]: r for r in rows}
-        self.assertEqual(by_kind["call"]["open_interest"], 333)
-        self.assertEqual(by_kind["put"]["open_interest"], 444)
-        self.assertEqual(float(by_kind["call"]["underlying_price"]), 101.0)
+        self.assertEqual(by_kind["call"]["open_interest"], 111)
+        self.assertEqual(by_kind["put"]["open_interest"], 222)
+        self.assertEqual(float(by_kind["call"]["underlying_price"]), 100.0)
 
     def test_oi_timeseries_expiration_filter(self):
         store = self._store()

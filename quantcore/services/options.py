@@ -155,7 +155,7 @@ class OptionsService:
             "expirations":      [e["expiration"] for e in expirations_data],
             "snapshot_id":      snapshot_id,
             "persisted":        persisted,
-            "storage_warning":  None if persisted else "Snapshot was not inserted; a duplicate timestamp may already exist.",
+            "storage_warning":  None if persisted else "Snapshot was not inserted; a full-chain capture may already exist for this market day.",
         }
 
     def get_option_contracts(

@@ -297,7 +297,8 @@ behind anyway:
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass |
+| `REPORT_TASK_TIMEOUT_SECONDS` | `1800` | report Job task deadline used to cap the warming pass |
+| `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass; capped 60 seconds before the task deadline |
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest cache age |
 
@@ -778,7 +779,7 @@ The stock-price and options-analysis MCP servers both expose exact contract look
 **Tools:**
 - `get_option_contracts(symbol, expirations, strikes, kind="call")` — returns specific call or put contracts by expiration and strike, including bid, ask, mid, IV, volume, open interest, moneyness, and bid/ask spread percentage.
 - `price_vertical_spread(symbol, expiration, long_strike, short_strike, kind="call")` — prices a two-leg vertical spread using exact contracts. Returns conservative debit (`long ask - short bid`), mid-debit estimate, max profit, max loss, breakeven, risk/reward, leg details, liquidity label, cache source, and warnings.
-- `get_full_options_chain(symbol, max_expirations=None)` — still fetches and persists all strikes/all expirations (optionally capped via `max_expirations`), and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the database cache was updated. The daily job (`main.py`) calls this per portfolio/watchlist symbol so open-interest history accumulates for `get_oi_change_analysis`.
+- `get_full_options_chain(symbol, max_expirations=None)` — still fetches and persists all strikes/all expirations (optionally capped via `max_expirations`), and now reports `snapshot_id`, `persisted`, and `storage_warning` so callers know whether the database cache was updated. Full-chain captures are idempotent per symbol, chain type, and Eastern market day, so a job retry does not create another snapshot or its child rows. The daily job (`main.py`) calls this per portfolio/watchlist symbol so open-interest history accumulates for `get_oi_change_analysis`.
 
 **Data flow:**
 - Exact-contract tools use the latest full-chain database snapshot first.

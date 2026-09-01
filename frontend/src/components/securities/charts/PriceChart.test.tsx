@@ -4,9 +4,62 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import PriceChart from './PriceChart';
 import { indicatorRows } from '../../../testUtils';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  document.querySelector('#price-tooltip')?.remove();
+});
 
 describe('PriceChart', () => {
+  it('renders readable tooltip content for a hovered point', () => {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'price-tooltip';
+    document.body.appendChild(tooltip);
+
+    const { container } = render(<PriceChart data={indicatorRows(60)} />);
+    const overlay = container.querySelector('rect[pointer-events="all"]')!;
+    fireEvent.mouseMove(overlay, { clientX: 100, clientY: 100 });
+
+    expect(tooltip).toHaveTextContent('Close: $');
+    expect(tooltip).toHaveTextContent('MA50: $');
+    expect(tooltip).toHaveTextContent('BB upper: $');
+    expect(tooltip).toHaveStyle({ display: 'block' });
+  });
+
+  it('keeps the tooltip meaningful when indicator values are missing', () => {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'price-tooltip';
+    document.body.appendChild(tooltip);
+
+    const rows = indicatorRows(2).map((row) => ({
+      ...row,
+      ma30: null,
+      ma50: null,
+      ma200: null,
+      bb_upper: null,
+      bb_middle: null,
+      bb_lower: null,
+    }));
+    const { container } = render(<PriceChart data={rows} />);
+    const overlay = container.querySelector('rect[pointer-events="all"]')!;
+    fireEvent.mouseMove(overlay, { clientX: 100, clientY: 100 });
+
+    expect(tooltip).toHaveTextContent('Close: $');
+    expect(tooltip.textContent).not.toContain('undefined');
+    expect(tooltip).toHaveStyle({ display: 'block' });
+  });
+
+  it('does not show an empty tooltip when no close values are available', () => {
+    const tooltip = document.createElement('div');
+    tooltip.id = 'price-tooltip';
+    tooltip.style.display = 'none';
+    document.body.appendChild(tooltip);
+
+    const rows = indicatorRows(2).map((row) => ({ ...row, close: null }));
+    render(<PriceChart data={rows} />);
+
+    expect(tooltip).toHaveStyle({ display: 'none' });
+  });
+
   it('draws the close line and bands by default', () => {
     const { container } = render(<PriceChart data={indicatorRows(60)} />);
     const svg = container.querySelector('svg')!;
@@ -59,7 +112,7 @@ describe('PriceChart', () => {
     });
 
     expect(tooltip.style.left).toBe('112px');
-    expect(tooltip.style.top).toBe('22px');
+    expect(tooltip.style.top).toBe('38px');
     expect(tooltip.innerHTML).toContain('Close: <strong>$');
     expect(tooltip.innerHTML).toContain('MA50: $');
     expect(tooltip.innerHTML).toContain('MA200: $');

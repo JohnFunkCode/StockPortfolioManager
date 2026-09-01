@@ -17,7 +17,7 @@
 #
 # The owner_identities write targets QUANTCORE_TEST_DB_DSN for the test
 # project, or QUANTCORE_DB_DSN (the default DSN) for prod — both read from
-# .env, same convention as .claude/with-test-db.sh. The corresponding Cloud
+# .env, same convention as scripts/with-test-db.sh. The corresponding Cloud
 # SQL Auth Proxy tunnel must already be running locally (5433=prod, 5434=test).
 #
 set -euo pipefail

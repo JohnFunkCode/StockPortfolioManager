@@ -1,0 +1,41 @@
+-- V10: drop two superseded indexes that came back on prod (#259).
+--
+-- Both were dropped by earlier migrations -- idx_positions_owner_symbol_date by
+-- V4, ux_one_active_plan_per_symbol by V7 -- and both are present on prod
+-- anyway. Neither is a stale-but-harmless perf index: both are UNIQUE, so each
+-- one enforces an invariant that the migration dropping it had just decided was
+-- wrong.
+--
+-- How they came back is the #165 two-owners problem leaving a physical artifact.
+-- `_SCHEMA` in quantcore/db.py created both, and init_schema() ran on EVERY
+-- application startup while prod resolved to schema mode `create`. Any image
+-- built before the commit that turned those CREATEs into DROPs, starting up
+-- after the migration had run, re-created what the migration had just removed.
+-- Test never had that exposure; prod did.
+--
+-- This cannot self-heal. Prod now resolves auto -> verify and runs no DDL at
+-- startup, so the DROPs already sitting in `_SCHEMA` will never execute against
+-- prod again. The removal has to arrive as a migration.
+--
+-- Per decision D6 in docs/proposals/schema-ownership-plan.md (prod reality wins:
+-- add a NEW migration, never edit an applied one) -- which is what the
+-- SchemaDriftError message itself instructs.
+--
+-- Both statements are no-ops on any database that never resurrected them
+-- (test, CI, compose, a fresh instance), which is why this is safe to apply
+-- everywhere rather than to prod alone.
+
+-- V4 (#126 PR 3) dropped this because it forbids #126's own split rule: a
+-- partial sale creates a second lot with the SAME owner/symbol/date as its
+-- parent, and a UNIQUE (owner, symbol_id, purchase_date) rejects the second
+-- lot. It bites only where purchase_date is non-NULL -- NULLs are distinct in a
+-- btree -- which is why 11 of prod's 12 rows have hidden it so far.
+DROP INDEX IF EXISTS idx_positions_owner_symbol_date;
+
+-- V7 (#147 Part H1) dropped this when plan ownership arrived: uniqueness moved
+-- to (owner, symbol_id), so two owners may each run a ladder on the same
+-- ticker. While the single-column index survives, the second owner's
+-- POST /api/plans fails on a unique violation naming an index that is not
+-- supposed to exist. ux_one_active_plan_per_owner_symbol is already in place
+-- and keeps enforcing the correct invariant throughout.
+DROP INDEX IF EXISTS ux_one_active_plan_per_symbol;

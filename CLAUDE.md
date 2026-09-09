@@ -398,11 +398,12 @@ own signing keypair + OAuth client (standalone projects can't auto-provision one
 `scripts/attach_quantui_iap_oauth.sh`).
 
 **Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
-filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and image-only-rolls it onto
-the **test** `quantui` service automatically (IAP/secret/env config preserved). Verify on the test
+filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and rolls it onto
+the **test** `quantui` service automatically (IAP/secret/env config preserved; CPU/memory
+re-asserted from the workflow's sizing env block — see **Cloud Run sizing** below). Verify on the test
 URL, then promote to **prod** by manually dispatching `prod-rollout.yml` (`workflow_dispatch`) with
-the commit's 7-char SHA — it copies the image **by digest** test→prod and image-only-deploys prod
-`quantui`. Prod is never auto-deployed.
+the commit's 7-char SHA — it copies the image **by digest** test→prod and deploys prod
+`quantui` the same way. Prod is never auto-deployed.
 
 **Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
 (1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`
@@ -441,7 +442,8 @@ Anthropic API key; the backend never holds a usable key at rest.
   `QUANTCORE_JWT_PUBLIC_KEY` + legacy HS256 service/MCP tokens via `QUANTCORE_JWT_SECRET`).
 - **Deploy wiring:** `Dockerfile.keyproxy`; compose service `keyproxy:5002` (ephemeral or
   persistent dev keypair via `runUI-CONTAINERS.sh`); `cloudbuild.yaml` `build-keyproxy`;
-  `deploy.yml` image-only-deploys test `quantcore-keyproxy` (skips if the service doesn't exist);
+  `deploy.yml` deploys test `quantcore-keyproxy` (image + pinned sizing; skips if the service
+  doesn't exist);
   `prod-rollout.yml` promotes/deploys it by digest the same way. First deploy in each project is
   the manual packet-8b runbook (secrets `keyproxy-private-key`, `quantui-signing-key`/`-pub`;
   private keys are piped straight into Secret Manager, never printed). Gitleaks secret-scanning
@@ -452,6 +454,30 @@ Anthropic API key; the backend never holds a usable key at rest.
   `api/auth.py` used `QUANTCORE_JWT_PUBLIC_KEY` as an HMAC secret and broke all HS256 tokens);
   the CI deployer needs `roles/iam.serviceAccountUser` on `keyproxy-runtime@` (granted in both
   projects).
+
+### Cloud Run sizing (pinned in CI, single home)
+
+**CPU and memory for every Cloud Run *service* live in the sizing env block at the top of
+`.github/workflows/deploy.yml` and `.github/workflows/prod-rollout.yml`** (`API_CPU`/`API_MEMORY`,
+`MCP_CPU`/`MCP_MEMORY`/`MCP_MEMORY_LITE`, `UI_*`, `KEYPROXY_*`), and every `gcloud run deploy` in
+those workflows passes them — so each roll-out **re-asserts** the shape rather than inheriting
+whatever the service happens to hold. Change the values there, not with a one-off
+`gcloud run services update`, or the next deploy reverts you. The two files must agree. Deploys
+remain image-only for env/secrets/Cloud-SQL/IAP bindings; sizing is the one shape carried in the
+repo. The `quantcore-report` **Job** is not covered (it is `jobs update`, not `run deploy`).
+
+Two constraints are load-bearing — both were learned the expensive way (2026-09-09, full record in
+[`prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md) row P11):
+
+- **CPU stays at 1 everywhere and must not be lowered.** Cloud Run rejects `Total cpu < 1 is not
+  supported with concurrency > 1`, and every service here runs at concurrency 80+. Dropping
+  concurrency to buy 0.5 vCPU would cost *more*: the wrappers hold 900s MCP sessions, so one
+  session per instance means more instances.
+- **`quantcore-api` stays 2 CPU / 4Gi deliberately.** Its *mean* memory utilization is ~6% — the
+  number the console shows — but its p99 peak is **58% of 4Gi** on full options chains at
+  concurrency 160, recurring daily. Halving it is an OOM, not a tight fit; the mean is the wrong
+  metric for a memory ceiling.
+
 
 ### Environments (prod is the system of record)
 

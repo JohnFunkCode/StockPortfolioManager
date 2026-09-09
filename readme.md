@@ -490,12 +490,13 @@ key/secret pair and its own custom OAuth client.
 1. **Edit** under `frontend/` and open a PR against `main`.
 2. **Merge to `main`.** This triggers `.github/workflows/deploy.yml` (no path filters, so any push to
    `main` qualifies). The `gate` job runs tests + smoke; then `cloudbuild.yaml`'s `build-ui` step
-   builds `quantcore-ui:<sha>` and the **Deploy quantui** step image-only-rolls it onto the **test**
-   service (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys).
+   builds `quantcore-ui:<sha>` and the **Deploy quantui** step rolls it onto the **test**
+   service (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys; CPU/memory
+   come from the workflow's pinned sizing env block).
 3. **Verify on test** — open the test URL above in the browser, confirm the data grids populate.
 4. **Promote to prod** — run the **`prod-rollout`** GitHub Action (`workflow_dispatch`) with that
    commit's 7-char SHA as `image_tag`. It copies the validated image **by digest** test→prod and
-   image-only-deploys the prod `quantui` service. Prod is **never** auto-deployed; it requires this
+   deploys the prod `quantui` service the same way. Prod is **never** auto-deployed; it requires this
    manual, reviewer-gated dispatch.
 
 > Note: because `deploy.yml` has no path filters, *any* push to `main` (not just `frontend/` changes)

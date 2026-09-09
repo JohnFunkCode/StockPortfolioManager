@@ -57,6 +57,32 @@ env:
   REGION: us-central1
   AR_REPO: quantcore
   MCP_REQUEST_TIMEOUT: 900s
+  # Cloud Run sizing, pinned so every roll-out RE-ASSERTS it (2026-09-09).
+  #
+  # These values used to live only as live Cloud Run config from each service's manual
+  # first deploy, which meant a `--set-*` slip or a service recreate could silently
+  # revert them with nothing in the repo to notice. Deploys here stay image-only for
+  # env/secrets/Cloud-SQL bindings; sizing is the one shape we now carry explicitly.
+  #
+  # The 7 wrappers were downsized after 14 days of utilization data (<1% mean CPU,
+  # ~6% mean memory). CPU stays at 1 EVERYWHERE and must not be lowered: Cloud Run
+  # rejects <1 vCPU while containerConcurrency > 1, and every service here runs at 80+
+  # ("Total cpu < 1 is not supported with concurrency > 1"). Dropping concurrency to
+  # buy 0.5 vCPU would cost more, not less — the wrappers hold 900s MCP sessions, so
+  # one session per instance means more instances.
+  #
+  # quantcore-api stays 2 CPU / 4Gi DELIBERATELY. Its mean memory is ~6% but its peak
+  # is 58% of 4Gi (~2.4GiB, full options chains at concurrency 160), so halving it to
+  # 2Gi is an OOM, not a tight fit. The mean is the number that hides this.
+  API_CPU: "2"
+  API_MEMORY: 4Gi
+  MCP_CPU: "1"
+  MCP_MEMORY: 512Mi
+  MCP_MEMORY_LITE: 256Mi # portfolio + arbitrage — the two thinnest wrappers
+  UI_CPU: "1"
+  UI_MEMORY: 512Mi
+  KEYPROXY_CPU: "1"
+  KEYPROXY_MEMORY: 512Mi
 
 jobs:
   gate:
@@ -148,9 +174,10 @@ jobs:
             echo "$key=$DIGEST" >> "$GITHUB_ENV"
           done
 
-      - name: Deploy quantcore-api (prod, image-only)
+      - name: Deploy quantcore-api (prod, image + sizing)
         run: |
           gcloud run deploy quantcore-api --project "$PROD_PROJECT" --region "$REGION" \
+            --cpu "$API_CPU" --memory "$API_MEMORY" \
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-api@$QUANTCORE_API_DIGEST"
 
       - name: Deploy the 5 wrappers (shared prod mcp image; per-service env preserved)
@@ -158,10 +185,11 @@ jobs:
           for s in stock-price options-analysis company-fundamentals news-sentiment market-analysis; do
             gcloud run deploy "quantcore-$s" --project "$PROD_PROJECT" --region "$REGION" \
               --timeout "$MCP_REQUEST_TIMEOUT" \
+              --cpu "$MCP_CPU" --memory "$MCP_MEMORY" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           done
 
-      - name: Deploy quantcore-arbitrage (prod, image-only)
+      - name: Deploy quantcore-arbitrage (prod, image + sizing)
         # Not in the loop above: that loop has no existence guard, and this
         # service's first prod deploy is a manual one-time creation
         # (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007). Skip until
@@ -170,12 +198,13 @@ jobs:
           if gcloud run services describe quantcore-arbitrage --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-arbitrage --project "$PROD_PROJECT" --region "$REGION" \
               --timeout "$MCP_REQUEST_TIMEOUT" \
+              --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           else
             echo "quantcore-arbitrage not found in prod — first deploy is a manual one-time step; skipping."
           fi
 
-      - name: Deploy quantcore-portfolio (prod, image-only)
+      - name: Deploy quantcore-portfolio (prod, image + sizing)
         # Same shape and same reason as the arbitrage step above: outside the
         # unguarded loop because this service's first prod deploy is a manual
         # one-time creation (SERVER_MODULE=fastMCPTest.portfolio_server,
@@ -186,6 +215,7 @@ jobs:
           if gcloud run services describe quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" \
               --timeout "$MCP_REQUEST_TIMEOUT" \
+              --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           else
             echo "quantcore-portfolio not found in prod — first deploy is a manual one-time step; skipping."
@@ -199,16 +229,17 @@ jobs:
             --max-retries 0 \
             --update-env-vars REPORT_TASK_TIMEOUT_SECONDS=1800,FUNDAMENTALS_WARM_BUDGET_SECONDS=900
 
-      - name: Deploy quantui (prod, image-only)
+      - name: Deploy quantui (prod, image + sizing)
         # First prod deploy of quantui is MANUAL with full config (--iap,
         # --no-allow-unauthenticated, QUANTCORE_REST_URL, quantui-api-token secret) — see
         # quantui-iap-plan.md Step 8. This image-only redeploy preserves that config, like
         # the api/wrappers above; it only runs once the service already exists.
         run: |
           gcloud run deploy quantui --project "$PROD_PROJECT" --region "$REGION" \
+            --cpu "$UI_CPU" --memory "$UI_MEMORY" \
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-ui@$QUANTCORE_UI_DIGEST"
 
-      - name: Deploy quantcore-keyproxy (prod, image-only)
+      - name: Deploy quantcore-keyproxy (prod, image + sizing)
         # First prod deploy is the manual packet-8b runbook (dedicated runtime SA,
         # keyproxy-private-key + quantui-signing-pub secrets, IAM-locked invoker).
         # Image-only redeploys preserve that config. Skips while the digest wasn't
@@ -218,6 +249,7 @@ jobs:
             echo "no promoted keyproxy digest for this tag — skipping."
           elif gcloud run services describe quantcore-keyproxy --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-keyproxy --project "$PROD_PROJECT" --region "$REGION" \
+              --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-keyproxy@$QUANTCORE_KEYPROXY_DIGEST"
           else
             echo "quantcore-keyproxy service not found in prod — first deploy is the manual packet-8b runbook; skipping."

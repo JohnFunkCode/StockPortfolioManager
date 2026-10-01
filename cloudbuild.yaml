@@ -104,9 +104,7 @@ steps:
       - --build-arg
       - VITE_KEYPROXY_SPKI_PINS=${_VITE_KEYPROXY_SPKI_PINS}
       - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
       - frontend
@@ -131,6 +129,8 @@ images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}

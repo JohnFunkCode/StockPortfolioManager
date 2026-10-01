@@ -509,6 +509,30 @@ class OptionsStore:
             )
             conn.commit()
 
+    def capture_counts(self, day: str) -> dict:
+        """How many symbols each daily dataset holds for market day ``day`` (YYYY-MM-DD).
+
+        Full-chain snapshots are counted off ``options_capture_claims`` (keyed on
+        the Eastern market day); gamma-wall and GEX rows are keyed on
+        ``date_only``, which is the UTC date of the write. The daily job runs
+        at 17:00 ET, where the two dates agree.
+        """
+        with closing(self._get_connection()) as conn:
+            chains = conn.execute(
+                "SELECT COUNT(DISTINCT symbol) AS n FROM options_capture_claims "
+                "WHERE chain_type = 'full' AND trading_day = %s AND snapshot_id IS NOT NULL",
+                (day,),
+            ).fetchone()["n"]
+            gamma = conn.execute(
+                "SELECT COUNT(DISTINCT symbol) AS n FROM gamma_wall_history WHERE date_only = %s",
+                (day,),
+            ).fetchone()["n"]
+            gex = conn.execute(
+                "SELECT COUNT(DISTINCT symbol) AS n FROM gex_history WHERE date_only = %s",
+                (day,),
+            ).fetchone()["n"]
+        return {"chains": chains, "gamma_wall": gamma, "gex": gex}
+
     def get_gex_history(self, symbol: str, since_days: int = 90) -> list[dict]:
         """
         Return daily GEX summaries for `symbol` over the past `since_days` days,

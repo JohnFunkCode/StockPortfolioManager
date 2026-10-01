@@ -461,6 +461,46 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_capture_gap_alert(self, problems: list[str]) -> None:
+        """Last-resort alarm for options-capture datasets that fell short.
+
+        The capture steps swallow their own failures so the job's notifications
+        are never held hostage, which means a night that captured nothing exits
+        0 like any other. This is what makes that visible. The date is in the
+        title on purpose: send_notifications() dedupes on the title, and a gap
+        that lasts a week should alarm each day.
+        """
+        embed = {
+            "content": f"Capture Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"Daily options capture has gaps ({date.today():%Y-%m-%d})",
+                    "description": "\n".join(f"- {p}" for p in problems),
+                    "color": 16776960,  # Yellow — degraded, not failed
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
+    def send_news_gap_alert(self, problems: list[str]) -> None:
+        """Last-resort alarm for the nightly news/sentiment collection job.
+
+        Same shape and same reason as ``send_capture_gap_alert``: the job
+        swallows per-symbol failures, so a night that collected nothing still
+        exits 0. The date is in the title so a multi-day gap alarms daily.
+        """
+        embed = {
+            "content": f"News Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"Daily news collection has gaps ({date.today():%Y-%m-%d})",
+                    "description": "\n".join(f"- {p}" for p in problems),
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_notifications(self, embed):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 

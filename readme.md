@@ -311,6 +311,30 @@ behind anyway:
 | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass; capped 60 seconds before the task deadline |
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest cache age |
+| `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the daily options-chain capture |
+| `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the daily gamma-wall/GEX recording |
+| `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer of the universe's chains landed today |
+| `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more of a step's attempts failed |
+
+The job does nothing on days the NYSE is closed (weekends and holidays), notifications included.
+
+### The news collector job
+
+`news_job.py` is a separate Cloud Run Job (`quantcore-news`, built from `Dockerfile.news`) that
+collects headlines and scores them with FinBERT for the tracked universe (watchlist plus every
+owner's positions). It is its own image because FinBERT needs `requirements-ml.txt` (torch), which
+the lean report image deliberately omits, and so scoring can never delay notifications. It skips
+closed-market days, isolates failures per symbol, scores unscored articles once at the end, and
+sends one Discord alarm if the failure rate, the budget, or scoring went wrong.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `NEWS_TASK_TIMEOUT_SECONDS` | `1800` | Job task deadline used to cap the collection budget |
+| `NEWS_COLLECT_BUDGET_SECONDS` | `900` | wall-clock budget for collection; capped 60 seconds before the deadline |
+| `NEWS_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of symbols failed |
+
+The Job and its Cloud Scheduler entry are created by hand once per project; until then the
+`deploy.yml` / `prod-rollout.yml` news steps skip cleanly.
 
 ### The legacy HTML report
 

@@ -126,13 +126,42 @@ isolation property** — the cheap, high-value side effects land before anything
    | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass; capped 60 seconds before the task deadline |
    | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
    | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
+   | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
+   | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
+   | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the universe's chains landed today |
+   | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed |
 
    An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
    var must not silently disarm the alarm.
 
+   **Closed-market days and the capture tail.** `main.py` exits 0 before doing anything on a day
+   the NYSE is closed (`is_trading_day`, holidays computed from rules in
+   `quantcore/analytics/market_time.py` — no calendar dependency; Cloud Scheduler fires Mon–Fri, so
+   this guard is for weekday holidays). Notifications are skipped too, deliberately. After
+   notifications, `run_capture_tail` runs the options capture, then `record_gamma_and_gex` (the only
+   scheduled caller of `get_delta_adjusted_oi`/`get_gex_profile`, so `gamma_wall_history` and
+   `gex_history` accumulate daily; its walk rotates with the date so a budget that can't cover the
+   universe still visits everyone over a few nights), then `check_capture_health`. The health check
+   reads what actually **landed in the database** (`OptionsService.capture_counts`) rather than
+   trusting the loop's own tally, and sends one Discord alarm (`send_capture_gap_alert`) on low
+   chain coverage, a high failure rate, or an exhausted capture budget. Every step budget is
+   clamped to what is left of the task deadline (`_remaining_budget`), so budgets can't add up past
+   the timeout. The tail is wrapped in an outer `try/except` that never raises.
+
    The fundamentals batch endpoint accepts at most 25 unique symbols. It trims, uppercases, and
    deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
    before provider/database work begins. Larger universes must be split across requests.
+
+The job exits immediately on NYSE-closed days (`is_trading_day`), notifications included.
+
+**News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
+`Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image
+must not carry — and so a slow scoring pass cannot delay the notifications. Per-symbol try/except,
+a shared wall-clock budget, one `score_unscored` pass at the end (so a truncated collection is still
+scored), and one Discord alarm (`send_news_gap_alert`) on a high failure rate, an exhausted budget
+or a scoring error. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800), `NEWS_COLLECT_BUDGET_SECONDS` (900),
+`NEWS_FAILURE_CEILING` (0.50). The Job and its Cloud Scheduler entry are **manual one-time infra**
+per project; `deploy.yml` and `prod-rollout.yml` skip the news step until the Job exists.
 
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),

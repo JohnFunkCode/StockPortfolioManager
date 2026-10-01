@@ -1,8 +1,8 @@
 # Dockerfile.report — the daily QuantCore job (main.py).
 #
 # main.py sends the Discord notifications (price/moving-average breaches and
-# Harvester rung hits), captures the daily options chains, and warms the
-# fundamentals cache, calling the services layer IN-PROCESS (never the REST
+# Harvester rung hits), captures the daily options chains, records gamma-wall/GEX, and warms the
+# fundamentals cache (all skipped on NYSE-closed days), calling the services layer IN-PROCESS (never the REST
 # tier — Rule 6 / anti-pattern 5). It reads John's positions and the shared
 # watchlist from the DB and fetches prices. Since issue #147 it no longer
 # renders the HTML report — that is scripts/generate_portfolio_report.py, run

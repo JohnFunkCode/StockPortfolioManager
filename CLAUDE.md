@@ -159,8 +159,10 @@ The job exits immediately on NYSE-closed days (`is_trading_day`), notifications 
 must not carry — and so a slow scoring pass cannot delay the notifications. Per-symbol try/except,
 a shared wall-clock budget, one `score_unscored` pass at the end (so a truncated collection is still
 scored), and one Discord alarm (`send_news_gap_alert`) on a high failure rate, an exhausted budget
-or a scoring error. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800), `NEWS_COLLECT_BUDGET_SECONDS` (900),
-`NEWS_FAILURE_CEILING` (0.50). The Job and its Cloud Scheduler entry are **manual one-time infra**
+a scoring error, or **empty sources** (both fetchers returned nothing for more than the ceiling of
+symbols, once enough were attempted — fetchers swallow their own errors, so "collected" alone
+only means no exception; issue #275). Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
+`NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **manual one-time infra**
 per project; `deploy.yml` and `prod-rollout.yml` skip the news step until the Job exists.
 
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to

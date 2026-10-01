@@ -8,15 +8,19 @@ import news_job
 
 
 class FakeSentiment:
-    def __init__(self, fail=(), scored=3, score_raises=False, new=2):
+    def __init__(self, fail=(), scored=3, score_raises=False, new=2, fetched=None):
         self.fail, self.scored, self.score_raises, self.new = set(fail), scored, score_raises, new
+        self.fetched = fetched
         self.calls, self.score_calls = [], 0
 
     def collect_news(self, sym, score=True):
         self.calls.append((sym, score))
         if sym in self.fail:
             raise RuntimeError("boom")
-        return {"new_articles": self.new}
+        out = {"new_articles": self.new}
+        if self.fetched is not None:
+            out["fetched_articles"] = self.fetched
+        return out
 
     def score_unscored(self, limit=200):
         self.score_calls += 1
@@ -68,6 +72,18 @@ class CollectNewsTest(unittest.TestCase):
         self.assertEqual(out["score_error"], "RuntimeError")
 
 
+class EmptyFetchTest(unittest.TestCase):
+    def test_zero_fetched_counts_as_empty_but_unknown_does_not(self):
+        out = news_job.collect_news(["A", "B"], FakeSentiment(fetched=0), budget_seconds=100)
+        self.assertEqual((out["collected"], out["empty"]), (2, 2))
+        out = news_job.collect_news(["A", "B"], FakeSentiment(), budget_seconds=100)
+        self.assertEqual(out["empty"], 0)
+
+    def test_dedup_to_zero_new_is_not_empty(self):
+        out = news_job.collect_news(["A"], FakeSentiment(new=0, fetched=12), budget_seconds=100)
+        self.assertEqual((out["new_articles"], out["empty"]), (0, 0))
+
+
 class HealthTest(unittest.TestCase):
     def summary(self, **kw):
         base = {"requested": 10, "attempted": 10, "collected": 10, "new_articles": 5,
@@ -87,6 +103,28 @@ class HealthTest(unittest.TestCase):
             self.summary(failed=8, budget_exhausted=True, score_error="X"), n, 0.5)
         self.assertEqual(len(problems), 3)
         self.assertEqual(len(n.sent), 1)
+
+    def test_alarms_when_sources_return_nothing(self):
+        n = FakeNotifier()
+        problems = news_job.check_news_health(self.summary(empty=10), n, 0.5, 0.9)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("returned nothing", problems[0])
+        self.assertEqual(len(n.sent), 1)
+
+    def test_a_few_empty_symbols_stay_silent(self):
+        n = FakeNotifier()
+        self.assertEqual(news_job.check_news_health(self.summary(empty=5), n, 0.5, 0.9), [])
+
+    def test_tiny_runs_do_not_trip_the_empty_alarm(self):
+        n = FakeNotifier()
+        s = self.summary(requested=3, attempted=3, collected=3, empty=3)
+        self.assertEqual(news_job.check_news_health(s, n, 0.5, 0.9), [])
+
+    def test_min_attempts_is_tunable_from_the_environment(self):
+        n = FakeNotifier()
+        s = self.summary(requested=3, attempted=3, collected=3, empty=3)
+        with mock.patch.dict("os.environ", {news_job.EMPTY_MIN_ATTEMPTS_ENV: "3"}):
+            self.assertEqual(len(news_job.check_news_health(s, n, 0.5, 0.9)), 1)
 
     def test_dead_webhook_does_not_raise(self):
         n = FakeNotifier()

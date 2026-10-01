@@ -332,6 +332,8 @@ sends one Discord alarm if the failure rate, the budget, or scoring went wrong.
 | `NEWS_TASK_TIMEOUT_SECONDS` | `1800` | Job task deadline used to cap the collection budget |
 | `NEWS_COLLECT_BUDGET_SECONDS` | `900` | wall-clock budget for collection; capped 60 seconds before the deadline |
 | `NEWS_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of symbols failed |
+| `NEWS_EMPTY_CEILING` | `0.90` | alarm when more than this fraction of symbols got no articles from any source (needs `NEWS_EMPTY_MIN_ATTEMPTS`) |
+| `NEWS_EMPTY_MIN_ATTEMPTS` | `10` | fewest symbols attempted before the empty-source alarm can fire |
 
 The Job and its Cloud Scheduler entry are created by hand once per project; until then the
 `deploy.yml` / `prod-rollout.yml` news steps skip cleanly.

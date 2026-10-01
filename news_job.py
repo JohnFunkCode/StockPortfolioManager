@@ -31,10 +31,13 @@ from quantcore.services.registry import get_services
 TASK_TIMEOUT_ENV = "NEWS_TASK_TIMEOUT_SECONDS"
 BUDGET_ENV = "NEWS_COLLECT_BUDGET_SECONDS"
 FAILURE_CEILING_ENV = "NEWS_FAILURE_CEILING"
+EMPTY_CEILING_ENV = "NEWS_EMPTY_CEILING"
 DEFAULT_TASK_TIMEOUT_SECONDS = 1800.0
 DEFAULT_BUDGET_SECONDS = 900.0
 DEADLINE_MARGIN_SECONDS = 60.0
 DEFAULT_FAILURE_CEILING = 0.50
+DEFAULT_EMPTY_CEILING = 0.90
+MIN_ATTEMPTS_FOR_EMPTY_ALARM = 10
 SCORE_LIMIT = 500
 
 
@@ -68,7 +71,7 @@ def collect_news(symbols, sentiment, budget_seconds=None, clock=time.monotonic) 
     budget = _budget_seconds(budget_seconds)
     started = clock()
     summary = {"requested": len(symbols), "attempted": 0, "collected": 0,
-               "new_articles": 0, "failed": 0, "failures": [], "scored": 0,
+               "new_articles": 0, "empty": 0, "failed": 0, "failures": [], "scored": 0,
                "budget_exhausted": False, "budget_seconds": budget}
     for sym in symbols:
         if clock() - started >= budget:
@@ -79,6 +82,9 @@ def collect_news(symbols, sentiment, budget_seconds=None, clock=time.monotonic) 
             result = sentiment.collect_news(sym, score=False)
             summary["collected"] += 1
             summary["new_articles"] += int(result.get("new_articles") or 0)
+            # None = the service could not say; only an explicit 0 counts as empty
+            if result.get("fetched_articles") == 0:
+                summary["empty"] += 1
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not stop the walk
             summary["failed"] += 1
             summary["failures"].append(f"{sym}: {type(exc).__name__}")
@@ -92,8 +98,10 @@ def collect_news(symbols, sentiment, budget_seconds=None, clock=time.monotonic) 
     return summary
 
 
-def check_news_health(summary, notifier, failure_ceiling=None) -> list[str]:
-    """Alarm on a high failure rate, an exhausted budget, or a scoring failure."""
+def check_news_health(summary, notifier, failure_ceiling=None, empty_ceiling=None) -> list[str]:
+    """Alarm on a high failure rate, an exhausted budget, a scoring failure, or
+    sources that quietly return nothing (#275 — the fetchers swallow their own
+    errors, so a dead feed looks like a clean run)."""
     ceiling = (_env_float(FAILURE_CEILING_ENV, DEFAULT_FAILURE_CEILING)
                if failure_ceiling is None else failure_ceiling)
     problems: list[str] = []
@@ -101,6 +109,14 @@ def check_news_health(summary, notifier, failure_ceiling=None) -> list[str]:
         problems.append(
             f"News collection: {summary['failed']} of {summary['attempted']} "
             f"symbols failed (ceiling {ceiling:.0%}).")
+    empty = summary.get("empty", 0)
+    empty_limit = (_env_float(EMPTY_CEILING_ENV, DEFAULT_EMPTY_CEILING)
+                   if empty_ceiling is None else empty_ceiling)
+    if (summary["attempted"] >= MIN_ATTEMPTS_FOR_EMPTY_ALARM
+            and empty / summary["attempted"] > empty_limit):
+        problems.append(
+            f"News sources returned nothing for {empty} of {summary['attempted']} "
+            f"symbols (ceiling {empty_limit:.0%}) — the feed may be dead (#275).")
     if summary["budget_exhausted"]:
         problems.append(
             f"News collection ran out of its {summary['budget_seconds']:.0f}s budget "
@@ -108,7 +124,7 @@ def check_news_health(summary, notifier, failure_ceiling=None) -> list[str]:
     if summary.get("score_error"):
         problems.append(f"FinBERT scoring raised {summary['score_error']}.")
     print(f"News health: {summary['collected']}/{summary['requested']} collected, "
-          f"{summary['new_articles']} new, {summary['scored']} scored, "
+          f"{summary['new_articles']} new, {empty} empty, {summary['scored']} scored, "
           f"{len(problems)} problem(s).")
     if problems:
         for line in problems:

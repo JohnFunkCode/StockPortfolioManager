@@ -175,7 +175,8 @@ def _fetch_rss(symbol: str) -> list[dict]:
         feed = feedparser.parse(content)
     except Exception as exc:
         # RSS feed may be unavailable or Yahoo Finance changed the endpoint
-        log.debug("RSS feed unavailable for %s (%s) — falling back to yfinance only", symbol, type(exc).__name__)
+        # warning, not debug: the feed returned 404 for months and nobody saw it (#275)
+        log.warning("RSS feed unavailable for %s (%s) — falling back to yfinance only", symbol, type(exc).__name__)
         return []
 
     # If feed.bozo is set, log the error but try to parse what we got
@@ -287,6 +288,9 @@ class NewsCollector:
                  gateway: Optional[YFinanceGateway] = None) -> None:
         self.store = store or NewsStore()
         self.gateway = gateway or YFinanceGateway()
+        # symbol -> articles *fetched* on the last collect() (before dedup), so a
+        # caller can tell "nothing new" from "the sources returned nothing" (#275)
+        self.last_fetched: dict[str, int] = {}
 
     def collect(self, symbols: list[str], score: bool = True) -> dict[str, int]:
         """
@@ -310,6 +314,7 @@ class NewsCollector:
 
             inserted = self.store.save_articles(sym, all_articles)
             totals[sym] = inserted
+            self.last_fetched[sym] = len(all_articles)
             log.info("%s: %d new article(s) stored (RSS=%d, yfinance=%d)",
                      sym, inserted, len(rss_articles), len(yf_articles))
 
@@ -395,6 +400,7 @@ class SentimentService:
         return {
             "symbol":            sym,
             "new_articles":      new_count,
+            "fetched_articles":  self._collector.last_fetched.get(sym),
             "total_articles":    self._news.article_count(sym),
             "rss_available":     rss_ok,
             "finbert_available": finbert_ok,

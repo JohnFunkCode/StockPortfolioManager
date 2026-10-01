@@ -34,3 +34,9 @@ after #147 and #234. Decisions, as settled with John:
   `tests/test_options_repository.py::test_capture_counts_*` was only syntax-checked there; the
   same sandbox accounts for the other DB-test failures in a local full run. CI is the first
   real run.
+- **"collected" meant "no exception", not "got articles".** Both news fetchers catch their own
+  errors and return `[]`, so a dead feed looked like success: the first test smoke run reported
+  230/230 collected, 0 new, and the test DB's newest article was 3.5 months old (issue #275).
+  The Job now counts a symbol as *empty* when nothing was fetched and alarms on the empty
+  fraction (`NEWS_EMPTY_CEILING`); RSS failures log at `warning`. Restoring collection itself is
+  tracked in #275.

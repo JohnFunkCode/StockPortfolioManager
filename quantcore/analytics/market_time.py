@@ -3,7 +3,9 @@
 the OHLCV persistence layer (bar OPEN/CLOSED classification at write time) and
 PricesService (fetch-when-stale policy). All functions accept an injectable
 ``now`` for deterministic tests. US equities regular session only; not
-holiday-aware (same approximation the system has always used).
+holiday-aware for the *regular-hours* helpers (same approximation the system
+has always used); ``is_trading_day`` / ``nyse_holidays`` are the full-day
+holiday calendar, used by the daily job to skip closed days.
 """
 from __future__ import annotations
 
@@ -84,3 +86,74 @@ def latest_completed_session(now: datetime.datetime | None = None) -> datetime.d
     while session.weekday() >= 5:
         session -= datetime.timedelta(days=1)
     return session
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> datetime.date:
+    """The n-th (1-based) given weekday of a month; n=-1 means the last one."""
+    if n > 0:
+        first = datetime.date(year, month, 1)
+        offset = (weekday - first.weekday()) % 7
+        return first + datetime.timedelta(days=offset + 7 * (n - 1))
+    nxt = datetime.date(year + (month == 12), month % 12 + 1, 1)
+    last = nxt - datetime.timedelta(days=1)
+    return last - datetime.timedelta(days=(last.weekday() - weekday) % 7)
+
+
+def _easter(year: int) -> datetime.date:
+    """Gregorian Easter Sunday (anonymous Gregorian algorithm)."""
+    a, b, c = year % 19, year // 100, year % 100
+    d, e = b // 4, b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i, k = c // 4, c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = (h + l - 7 * m + 114) % 31 + 1
+    return datetime.date(year, month, day)
+
+
+def _observed(day: datetime.date) -> datetime.date | None:
+    """NYSE observance: Saturday -> Friday, Sunday -> Monday."""
+    if day.weekday() == 5:
+        return day - datetime.timedelta(days=1)
+    if day.weekday() == 6:
+        return day + datetime.timedelta(days=1)
+    return day
+
+
+def nyse_holidays(year: int) -> set[datetime.date]:
+    """Full-day NYSE closures falling inside ``year``.
+
+    Computed from the published rules rather than a vendored table so the job
+    cannot silently run out of calendar. Not covered: one-off closures (national
+    days of mourning, weather); a run on such a day just captures what Yahoo
+    serves, which is the pre-existing behaviour.
+    """
+    days: set[datetime.date] = {
+        _nth_weekday(year, 1, 0, 3),                           # MLK Day
+        _nth_weekday(year, 2, 0, 3),                           # Presidents Day
+        _easter(year) - datetime.timedelta(days=2),            # Good Friday
+        _nth_weekday(year, 5, 0, -1),                          # Memorial Day
+        _observed(datetime.date(year, 7, 4)),                  # Independence Day
+        _nth_weekday(year, 9, 0, 1),                           # Labor Day
+        _nth_weekday(year, 11, 3, 4),                          # Thanksgiving
+        _observed(datetime.date(year, 12, 25)),                # Christmas
+    }
+    if year >= 2022:
+        days.add(_observed(datetime.date(year, 6, 19)))        # Juneteenth
+    # New Year's Day: a Saturday Jan 1 is NOT observed on the prior Friday
+    # (that Friday falls in the previous year and the NYSE stays open).
+    jan1 = datetime.date(year, 1, 1)
+    if jan1.weekday() == 6:
+        days.add(datetime.date(year, 1, 2))
+    elif jan1.weekday() != 5:
+        days.add(jan1)
+    return {d for d in days if d.year == year}
+
+
+def is_trading_day(day: datetime.date | None = None) -> bool:
+    """True when the NYSE holds a regular session on ``day`` (default: today ET)."""
+    day = day or market_date()
+    return day.weekday() < 5 and day not in nyse_holidays(day.year)

@@ -338,6 +338,17 @@ jobs:
             --task-timeout 1800s \
             --max-retries 0 \
             --update-env-vars REPORT_TASK_TIMEOUT_SECONDS=1800,FUNDAMENTALS_WARM_BUDGET_SECONDS=900
+      - name: Update news Job image
+        run: |
+          if gcloud run jobs describe quantcore-news --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+            gcloud run jobs update quantcore-news --project "$PROJECT_ID" --region "$REGION" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-news:${GITHUB_SHA::7}" \
+              --task-timeout 1800s \
+              --max-retries 0 \
+              --update-env-vars NEWS_TASK_TIMEOUT_SECONDS=1800,NEWS_COLLECT_BUDGET_SECONDS=900
+          else
+            echo "quantcore-news job not found — first create is a manual one-time step; skipping image roll-out."
+          fi
       - name: Deploy quantui (image + sizing; IAP + secret + REST URL preserved)
         # quantui's FIRST deploy is the manual --iap step (see quantui-iap-plan.md Step 5),
         # which also sets --no-allow-unauthenticated, the QUANTCORE_API_TOKEN secret, and

@@ -11,8 +11,10 @@ import pytz
 from quantcore.analytics.market_time import (
     ET,
     is_market_open,
+    is_trading_day,
     latest_completed_session,
     market_date,
+    nyse_holidays,
     period_to_days,
 )
 
@@ -108,6 +110,36 @@ class TestPeriodToDays(unittest.TestCase):
     def test_case_insensitive_and_default(self):
         self.assertEqual(period_to_days("1Y"), 365)
         self.assertEqual(period_to_days("bogus"), 182)
+
+
+class NyseCalendarTest(unittest.TestCase):
+    D = datetime.date
+
+    def test_known_2026_holidays_are_closed(self):
+        for d in [self.D(2026, 1, 1), self.D(2026, 1, 19), self.D(2026, 2, 16),
+                  self.D(2026, 4, 3),    # Good Friday
+                  self.D(2026, 5, 25), self.D(2026, 6, 19),
+                  self.D(2026, 7, 3),    # July 4 is a Saturday -> Friday
+                  self.D(2026, 9, 7), self.D(2026, 11, 26), self.D(2026, 12, 25)]:
+            self.assertFalse(is_trading_day(d), d)
+
+    def test_ordinary_weekday_is_open_and_weekend_is_closed(self):
+        self.assertTrue(is_trading_day(self.D(2026, 7, 2)))
+        self.assertFalse(is_trading_day(self.D(2026, 7, 4)))
+        self.assertFalse(is_trading_day(self.D(2026, 7, 5)))
+
+    def test_new_years_saturday_is_not_observed_on_prior_friday(self):
+        # Jan 1 2022 was a Saturday: NYSE stayed open Friday Dec 31 2021.
+        self.assertNotIn(self.D(2021, 12, 31), nyse_holidays(2021))
+        self.assertTrue(is_trading_day(self.D(2021, 12, 31)))
+
+    def test_juneteenth_only_from_2022(self):
+        self.assertNotIn(self.D(2021, 6, 18), nyse_holidays(2021))
+        self.assertIn(self.D(2022, 6, 20), nyse_holidays(2022))
+
+    def test_good_friday_follows_easter(self):
+        self.assertIn(self.D(2025, 4, 18), nyse_holidays(2025))
+        self.assertIn(self.D(2027, 3, 26), nyse_holidays(2027))
 
 
 if __name__ == "__main__":

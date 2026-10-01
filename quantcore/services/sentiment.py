@@ -400,6 +400,10 @@ class SentimentService:
             "finbert_available": finbert_ok,
         }
 
+    def score_unscored(self, limit: int = 200) -> int:
+        """FinBERT-score stored articles that have no sentiment yet (nightly job)."""
+        return self._collector.score_unscored(limit=limit)
+
     def get_news_sentiment(self, symbol: str, days: int = 7,
                            scored_only: bool = False) -> dict:
         """Recent articles + aggregate sentiment signal for a symbol."""

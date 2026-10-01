@@ -11,6 +11,7 @@
 #   quantcore-api       FastAPI front door + services in-process (carries FinBERT/torch)
 #   quantcore-mcp       the shared thin MCP wrapper image
 #   quantcore-report    main.py once-and-exit (Cloud Run Job)
+#   quantcore-news      news_job.py once-and-exit (Cloud Run Job; FinBERT/torch)
 #   quantcore-ui        React/Vite SPA + /api proxy (built from the frontend/ context)
 #   quantcore-keyproxy  BYOK key-redemption proxy (lean FastAPI, keyproxy/ only)
 #
@@ -66,6 +67,19 @@ steps:
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:latest
       - .
 
+  # --- news collector (Dockerfile.news) ---
+  - name: gcr.io/cloud-builders/docker
+    id: build-news
+    args:
+      - build
+      - -f
+      - Dockerfile.news
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
+      - .
+
   # --- report (Dockerfile.report) ---
   - name: gcr.io/cloud-builders/docker
     id: build-report
@@ -90,7 +104,9 @@ steps:
       - --build-arg
       - VITE_KEYPROXY_SPKI_PINS=${_VITE_KEYPROXY_SPKI_PINS}
       - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
       - frontend

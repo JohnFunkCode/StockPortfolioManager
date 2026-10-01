@@ -303,7 +303,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | Script | Purpose | Status |
 |---|---|---|
 | `fastMCPTest/options_analysis.py` | Covered-call/put/long screening — hybrid CLI + MCP server (5 tools) | Active |
-| `main.py` | Daily HTML report + S3 upload + Discord alerts + harvest scan | Active — prod Cloud Run Job |
+| `main.py` | Daily job: Discord alerts + harvest scan, budgeted options-chain capture, gamma-wall/GEX recording, fundamentals warming, capture-gap alarm; skips closed-market days (HTML report moved to `scripts/generate_portfolio_report.py`, #147) | Active — prod Cloud Run Job |
 | `scripts/generate_watchlist_fundamentals_report.py` | Watchlist returns + fundamentals HTML report | Active |
 | `scripts/import_portfolio.py` | Per-owner CSV → `positions` table (full-sync replace) | Active |
 | `scripts/mint_prod_jwt.py` | Mint 90-day prod JWTs for MCP clients | Active — ops |

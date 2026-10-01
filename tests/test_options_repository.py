@@ -12,6 +12,7 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
+from quantcore.analytics.market_time import market_date  # noqa: E402
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.options_repository import OptionsStore  # noqa: E402
 
@@ -171,6 +172,25 @@ class OptionsRepositoryTest(unittest.TestCase):
         self.assertEqual(len(rows), 1)                  # one row per calendar day
         self.assertEqual(float(rows[0]["price"]), 104.0)
         self.assertEqual(float(rows[0]["gamma_wall_strike"]), 110.0)
+
+    def test_capture_counts_sees_chain_and_gamma_rows_for_the_day(self):
+        # The test DB may hold other symbols' rows, so assert on the delta.
+        # Chains are keyed on the Eastern market day, gamma on the UTC date; the
+        # two differ late in the evening, so ask each question with its own key.
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        et_day = market_date().isoformat()
+        before = self.store.capture_counts(today)
+        before_et = self.store.capture_counts(et_day)
+        self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=101.0, bollinger_bands=None,
+            expirations_data=[], captured_at=iso(0),
+        )
+        self.store.save_gamma_wall(TEST_SYMBOL, self.daoi_result(price=100.0))
+        after = self.store.capture_counts(today)
+        after_et = self.store.capture_counts(et_day)
+        self.assertEqual(after_et["chains"], before_et["chains"] + 1)
+        self.assertEqual(after["gamma_wall"], before["gamma_wall"] + 1)
+        self.assertEqual(after["gex"], before["gex"])
 
     def test_gamma_wall_history_empty_for_unknown_symbol(self):
         self.assertEqual(self.store.get_gamma_wall_history("ZZNOWALL"), [])

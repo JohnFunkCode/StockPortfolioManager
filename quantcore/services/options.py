@@ -904,6 +904,10 @@ class OptionsService:
         self._options.save_gex_summary(symbol.upper(), result)
         return result
 
+    def capture_counts(self, day: str) -> dict:
+        """Symbols captured per daily dataset on market day ``day`` (job health check)."""
+        return self._options.capture_counts(day)
+
     def get_gex_history(self, symbol: str, since_days: int = 90) -> dict:
         symbol = symbol.upper().strip()
         rows = self._options.get_gex_history(symbol, since_days)

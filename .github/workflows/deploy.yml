@@ -141,6 +141,8 @@ jobs:
         run: python scripts/check_openapi_snapshot.py
       - name: Schema snapshot up to date
         run: python scripts/check_schema_snapshot.py
+      - name: cloudbuild.yaml is a valid build config
+        run: python scripts/check_cloudbuild.py
 
   # The gate above installs requirements-dev.txt (base + report), but the
   # containers — and prod-rollout.yml's own gate — run on requirements-base.txt

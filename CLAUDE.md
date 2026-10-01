@@ -640,3 +640,8 @@ until it's green. It needs a Postgres service despite being import-only, because
 builds the app at module level and that calls `ensure_schema()`. It deliberately does not run the
 tests — the `gate` job already does, and a second full execution would cost minutes to answer a
 question about imports.
+
+The `gate` job also runs **`scripts/check_cloudbuild.py`**, which parses `cloudbuild.yaml` and
+checks every `quantcore-*` image a step builds is listed in `images:` (and vice versa). Without it
+the first reader of that file is `gcloud builds submit` *after* merge — a mis-indented `images:`
+line reached `main` once and blocked the test roll-out.

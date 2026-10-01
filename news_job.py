@@ -32,12 +32,13 @@ TASK_TIMEOUT_ENV = "NEWS_TASK_TIMEOUT_SECONDS"
 BUDGET_ENV = "NEWS_COLLECT_BUDGET_SECONDS"
 FAILURE_CEILING_ENV = "NEWS_FAILURE_CEILING"
 EMPTY_CEILING_ENV = "NEWS_EMPTY_CEILING"
+EMPTY_MIN_ATTEMPTS_ENV = "NEWS_EMPTY_MIN_ATTEMPTS"
 DEFAULT_TASK_TIMEOUT_SECONDS = 1800.0
 DEFAULT_BUDGET_SECONDS = 900.0
 DEADLINE_MARGIN_SECONDS = 60.0
 DEFAULT_FAILURE_CEILING = 0.50
 DEFAULT_EMPTY_CEILING = 0.90
-MIN_ATTEMPTS_FOR_EMPTY_ALARM = 10
+DEFAULT_EMPTY_MIN_ATTEMPTS = 10
 SCORE_LIMIT = 500
 
 
@@ -98,31 +99,52 @@ def collect_news(symbols, sentiment, budget_seconds=None, clock=time.monotonic) 
     return summary
 
 
+def _failure_problem(summary, failure_ceiling=None):
+    ceiling = (_env_float(FAILURE_CEILING_ENV, DEFAULT_FAILURE_CEILING)
+               if failure_ceiling is None else failure_ceiling)
+    if summary["attempted"] and summary["failed"] / summary["attempted"] > ceiling:
+        return (f"News collection: {summary['failed']} of {summary['attempted']} "
+                f"symbols failed (ceiling {ceiling:.0%}).")
+    return None
+
+
+def _empty_source_problem(summary, empty_ceiling=None):
+    """Both fetchers swallow their errors, so a dead feed looks like a clean run (#275).
+    Needs a minimum number of attempts so a tiny run cannot trip it."""
+    limit = (_env_float(EMPTY_CEILING_ENV, DEFAULT_EMPTY_CEILING)
+             if empty_ceiling is None else empty_ceiling)
+    min_attempts = _env_float(EMPTY_MIN_ATTEMPTS_ENV, DEFAULT_EMPTY_MIN_ATTEMPTS)
+    attempted, empty = summary["attempted"], summary.get("empty", 0)
+    if attempted and attempted >= min_attempts and empty / attempted > limit:
+        return (f"News sources returned nothing for {empty} of {attempted} "
+                f"symbols (ceiling {limit:.0%}) — the feed may be dead (#275).")
+    return None
+
+
+def _budget_problem(summary):
+    if summary["budget_exhausted"]:
+        return (f"News collection ran out of its {summary['budget_seconds']:.0f}s budget "
+                f"after {summary['attempted']} of {summary['requested']} symbols.")
+    return None
+
+
+def _scoring_problem(summary):
+    if summary.get("score_error"):
+        return f"FinBERT scoring raised {summary['score_error']}."
+    return None
+
+
 def check_news_health(summary, notifier, failure_ceiling=None, empty_ceiling=None) -> list[str]:
     """Alarm on a high failure rate, an exhausted budget, a scoring failure, or
     sources that quietly return nothing (#275 — the fetchers swallow their own
     errors, so a dead feed looks like a clean run)."""
-    ceiling = (_env_float(FAILURE_CEILING_ENV, DEFAULT_FAILURE_CEILING)
-               if failure_ceiling is None else failure_ceiling)
-    problems: list[str] = []
-    if summary["attempted"] and summary["failed"] / summary["attempted"] > ceiling:
-        problems.append(
-            f"News collection: {summary['failed']} of {summary['attempted']} "
-            f"symbols failed (ceiling {ceiling:.0%}).")
+    problems = [p for p in (
+        _failure_problem(summary, failure_ceiling),
+        _empty_source_problem(summary, empty_ceiling),
+        _budget_problem(summary),
+        _scoring_problem(summary),
+    ) if p]
     empty = summary.get("empty", 0)
-    empty_limit = (_env_float(EMPTY_CEILING_ENV, DEFAULT_EMPTY_CEILING)
-                   if empty_ceiling is None else empty_ceiling)
-    if (summary["attempted"] >= MIN_ATTEMPTS_FOR_EMPTY_ALARM
-            and empty / summary["attempted"] > empty_limit):
-        problems.append(
-            f"News sources returned nothing for {empty} of {summary['attempted']} "
-            f"symbols (ceiling {empty_limit:.0%}) — the feed may be dead (#275).")
-    if summary["budget_exhausted"]:
-        problems.append(
-            f"News collection ran out of its {summary['budget_seconds']:.0f}s budget "
-            f"after {summary['attempted']} of {summary['requested']} symbols.")
-    if summary.get("score_error"):
-        problems.append(f"FinBERT scoring raised {summary['score_error']}.")
     print(f"News health: {summary['collected']}/{summary['requested']} collected, "
           f"{summary['new_articles']} new, {empty} empty, {summary['scored']} scored, "
           f"{len(problems)} problem(s).")

@@ -120,6 +120,12 @@ class HealthTest(unittest.TestCase):
         s = self.summary(requested=3, attempted=3, collected=3, empty=3)
         self.assertEqual(news_job.check_news_health(s, n, 0.5, 0.9), [])
 
+    def test_min_attempts_is_tunable_from_the_environment(self):
+        n = FakeNotifier()
+        s = self.summary(requested=3, attempted=3, collected=3, empty=3)
+        with mock.patch.dict("os.environ", {news_job.EMPTY_MIN_ATTEMPTS_ENV: "3"}):
+            self.assertEqual(len(news_job.check_news_health(s, n, 0.5, 0.9)), 1)
+
     def test_dead_webhook_does_not_raise(self):
         n = FakeNotifier()
         n.send_news_gap_alert = mock.Mock(side_effect=RuntimeError("down"))

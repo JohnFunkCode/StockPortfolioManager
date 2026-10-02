@@ -212,6 +212,40 @@ class TestTickerInfoTimeoutIsRealWallClock(unittest.TestCase):
             self.assertTrue(t.daemon, "abandoned yfinance worker is not a daemon")
 
 
+class TestNews(unittest.TestCase):
+    """news() reads yf.Search because Ticker.news returns [] silently (#275)."""
+
+    def run_news(self, items, symbol="AAPL"):
+        with patch.object(gw_mod.yf, "Search") as search:
+            search.return_value.news = items
+            out = YFinanceGateway().news(symbol)
+        return out, search
+
+    def test_uses_search_not_ticker_news(self):
+        out, search = self.run_news([{"title": "a", "relatedTickers": ["AAPL"]}])
+        search.assert_called_once_with("AAPL", news_count=10)
+        self.assertEqual(len(out), 1)
+
+    def test_drops_items_about_other_companies(self):
+        out, _ = self.run_news([
+            {"title": "mine", "relatedTickers": ["AAPL", "MSFT"]},
+            {"title": "theirs", "relatedTickers": ["TSLA"]},
+        ])
+        self.assertEqual([i["title"] for i in out], ["mine"])
+
+    def test_match_is_case_insensitive_and_missing_related_is_kept(self):
+        out, _ = self.run_news([
+            {"title": "lower", "relatedTickers": ["aapl"]},
+            {"title": "unknown"},
+            {"title": "empty", "relatedTickers": []},
+        ])
+        self.assertEqual(len(out), 3)
+
+    def test_empty_search_returns_empty_list(self):
+        out, _ = self.run_news(None)
+        self.assertEqual(out, [])
+
+
 class FastTicker:
     @property
     def info(self):

@@ -163,9 +163,24 @@ class YFinanceGateway:
         """Option chain (calls/puts DataFrames) for one expiration."""
         return yf.Ticker(symbol).option_chain(expiration)
 
-    def news(self, symbol: str) -> list:
-        """Recent news items for a symbol (raw yfinance dicts)."""
-        return yf.Ticker(symbol).news
+    def news(self, symbol: str, count: int = 10) -> list:
+        """Recent news items for a symbol, as flat ``yf.Search`` dicts.
+
+        ``Ticker.news`` (and Yahoo's RSS feed) return nothing any more, with no
+        error, so this reads ``yf.Search(...).news`` instead (issue #275). Search
+        is a text match, so it also returns stories about other companies; items
+        whose ``relatedTickers`` do not include the symbol are dropped. An item
+        with no ``relatedTickers`` at all is kept — absence is not a mismatch.
+        """
+        wanted = symbol.upper()
+        items = yf.Search(symbol, news_count=count).news or []
+        kept = []
+        for item in items:
+            related = item.get("relatedTickers")
+            if related and wanted not in {str(t).upper() for t in related}:
+                continue
+            kept.append(item)
+        return kept
 
     def info(self, symbol: str) -> dict:
         """Raw ticker.info without the watchdog timeout.

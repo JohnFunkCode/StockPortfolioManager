@@ -325,7 +325,9 @@ collects headlines and scores them with FinBERT for the tracked universe (watchl
 owner's positions). It is its own image because FinBERT needs `requirements-ml.txt` (torch), which
 the lean report image deliberately omits, and so scoring can never delay notifications. It skips
 closed-market days, isolates failures per symbol, scores unscored articles once at the end, and
-sends one Discord alarm if the failure rate, the budget, or scoring went wrong.
+sends one Discord alarm if the failure rate, the budget, or scoring went wrong. Headlines come from
+`yf.Search(symbol).news` (filtered to items that list the symbol in `relatedTickers`); Yahoo's RSS
+feed and `Ticker.news` no longer return anything.
 
 | Env var | Default | Meaning |
 |---|---|---|

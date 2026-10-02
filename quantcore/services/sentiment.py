@@ -258,6 +258,9 @@ def _fetch_yfinance_news(symbol: str, gateway: YFinanceGateway) -> list[dict]:
         provider_obj = content.get("provider")
         if isinstance(provider_obj, dict):
             provider = provider_obj.get("displayName") or provider
+        elif item.get("publisher"):
+            # Flat yf.Search shape
+            provider = item["publisher"]
 
         articles.append({
             "title":        (content.get("title") or item.get("title") or "").strip(),
@@ -455,16 +458,28 @@ class SentimentService:
 
         articles = []
         for item in raw[:max_articles]:
-            content = item.get("content", {})
-            title   = content.get("title", "")
+            content = item.get("content") or {}
+            title   = content.get("title") or item.get("title") or ""
             summary = content.get("summary", "")
+
+            # Nested ``content`` is the old Ticker.news shape; the flat shape is
+            # what yf.Search returns (title/publisher/link/providerPublishTime).
+            published = content.get("pubDate", "")
+            if not published and item.get("providerPublishTime"):
+                try:
+                    published = datetime.fromtimestamp(
+                        int(item["providerPublishTime"]), tz=timezone.utc).isoformat()
+                except (TypeError, ValueError, OSError):
+                    published = ""
 
             article = {
                 "title":     title,
-                "publisher": content.get("provider", {}).get("displayName", ""),
-                "published": content.get("pubDate", ""),
+                "publisher": (content.get("provider") or {}).get("displayName")
+                             or item.get("publisher") or "",
+                "published": published,
                 "summary":   summary,
-                "url":       content.get("canonicalUrl", {}).get("url", ""),
+                "url":       (content.get("canonicalUrl") or {}).get("url")
+                             or item.get("link") or "",
             }
 
             if finbert_available:

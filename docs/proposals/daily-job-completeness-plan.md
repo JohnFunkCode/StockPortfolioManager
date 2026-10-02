@@ -38,5 +38,8 @@ after #147 and #234. Decisions, as settled with John:
   errors and return `[]`, so a dead feed looked like success: the first test smoke run reported
   230/230 collected, 0 new, and the test DB's newest article was 3.5 months old (issue #275).
   The Job now counts a symbol as *empty* when nothing was fetched and alarms on the empty
-  fraction (`NEWS_EMPTY_CEILING`); RSS failures log at `warning`. Restoring collection itself is
-  tracked in #275.
+  fraction (`NEWS_EMPTY_CEILING`); RSS failures log at `warning`. `Ticker.news` returns `[]` (even on
+  yfinance 1.7.0) and the RSS endpoint 404s, but `yf.Search(sym, news_count=10).news` works, so
+  `YFinanceGateway.news` now uses it. Search is a text match and returns stories about other
+  companies, hence the `relatedTickers` filter; coverage of non-US tickers is uneven (VWS.CO
+  returned 0). Cloud Run egress still to be confirmed by a test-Job run (#275).

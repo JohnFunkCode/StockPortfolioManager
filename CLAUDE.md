@@ -161,7 +161,9 @@ a shared wall-clock budget, one `score_unscored` pass at the end (so a truncated
 scored), and one Discord alarm (`send_news_gap_alert`) on a high failure rate, an exhausted budget
 a scoring error, or **empty sources** (both fetchers returned nothing for more than the ceiling of
 symbols, once enough were attempted — fetchers swallow their own errors, so "collected" alone
-only means no exception; issue #275). Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
+only means no exception; issue #275). The yfinance source is `YFinanceGateway.news`, which reads
+`yf.Search(symbol).news` filtered by `relatedTickers` — `Ticker.news` and Yahoo's RSS feed both
+return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
 `NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **manual one-time infra**
 per project; `deploy.yml` and `prod-rollout.yml` skip the news step until the Job exists.
 

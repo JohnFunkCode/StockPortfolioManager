@@ -104,6 +104,23 @@ class TestFetchYfinanceNews(unittest.TestCase):
         self.assertEqual(out[0]["url"], "https://example.com/legacy")
         self.assertTrue(out[0]["published_at"].startswith("2025-06-15"))
 
+    def test_search_shaped_payload(self):
+        gateway = Mock()
+        gateway.news.return_value = [{
+            "uuid": "u1",
+            "title": "Apple ships thing",
+            "publisher": "Barron's",
+            "link": "https://example.com/search1",
+            "providerPublishTime": 1_750_000_000,
+            "relatedTickers": ["AAPL"],
+        }]
+        out = _fetch_yfinance_news("AAPL", gateway)
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["title"], "Apple ships thing")
+        self.assertEqual(out[0]["publisher"], "Barron's")
+        self.assertEqual(out[0]["url"], "https://example.com/search1")
+        self.assertTrue(out[0]["published_at"].startswith("2025-06-15"))
+
     def test_urlless_items_skipped_and_gateway_errors_swallowed(self):
         gateway = Mock()
         gateway.news.return_value = [{"content": {"title": "no url"}}]
@@ -239,6 +256,18 @@ class TestGetNews(SentimentServiceTestBase):
         self.assertEqual(out["articles"][0]["publisher"], "Bloomberg")
         self.assertNotIn("sentiment_summary", out)
         self.assertIn("sentiment_note", out)
+
+    def test_search_shaped_items_are_read_from_the_flat_fields(self):
+        self.yf.news.return_value = [{
+            "title": "Flat headline", "publisher": "Barron's",
+            "link": "https://example.com/flat", "providerPublishTime": 1_750_000_000,
+        }]
+        with finbert_pinned(False):
+            art = self.service.get_news("INTC")["articles"][0]
+        self.assertEqual(art["title"], "Flat headline")
+        self.assertEqual(art["publisher"], "Barron's")
+        self.assertEqual(art["url"], "https://example.com/flat")
+        self.assertTrue(art["published"].startswith("2025-06-15"))
 
     def test_with_finbert_builds_the_summary(self):
         self.yf.news.return_value = [NEW_STYLE_ITEM, NEW_STYLE_ITEM]

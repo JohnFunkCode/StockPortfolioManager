@@ -205,6 +205,40 @@ def _fetch_rss(symbol: str) -> list[dict]:
     return articles
 
 
+def _unix_to_iso(ts) -> str | None:
+    """Unix seconds -> ISO-8601 UTC, or None if it will not parse."""
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
+    except (TypeError, ValueError, OSError):
+        return None
+
+
+def _news_item_url(item: dict, content: dict) -> str:
+    """Article URL from the nested (old) shape, else the flat yf.Search shape."""
+    click_url = content.get("clickThroughUrl") or {}
+    url = click_url.get("url") if isinstance(click_url, dict) else ""
+    return url or item.get("link") or item.get("url") or ""
+
+
+def _news_item_published(item: dict, content: dict) -> str | None:
+    """ISO publish time from ``content.pubDate`` (ISO string or Unix), else the
+    flat ``providerPublishTime`` / ``published`` Unix field."""
+    pub_date = content.get("pubDate")
+    if pub_date:
+        published = pub_date if isinstance(pub_date, str) else _unix_to_iso(pub_date)
+        if published:
+            return published
+    ts = item.get("providerPublishTime") or item.get("published")
+    return _unix_to_iso(ts) if ts else None
+
+
+def _news_item_provider(item: dict, content: dict) -> str:
+    provider_obj = content.get("provider")
+    if isinstance(provider_obj, dict) and provider_obj.get("displayName"):
+        return provider_obj["displayName"]
+    return item.get("publisher") or "Yahoo Finance"
+
+
 def _fetch_yfinance_news(symbol: str, gateway: YFinanceGateway) -> list[dict]:
     """
     Fetch recent news items from yfinance as a supplementary source.
@@ -218,56 +252,16 @@ def _fetch_yfinance_news(symbol: str, gateway: YFinanceGateway) -> list[dict]:
 
     articles = []
     for item in raw:
-        # yfinance API structure: top level has 'id', content nested under 'content' key
         content = item.get("content") or {}
-
-        # Extract URL from clickThroughUrl or fall back to older structure
-        url = ""
-        click_url = content.get("clickThroughUrl") or {}
-        if isinstance(click_url, dict):
-            url = click_url.get("url") or ""
-        if not url:
-            # Fallback for older yfinance versions
-            url = item.get("link") or item.get("url") or ""
+        url = _news_item_url(item, content)
         if not url:
             continue
-
-        # Extract published timestamp
-        published_at = None
-        pub_date = content.get("pubDate")
-        if pub_date:
-            try:
-                # Handle ISO format or Unix timestamp
-                if isinstance(pub_date, str):
-                    published_at = pub_date
-                else:
-                    published_at = datetime.fromtimestamp(int(pub_date), tz=timezone.utc).isoformat()
-            except Exception:
-                pass
-
-        if not published_at:
-            ts = item.get("providerPublishTime") or item.get("published")
-            if ts:
-                try:
-                    published_at = datetime.fromtimestamp(int(ts), tz=timezone.utc).isoformat()
-                except Exception:
-                    pass
-
-        # Extract provider
-        provider = "Yahoo Finance"
-        provider_obj = content.get("provider")
-        if isinstance(provider_obj, dict):
-            provider = provider_obj.get("displayName") or provider
-        elif item.get("publisher"):
-            # Flat yf.Search shape
-            provider = item["publisher"]
-
         articles.append({
             "title":        (content.get("title") or item.get("title") or "").strip(),
             "url":          url.strip(),
             "summary":      content.get("summary") or None,
-            "publisher":    provider,
-            "published_at": published_at,
+            "publisher":    _news_item_provider(item, content),
+            "published_at": _news_item_published(item, content),
             "source":       "yfinance",
         })
     return articles
@@ -461,22 +455,11 @@ class SentimentService:
             content = item.get("content") or {}
             title   = content.get("title") or item.get("title") or ""
             summary = content.get("summary", "")
-
-            # Nested ``content`` is the old Ticker.news shape; the flat shape is
-            # what yf.Search returns (title/publisher/link/providerPublishTime).
-            published = content.get("pubDate", "")
-            if not published and item.get("providerPublishTime"):
-                try:
-                    published = datetime.fromtimestamp(
-                        int(item["providerPublishTime"]), tz=timezone.utc).isoformat()
-                except (TypeError, ValueError, OSError):
-                    published = ""
-
             article = {
                 "title":     title,
                 "publisher": (content.get("provider") or {}).get("displayName")
                              or item.get("publisher") or "",
-                "published": published,
+                "published": _news_item_published(item, content) or "",
                 "summary":   summary,
                 "url":       (content.get("canonicalUrl") or {}).get("url")
                              or item.get("link") or "",

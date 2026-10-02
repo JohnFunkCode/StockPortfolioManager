@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytz
 
+from quantcore.analytics.market_time import market_date  # noqa: E402
 from quantcore.services.options_screening import (  # noqa: E402
     OptionsScreeningService,
     OptionsSummary,
@@ -170,14 +171,14 @@ class TestEarningsProximity(FetchTestBase):
         self.assertEqual(self.service.fetch_earnings_proximity("INTC", now=evening), 1)
 
     def test_dataframe_calendar(self):
-        earn = date.today() + timedelta(days=10)
+        earn = market_date() + timedelta(days=10)
         self.yf.calendar.return_value = pd.DataFrame(
             {0: [pd.Timestamp(earn)]}, index=["Earnings Date"]
         )
         self.assertEqual(self.service.fetch_earnings_proximity("INTC"), 10)
 
     def test_dict_calendar_and_past_dates(self):
-        earn = date.today() + timedelta(days=25)
+        earn = market_date() + timedelta(days=25)
         self.yf.calendar.return_value = {"Earnings Date": earn}
         self.assertEqual(self.service.fetch_earnings_proximity("INTC"), 25)
         self.yf.calendar.return_value = {"Earnings Date": date(2020, 1, 1)}

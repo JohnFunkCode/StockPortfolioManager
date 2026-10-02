@@ -305,6 +305,7 @@ class TestTopRankings(FundamentalsServiceTestBase):
 # ---------------------------------------------------------------------------
 
 from datetime import date, timedelta  # noqa: E402
+from quantcore.analytics.market_time import market_date  # noqa: E402
 
 
 def statement(rows: dict, dates):
@@ -445,7 +446,7 @@ class TestComputeEarningsCalendar(FundamentalsServiceTestBase):
         yf.earnings_dates.return_value = pd.DataFrame()
 
     def calendar_at(self, days_out):
-        earn = date.today() + timedelta(days=days_out)
+        earn = market_date() + timedelta(days=days_out)
         return pd.DataFrame(
             {0: [pd.Timestamp(earn)]}, index=["Earnings Date"]
         )
@@ -464,7 +465,7 @@ class TestComputeEarningsCalendar(FundamentalsServiceTestBase):
 
     def test_dict_form_calendar(self):
         self.arm_history()
-        earn = date.today() + timedelta(days=40)
+        earn = market_date() + timedelta(days=40)
         self.service._yf.calendar.return_value = {"Earnings Date": [earn]}
         out = self.service._compute_earnings_calendar("INTC")
         self.assertEqual(out["risk_level"], "LOW")
@@ -513,7 +514,7 @@ import time as _time  # noqa: E402
 def cal_entry(sym, days_out, fetched_ago_s=60, risk="MODERATE"):
     return {
         "symbol": sym,
-        "earnings_date": (date.today() + timedelta(days=days_out)).isoformat(),
+        "earnings_date": (market_date() + timedelta(days=days_out)).isoformat(),
         "risk_level": risk,
         "pre_earnings_setup": risk == "MODERATE",
         "historical_avg_move_pct": 5.5,
@@ -673,7 +674,7 @@ class TestScope(FundamentalsServiceTestBase):
         self.assertEqual(out["scope"], "tracked")
 
     def test_upcoming_earnings_scoped(self):
-        soon = (date.today() + timedelta(days=3)).isoformat()
+        soon = (market_date() + timedelta(days=3)).isoformat()
         self.repo.get_all_latest.return_value = [
             {"symbol": s, "earnings_date": soon, "_fetched_at_ts": int(time.time())}
             for s in ("AAA", "STRANGER")

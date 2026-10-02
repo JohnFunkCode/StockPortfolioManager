@@ -134,6 +134,16 @@ def _scoring_problem(summary):
     return None
 
 
+def _unscored_problem(summary):
+    """score_unscored returns 0 both for "nothing to do" and for "FinBERT would
+    not load", so new articles with zero scored is the only visible symptom."""
+    if (summary.get("new_articles") and not summary["scored"]
+            and not summary.get("score_error")):
+        return (f"{summary['new_articles']} new article(s) were stored but none were "
+                "scored — FinBERT may be unavailable.")
+    return None
+
+
 def check_news_health(summary, notifier, failure_ceiling=None, empty_ceiling=None) -> list[str]:
     """Alarm on a high failure rate, an exhausted budget, a scoring failure, or
     sources that quietly return nothing (#275 — the fetchers swallow their own
@@ -143,6 +153,7 @@ def check_news_health(summary, notifier, failure_ceiling=None, empty_ceiling=Non
         _empty_source_problem(summary, empty_ceiling),
         _budget_problem(summary),
         _scoring_problem(summary),
+        _unscored_problem(summary),
     ) if p]
     empty = summary.get("empty", 0)
     print(f"News health: {summary['collected']}/{summary['requested']} collected, "

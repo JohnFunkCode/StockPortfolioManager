@@ -126,6 +126,17 @@ class HealthTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {news_job.EMPTY_MIN_ATTEMPTS_ENV: "3"}):
             self.assertEqual(len(news_job.check_news_health(s, n, 0.5, 0.9)), 1)
 
+    def test_alarms_when_articles_stored_but_none_scored(self):
+        n = FakeNotifier()
+        problems = news_job.check_news_health(self.summary(scored=0, new_articles=7), n, 0.5)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("none were scored", problems[0])
+
+    def test_nothing_new_and_nothing_scored_is_silent(self):
+        n = FakeNotifier()
+        self.assertEqual(
+            news_job.check_news_health(self.summary(scored=0, new_articles=0), n, 0.5), [])
+
     def test_dead_webhook_does_not_raise(self):
         n = FakeNotifier()
         n.send_news_gap_alert = mock.Mock(side_effect=RuntimeError("down"))

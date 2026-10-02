@@ -501,6 +501,29 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_news_stale_alert(self, age_hours, ceiling_hours: float) -> None:
+        """Alarm, raised from the daily report Job, that no news has landed lately.
+
+        Lives outside the news Job on purpose: a Job that never runs cannot
+        report its own absence (#275).
+        """
+        if age_hours is None:
+            detail = "No news articles have ever been collected."
+        else:
+            detail = (f"The newest stored article was fetched {age_hours:.0f}h ago "
+                      f"(ceiling {ceiling_hours:.0f}h).")
+        embed = {
+            "content": f"News Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": "News collection looks stale",
+                    "description": f"- {detail}\n- Check that the quantcore-news Job and its scheduler exist.",
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_notifications(self, embed):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 

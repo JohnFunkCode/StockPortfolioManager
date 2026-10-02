@@ -240,7 +240,7 @@ jobs:
               --max-retries 0 \
               --update-env-vars NEWS_TASK_TIMEOUT_SECONDS=1800,NEWS_COLLECT_BUDGET_SECONDS=900
           else
-            echo "quantcore-news job not found in prod — first create is a manual one-time step; skipping."
+            echo "::warning title=quantcore-news missing::quantcore-news Job not found in $PROD_PROJECT — news is NOT being collected. Create it with scripts/ensure_news_job.sh --prod."
           fi
 
       - name: Deploy quantui (prod, image + sizing)

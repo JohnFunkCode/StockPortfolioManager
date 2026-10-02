@@ -164,8 +164,14 @@ symbols, once enough were attempted — fetchers swallow their own errors, so "c
 only means no exception; issue #275). The yfinance source is `YFinanceGateway.news`, which reads
 `yf.Search(symbol).news` filtered by `relatedTickers` — `Ticker.news` and Yahoo's RSS feed both
 return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
-`NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **manual one-time infra**
-per project; `deploy.yml` and `prod-rollout.yml` skip the news step until the Job exists.
+`NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **one-time infra** per project,
+created with `scripts/ensure_news_job.sh [--prod]` (idempotent; copies service account, Cloud SQL and
+secrets from the `quantcore-report` Job). `deploy.yml` and `prod-rollout.yml` skip the image step until the
+Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. Two more alarms close the
+remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
+returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`
+(`main.py`, via `SentimentService.news_freshness`) — hosted there because a news Job that never runs
+cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend).
 
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),

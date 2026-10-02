@@ -349,7 +349,7 @@ jobs:
               --max-retries 0 \
               --update-env-vars NEWS_TASK_TIMEOUT_SECONDS=1800,NEWS_COLLECT_BUDGET_SECONDS=900
           else
-            echo "quantcore-news job not found — first create is a manual one-time step; skipping image roll-out."
+            echo "::warning title=quantcore-news missing::quantcore-news Job not found in $PROJECT_ID — news is NOT being collected. Create it with scripts/ensure_news_job.sh."
           fi
       - name: Deploy quantui (image + sizing; IAP + secret + REST URL preserved)
         # quantui's FIRST deploy is the manual --iap step (see quantui-iap-plan.md Step 5),

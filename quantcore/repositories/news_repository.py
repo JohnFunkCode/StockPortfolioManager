@@ -286,6 +286,12 @@ class NewsStore:
             ).fetchone()
             return row[0]
 
+    def latest_fetched_at(self) -> Optional[str]:
+        """ISO timestamp of the most recent article fetch, or None when empty."""
+        with closing(get_connection()) as conn:
+            row = conn.execute("SELECT MAX(fetched_at) FROM news_articles").fetchone()
+            return row[0] if row else None
+
     def get_symbols(self) -> list[str]:
         with closing(get_connection()) as conn:
             rows = conn.execute(

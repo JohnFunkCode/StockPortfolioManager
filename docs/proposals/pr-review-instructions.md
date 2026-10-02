@@ -107,9 +107,10 @@ After completing each review, save it on the PR being reviewed:
 
 - Use a formal GitHub review when permitted.
 - If the authenticated user is the PR author and GitHub rejects a formal approval or change request, post the same review as a top-level PR comment.
-- Use the heading `## Hermes Agent PR Review`.
+- Identity is per-agent configuration, not part of this shared doc. Use the heading `## {{AGENT_NAME}} PR Review`, where `{{AGENT_NAME}}` is the reviewing agent's name from its own configuration.
+- End the review body with an invisible attribution trailer on its own line: `<!-- pr-reviewer: {{agent_slug}} | head: <reviewed-head-sha> -->`, where `{{agent_slug}}` is the lowercase slug form of the agent name and `<reviewed-head-sha>` is the full head SHA. This trailer is the machine-readable identity used for dedup across agents; never omit it.
 - Include the reviewed head SHA, verdict, code findings, issue-objective assessment, and verification results.
-- Before posting, check existing reviews/comments and skip posting if this job already posted a review for the same PR head commit.
+- Before posting, check existing reviews/comments and skip posting if a review carrying this agent's `pr-reviewer` trailer for the same head SHA already exists (also honor the legacy `## Hermes Agent PR Review` / `## Clippy PR Review` headings posted without a trailer).
 - Verify the GitHub command/API call succeeded and include the resulting review or comment URL in the report.
 
 ## Report format

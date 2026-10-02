@@ -63,6 +63,8 @@ DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
 WARM_DEADLINE_MARGIN_SECONDS = 60.0
 DEFAULT_WARM_BUDGET_SECONDS = 900.0   # 15 minutes, below the 30-minute task limit
 DEFAULT_STALE_COVERAGE_FLOOR = 0.80   # alarm below 80% of symbols inside the TTL
+NEWS_STALE_MAX_AGE_HOURS_ENV = "NEWS_STALE_MAX_AGE_HOURS"
+DEFAULT_NEWS_STALE_MAX_AGE_HOURS = 120.0   # Fri run -> Tue after a Monday holiday is ~95h
 DEFAULT_STALE_MAX_AGE_HOURS = 168.0   # ...or when anything is older than a week
 
 
@@ -440,6 +442,28 @@ def alert_if_fundamentals_stale(freshness, notifier, coverage_floor=None,
     return True
 
 
+def alert_if_news_stale(sentiment, notifier, max_age_hours=None) -> bool:
+    """Alarm when no news has been collected lately. Never raises.
+
+    The news collector is a separate Job; if it was never created, or its
+    scheduler is gone, nothing inside it can say so (#275). This runs in the
+    report Job, which does run, and reads only what landed in the database.
+    """
+    ceiling = _env_float(NEWS_STALE_MAX_AGE_HOURS_ENV, DEFAULT_NEWS_STALE_MAX_AGE_HOURS) \
+        if max_age_hours is None else max_age_hours
+    try:
+        age = sentiment.news_freshness()["age_hours"]
+        if age is not None and age <= ceiling:
+            return False
+        print(f"ERROR: news collection is stale (age {age}h, ceiling {ceiling:.0f}h).",
+              file=sys.stderr)
+        notifier.send_news_stale_alert(age, ceiling)
+        return True
+    except Exception as exc:  # noqa: BLE001 — a check on the checker must not fail the job
+        print(f"ERROR: news staleness check failed: {exc}", file=sys.stderr)
+        return False
+
+
 def run_fundamentals_warming(symbols, fundamentals, notifier,
                              budget_seconds=None) -> None:
     """Warm the cache, then alarm if it is still stale. Never raises.
@@ -524,6 +548,8 @@ if __name__ == "__main__":
                 capture_symbols.append(sym)
 
     run_capture_tail(capture_symbols, get_services(), notifier, job_started)
+
+    alert_if_news_stale(get_services().sentiment, notifier)
 
     # Last, and budgeted: the same universe the options capture just walked is
     # the one the fundamentals views read, so warm exactly that.

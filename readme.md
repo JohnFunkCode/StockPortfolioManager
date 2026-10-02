@@ -336,6 +336,7 @@ feed and `Ticker.news` no longer return anything.
 | `NEWS_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of symbols failed |
 | `NEWS_EMPTY_CEILING` | `0.90` | alarm when more than this fraction of symbols got no articles from any source (needs `NEWS_EMPTY_MIN_ATTEMPTS`) |
 | `NEWS_EMPTY_MIN_ATTEMPTS` | `10` | fewest symbols attempted before the empty-source alarm can fire |
+| `NEWS_STALE_MAX_AGE_HOURS` | `120` | report Job alarms when the last completed news collection pass (a `fetch_log` heartbeat, not article timestamps) is older than this, or none has ever run |
 
 The Job and its Cloud Scheduler entry are created by hand once per project; until then the
 `deploy.yml` / `prod-rollout.yml` news steps skip cleanly.

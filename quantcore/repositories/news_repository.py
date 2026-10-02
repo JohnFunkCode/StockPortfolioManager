@@ -24,6 +24,8 @@ from typing import Optional
 
 from quantcore.db import get_connection
 
+NEWS_HEARTBEAT_INTERVAL = "news"
+
 
 class NewsStore:
     """Stores financial news articles and their FinBERT sentiment scores in SQLite."""
@@ -285,6 +287,35 @@ class NewsStore:
                 f"SELECT COUNT(*) FROM news_articles {clause}", params
             ).fetchone()
             return row[0]
+
+    def record_collection(self, symbol: str) -> None:
+        """Stamp that a collection pass for ``symbol`` completed (the staleness heartbeat).
+
+        Kept in ``fetch_log`` (interval ``'news'``, epoch seconds) rather than read off
+        ``news_articles.fetched_at``: that column only moves when a *new* article is
+        inserted, so a quiet weekend would look like a dead job (#275 review).
+        """
+        with closing(get_connection()) as conn:
+            conn.execute(
+                """
+                INSERT INTO fetch_log (symbol, interval, fetched_at) VALUES (%s,%s,%s)
+                ON CONFLICT (symbol, interval) DO UPDATE SET fetched_at = EXCLUDED.fetched_at
+                """,
+                (symbol.upper(), NEWS_HEARTBEAT_INTERVAL,
+                 int(datetime.now(timezone.utc).timestamp())),
+            )
+            conn.commit()
+
+    def last_collection_at(self) -> Optional[datetime]:
+        """UTC time of the most recent completed collection pass, or None if never."""
+        with closing(get_connection()) as conn:
+            row = conn.execute(
+                "SELECT MAX(fetched_at) FROM fetch_log WHERE interval = %s",
+                (NEWS_HEARTBEAT_INTERVAL,),
+            ).fetchone()
+        if not row or row[0] is None:
+            return None
+        return datetime.fromtimestamp(int(row[0]), tz=timezone.utc)
 
     def get_symbols(self) -> list[str]:
         with closing(get_connection()) as conn:

@@ -387,6 +387,7 @@ class SentimentService:
 
         totals = self._collector.collect([sym], score=score)
         new_count = totals.get(sym, 0)
+        self._news.record_collection(sym)
 
         try:
             from transformers import AutoTokenizer  # noqa
@@ -402,6 +403,21 @@ class SentimentService:
             "rss_available":     rss_ok,
             "finbert_available": finbert_ok,
         }
+
+    def news_freshness(self, now: Optional[datetime] = None) -> dict:
+        """Age of the last completed collection pass: ``{last_collected_at, age_hours}``.
+
+        Both are None when no pass has ever completed. Based on the collection
+        heartbeat, not on article timestamps, so a quiet news period is not mistaken
+        for a dead job. Read by the daily report Job so a dead news Job is noticed
+        from outside it (#275).
+        """
+        last = self._news.last_collection_at()
+        if last is None:
+            return {"last_collected_at": None, "age_hours": None}
+        age = (now or datetime.now(timezone.utc)) - last
+        return {"last_collected_at": last.isoformat(),
+                "age_hours": age.total_seconds() / 3600.0}
 
     def score_unscored(self, limit: int = 200) -> int:
         """FinBERT-score stored articles that have no sentiment yet (nightly job)."""

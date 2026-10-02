@@ -1,8 +1,10 @@
 # requirements-ml.txt — base + the heavy FinBERT ML stack.
 #
-# Used ONLY by the API image (Dockerfile.api): post-inversion, the news_sentiment
-# wrapper is a thin HTTP client, so FinBERT scoring executes in the service tier
-# inside the FastAPI process. Wrapper + report images install requirements-base.txt
+# Used by the API image (Dockerfile.api) and the news Job image (Dockerfile.news):
+# post-inversion, the news_sentiment wrapper is a thin HTTP client, so FinBERT
+# scoring executes in the service tier. Both images bake the pinned FinBERT
+# weights at build time (scripts/bake_finbert.py, issue #280) — the runtime
+# loads from FINBERT_MODEL_PATH with HF_HUB_OFFLINE=1 and never calls the Hub. Wrapper + report images install requirements-base.txt
 # instead and keep FinBERT lazily-unavailable (graceful degradation).
 #
 # Prefer CPU-only torch wheels (smaller, no CUDA) — on linux/amd64 the default

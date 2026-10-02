@@ -539,6 +539,22 @@ Two constraints are load-bearing — both were learned the expensive way (2026-0
   load finish sooner; it is billed only for the boosted seconds. Like the sizing, both workflows
   pass it on every roll-out, so remove it there rather than with a one-off update.
 
+### Artifact Registry cleanup policy
+
+The `quantcore` AR repo in each project carries a cleanup policy kept in the repo:
+`scripts/ar_cleanup_policy.json`, applied with `scripts/apply_ar_cleanup_policy.sh [--prod]
+[--enforce]` (dry run by default). It keeps each image's **15 newest versions unconditionally**
+and deletes the rest once they are **older than 30 days**. Until it existed nothing was ever
+deleted — 80 GB in test and 18 GB in prod by 2026-10-02 — and the baked FinBERT (#280) adds
+~440 MB per api/news build.
+
+**Never add a "delete untagged" rule.** Prod deploys the *inner* manifest digest that
+`prod-rollout.yml`'s `docker buildx imagetools create` copies, and in the prod repo that manifest
+is **untagged** — the tag lands on the wrapping index. The image prod is running therefore shows as
+untagged, and a tag-state rule would delete it once it aged out, breaking new instances and
+rollbacks. The policy is version-count based for exactly that reason. Change it by editing the JSON
+and re-running the script, not with a one-off `gcloud` call, so the file stays the single home.
+
 
 ### Environments (prod is the system of record)
 

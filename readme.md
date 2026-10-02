@@ -763,6 +763,12 @@ container talks to the Hugging Face Hub. Outside a container `FINBERT_MODEL_PATH
 is unset and the model downloads from the Hub on first use, as before. Since issue #147 **no** image carries matplotlib/jinja2/boto3
 either; those live in `requirements-report.txt` for the report script alone.
 
+Pushed images are pruned by an Artifact Registry cleanup policy (keep each image's 15
+newest versions, delete older ones past 30 days). It is applied per project with
+`./scripts/apply_ar_cleanup_policy.sh [--prod] [--enforce]`, in dry-run mode unless
+`--enforce` is given; see CLAUDE.md "Artifact Registry cleanup policy" for why it must
+not be keyed on tags.
+
 ### Verify
 
 ```bash

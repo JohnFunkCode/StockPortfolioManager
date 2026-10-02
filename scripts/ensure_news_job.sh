@@ -30,11 +30,19 @@ else
   fmt() { gcloud run jobs describe quantcore-report --project "$PROJECT" --region "$REGION" --format="$1"; }
   SA="$(fmt 'value(spec.template.spec.template.spec.serviceAccountName)')"
   SQL="$(fmt 'value(spec.template.metadata.annotations."run.googleapis.com/cloudsql-instances")')"
-  SECRETS="$(fmt 'json(spec.template.spec.template.spec.containers[0].env)' | python3 -c '
-import json,sys
-env=json.load(sys.stdin)["spec"]["template"]["spec"]["template"]["spec"]["containers"][0]["env"]
-print(",".join(f"{e[\"name\"]}={e[\"valueFrom\"][\"secretKeyRef\"][\"name\"]}:{e[\"valueFrom\"][\"secretKeyRef\"][\"key\"]}"
-               for e in env if "valueFrom" in e))')"
+  # --format=json on the whole Job, then walk it: a projection like
+  # json(spec...env) would emit the bare array, not the nested document.
+  SECRETS="$(gcloud run jobs describe quantcore-report --project "$PROJECT" --region "$REGION" \
+    --format=json | python3 -c '
+import json, sys
+job = json.load(sys.stdin)
+env = job["spec"]["template"]["spec"]["template"]["spec"]["containers"][0].get("env", [])
+pairs = []
+for e in env:
+    ref = e.get("valueFrom", {}).get("secretKeyRef")
+    if ref:
+        pairs.append(e["name"] + "=" + ref["name"] + ":" + ref["key"])
+print(",".join(pairs))')"
   gcloud run jobs create quantcore-news --project "$PROJECT" --region "$REGION" \
     --image "${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/quantcore-news:${TAG}" \
     --service-account "$SA" --set-cloudsql-instances "$SQL" --set-secrets "$SECRETS" \

@@ -171,7 +171,7 @@ Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. 
 remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
 returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`
 (`main.py`, via `SentimentService.news_freshness`) — hosted there because a news Job that never runs
-cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend).
+cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend). The age is read from a per-symbol `fetch_log` heartbeat (`interval='news'`, written by `collect_news` via `NewsStore.record_collection`) rather than `MAX(news_articles.fetched_at)`, which only moves on new inserts and would false-alarm on a quiet news stretch.
 
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),

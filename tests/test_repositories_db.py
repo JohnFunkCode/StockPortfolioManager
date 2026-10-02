@@ -32,6 +32,7 @@ def purge():
     with closing(get_connection()) as conn:
         conn.execute("DELETE FROM fundamentals_history WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM news_articles WHERE symbol = %s", (SYM,))
+        conn.execute("DELETE FROM fetch_log WHERE symbol = %s AND interval = 'news'", (SYM,))
         conn.execute("DELETE FROM options_positions WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM ohlcv WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM user_settings WHERE owner = %s", (TEST_OWNER,))
@@ -136,6 +137,23 @@ class TestNewsStore(RepoTestBase):
         self.assertEqual(scored[0]["sentiment"], "positive")
         every = self.store.get_articles(SYM, days=7, scored_only=False)
         self.assertEqual(len(every), 2)
+
+    def test_collection_heartbeat_is_independent_of_articles(self):
+        before = self.store.last_collection_at()
+        self.store.record_collection(SYM.lower())
+        self.store.record_collection(SYM)              # upsert, not a duplicate-key error
+        after = self.store.last_collection_at()
+        self.assertIsNotNone(after)
+        self.assertEqual(after.tzinfo, timezone.utc)
+        self.assertGreaterEqual(after, before or after)
+        self.assertLess((datetime.now(timezone.utc) - after).total_seconds(), 120)
+        self.assertEqual(self.store.article_count(SYM), 0)
+
+    def test_no_heartbeat_reads_none(self):
+        with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM fetch_log WHERE interval = 'news'")
+            conn.commit()
+        self.assertIsNone(self.store.last_collection_at())
 
     def test_summary_and_trend_shapes(self):
         self.store.save_articles(SYM, [article(1)])

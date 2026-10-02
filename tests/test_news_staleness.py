@@ -17,7 +17,7 @@ class FakeNotifier:
 
 
 def sentiment(age):
-    return SimpleNamespace(news_freshness=lambda: {"latest_fetched_at": "x", "age_hours": age})
+    return SimpleNamespace(news_freshness=lambda: {"last_collected_at": "x", "age_hours": age})
 
 
 class AlertIfNewsStaleTest(unittest.TestCase):
@@ -49,23 +49,29 @@ class AlertIfNewsStaleTest(unittest.TestCase):
 
 
 class NewsFreshnessTest(unittest.TestCase):
-    def service(self, latest):
+    NOW = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
+
+    def service(self, last):
         svc = SentimentService.__new__(SentimentService)
-        svc._news = SimpleNamespace(latest_fetched_at=lambda: latest)
+        svc._news = SimpleNamespace(last_collection_at=lambda: last)
         return svc
 
-    def test_empty_table(self):
-        self.assertEqual(self.service(None).news_freshness()["age_hours"], None)
+    def test_never_collected(self):
+        out = self.service(None).news_freshness()
+        self.assertEqual((out["last_collected_at"], out["age_hours"]), (None, None))
 
     def test_age_in_hours(self):
-        now = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
-        stamp = (now - timedelta(hours=30)).isoformat()
-        self.assertAlmostEqual(self.service(stamp).news_freshness(now)["age_hours"], 30.0)
+        last = self.NOW - timedelta(hours=30)
+        self.assertAlmostEqual(self.service(last).news_freshness(self.NOW)["age_hours"], 30.0)
 
-    def test_naive_stamp_treated_as_utc(self):
-        now = datetime(2026, 10, 2, 12, tzinfo=timezone.utc)
-        self.assertAlmostEqual(
-            self.service("2026-10-02T00:00:00").news_freshness(now)["age_hours"], 12.0)
+    def test_collect_news_records_heartbeat(self):
+        calls = []
+        svc = SentimentService.__new__(SentimentService)
+        svc._news = SimpleNamespace(record_collection=calls.append,
+                                    article_count=lambda s: 0)
+        svc._collector = SimpleNamespace(collect=lambda syms, score: {}, last_fetched={})
+        svc.collect_news("aapl", score=False)
+        self.assertEqual(calls, ["AAPL"])
 
 
 if __name__ == "__main__":

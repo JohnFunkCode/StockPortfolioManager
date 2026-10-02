@@ -325,7 +325,8 @@ collects headlines and scores them with FinBERT for the tracked universe (watchl
 owner's positions). It is its own image because FinBERT needs `requirements-ml.txt` (torch), which
 the lean report image deliberately omits, and so scoring can never delay notifications. It skips
 closed-market days, isolates failures per symbol, scores unscored articles once at the end, and
-sends one Discord alarm if the failure rate, the budget, or scoring went wrong. Headlines come from
+sends one Discord alarm if the failure rate, the budget, or scoring went wrong. FinBERT loads from
+weights baked into the image, on a background thread while collection runs. Headlines come from
 `yf.Search(symbol).news` (filtered to items that list the symbol in `relatedTickers`); Yahoo's RSS
 feed and `Ticker.news` no longer return anything.
 
@@ -746,15 +747,20 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 
 | Image | Dockerfile | Deps | Role |
 |-------|-----------|------|------|
-| `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) | FastAPI front door + service execution |
+| `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) + baked FinBERT weights | FastAPI front door + service execution |
+| `quantcore-news` | `Dockerfile.news` | `requirements-ml.txt` + baked FinBERT weights | `news_job.py` once-and-exit (Cloud Run Job) — collect and score headlines |
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
-Only the api image carries the heavy ML stack — post-inversion FinBERT scoring
-runs in the api, and `main.py` never scores sentiment, so the wrapper and report
-images stay lean. Since issue #147 **no** image carries matplotlib/jinja2/boto3
+Only the api and news images carry the heavy ML stack — post-inversion FinBERT
+scoring runs in the service tier, and `main.py` never scores sentiment, so the
+wrapper and report images stay lean. Both ML images bake a **pinned** FinBERT
+revision into `/opt/models/finbert` at build time (`scripts/bake_finbert.py`,
+issue #280) and run with `FINBERT_MODEL_PATH` + `HF_HUB_OFFLINE=1`, so no
+container talks to the Hugging Face Hub. Outside a container `FINBERT_MODEL_PATH`
+is unset and the model downloads from the Hub on first use, as before. Since issue #147 **no** image carries matplotlib/jinja2/boto3
 either; those live in `requirements-report.txt` for the report script alone.
 
 ### Verify

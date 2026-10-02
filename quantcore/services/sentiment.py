@@ -18,7 +18,10 @@ RSS feeds: Yahoo Finance provides a per-ticker RSS feed:
 from __future__ import annotations
 
 import logging
+import os
 import ssl
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional
 from urllib.request import urlopen
@@ -35,13 +38,26 @@ _YF_RSS_URL = (
     "?s={symbol}&region=US&lang=en-US"
 )
 
-# FinBERT model name on HuggingFace Hub
+# FinBERT model name on HuggingFace Hub — the fallback for local dev. The images
+# bake a pinned revision to disk (scripts/bake_finbert.py, issue #280) and point
+# FINBERT_MODEL_PATH at it, so a deployed process never calls the Hub.
 _FINBERT_MODEL = "ProsusAI/finbert"
+FINBERT_MODEL_PATH_ENV = "FINBERT_MODEL_PATH"
 
 # Lazy-loaded globals — only allocated on first FinBERT use
 _finbert_tokenizer = None
 _finbert_model = None
 _finbert_available: Optional[bool] = None   # None = not yet probed
+# Concurrent first callers share one load instead of each doing their own (#280).
+_finbert_lock = threading.Lock()
+
+
+def _finbert_source() -> tuple[str, bool]:
+    """(model id or path, local_files_only). Read at call time so tests can set it."""
+    path = os.environ.get(FINBERT_MODEL_PATH_ENV, "").strip()
+    if path:
+        return path, True
+    return _FINBERT_MODEL, False
 
 
 def _ensure_finbert() -> bool:
@@ -49,25 +65,33 @@ def _ensure_finbert() -> bool:
     global _finbert_tokenizer, _finbert_model, _finbert_available
     if _finbert_available is not None:
         return _finbert_available
-    try:
-        from transformers import AutoTokenizer, AutoModelForSequenceClassification
-        import torch  # noqa: F401 — confirm torch is present
+    with _finbert_lock:
+        if _finbert_available is not None:   # another thread loaded it while we waited
+            return _finbert_available
+        try:
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            import torch  # noqa: F401 — confirm torch is present
 
-        log.info("Loading FinBERT model '%s' (first-time download may take a moment)…", _FINBERT_MODEL)
-        _finbert_tokenizer = AutoTokenizer.from_pretrained(_FINBERT_MODEL)
-        _finbert_model = AutoModelForSequenceClassification.from_pretrained(_FINBERT_MODEL)
-        _finbert_model.eval()
-        _finbert_available = True
-        log.info("FinBERT loaded successfully.")
-    except ImportError:
-        log.warning(
-            "transformers / torch not installed — articles will be stored without sentiment. "
-            "Run: pip install transformers torch"
-        )
-        _finbert_available = False
-    except Exception as exc:
-        log.warning("Could not load FinBERT (%s) — sentiment scoring disabled.", exc)
-        _finbert_available = False
+            source, local_only = _finbert_source()
+            started = time.monotonic()
+            log.info("Loading FinBERT from %s '%s'…",
+                     "baked path" if local_only else "the Hugging Face Hub", source)
+            tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=local_only)
+            model = AutoModelForSequenceClassification.from_pretrained(
+                source, local_files_only=local_only)
+            model.eval()
+            _finbert_tokenizer, _finbert_model = tokenizer, model
+            _finbert_available = True
+            log.info("FinBERT loaded in %.1fs.", time.monotonic() - started)
+        except ImportError:
+            log.warning(
+                "transformers / torch not installed — articles will be stored without sentiment. "
+                "Run: pip install transformers torch"
+            )
+            _finbert_available = False
+        except Exception as exc:
+            log.warning("Could not load FinBERT (%s) — sentiment scoring disabled.", exc)
+            _finbert_available = False
     return _finbert_available
 
 
@@ -422,6 +446,16 @@ class SentimentService:
     def score_unscored(self, limit: int = 200) -> int:
         """FinBERT-score stored articles that have no sentiment yet (nightly job)."""
         return self._collector.score_unscored(limit=limit)
+
+    def warm(self) -> bool:
+        """Load FinBERT now rather than on first score. True if it is available.
+
+        The news Job calls this on a background thread so the load overlaps the
+        network-bound collection (issue #280). The API deliberately does not:
+        Cloud Run throttles CPU outside requests, and a blocking startup preload
+        would tax every cold start, including traffic that never scores news.
+        """
+        return _ensure_finbert()
 
     def get_news_sentiment(self, symbol: str, days: int = 7,
                            scored_only: bool = False) -> dict:

@@ -22,6 +22,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import threading
 import time
 
 from quantcore.analytics.market_time import is_trading_day, market_date
@@ -169,6 +170,26 @@ def check_news_health(summary, notifier, failure_ceiling=None, empty_ceiling=Non
     return problems
 
 
+def start_model_warmup(sentiment) -> threading.Thread:
+    """Load FinBERT on a daemon thread while collection runs (issue #280).
+
+    Collection is network-bound, so the load overlaps it and ``score_unscored``
+    finds the model ready. Best-effort: a failure here is only logged, and
+    scoring retries the load itself; ``_unscored_problem`` alarms if it never
+    comes up. A Job has CPU for the whole task, so the thread is not throttled.
+    """
+    def _warm():
+        try:
+            if not sentiment.warm():
+                print("WARNING: FinBERT warm-up did not load the model.", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 — warm-up must never kill the job
+            print(f"WARNING: FinBERT warm-up failed: {type(exc).__name__}", file=sys.stderr)
+
+    thread = threading.Thread(target=_warm, name="finbert-warmup", daemon=True)
+    thread.start()
+    return thread
+
+
 def tracked_universe(services) -> list[str]:
     """Watchlist plus every owner's positions, de-duplicated, order preserved."""
     seen: list[str] = []
@@ -190,6 +211,7 @@ def main() -> int:
     if not symbols:
         print("ERROR: tracked universe is empty; nothing to collect.", file=sys.stderr)
         return 0
+    start_model_warmup(services.sentiment)
     summary = collect_news(
         symbols, services.sentiment,
         budget_seconds=_budget_seconds(job_started=job_started))

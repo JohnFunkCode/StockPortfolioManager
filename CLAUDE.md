@@ -173,6 +173,24 @@ returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_
 (`main.py`, via `SentimentService.news_freshness`) — hosted there because a news Job that never runs
 cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend). The age is read from a per-symbol `fetch_log` heartbeat (`interval='news'`, written by `collect_news` via `NewsStore.record_collection`) rather than `MAX(news_articles.fetched_at)`, which only moves on new inserts and would false-alarm on a quiet news stretch.
 
+**FinBERT weights are baked into the images, never downloaded at runtime** (issue #280). The
+builder stage of `Dockerfile.api` and `Dockerfile.news` runs `scripts/bake_finbert.py`, which
+downloads a **pinned** `ProsusAI/finbert` revision (`DEFAULT_REVISION` in the script), re-saves it
+as a single safetensors file in `/opt/models/finbert`, and verifies it loads offline; both images
+set `FINBERT_MODEL_PATH=/opt/models/finbert` and `HF_HUB_OFFLINE=1`. `_ensure_finbert`
+(`quantcore/services/sentiment.py`) loads from that path with `local_files_only=True` when it is
+set and falls back to the Hub id when it is not (local dev), under a lock so concurrent first
+callers share one load. The news Job warms the model on a background thread
+(`SentimentService.warm()`) while collecting; the API deliberately stays lazy, because Cloud Run
+throttles CPU outside requests and a startup preload would tax every cold start. Rules that follow:
+
+- **Bumping the model is a reviewed one-line change** to `DEFAULT_REVISION` (or
+  `--build-arg FINBERT_REVISION=<sha>`), never a follow of Hub `main` — a new checkpoint shifts the
+  score distribution and puts a step into stored sentiment history.
+- The bake downloads with `use_safetensors=False` on purpose: left alone, `transformers` also
+  fetches the Hub bot's safetensors-conversion PR ref and pulls **both** formats (836 MB, extra Hub
+  calls, more 429 exposure). Don't "simplify" that flag away.
+
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),
 which the Raspberry Pi runs via `runOnPi.sh`. Two consequences worth keeping straight:
@@ -516,6 +534,10 @@ Two constraints are load-bearing — both were learned the expensive way (2026-0
   number the console shows — but its p99 peak is **58% of 4Gi** on full options chains at
   concurrency 160, recurring daily. Halving it is an OOM, not a tight fit; the mean is the wrong
   metric for a memory ceiling.
+- **`quantcore-api` deploys with `--cpu-boost`** (issue #280) — a flag on its deploy step, not a
+  sizing variable. It adds CPU only during startup, so a cold start's torch import and baked-FinBERT
+  load finish sooner; it is billed only for the boosted seconds. Like the sizing, both workflows
+  pass it on every roll-out, so remove it there rather than with a one-off update.
 
 
 ### Environments (prod is the system of record)

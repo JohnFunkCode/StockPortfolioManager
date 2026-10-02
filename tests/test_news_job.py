@@ -169,5 +169,45 @@ class UniverseAndMainTest(unittest.TestCase):
             self.assertEqual(news_job._budget_seconds(), news_job.DEFAULT_BUDGET_SECONDS)
 
 
+class ModelWarmupTest(unittest.TestCase):
+    """The Job loads FinBERT on a thread while collecting (issue #280)."""
+
+    def test_warmup_calls_warm(self):
+        sentiment = mock.Mock()
+        sentiment.warm.return_value = True
+        news_job.start_model_warmup(sentiment).join(timeout=5)
+        sentiment.warm.assert_called_once_with()
+
+    def test_warmup_failure_is_not_fatal(self):
+        sentiment = mock.Mock()
+        sentiment.warm.side_effect = RuntimeError("hub said 429")
+        with mock.patch("sys.stderr") as err:
+            thread = news_job.start_model_warmup(sentiment)
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        written = "".join(c.args[0] for c in err.write.call_args_list)
+        self.assertIn("RuntimeError", written)
+        self.assertNotIn("429", written)   # type name only, never the message
+
+    def test_main_starts_warmup_before_collecting(self):
+        order = []
+        services = SimpleNamespace(
+            watchlist=SimpleNamespace(symbols=lambda: ["A"]),
+            portfolio=SimpleNamespace(all_symbols=lambda: []),
+            sentiment=object())
+        with mock.patch.object(news_job, "ensure_schema"), \
+             mock.patch.object(news_job, "is_trading_day", return_value=True), \
+             mock.patch.object(news_job, "get_services", return_value=services), \
+             mock.patch.object(news_job, "start_model_warmup",
+                               side_effect=lambda s: order.append("warm")) as warm, \
+             mock.patch.object(news_job, "collect_news",
+                               side_effect=lambda *a, **k: order.append("collect") or {}), \
+             mock.patch.object(news_job, "check_news_health"), \
+             mock.patch.dict("sys.modules", {"notifier": mock.Mock()}):
+            self.assertEqual(news_job.main(), 0)
+        warm.assert_called_once_with(services.sentiment)
+        self.assertEqual(order, ["warm", "collect"])
+
+
 if __name__ == "__main__":
     unittest.main()

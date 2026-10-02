@@ -74,6 +74,9 @@ env:
   # quantcore-api stays 2 CPU / 4Gi DELIBERATELY. Its mean memory is ~6% but its peak
   # is 58% of 4Gi (~2.4GiB, full options chains at concurrency 160), so halving it to
   # 2Gi is an OOM, not a tight fit. The mean is the number that hides this.
+  # It also deploys with --cpu-boost (issue #280): extra CPU during startup only, so a
+  # cold start's torch import / baked-FinBERT load finishes sooner. Billed only for
+  # the boosted seconds; the flag sits on the api deploy step below, not in this block.
   API_CPU: "2"
   API_MEMORY: 4Gi
   MCP_CPU: "1"
@@ -177,7 +180,7 @@ jobs:
       - name: Deploy quantcore-api (prod, image + sizing)
         run: |
           gcloud run deploy quantcore-api --project "$PROD_PROJECT" --region "$REGION" \
-            --cpu "$API_CPU" --memory "$API_MEMORY" \
+            --cpu "$API_CPU" --memory "$API_MEMORY" --cpu-boost \
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-api@$QUANTCORE_API_DIGEST"
 
       - name: Deploy the 5 wrappers (shared prod mcp image; per-service env preserved)

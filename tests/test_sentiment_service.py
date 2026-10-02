@@ -6,8 +6,13 @@ so an unpatched probe would download the real model), RSS bytes are served
 from an in-memory XML document, and yfinance payloads are literal dicts in
 both the new nested-content and legacy flat shapes.
 """
+import os
+import sys
+import threading
+import time
 import unittest
-from unittest.mock import Mock, patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock, patch
 
 from quantcore.services import sentiment as sentiment_mod
 from quantcore.services.sentiment import (
@@ -361,6 +366,82 @@ class TestScoreSentimentWrapper(unittest.TestCase):
         with patch.object(sentiment_mod, "_score_text",
                           side_effect=RuntimeError("torch OOM")):
             self.assertIsNone(sentiment_mod._score_sentiment("text"))
+
+
+class FinbertLoaderTest(unittest.TestCase):
+    """_ensure_finbert: baked path vs Hub, and one load under concurrency (#280).
+
+    transformers and torch are replaced in sys.modules, so nothing real loads.
+    """
+
+    def setUp(self):
+        self.calls = []
+        self.lock = threading.Lock()
+
+        def from_pretrained(source, **kwargs):
+            with self.lock:
+                self.calls.append((source, kwargs))
+            time.sleep(0.05)          # widen the race window
+            return MagicMock()
+
+        self.transformers = SimpleNamespace(
+            AutoTokenizer=SimpleNamespace(from_pretrained=from_pretrained),
+            AutoModelForSequenceClassification=SimpleNamespace(
+                from_pretrained=from_pretrained))
+        self.patches = [
+            patch.dict(sys.modules, {"transformers": self.transformers,
+                                     "torch": SimpleNamespace()}),
+            patch.object(sentiment_mod, "_finbert_available", None),
+            patch.object(sentiment_mod, "_finbert_tokenizer", None),
+            patch.object(sentiment_mod, "_finbert_model", None),
+        ]
+        for p in self.patches:
+            p.start()
+        self.addCleanup(lambda: [p.stop() for p in reversed(self.patches)])
+
+    def test_baked_path_loads_offline(self):
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: "/opt/models/finbert"}):
+            self.assertTrue(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, [("/opt/models/finbert", {"local_files_only": True})] * 2)
+
+    def test_without_path_falls_back_to_the_hub(self):
+        env = {k: v for k, v in os.environ.items() if k != sentiment_mod.FINBERT_MODEL_PATH_ENV}
+        with patch.dict(os.environ, env, clear=True):
+            self.assertTrue(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, [("ProsusAI/finbert", {"local_files_only": False})] * 2)
+
+    def test_concurrent_first_callers_share_one_load(self):
+        barrier = threading.Barrier(8)
+        results = []
+
+        def caller():
+            barrier.wait()
+            results.append(sentiment_mod._ensure_finbert())
+
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: "/m"}):
+            threads = [threading.Thread(target=caller) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+        self.assertEqual(results, [True] * 8)
+        self.assertEqual(len(self.calls), 2)   # one tokenizer + one model, not 16
+
+    def test_load_failure_is_remembered_not_retried(self):
+        def broken(source, **kwargs):
+            self.calls.append(source)
+            raise OSError("offline and nothing on disk")
+        self.transformers.AutoTokenizer.from_pretrained = broken
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: "/m"}):
+            self.assertFalse(sentiment_mod._ensure_finbert())
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, ["/m"])
+
+    def test_service_warm_delegates(self):
+        with patch.object(sentiment_mod, "_ensure_finbert", return_value=True) as ensure:
+            service = SentimentService.__new__(SentimentService)
+            self.assertTrue(service.warm())
+        ensure.assert_called_once_with()
 
 
 if __name__ == "__main__":

@@ -4,8 +4,9 @@
 # owner's positions) and FinBERT-scores them, calling the services layer
 # IN-PROCESS. It is its own image because scoring needs torch/transformers
 # (requirements-ml.txt) and the report image (Dockerfile.report) is deliberately
-# lean. The model weights download on first use into the appuser cache; a
-# scoring failure degrades to unscored articles plus a Discord alarm.
+# lean. The FinBERT weights are baked in at build time (scripts/bake_finbert.py,
+# issue #280) and loaded offline; a scoring failure degrades to unscored
+# articles plus a Discord alarm.
 #
 # Designed to run once and exit (a Cloud Run Job triggered by Cloud Scheduler).
 
@@ -25,15 +26,31 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements-base.txt requirements-ml.txt ./
 RUN pip install --upgrade pip && pip install -r requirements-ml.txt
 
+# Bake the pinned FinBERT revision into the image (issue #280) so the runtime
+# never calls the Hugging Face Hub. The script retries 429s and verifies the
+# result offline; a failed bake fails the build rather than a 2 a.m. Job.
+# Bump the model by changing DEFAULT_REVISION in the script (or pass
+# --build-arg FINBERT_REVISION=<sha>), never by following Hub `main`.
+ARG FINBERT_REVISION=
+COPY scripts/bake_finbert.py /tmp/bake_finbert.py
+RUN FINBERT_REVISION="${FINBERT_REVISION}" HF_HOME=/tmp/hf \
+    python /tmp/bake_finbert.py --out /opt/models/finbert \
+    && rm -rf /tmp/hf /tmp/bake_finbert.py
+
 # ---- final ----
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PATH="/opt/venv/bin:$PATH"
+    PATH="/opt/venv/bin:$PATH" \
+    FINBERT_MODEL_PATH=/opt/models/finbert \
+    HF_HUB_OFFLINE=1
 
 RUN useradd --create-home --uid 1000 appuser
 COPY --from=builder /opt/venv /opt/venv
+# Read-only image layer: unlike a runtime download into ~/.cache, it does not
+# count against Cloud Run instance memory.
+COPY --from=builder /opt/models /opt/models
 
 WORKDIR /app
 COPY . .

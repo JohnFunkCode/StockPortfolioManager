@@ -9,6 +9,11 @@ modules; centralizing it here is the single source of truth.
 
 When ``.env`` is absent (e.g. CI), whatever ``QUANTCORE_DB_DSN`` the
 environment already set is left untouched.
+
+It also makes every real yfinance HTTP request fail fast (see the end of this
+file): no test may depend on Yahoo being reachable, fast, or answering the
+same way twice. Stub at ``YFinanceGateway`` (or ``yfinance.download`` for the
+legacy ``portfolio/`` layer) instead.
 """
 import os
 from pathlib import Path
@@ -28,3 +33,29 @@ if _env_file.exists():
 # create path it has always had. The mode logic itself is exercised explicitly
 # in tests/test_schema_bootstrap.py, which sets the variable per case.
 os.environ["QUANTCORE_SCHEMA_MODE"] = "create"
+
+
+# yfinance fetches over curl_cffi (libcurl), which socket-level patches never
+# see; every request it makes does go through YfData._make_request, so that is
+# the seam. Raising here turns a forgotten stub into an immediate, named
+# failure (or a soft miss, where the code under test degrades on errors)
+# instead of a slow, flaky call to Yahoo.
+try:
+    from yfinance.data import YfData as _YfData
+except ImportError:  # yfinance absent or reorganized: nothing to guard
+    _YfData = None
+
+
+class YahooNetworkBlocked(RuntimeError):
+    """A test reached Yahoo for real; stub the call instead."""
+
+
+def _blocked_request(self, url, *args, **kwargs):
+    raise YahooNetworkBlocked(
+        f"tests must not call Yahoo ({url}); stub YFinanceGateway "
+        "(see tests/__init__.py)"
+    )
+
+
+if _YfData is not None:
+    _YfData._make_request = _blocked_request

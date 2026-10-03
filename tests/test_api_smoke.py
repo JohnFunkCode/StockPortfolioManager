@@ -19,9 +19,14 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
+from unittest.mock import patch  # noqa: E402
+
+import pandas as pd  # noqa: E402
+
 from fastapi.testclient import TestClient  # noqa: E402
 
 from quantcore.db import get_connection  # noqa: E402
+from quantcore.gateways.yfinance_gateway import YFinanceGateway  # noqa: E402
 from quantcore.repositories.harvester_repository import _utc_now_iso  # noqa: E402
 from quantcore.repositories.owner_identity_repository import (  # noqa: E402
     OwnerIdentityRepository,
@@ -54,6 +59,26 @@ TEST_OWNER = "zz_api_import_test"
 UNMAPPED_IDENTITY = "zz_api_smoke_unmapped@example.com"
 
 
+def _stub_yahoo(test):
+    """Answer the two Yahoo lookups these routes make as a miss, offline.
+
+    Adding to the watchlist resolves the currency through ``ticker_info``,
+    listing lots prices them through ``get_latest_quotes``, and the symbols
+    route reads a day of history through ``fetch_history``; all three degrade
+    softly on a miss, and a miss is what the fake ZZ* tickers would get from
+    Yahoo anyway. tests/__init__.py makes any real yfinance request fail fast.
+    """
+    for name, value in (
+        ("ticker_info", lambda self, symbol, timeout=15.0: {}),
+        ("get_latest_quotes", lambda self, symbols: {s: None for s in symbols}),
+        ("fetch_history", lambda self, symbol, interval, days, **kw:
+            pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])),
+    ):
+        patcher = patch.object(YFinanceGateway, name, value)
+        patcher.start()
+        test.addCleanup(patcher.stop)
+
+
 class ApiSmokeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -61,6 +86,7 @@ class ApiSmokeTest(unittest.TestCase):
         cls.client = TestClient(cls.app)
 
     def setUp(self):
+        _stub_yahoo(self)
         self._purge()
         self.addCleanup(self._purge)
         OwnerIdentityRepository().upsert(TEST_IDENTITY, TEST_OWNER)
@@ -317,9 +343,10 @@ class ApiSmokeTest(unittest.TestCase):
         })
         self.assertEqual(resp.status_code, 201)
         # The currency in the response is what was *stored*, which the service
-        # resolves off the exchange rather than taking from the body. ZZWLAPI
-        # is not a real ticker, so the lookup misses and the posted value is
-        # the fallback — that fallback path is the one this asserts.
+        # resolves off the exchange rather than taking from the body. The
+        # lookup is stubbed to miss (ZZWLAPI is not a real ticker either), so
+        # the posted value is the fallback — that fallback path is the one
+        # this asserts.
         self.assertEqual(
             resp.json(),
             {"symbol": WATCHLIST_SYMBOL, "destination": "watchlist",
@@ -567,6 +594,7 @@ class LotRoutesTest(unittest.TestCase):
         cls.client = TestClient(cls.app)
 
     def setUp(self):
+        _stub_yahoo(self)
         self._purge()
         self.addCleanup(self._purge)
         OwnerIdentityRepository().upsert(TEST_IDENTITY, TEST_OWNER)

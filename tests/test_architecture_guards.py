@@ -122,6 +122,42 @@ class TestMarketDateFence(unittest.TestCase):
             f"{violations}",
         )
 
+    # Clock patches known to reach the code under test, with the reason.
+    _CLOCK_PATCH_ALLOWLIST = {
+        # YFinanceGateway.fetch_history reads datetime.datetime.now(tz=ET) directly.
+        ("tests/test_price_freshness.py", "quantcore.gateways.yfinance_gateway.datetime.datetime"),
+    }
+
+    def test_tests_do_not_freeze_the_clock_by_patching_datetime(self):
+        """A weekday-dependent test froze 'today' by patching ``datetime.date`` after the
+        code had moved to ``market_date(now)``; the patch silently stopped reaching it and the
+        test failed only on weekends. Pass ``now=`` instead, or allowlist a patch that is
+        proven to reach the clock read."""
+        violations = set()
+        for f in (REPO / "tests").rglob("*.py"):
+            rel = f.relative_to(REPO).as_posix()
+            tree = ast.parse(f.read_text(errors="replace"), filename=str(f))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Call) or not node.args:
+                    continue
+                func = node.func
+                name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", "")
+                target = node.args[0]
+                if (
+                    name == "patch"
+                    and isinstance(target, ast.Constant)
+                    and isinstance(target.value, str)
+                    and target.value.endswith(("datetime.date", "datetime.datetime"))
+                    and (rel, target.value) not in self._CLOCK_PATCH_ALLOWLIST
+                ):
+                    violations.add((rel, target.value))
+        self.assertEqual(
+            sorted(violations), [],
+            "production code reads the clock through market_date(now); pass now= to the "
+            "code under test instead of patching datetime (or allowlist a patch proven to "
+            "reach the clock read)",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -59,6 +59,8 @@ cd frontend && npx vitest run --coverage
 # Run a single test module (dotted path from the repo root)
 python -m unittest tests.test_money
 python -m unittest tests.test_stock_portfolio_manager
+# To freeze time in a test, pass now= to the code under test; tests/test_architecture_guards.py
+# rejects patching datetime.date/datetime.datetime (it silently stops reaching market_date(now)).
 
 # Start the REST API
 uvicorn api.main:app --host 127.0.0.1 --port 5001

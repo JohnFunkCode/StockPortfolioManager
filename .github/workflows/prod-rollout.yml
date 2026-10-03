@@ -119,7 +119,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-base.txt
       - name: Unit tests
-        run: python -m unittest discover -v
+        run: python -m unittest discover -v --durations 25
       - name: Wrapper smoke (boot each server, assert listTools schemas)
         run: python scripts/ci_wrapper_smoke.py
       - name: OpenAPI surface diff

@@ -10,6 +10,12 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./src/setupTests.ts'],
     include: ['src/**/*.test.{ts,tsx}'],
+    // Per-test timing (issue #289): the default reporter already prints each
+    // file's duration, and lists by name, with its time, every test slower
+    // than this — the frontend half of the backend's `--durations 25`.
+    // Pinned (300 is vitest's default) so the cutoff is a reviewed number.
+    // Information only: never assert on timings.
+    slowTestThreshold: 300,
     coverage: {
       provider: 'v8',
       // Count every source file, tested or not — the honest denominator.

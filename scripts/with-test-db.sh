@@ -2,8 +2,14 @@
 # Run a command with QUANTCORE_DB_DSN pointed at the TEST database
 # (QUANTCORE_TEST_DB_DSN in .env — 127.0.0.1:5434 behind the test Cloud SQL proxy).
 #
+# The unit suite no longer needs this wrapper, and by default does not use this
+# database: tests/__init__.py prefers QUANTCORE_UNITTEST_DB_DSN (a local Postgres)
+# and falls back to QUANTCORE_TEST_DB_DSN only when that is unset (issue #289).
+# Because tests/__init__.py re-reads .env, wrapping the suite in this script does
+# not by itself send it to Cloud SQL; prefix QUANTCORE_UNITTEST_DB=cloudsql for that.
+#
 # Usage:
-#   ./scripts/with-test-db.sh .venv/bin/python -m unittest discover -s tests -t .
+#   ./scripts/with-test-db.sh .venv/bin/python scripts/check_schema_snapshot.py
 #   ./scripts/with-test-db.sh env FOO=1 .venv/bin/python -m unittest some_test
 #   ./scripts/with-test-db.sh psql "$QUANTCORE_DB_DSN" -c '\d positions'
 #

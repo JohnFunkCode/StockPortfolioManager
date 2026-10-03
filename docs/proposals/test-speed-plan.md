@@ -12,7 +12,7 @@ Two of the causes those issues named were fixed before this plan:
 Nobody had re-measured since.
 
 CI's `gate` job runs the backend suite in about 65 seconds, against a throwaway `postgres:16`
-service on localhost. The ~31-minute runs happen **locally**. `tests/__init__.py` copied
+service on localhost. The slow runs happen **locally** (#289 cited ~31 minutes; baseline 1 below measured 17). `tests/__init__.py` copied
 `QUANTCORE_TEST_DB_DSN` from `.env` into `QUANTCORE_DB_DSN`, and that DSN is Cloud SQL test
 through the proxy on `127.0.0.1:5434`, at about 29 ms per round trip. `quantcore.db.get_connection()`
 also opens a new `psycopg2.connect` on every call, so every operation pays the proxy's connection
@@ -75,7 +75,7 @@ Cloud SQL test stays available as an opt-in.
 
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
-| Baseline 1: local, Cloud SQL test (`:5434`), before changes | — | _pending_ | |
+| Baseline 1: local, Cloud SQL test (`:5434`), before changes | `2244012` | 1591 tests in 1022 s (~17 min), OK, skipped=5. 21 of the top 25 were harvester-module tests (10–18 s each, 19 of them in `HarvesterOwnerIsolationTest`); 9 of those 21 were inherited duplicates that change 3 removes. The module's own tests are each 10 s+ through the proxy, so it stays the heaviest until the local-DB baseline. Others in the top 25: `test_schema_parity` 16.2 s, `test_api_smoke` LotRoutesTest 13.5 s and watchlist-fundamentals 11.8 s, `test_schema_introspect_live` 11.0 s. | #289's ~31 min figure didn't reproduce; docs now say ~17. |
 | Changes 1–3 + docs | _this PR_ | backend unit tests pass; harvester module 39 → 25 tests | |
 | Baseline 2: local Postgres (`:5432`) | — | _pending John's local DB setup_ | |
 | Baseline 3: CI `gate` / `frontend-gate` | — | _from this PR's run_ | |

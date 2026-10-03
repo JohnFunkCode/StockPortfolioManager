@@ -52,7 +52,7 @@ python main.py
 # any real yfinance request fail fast -- tests never reach Yahoo; stub
 # YFinanceGateway instead). The DSN comes from .env: QUANTCORE_UNITTEST_DB_DSN
 # (local Postgres, ~1 min) if set, else QUANTCORE_TEST_DB_DSN (Cloud SQL test
-# via the proxy, ~30 min). QUANTCORE_UNITTEST_DB=cloudsql forces the latter.
+# via the proxy, ~17 min). QUANTCORE_UNITTEST_DB=cloudsql forces the latter.
 # --durations lists the slowest tests (CI does the same).
 python -m unittest discover -s tests -t . --durations 25
 

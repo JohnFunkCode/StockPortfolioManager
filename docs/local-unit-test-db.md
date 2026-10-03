@@ -1,7 +1,7 @@
 # Setting up a local unit-test database
 
 The backend test suite runs in about a minute against a PostgreSQL server on your own machine.
-Against the Cloud SQL test instance it takes about 30 minutes, because every query crosses the
+Against the Cloud SQL test instance it took about 17 minutes when measured, because every query crosses the
 Cloud SQL Auth Proxy at roughly 29 ms per round trip (issue #289). CI already runs against a
 throwaway local `postgres:16`, and this setup gives you the same thing.
 
@@ -126,4 +126,4 @@ than a database on your own machine.
 | `test_schema_parity` fails with `permission denied to create database` | The role lacks `CREATEDB`. | `ALTER ROLE quantcore CREATEDB;` |
 | `database "quantcore_test" does not exist` | Step 1 was skipped or failed partway. | `createdb -h localhost -O quantcore quantcore_test` |
 | `connection refused` on port 5432 | The server isn't running, or it listens on another port. | Start Postgres.app. For a different port, put that port in the DSN. |
-| The run still takes ~30 minutes | The suite is still using Cloud SQL test. | Run step 3 and fix `.env` until it prints `localhost:5432/quantcore_test`. |
+| The run still takes 10+ minutes | The suite is still using Cloud SQL test. | Run step 3 and fix `.env` until it prints `localhost:5432/quantcore_test`. |

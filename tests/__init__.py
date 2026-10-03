@@ -32,7 +32,7 @@ def _select_test_dsn(env_text: str, opt_in: str | None) -> str | None:
     The suite does not repoint QUANTCORE_TEST_DB_DSN itself because that key
     means "Cloud SQL test" to flyway.sh, with-test-db.sh, schema_check.py and
     the import scripts. Every round trip through the proxy costs ~29 ms, which
-    is what made local runs take ~30 min against CI's ~1 min.
+    is what made local runs take ~17 min (measured) against CI's ~1 min.
     """
     found = {}
     for line in env_text.splitlines():

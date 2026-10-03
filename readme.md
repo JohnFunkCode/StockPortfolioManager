@@ -1090,8 +1090,8 @@ this order:
    it when the first key is unset, and you can force it for one run with
    `QUANTCORE_UNITTEST_DB=cloudsql python -m unittest …`.
 
-Against Cloud SQL, every query crosses the proxy at roughly 29 ms per round trip. A full run takes
-about 30 minutes that way, compared with about a minute on a local server, which is what CI runs
+Against Cloud SQL, every query crosses the proxy at roughly 29 ms per round trip. A full run took
+about 17 minutes that way (measured 2026-10-03), compared with about a minute on a local server, which is what CI runs
 against (issue #289). One-time setup, about five minutes with `psql`, is in
 [docs/local-unit-test-db.md](docs/local-unit-test-db.md). It covers creating the role and
 database, the `.env` line, checking which database the suite targets, and troubleshooting.

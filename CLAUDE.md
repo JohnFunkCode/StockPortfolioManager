@@ -27,6 +27,7 @@ Where it goes:
 | `CLAUDE.md` | agents (auto-loaded every session) | architecture, constraints, and the rules an agent must not violate |
 | `AGENTS.md` | non-Claude agents | a pointer to `CLAUDE.md` plus the non-negotiables — **never a second copy of the architecture** |
 | `readme.md` | humans | the tour: install, configure, run, endpoints, UI, containers, MCP setup |
+| `docs/architecture/*.md` | both | the detail and the *why* behind CLAUDE.md's rules — CLAUDE.md keeps the rule and links here |
 | `docs/proposals/*.md` | both | plans and their checkpoint logs — append the checkpoint as each step lands, not at the end |
 
 Two rules that keep this from rotting:
@@ -97,109 +98,34 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 ### The daily job (`main.py`) and the legacy report script
 
-`main.py` is the daily Cloud Run Job (`quantcore-report` — the service name kept the old
-spelling; the work did not). It loads John's positions and the shared watchlist from the database
-(via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`),
-fetches prices/metrics, and then does three things **in this order, which is a deliberate
-isolation property** — the cheap, high-value side effects land before anything that can run long:
+`main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
+shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
+this order** — notifications → options capture → fundamentals warming → gamma/GEX recording →
+capture health check. The order is a deliberate isolation property: the cheap, high-value side
+effects land before anything that can run long. Rules to keep:
 
-1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
-   `alert_if_watchlist_empty()`.
-2. **Options capture** — a full options chain snapshot per symbol (in-process
-   `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so
-   open-interest history accumulates daily for `get_oi_change_analysis`. The universe
-   (`capture_symbols`) is John's positions + the global watchlist + **every other owner's**
-   positions (issue #126 decision #5).
-3. **Fundamentals warming** — `run_fundamentals_warming(capture_symbols, …)` refreshes the
-   fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
-   budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;
-   the universe converges over a few nights. Ordering comes from
-   `FundamentalsService.cache_freshness()`; the pass is wrapped in an outer `try/except` that
-   never raises, so a warmer failure cannot retroactively fail a run whose notifications already
-   went out. That silence is then made loud by `alert_if_fundamentals_stale()`, which re-reads
-   freshness **after** warming and fires a Discord alarm on either trigger — coverage below a
-   floor, or an oldest-age above a ceiling. Tunable per-deployment without a code change:
+- The warming pass and the capture tail are each wrapped in an outer `try/except` that **never
+  raises**, so a late failure cannot fail a run whose notifications already went out — and each is
+  made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
+  halves.
+- Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
+  budgets can't add up past the timeout.
+- Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
+  `GEX_RECORD_BUDGET_SECONDS`, `NEWS_*`) fall back to the default on an unparseable value — a typo
+  must not silently disarm an alarm.
+- The job exits 0 on NYSE-closed days (`is_trading_day`), notifications included.
+- The fundamentals batch endpoint takes at most 25 unique symbols (422 otherwise); larger universes
+  must be split across requests.
+- News collection is a **separate Job** (`news_job.py`, `Dockerfile.news`) because FinBERT needs
+  torch, which the lean report image must not carry.
+- **FinBERT weights are baked into the images, never downloaded at runtime.** Bumping the model is
+  a reviewed one-line change to `DEFAULT_REVISION` in `scripts/bake_finbert.py`, never a follow of
+  Hub `main`. Don't "simplify" away the bake's `use_safetensors=False`.
+- `main.py` **does not render the HTML report** — `scripts/generate_portfolio_report.py` does, and
+  the Pi runs that script and **not** `main.py` (running both would double every alert).
 
-   | Env var | Default | Meaning |
-   |---|---|---|
-   | `REPORT_TASK_TIMEOUT_SECONDS` | `1800` | report Job task deadline used to cap the warming pass |
-   | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | `900` | wall-clock budget for the warming pass; capped 60 seconds before the task deadline |
-   | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | `0.80` | alarm below this in-TTL fraction |
-   | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
-   | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
-   | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
-   | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the universe's chains landed today |
-   | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed |
-
-   An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
-   var must not silently disarm the alarm.
-
-   **Closed-market days and the capture tail.** `main.py` exits 0 before doing anything on a day
-   the NYSE is closed (`is_trading_day`, holidays computed from rules in
-   `quantcore/analytics/market_time.py` — no calendar dependency; Cloud Scheduler fires Mon–Fri, so
-   this guard is for weekday holidays). Notifications are skipped too, deliberately. After
-   notifications, `run_capture_tail` runs the options capture, then `record_gamma_and_gex` (the only
-   scheduled caller of `get_delta_adjusted_oi`/`get_gex_profile`, so `gamma_wall_history` and
-   `gex_history` accumulate daily; its walk rotates with the date so a budget that can't cover the
-   universe still visits everyone over a few nights), then `check_capture_health`. The health check
-   reads what actually **landed in the database** (`OptionsService.capture_counts`) rather than
-   trusting the loop's own tally, and sends one Discord alarm (`send_capture_gap_alert`) on low
-   chain coverage, a high failure rate, or an exhausted capture budget. Every step budget is
-   clamped to what is left of the task deadline (`_remaining_budget`), so budgets can't add up past
-   the timeout. The tail is wrapped in an outer `try/except` that never raises.
-
-   The fundamentals batch endpoint accepts at most 25 unique symbols. It trims, uppercases, and
-   deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
-   before provider/database work begins. Larger universes must be split across requests.
-
-The job exits immediately on NYSE-closed days (`is_trading_day`), notifications included.
-
-**News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
-`Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image
-must not carry — and so a slow scoring pass cannot delay the notifications. Per-symbol try/except,
-a shared wall-clock budget, one `score_unscored` pass at the end (so a truncated collection is still
-scored), and one Discord alarm (`send_news_gap_alert`) on a high failure rate, an exhausted budget
-a scoring error, or **empty sources** (both fetchers returned nothing for more than the ceiling of
-symbols, once enough were attempted — fetchers swallow their own errors, so "collected" alone
-only means no exception; issue #275). The yfinance source is `YFinanceGateway.news`, which reads
-`yf.Search(symbol).news` filtered by `relatedTickers` — `Ticker.news` and Yahoo's RSS feed both
-return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
-`NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **one-time infra** per project,
-created with `scripts/ensure_news_job.sh [--prod]` (idempotent; copies service account, Cloud SQL and
-secrets from the `quantcore-report` Job). `deploy.yml` and `prod-rollout.yml` skip the image step until the
-Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. Two more alarms close the
-remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
-returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`
-(`main.py`, via `SentimentService.news_freshness`) — hosted there because a news Job that never runs
-cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend). The age is read from a per-symbol `fetch_log` heartbeat (`interval='news'`, written by `collect_news` via `NewsStore.record_collection`) rather than `MAX(news_articles.fetched_at)`, which only moves on new inserts and would false-alarm on a quiet news stretch.
-
-**FinBERT weights are baked into the images, never downloaded at runtime** (issue #280). The
-builder stage of `Dockerfile.api` and `Dockerfile.news` runs `scripts/bake_finbert.py`, which
-downloads a **pinned** `ProsusAI/finbert` revision (`DEFAULT_REVISION` in the script), re-saves it
-as a single safetensors file in `/opt/models/finbert`, and verifies it loads offline; both images
-set `FINBERT_MODEL_PATH=/opt/models/finbert` and `HF_HUB_OFFLINE=1`. `_ensure_finbert`
-(`quantcore/services/sentiment.py`) loads from that path with `local_files_only=True` when it is
-set and falls back to the Hub id when it is not (local dev), under a lock so concurrent first
-callers share one load. The news Job warms the model on a background thread
-(`SentimentService.warm()`) while collecting; the API deliberately stays lazy, because Cloud Run
-throttles CPU outside requests and a startup preload would tax every cold start. Rules that follow:
-
-- **Bumping the model is a reviewed one-line change** to `DEFAULT_REVISION` (or
-  `--build-arg FINBERT_REVISION=<sha>`), never a follow of Hub `main` — a new checkpoint shifts the
-  score distribution and puts a step into stored sentiment history.
-- The bake downloads with `use_safetensors=False` on purpose: left alone, `transformers` also
-  fetches the Hub bot's safetensors-conversion PR ref and pulls **both** formats (836 MB, extra Hub
-  calls, more 429 exposure). Don't "simplify" that flag away.
-
-Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
-**`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),
-which the Raspberry Pi runs via `runOnPi.sh`. Two consequences worth keeping straight:
-
-- The Pi runs the script and **not** `main.py`, because the Cloud Run Job already sends the
-  notifications and captures the snapshots — running both would double every alert.
-- `--publish` now **fails loudly** when `BUCKET_NAME`/`BUCKET_KEY` are missing, checked up front
-  before minutes of price fetching. The old code returned `None` and let the caller report
-  success, which is how the public page could stop updating unnoticed (the original #147 defect).
+Defaults table, every alarm, the news Job, the FinBERT load path, and the report script:
+[`docs/architecture/daily-jobs.md`](docs/architecture/daily-jobs.md).
 
 ### Notifications (`notifier.py`)
 
@@ -207,132 +133,55 @@ Sends Discord webhook alerts for: moving average violations (30/50/100/200-day),
 
 ### Arbitrage Scanner
 
-Finds securities whose price has stretched against a structurally linked underlying, across
-three families: **nav_vehicle** (treasury companies/trusts — the only family with a computable
-fair value), **commodity_etf** (fund vs its reference future), and **producer** (miner/E&P vs
-the commodity it sells). Curated links live in **`arb_universe.yaml`** at the repo root
-(alongside `watchlist.yaml`); `discover_pairs` additionally sweeps for undeclared cointegrated
-links against a reference panel, gated by a sector/industry economic-link filter.
+Finds securities stretched against a structurally linked underlying (`nav_vehicle`,
+`commodity_etf`, `producer`; curated links in `arb_universe.yaml`), served by `ArbitrageService`,
+`GET /api/arbitrage/*`, and the `arbitrage-server` MCP wrapper. **The scoring is deliberately
+inverted: spread width only qualifies a candidate, the convergence mechanism ranks it** — every
+factor and penalty emits its own `reasons`/`breaks_on` entry, so keep the scorer self-documenting.
+Futures-only hedges are flagged `hedge_available: false` and halved (the account is equity/ETF-only).
+Expect most scans to return nothing above `watch` — that is intended, not a bug.
 
-**The scoring is deliberately inverted: spread width only qualifies a candidate, the
-convergence mechanism ranks it.** `ArbitrageService._score` multiplies named factors —
-`opportunity × evidence × convergence × hedge × carry × trend × freshness` — all returned in
-the `factors` block alongside `reasons` and `breaks_on`, so any score is attributable. The design
-principle is stated in the `ArbitrageService` module docstring; the penalties are applied in
-six numbered steps in `_score`, and every one of them emits a `reasons` entry explaining
-itself (plus a `breaks_on` entry where it names a way the trade fails), so the scorer is its
-own documentation rather than pointing at a write-up that can drift from it.
-`tests/test_arbitrage_nav.py` is a regression guard that the MSTR inputs still produce a ~10%
-**net** discount rather than the ~37% headline against gross assets. Because the account is
-equity/ETF-only, any pair whose sole clean hedge is a futures contract is flagged
-`hedge_available: false` and halved.
-
-Surfaced as `GET /api/arbitrage/{universe,scan,discover,pairs/{security}}` and its own MCP
-wrapper `fastMCPTest/arbitrage_server.py` (`arbitrage-server`, port 6007 locally,
-`quantcore-arbitrage` on Cloud Run) carrying `list_arbitrage_universe`,
-`analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs` — one domain per
-server, like the others. Expect most scans to return nothing above `watch` — that is the
-intended behaviour, not a bug.
-
-**Driving it:** [`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md) — example
-prompts per tool, how to read the `factors` breakdown, the MSTR worked example (gross vs net
-discount), and how to add a pair to `arb_universe.yaml`.
+Design: [`docs/architecture/arbitrage.md`](docs/architecture/arbitrage.md); usage:
+[`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md).
 
 ### Harvester System
 
-An experimental "harvest ladder" strategy for systematically selling shares as prices rise:
+An experimental "harvest ladder" strategy for selling shares as prices rise: the algorithm in
+`experiments/HarvesterExperiment.py`, persistence in `HarvesterPlanDB`
+(`quantcore/repositories/harvester_repository.py`), and `HarvesterService` scanning prices against
+active rungs and firing alerts from `main.py`'s notification pass. Rules to keep:
 
-- **`experiments/HarvesterExperiment.py`** — Core algorithm: computes volatility-based harvest thresholds (H), builds forward price target ladders, and backtests harvest plans. (`experiments/INTC_bear_call_spread_monitor.py` and `WMT_bull_call_spread_monitor.py` are standalone position monitors kept alongside it.)
-- **`quantcore/repositories/harvester_repository.py`** — `HarvesterPlanDB` + `PlanBuildParams` persist plans in the unified **QuantCore** PostgreSQL database (plan templates/instances/rungs/alerts). SQL only.
-- **`quantcore/services/harvester.py`** — `HarvesterService` wraps the repository and scans prices against active plan rungs, firing alerts (the former `HarvesterController` behaviour).
+- **Plans are owned.** `owner` is a **required keyword-only argument** on every public repository
+  and service method that touches a plan, a rung, or an alert — never a defaulted one.
+- **Isolation is enforced in SQL, never in a route.** Every statement carries an `owner`
+  predicate, **including private helpers** and the scan path's SQL constants; another owner's plan
+  reads as `None` and the route answers 404. Routes resolve the owner via
+  `Depends(require_owner)` — there is no `?owner=` on the plans/rungs/dashboard routes.
+- **A plan may only exist while the owner holds the shares.** `build_plan` refuses a symbol with no
+  `OPEN` lot (422); `PortfolioService._close_plan_if_flat` closes the plan to `CLOSED` after the
+  write commits, in a `try/except` that only logs. A partial close leaves the plan ACTIVE.
+- The two ends are wired with **repositories, not services** — services in both directions would
+  close a construction cycle in `registry.py`.
+- `V8__close_orphan_plans.sql` is a data migration and is deliberately **not** mirrored into
+  `_SCHEMA` or the snapshot.
 
-The Harvester integrates with the notification system: when `main.py` runs, it checks each portfolio stock against active harvest plan rungs (via `HarvesterService`) and sends Discord alerts for any hits.
-
-**Plans are owned (#147 Part H1, `V7`).** `plan_instances.owner` matches `positions.owner`, and the
-database invariant moved with it: `ux_one_active_plan_per_symbol` was dropped for
-`ux_one_active_plan_per_owner_symbol`, so two owners may each run a ladder on the same ticker.
-Consequences to keep straight:
-
-- `owner` is a **required keyword-only argument** on every public repository and service method that
-  touches a plan, a rung, or an alert — not a defaulted one. Forgetting it is a `TypeError` at the
-  call site rather than a silent read of John's ladders.
-- **Isolation is enforced in SQL, never in a route.** Every statement carries an `owner` predicate,
-  so another owner's plan reads as `None` and mutates zero rows; the routes turn that into a 404 —
-  the same answer as an id that never existed, which is what keeps the endpoint from leaking which
-  ids are taken. **No exceptions, including private helpers.** `_ensure_next_rung_alert` and the
-  two SQL constants the scan path executes directly (`SQL_GET_NEXT_PENDING_RUNG`,
-  `SQL_GET_ACTIVE_ALERT_FOR_RUNG`) all carry the predicate, even though every caller reaches them
-  with an id already resolved through a scoped query. The required keyword catches the caller that
-  forgot to scope; the predicate contains the damage when one is wrong anyway — and those two
-  failures are not equally bad, since the alternative to a no-op is a write onto another owner's
-  ladder.
-- Routes resolve the owner from the authenticated principal via `Depends(require_owner)`; there is
-  no `?owner=` on the plans/rungs/dashboard routes. `GET /api/symbols/{ticker}/price` reads no owned
-  data and deliberately takes no owner at all.
-- `Notifier(portfolio, owner=…)` defaults to `"john"` because the daily job runs on John's
-  portfolio; the argument exists so a second owner's run scopes to their own ladders.
-- The status vocabulary is `ACTIVE` | `SUPERSEDED` | `CLOSED`.
-
-**A plan may only exist while the owner holds the shares (#147 Part H5, `V8`).** A harvest ladder
-sells into strength; one running on a symbol nobody holds fires alerts that can never be executed.
-The invariant is enforced at both ends, and the two ends are wired with **repositories, not
-services** — `HarvesterService` takes `portfolio_repository`, `PortfolioService` takes
-`harvester_repository`, because services in both directions would close a construction cycle in
-`registry.py`. Both are optional (`None`) so a unit test can build either stack alone.
-
-- **Entry.** `HarvesterService.build_plan` refuses a symbol with no `OPEN` lot, *before* the
-  yfinance fetch, with a `RuntimeError` that `POST /api/plans` already maps to **422** — the
-  request is well-formed, the portfolio just doesn't support it. `CreatePlanDialog` narrows its
-  symbol picker to the caller's holdings, but the picker is the courtesy and the 422 is the rule.
-- **Exit.** `PortfolioService._close_plan_if_flat` closes the owner's ACTIVE plan to **`CLOSED`**
-  (not `SUPERSEDED` — nothing replaced it) once no `OPEN` lot remains, on the three paths that can
-  empty a position: `close_lot`, `delete_lot`, `remove_position`. It runs **after** the write has
-  committed, on its own connection, inside a `try/except` that only logs — a harvester outage must
-  not fail a sale that already landed. A **partial** close leaves lots open and therefore leaves
-  the plan ACTIVE; that off-by-one is the difference between finishing a harvest and silently
-  killing a live ladder.
-- **The backstop.** Because the exit seam is eventually consistent by design, `GET /api/plans`
-  carries `in_portfolio` per plan and `/plans` flags an ACTIVE row whose shares are gone. `None`
-  where the holdings could not be read — "we can't tell" is not "they sold out of it", and the
-  page only flags an explicit `False`.
-- The Portfolio page's Plan chip reads `active_plan_id` off **`GET /api/portfolio/symbols`**
-  (`PortfolioService._active_plan_ids` → `HarvesterPlanDB.active_plan_ids`), looked up **once per
-  request** and degrading to `None` rather than failing the table. The Harvester-era
-  `GET /api/symbols` list independently carries the same field (its own owner-scoped join in
-  `HarvesterPlanDB`) and is now **MCP/API-only** — no page reads it, since `/symbols` was retired
-  from the front end in #147 Part G1.
-- `V8__close_orphan_plans.sql` closes rows that predate the invariant. It is a **data** migration:
-  deliberately *not* mirrored into `_SCHEMA` or the snapshot, because `init_schema()` runs on every
-  startup and a re-running backfill would close plans built moments earlier.
+Full narrative (status vocabulary, the backstop flag, the Plan chip):
+[`docs/architecture/harvester.md`](docs/architecture/harvester.md).
 
 ### Unified Database (`quantcore/`)
 
-All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
+All persistence is a single **QuantCore** PostgreSQL database (22 tables, DDL in `_SCHEMA` in
+`quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
+repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`; two rules
+follow:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 22 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions, news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences, e.g. the Sidekick chat model), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **A price refresh may fill `adj_close`, never blank it** — `OhlcvRepository`'s upsert uses
+  `COALESCE(EXCLUDED.adj_close, ohlcv.adj_close)`.
+- **A window measured in bars must be fetched in trading days** (`HarvesterService.build_plan`
+  scales by `365/252`); when a gap survives anyway, raise — never substitute `close`.
 
-All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
-
-**`ohlcv` has two writers, and they disagree about `adj_close`.** `OhlcvRepository` (the prices
-cache) fetches with `auto_adjust=True`, so the adjustment is already baked into `close` and it
-writes `adj_close = NULL`; `HarvesterPlanDB.build_plan` fetches with `auto_adjust=False,
-include_adj_close=True` and writes a real adjusted close for the same `(symbol, '1d', ts)` rows.
-Two rules follow, and both exist because breaking either produced the same crash — `float(None)`
-escaping as a bare `TypeError` into the Create Plan dialog:
-
-- **A price refresh may fill `adj_close`, never blank it.** `OhlcvRepository`'s upsert uses
-  `adj_close = COALESCE(EXCLUDED.adj_close, ohlcv.adj_close)`; with plain `EXCLUDED` a routine
-  symbol lookup silently destroyed every adjusted close the harvester had computed.
-- **A window measured in bars must be fetched in trading days.** `PlanBuildParams.history_window_days`
-  is a row count (`LIMIT history_window_days`), so `HarvesterService.build_plan` scales it by
-  `365/252` before calling `fetch_history`, which takes calendar days. The old `max(n + 60, 420)`
-  covered ~288 sessions of a 360-bar read, and the shortfall was served by whatever the prices cache
-  had left there. When a gap survives anyway, the repository raises a `RuntimeError` naming it
-  (→ 422) rather than substituting `close` — an unadjusted bar beside adjusted ones is a fake step
-  that inflates the volatility sizing the ladder.
-
-**Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
+Table list, why the writers disagree, and the SQLite migration script:
+[`docs/architecture/data.md`](docs/architecture/data.md).
 
 ### Services Layer (`quantcore/`)
 
@@ -347,127 +196,53 @@ Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural
 
 **UI component rules (arch-v2 Rules 8–9):** any front-end component that displays analytical data must be **GenUI-compliant / sidekick-renderable** — scalar self-contained props, registered with matching strict prop specs in BOTH `quantcore/services/chat_tools.py` (`BACKEND_COMPONENT_REGISTRY` + the `show_component` tool description) and `frontend/src/chat/componentRegistry.tsx`, rendered via `DirectiveRenderer`, displayed math in `quantcore/analytics` (never in the front end), gestures only via the dual interaction registries + `useDirectiveInteractions` (honoring locked/consumed history). Every new or materially changed UI component ships vitest tests (loading/error/success + key values) and registry parity cases in the same PR; the vitest coverage thresholds only ratchet upward.
 
-Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.
+Positions are DB-backed and per-owner (`positions.owner`; `portfolio.csv` is a per-owner import
+format). The watchlist is DB-backed and **global** — one shared list, `added_by` for audit only;
+`watchlist.yaml` is import-only and there is deliberately **no fallback to the YAML file** (an
+empty table is a loud Discord alarm). Rules to keep:
 
-The watchlist is DB-backed too (`watchlist` table, `WatchlistRepository` → `WatchlistService`, issue #83) but — unlike positions — it is **global**: one shared list, no `owner` column, with the writing principal recorded in `added_by` for audit only. `watchlist.yaml` is now purely an import format (`scripts/import_watchlist.py`, full-sync replace); every consumer (the daily report, the options screener, the fundamentals report, the REST tier) reads the table, and there is deliberately **no fallback to the YAML file** — an empty table is a loud Discord alarm (`alert_if_watchlist_empty` in `main.py`), not a quiet degrade. Surfaced as `GET/POST /api/watchlist`, `PATCH /api/watchlist/{ticker}` (tags only — it **replaces** the set rather than merging, because the UI sends the chip set it is displaying and a merge could never remove the last tag; PATCH not PUT because the currency is resolved server-side and must not be client-writable), `DELETE /api/watchlist/{ticker}`, and `GET /api/watchlist/fundamentals` (returns + cached fundamentals for the whole list — `WatchlistService.returns_and_fundamentals` composes `PricesService` and `FundamentalsService` to serve it in **six queries and zero network calls**, which is what let the nightly HTML report become a page; the query count is constant in list size and `tests/test_watchlist_service.py` guards it, so do not "simplify" it into a per-symbol loop). That route must stay **declared before** `/watchlist/{ticker}` in `api/routers/portfolio.py` — FastAPI matches in declaration order. Plus `list_watchlist` / `add_to_watchlist` on the portfolio MCP wrapper. Removal is a UI-only action: the seam `mcp_gateway/rest_client.py` has no `delete` verb, so no agent can drop symbols off a list the whole team shares.
+- `GET /api/watchlist/fundamentals` must stay **declared before** `/watchlist/{ticker}` in
+  `api/routers/portfolio.py`, and its six-query, zero-network shape must not be "simplified" into a
+  per-symbol loop (`tests/test_watchlist_service.py` guards it).
+- Watchlist removal is UI-only: `mcp_gateway/rest_client.py` has no `delete` verb.
+- **A watchlist entry's currency is resolved server-side** from `info["currency"]` (not
+  `financialCurrency`), failing soft *and* fast: `YFinanceGateway.ticker_info` uses a daemon
+  thread + `join(timeout)`, deliberately **not** a `ThreadPoolExecutor` — don't "tidy" it back.
+  Don't add a `currency` parameter back to `add_to_watchlist`, or a currency picker to the
+  Watchlist tab of the Add Security dialog.
 
-**The currency on a watchlist entry is resolved server-side, not supplied.**
-`WatchlistService.add_entry` reads it off the exchange via `YFinanceGateway.ticker_info`
-(`info["currency"]` — the *trading* currency, which is the unit `marketCap` is quoted in;
-`financialCurrency` is a different thing and using it mislabels the cap). The `currency`
-argument survives in the signature but has demoted to a **fallback**, used only when the
-lookup comes back empty, and a disagreement is logged. Three entries seeded from
-`watchlist.yaml` were declared USD and are not — ASSA-B.ST is Stockholm, AUTO.OL Oslo,
-NIB.F Frankfurt — which renders a foreign market cap as dollars: a wrong number, not a
-missing one. Consequences to keep straight:
+Routes, the currency consequences in full, and `scripts/repair_watchlist_currency.py`:
+[`docs/architecture/data.md`](docs/architecture/data.md).
 
-- The lookup **fails soft, never closed** — Yahoo being down must not block adding a symbol.
-  A miss falls back to the supplied value and logs a warning; it never raises.
-- Soft is not enough on its own: it must also be **fast**, because this runs inside the user's
-  `POST /api/watchlist`. `add_entry` passes `ADD_LOOKUP_TIMEOUT_SECONDS` (6s, under the
-  gateway's 15s default) and `YFinanceGateway.ticker_info` enforces it with a bare **daemon
-  thread + `join(timeout)`** — deliberately *not* a `ThreadPoolExecutor`. `Executor.__exit__`
-  calls `shutdown(wait=True)`, so raising `TimeoutError` inside `with ThreadPoolExecutor(...)`
-  blocks on the way out until the hung worker returns anyway: the timeout picks when the
-  exception is *built*, not when the caller regains control (measured — a 1s timeout against a
-  6s hang took 6.01s, and the add path held a caller 30s behind a 0.25s deadline). Don't
-  "tidy" it back into an executor; `tests/test_yfinance_gateway.py` and
-  `tests/test_watchlist_service.py` assert on elapsed wall clock for exactly that reason.
-- `add_to_watchlist` on the portfolio MCP wrapper has **no `currency` parameter** at all, and
-  the Add Security dialog shows its currency picker on the Portfolio tab only. Don't add
-  either back; `tests/test_mcp_seam.py` and `AddSecurityDialog.test.tsx` guard both.
-- `POST /api/watchlist` returns `{symbol, destination, currency}` — the currency that was
-  *stored*, which is not necessarily what was posted.
-- Rows already in the table are repaired by **`scripts/repair_watchlist_currency.py`**
-  (dry run by default, `--apply` to write, `--symbols A,B` to scope, refuses prod without
-  `--allow-prod`), which drives `WatchlistService.resync_currencies`.
-
-**Refactor status:** Phase 1 of architectural-standard-v2 (services-layer extraction) is **complete** — see [`docs/proposals/phase1-migration-plan.md`](docs/proposals/phase1-migration-plan.md) for the checkpoint log. Phase 2 (FastAPI/Pydantic REST tier) is **complete** — the Flask app (`api/app.py`) has been retired and rebuilt on FastAPI (app factory `api/main.py`, route groups under `api/routers/*`, Pydantic request/response schemas under `api/schemas/*`), preserving every route path and JSON shape so the React front end runs unmodified; OpenAPI docs are served at `/docs` and the spec at `/openapi.json`. See [`docs/proposals/phase2-fastapi-plan.md`](docs/proposals/phase2-fastapi-plan.md) for the checkpoint log. Run it with `uvicorn api.main:app --host 127.0.0.1 --port 5001` (or `python -m api.main`). Phase 3 (AI gateway + GCP deployment) is **complete on the test project** — see [`docs/proposals/phase3-gateway-plan.md`](docs/proposals/phase3-gateway-plan.md): the MCP servers (`fastMCPTest/*_server.py`, `options_analysis.py`) were inverted into thin **HTTP gateway wrappers** that call the REST tier through the single seam `mcp_gateway/rest_client.py` (Rule 6 — `AI Agent → MCP wrapper → REST tier → Service`); `api/auth.py` adds JWT verification (inert until a key is configured, so local/compose stay open); everything is containerized (`Dockerfile.{api,mcp,report}`, `docker-compose.yml` local stack) and deployed to **GCP Cloud Run** — `quantcore-api` (JWT-enforced) + 7 wrapper services + `main.py` as a daily Cloud Run **Job** on Cloud Scheduler (in-process services, never HTTP). CI/CD is `.github/workflows/deploy.yml` (tests + wrapper smoke + OpenAPI surface diff, then build/roll-out; push/PR triggers are gated by a `preflight` job that skips the deploy when the test-WIF secrets are absent — wire them with `scripts/setup_test_wif.sh`). **Production rollout is COMPLETE** — see [`docs/proposals/prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md): rather than a test-service DSN flip, the same stack was stood up in a **dedicated prod project** `quantcore-prod-20260606` (project # `127961694257`, `us-central1`) reaching its own prod Cloud SQL — `quantcore-api` (JWT-enforced) + 7 wrapper services + the report Cloud Run Job on Cloud Scheduler, on images **copied by digest** test→prod (api `ac5cd17f…`, mcp `1b7da905…`, report `65d70659…`). Gated prod CI/CD is `.github/workflows/prod-rollout.yml` (`workflow_dispatch`/`release`, `prod` GitHub Environment with required reviewers, separate prod WIF). `.mcp.json` points AI clients at the prod wrapper `/mcp` URLs (`https://quantcore-<svc>-127961694257.us-central1.run.app`, bearer `${QUANTCORE_MCP_TOKEN}`); the 7 `*-local` entries remain for the docker-compose stack. The deferred `portfolio/yfinance_gateway.py` `get_latest_prices` fragility is now **hardened** (retry/back-off + graceful all-None degrade so a flaky Yahoo response no longer crashes the daily report); rebuilding/redeploying the prod report image with this fix is a pending user/CI step.
+**Refactor status:** architectural-standard-v2 Phases 1–3 (services layer, FastAPI REST tier,
+MCP gateway + GCP Cloud Run) and the dedicated prod project rollout are **complete**. MCP wrappers
+are thin HTTP gateways through the single seam `mcp_gateway/rest_client.py` (Rule 6 —
+`AI Agent → MCP wrapper → REST tier → Service`); the report runs as a Cloud Run **Job** with
+in-process services, never HTTP. Phase-by-phase record: [`docs/architecture/history.md`](docs/architecture/history.md).
 
 ### QuantUI front end on Cloud Run (behind IAP)
 
-The React SPA (`frontend/`) is deployed as the **QuantUI** Cloud Run service in both projects,
-gated by **Identity-Aware Proxy (IAP)** so the team reaches the real UI from anywhere with no auth
-code in the app — see [`docs/proposals/quantui-iap-plan.md`](docs/proposals/quantui-iap-plan.md)
-(status: **COMPLETE, Steps 1–8**). Live URLs:
+The React SPA (`frontend/`) runs as the **QuantUI** Cloud Run service in both projects, gated by
+IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
+`https://quantui-127961694257.us-central1.run.app`. Rules to keep:
 
-- **Test:** `https://quantui-493357101423.us-central1.run.app` (`quantcore-test-20260606`)
-- **Prod:** `https://quantui-127961694257.us-central1.run.app` (`quantcore-prod-20260606`)
+- **Pages are declared once, in `frontend/src/navigation.tsx`** — `<Routes>` and the nav bar both
+  map over it; a drill-down (`nav: false`, e.g. `/plans/:id`) must never get a button. The active page is marked with `aria-current`; don't replace it with a CSS-only
+  highlight.
+- The Watchlist page leaves the native `market_cap` column **unsortable** (sort on
+  `market_cap_usd`). The Fundamentals page has **no page-level loading gate**, its `scope` filter
+  runs **before** the ranking, and the roster reaches `FundamentalsService` as a late-bound
+  callable (injecting the services would close a construction cycle).
+- The browser never sees a bearer: `frontend/server/` verifies the IAP assertion and mints a
+  per-user ES256 JWT server-side.
+- Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
+  `prod-rollout.yml`. Prod is never auto-deployed.
+- Granting a user needs **both** the consent-screen Audience entry and
+  `roles/iap.httpsResourceAccessor` (`scripts/grant_quantui_iap_access.sh`) — either alone is a
+  blocked login.
 
-**Pages are declared once, in `frontend/src/navigation.tsx`** — one array that both `<Routes>` and
-the nav bar map over, so adding a page is a one-object append rather than two edits that can
-disagree. Two fields carry decisions rather than data: `nav: false` marks a drill-down
-(`/plans/:id`) that must never get a button, and `group` names which of the two dropdown menus the
-page sits under — `MY_POSITIONS` (what you own) or `RESEARCH` (what you're looking at), with an
-ungrouped entry staying a top-level button (`Settings` is neither, and costs one click rather than
-two). Grouping is keyed on the **label, in first-appearance order** (`buildNavSections`), not on
-adjacency, so a page appended mid-array joins the existing menu instead of opening a second one
-with the same name. The bar itself is `frontend/src/components/layout/NavBar.tsx` and not `App.tsx`,
-because each group owns a menu-anchor `useState`. The active page is marked with **`aria-current`**
-— `'page'` on the link, plain `true` on a group trigger that is not itself the page — which is both
-the accessible signal and what the tests assert on, so don't replace it with a CSS-only highlight.
-The readme's Pages table is the human-facing tour of the same array (issue #147 Part G).
-
-The **Watchlist page** (`/watchlist`, issue #147 Part C) renders the whole shared list ranked by
-fundamental score off the single `GET /api/watchlist/fundamentals` call, and is the replacement for
-the nightly `generate_watchlist_fundamentals_report.py` HTML. The server does the ranking and the
-stale/unscored counts (Rule 8.4); the page sorts on `market_cap_usd` and leaves the native
-`market_cap` column deliberately **unsortable**, because ordering mixed currencies ranks exchange
-rates rather than companies.
-
-The **Fundamentals page** (`/fundamentals`, issue #147 Part D) answers "what's good?" across the
-**tracked universe** — the shared watchlist plus *every* owner's positions, deliberately the same
-set `main.py` captures options for and warms fundamentals over. Five panels
-(`frontend/src/components/fundamentals/`), five independent cache-backed reads, and **no page-level
-loading gate**: each panel owns its loading and error state, so one slow or failed query leaves the
-other four standing. All four ranked reads pass `scope=tracked`; `cache-stats` takes no scope
-because it reports on the cache, not on a roster — and a failure there renders *nothing* rather than
-an alert, since it is the one panel whose absence costs no analysis. Two of the panels are also
-sidekick components (`fundamentals_top`, `fundamentals_score_changes`), registered with **empty**
-prop specs and rendered as the panels' own `variant="rail"` — a card and the open page then share
-one hook and one react-query key rather than duplicating the fetch.
-
-`scope` (`all` | `tracked`) is threaded through `FundamentalsService`'s four collection methods and
-their routes. Two things about it are load-bearing: the filter runs **before** the ranking (top-N of
-the cache is not top-N of the roster), and the roster is supplied to `FundamentalsService` as a
-late-bound `tracked_symbols` **callable** wired in `registry.py` — `WatchlistService` already
-composes `FundamentalsService`, so injecting the services directly would close a construction cycle.
-At the route boundary it is a `Literal["all","tracked"]`, so a bad value is a 422 rather than a
-service `ValueError` escaping over HTTP.
-
-The security detail page's Technical Analysis tab includes the **Support Confluence card**
-(`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the
-`GET /api/securities/{ticker}/support-confluence` composite support/resistance zones.
-
-**Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
-(`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
-Types headers) and **reverse-proxies `/api/*` to `quantcore-api`, attaching a per-user token
-server-side**: it verifies the Google-signed IAP assertion (`x-goog-iap-jwt-assertion`) and mints
-a 15-min **ES256 JWT** (`sub` = the IAP email, `aud: ['quantcore-api','quantcore-keyproxy']`) in
-`frontend/server/auth.mjs`, signed with the `quantui-signing-key` secret (public half in
-`quantui-signing-pub`, given to the verifiers). Fallback ladder keyed on configuration:
-`QUANTUI_SIGNING_KEY` set → per-user mint (missing/invalid IAP assertion = hard 401); else
-`QUANTCORE_API_TOKEN` (legacy static `quantui-api-token` secret) → else no header (compose,
-`AUTH_DISABLED=1`). The browser stays same-origin (no CORS) and never sees any bearer — the
-production equivalent of the Vite dev proxy. IAP gates *who can load the UI*; the minted JWT
-authenticates the UI→API hop and carries user identity to the BYOK keyproxy. Each project has its
-own signing keypair + OAuth client (standalone projects can't auto-provision one; attach via
-`scripts/attach_quantui_iap_oauth.sh`).
-
-**Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
-filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and rolls it onto
-the **test** `quantui` service automatically (IAP/secret/env config preserved; CPU/memory
-re-asserted from the workflow's sizing env block — see **Cloud Run sizing** below). Verify on the test
-URL, then promote to **prod** by manually dispatching `prod-rollout.yml` (`workflow_dispatch`) with
-the commit's 7-char SHA — it copies the image **by digest** test→prod and deploys prod
-`quantui` the same way. Prod is never auto-deployed.
-
-**Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
-(1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`
-on `quantui`. Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and
-run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
-`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
-Audience tab in Console. Both are required — only one results in a blocked login.
+Serving model, auth fallback ladder, the pages, and the grant procedure:
+[`docs/architecture/quantui.md`](docs/architecture/quantui.md).
 
 ### BYOK key proxy (Sidekick chat — users bring their own Anthropic key)
 
@@ -476,13 +251,9 @@ checkpoint/runbook log in [`docs/proposals/byok-key-proxy-plan.md`](docs/proposa
 merged via PRs #105/#106 at `177e411`). The QuantUI Sidekick chat runs on each user's own
 Anthropic API key; the backend never holds a usable key at rest.
 
-- **Flow:** browser vault (`frontend/src/vault/` — IndexedDB, passphrase PBKDF2 + AES-GCM;
-  managed on the `/settings` page) seals the key per turn into a **single-use envelope**
-  (`frontend/src/vault/envelope.ts` ↔ `keyproxy/crypto.py`, SPKI pin baked into the UI bundle,
-  AAD binds `sub`/`jti`/scope-hash) → `/api/chat` carries envelope + scope through
-  `quantcore-api` (never decrypted there) → **`keyproxy/`** (own FastAPI service, no DB) decrypts
-  in memory, enforces scopes/budgets/replay (`scopes.py`, `sessions.py`, `replay.py`), streams
-  SSE from Anthropic back through the chain.
+- **Flow, auth layers, and deploy wiring** (browser vault → single-use envelope → `quantcore-api`,
+  never decrypted there → IAM-locked `keyproxy/`, ES256-only user JWTs, dual-mode `api/auth.py`):
+  [`docs/architecture/byok.md`](docs/architecture/byok.md).
 - **Never-log policy (enforced by tests):** no API keys, `Authorization` headers, envelopes,
   decrypted payloads, request bodies, or exception dumps containing credentials may reach any log
   or print. Any new failure path must add the corresponding log assertion. The **database DSN**
@@ -491,20 +262,6 @@ Anthropic API key; the backend never holds a usable key at rest.
   the DSN. `tests/test_dsn_redaction.py` guards the case that got through
   (`cache_stats()` returned the DSN as `db_path` all the way out to the `get_cache_stats` MCP
   tool).
-- **Auth layers:** keyproxy is **IAM-locked on Cloud Run** (`--no-allow-unauthenticated`;
-  `run.invoker` only for `quantcore-run@`; the api attaches a Google ID token in
-  `X-Serverless-Authorization`) and runs as dedicated SA `keyproxy-runtime@` (zero project roles,
-  per-secret grants only). App level: keyproxy verifies **ES256-only** user JWTs (audience
-  `quantcore-keyproxy`); `api/auth.py` is **dual-mode** (ES256 per-user UI tokens via
-  `QUANTCORE_JWT_PUBLIC_KEY` + legacy HS256 service/MCP tokens via `QUANTCORE_JWT_SECRET`).
-- **Deploy wiring:** `Dockerfile.keyproxy`; compose service `keyproxy:5002` (ephemeral or
-  persistent dev keypair via `runUI-CONTAINERS.sh`); `cloudbuild.yaml` `build-keyproxy`;
-  `deploy.yml` deploys test `quantcore-keyproxy` (image + pinned sizing; skips if the service
-  doesn't exist);
-  `prod-rollout.yml` promotes/deploys it by digest the same way. First deploy in each project is
-  the manual packet-8b runbook (secrets `keyproxy-private-key`, `quantui-signing-key`/`-pub`;
-  private keys are piped straight into Secret Manager, never printed). Gitleaks secret-scanning
-  job runs in CI (`.gitleaks.toml`).
 - **Gotchas learned on the prod rollout (details in the plan doc):** on existing Cloud Run
   services always `--update-secrets`/`--update-env-vars` (`--set-*` replaces the whole set);
   "inert" env-var claims must be checked against the image actually running (the pre-BYOK

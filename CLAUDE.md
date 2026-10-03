@@ -48,7 +48,9 @@ mark it, rather than leaving a confident sentence that no longer holds.
 python main.py
 
 # Run all tests (suites live under tests/; the tests/__init__.py package
-# initializer swaps in the test DSN before quantcore.db is imported)
+# initializer swaps in the test DSN before quantcore.db is imported, and makes
+# any real yfinance request fail fast -- tests never reach Yahoo; stub
+# YFinanceGateway instead)
 python -m unittest discover -s tests -t .
 
 # Backend tests with coverage (CI enforces a ratchet floor — see .coveragerc + deploy.yml gate)

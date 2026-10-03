@@ -61,13 +61,16 @@ class TestStockPortfolioManager(unittest.TestCase):
         self.assertEqual(prices["AAPL"].amount, Decimal("150.00"))
         self.assertEqual(prices["MSFT"].amount, Decimal("250.00"))
 
+    @patch('portfolio.yfinance_gateway.time.sleep')
     @patch('yfinance.download')
-    def test_get_latest_prices_empty_data(self, mock_download):
-        # Mock empty response
+    def test_get_latest_prices_empty_data(self, mock_download, mock_sleep):
+        # Mock empty response; the retry backoff is patched out so the three
+        # attempts don't spend ~6s really sleeping.
         mock_download.return_value = pd.DataFrame()
 
         prices = spm.get_latest_prices(["TEST"])
 
+        self.assertEqual(mock_download.call_count, 3)
         self.assertEqual(len(prices), 1)
         self.assertIsNone(prices["TEST"])
 

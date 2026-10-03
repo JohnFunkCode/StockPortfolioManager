@@ -50,11 +50,14 @@ python main.py
 # Run all tests (suites live under tests/; the tests/__init__.py package
 # initializer swaps in the test DSN before quantcore.db is imported, and makes
 # any real yfinance request fail fast -- tests never reach Yahoo; stub
-# YFinanceGateway instead)
-python -m unittest discover -s tests -t .
+# YFinanceGateway instead). The DSN comes from .env: QUANTCORE_UNITTEST_DB_DSN
+# (local Postgres, ~1 min) if set, else QUANTCORE_TEST_DB_DSN (Cloud SQL test
+# via the proxy, ~30 min). QUANTCORE_UNITTEST_DB=cloudsql forces the latter.
+# --durations lists the slowest tests (CI does the same).
+python -m unittest discover -s tests -t . --durations 25
 
 # Backend tests with coverage (CI enforces a ratchet floor — see .coveragerc + deploy.yml gate)
-coverage run -m unittest discover -s tests -t . && coverage report
+coverage run -m unittest discover -s tests -t . --durations 25 && coverage report
 
 # Frontend tests with coverage (thresholds in frontend/vitest.config.ts)
 cd frontend && npx vitest run --coverage
@@ -337,7 +340,7 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 
 ## Configuration
 
-- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing; `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload; `CLOUDSQL_CONNECTION_NAME`/`_PORT`/`_QUOTA_PROJECT` and the parallel `CLOUDSQL_TEST_*` trio are the Cloud SQL Auth Proxy targets for prod (`:5433`) and test (`:5434`).
+- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing (Cloud SQL test; what `with-test-db.sh`, `flyway.sh` and the import scripts mean by "test"); `QUANTCORE_UNITTEST_DB_DSN` is the local Postgres the unit suite prefers over it (issue #289, setup in `docs/local-unit-test-db.md`); `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload; `CLOUDSQL_CONNECTION_NAME`/`_PORT`/`_QUOTA_PROJECT` and the parallel `CLOUDSQL_TEST_*` trio are the Cloud SQL Auth Proxy targets for prod (`:5433`) and test (`:5434`).
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — *Import format only* (issue #83). Entries with `name`, `symbol`, `currency`, and optional `tags` list; load them into the global `watchlist` table with `python scripts/import_watchlist.py --yaml watchlist.yaml` (full-sync replace). Nothing reads the file at runtime — the table is the source of truth, and the UI's add/remove actions write straight to it. The `currency:` field is a fallback: single adds resolve it from the exchange, and `scripts/repair_watchlist_currency.py` fixes imported rows.
 

@@ -227,7 +227,9 @@ from unittest.mock import Mock, patch  # noqa: E402
 from quantcore.services.harvester import HarvesterService  # noqa: E402
 
 
-class HarvesterScanTest(HarvesterRepoTest):
+# Fixture only, not HarvesterRepoTest: subclassing that reran its seven tests
+# here and again in HarvesterOwnerIsolationTest (issue #289).
+class HarvesterScanTest(HarvesterRepoFixture, unittest.TestCase):
     def make_service(self):
         return HarvesterService(self.db, yfinance_gateway=Mock())
 
@@ -291,7 +293,11 @@ class HarvesterScanTest(HarvesterRepoTest):
 # ---------------------------------------------------------------------------
 
 
-class HarvesterOwnerIsolationTest(HarvesterRepoTest):
+# Fixture only (issue #289). Each HarvesterRepoTest case it used to inherit has
+# an explicit two-owner counterpart below -- rebuild/supersede, the CRUD
+# lifecycle, harvest points, the symbol list and dashboard, and purge -- so
+# rerunning them under a second owner's seeded plans added time, not coverage.
+class HarvesterOwnerIsolationTest(HarvesterRepoFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.mine = self.build(owner=OWNER)

@@ -204,7 +204,8 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 
 **Environment Variables:**
 - `QUANTCORE_DB_DSN` — PostgreSQL connection string for the unified database, e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`
-- `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database, used to run the app or test suite against a separate copy of the data without touching the primary database
+- `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database (the test Cloud SQL instance, through the proxy on `5434`), used by `scripts/with-test-db.sh`, `scripts/flyway.sh`, and the import scripts to run against a separate copy of the data without touching the primary database. The test suite falls back to it when `QUANTCORE_UNITTEST_DB_DSN` is unset
+- `QUANTCORE_UNITTEST_DB_DSN` — optional DSN the backend test suite prefers: a local PostgreSQL database, the same shape CI uses. See [Testing](#testing)
 - `QUANTCORE_SCHEMA_MODE` — what startup does about the schema: `create` (run the DDL), `warn` (check it and log differences), `verify` (check it and refuse to start on a missing or mismatched object), or `auto` (the default: create where no Flyway ledger exists, otherwise verify). See [Migrations](#migrations-flyway) below
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
@@ -1074,8 +1075,26 @@ Backend suites live under `tests/`. The `tests/__init__.py` package initializer 
 DSN before `quantcore.db` is imported, so the suite never touches the primary database:
 
 ```bash
-python -m unittest discover -s tests -t .
+python -m unittest discover -s tests -t . --durations 25
 ```
+
+`--durations 25` (Python 3.12+) prints the 25 slowest tests at the end of the run; CI's `gate` job
+does the same. The front end's equivalent is `slowTestThreshold` in `frontend/vitest.config.ts`:
+every test slower than it is listed with its time.
+
+**Use a local database for the suite.** Which DSN the suite connects with is read from `.env`, in
+this order:
+
+1. `QUANTCORE_UNITTEST_DB_DSN`, a local PostgreSQL database. This is the recommended setup.
+2. `QUANTCORE_TEST_DB_DSN`, the test Cloud SQL instance through the proxy. The suite falls back to
+   it when the first key is unset, and you can force it for one run with
+   `QUANTCORE_UNITTEST_DB=cloudsql python -m unittest …`.
+
+Against Cloud SQL, every query crosses the proxy at roughly 29 ms per round trip. A full run takes
+about 30 minutes that way, compared with about a minute on a local server, which is what CI runs
+against (issue #289). One-time setup, about five minutes with `psql`, is in
+[docs/local-unit-test-db.md](docs/local-unit-test-db.md). It covers creating the role and
+database, the `.env` line, checking which database the suite targets, and troubleshooting.
 
 Run a single module by dotted path from the repo root:
 
@@ -1087,7 +1106,7 @@ CI enforces a coverage ratchet on both sides — a floor for the backend (`.cove
 `deploy.yml`) and thresholds for the front end (`frontend/vitest.config.ts`) that only move upward:
 
 ```bash
-coverage run -m unittest discover -s tests -t . && coverage report
+coverage run -m unittest discover -s tests -t . --durations 25 && coverage report
 cd frontend && npx vitest run --coverage
 ```
 

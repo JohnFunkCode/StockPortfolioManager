@@ -16,18 +16,6 @@ from quantcore.gateways.polygon_gateway import PolygonPlanError  # noqa: E402
 from quantcore.services.options import OptionsService  # noqa: E402
 
 
-class _FrozenToday(date):
-    """Fixes date.today() to a Wednesday so the backfill's weekday math is
-    deterministic. A trailing N-day window's weekday count depends on which
-    day of the week "today" falls on (a weekend "today" drops only one
-    weekend day from the window instead of two), so leaving it unfrozen made
-    test_per_date_state_machine flaky depending on which day CI ran."""
-
-    @classmethod
-    def today(cls):
-        return date(2026, 1, 14)
-
-
 def polygon_contract(kind="call", exp="2026-08-21", oi=100, vol=10, iv=0.30,
                      price=100.0):
     return {
@@ -108,10 +96,17 @@ class TestBackfill(OrchestratorTestBase):
             [polygon_contract()],
         ]
         self.options.save_full_chain.side_effect = [11, None]  # stored, duplicate
-        with patch("quantcore.services.options.datetime.date", _FrozenToday):
-            payload, status = self.service.backfill_options_history(
-                "INTC", days=6, skip_existing=False
-            )
+        # Pin "now" to a Wednesday: a trailing 6-day window holds four weekdays
+        # only when today is mid-week, and the side_effect list has exactly four.
+        # It must go in through `now=` -- the service reads market_date(now), so
+        # patching datetime.date no longer freezes anything (a Saturday run saw
+        # five weekdays and exhausted the side_effect: StopIteration).
+        wednesday = pytz.timezone("America/New_York").localize(
+            datetime(2026, 1, 14, 12, 0)
+        )
+        payload, status = self.service.backfill_options_history(
+            "INTC", days=6, skip_existing=False, now=wednesday
+        )
         self.assertEqual(status, 200)
         statuses = [r["status"] for r in payload["results"]]
         self.assertEqual(statuses.count("error"), 1)

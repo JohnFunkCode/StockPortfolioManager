@@ -2,9 +2,10 @@
 #
 # Built natively on linux/amd64 in Cloud Build (the local dev host is arm64, so a
 # local build would need slow QEMU emulation — especially for the torch-bearing api
-# image). Each image is tagged twice: an immutable :${_TAG} (a git short SHA when
-# invoked from CI/the helper) and a moving :latest. The `images:` block pushes them
-# to Artifact Registry after the steps succeed.
+# image). Each build step pushes an immutable :${_TAG} (a git short SHA when
+# invoked from CI/the helper) itself (`--push`); the final tag-latest step then
+# points the moving :${_LATEST_TAG} at that same digest once all six have built.
+# There is no `images:` block: buildx pushes from inside its own builder.
 #
 # Images (one mcp image is reused by all five wrappers — server + port are
 # selected at run time via SERVER_MODULE/PORT env, see mcp_gateway/serve.py):
@@ -18,27 +19,38 @@
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
 #       --substitutions _TAG=$(git rev-parse --short HEAD),_DEPS_EPOCH=$(date -u +%G-W%V)
+# A trial build must also pass scratch _CACHE_TAG and _LATEST_TAG values, so it
+# neither reads/writes main's cache nor moves :latest (prod-rollout's default).
 #
 # Speed (#278, docs/proposals/cloud-build-speed-plan.md). Every worker starts
-# cold, so each step builds with BuildKit and pulls its layer cache from the
-# previous image (--cache-from :${_CACHE_TAG}, inline cache metadata written by
-# BUILDKIT_INLINE_CACHE=1). An unchanged layer then keeps its digest, so the push
-# skips it too: before this, the torch/FinBERT layers were rebuilt AND re-pushed
-# on every merge. _DEPS_EPOCH busts the pip layers once a week, because a cached
-# install would otherwise never move past the `>=` floors it first resolved.
-# Every step runs in parallel (waitFor: ['-']). news used to wait for api to
-# share its builder stage on a cold build, but warm builds are the common case
-# and there news restores its own cached layers in ~30 s, so waiting only
-# serialized it (measured in the plan doc).
+# cold, so each step pulls a registry layer cache (:buildcache-${_CACHE_TAG}) and
+# writes it back with mode=max — every layer of every stage, whether it was
+# rebuilt or restored. An unchanged layer then keeps its digest, so the push
+# skips it too. This replaced the stock docker builder's inline cache, whose
+# BuildKit (v0.8, Docker 20.10) re-exported only the layers it actually ran: a
+# warm build left :latest describing just `COPY . .`, so main alternated warm
+# and cold. The builder step creates a docker-container BuildKit for that.
+# --provenance=false keeps each image a plain manifest (no attestation index)
+# for prod-rollout's copy by digest. _DEPS_EPOCH busts the pip layers once a
+# week, because a cached install would otherwise never move past the `>=`
+# floors it first resolved. All six builds run in parallel after the builder.
 
 substitutions:
   _REGION: us-central1
   _PROJECT: quantcore-test-20260606
   _REPO: quantcore
   _TAG: latest
-  # Where each step reads its layer cache from (#278). Overridable so a trial
-  # build can warm from a scratch tag without touching :latest.
-  _CACHE_TAG: latest
+  # Each image's registry layer cache lives at :buildcache-${_CACHE_TAG} (#296
+  # follow-up). Overridable so a trial build warms from, and writes to, a
+  # scratch cache instead of main's.
+  _CACHE_TAG: main
+  # The rolling tag moved once every image has built. A trial overrides it with
+  # a scratch tag: prod-rollout's default tag is latest, so a trial must never
+  # move it.
+  _LATEST_TAG: latest
+  # The BuildKit the builder step runs — pinned, so a BuildKit release can't
+  # change the cache format under us between two merges.
+  _BUILDKIT_IMAGE: mirror.gcr.io/moby/buildkit:v0.23.2
   # ISO week from deploy.yml; empty for a manual build (a cache miss on the pip
   # layers that week, never a wrong image).
   _DEPS_EPOCH: ""
@@ -59,143 +71,207 @@ options:
 timeout: 3600s
 
 steps:
+  # One BuildKit for every build step: a docker-container builder, because the
+  # daemon's embedded BuildKit (docker driver) can only write inline cache, and
+  # that is what made main alternate warm/cold (see the header).
+  - name: gcr.io/cloud-builders/docker
+    id: builder
+    waitFor: ['-']
+    args:
+      - buildx
+      - create
+      - --name
+      - quantcore
+      - --driver
+      - docker-container
+      - --driver-opt
+      - image=${_BUILDKIT_IMAGE}
+      - --bootstrap
+
   # --- api (Dockerfile.api) ---
   - name: gcr.io/cloud-builders/docker
     id: build-api
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.api
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:latest
+      - --push
       - .
 
   # --- mcp (Dockerfile.mcp) — one image for all 5 wrappers ---
   - name: gcr.io/cloud-builders/docker
     id: build-mcp
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.mcp
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:latest
+      - --push
       - .
 
   # --- news collector (Dockerfile.news) ---
   - name: gcr.io/cloud-builders/docker
     id: build-news
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.news
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
+      - --push
       - .
 
   # --- report (Dockerfile.report) ---
   - name: gcr.io/cloud-builders/docker
     id: build-report
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.report
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
+      - --push
       - .
 
   # --- ui (Dockerfile.ui) — React/Vite SPA + /api proxy; build context is frontend/
   #     (the repo-root .dockerignore excludes frontend/ from the python images). ---
   - name: gcr.io/cloud-builders/docker
     id: build-ui
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.ui
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - VITE_KEYPROXY_SPKI_PINS=${_VITE_KEYPROXY_SPKI_PINS}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
+      - --push
       - frontend
 
   # --- keyproxy (Dockerfile.keyproxy) — BYOK key-redemption proxy (packet 8a) ---
   - name: gcr.io/cloud-builders/docker
     id: build-keyproxy
-    waitFor: ['-']
-    env: ['DOCKER_BUILDKIT=1']
+    waitFor: [builder]
     args:
+      - buildx
       - build
+      - --builder
+      - quantcore
       - -f
       - Dockerfile.keyproxy
       - --cache-from
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_CACHE_TAG}
-      - --build-arg
-      - BUILDKIT_INLINE_CACHE=1
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
       - --build-arg
       - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
-      - -t
-      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest
+      - --push
       - .
 
-images:
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
-  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest
+  # Move the rolling tag only once every image has built, as the `images:` block
+  # used to, and keep the six :latest tags a matched set. Six `tags add` calls
+  # are not one transaction, so: record where each :latest points now, retry each
+  # move (re-pointing a tag is idempotent), and if one still fails, put back the
+  # ones already moved and fail the build. A tag that did not exist before is
+  # deleted rather than left on the new image. What remains is the seconds
+  # between the first and last move, when a reader could see a mixed set; prod
+  # promotions are dispatched by hand, never by this build.
+  # `tags add` re-points the tag at the same manifest digest — never a new index.
+  # `$$` is Cloud Build's escape for a literal `$`.
+  - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    id: tag-latest
+    waitFor: [build-api, build-mcp, build-news, build-report, build-ui, build-keyproxy]
+    entrypoint: bash
+    args:
+      - -ceu
+      - |
+        srcs=(); dsts=(); prev=()
+        move() { srcs+=("$$1"); dsts+=("$$2"); }
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_LATEST_TAG}
+
+        retry() { for n in 1 2 3; do "$$@" && return 0; sleep $$((n * 5)); done; return 1; }
+
+        # 1. Where each rolling tag points now; empty when it does not exist yet.
+        for d in "$${dsts[@]}"; do
+          prev+=("$$(gcloud artifacts docker images describe "$$d" --format='value(image_summary.digest)' 2>/dev/null || true)")
+        done
+
+        # 2. Move them; on a failure that survives the retries, undo the moves so far.
+        for i in "$${!dsts[@]}"; do
+          retry gcloud artifacts docker tags add --quiet "$${srcs[$$i]}" "$${dsts[$$i]}" && continue
+          echo "tag-latest: could not move $${dsts[$$i]}; restoring the ones already moved" >&2
+          for ((j = 0; j < i; j++)); do
+            if [ -n "$${prev[$$j]}" ]; then
+              retry gcloud artifacts docker tags add --quiet "$${dsts[$$j]%:*}@$${prev[$$j]}" "$${dsts[$$j]}" \
+                || echo "tag-latest: RESTORE FAILED for $${dsts[$$j]}; it should point at $${prev[$$j]}" >&2
+            else
+              retry gcloud artifacts docker tags delete --quiet "$${dsts[$$j]}" \
+                || echo "tag-latest: RESTORE FAILED: delete $${dsts[$$j]}, which did not exist before" >&2
+            fi
+          done
+          exit 1
+        done

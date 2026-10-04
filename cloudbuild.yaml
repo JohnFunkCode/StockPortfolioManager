@@ -17,13 +17,31 @@
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
-#       --substitutions _TAG=$(git rev-parse --short HEAD)
+#       --substitutions _TAG=$(git rev-parse --short HEAD),_DEPS_EPOCH=$(date -u +%G-W%V)
+#
+# Speed (#278, docs/proposals/cloud-build-speed-plan.md). Every worker starts
+# cold, so each step builds with BuildKit and pulls its layer cache from the
+# previous image (--cache-from :${_CACHE_TAG}, inline cache metadata written by
+# BUILDKIT_INLINE_CACHE=1). An unchanged layer then keeps its digest, so the push
+# skips it too: before this, the torch/FinBERT layers were rebuilt AND re-pushed
+# on every merge. _DEPS_EPOCH busts the pip layers once a week, because a cached
+# install would otherwise never move past the `>=` floors it first resolved.
+# Every step runs in parallel (waitFor: ['-']). news used to wait for api to
+# share its builder stage on a cold build, but warm builds are the common case
+# and there news restores its own cached layers in ~30 s, so waiting only
+# serialized it (measured in the plan doc).
 
 substitutions:
   _REGION: us-central1
   _PROJECT: quantcore-test-20260606
   _REPO: quantcore
   _TAG: latest
+  # Where each step reads its layer cache from (#278). Overridable so a trial
+  # build can warm from a scratch tag without touching :latest.
+  _CACHE_TAG: latest
+  # ISO week from deploy.yml; empty for a manual build (a cache miss on the pip
+  # layers that week, never a wrong image).
+  _DEPS_EPOCH: ""
   # BYOK packet 8b — SPKI pins for the browser envelope layer, baked into the
   # UI bundle at build time (frontend/src/vault/envelope.ts refuses to encrypt
   # against any key not on this list). BOTH projects' pins ride in the one
@@ -44,10 +62,18 @@ steps:
   # --- api (Dockerfile.api) ---
   - name: gcr.io/cloud-builders/docker
     id: build-api
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.api
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --build-arg
+      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
       - -t
@@ -57,10 +83,18 @@ steps:
   # --- mcp (Dockerfile.mcp) — one image for all 5 wrappers ---
   - name: gcr.io/cloud-builders/docker
     id: build-mcp
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.mcp
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --build-arg
+      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG}
       - -t
@@ -70,10 +104,18 @@ steps:
   # --- news collector (Dockerfile.news) ---
   - name: gcr.io/cloud-builders/docker
     id: build-news
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.news
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --build-arg
+      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
       - -t
@@ -83,10 +125,18 @@ steps:
   # --- report (Dockerfile.report) ---
   - name: gcr.io/cloud-builders/docker
     id: build-report
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.report
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --build-arg
+      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
       - -t
@@ -97,10 +147,16 @@ steps:
   #     (the repo-root .dockerignore excludes frontend/ from the python images). ---
   - name: gcr.io/cloud-builders/docker
     id: build-ui
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.ui
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
       - --build-arg
       - VITE_KEYPROXY_SPKI_PINS=${_VITE_KEYPROXY_SPKI_PINS}
       - -t
@@ -112,10 +168,18 @@ steps:
   # --- keyproxy (Dockerfile.keyproxy) — BYOK key-redemption proxy (packet 8a) ---
   - name: gcr.io/cloud-builders/docker
     id: build-keyproxy
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
     args:
       - build
       - -f
       - Dockerfile.keyproxy
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - --build-arg
+      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
       - -t

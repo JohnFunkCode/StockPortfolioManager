@@ -289,11 +289,13 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v3
-      - name: Build + push the 5 images (Cloud Build, amd64)
+      - name: Build + push the 6 images (Cloud Build, amd64)
+        # _DEPS_EPOCH is the ISO week: the cached pip layers re-resolve the
+        # `>=` floors once a week instead of never (#278, cloudbuild.yaml).
         run: |
           gcloud builds submit --project "$PROJECT_ID" \
             --config cloudbuild.yaml \
-            --substitutions _TAG="${GITHUB_SHA::7}"
+            --substitutions _TAG="${GITHUB_SHA::7}",_DEPS_EPOCH="$(date -u +%G-W%V)"
       - name: Deploy quantcore-api
         run: |
           gcloud run deploy quantcore-api --project "$PROJECT_ID" --region "$REGION" \

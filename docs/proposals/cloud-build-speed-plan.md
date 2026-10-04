@@ -93,6 +93,23 @@ Queue time (~50 s) is outside the config's control.
   `.venv/bin/python`.
 - **The `1d6bacda` row is a best case.** It reused the same source as `aafc2948`, so `COPY . .`
   hit the cache too. A real merge lands between that row and the `aafc2948` row.
+- **On `main` the cache alternates between warm and cold (open).** These are the three
+  merge builds of 2026-10-04, all in the same ISO week, with the same `python:3.12-slim` digest and
+  nothing else pushing `:latest` between them:
+
+  | Build | Commit | Cached api layers | Workflow step time |
+  |---|---|---|---|
+  | `667b7216` | 22d5eca | 0 | 6:17 |
+  | `e9493d66` | ba7dca2 | 10 | 2:11 |
+  | `5dd78831` | 77219a9 | 0 | 5:50 |
+
+  The cold builds rebuild even the first builder layer (apt), so the inline-cache metadata in
+  `:latest` is missing the builder stage, and missing it only *after* a warm build. The likely
+  cause, unconfirmed, is that the inline cache is `mode=min`: it records only the layers it is
+  re-exporting. The `pr278c` trial does not fit this pattern, because it was warm after a warm
+  build. That trial had no source change, though, so its final stage was fully cached as well.
+  Candidate fix: push the builder stage as its own cache image, `--target builder`, or use buildx
+  registry cache with `mode=max`.
 
 ## Follow-up (not in this PR)
 

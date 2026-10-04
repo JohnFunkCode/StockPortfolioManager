@@ -29,6 +29,7 @@ Manager the same way the report Job does. CI only updates the Job's image and wa
 | D2 | Migrate on every release, or only when pending? | **Every release.** `flyway migrate` with nothing pending is a no-op costing about a minute of Job start-up. The path is exercised on every deploy, so it can't rot between schema changes. |
 | D3 | Dedicated migration DB role? | **Shared for now, split later.** The Job uses the same DSN secret as the app, because that role owns every object and only an owner can `ALTER`. It runs as its **own runtime service account**. The least-privilege split is a follow-up issue: `ALTER OWNER` to a migrator role, and remove DDL rights from the app role. |
 | D4 | Contract migrations (DROP / RENAME / type change)? | **Block the automated run; use the manual fallback.** See below. |
+| D4a | Non-transactional migrations (`CREATE INDEX CONCURRENTLY`, `VACUUM`, …)? | **Block them the same way.** See below. Added after review on PR #301. |
 | D5 | Rollback | **Forward-fix only.** See Failure and recovery. |
 | D6 | Order with #120 (deploy an arbitrary ref to test) | **#200 first.** #120 then inherits a migrate step that already uses the image built from the dispatched ref. |
 
@@ -53,6 +54,25 @@ the code half of a contract a release ahead of the drop. So the Job checks befor
 
 Contract migrations are rare (V10 is the only one so far). Expand migrations, the common case,
 are fully automatic.
+
+### Why non-transactional migrations stay manual too (D4a)
+
+The automated path is safe to fail only because a failing migration rolls back whole. That holds
+for ordinary Postgres DDL, but **not** for statements that refuse to run inside a transaction:
+`CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` / `REINDEX … CONCURRENTLY`, `VACUUM`,
+`ALTER SYSTEM`, `CREATE DATABASE` / `DROP DATABASE`.
+
+- `db/flyway.conf` does not set `flyway.mixed`, so it defaults to false. Flyway therefore already
+  **rejects** a migration that mixes these with transactional statements. **Keep it that way.**
+- A migration made **only** of such statements is still run by Flyway, outside a transaction. If it
+  fails, it can leave partial effects behind. A failed `CREATE INDEX CONCURRENTLY`, for example,
+  leaves an `INVALID` index that must be dropped before a retry, and the Flyway history shows a
+  `Failed` row that needs `flyway repair`.
+
+So the pre-migrate check also refuses any pending migration that contains one of those statements.
+The release is applied by hand, the same way as a contract migration. Recovery from a partial
+failure on that path is: inspect (`\d <table>`, look for `INVALID`), drop the leftover object, run
+`flyway repair`, and re-run. Nothing in the repo uses these statements today.
 
 ## Design
 
@@ -80,10 +100,13 @@ are fully automatic.
      factory is needed.
 3. It prints **only** `target: cloudsql:<conn>/<db>` (or `host:port/db`), never the DSN or the
    user's password. Flyway's own output names the JDBC URL, which carries no credentials.
-4. It runs `flyway info` and runs the contract check (D4) on the pending versions' files.
-5. It runs `flyway migrate`. Each Postgres migration runs in its own transaction. A failing version
-   therefore rolls back whole and leaves nothing half-applied. Flyway also takes a Postgres advisory
-   lock, so two runs against one database serialize.
+4. It runs `flyway info` and checks the pending versions' files for contract statements (D4) and
+   non-transactional statements (D4a). If either is present, it refuses.
+5. It runs `flyway migrate`. Because of step 4, every migration that reaches this point is
+   transactional DDL that Flyway runs in its own transaction, so a failing version rolls back whole
+   and leaves nothing half-applied. This guarantee rests on the step 4 refusal. It is not true of
+   Postgres DDL in general. Flyway also takes a Postgres advisory lock, so two runs against one
+   database serialize.
 6. It runs `flyway info` again, so the log ends with the resulting state.
 
 ### The Job: `quantcore-migrate`, one per project
@@ -126,7 +149,7 @@ same time.
 | Failure | State afterwards | Recovery |
 |---|---|---|
 | A migration's SQL fails | That version rolled back (it ran in a transaction); earlier versions in the same run stay applied; no roll-out | Fix forward: a corrected **new** commit. Never edit an applied version. `flyway repair` only from the manual path, and only if `flyway info` shows a `Failed` row |
-| Contract migration pending | Nothing applied, no roll-out | `./scripts/flyway.sh [--prod] migrate` by hand, then re-run the workflow |
+| Contract or non-transactional migration pending | Nothing applied, no roll-out | `./scripts/flyway.sh [--prod] migrate` by hand, then re-run the workflow. For a non-transactional failure on that path, see D4a's recovery |
 | Roll-out fails after a successful (expand) migration | New schema, old revisions serving; they see the new objects as `EXTRA` | Fix forward, re-deploy. No schema rollback |
 | Job missing or the deployer lacks permission | Nothing applied, no roll-out | Run `ensure_migrate_job.sh`, or grant the role |
 
@@ -147,11 +170,14 @@ unnecessary.
      `.dockerignore` if needed.
    - Unit tests (bash subprocess, like `test_ci_parallel.py`) for: DSN translation in both forms;
      URL-decoding of the password; the target line never containing the password; the contract
-     check's matches and non-matches.
+     and non-transactional checks' matches and non-matches (including `CONCURRENTLY` inside a
+     comment or a string not tripping it, if the scanner strips them); `db/flyway.conf` not
+     setting `flyway.mixed=true`.
 2. **Local proof against local Postgres:**
    - Build the image and run it against a scratch database: from empty to V10; a no-op re-run; a
      representative new expand migration; a deliberately broken one (non-zero exit, nothing
-     half-applied); a contract migration (refused).
+     half-applied); a contract migration (refused); a
+     `CREATE INDEX CONCURRENTLY`-only migration (refused).
 3. **`scripts/ensure_migrate_job.sh` plus a one-time test-project setup (John runs it):**
    - Execute it once on test with a trial-tag image. Never `:latest`.
    - Expect "Schema is up to date" and a log free of credentials.
@@ -175,3 +201,4 @@ unnecessary.
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Decisions D1–D6 agreed | _this PR_ | — | The libpq unix-socket DSN can't be used by JDBC as is: it needs the Cloud SQL socket factory. Contract migrations conflict with `verify` on the prior revision (D4) |
+| Review on PR #301 | _this PR_ | — | "Each migration runs in a transaction" is not true of `CONCURRENTLY`/`VACUUM`-style statements, so those are refused too (D4a) |

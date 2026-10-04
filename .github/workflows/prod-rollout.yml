@@ -204,7 +204,7 @@ jobs:
               --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           else
-            echo "quantcore-arbitrage not found in prod — first deploy is a manual one-time step; skipping."
+            echo "::warning title=quantcore-arbitrage missing::quantcore-arbitrage not found in $PROD_PROJECT — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007)."
           fi
 
       - name: Deploy quantcore-portfolio (prod, image + sizing)
@@ -212,8 +212,9 @@ jobs:
         # unguarded loop because this service's first prod deploy is a manual
         # one-time creation (SERVER_MODULE=fastMCPTest.portfolio_server,
         # PORT=6006). deploy.yml has carried the matching guarded step for test
-        # since portfolio-lots-plan.md Step 4.8; prod was missed, so once the
-        # service is created it would still never receive an image.
+        # since portfolio-lots-plan.md Step 4.8; prod was missed, so the
+        # service (created 2026-07-29, Step 4.8a) never received an image. A
+        # missing service is annotated, not silently skipped (#163).
         run: |
           if gcloud run services describe quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-portfolio --project "$PROD_PROJECT" --region "$REGION" \
@@ -221,7 +222,7 @@ jobs:
               --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
           else
-            echo "quantcore-portfolio not found in prod — first deploy is a manual one-time step; skipping."
+            echo "::warning title=quantcore-portfolio missing::quantcore-portfolio not found in $PROD_PROJECT — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a."
           fi
 
       - name: Update report Job image (prod)
@@ -269,5 +270,5 @@ jobs:
               --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
               --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-keyproxy@$QUANTCORE_KEYPROXY_DIGEST"
           else
-            echo "quantcore-keyproxy service not found in prod — first deploy is the manual packet-8b runbook; skipping."
+            echo "::warning title=quantcore-keyproxy missing::quantcore-keyproxy not found in $PROD_PROJECT — Sidekick chat cannot reach Anthropic and this roll-out skipped it. First deploy is the packet-8b runbook (byok-key-proxy-plan.md)."
           fi

@@ -1038,6 +1038,18 @@ passing, so the service exists while nothing serves. Confirm the image is in AR
 *before* running the creation command; `deploy.yml`'s build job takes several
 minutes after a merge.
 
+**Closing #163 (2026-10-04).** Re-checked: both services serve the current image
+(test `quantcore-portfolio-00057` on `22d5eca`, prod `-00015` by digest), and
+`mcp_health_check` and `list_watchlist` answer through the prod wrapper (252
+securities). The stale "five wrappers" text in `readme.md` was already swept to seven.
+The one remaining item was the root cause: the existence guard's "skipping" was a
+plain `echo` buried in a green step's log. Every guarded skip in `deploy.yml` and
+`prod-rollout.yml` (portfolio, arbitrage, quantui, keyproxy, alongside the existing
+news-Job one) now emits a `::warning title=<service> missing::` annotation, which
+shows on the run summary. It annotates rather than fails because a brand-new project
+legitimately has none of these until their manual first deploys. The "Deploy the 5
+wrappers" loop is unguarded, so a missing one of those already fails the job.
+
 ### PR 4 acceptance
 
 ```bash

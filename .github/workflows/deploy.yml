@@ -313,9 +313,11 @@ jobs:
         # quantcore-portfolio's FIRST deploy is a manual one-time step (create
         # the service with --allow-unauthenticated + SERVER_MODULE/PORT/
         # QUANTCORE_REST_URL env, mirroring the other 5 wrappers — see
-        # portfolio-lots-plan.md Step 4.8). That config persists across
-        # image-only redeploys. Until that one-time deploy exists, skip rather
-        # than fail (a fresh service can't be image-only deployed).
+        # portfolio-lots-plan.md Step 4.8a). That config persists across
+        # image-only redeploys. A missing service is skipped rather than failed
+        # (a fresh service can't be image-only deployed), but with a ::warning::
+        # annotation: a silent "skipping" line hid this service's absence from
+        # both projects for weeks (#163).
         run: |
           if gcloud run services describe quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
             gcloud run deploy quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" \
@@ -323,7 +325,7 @@ jobs:
               --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           else
-            echo "quantcore-portfolio service not found — first deploy is a manual one-time step; skipping image roll-out."
+            echo "::warning title=quantcore-portfolio missing::quantcore-portfolio not found in $PROJECT_ID — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a."
           fi
       - name: Deploy quantcore-arbitrage (image + sizing; env preserved)
         # Same one-time-creation caveat as quantcore-portfolio above: the first
@@ -336,7 +338,7 @@ jobs:
               --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
           else
-            echo "quantcore-arbitrage service not found — first deploy is a manual one-time step; skipping image roll-out."
+            echo "::warning title=quantcore-arbitrage missing::quantcore-arbitrage not found in $PROJECT_ID — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007)."
           fi
       - name: Update report Job image
         run: |
@@ -367,7 +369,7 @@ jobs:
               --cpu "$UI_CPU" --memory "$UI_MEMORY" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-ui:${GITHUB_SHA::7}"
           else
-            echo "quantui service not found — first deploy is the manual --iap step; skipping image roll-out."
+            echo "::warning title=quantui missing::quantui not found in $PROJECT_ID — this roll-out skipped it. First deploy is the manual --iap step (docs/architecture/quantui.md)."
           fi
       - name: Deploy quantcore-keyproxy (image + sizing; SA/secrets/IAM lock preserved)
         # The keyproxy's FIRST deploy is the manual packet-8b runbook (dedicated
@@ -381,5 +383,5 @@ jobs:
               --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-keyproxy:${GITHUB_SHA::7}"
           else
-            echo "quantcore-keyproxy service not found — first deploy is the manual packet-8b runbook; skipping image roll-out."
+            echo "::warning title=quantcore-keyproxy missing::quantcore-keyproxy not found in $PROJECT_ID — Sidekick chat cannot reach Anthropic and this roll-out skipped it. First deploy is the packet-8b runbook (byok-key-proxy-plan.md)."
           fi

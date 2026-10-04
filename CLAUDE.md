@@ -53,6 +53,9 @@ python main.py
 # YFinanceGateway instead). The DSN comes from .env: QUANTCORE_UNITTEST_DB_DSN
 # (local Postgres, ~1 min) if set, else QUANTCORE_TEST_DB_DSN (Cloud SQL test
 # via the proxy, ~17 min). QUANTCORE_UNITTEST_DB=cloudsql forces the latter.
+# It also takes an advisory lock on that database for the whole run: a second
+# run on the same database waits (and says so) rather than purging this one's
+# synthetic rows (#248) -- don't remove it to "speed up" parallel runs.
 # --durations lists the slowest tests (CI does the same).
 python -m unittest discover -s tests -t . --durations 25
 

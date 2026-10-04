@@ -206,6 +206,7 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 - `QUANTCORE_DB_DSN` — PostgreSQL connection string for the unified database, e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`
 - `QUANTCORE_TEST_DB_DSN` — optional DSN for an isolated database (the test Cloud SQL instance, through the proxy on `5434`), used by `scripts/with-test-db.sh`, `scripts/flyway.sh`, and the import scripts to run against a separate copy of the data without touching the primary database. The test suite falls back to it when `QUANTCORE_UNITTEST_DB_DSN` is unset
 - `QUANTCORE_UNITTEST_DB_DSN` — optional DSN the backend test suite prefers: a local PostgreSQL database, the same shape CI uses. See [Testing](#testing)
+- `QUANTCORE_UNITTEST_LOCK_TIMEOUT` — seconds a test run waits for another run on the same database before failing (default `1800`; an unparseable or non-positive value uses the default). See [Testing](#testing)
 - `QUANTCORE_SCHEMA_MODE` — what startup does about the schema: `create` (run the DDL), `warn` (check it and log differences), `verify` (check it and refuse to start on a missing or mismatched object), or `auto` (the default: create where no Flyway ledger exists, otherwise verify). See [Migrations](#migrations-flyway) below
 - `DISCORD_WEBHOOK_URL` — Discord webhook for price alerts (optional)
 - `BUCKET_NAME` / `BUCKET_KEY` — AWS S3 credentials for report uploads (optional)
@@ -1095,6 +1096,11 @@ about 17 minutes that way (measured 2026-10-03), compared with about a minute on
 against (issue #289). One-time setup, about five minutes with `psql`, is in
 [docs/local-unit-test-db.md](docs/local-unit-test-db.md). It covers creating the role and
 database, the `.env` line, checking which database the suite targets, and troubleshooting.
+
+**One run per database at a time.** The suite takes a Postgres advisory lock on its database for
+the whole run, so a second run against the same database prints that it is waiting and starts when
+the first finishes, instead of deleting the first run's rows (issue #248). See
+[Running two suites at once](docs/local-unit-test-db.md#running-two-suites-at-once).
 
 Run a single module by dotted path from the repo root:
 

@@ -6,6 +6,11 @@ reached `main` and blocked the test roll-out. This runs in the PR gate instead.
 
 Checks structure only (the shape gcloud rejects), and that every image a Job or
 service is rolled out from is both built by a step and listed in `images:`.
+
+It also checks each build step keeps its layer cache wired up (#278): BuildKit
+on, `--cache-from` its own image at ${_CACHE_TAG}, and inline cache metadata
+written. Dropping any one of them still builds a correct image, just a slow
+one, and the only symptom would be a merge that takes ten minutes again.
 """
 import re
 import sys
@@ -15,6 +20,19 @@ import yaml
 
 PATH = Path(__file__).resolve().parent.parent / "cloudbuild.yaml"
 IMAGE_RE = re.compile(r"/(quantcore-[a-z]+):\$\{_TAG\}$")
+
+
+def _cache_problems(step, args, images) -> list[str]:
+    problems = []
+    if "DOCKER_BUILDKIT=1" not in (step.get("env") or []):
+        problems.append("env must set DOCKER_BUILDKIT=1 (layer cache, #278)")
+    if "BUILDKIT_INLINE_CACHE=1" not in args:
+        problems.append("missing --build-arg BUILDKIT_INLINE_CACHE=1 (#278)")
+    sources = [args[i + 1] for i, a in enumerate(args[:-1]) if a == "--cache-from"]
+    for img in sorted(images):
+        if not any(s.endswith(f"/{img}:${{_CACHE_TAG}}") for s in sources):
+            problems.append(f"missing --cache-from {img}:${{_CACHE_TAG}} (#278)")
+    return problems
 
 
 def check(doc) -> list[str]:
@@ -34,10 +52,10 @@ def check(doc) -> list[str]:
         if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
             problems.append(f"step {name}: `args` must be a list of strings")
             continue
-        for a in args:
-            m = IMAGE_RE.search(a)
-            if m:
-                built.add(m.group(1))
+        step_images = {m.group(1) for a in args if (m := IMAGE_RE.search(a))}
+        built |= step_images
+        if args[:1] == ["build"]:
+            problems += [f"step {name}: {p}" for p in _cache_problems(step, args, step_images)]
     images = doc.get("images", [])
     if not isinstance(images, list) or not all(isinstance(a, str) for a in images):
         problems.append("`images` must be a list of strings")

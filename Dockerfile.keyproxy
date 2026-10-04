@@ -17,6 +17,10 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY keyproxy/requirements.txt ./
+# Weekly cache bust (#278). Cloud Build reuses this layer from the previous
+# image, so without it the `>=` floors would never pick up a newer release.
+# deploy.yml passes the ISO week; a change re-runs the install below.
+ARG DEPS_EPOCH=
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
 # ---- final: slim runtime with only the venv + the keyproxy package ----

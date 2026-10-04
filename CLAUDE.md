@@ -464,7 +464,8 @@ tests — the `gate` job already does, and a second full execution would cost mi
 question about imports.
 
 The `gate` job also runs **`scripts/check_cloudbuild.py`**, which parses `cloudbuild.yaml` and
-checks every `quantcore-*` image a step builds is listed in `images:` (and vice versa). Without it
+checks every `quantcore-*` image a step builds is tagged by `tag-latest` (and vice versa), that
+`tag-latest` waits for every build step, and that there is no `images:` block. Without it
 the first reader of that file is `gcloud builds submit` *after* merge — a mis-indented `images:`
 line reached `main` once and blocked the test roll-out.
 

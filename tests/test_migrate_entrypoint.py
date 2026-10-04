@@ -158,6 +158,24 @@ class PendingFilesTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.splitlines(), ["/q/db/migrations/V10__b.sql"])
 
+    def test_several_pending_in_info_order(self):
+        j = INFO_JSON.replace("%s", "/q/db/migrations/V10__b.sql").replace(
+            '  } ],', '  }, {\n    "filepath" : "/q/db/migrations/V11__c.sql",\n'
+                      '    "state" : "Pending",\n    "version" : "11"\n  } ],')
+        r = run("pending_files <<<\"$J\"", env={"J": j})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(),
+                         ["/q/db/migrations/V10__b.sql", "/q/db/migrations/V11__c.sql"])
+
+    def test_key_order_does_not_matter(self):
+        # state before filepath, as a future Flyway might write it.
+        j = ('{ "migrations" : [ {\n    "state" : "Success",\n'
+             '    "filepath" : "/q/V9__a.sql"\n  }, {\n    "state" : "Pending",\n'
+             '    "filepath" : "/q/V10__b.sql"\n  } ] }')
+        r = run("pending_files <<<\"$J\"", env={"J": j})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.splitlines(), ["/q/V10__b.sql"])
+
     def test_pending_without_filepath_fails(self):
         r = run("pending_files <<<\"$J\"", env={"J": INFO_JSON % ""})
         self.assertNotEqual(r.returncode, 0)

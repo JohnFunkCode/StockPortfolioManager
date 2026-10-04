@@ -148,14 +148,19 @@ scan_sql() {
 }
 
 # Read `flyway info -outputType=json` on stdin; print the filepath of each Pending migration.
+# Decides at the end of each migration object, so it does not depend on the order
+# Flyway writes the keys in.
 pending_files() {
   awk '
     /"filepath" *:/ { fp = $0; sub(/^[^:]*: *"/, "", fp); sub(/" *,? *$/, "", fp) }
-    /"state" *: *"Pending"/ {
-      if (fp == "") { print "migrate: a Pending migration has no filepath" > "/dev/stderr"; bad = 1 }
-      else print fp
+    /"state" *: *"Pending"/ { pending = 1 }
+    /^ *}/ {
+      if (pending) {
+        if (fp == "") { print "migrate: a Pending migration has no filepath" > "/dev/stderr"; bad = 1 }
+        else print fp
+      }
+      fp = ""; pending = 0
     }
-    /^ *}/ { fp = "" }
     END { exit bad }
   '
 }

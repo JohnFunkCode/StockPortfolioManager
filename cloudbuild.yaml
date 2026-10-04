@@ -14,6 +14,7 @@
 #   quantcore-news      news_job.py once-and-exit (Cloud Run Job; FinBERT/torch)
 #   quantcore-ui        React/Vite SPA + /api proxy (built from the frontend/ context)
 #   quantcore-keyproxy  BYOK key-redemption proxy (lean FastAPI, keyproxy/ only)
+#   quantcore-migrate   Flyway + db/migrations, run as a Job before each roll-out (#200)
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
@@ -186,6 +187,26 @@ steps:
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest
       - .
 
+  # --- migrate (Dockerfile.migrate) — Flyway + the migrations of this commit (#200).
+  #     No DEPS_EPOCH: no pip install, the base image and jars are pinned by digest/sha256. ---
+  - name: gcr.io/cloud-builders/docker
+    id: build-migrate
+    waitFor: ['-']
+    env: ['DOCKER_BUILDKIT=1']
+    args:
+      - build
+      - -f
+      - Dockerfile.migrate
+      - --cache-from
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_CACHE_TAG}
+      - --build-arg
+      - BUILDKIT_INLINE_CACHE=1
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_TAG}
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:latest
+      - .
+
 images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:latest
@@ -199,3 +220,5 @@ images:
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:latest
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
   - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:latest
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_TAG}
+  - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:latest

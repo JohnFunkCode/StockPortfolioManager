@@ -78,9 +78,10 @@ failure on that path is: inspect (`\d <table>`, look for `INVALID`), drop the le
 
 ### The migration image: `quantcore-migrate`
 
-- **`Dockerfile.migrate`:** `FROM flyway/flyway:<pinned>`, the same major version as the local
-  CLI (13.8.0 when this was written; check the tag exists when building). It adds the Cloud SQL
-  Postgres JDBC socket factory jar, pinned by version and sha256, then copies `db/flyway.conf`,
+- **`Dockerfile.migrate`:** `FROM flyway/flyway:13.8.0@sha256:…`, the same version as the local
+  CLI, pinned by its multi-arch index digest. It adds two **junixsocket** 2.11.1 jars
+  (`junixsocket-common`, `junixsocket-native-common`), pinned by version and sha256 and verified
+  with `sha256sum -c` in a fetch stage, into `/flyway/drivers/`. It then copies `db/flyway.conf`,
   `db/migrations/` and the entrypoint. The migrations are **baked in**, so the image *is* the
   exact migration set for that commit.
 - **Build:** a 7th step in `cloudbuild.yaml` with the standard cache wiring. `check_cloudbuild.py`
@@ -95,13 +96,19 @@ failure on that path is: inspect (`\d <table>`, look for `INVALID`), drop the le
    tests.
 2. It translates the DSN into `FLYWAY_USER`, `FLYWAY_PASSWORD` and `FLYWAY_URL`, with the password
    URL-decoded:
-   - For Cloud SQL, `FLYWAY_URL` is `jdbc:postgresql:///<db>?cloudSqlInstance=<conn>&socketFactory=com.google.cloud.sql.postgres.SocketFactory`.
-   - **JDBC cannot use the libpq `host=/cloudsql/...` socket form directly.** That is why the socket
-     factory is needed.
-3. It prints **only** `target: cloudsql:<conn>/<db>` (or `host:port/db`), never the DSN or the
-   user's password. Flyway's own output names the JDBC URL, which carries no credentials.
+   - For a socket, `FLYWAY_URL` is
+     `jdbc:postgresql://localhost/<db>?socketFactory=org.newsclub.net.unix.AFUNIXSocketFactory$FactoryArg&socketFactoryArg=/cloudsql/<conn>/.s.PGSQL.5432`.
+     The Job's Cloud SQL attachment already provides that socket.
+   - **JDBC cannot use the libpq `host=/cloudsql/...` socket form directly.** It needs a socket
+     factory. The plan first named Google's Cloud SQL socket factory, but that ships no single jar
+     with its dependencies. junixsocket only opens the unix socket the attachment already
+     provides, which needs fewer moving parts (see the checkpoint log).
+3. It prints **only** `migrate: target cloudsql:<conn>/<db> (user: <user>)` (or `host:port/db`),
+   never the DSN or the password. Flyway's own output names the JDBC URL, which carries no credentials.
 4. It runs `flyway info` and checks the pending versions' files for contract statements (D4) and
-   non-transactional statements (D4a). If either is present, it refuses.
+   non-transactional statements (D4a). If either is present, it refuses with **exit 3** and prints
+   the manual path. The scan strips `--` and `/* */` comments and `'...'` strings first, so a
+   keyword there does not refuse. A dollar-quoted body is scanned, because a `DO` block executes.
 5. It runs `flyway migrate`. Because of step 4, every migration that reaches this point is
    transactional DDL that Flyway runs in its own transaction, so a failing version rolls back whole
    and leaves nothing half-applied. This guarantee rests on the step 4 refusal. It is not true of
@@ -202,3 +209,4 @@ unnecessary.
 |---|---|---|---|
 | Decisions D1–D6 agreed | _this PR_ | — | The libpq unix-socket DSN can't be used by JDBC as is: it needs the Cloud SQL socket factory. Contract migrations conflict with `verify` on the prior revision (D4) |
 | Review on PR #301 | _this PR_ | — | "Each migration runs in a transaction" is not true of `CONCURRENTLY`/`VACUUM`-style statements, so those are refused too (D4a) |
+| 1–2. Image, entrypoint, tests, proof | _this PR_ | **Local**, using a flyway 13.8.0 CLI and a scratch cluster over a unix socket: once V1 was in place, V2–V10 were refused with exit 3 and nothing applied; the manual `flyway migrate` applied them; a re-run reported "nothing pending" and exited 0; an expand V11 with `DROP`/`CONCURRENTLY` only in comments or strings was applied; a broken V12 exited 1 and was rolled back (no table, no `Failed` row); a contract V12 and a `CONCURRENTLY` V12 were each refused with exit 3, nothing applied; the TCP DSN form worked too. **Cloud Build** (build `5076581c`, test project, trial tag, not pushed): the image ran against `postgres:16` through a socket mounted at `/cloudsql/proj:us-central1:inst`, with the same refusal → manual → no-op sequence; bash 5.2 and mawk 1.3.4 are present; the password never appeared in output. 20 unit tests in `tests/test_migrate_entrypoint.py` | (a) Google's Cloud SQL socket factory has no fat jar (its transitive dependencies run to dozens of jars), so junixsocket is used instead. (b) The socket-factory jar must be on Flyway's **main** classpath (`/flyway/drivers`, or `CLASSPATH` for a local CLI). `-jarDirs` loads it in a child loader that the Postgres driver cannot see, so it fails with `ClassNotFoundException`. (c) macOS caps AF_UNIX paths at 104 bytes, so a socket directory under the scratchpad is too long; use a short path such as `/tmp/claude/pgs`. (d) Postgres.app gated trust auth behind a GUI prompt, so the local proof used its own `initdb` cluster rather than changing Postgres.app settings. (e) `db/flyway.conf`'s locations have no V1, so an **empty** database needs `db/baseline/V1__*.sql` applied by psql first; deployed databases are non-empty and get `baselineOnMigrate`. (f) The scanner flags the already-applied V2, V4, V7 and V10, which is correct and harmless, because only *pending* files are scanned. (g) The entrypoint is sourced by tests under the local macOS bash, which is 3.2, so it avoids `mapfile` and never expands an empty array under `set -u`. (h) `flyway info -outputType=json` sorts keys, so `filepath` comes before `state` in each entry, and the parser relies on that |

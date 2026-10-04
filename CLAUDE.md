@@ -469,7 +469,7 @@ the first reader of that file is `gcloud builds submit` *after* merge — a mis-
 line reached `main` once and blocked the test roll-out.
 
 It also enforces each build step's **layer-cache wiring** (#278): `DOCKER_BUILDKIT=1`,
-`--build-arg BUILDKIT_INLINE_CACHE=1`, and `--cache-from` its own image at `${_CACHE_TAG}`. All six
+`--build-arg BUILDKIT_INLINE_CACHE=1`, and `--cache-from` its own image at `${_CACHE_TAG}`. All seven
 steps run in parallel. That took the build from ~9.5 min to ~1.7 min warm. Without the wiring the
 image is still correct, only cold again, which is why the checker guards it. The pip layers are
 cached, so `deploy.yml` passes `_DEPS_EPOCH` (the ISO week) to re-resolve the `>=` floors weekly;

@@ -468,11 +468,16 @@ checks every `quantcore-*` image a step builds is listed in `images:` (and vice 
 the first reader of that file is `gcloud builds submit` *after* merge — a mis-indented `images:`
 line reached `main` once and blocked the test roll-out.
 
-It also enforces each build step's **layer-cache wiring** (#278): `DOCKER_BUILDKIT=1`,
-`--build-arg BUILDKIT_INLINE_CACHE=1`, and `--cache-from` its own image at `${_CACHE_TAG}`. All six
-steps run in parallel. That took the build from ~9.5 min to ~1.7 min warm. Without the wiring the
-image is still correct, only cold again, which is why the checker guards it. The pip layers are
-cached, so `deploy.yml` passes `_DEPS_EPOCH` (the ISO week) to re-resolve the `>=` floors weekly;
-keep that arg in front of each Python Dockerfile's install. **Never warm or tag a trial build as
-`:latest`** in test AR, because prod-rollout's default tag is `latest`. Numbers and gotchas:
+It also enforces each build step's **layer-cache wiring** (#278, reworked #296 follow-up):
+`buildx build --builder quantcore` (the docker-container BuildKit the `builder` step creates),
+`--cache-from` and `--cache-to` its own image's `:buildcache-${_CACHE_TAG}` with `mode=max`,
+`--provenance=false` and `--push`, plus a `tag-latest` step that waits for every build and moves
+`:${_LATEST_TAG}` to the same digest. Don't go back to `docker build` with
+`BUILDKIT_INLINE_CACHE=1`: the stock builder's BuildKit re-exports only the layers it ran, so
+main alternated warm and cold. All six steps run in parallel; a warm build with a source change
+takes ~1.3 min. Without the wiring the image is still correct, only cold again, which is why the
+checker guards it. The pip layers are cached, so `deploy.yml` passes `_DEPS_EPOCH` (the ISO week)
+to re-resolve the `>=` floors weekly; keep that arg in front of each Python Dockerfile's install.
+**Never warm or tag a trial build as `:latest`** in test AR, because prod-rollout's default tag is
+`latest`: pass scratch `_TAG`, `_CACHE_TAG` **and** `_LATEST_TAG`. Numbers and gotchas:
 [`docs/proposals/cloud-build-speed-plan.md`](docs/proposals/cloud-build-speed-plan.md).

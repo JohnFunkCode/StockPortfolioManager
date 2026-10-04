@@ -26,6 +26,11 @@ In the same `deploy.yml` run (37209801132) the whole deploy job took 15:54, and 
 
 ## Fix
 
+> **Superseded.** The inline cache below alternated warm and cold on `main`. It was replaced by a
+> buildx registry cache with `mode=max`; see
+> [Follow-up: registry cache, `mode=max`](#follow-up-registry-cache-modemax). This section records
+> what #278 shipped.
+
 In `cloudbuild.yaml`, on every build step:
 
 - `env: ['DOCKER_BUILDKIT=1']`, `--cache-from <the image's own repo>:${_CACHE_TAG}` and
@@ -93,9 +98,9 @@ Queue time (~50 s) is outside the config's control.
   `.venv/bin/python`.
 - **The `1d6bacda` row is a best case.** It reused the same source as `aafc2948`, so `COPY . .`
   hit the cache too. A real merge lands between that row and the `aafc2948` row.
-- **On `main` the cache alternates between warm and cold (open).** These are the three
-  merge builds of 2026-10-04, all in the same ISO week, with the same `python:3.12-slim` digest and
-  nothing else pushing `:latest` between them:
+- **On `main` the cache alternated between warm and cold (resolved; see the next section).** These
+  are the three merge builds of 2026-10-04, all in the same ISO week, with the same
+  `python:3.12-slim` digest and nothing else pushing `:latest` between them:
 
   | Build | Commit | Cached api layers | Workflow step time |
   |---|---|---|---|
@@ -103,13 +108,100 @@ Queue time (~50 s) is outside the config's control.
   | `e9493d66` | ba7dca2 | 10 | 2:11 |
   | `5dd78831` | 77219a9 | 0 | 5:50 |
 
-  The cold builds rebuild even the first builder layer (apt), so the inline-cache metadata in
-  `:latest` is missing the builder stage, and missing it only *after* a warm build. The likely
-  cause, unconfirmed, is that the inline cache is `mode=min`: it records only the layers it is
-  re-exporting. The `pr278c` trial does not fit this pattern, because it was warm after a warm
-  build. That trial had no source change, though, so its final stage was fully cached as well.
-  Candidate fix: push the builder stage as its own cache image, `--target builder`, or use buildx
-  registry cache with `mode=max`.
+  The first guess here was the inline cache's `mode=min`. The logs disproved that. See below.
+
+## Follow-up: registry cache, `mode=max`
+
+### Cause, confirmed from the images
+
+`gcr.io/cloud-builders/docker` runs Docker 20.10.24, whose embedded BuildKit is v0.8 (the
+`docker` driver). Its inline cache **writes cache records only for the layers it actually
+executed in that build**. Layers it restored from `--cache-from` are not re-exported. So:
+
+1. A cold build runs every layer, and `:latest` describes all of them.
+2. A warm build re-runs only `COPY . .`, so the new `:latest` describes **only** `COPY . .`.
+3. The next merge changes the source, `COPY . .` misses, and nothing else is described, so every
+   layer rebuilds. That is a cold build, and step 1 again.
+
+Decoding the `moby.buildkit.cache.v0` config label of each `:latest` that main pushed shows how
+many layers the cache metadata covered:
+
+| Image | after cold `22d5eca` | after warm `ba7dca2` | after cold `77219a9` |
+|---|---|---|---|
+| api | 5 (layers 4–8) | 1 (layer 8) | 5 |
+| news | 6 | 2 | 6 |
+| mcp | 4 | 1 | 4 |
+
+The #278 trials follow the same pattern: `pr278a` (cold) covered layers 4–8, and `pr278b` covered
+layer 8 only. `pr278c` was warm after a warm build only because it had **no** source change.
+`COPY . .` itself hit, and its digest is the same as `pr278b`'s.
+
+Pushing `--target builder` as a second inline-cache image would hit the same bug, because a warm
+build re-exports none of the builder's layers. Upgrading the builder's BuildKit was the only real
+fix.
+
+### Fix
+
+- A `builder` step runs `docker buildx create --driver docker-container`. It runs a pinned BuildKit
+  (`_BUILDKIT_IMAGE`, `moby/buildkit:v0.23.2` from `mirror.gcr.io`, to avoid Docker Hub pull
+  limits).
+- Each image builds with `buildx build --builder quantcore`, plus:
+  - `--cache-from` and `--cache-to` at `type=registry,ref=<image>:buildcache-${_CACHE_TAG}`, with
+    `mode=max,image-manifest=true,oci-mediatypes=true`. `mode=max` records every layer of every
+    stage, including the ones it restored, so warm-after-warm stays warm.
+    `image-manifest=true` stores the cache as an ordinary OCI image manifest, so AR accepts it in
+    the same package as the image.
+  - `--provenance=false`. Without it buildx wraps the image in an index with an attestation
+    manifest, which is a different shape from what `prod-rollout.yml` copies by digest today.
+  - `--push`. The image is pushed from inside the builder, so the `images:` block is gone.
+- `_CACHE_TAG` now defaults to `main` and names the cache tag (`buildcache-main`), never an image
+  tag.
+- A final `tag-latest` step (`cloud-sdk:slim`) waits for all six builds, then runs
+  `gcloud artifacts docker tags add <img>:${_TAG} <img>:${_LATEST_TAG}`. That moves the rolling tag
+  to the **same digest**. As before, `:latest` moves only once every image has built.
+  `_LATEST_TAG` is a substitution so that a trial can move a scratch tag instead.
+
+The guard in `scripts/check_cloudbuild.py` now requires all of that on every build step, and also
+checks three more things:
+
+- no plain `docker build` step;
+- no `images:` block;
+- the `tag-latest` step tags exactly the built images and waits for every build.
+
+### Results (test project, scratch tags `t296-*`)
+
+| Build | BUILD phase | Per step |
+|---|---|---|
+| Seed, cold `382855f3` (`_TAG=t296-a`) | 5:48 | builder 0:08, api 5:11, news 5:13, mcp 1:30, report 1:30, ui 0:59, keyproxy 0:39, tag-latest 0:27 |
+| Warm #1 `f35bfbdd` (`t296-b`), source changed | **1:18** | builder 0:07, api 0:36, news 0:36, mcp 0:22, report 0:21, ui 0:44, keyproxy 0:14, tag-latest 0:28 |
+| Warm #2 `b7587501` (`t296-c`), source changed again | **1:19** | builder 0:07, api 0:36, news 0:37, mcp 0:20, report 0:20, ui 0:43, keyproxy 0:13, tag-latest 0:29 |
+
+Both warm builds had a different `t296_marker.txt` (root and `frontend/`), so `COPY . .`
+missed in every image, as it does on a real merge. In both warm builds every other layer was
+`CACHED` in all six images. In warm #2, which is the warm-after-warm case that used to go cold,
+api had 10 `CACHED` steps, including apt, the venv, the torch install and the FinBERT bake. Only
+`COPY . .` re-ran. `:t296-latest` and `:t296-c` share one digest, and that digest is a plain
+`application/vnd.docker.distribution.manifest.v2+json`, not an index.
+
+The cold seed is slower than #278's cold build (`3d20eb3a`, 5:33 including push) because api and
+news each install torch at the same time, and both now also export a full `mode=max` cache. That
+happens only on the first build of each ISO week.
+
+### Gotchas (follow-up)
+
+- **The first merge build after this lands is cold.** No `buildcache-main` exists yet. Expect about
+  6 minutes once. After that, every merge is warm until the weekly `DEPS_EPOCH` bump.
+- **Each merge now adds two versions per image package**: the image, and a new cache manifest that
+  leaves the previous one untagged. Under the AR cleanup policy (keep the 15 newest, delete the
+  rest after 30 days), only about the 7 newest *images* past 30 days survive, not 15. Nothing
+  within 30 days is affected. If rollbacks further back than that matter, raise `keepCount` in
+  `scripts/ar_cleanup_policy.json`. Keep the policy version-count based: the "never delete
+  untagged" rule still holds.
+- **About 25 s of `tag-latest` is pulling `cloud-sdk:slim`**, which is now about a third of a warm
+  build. A prefetch step for that image with `waitFor: ['-']` could hide the pull. Not done here.
+- **The trials used `_TAG=t296-a/b/c`, `_CACHE_TAG=t296` and `_LATEST_TAG=t296-latest`.** That
+  leaves `:latest` and `buildcache-main` untouched. Those tags remain in the test repo; the AR
+  cleanup policy ages them out.
 
 ## Follow-up (not in this PR)
 
@@ -124,3 +216,4 @@ loop. Done in #296: [`parallel-rollout-plan.md`](parallel-rollout-plan.md).
 | Baseline | — | Cloud Build 9:30 (BUILD 5:19 / PUSH 4:07); deploy job 15:54 | — |
 | Cache + parallel + DEPS_EPOCH + checker | _this PR_ | Cold 5:33, warm 1:43; checker 7/7 tests | Current `:latest` has no inline cache, so the first build is cold |
 | news fully parallel | _this PR_ | Warm, no source change: 0:49 | Cold double-torch install not re-measured |
+| buildx registry cache, `mode=max` + `tag-latest` | _follow-up PR_ | Cold 5:48; warm 1:18, then warm-after-warm 1:19, source changed both times | The inline cache's BuildKit v0.8 re-exports only executed layers; `mode=min` was the wrong guess |

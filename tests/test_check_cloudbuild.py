@@ -6,19 +6,32 @@ import yaml
 
 from scripts.check_cloudbuild import PATH, check
 
-T = "r-docker.pkg.dev/p/q/quantcore-%s:${_TAG}"
-
-
-C = "r-docker.pkg.dev/p/q/quantcore-%s:${_CACHE_TAG}"
+R = "${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}"
+T = R + "/quantcore-%s:${_TAG}"
+CACHE = "type=registry,ref=" + R + "/quantcore-%s:buildcache-${_CACHE_TAG}"
 
 
 def step(img):
     return {
         "id": f"build-{img}",
-        "env": ["DOCKER_BUILDKIT=1"],
-        "args": ["build", "--cache-from", C % img,
-                 "--build-arg", "BUILDKIT_INLINE_CACHE=1", "-t", T % img, "."],
+        "waitFor": ["builder"],
+        "args": ["buildx", "build", "--builder", "quantcore",
+                 "--cache-from", CACHE % img,
+                 "--cache-to", CACHE % img + ",mode=max,image-manifest=true",
+                 "--provenance=false", "-t", T % img, "--push", "."],
     }
+
+
+def tag_latest(*imgs, wait=None):
+    script = "\n".join(f"gcloud artifacts docker tags add {T % i} "
+                       f"{R}/quantcore-{i}:${{_LATEST_TAG}}" for i in imgs)
+    return {"id": "tag-latest",
+            "waitFor": wait if wait is not None else [f"build-{i}" for i in imgs],
+            "entrypoint": "bash", "args": ["-ceu", script]}
+
+
+def doc(*imgs, steps=None, tag=None):
+    return {"steps": (steps or [step(i) for i in imgs]) + [tag or tag_latest(*imgs)]}
 
 
 class CheckCloudbuildTest(unittest.TestCase):
@@ -26,39 +39,56 @@ class CheckCloudbuildTest(unittest.TestCase):
         self.assertEqual(check(yaml.safe_load(Path(PATH).read_text())), [])
 
     def test_consistent_config_passes(self):
-        doc = {"steps": [step("api")], "images": [T % "api"]}
-        self.assertEqual(check(doc), [])
+        self.assertEqual(check(doc("api", "ui")), [])
 
     def test_image_line_inside_a_step_is_caught(self):
         # The original defect: a stray list item broke the step's args.
-        doc = {"steps": [step("api"), "oops"], "images": [T % "api"]}
-        self.assertTrue(any("not a mapping" in p for p in check(doc)))
+        d = doc("api"); d["steps"].insert(1, "oops")
+        self.assertTrue(any("not a mapping" in p for p in check(d)))
 
-    def test_built_but_unlisted_and_listed_but_unbuilt(self):
-        doc = {"steps": [step("news")], "images": [T % "ui"]}
-        problems = check(doc)
-        self.assertTrue(any("quantcore-news" in p and "missing" in p for p in problems))
+    def test_built_but_untagged_and_tagged_but_unbuilt(self):
+        problems = check(doc(steps=[step("news")], tag=tag_latest("ui", wait=["build-news"])))
+        self.assertTrue(any("quantcore-news" in p and "never tags" in p for p in problems))
         self.assertTrue(any("quantcore-ui" in p and "no step" in p for p in problems))
 
+    def test_rolling_tag_waits_for_every_build(self):
+        problems = check(doc("api", "mcp", tag=tag_latest("api", "mcp", wait=["build-api"])))
+        self.assertTrue(any("waitFor build-mcp" in p for p in problems), problems)
+
+    def test_missing_tag_step_and_images_block_are_caught(self):
+        no_tag = {"steps": [step("api")]}
+        self.assertTrue(any("tag-latest" in p for p in check(no_tag)))
+        with_images = doc("api"); with_images["images"] = [T % "api"]
+        self.assertTrue(any("`images:`" in p for p in check(with_images)))
+
     def test_non_string_args_are_caught(self):
-        doc = {"steps": [{"id": "x", "args": [{"a": 1}]}], "images": []}
-        self.assertTrue(any("list of strings" in p for p in check(doc)))
+        d = doc("api"); d["steps"].insert(0, {"id": "x", "args": [{"a": 1}]})
+        self.assertTrue(any("list of strings" in p for p in check(d)))
 
     def test_cache_wiring_is_required_on_every_build_step(self):
-        # #278: each of these still builds a correct image, just a cold one.
-        no_buildkit = step("api"); no_buildkit["env"] = []
-        no_inline = step("api"); no_inline["args"].remove("BUILDKIT_INLINE_CACHE=1")
-        wrong_source = step("api"); wrong_source["args"][2] = C % "mcp"
-        for doc_step, needle in ((no_buildkit, "DOCKER_BUILDKIT"),
-                                 (no_inline, "BUILDKIT_INLINE_CACHE"),
-                                 (wrong_source, "--cache-from quantcore-api")):
-            problems = check({"steps": [doc_step], "images": [T % "api"]})
-            self.assertTrue(any(needle in p for p in problems), problems)
+        # Each of these still builds a correct image, just a cold (or wrapped) one.
+        def without(flag):
+            s = step("api"); i = s["args"].index(flag)
+            del s["args"][i:i + (1 if flag.startswith("--p") else 2)]
+            return s
+        min_mode = step("api")
+        min_mode["args"][7] = CACHE % "api" + ",mode=min"
+        wrong_source = step("api"); wrong_source["args"][5] = CACHE % "mcp"
+        for s, needle in ((without("--builder"), "--builder quantcore"),
+                          (without("--cache-from"), "--cache-from"),
+                          (without("--cache-to"), "--cache-to"),
+                          (min_mode, "mode=max"),
+                          (wrong_source, "--cache-from"),
+                          (without("--provenance=false"), "--provenance=false"),
+                          (without("--push"), "--push")):
+            problems = check(doc("api", steps=[s]))
+            self.assertTrue(any(needle in p for p in problems), (needle, problems))
 
-    def test_non_build_steps_need_no_cache(self):
-        doc = {"steps": [step("api"), {"id": "x", "args": ["push", T % "api"]}],
-               "images": [T % "api"]}
-        self.assertEqual(check(doc), [])
+    def test_plain_docker_build_is_refused(self):
+        # Inline cache on the daemon's BuildKit alternated warm/cold on main.
+        legacy = {"id": "build-api", "args": ["build", "-t", T % "api", "."]}
+        problems = check(doc("api", steps=[step("api"), legacy]))
+        self.assertTrue(any("buildx build" in p for p in problems), problems)
 
 
 if __name__ == "__main__":

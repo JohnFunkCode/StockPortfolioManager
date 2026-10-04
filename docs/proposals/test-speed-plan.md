@@ -54,7 +54,10 @@ Cloud SQL test stays available as an opt-in.
   local the gain is small. Revisit only if the local-Postgres baseline still has DB-heavy modules
   at the top.
 - **Parallel runs / a database per worker.** Blocked on DB-backed modules purging each other's
-  synthetic rows, which is the same shared-database root cause as #248. Tracked there.
+  synthetic rows, which is the same shared-database root cause as #248. #248 made concurrent runs
+  on one database **safe** (they wait for each other: a suite-wide advisory lock, see
+  [`repo-suite-stability-plan.md`](repo-suite-stability-plan.md)) but not **parallel**. Running in
+  parallel still needs a database per worker.
 - **CI runs the suite twice** (`gate`, then `prod-rollout.yml` at promotion). This is expected.
   Count it when estimating release time.
 

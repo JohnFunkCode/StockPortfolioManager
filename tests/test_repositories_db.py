@@ -403,3 +403,18 @@ class TestFundamentalsCacheEdges(RepoTestBase):
             )
             conn.commit()
         self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))
+
+    def test_swallowed_db_error_logs_class_and_sqlstate(self):
+        # #248: a swallowed failure must say which failure it was, so a flaky
+        # run can be told apart from a real schema or constraint problem.
+        import psycopg2
+
+        boom = psycopg2.OperationalError("server closed the connection unexpectedly")
+        with patch.object(fr, "get_connection", side_effect=boom), \
+                self.assertLogs(fr.logger, level="ERROR") as logs:
+            self.assertIsNone(fr.cache_get(SYM, "fundamental_score"))
+        self.assertIn(
+            "DB error reading cache for ZZREPOS/fundamental_score: "
+            "OperationalError sqlstate=None: server closed the connection unexpectedly",
+            logs.output[0],
+        )

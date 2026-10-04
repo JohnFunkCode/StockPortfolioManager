@@ -23,6 +23,16 @@ from quantcore.db import get_connection, describe_dsn
 logger = logging.getLogger(__name__)
 
 
+def _db_error(e: psycopg2.Error) -> str:
+    """Name a swallowed DB error so the log says *which* failure it was (#248).
+
+    The class and SQLSTATE tell a dropped connection (OperationalError,
+    sqlstate=None) from a constraint race (23505) or a deadlock (40P01). The
+    message never contains the DSN's password.
+    """
+    return f"{type(e).__name__} sqlstate={e.pgcode}: {str(e).strip()}"
+
+
 def _get_ttl_seconds() -> float:
     """Read TTL from env var on every call so changes take effect without restart."""
     raw = os.getenv("FUNDAMENTALS_CACHE_TTL_HOURS", "24")
@@ -81,7 +91,7 @@ def cache_get(symbol: str, data_type: str) -> dict | None:
                 return None
 
     except psycopg2.Error as e:
-        logger.error(f"DB error reading cache for {symbol}/{data_type}: {e}")
+        logger.error(f"DB error reading cache for {symbol}/{data_type}: {_db_error(e)}")
         return None
 
 
@@ -119,7 +129,7 @@ def cache_set(symbol: str, data_type: str, payload: dict) -> None:
             conn.commit()
             logger.debug(f"Cached {symbol}/{data_type} at ts={fetched_at}")
     except psycopg2.Error as e:
-        logger.error(f"DB error writing cache for {symbol}/{data_type}: {e}")
+        logger.error(f"DB error writing cache for {symbol}/{data_type}: {_db_error(e)}")
 
 
 def cache_history(symbol: str, data_type: str, since_days: int = 365) -> list[dict]:
@@ -164,7 +174,7 @@ def cache_history(symbol: str, data_type: str, since_days: int = 365) -> list[di
             return results
 
     except psycopg2.Error as e:
-        logger.error(f"DB error reading history for {symbol}/{data_type}: {e}")
+        logger.error(f"DB error reading history for {symbol}/{data_type}: {_db_error(e)}")
         return []
 
 
@@ -193,7 +203,7 @@ def cache_invalidate(symbol: str, data_type: str | None = None) -> None:
                 logger.info(f"Invalidated cache entries for {symbol}/{data_type}")
             conn.commit()
     except psycopg2.Error as e:
-        logger.error(f"DB error invalidating cache for {symbol}/{data_type}: {e}")
+        logger.error(f"DB error invalidating cache for {symbol}/{data_type}: {_db_error(e)}")
 
 
 def cache_get_all_latest(data_type: str) -> list[dict]:
@@ -245,7 +255,7 @@ def cache_get_all_latest(data_type: str) -> list[dict]:
             return results
 
     except psycopg2.Error as e:
-        logger.error(f"DB error reading latest entries for data_type={data_type}: {e}")
+        logger.error(f"DB error reading latest entries for data_type={data_type}: {_db_error(e)}")
         return []
 
 
@@ -294,7 +304,7 @@ def cache_stats() -> dict:
             }
 
     except psycopg2.Error as e:
-        logger.error(f"Error reading cache stats: {e}")
+        logger.error(f"Error reading cache stats: {_db_error(e)}")
         return {
             "database": describe_dsn(),
             "data_types": [],

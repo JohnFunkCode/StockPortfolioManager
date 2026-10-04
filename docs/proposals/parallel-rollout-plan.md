@@ -67,6 +67,12 @@ Each workflow keeps its own behaviour:
 - **Entries are word-split, not `eval`'d.** `"deploy_wrapper stock-price"` runs
   `deploy_wrapper stock-price`. Quoting inside an entry is not honoured, which is fine for
   service names.
+- **An older guard pinned the loop's text.** `tests/test_mcp_seam.py`'s
+  `test_every_wrapper_rollout_carries_the_timeout_policy` asserted the literal
+  `for s in stock-price …; do` loop, so it failed the first CI run. It now checks the same policy
+  on the new shape: `deploy_wrapper` and `deploy_lite_wrapper` both pass `--timeout
+  "$MCP_REQUEST_TIMEOUT"`, and each of the 7 wrappers is a `run_parallel` entry. Search the tests
+  for literal workflow text before you reshape a workflow.
 - **API quota.** Phase 2 runs 8 concurrent gcloud calls, well under the Cloud Run admin API's
   per-minute write quota. No cap was added.
 
@@ -87,5 +93,5 @@ Each workflow keeps its own behaviour:
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Baseline (sequential) | `ba7dca2` | roll-out ~5:05 (run 37209801132) | — |
-| Two-phase parallel roll-out, both workflows | _this PR_ | 14 unit tests pass | BSD `mktemp -d` ignores `$TMPDIR` |
+| Two-phase parallel roll-out, both workflows | _this PR_ | 14 unit tests pass | BSD `mktemp -d` ignores `$TMPDIR`; `test_mcp_seam` pinned the old loop text |
 | First `main` run after merge | — | _to fill: roll-out time_ | — |

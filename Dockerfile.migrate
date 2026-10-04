@@ -1,0 +1,51 @@
+# Dockerfile.migrate — the quantcore-migrate Cloud Run Job (issue #200).
+#
+# Applies the pending Flyway migrations before a roll-out, or refuses to (see
+# db/migrate-entrypoint.sh). The migrations are baked in, so this image *is* the
+# migration set of the commit it was built from, and prod promotion copies it by
+# digest like every other image: prod migrates with the bytes test did.
+#
+# JDBC cannot use libpq's `host=/cloudsql/<conn>` socket form, and the Cloud SQL
+# socket factory ships no single jar with its dependencies. So the socket is
+# reached through junixsocket's AFUNIXSocketFactory instead (two jars, pinned by
+# version and sha256). They go in /flyway/drivers, which the flyway launcher puts
+# on its main classpath: the Postgres driver's classloader cannot see jars added
+# with -jarDirs (a ClassNotFoundException; see the plan doc's checkpoint log).
+#
+# Plan: docs/proposals/flyway-automation-plan.md
+
+# ---- fetch the junixsocket jars, verified ----
+# Pinned by the multi-arch index digest of 3.12-slim, like the runtime base, so the
+# build is reproducible (the jars are sha256-checked either way).
+FROM python:3.12-slim@sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d AS jars
+
+ARG JUNIXSOCKET_VERSION=2.11.1
+ARG JUNIXSOCKET_COMMON_SHA256=152680589a359acd73773e3e7d9d9842007b7b86d8f8e0f828e1f87a81ad5d6a
+ARG JUNIXSOCKET_NATIVE_SHA256=9aa0db38f76b499e36c2b56e7bf5472ceb19ad4d21ebe71b25d1bc81f0336040
+
+WORKDIR /jars
+RUN set -eu; \
+    base="https://repo1.maven.org/maven2/com/kohlschutter/junixsocket"; \
+    for a in junixsocket-common junixsocket-native-common; do \
+      python -c "import sys, urllib.request; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])" \
+        "$base/$a/${JUNIXSOCKET_VERSION}/$a-${JUNIXSOCKET_VERSION}.jar" "$a-${JUNIXSOCKET_VERSION}.jar"; \
+    done; \
+    printf '%s  %s\n' \
+      "${JUNIXSOCKET_COMMON_SHA256}" "junixsocket-common-${JUNIXSOCKET_VERSION}.jar" \
+      "${JUNIXSOCKET_NATIVE_SHA256}" "junixsocket-native-common-${JUNIXSOCKET_VERSION}.jar" \
+      | sha256sum -c -
+
+# ---- runtime ----
+# Same version as the operator CLI behind scripts/flyway.sh. Pinned by the
+# multi-arch index digest of the 13.8.0 tag.
+FROM flyway/flyway:13.8.0@sha256:4b87f9a29ba3bc9b80ffe7269dd9bc1acf7bb2fce17398f60c4a50786b176ac7
+
+COPY --from=jars /jars/*.jar /flyway/drivers/
+
+# db/flyway.conf names `filesystem:db/migrations`, relative to the working directory.
+WORKDIR /quantcore
+COPY db/flyway.conf db/flyway.conf
+COPY db/migrations/ db/migrations/
+COPY db/migrate-entrypoint.sh db/migrate-entrypoint.sh
+
+ENTRYPOINT ["bash", "/quantcore/db/migrate-entrypoint.sh"]

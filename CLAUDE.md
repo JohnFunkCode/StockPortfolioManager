@@ -464,7 +464,8 @@ tests — the `gate` job already does, and a second full execution would cost mi
 question about imports.
 
 The `gate` job also runs **`scripts/check_cloudbuild.py`**, which parses `cloudbuild.yaml` and
-checks every `quantcore-*` image a step builds is listed in `images:` (and vice versa). Without it
+checks every `quantcore-*` image a step builds is tagged by `tag-latest` (and vice versa), that
+`tag-latest` waits for every build step, and that there is no `images:` block. Without it
 the first reader of that file is `gcloud builds submit` *after* merge — a mis-indented `images:`
 line reached `main` once and blocked the test roll-out.
 
@@ -474,7 +475,7 @@ It also enforces each build step's **layer-cache wiring** (#278, reworked #296 f
 `--provenance=false` and `--push`, plus a `tag-latest` step that waits for every build and moves
 `:${_LATEST_TAG}` to the same digest. Don't go back to `docker build` with
 `BUILDKIT_INLINE_CACHE=1`: the stock builder's BuildKit re-exports only the layers it ran, so
-main alternated warm and cold. All six steps run in parallel; a warm build with a source change
+main alternated warm and cold. All seven steps run in parallel; a warm build with a source change
 takes ~1.3 min. Without the wiring the image is still correct, only cold again, which is why the
 checker guards it. The pip layers are cached, so `deploy.yml` passes `_DEPS_EPOCH` (the ISO week)
 to re-resolve the `>=` floors weekly; keep that arg in front of each Python Dockerfile's install.

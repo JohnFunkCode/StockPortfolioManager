@@ -754,6 +754,7 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
+| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). **Built, not yet run by CI**: the Job and workflow step land in later steps of [the plan](docs/proposals/flyway-automation-plan.md) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api and news images carry the heavy ML stack — post-inversion FinBERT

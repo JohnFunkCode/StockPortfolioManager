@@ -4,7 +4,7 @@
 # local build would need slow QEMU emulation — especially for the torch-bearing api
 # image). Each build step pushes an immutable :${_TAG} (a git short SHA when
 # invoked from CI/the helper) itself (`--push`); the final tag-latest step then
-# points the moving :${_LATEST_TAG} at that same digest once all six have built.
+# points the moving :${_LATEST_TAG} at that same digest once all seven have built.
 # There is no `images:` block: buildx pushes from inside its own builder.
 #
 # Images (one mcp image is reused by all five wrappers — server + port are
@@ -15,6 +15,7 @@
 #   quantcore-news      news_job.py once-and-exit (Cloud Run Job; FinBERT/torch)
 #   quantcore-ui        React/Vite SPA + /api proxy (built from the frontend/ context)
 #   quantcore-keyproxy  BYOK key-redemption proxy (lean FastAPI, keyproxy/ only)
+#   quantcore-migrate   Flyway + db/migrations, run as a Job before each roll-out (#200)
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
@@ -33,7 +34,7 @@
 # --provenance=false keeps each image a plain manifest (no attestation index)
 # for prod-rollout's copy by digest. _DEPS_EPOCH busts the pip layers once a
 # week, because a cached install would otherwise never move past the `>=`
-# floors it first resolved. All six builds run in parallel after the builder.
+# floors it first resolved. All seven builds run in parallel after the builder.
 
 substitutions:
   _REGION: us-central1
@@ -227,8 +228,30 @@ steps:
       - --push
       - .
 
+  # --- migrate (Dockerfile.migrate) — Flyway + the migrations of this commit (#200).
+  #     No DEPS_EPOCH: no pip install, the base image and jars are pinned by digest/sha256. ---
+  - name: gcr.io/cloud-builders/docker
+    id: build-migrate
+    waitFor: [builder]
+    args:
+      - buildx
+      - build
+      - --builder
+      - quantcore
+      - -f
+      - Dockerfile.migrate
+      - --cache-from
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:buildcache-${_CACHE_TAG}
+      - --cache-to
+      - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
+      - --provenance=false
+      - -t
+      - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_TAG}
+      - --push
+      - .
+
   # Move the rolling tag only once every image has built, as the `images:` block
-  # used to, and keep the six :latest tags a matched set. Six `tags add` calls
+  # used to, and keep the seven :latest tags a matched set. Seven `tags add` calls
   # are not one transaction, so: record where each :latest points now, retry each
   # move (re-pointing a tag is idempotent), and if one still fails, put back the
   # ones already moved and fail the build. A tag that did not exist before is
@@ -239,7 +262,7 @@ steps:
   # `$$` is Cloud Build's escape for a literal `$`.
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: tag-latest
-    waitFor: [build-api, build-mcp, build-news, build-report, build-ui, build-keyproxy]
+    waitFor: [build-api, build-mcp, build-news, build-report, build-ui, build-keyproxy, build-migrate]
     entrypoint: bash
     args:
       - -ceu
@@ -252,6 +275,7 @@ steps:
         move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_LATEST_TAG}
         move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_LATEST_TAG}
         move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-migrate:${_LATEST_TAG}
 
         retry() { for n in 1 2 3; do "$$@" && return 0; sleep $$((n * 5)); done; return 1; }
 

@@ -342,7 +342,7 @@ feed and `Ticker.news` no longer return anything.
 | `NEWS_STALE_MAX_AGE_HOURS` | `120` | report Job alarms when the last completed news collection pass (a `fetch_log` heartbeat, not article timestamps) is older than this, or none has ever run |
 
 The Job and its Cloud Scheduler entry are created by hand once per project; until then the
-`deploy.yml` / `prod-rollout.yml` news steps skip cleanly.
+news Job update in the `deploy.yml` / `prod-rollout.yml` roll-out skips with a warning.
 
 ### The legacy HTML report
 
@@ -522,8 +522,8 @@ key/secret pair and its own custom OAuth client.
 1. **Edit** under `frontend/` and open a PR against `main`.
 2. **Merge to `main`.** This triggers `.github/workflows/deploy.yml` (no path filters, so any push to
    `main` qualifies). The `gate` job runs tests + smoke; then `cloudbuild.yaml`'s `build-ui` step
-   builds `quantcore-ui:<sha>` and the **Deploy quantui** step rolls it onto the **test**
-   service (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys; CPU/memory
+   builds `quantcore-ui:<sha>` and the roll-out step rolls it onto the **test**
+   service, in parallel with the MCP wrappers once `quantcore-api` has rolled (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys; CPU/memory
    come from the workflow's pinned sizing env block).
 3. **Verify on test** — open the test URL above in the browser, confirm the data grids populate.
 4. **Promote to prod** — run the **`prod-rollout`** GitHub Action (`workflow_dispatch`) with that

@@ -98,7 +98,7 @@ Queue time (~50 s) is outside the config's control.
 
 The `deploy` job's `gcloud run deploy` steps also run one after another (api 1:57, wrappers 1:39,
 …), about 5 minutes in total. Now that the build is ~2 minutes, that is the larger share of the
-loop.
+loop. Done in #296: [`parallel-rollout-plan.md`](parallel-rollout-plan.md).
 
 ## Checkpoint log
 

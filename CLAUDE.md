@@ -304,6 +304,15 @@ Two constraints are load-bearing — both were learned the expensive way (2026-0
   load finish sooner; it is billed only for the boosted seconds. Like the sizing, both workflows
   pass it on every roll-out, so remove it there rather than with a one-off update.
 
+**The roll-out is one step per workflow, in two parallel phases** (#296): phase 1 runs api, the
+report and news Jobs, and keyproxy; phase 2 runs api's consumers (the 7 wrappers and quantui), and
+only if phase 1 succeeded, so a failing api revision stops the run before its consumers roll. Each
+deploy is a shell function run through `run_parallel` from `scripts/ci_parallel.sh`, which waits on
+every PID and annotates each failure by name. Never replace it with a bare `&` + `wait`, which
+swallows exit codes. Add a new service as a function and an entry in the right phase, in **both**
+workflows; `tests/test_ci_parallel.py` checks the wiring. Design and timings:
+[`parallel-rollout-plan.md`](docs/proposals/parallel-rollout-plan.md).
+
 ### Artifact Registry cleanup policy
 
 The `quantcore` AR repo in each project carries a cleanup policy kept in the repo:

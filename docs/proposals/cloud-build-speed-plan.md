@@ -160,6 +160,16 @@ fix.
   `gcloud artifacts docker tags add <img>:${_TAG} <img>:${_LATEST_TAG}`. That moves the rolling tag
   to the **same digest**. As before, `:latest` moves only once every image has built.
   `_LATEST_TAG` is a substitution so that a trial can move a scratch tag instead.
+- Six `tags add` calls are not one transaction, and `prod-rollout.yml` promotes `:latest` by
+  default, so a run that moved three tags and then failed would leave a mixed set for the next
+  default promotion (PR #302 review). The step therefore records each `:latest` digest first,
+  retries every move three times (re-pointing a tag is idempotent), and on a failure that survives
+  the retries re-points the tags it already moved back at their recorded digests (or deletes a tag
+  that did not exist before), then fails the build. What remains is the few seconds between the
+  first and last move, during which a reader could see a mixed set; prod promotions are dispatched
+  by hand. The old `images:` push was not atomic across images either; it just never said so.
+  Checked against a stub `gcloud` that fails one move: the four earlier tags were restored by digest,
+  the one with no prior tag was deleted, and the step exited 1.
 
 The guard in `scripts/check_cloudbuild.py` now requires all of that on every build step, and also
 checks three more things:

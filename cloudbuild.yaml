@@ -228,8 +228,15 @@ steps:
       - .
 
   # Move the rolling tag only once every image has built, as the `images:` block
-  # used to: a failed step must not leave :latest pointing at a mixed set. `tags
-  # add` re-points the tag at the same manifest digest — never a new index.
+  # used to, and keep the six :latest tags a matched set. Six `tags add` calls
+  # are not one transaction, so: record where each :latest points now, retry each
+  # move (re-pointing a tag is idempotent), and if one still fails, put back the
+  # ones already moved and fail the build. A tag that did not exist before is
+  # deleted rather than left on the new image. What remains is the seconds
+  # between the first and last move, when a reader could see a mixed set; prod
+  # promotions are dispatched by hand, never by this build.
+  # `tags add` re-points the tag at the same manifest digest — never a new index.
+  # `$$` is Cloud Build's escape for a literal `$`.
   - name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
     id: tag-latest
     waitFor: [build-api, build-mcp, build-news, build-report, build-ui, build-keyproxy]
@@ -237,9 +244,34 @@ steps:
     args:
       - -ceu
       - |
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_LATEST_TAG}
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_LATEST_TAG}
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_LATEST_TAG}
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_LATEST_TAG}
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_LATEST_TAG}
-        gcloud artifacts docker tags add --quiet ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_LATEST_TAG}
+        srcs=(); dsts=(); prev=()
+        move() { srcs+=("$$1"); dsts+=("$$2"); }
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-ui:${_LATEST_TAG}
+        move ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG} ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_LATEST_TAG}
+
+        retry() { for n in 1 2 3; do "$$@" && return 0; sleep $$((n * 5)); done; return 1; }
+
+        # 1. Where each rolling tag points now; empty when it does not exist yet.
+        for d in "$${dsts[@]}"; do
+          prev+=("$$(gcloud artifacts docker images describe "$$d" --format='value(image_summary.digest)' 2>/dev/null || true)")
+        done
+
+        # 2. Move them; on a failure that survives the retries, undo the moves so far.
+        for i in "$${!dsts[@]}"; do
+          retry gcloud artifacts docker tags add --quiet "$${srcs[$$i]}" "$${dsts[$$i]}" && continue
+          echo "tag-latest: could not move $${dsts[$$i]}; restoring the ones already moved" >&2
+          for ((j = 0; j < i; j++)); do
+            if [ -n "$${prev[$$j]}" ]; then
+              retry gcloud artifacts docker tags add --quiet "$${dsts[$$j]%:*}@$${prev[$$j]}" "$${dsts[$$j]}" \
+                || echo "tag-latest: RESTORE FAILED for $${dsts[$$j]}; it should point at $${prev[$$j]}" >&2
+            else
+              retry gcloud artifacts docker tags delete --quiet "$${dsts[$$j]}" \
+                || echo "tag-latest: RESTORE FAILED: delete $${dsts[$$j]}, which did not exist before" >&2
+            fi
+          done
+          exit 1
+        done

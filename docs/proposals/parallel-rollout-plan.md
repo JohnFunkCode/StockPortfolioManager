@@ -86,12 +86,12 @@ Each workflow keeps its own behaviour:
     the script, has a checkout, keeps `--cpu-boost`, uses no `--set-*`, and deploys every service.
 - **Failing-deploy proof:** `test_one_failure_fails_the_step_and_names_the_entry` reproduces the
   issue's "deliberately failing deploy" case without breaking a real service.
-- **Timing:** the first `main` run after merge supplies the "after" number below.
+- **Timing:** the first `main` run after merge rolled out in 2:01, against ~5:05 before (log below).
 
 ## Checkpoint log
 
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Baseline (sequential) | `ba7dca2` | roll-out ~5:05 (run 37209801132) | — |
-| Two-phase parallel roll-out, both workflows | _this PR_ | 14 unit tests pass | BSD `mktemp -d` ignores `$TMPDIR`; `test_mcp_seam` pinned the old loop text |
-| First `main` run after merge | — | _to fill: roll-out time_ | — |
+| Two-phase parallel roll-out, both workflows | `c2a8b32`, `f9308cc` | 14 unit tests pass | BSD `mktemp -d` ignores `$TMPDIR`; `test_mcp_seam` pinned the old loop text |
+| First `main` run after merge | `77219a9` | roll-out **2:01**, down from ~5:05 (run 37231865250). Phase 1: api 74 s, keyproxy 16 s, Jobs 4–5 s. Phase 2: wrappers 42–47 s, quantui 37 s. All 12 entries exit 0, no annotations | Beat the 2:35 estimate because api took 74 s here, not ~2:00. That run's *build* was 5:50 (cold, separate #278 cache issue), so the job total did not show the full saving |

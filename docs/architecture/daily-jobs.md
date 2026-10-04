@@ -74,7 +74,7 @@ only means no exception; issue #275). The yfinance source is `YFinanceGateway.ne
 return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
 `NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **one-time infra** per project,
 created with `scripts/ensure_news_job.sh [--prod]` (idempotent; copies service account, Cloud SQL and
-secrets from the `quantcore-report` Job). `deploy.yml` and `prod-rollout.yml` skip the image step until the
+secrets from the `quantcore-report` Job). The `deploy.yml` and `prod-rollout.yml` roll-outs skip its image update until the
 Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. Two more alarms close the
 remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
 returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`

@@ -4,8 +4,8 @@
 # install import smoke (requirements-base.txt — the set the containers ship, which the
 # gate does NOT install), and a gitleaks secret scan (BYOK packet 8a — a pasted API key
 # or PEM in a diff fails CI before it ever lands; allowlist in .gitleaks.toml).
-# Pushes to main additionally build the 5 images (Cloud Build, native amd64) and roll them out to
-# the Cloud Run services + the report Job in the TEST project. Deploys carry ONLY the
+# Pushes to main additionally build the 6 images (Cloud Build, native amd64) and roll them out to
+# the Cloud Run services + the report/news Jobs in the TEST project, in two parallel phases. Deploys carry ONLY the
 # image tag — every service's env/secrets/Cloud-SQL binding is preserved from its last
 # manual deploy (Steps 8–9), so CI never needs the DB DSN or JWT secret.
 #
@@ -296,92 +296,101 @@ jobs:
           gcloud builds submit --project "$PROJECT_ID" \
             --config cloudbuild.yaml \
             --substitutions _TAG="${GITHUB_SHA::7}",_DEPS_EPOCH="$(date -u +%G-W%V)"
-      - name: Deploy quantcore-api
+      - name: Roll out to Cloud Run (two phases, each in parallel)
+        # Every command here deploys a DIFFERENT service, so running them at once can't
+        # hit the same-service optimistic-lock conflict the concurrency: block guards
+        # against (#296). scripts/ci_parallel.sh waits on each PID, prints each
+        # command's log in its own group, and fails the step naming every failure.
+        #
+        # Phase 1 is everything that doesn't consume the new api; phase 2 is api's REST
+        # consumers (the 7 wrappers and quantui), and runs only if phase 1 succeeded.
+        # That keeps the old sequential property: an api revision that fails its health
+        # check (e.g. SchemaDriftError) fails the job before any consumer rolls onto it.
+        #
+        # Services whose FIRST deploy is manual are skipped, with a ::warning::
+        # annotation, until they exist: a fresh service can't be image-only deployed.
+        # A silent "skipping" line hid one for weeks (#163).
+        #   quantcore-portfolio / -arbitrage: portfolio-lots-plan.md Step 4.8a
+        #     (--allow-unauthenticated + SERVER_MODULE/PORT/QUANTCORE_REST_URL env;
+        #     arbitrage is SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007).
+        #   quantui: the manual --iap deploy (quantui-iap-plan.md Step 5), which also sets
+        #     --no-allow-unauthenticated, the QUANTCORE_API_TOKEN secret and the REST URL.
+        #   quantcore-keyproxy: the packet-8b runbook (dedicated runtime SA, its two
+        #     secrets, run.invoker granted only to quantcore-api's SA).
+        # That config persists across these image-only redeploys.
         run: |
-          gcloud run deploy quantcore-api --project "$PROJECT_ID" --region "$REGION" \
-            --cpu "$API_CPU" --memory "$API_MEMORY" --cpu-boost \
-            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-api:${GITHUB_SHA::7}"
-      - name: Deploy the 5 wrappers (shared mcp image; per-service env preserved)
-        run: |
-          for s in stock-price options-analysis company-fundamentals news-sentiment market-analysis; do
-            gcloud run deploy "quantcore-$s" --project "$PROJECT_ID" --region "$REGION" \
-              --timeout "$MCP_REQUEST_TIMEOUT" \
-              --cpu "$MCP_CPU" --memory "$MCP_MEMORY" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
-          done
-      - name: Deploy quantcore-portfolio (image + sizing; env preserved)
-        # quantcore-portfolio's FIRST deploy is a manual one-time step (create
-        # the service with --allow-unauthenticated + SERVER_MODULE/PORT/
-        # QUANTCORE_REST_URL env, mirroring the other 5 wrappers — see
-        # portfolio-lots-plan.md Step 4.8a). That config persists across
-        # image-only redeploys. A missing service is skipped rather than failed
-        # (a fresh service can't be image-only deployed), but with a ::warning::
-        # annotation: a silent "skipping" line hid this service's absence from
-        # both projects for weeks (#163).
-        run: |
-          if gcloud run services describe quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
-            gcloud run deploy quantcore-portfolio --project "$PROJECT_ID" --region "$REGION" \
-              --timeout "$MCP_REQUEST_TIMEOUT" \
-              --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
-          else
-            echo "::warning title=quantcore-portfolio missing::quantcore-portfolio not found in $PROJECT_ID — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a."
-          fi
-      - name: Deploy quantcore-arbitrage (image + sizing; env preserved)
-        # Same one-time-creation caveat as quantcore-portfolio above: the first
-        # deploy sets SERVER_MODULE=fastMCPTest.arbitrage_server + PORT=6007 and
-        # must be done manually; CI only rolls images onto an existing service.
-        run: |
-          if gcloud run services describe quantcore-arbitrage --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
-            gcloud run deploy quantcore-arbitrage --project "$PROJECT_ID" --region "$REGION" \
-              --timeout "$MCP_REQUEST_TIMEOUT" \
-              --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-mcp:${GITHUB_SHA::7}"
-          else
-            echo "::warning title=quantcore-arbitrage missing::quantcore-arbitrage not found in $PROJECT_ID — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a (SERVER_MODULE=fastMCPTest.arbitrage_server, PORT=6007)."
-          fi
-      - name: Update report Job image
-        run: |
-          gcloud run jobs update quantcore-report --project "$PROJECT_ID" --region "$REGION" \
-            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-report:${GITHUB_SHA::7}" \
-            --task-timeout 1800s \
-            --max-retries 0 \
-            --update-env-vars REPORT_TASK_TIMEOUT_SECONDS=1800,FUNDAMENTALS_WARM_BUDGET_SECONDS=900
-      - name: Update news Job image
-        run: |
-          if gcloud run jobs describe quantcore-news --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
-            gcloud run jobs update quantcore-news --project "$PROJECT_ID" --region "$REGION" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-news:${GITHUB_SHA::7}" \
+          . scripts/ci_parallel.sh
+          IMG="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO"
+          TAG="${GITHUB_SHA::7}"
+
+          exists() { gcloud run services describe "$1" --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; }
+
+          deploy_api() {
+            gcloud run deploy quantcore-api --project "$PROJECT_ID" --region "$REGION" \
+              --cpu "$API_CPU" --memory "$API_MEMORY" --cpu-boost \
+              --image "$IMG/quantcore-api:$TAG"
+          }
+          update_report_job() {
+            gcloud run jobs update quantcore-report --project "$PROJECT_ID" --region "$REGION" \
+              --image "$IMG/quantcore-report:$TAG" \
               --task-timeout 1800s \
               --max-retries 0 \
-              --update-env-vars NEWS_TASK_TIMEOUT_SECONDS=1800,NEWS_COLLECT_BUDGET_SECONDS=900
-          else
-            echo "::warning title=quantcore-news missing::quantcore-news Job not found in $PROJECT_ID — news is NOT being collected. Create it with scripts/ensure_news_job.sh."
-          fi
-      - name: Deploy quantui (image + sizing; IAP + secret + REST URL preserved)
-        # quantui's FIRST deploy is the manual --iap step (see quantui-iap-plan.md Step 5),
-        # which also sets --no-allow-unauthenticated, the QUANTCORE_API_TOKEN secret, and
-        # QUANTCORE_REST_URL. Those persist across image-only redeploys. Until that one-time
-        # deploy exists, skip rather than fail (a fresh service can't be image-only deployed).
-        run: |
-          if gcloud run services describe quantui --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
-            gcloud run deploy quantui --project "$PROJECT_ID" --region "$REGION" \
-              --cpu "$UI_CPU" --memory "$UI_MEMORY" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-ui:${GITHUB_SHA::7}"
-          else
-            echo "::warning title=quantui missing::quantui not found in $PROJECT_ID — this roll-out skipped it. First deploy is the manual --iap step (docs/architecture/quantui.md)."
-          fi
-      - name: Deploy quantcore-keyproxy (image + sizing; SA/secrets/IAM lock preserved)
-        # The keyproxy's FIRST deploy is the manual packet-8b runbook (dedicated
-        # runtime SA, keyproxy-private-key + quantui-signing-pub secrets,
-        # --no-allow-unauthenticated with run.invoker granted only to
-        # quantcore-api's SA). That config persists across image-only redeploys.
-        # Until that one-time deploy exists, skip rather than fail.
-        run: |
-          if gcloud run services describe quantcore-keyproxy --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
-            gcloud run deploy quantcore-keyproxy --project "$PROJECT_ID" --region "$REGION" \
-              --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
-              --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-keyproxy:${GITHUB_SHA::7}"
-          else
-            echo "::warning title=quantcore-keyproxy missing::quantcore-keyproxy not found in $PROJECT_ID — Sidekick chat cannot reach Anthropic and this roll-out skipped it. First deploy is the packet-8b runbook (byok-key-proxy-plan.md)."
-          fi
+              --update-env-vars REPORT_TASK_TIMEOUT_SECONDS=1800,FUNDAMENTALS_WARM_BUDGET_SECONDS=900
+          }
+          update_news_job() {
+            if gcloud run jobs describe quantcore-news --project "$PROJECT_ID" --region "$REGION" >/dev/null 2>&1; then
+              gcloud run jobs update quantcore-news --project "$PROJECT_ID" --region "$REGION" \
+                --image "$IMG/quantcore-news:$TAG" \
+                --task-timeout 1800s \
+                --max-retries 0 \
+                --update-env-vars NEWS_TASK_TIMEOUT_SECONDS=1800,NEWS_COLLECT_BUDGET_SECONDS=900
+            else
+              echo "::warning title=quantcore-news missing::quantcore-news Job not found in $PROJECT_ID — news is NOT being collected. Create it with scripts/ensure_news_job.sh."
+            fi
+          }
+          deploy_keyproxy() {
+            if exists quantcore-keyproxy; then
+              gcloud run deploy quantcore-keyproxy --project "$PROJECT_ID" --region "$REGION" \
+                --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
+                --image "$IMG/quantcore-keyproxy:$TAG"
+            else
+              echo "::warning title=quantcore-keyproxy missing::quantcore-keyproxy not found in $PROJECT_ID — Sidekick chat cannot reach Anthropic and this roll-out skipped it. First deploy is the packet-8b runbook (byok-key-proxy-plan.md)."
+            fi
+          }
+          # The 5 original wrappers share the mcp image; per-service env is preserved.
+          deploy_wrapper() {
+            gcloud run deploy "quantcore-$1" --project "$PROJECT_ID" --region "$REGION" \
+              --timeout "$MCP_REQUEST_TIMEOUT" \
+              --cpu "$MCP_CPU" --memory "$MCP_MEMORY" \
+              --image "$IMG/quantcore-mcp:$TAG"
+          }
+          # portfolio + arbitrage: same image, lite memory, manual first deploy.
+          deploy_lite_wrapper() {
+            if exists "quantcore-$1"; then
+              gcloud run deploy "quantcore-$1" --project "$PROJECT_ID" --region "$REGION" \
+                --timeout "$MCP_REQUEST_TIMEOUT" \
+                --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
+                --image "$IMG/quantcore-mcp:$TAG"
+            else
+              echo "::warning title=quantcore-$1 missing::quantcore-$1 not found in $PROJECT_ID — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a."
+            fi
+          }
+          deploy_quantui() {
+            if exists quantui; then
+              gcloud run deploy quantui --project "$PROJECT_ID" --region "$REGION" \
+                --cpu "$UI_CPU" --memory "$UI_MEMORY" \
+                --image "$IMG/quantcore-ui:$TAG"
+            else
+              echo "::warning title=quantui missing::quantui not found in $PROJECT_ID — this roll-out skipped it. First deploy is the manual --iap step (docs/architecture/quantui.md)."
+            fi
+          }
+
+          echo "Phase 1: quantcore-api, the report + news Jobs, quantcore-keyproxy"
+          run_parallel deploy_api update_report_job update_news_job deploy_keyproxy
+          echo "Phase 2: api's consumers (the 7 wrappers, quantui)"
+          run_parallel \
+            "deploy_wrapper stock-price" "deploy_wrapper options-analysis" \
+            "deploy_wrapper company-fundamentals" "deploy_wrapper news-sentiment" \
+            "deploy_wrapper market-analysis" \
+            "deploy_lite_wrapper portfolio" "deploy_lite_wrapper arbitrage" \
+            deploy_quantui

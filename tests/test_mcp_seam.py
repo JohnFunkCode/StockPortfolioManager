@@ -164,21 +164,24 @@ class TestMcpDeploymentPolicy(unittest.TestCase):
         for workflow_name in ("deploy.yml", "prod-rollout.yml"):
             text = (self.REPO / ".github" / "workflows" / workflow_name).read_text()
             self.assertIn("MCP_REQUEST_TIMEOUT: 900s", text, workflow_name)
-            self.assertIn(
-                "for s in stock-price options-analysis company-fundamentals "
-                "news-sentiment market-analysis; do\n"
-                "            gcloud run deploy \"quantcore-$s\"",
-                text,
-                workflow_name,
-            )
-            for service in ("portfolio", "arbitrage"):
-                marker = f"gcloud run deploy quantcore-{service}"
-                start = text.index(marker)
-                block = text[start:text.find("\n      - name:", start)]
-                self.assertIn(
-                    '--timeout "$MCP_REQUEST_TIMEOUT"', block,
-                    f"{workflow_name}: {service}",
-                )
+            # Wrappers roll out through two shell functions run by run_parallel
+            # (#296): every wrapper is an entry of one of them, and both carry
+            # the timeout.
+            for fn, names in (
+                ("deploy_wrapper", ("stock-price", "options-analysis",
+                                    "company-fundamentals", "news-sentiment",
+                                    "market-analysis")),
+                ("deploy_lite_wrapper", ("portfolio", "arbitrage")),
+            ):
+                start = text.index(f"{fn}() {{")
+                body = text[start:text.index("\n          }\n", start)]
+                self.assertIn('gcloud run deploy "quantcore-$1"', body,
+                              f"{workflow_name}: {fn}")
+                self.assertIn('--timeout "$MCP_REQUEST_TIMEOUT"', body,
+                              f"{workflow_name}: {fn}")
+                for name in names:
+                    self.assertIn(f'"{fn} {name}"', text,
+                                  f"{workflow_name}: {name}")
 
 
 class TestCompanyFundamentalsWrapper(unittest.TestCase):

@@ -89,6 +89,10 @@ is that concurrent runs serialize instead of running in parallel, which was neve
 - **A test that spawns `python -c "import tests"` as a subprocess would wait for its own parent**
   until the timeout. No current test does this; I checked when designing the fix. Keep it that way,
   or give such a subprocess a database of its own.
+- **Rewording a log line counts as a changed line for diff-cover.** Moving all six
+  `except psycopg2.Error` handlers onto `_db_error` put six error branches into the PR's diff, and
+  the first push tested only one of them. That gave 50% diff coverage against the 85% gate. A test
+  of one handler doesn't cover its siblings; each needs its own failing-connection case.
 
 ## Checkpoint log
 
@@ -96,3 +100,4 @@ is that concurrent runs serialize instead of running in parallel, which was neve
 |---|---|---|---|
 | Reproduce | — | Single runs: 30/30 locally and through the proxy. Two concurrent runs: 12–17 failures each, 3 of 3 trials. | Proxy was a red herring |
 | Lock + tests + SQLSTATE logging + docs | _this PR_ | Two concurrent `test_repositories_db` runs: 6/6 OK across 3 trials, one waiter per pair. Two concurrent full suites: both 1589 OK (skipped=5), the second waited. Single full suite: 1589 OK in 25 s. The password appeared nowhere in the logs. | See Gotchas |
+| CI fix: diff coverage | _this PR_ | `gate` failed diff-cover at 50%: four reworded handlers were untested. Added `test_every_swallowing_handler_names_the_error`. Full suite: 1591 OK (skipped=5). | Reworded log lines are diff lines |

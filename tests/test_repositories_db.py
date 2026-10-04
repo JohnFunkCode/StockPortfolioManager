@@ -418,3 +418,30 @@ class TestFundamentalsCacheEdges(RepoTestBase):
             "OperationalError sqlstate=None: server closed the connection unexpectedly",
             logs.output[0],
         )
+
+    def test_every_swallowing_handler_names_the_error(self):
+        # The other five handlers share _db_error; each must still swallow
+        # (return its empty value) and log the class + SQLSTATE.
+        import psycopg2
+
+        boom = psycopg2.OperationalError("server closed the connection unexpectedly")
+        cases = [
+            (lambda: fr.cache_set(SYM, "fundamental_score", {"x": 1}), None,
+             "DB error writing cache for ZZREPOS/fundamental_score"),
+            (lambda: fr.cache_history(SYM, "fundamental_score"), [],
+             "DB error reading history for ZZREPOS/fundamental_score"),
+            (lambda: fr.cache_invalidate(SYM), None,
+             "DB error invalidating cache for ZZREPOS/None"),
+            (lambda: fr.cache_get_all_latest("fundamental_score"), [],
+             "DB error reading latest entries for data_type=fundamental_score"),
+        ]
+        for call, expected, prefix in cases:
+            with self.subTest(prefix=prefix), \
+                    patch.object(fr, "get_connection", side_effect=boom), \
+                    self.assertLogs(fr.logger, level="ERROR") as logs:
+                self.assertEqual(call(), expected)
+                self.assertIn(
+                    f"{prefix}: OperationalError sqlstate=None: "
+                    "server closed the connection unexpectedly",
+                    logs.output[0],
+                )

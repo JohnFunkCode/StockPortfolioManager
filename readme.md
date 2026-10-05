@@ -1010,13 +1010,14 @@ source .venv/bin/activate
 fastmcp run fastMCPTest/stock_price_server.py
 ```
 
-### Adding an MCP wrapper (deploys itself)
+### Adding an MCP wrapper
 
 A new wrapper needs no GCP permissions from its author. Add the server module under `fastMCPTest/`,
 an entry in `WRAPPERS` in `scripts/ci_wrapper_smoke.py`, and a `[[services]]` block (copy a
-standard wrapper, then set `first_create = "auto"`) in `deploy/cloudrun-services.toml`. Merging
-creates the service on **test**. The next `prod-rollout` dispatch creates it in **prod**, behind
-the reviewer gate. Full flow, the IAM model, and the read-only drift check
+standard wrapper, then set `first_create = "auto"`) in `deploy/cloudrun-services.toml`. CI can't
+make a service public (that grant is deliberately not given), so the first roll-out after the merge
+fails for the new service only, and a project owner creates it with two commands, in test and then
+in prod. From then on CI deploys it like any other. Full flow, the by-hand commands, the IAM model, and the read-only drift check
 (`python scripts/cloudrun_services.py check --env test`):
 [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).
 

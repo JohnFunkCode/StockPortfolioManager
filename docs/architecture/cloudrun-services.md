@@ -48,9 +48,13 @@ from its author:
 
 Then:
 
-- **Merge → test.** `deploy.yml`'s phase 2 finds the service missing and creates it.
-- **`prod-rollout.yml` → prod.** The same create runs behind the `prod` environment's
-  required-reviewer gate. Dispatching it is the owner's call.
+- **Merge → test.** `deploy.yml`'s phase 2 finds the service missing. The deployer doesn't hold
+  `run.services.setIamPolicy`, and the grant is declined (see [IAM model](#iam-model)), so the
+  step creates nothing and fails. Expect that red run. An owner then creates the service with
+  [two commands](#onboarding-a-wrapper-by-hand).
+- **`prod-rollout.yml` → prod.** The same thing happens behind the `prod` environment's
+  required-reviewer gate. Dispatching it and the by-hand create are both John's.
+- After the create, every later roll-out treats the wrapper as an existing service.
 
 Check either environment read-only at any time:
 
@@ -79,7 +83,7 @@ What the deployer needs, as verified read-only on 2026-10-04:
 | `roles/run.developer` (deploy, describe, create) | project ✅ | project ✅ |
 | Artifact Registry | `artifactregistry.writer` (project) ✅ | `artifactregistry.writer` on prod AR, `artifactregistry.reader` on test AR ✅ |
 | `iam.serviceAccountUser` on each runtime SA the inventory names | `493357101423-compute@developer…` ✅, `keyproxy-runtime@…` ✅ | `quantcore-run@…` ✅, `keyproxy-runtime@…` ✅ |
-| `run.services.setIamPolicy` (makes a newly created wrapper public) | ❌ **not granted** | ❌ **not granted** |
+| `run.services.setIamPolicy` (makes a newly created wrapper public) | ❌ **declined** (2026-10-05) | ❌ **declined** (2026-10-05) |
 
 The other roles each workflow needs (Cloud Build, logging, the migrate Job's SA) are listed in the
 workflow headers and in [`prod-promotion.md`](../operations/prod-promotion.md).
@@ -92,41 +96,53 @@ never passes `--allow-unauthenticated`, which would fail. Instead it runs a sepa
 `projects.testIamPermissions` for `run.services.create` and `run.services.setIamPolicy`, as the
 deployer, with `gcloud auth print-access-token` (the token goes only into the request header).
 If either is missing, nothing is created: the step fails with `::error title=<name> not
-created::`, naming the missing permission and printing the bind command for an owner to run after
-creating the service by hand. Until the grant below exists, that is what onboarding a wrapper
-does. If the check itself fails (no token, API unreachable), the step fails closed and creates
+created::`, naming the missing permission and pointing to the by-hand onboarding below. There the owner
+runs the same deploy under their own login, which creates the service and binds `allUsers` in
+one go, so there is no separate grant to run. That refusal is the normal onboarding path, because the grant is
+declined (below). If the check itself fails (no token, API unreachable), the step fails closed and creates
 nothing. Without the check, run.developer would create a wrapper it could not make public, and
 leave a service behind that answers every client with 403.
 
 **Existing services are unaffected.** The update path makes no permission check and only *reads*
 IAM.
 
-The narrow grant, a custom role holding only the two Cloud Run IAM-policy permissions (to be
-applied by a project owner, once per project):
+**The grant is declined (John, 2026-10-05).** A custom role holding `run.services.setIamPolicy`
+would let CI onboard a wrapper unattended. But the binding is project-wide, so it would also let
+whoever holds the deployer:
 
-```bash
-gcloud iam roles create runServiceIamSetter --project quantcore-test-20260606 --title "Cloud Run service IAM setter" --permissions run.services.getIamPolicy,run.services.setIamPolicy
-```
+- make any service public, including keyproxy;
+- strip invoker bindings, which is an outage that leaves the services looking healthy;
+- bind an outside identity to a role on a service. That access survives rotating the deployer's
+  credentials, so a single compromise becomes a persistent one.
 
-```bash
-gcloud projects add-iam-policy-binding quantcore-test-20260606 --member serviceAccount:quantcore-deployer@quantcore-test-20260606.iam.gserviceaccount.com --role projects/quantcore-test-20260606/roles/runServiceIamSetter --condition None
-```
+New wrappers are rare, and the manual step is two commands, so the trade isn't worth it. **Don't
+re-propose the grant without revisiting that reasoning.**
 
-```bash
-gcloud iam roles create runServiceIamSetter --project quantcore-prod-20260606 --title "Cloud Run service IAM setter" --permissions run.services.getIamPolicy,run.services.setIamPolicy
-```
+The deployer is also reachable from more workflows than it should be. That is tracked separately
+in [#313](https://github.com/JohnFunkCode/StockPortfolioManager/issues/313).
 
-```bash
-gcloud projects add-iam-policy-binding quantcore-prod-20260606 --member serviceAccount:quantcore-deployer@quantcore-prod-20260606.iam.gserviceaccount.com --role projects/quantcore-prod-20260606/roles/runServiceIamSetter --condition None
-```
+### Onboarding a wrapper by hand
 
-What this allows: the deployer can change the invoker policy of any service in the project,
-including making the api or keyproxy public. That is the same power `roles/run.admin` would give,
-without the rest of run.admin. Keyproxy's protection does not depend on the invoker policy alone,
-because it also requires a user JWT. The roll-out code never changes IAM on an existing service.
-If that trade-off is not acceptable, leave the grant out. Each new wrapper is then created and
-made public by hand, using the command the refused step prints, and the next roll-out takes it
-over as an existing service.
+1. Merge the PR that adds the `[[services]]` block, the module and the `WRAPPERS` entry.
+   - The roll-out fails the new service's step with `::error title=<name> not created::`.
+   - Every other service still rolls, so the existing wrappers end up on the new
+     `quantcore-mcp` image, which holds the new module.
+2. An owner then runs the same script under their **own** gcloud login. The preflight passes for
+   an owner, so the script creates the service with its full inventory config and binds `allUsers`.
+   The image is the digest an existing wrapper is serving. Test:
+
+   ```bash
+   export QUANTCORE_MCP_DIGEST="$(gcloud run revisions describe "$(gcloud run services describe quantcore-portfolio --project quantcore-test-20260606 --region us-central1 --format='value(status.latestReadyRevisionName)')" --project quantcore-test-20260606 --region us-central1 --format='value(status.imageDigest)' | cut -d@ -f2)"
+   ```
+
+   ```bash
+   python3 scripts/cloudrun_services.py deploy <new-wrapper> --env test --registry us-central1-docker.pkg.dev/quantcore-test-20260606/quantcore --by-digest
+   ```
+
+   For prod, run the same two commands with `quantcore-prod-20260606` and `--env prod`, after
+   prod-rollout has promoted the image. Prod is John's to apply.
+3. The next roll-out takes the service over as an existing one. `cloudrun_services.py check --env
+   test|prod` should then report it `ok`.
 
 A new service that runs as a **new** runtime SA also needs `iam.serviceAccountUser` for the
 deployer on that SA before its first roll-out. Otherwise the create fails with

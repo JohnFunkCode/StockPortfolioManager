@@ -12,6 +12,10 @@ Goal: a wrapper is onboarded by a PR that touches only code and an inventory. CI
 service with its full config: test on merge, prod behind the `prod` environment gate. Services
 that need a human (api, keyproxy, quantui) fail loudly with their runbook instead.
 
+**Revised 2026-10-05:** creating a *public* wrapper needs `run.services.setIamPolicy`, and that
+grant was declined (gotcha 1). CI still holds all the config and takes the service over after it
+exists, but the first create of a wrapper is two commands run by an owner.
+
 Reference doc: [`docs/architecture/cloudrun-services.md`](../architecture/cloudrun-services.md).
 
 ## Design
@@ -52,7 +56,13 @@ Reference doc: [`docs/architecture/cloudrun-services.md`](../architecture/cloudr
    - The update path never passes either `--allow-unauthenticated` or `--no-allow-unauthenticated`,
      because each tries to write IAM. It only reads the policy, and fails on a public service
      that has lost its `allUsers` binding.
-   - The custom-role grant is documented, **not applied**. Applying it is John's decision.
+   - **The grant is declined (John, 2026-10-05).** `setIamPolicy` is not scoped to adding
+     `allUsers`: a deployer holding it could make any service public (api, keyproxy), strip
+     bindings, or bind an outside identity for persistent access, and the deployer is reachable
+     from any workflow run in the repo. Onboarding a wrapper is rare and costs two commands, so
+     the trade isn't worth it. The by-hand path is in `cloudrun-services.md`
+     ("Onboarding a wrapper by hand"). The WIF conditions being repo-only, not branch- or
+     environment-scoped, is issue #313.
 2. **A missing service shows up only as text.** `gcloud run services describe` exits 1 for "not
    found" and for every other failure alike. The script treats `Cannot find service` in stderr as
    missing, and anything else as a hard error. Treating every failure as missing would turn a
@@ -91,4 +101,4 @@ Reference doc: [`docs/architecture/cloudrun-services.md`](../architecture/cloudr
 | Deployer IAM audit (read-only) | run.developer ✅, AR ✅, serviceAccountUser on all 4 runtime SAs ✅, **setIamPolicy ❌ in both projects**. The grant is documented in `cloudrun-services.md`. |
 | Docs | `cloudrun-services.md` added. CLAUDE.md, readme, prod-promotion.md, quantui.md and prod-rollout-plan P11 updated. |
 | PR #309 review (2026-10-05) | setIamPolicy preflight before any create (refuses, creates nothing, prints the grant). `load`, `_validate`, `deploy_args` and `cmd_deploy` split; every function now scores under complexipy's 15. 5 new tests. |
-| First wrapper created by CI | Pending: the first real onboarding after the setIamPolicy grant. |
+| setIamPolicy grant (2026-10-05) | **Declined.** Wrappers are created by hand, then CI takes them over. Docs updated in the follow-up PR. WIF gap → #313. |

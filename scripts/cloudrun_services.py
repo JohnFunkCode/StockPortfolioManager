@@ -326,9 +326,10 @@ def _create(s: dict, image: str) -> int:
     if lacking:
         print(f"::error title={s['name']} not created::{s['name']} does not exist in "
               f"{s['project']}, and the deployer lacks {', '.join(lacking)}, so it could "
-              f"not be made public. Nothing was created. Either grant the deployer the "
-              f"role in docs/architecture/cloudrun-services.md, or create it by hand and "
-              f"run: {grant_command(s)}")
+              f"not be made public. Nothing was created. That is expected (the grant is "
+              f"declined): an owner runs this same deploy under their own gcloud login, "
+              f"which creates it and makes it public, per 'Onboarding a wrapper by hand' "
+              f"in docs/architecture/cloudrun-services.md.")
         return 1
     print(f"{s['name']} does not exist in {s['project']}; creating it from the inventory.")
     if gcloud(*deploy_args(s, image, None)).returncode != 0:

@@ -333,7 +333,9 @@ class DeployMissingTest(StubbedTest):
         self.assertIn("::error title=svc-wrap not created::", out)
         self.assertIn("lacks run.services.setIamPolicy", out)
         self.assertIn("Nothing was created", out)
-        self.assertIn("gcloud run services add-iam-policy-binding svc-wrap --project proj-t", out)
+        # The owner's by-hand deploy binds allUsers itself, so no separate grant (#314 review).
+        self.assertIn("Onboarding a wrapper by hand", out)
+        self.assertNotIn("add-iam-policy-binding", out)
         self.assertEqual(self.find(calls, "run deploy"), [])
         self.assertEqual(self.find(calls, "run services add-iam-policy-binding"), [])
         self.assertNotIn(FAKE_TOKEN, out)

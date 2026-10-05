@@ -156,7 +156,9 @@ removes. The `quantcore-migrate` tag list below is the test of whether a tag qua
   E2E-verified on prod 2026-07-18 — api digest `4e50638c…`, keyproxy `9b3b0ecb…`). It
   predates `quantcore-migrate`, so it can no longer be promoted; it is history, not a target.
   The `latest` tag is the human-pinned, known-good marker; keep it pointed at the
-  blessed set when you promote. **Do not assume a raw commit-SHA tag is blessed** —
+  blessed set when you promote. Only a push to main moves it: a `deploy.yml` dispatch of
+  another ref to test (#120) tags its build `:dispatch-latest` instead. A SHA tag from such a
+  dispatch is an **unmerged** build — never promote one. **Do not assume a raw commit-SHA tag is blessed** —
   a newer build may sit under its SHA without having been promoted/validated. When in
   doubt, verify the digest behind the tag:
 

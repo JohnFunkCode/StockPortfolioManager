@@ -81,7 +81,9 @@ quantui is `first_create = "manual"` there: if the service is missing, the roll-
 than creating it without IAP. Verify on the test
 URL, then promote to **prod** by manually dispatching `prod-rollout.yml` (`workflow_dispatch`) with
 the commit's 7-char SHA — it copies the image **by digest** test→prod and deploys prod
-`quantui` the same way. Prod is never auto-deployed.
+`quantui` the same way. Prod is never auto-deployed. To try an unmerged UI branch on test first,
+dispatch `deploy.yml` from main with `ref` set to the branch (readme "Trying a branch on test
+before merging").
 
 **Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
 (1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`

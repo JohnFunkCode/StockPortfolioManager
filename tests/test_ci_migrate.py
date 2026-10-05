@@ -144,7 +144,7 @@ class DeployWiringTest(unittest.TestCase):
         self.assertNotIn("if", step)
         body = step["run"]
         self.assertIn('--project "$PROJECT_ID"', body)
-        self.assertIn("quantcore-migrate:${GITHUB_SHA::7}", body)  # this commit's image
+        self.assertIn("quantcore-migrate:${DEPLOY_SHA::7}", body)  # the gated SHA (#120)
         self.assertNotIn(":latest", body)
         self.assertNotIn("--set-", body)
 

@@ -43,8 +43,13 @@ from its author:
 3. Add a `[[services]]` block to `deploy/cloudrun-services.toml`. Copy a standard wrapper, then set
    `name`, `SERVER_MODULE`, `phase = 2` and `first_create = "auto"`.
    `tests/test_cloudrun_services.py` fails if the inventory's wrappers and `WRAPPERS` disagree.
-4. Optionally, add the remote to `.mcp.json` for AI clients, and update the tool count in
-   `CLAUDE.md`.
+4. Add a contract case for each of its tools to `CASES` in `tests/test_mcp_tool_contracts.py`
+   (#44): the arguments and the exact REST call each tool should make. The test's completeness
+   guard fails on any tool without a case and on a total that no longer matches the documented
+   count. Adding a tool to an *existing* wrapper is the same step on its own. Design and gotchas:
+   [`mcp-tool-regression-plan.md`](../proposals/mcp-tool-regression-plan.md).
+5. Update the tool count in `CLAUDE.md` and the constant in that test. Optionally, add the remote
+   to `.mcp.json` for AI clients.
 
 Then:
 

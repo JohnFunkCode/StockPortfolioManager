@@ -30,6 +30,11 @@ then go back to `ubuntu-latest`. Pinning `ubuntu-24.04` would only defer the sam
 1. **`deploy` has no setup-python.** It is the one job whose Python version changes with the
    image. The probe runs both of its scripts under the image's own `python3`.
 
+- **Merging a stack top-down strands the upper PRs.** #310–#312 were approved and merged *after*
+  #309 had merged to `main`. Each one merged into its base branch, not `main`, so #120, #218 and
+  this trial landed on stale branches, and the trial landed still pinned to 26.04 with the probe
+  in place. A recovery PR from the top branch was needed. Before merging a stacked PR, retarget it
+  at `main` once the PR below it merges, or merge the stack bottom-up and retarget each time.
 - **A red stacked PR may be red because of the PR below it.** #312's first gate failure looked like
   a runner regression, but it was a #120 test that #120's own change had made stale. Before
   blaming the image, read the failing assertion, and fix it on the lowest branch that carries it.
@@ -44,4 +49,6 @@ then go back to `ubuntu-latest`. Pinning `ubuntu-24.04` would only defer the sam
 | `secret-scan` on 26.04 | Pass. |
 | `dep-audit` on 26.04 | Pass (1m18s). |
 | `frontend-gate` on 26.04 | Pass (2m24s). |
-| `gate` and the probe's prod-rollout gate, first run | Both failed on one test only, `test_migrate_step_sits_between_build_and_rollout`. It still asserted `GITHUB_SHA::7`, which #120 had replaced with the gated `DEPLOY_SHA` (the fix is e4d24a4 on #120's branch, merged up). Nothing about 26.04 was involved: the gate ran 1717 tests in 55s, and the probe ran 1709 in 36s. Re-run pending. |
+| `gate` and the probe's prod-rollout gate, first run | Both failed on one test only, `test_migrate_step_sits_between_build_and_rollout`. It still asserted `GITHUB_SHA::7`, which #120 had replaced with the gated `DEPLOY_SHA` (the fix is e4d24a4 on #120's branch, merged up). Nothing about 26.04 was involved: the gate ran 1717 tests in 55s, and the probe ran 1709 in 36s. |
+| Re-run after the #120 fix (runs 37337040042, 37337040081) | All green on 26.04: `gate` (2m18s), `lean-import`, `frontend-gate`, `secret-scan`, `dep-audit`, the probe's prod-rollout gate (1m47s) and `host-tools`. `deps-lock-update` is covered indirectly: its setup-python, `lock_deps.sh` and `audit_deps.sh` are the steps `gate` and `dep-audit` just ran. |
+| Revert (2026-10-05) | `deploy.yml` is back on `ubuntu-latest` and the probe is deleted. This landed with the recovery PR that brought #120/#218/#293 to `main`. When the label moves (2026-10-19 → 11-19), the first runs on 26.04 should be the ones above. |

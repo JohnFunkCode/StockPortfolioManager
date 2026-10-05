@@ -74,7 +74,7 @@ env:
 jobs:
   gate:
     name: Tests + wrapper smoke + OpenAPI surface
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
     services:
@@ -164,7 +164,7 @@ jobs:
   # environment. Import-only — the gate already runs the tests.
   lean-import:
     name: Lean install import smoke (requirements-base.lock)
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     services:
       # api/main.py builds the app at import time, which calls ensure_schema() —
       # so even an import-only smoke needs a database to reach.
@@ -199,7 +199,7 @@ jobs:
 
   frontend-gate:
     name: Frontend tests + typecheck + coverage
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: frontend
@@ -248,7 +248,7 @@ jobs:
 
   secret-scan:
     name: Secret scan (gitleaks)
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -265,7 +265,7 @@ jobs:
   # unrelated merge or a roll-out. The weekly deps-lock-update.yml runs the same audit.
   dep-audit:
     name: Dependency audit (pip-audit)
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -281,7 +281,7 @@ jobs:
     needs: gate
     # A push to main, or any #120 dispatch (refused below unless run from main).
     if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     outputs:
       has_creds: ${{ steps.check.outputs.has_creds }}
     steps:
@@ -311,7 +311,7 @@ jobs:
     name: Build + roll out to Cloud Run (test project)
     needs: [gate, lean-import, frontend-gate, secret-scan, preflight]
     if: needs.preflight.outputs.has_creds == 'true'
-    runs-on: ubuntu-26.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write # Workload Identity Federation

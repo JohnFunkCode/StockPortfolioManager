@@ -169,10 +169,14 @@ roster would hide the case worth seeing — a cache thin on the symbols the team
 
 2. Install dependencies:
    ```
-   pip install -r requirements.txt
+   pip install --require-hashes -r requirements.lock
    ```
 
-   That installs everything, as it always has. The file is now layered —
+   That installs everything, at the exact versions CI and the images are tested with: the
+   `.lock` files are hash-pinned and generated from the `requirements-*.txt` inputs by
+   `scripts/lock_deps.sh` (needs `pip install uv`). After editing a `.txt`, re-run that script
+   and commit the lock too, or CI fails. A weekly workflow opens a PR that moves every pin
+   forward and runs `pip-audit`. The inputs are layered —
    `requirements-base.txt` (lean: what the containers install) + `requirements-ml.txt`
    (torch/transformers for FinBERT) + `requirements-report.txt` (matplotlib, jinja2, boto3) — so
    that the deployed images stop carrying the HTML report's rendering stack. If you deliberately
@@ -371,8 +375,9 @@ quietly reporting success.
 
 **Running it from the Raspberry Pi** (`runOnPi.sh`) has four one-time prerequisites: a
 `QUANTCORE_DB_DSN` in `.env`, a running Cloud SQL Auth Proxy, AWS credentials plus
-`BUCKET_NAME`/`BUCKET_KEY`, and `pip install -r requirements.txt` (the base set is not enough —
-the rendering stack lives in `requirements-report.txt`). The Pi deliberately runs *this script*
+`BUCKET_NAME`/`BUCKET_KEY`, and `pip install --require-hashes -r requirements.lock` (the base set
+is not enough — the rendering stack lives in `requirements-report.txt`; the lock covers a 64-bit
+Pi OS only, since PyTorch publishes no 32-bit ARM wheels). The Pi deliberately runs *this script*
 and not `main.py`: the Cloud Run Job already sends the notifications and writes the options
 snapshots, so running `main.py` there too would double every alert.
 
@@ -784,11 +789,11 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 
 | Image | Dockerfile | Deps | Role |
 |-------|-----------|------|------|
-| `quantcore-api` | `Dockerfile.api` | `requirements-ml.txt` (incl. torch/transformers for FinBERT) + baked FinBERT weights | FastAPI front door + service execution |
-| `quantcore-news` | `Dockerfile.news` | `requirements-ml.txt` + baked FinBERT weights | `news_job.py` once-and-exit (Cloud Run Job) — collect and score headlines |
-| MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
-| `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
-| `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
+| `quantcore-api` | `Dockerfile.api` | `requirements-ml.lock` (incl. torch/transformers for FinBERT) + baked FinBERT weights | FastAPI front door + service execution |
+| `quantcore-news` | `Dockerfile.news` | `requirements-ml.lock` + baked FinBERT weights | `news_job.py` once-and-exit (Cloud Run Job) — collect and score headlines |
+| MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.lock` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
+| `report` | `Dockerfile.report` | `requirements-base.lock` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
+| `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.lock` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
 | `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). Run by `deploy.yml` and `prod-rollout.yml` through `scripts/ci_migrate.sh`, before every roll-out. The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. Design: [the plan](docs/proposals/flyway-automation-plan.md) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 

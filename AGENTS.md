@@ -42,7 +42,7 @@ uvicorn api.main:app --host 127.0.0.1 --port 5001
 
 # Activate virtualenv / install dependencies
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install --require-hashes -r requirements.lock   # re-lock with scripts/lock_deps.sh
 ```
 
 ## Non-negotiables

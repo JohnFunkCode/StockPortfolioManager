@@ -25,9 +25,10 @@ needs, in this order:
      resolves to the managed instance (same indirection local dev uses).
   3. AWS credentials for the bucket, plus ``BUCKET_NAME`` / ``BUCKET_KEY``, for
      ``--publish``.
-  4. ``pip install -r requirements.txt`` -- matplotlib, jinja2, and boto3 moved
-     to requirements-report.txt, which the container-lean
-     ``requirements-base.txt`` no longer installs.
+  4. ``pip install --require-hashes -r requirements.lock`` -- matplotlib, jinja2,
+     and boto3 moved to requirements-report.txt, which the container-lean
+     base set no longer installs. The lock (#218) needs a 64-bit Pi OS: PyTorch
+     publishes no 32-bit ARM wheels.
 
 This is the one environment nobody touches for months at a time, which is
 exactly why the prerequisites are written down here rather than assumed.

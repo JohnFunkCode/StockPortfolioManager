@@ -1,0 +1,74 @@
+# TEMPORARY (#293): proves the jobs that can't run on a PR on the ubuntu-26.04 image
+# before ubuntu-latest moves to it (2026-10-19). Removed in the same PR once green.
+name: ubuntu-26 probe (#293)
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # prod-rollout.yml's gate, verbatim except runs-on.
+  prod-gate:
+    name: prod-rollout gate on ubuntu-26.04
+    runs-on: ubuntu-26.04
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: quantcore
+          POSTGRES_PASSWORD: quantcore
+          POSTGRES_DB: quantcore
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      QUANTCORE_DB_DSN: postgresql://quantcore:quantcore@localhost:5432/quantcore
+      AUTH_DISABLED: "1"
+      PYTHONPATH: .
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install --require-hashes -r requirements-base.lock
+      - run: python -m unittest discover -v --durations 25
+      - run: python scripts/ci_wrapper_smoke.py
+      - run: python scripts/check_openapi_snapshot.py
+
+  # What deploy's `deploy` and prod-rollout's `promote-and-deploy` take from the host:
+  # the system python3, setup-gcloud, docker buildx imagetools, bash. No credentials.
+  host-tools:
+    name: deploy/promote host tools on ubuntu-26.04
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/setup-gcloud@v3
+      - name: Versions
+        run: |
+          cat /etc/os-release | head -2
+          python3 --version
+          gcloud --version | head -1
+          docker buildx version
+          bash --version | head -1
+      - name: System python3 runs the deploy scripts
+        run: |
+          git fetch -q origin main
+          python3 scripts/check_deploy_ref.py --ref-dir . --base origin/main
+          for env in test prod; do for ph in 1 2; do
+            echo "$env phase $ph: $(python3 scripts/cloudrun_services.py names --env "$env" --phase "$ph" | tr '\n' ' ')"
+          done; done
+      - name: buildx imagetools (the promote step's verb, read-only here)
+        run: docker buildx imagetools inspect python:3.12-slim | head -5
+      - name: run_parallel under this bash
+        run: |
+          source scripts/ci_parallel.sh
+          ok() { echo "ran $1"; }
+          run_parallel "ok a" "ok b"

@@ -95,8 +95,8 @@ jobs:
           cache: pip
       - name: Install lean deps
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-base.txt
+          # The hash-pinned base lock (#218): the same versions the images ship.
+          pip install --require-hashes -r requirements-base.lock
       - name: Unit tests
         run: python -m unittest discover -v --durations 25
       - name: Wrapper smoke (boot each server, assert listTools schemas)

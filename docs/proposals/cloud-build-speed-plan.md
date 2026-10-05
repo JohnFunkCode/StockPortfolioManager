@@ -46,6 +46,10 @@ needed.
 
 ### `DEPS_EPOCH`: a cached pip layer must still move
 
+> **Superseded by #218** ([`pin-deps-plan.md`](pin-deps-plan.md)): every install now uses a
+> hash-pinned `.lock`, so the pip layer is keyed on the lock itself and `DEPS_EPOCH` was removed.
+> The section below is the historical record.
+
 The requirements files use `>=` floors (exact pins are #218). A cached `pip install` layer would
 freeze whatever versions it first resolved, indefinitely. Each Python Dockerfile therefore declares
 `ARG DEPS_EPOCH=` just before its install. `deploy.yml` passes the ISO week

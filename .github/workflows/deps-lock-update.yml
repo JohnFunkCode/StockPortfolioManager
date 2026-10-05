@@ -1,0 +1,92 @@
+# Weekly dependency-lock update (issue #218).
+#
+# Re-resolves every lock to the newest versions the requirements-*.txt floors allow
+# (scripts/lock_deps.sh --upgrade), audits the result, and opens -- or force-updates -- one PR
+# from the `deps/lock-update` branch. That PR is the only way a dependency moves: the images
+# install the hash-pinned locks, so nothing floats between bumps. Dependabot can't do this; it
+# doesn't support uv-compiled requirements (dependabot/dependabot-core#10478).
+#
+# A failing audit fails this run (GitHub notifies the repo owner of a failed scheduled run);
+# the PR is still opened, because an upgrade is usually the fix.
+#
+# One-time setup, a repo decision (John's): either
+#   - Settings > Actions > General > "Allow GitHub Actions to create and approve pull
+#     requests", in which case the PR is opened with GITHUB_TOKEN -- but GitHub does not run
+#     workflows on a PR opened by GITHUB_TOKEN, so close and reopen it to get CI; or
+#   - a fine-grained PAT (contents + pull-requests: write on this repo) stored as the secret
+#     DEPS_PR_TOKEN, in which case the PR gets CI like any other.
+# Step-by-step for both: docs/proposals/pin-deps-plan.md, gotcha 7.
+name: Dependency lock update
+
+on:
+  schedule:
+    - cron: "17 9 * * 1"   # Mondays 09:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: deps-lock-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # Only from the default branch: a dispatch from any other branch would run that branch's
+    # copy of these steps with DEPS_PR_TOKEN. Defence in depth only -- whoever can push a
+    # branch can delete this line there too (pin-deps-plan.md, gotcha 8).
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+          token: ${{ secrets.DEPS_PR_TOKEN || github.token }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install tools
+        run: pip install uv==0.12.23 pip-audit==2.10.1
+      - name: Re-lock to the newest allowed versions
+        run: scripts/lock_deps.sh --upgrade
+      - name: Audit the new locks
+        id: audit
+        continue-on-error: true
+        run: scripts/audit_deps.sh
+      - name: Open or update the lock-bump PR
+        env:
+          GH_TOKEN: ${{ secrets.DEPS_PR_TOKEN || github.token }}
+          AUDIT: ${{ steps.audit.outcome }}
+        run: |
+          if git diff --quiet -- '*.lock'; then
+            echo "Locks already current; nothing to propose." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          BRANCH=deps/lock-update
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$BRANCH"
+          git add -- '*.lock'
+          git commit -q -m "chore(deps): weekly lock update (#218)"
+          git push --force origin "$BRANCH"
+          {
+            echo "Weekly re-lock by \`scripts/lock_deps.sh --upgrade\` (#218). Audit: **${AUDIT}**."
+            echo
+            echo '```'
+            git diff --stat HEAD~1 HEAD
+            echo '```'
+            echo
+            echo "Merging rolls these versions to test; prod moves only on the next prod-rollout."
+          } > "$RUNNER_TEMP/body.md"
+          if [[ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]]; then
+            gh pr create --base main --head "$BRANCH" \
+              --title "chore(deps): weekly dependency lock update" --body-file "$RUNNER_TEMP/body.md"
+          else
+            gh pr edit "$BRANCH" --body-file "$RUNNER_TEMP/body.md"
+          fi
+      - name: Fail loudly on a vulnerable lock
+        if: steps.audit.outcome == 'failure'
+        run: |
+          echo "::error title=vulnerable dependency::pip-audit found advisories; see the audit step."
+          exit 1

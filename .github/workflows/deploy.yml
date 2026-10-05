@@ -1,7 +1,7 @@
 # Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
 #
 # PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff), the lean
-# install import smoke (requirements-base.txt — the set the containers ship, which the
+# install import smoke (requirements-base.lock — the set the containers ship, which the
 # gate does NOT install), and a gitleaks secret scan (BYOK packet 8a — a pasted API key
 # or PEM in a diff fails CI before it ever lands; allowlist in .gitleaks.toml).
 # Pushes to main additionally build the 7 images (Cloud Build, native amd64), apply the pending
@@ -28,11 +28,26 @@
 # the script has created the WIF pool/provider + quantcore-deployer SA and set the two secrets,
 # pushes to main auto-roll-out with no further workflow edit. The `gate` job always runs.
 # PROD-FLIP stays manual/supervised (QUANTCORE_DB_DSN / Cloud SQL connector) — never automated.
+#
+# DEPLOY ANY REF TO TEST (#120) — "Run workflow" from main with `ref` set to a branch, tag or
+# SHA builds that ref and rolls it out to TEST only (prod stays prod-rollout.yml's digest
+# promotion). The gates run on the ref; the deploy machinery (scripts, inventory, this file)
+# is main's; scripts/check_deploy_ref.py refuses a ref carrying a migration main doesn't have
+# or too old to build every image. Dispatch builds are tagged with the SHA plus scratch
+# :dispatch-latest / :buildcache-dispatch tags, NEVER :latest — prod-rollout promotes
+# :latest by default. Caveats: test != main until the next push to main reclaims it (the
+# run summary names the deployed SHA), and this does not replace a revert PR when main
+# itself should be parked at a state. Plan: docs/proposals/deploy-ref-to-test-plan.md.
 
 name: deploy
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or SHA to build and deploy to TEST (run this from main)"
+        required: true
+        default: main
   push:
     branches: [main]
   pull_request:
@@ -41,7 +56,10 @@ on:
 # Cloud Run services (concurrent `gcloud run deploy` on one service ABORTs with an
 # optimistic-lock "version was specified but current version is …" conflict). A new
 # run waits for the in-flight one to finish rather than cancelling it mid-rollout.
-# Keyed by ref, so PR gate runs (distinct refs) still run in parallel with main.
+# Keyed by ref, so PR gate runs (distinct refs) still run in parallel with main. A #120
+# dispatch must be run from main, so it shares main's group: it can never race a merge.
+# GitHub keeps one PENDING run per group, so a newer queued run replaces an older queued
+# one (a dispatch queued behind a merge can be superseded, and vice versa).
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -57,6 +75,8 @@ jobs:
   gate:
     name: Tests + wrapper smoke + OpenAPI surface
     runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
     services:
       postgres:
         image: postgres:16
@@ -78,16 +98,26 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          # On a #120 dispatch, test the ref being deployed (empty otherwise: the event's commit).
+          ref: ${{ inputs.ref }}
           # Full history so diff-cover can diff PR changes against origin/main.
           fetch-depth: 0
+      - id: sha
+        # The exact commit tested; deploy builds this SHA, never re-resolves the ref.
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
       - name: Install lean deps (+ coverage tooling)
+        # The hash-pinned lock (#218), not the .txt floors: CI tests the exact versions the
+        # images ship. No pip upgrade, for the same reason the Dockerfiles have none.
+        run: pip install --require-hashes -r requirements-dev.lock
+      - name: Dependency locks match their inputs
+        # A requirements-*.txt edit without a re-lock fails here, not as a drifted image.
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install uv==0.12.23
+          scripts/lock_deps.sh --check
       - name: Unit tests (under coverage)
         run: coverage run -m unittest discover -s tests -t . -v --durations 25
       # COVERAGE RATCHET: the floor below is pinned ~1pt under the measured
@@ -125,15 +155,15 @@ jobs:
       - name: cloudbuild.yaml is a valid build config
         run: python scripts/check_cloudbuild.py
 
-  # The gate above installs requirements-dev.txt (base + report), but the
-  # containers — and prod-rollout.yml's own gate — run on requirements-base.txt
+  # The gate above installs requirements-dev.lock (base + report), but the
+  # containers — and prod-rollout.yml's own gate — run on requirements-base.lock
   # alone. Without this job that difference is invisible until a promotion:
   # a module importing matplotlib/jinja2/boto3 passes every PR and fails at the
   # prod gate, which is exactly what happened on 2026-08-10. Separate job rather
   # than a step, because the two dependency sets cannot share a Python
   # environment. Import-only — the gate already runs the tests.
   lean-import:
-    name: Lean install import smoke (requirements-base.txt)
+    name: Lean install import smoke (requirements-base.lock)
     runs-on: ubuntu-latest
     services:
       # api/main.py builds the app at import time, which calls ensure_schema() —
@@ -156,14 +186,14 @@ jobs:
       PYTHONPATH: .
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
       - name: Install lean deps (the set the containers ship)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-base.txt
+        run: pip install --require-hashes -r requirements-base.lock
       - name: Import smoke
         run: python scripts/ci_lean_import_smoke.py
 
@@ -175,6 +205,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: actions/setup-node@v7
         with:
           node-version: "24"
@@ -220,6 +252,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ inputs.ref }}
           # Full history so the scan covers every commit in the push/PR range.
           fetch-depth: 0
       - uses: gitleaks/gitleaks-action@v3
@@ -227,10 +260,27 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
 
+  # Known-vulnerability audit of every dependency lock (#218). Deliberately NOT in deploy's
+  # `needs`: an advisory published today goes red on every PR (loud), but must not block an
+  # unrelated merge or a roll-out. The weekly deps-lock-update.yml runs the same audit.
+  dep-audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - run: scripts/audit_deps.sh
+
   preflight:
     name: Check deploy credentials are configured
     needs: gate
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # A push to main, or any #120 dispatch (refused below unless run from main).
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     outputs:
       has_creds: ${{ steps.check.outputs.has_creds }}
@@ -243,6 +293,12 @@ jobs:
           WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
           DEPLOY_SA: ${{ secrets.GCP_DEPLOY_SA }}
         run: |
+          # The deploy machinery must be main's: a dispatch "from" a branch would run that
+          # branch's copy of this file against test. Pick the code with the `ref` input.
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error title=run this from main::Dispatch deploy.yml from main and name the code to deploy in the 'ref' input (this run is from $GITHUB_REF)."
+            exit 1
+          fi
           if [ -n "$WIF_PROVIDER" ] && [ -n "$DEPLOY_SA" ]; then
             echo "has_creds=true" >> "$GITHUB_OUTPUT"
             echo "Deploy credentials present — deploy job will run."
@@ -259,8 +315,35 @@ jobs:
     permissions:
       contents: read
       id-token: write # Workload Identity Federation
+    env:
+      # The commit the gate tested: the push's own commit, or the dispatched ref's SHA on a
+      # #120 dispatch. The ref input is free text, so a run: block never interpolates it.
+      DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
+      DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
     steps:
+      # main's machinery at the root (scripts, inventory); the code to build under ref/.
       - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.gate.outputs.sha }}
+          path: ref
+          fetch-depth: 0 # history back to origin/main, for the migration check
+      - name: Record the deployed ref and SHA
+        # #120: test != main after a dispatch, until the next push to main. This line is
+        # the attribution for whoever reads test next, so it goes first and always.
+        run: |
+          {
+            echo "## Deploying to TEST: \`${DEPLOY_REF}\` @ \`${DEPLOY_SHA}\`"
+            echo
+            if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+              echo "Manual dispatch by @${GITHUB_ACTOR}. Test will differ from main until the next push to main."
+            else
+              echo "Push to main."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "Deploying ${DEPLOY_REF} @ ${DEPLOY_SHA} to TEST"
+      - name: Check the ref can deploy (migrations, images)
+        run: python3 scripts/check_deploy_ref.py --ref-dir ref --base origin/main
       - id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -268,12 +351,17 @@ jobs:
           service_account: ${{ secrets.GCP_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v3
       - name: Build + push the 7 images (Cloud Build, amd64)
-        # _DEPS_EPOCH is the ISO week: the cached pip layers re-resolve the
-        # `>=` floors once a week instead of never (#278, cloudbuild.yaml).
+        # A dispatch builds the ref's tree with scratch latest/cache tags: :latest is what
+        # prod-rollout promotes by default, and must only ever be main (#120).
         run: |
-          gcloud builds submit --project "$PROJECT_ID" \
-            --config cloudbuild.yaml \
-            --substitutions _TAG="${GITHUB_SHA::7}",_DEPS_EPOCH="$(date -u +%G-W%V)"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            LATEST_TAG=dispatch-latest CACHE_TAG=dispatch
+          else
+            LATEST_TAG=latest CACHE_TAG=main
+          fi
+          gcloud builds submit ref --project "$PROJECT_ID" \
+            --config ref/cloudbuild.yaml \
+            --substitutions _TAG="${DEPLOY_SHA::7}",_LATEST_TAG="$LATEST_TAG",_CACHE_TAG="$CACHE_TAG"
       - name: Migrate the database (quantcore-migrate Job)
         # Applies this commit's pending Flyway migrations BEFORE anything rolls out (#200),
         # so no revision ever starts ahead of its schema. A failure here (bad SQL, a
@@ -283,7 +371,7 @@ jobs:
         # Design and recovery: docs/proposals/flyway-automation-plan.md.
         run: |
           scripts/ci_migrate.sh --project "$PROJECT_ID" --region "$REGION" \
-            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-migrate:${GITHUB_SHA::7}"
+            --image "$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO/quantcore-migrate:${DEPLOY_SHA::7}"
       - name: Roll out to Cloud Run (two phases, each in parallel)
         # Every service comes from deploy/cloudrun-services.toml (#161), deployed by
         # scripts/cloudrun_services.py. An existing service gets the new image plus the
@@ -305,7 +393,7 @@ jobs:
         run: |
           . scripts/ci_parallel.sh
           IMG="$REGION-docker.pkg.dev/$PROJECT_ID/$AR_REPO"
-          TAG="${GITHUB_SHA::7}"
+          TAG="${DEPLOY_SHA::7}"
           svc() { python3 scripts/cloudrun_services.py deploy "$1" --env test --registry "$IMG" --tag "$TAG"; }
           P1="$(python3 scripts/cloudrun_services.py names --env test --phase 1)"
           P2="$(python3 scripts/cloudrun_services.py names --env test --phase 2)"

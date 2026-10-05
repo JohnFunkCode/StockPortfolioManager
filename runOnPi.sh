@@ -7,7 +7,8 @@
 # double every alert and write a second snapshot per symbol per day (#147).
 #
 # Prerequisites on the Pi are in the script's module docstring — QUANTCORE_DB_DSN,
-# a Cloud SQL Auth Proxy, AWS credentials, and `pip install -r requirements.txt`.
+# a Cloud SQL Auth Proxy, AWS credentials, and
+# `pip install --require-hashes -r requirements.lock` (64-bit Pi OS only; #218).
 cd ~/Documents/code/StockPortfolioManager
 source ~/Documents/code/StockPortfolioManager/.venv/bin/activate
 python ~/Documents/code/StockPortfolioManager/scripts/generate_portfolio_report.py --publish

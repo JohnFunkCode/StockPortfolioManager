@@ -19,7 +19,7 @@
 #
 # Manual invocation (from repo root):
 #   gcloud builds submit --project quantcore-test-20260606 --config cloudbuild.yaml \
-#       --substitutions _TAG=$(git rev-parse --short HEAD),_DEPS_EPOCH=$(date -u +%G-W%V)
+#       --substitutions _TAG=$(git rev-parse --short HEAD)
 # A trial build must also pass scratch _CACHE_TAG and _LATEST_TAG values, so it
 # neither reads/writes main's cache nor moves :latest (prod-rollout's default).
 #
@@ -32,9 +32,10 @@
 # warm build left :latest describing just `COPY . .`, so main alternated warm
 # and cold. The builder step creates a docker-container BuildKit for that.
 # --provenance=false keeps each image a plain manifest (no attestation index)
-# for prod-rollout's copy by digest. _DEPS_EPOCH busts the pip layers once a
-# week, because a cached install would otherwise never move past the `>=`
-# floors it first resolved. All seven builds run in parallel after the builder.
+# for prod-rollout's copy by digest. The pip layers install hash-pinned locks
+# (#218), so they rebuild exactly when a lock changes; the weekly lock-update PR
+# replaced the old _DEPS_EPOCH cache bust. All seven builds run in parallel
+# after the builder.
 
 substitutions:
   _REGION: us-central1
@@ -52,9 +53,6 @@ substitutions:
   # The BuildKit the builder step runs — pinned, so a BuildKit release can't
   # change the cache format under us between two merges.
   _BUILDKIT_IMAGE: mirror.gcr.io/moby/buildkit:v0.23.2
-  # ISO week from deploy.yml; empty for a manual build (a cache miss on the pip
-  # layers that week, never a wrong image).
-  _DEPS_EPOCH: ""
   # BYOK packet 8b — SPKI pins for the browser envelope layer, baked into the
   # UI bundle at build time (frontend/src/vault/envelope.ts refuses to encrypt
   # against any key not on this list). BOTH projects' pins ride in the one
@@ -105,8 +103,6 @@ steps:
       - --cache-to
       - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
       - --provenance=false
-      - --build-arg
-      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-api:${_TAG}
       - --push
@@ -128,8 +124,6 @@ steps:
       - --cache-to
       - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
       - --provenance=false
-      - --build-arg
-      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-mcp:${_TAG}
       - --push
@@ -151,8 +145,6 @@ steps:
       - --cache-to
       - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
       - --provenance=false
-      - --build-arg
-      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-news:${_TAG}
       - --push
@@ -174,8 +166,6 @@ steps:
       - --cache-to
       - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
       - --provenance=false
-      - --build-arg
-      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-report:${_TAG}
       - --push
@@ -221,15 +211,13 @@ steps:
       - --cache-to
       - type=registry,ref=${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:buildcache-${_CACHE_TAG},mode=max,image-manifest=true,oci-mediatypes=true
       - --provenance=false
-      - --build-arg
-      - DEPS_EPOCH=${_DEPS_EPOCH}
       - -t
       - ${_REGION}-docker.pkg.dev/${_PROJECT}/${_REPO}/quantcore-keyproxy:${_TAG}
       - --push
       - .
 
   # --- migrate (Dockerfile.migrate) — Flyway + the migrations of this commit (#200).
-  #     No DEPS_EPOCH: no pip install, the base image and jars are pinned by digest/sha256. ---
+  #     No pip install: the base image and jars are pinned by digest/sha256. ---
   - name: gcr.io/cloud-builders/docker
     id: build-migrate
     waitFor: [builder]

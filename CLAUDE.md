@@ -88,8 +88,11 @@ uvicorn api.main:app --host 127.0.0.1 --port 5001
 # Activate virtualenv
 source .venv/bin/activate
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (the hash-pinned lock; requirements.txt is its input)
+pip install --require-hashes -r requirements.lock
+
+# Re-lock after editing any requirements-*.txt (needs uv); CI fails a stale lock
+scripts/lock_deps.sh            # --upgrade to move every pin, --check to verify
 ```
 
 ## Architecture
@@ -245,7 +248,12 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
 - The browser never sees a bearer: `frontend/server/` verifies the IAP assertion and mints a
   per-user ES256 JWT server-side.
 - Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
-  `prod-rollout.yml`. Prod is never auto-deployed.
+  `prod-rollout.yml`. Prod is never auto-deployed. Any other branch/tag/SHA reaches **test only**
+  by dispatching `deploy.yml` **from main** with its `ref` input (#120): the gates run on the ref,
+  `scripts/check_deploy_ref.py` refuses a ref whose own commits add, edit or delete a migration, and the build gets
+  scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
+  prod-rollout's default. Test then differs from main until the next merge
+  ([`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md)).
 - Granting a user needs **both** the consent-screen Audience entry and
   `roles/iap.httpsResourceAccessor` (`scripts/grant_quantui_iap_access.sh`) — either alone is a
   blocked login.
@@ -460,13 +468,26 @@ fastmcp, httpx.
 Requirements are **layered**, and the split is load-bearing — it is what keeps matplotlib out of
 the API and MCP images:
 
-| File | Holds | Installed by |
+| File | Holds | Installed by (via its lock) |
 |---|---|---|
-| `requirements-base.txt` | the lean set above | every `Dockerfile.*` |
-| `requirements-ml.txt` | torch / transformers (FinBERT) | the sentiment path only |
+| `requirements-base.txt` | the lean set above | `Dockerfile.mcp`/`.report`, `lean-import`, prod-rollout's gate |
+| `requirements-ml.txt` | base + torch / transformers (FinBERT) | `Dockerfile.api`/`.news` |
 | `requirements-report.txt` | **matplotlib, jinja2, boto3** | nothing in any container |
 | `requirements-dev.txt` | base + report + coverage/diff-cover | CI's `gate` job |
 | `requirements.txt` | base + ml + report | local dev, and the Pi |
+
+**Every install uses a hash-pinned lock, never the `.txt`** (#218). The `.txt` files are the
+human-edited inputs (floors); `scripts/lock_deps.sh` compiles them with uv into
+`requirements-base.lock`, `-ml.lock`, `-dev.lock`, `keyproxy/requirements.lock` (x86_64 manylinux,
+CPython 3.12, what Cloud Build and CI run) and a universal `requirements.lock` (macOS, a 64-bit
+Pi), and every install runs `pip install --require-hashes -r <lock>`. Edit a `.txt`, then re-run
+the script and commit both — the gate's `lock_deps.sh --check` step fails a stale lock. ml and dev
+are compiled against the base lock, so a shared package has one pin everywhere
+(`tests/test_dependency_locks.py`). Versions move only through the weekly
+`deps-lock-update.yml` PR (`--upgrade`); `scripts/audit_deps.sh` (pip-audit, OSV) runs there and in
+`deploy.yml`'s `dep-audit` job, which goes red on an advisory but is deliberately not a roll-out
+gate. Gotchas (the PyTorch index shadowing numpy, torch on the Pi):
+[`docs/proposals/pin-deps-plan.md`](docs/proposals/pin-deps-plan.md).
 
 **matplotlib, jinja2, and boto3 are report-script-only** (issue #147). They serve
 `scripts/generate_portfolio_report.py`, the legacy root scripts `html_summary.py` /
@@ -475,8 +496,8 @@ container is the mistake this split exists to make visible — add the dependenc
 `requirements-base.txt` deliberately, or don't add the import.
 
 **The test suite has to stay importable under the lean set, and the two CI jobs disagree about
-it.** `deploy.yml` installs `requirements-dev.txt` (base + report), but `prod-rollout.yml` runs
-`unittest discover` on `requirements-base.txt` alone — so a test module that imports a
+it.** `deploy.yml` installs `requirements-dev.lock` (base + report), but `prod-rollout.yml` runs
+`unittest discover` on `requirements-base.lock` alone — so a test module that imports a
 report-only package passes every PR and then fails the **prod promotion**, which is the worst
 possible place to learn it. A test that genuinely needs matplotlib/jinja2/boto3 wraps its import
 and raises `unittest.SkipTest`, tolerating **only** those three packages;
@@ -484,7 +505,7 @@ and raises `unittest.SkipTest`, tolerating **only** those three packages;
 real defect and must still error the run.
 
 That disagreement is now checked at PR time rather than discovered at a promotion.
-`deploy.yml`'s **`lean-import` job** installs `requirements-base.txt` into its own runner and runs
+`deploy.yml`'s **`lean-import` job** installs `requirements-base.lock` into its own runner and runs
 **`scripts/ci_lean_import_smoke.py`**, which imports — and only imports — `main.py`, `api/main.py`,
 every MCP wrapper (the list is read from `scripts/ci_wrapper_smoke.py`, so a new server is covered
 for free), and every `tests/test_*.py`. A module that raises `SkipTest` at import is reported as
@@ -508,8 +529,9 @@ It also enforces each build step's **layer-cache wiring** (#278, reworked #296 f
 `BUILDKIT_INLINE_CACHE=1`: the stock builder's BuildKit re-exports only the layers it ran, so
 main alternated warm and cold. All seven steps run in parallel; a warm build with a source change
 takes ~1.3 min. Without the wiring the image is still correct, only cold again, which is why the
-checker guards it. The pip layers are cached, so `deploy.yml` passes `_DEPS_EPOCH` (the ISO week)
-to re-resolve the `>=` floors weekly; keep that arg in front of each Python Dockerfile's install.
+checker guards it. The pip layers install the hashed locks, so a cached layer is exactly the lock
+it was built from and rebuilds only when the lock changes; the old weekly `_DEPS_EPOCH` cache bust
+is gone (#218) — don't bring it back, the weekly lock PR is what moves versions now.
 **Never warm or tag a trial build as `:latest`** in test AR, because prod-rollout's default tag is
 `latest`: pass scratch `_TAG`, `_CACHE_TAG` **and** `_LATEST_TAG`. Numbers and gotchas:
 [`docs/proposals/cloud-build-speed-plan.md`](docs/proposals/cloud-build-speed-plan.md).

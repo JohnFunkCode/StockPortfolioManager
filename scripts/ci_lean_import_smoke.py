@@ -1,8 +1,8 @@
-"""Lean-install import smoke — does everything still *import* on requirements-base.txt?
+"""Lean-install import smoke — does everything still *import* on requirements-base.lock?
 
 The two CI jobs disagree about dependencies, deliberately: ``deploy.yml`` installs
-``requirements-dev.txt`` (base + report + coverage tooling, because that is where the
-suite runs and is measured), while ``prod-rollout.yml`` installs ``requirements-base.txt``
+``requirements-dev.lock`` (base + report + coverage tooling, because that is where the
+suite runs and is measured), while ``prod-rollout.yml`` installs ``requirements-base.lock``
 alone — the lean set the containers actually ship. The consequence is a blind spot: a
 module that imports matplotlib/jinja2/boto3 (or anything else outside the lean set)
 passes every PR and then fails the **prod promotion**, which is the worst possible place
@@ -76,14 +76,14 @@ def main() -> int:
 
     # Diagnose, don't just fail. A module that imports something outside the lean set
     # and a job whose Postgres service is unreachable both land here, and pointing the
-    # second one at requirements-base.txt would send the reader somewhere useless:
+    # second one at requirements-base.lock would send the reader somewhere useless:
     # api/main.py builds the app at import time, so a DB problem surfaces as an import
     # failure without being one.
     if any(isinstance(exc, ImportError) for _, exc, _ in failures):
         print(
-            "A module above cannot be imported on requirements-base.txt — the lean set "
+            "A module above cannot be imported on requirements-base.lock — the lean set "
             "the containers ship and prod-rollout.yml tests against. Either move the "
-            "dependency into requirements-base.txt deliberately, or guard the import "
+            "dependency into requirements-base.txt (and re-lock) deliberately, or guard the import "
             "(see tests/test_generate_portfolio_report.py).",
             file=sys.stderr,
         )

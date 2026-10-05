@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Apply the pending Flyway migrations as a CI step, before the roll-out (issue #200, Step 4).
 #
-# Run by deploy.yml (and, from Step 5, prod-rollout.yml) between the image build and the
+# Run by deploy.yml (after the build) and prod-rollout.yml (after the promotion), before the
 # roll-out:
 #
 #   scripts/ci_migrate.sh --project <id> --region <region> --image <ref:tag | ref@digest>

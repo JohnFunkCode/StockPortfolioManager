@@ -28,6 +28,9 @@
 #     The prod deploy SA needs, in quantcore-prod-20260606: roles/run.developer,
 #     roles/artifactregistry.writer (on the prod AR), iam.serviceAccountUser on the prod
 #     runtime SA; and roles/artifactregistry.reader on the TEST AR (to read source digests).
+#     For the migrate step (#200): iam.serviceAccountUser on quantcore-migrate@ and
+#     roles/logging.viewer — both granted by scripts/ensure_migrate_job.sh --prod, which
+#     also creates the quantcore-migrate Job this workflow updates and executes.
 #
 # PROD-FLIP / first buildout (P1–P8) is deliberately NOT automated — it stays a
 # supervised manual sequence. This workflow only handles repeatable image promotion.
@@ -150,7 +153,10 @@ jobs:
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
           TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
           echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
-          for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy quantcore-news; do
+          # quantcore-migrate is strict like api: a tag without it cannot be promoted,
+          # because rolling out without migrating is the image-ahead-of-schema failure
+          # #200 removes. Roll back by redeploying a revision/digest, not an old tag.
+          for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy quantcore-news quantcore-migrate; do
             SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
             # Resolve the immutable source-manifest digest so the copy + deploy reference
             # exact bytes. quantcore-keyproxy (BYOK packet 8a) tolerates an absent source
@@ -178,6 +184,18 @@ jobs:
             key="$(echo "$img" | tr 'a-z-' 'A-Z_')_DIGEST"
             echo "$key=$DIGEST" >> "$GITHUB_ENV"
           done
+
+      - name: Migrate the prod database (quantcore-migrate Job, by digest)
+        # Issue #200: apply pending Flyway migrations BEFORE anything rolls out, so an image
+        # never runs ahead of its schema. Same script as deploy.yml's step. It fails (and so
+        # stops the roll-out, the previous revisions keep serving) if the Job is missing,
+        # the migration fails, or a pending migration is a refused contract change.
+        # By the digest the promotion just copied, never a tag (PR #305 review): a tag in
+        # the prod AR points at the imagetools index, not the bytes tested on test.
+        # No `if:` and no continue-on-error, deliberately; tests/test_ci_migrate.py checks.
+        run: |
+          scripts/ci_migrate.sh --project "$PROD_PROJECT" --region "$REGION" \
+            --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-migrate@${QUANTCORE_MIGRATE_DIGEST:?quantcore-migrate was not promoted}"
 
       - name: Roll out prod Cloud Run (two phases, each in parallel; by digest)
         # Runs only after every digest above landed in the prod AR, and deploys BY those

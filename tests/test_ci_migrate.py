@@ -1,4 +1,4 @@
-"""scripts/ci_migrate.sh and its deploy.yml step — migrate before the roll-out (#200, Step 4).
+"""scripts/ci_migrate.sh and its workflow steps — migrate before the roll-out (#200, Steps 4-5).
 
 The script runs against a stub `gcloud` on PATH that records every call; nothing reaches
 Google Cloud. The wiring tests read the workflow itself.
@@ -15,6 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "ci_migrate.sh"
 DEPLOY = ROOT / ".github/workflows/deploy.yml"
+PROD = ROOT / ".github/workflows/prod-rollout.yml"
 ARGS = ["--project", "quantcore-test-20260606", "--region", "us-central1",
         "--image", "reg/quantcore-migrate:abc1234"]
 
@@ -125,10 +126,7 @@ class CiMigrateTest(unittest.TestCase):
 
 
 class DeployWiringTest(unittest.TestCase):
-    """deploy.yml migrates after the images are built and before anything rolls out.
-
-    prod-rollout.yml joins in Step 5 of the plan.
-    """
+    """deploy.yml migrates after the images are built and before anything rolls out."""
 
     def test_migrate_step_sits_between_build_and_rollout(self):
         doc = yaml.safe_load(DEPLOY.read_text())
@@ -157,6 +155,42 @@ class DeployWiringTest(unittest.TestCase):
         self.assertIn("--wait", code)
         self.assertNotIn("--set-", code)
         self.assertTrue(os.access(SCRIPT, os.X_OK), "the workflow runs it directly")
+
+
+class ProdRolloutWiringTest(unittest.TestCase):
+    """prod-rollout.yml migrates after the promotion and before anything rolls out (Step 5)."""
+
+    def setUp(self):
+        doc = yaml.safe_load(PROD.read_text())
+        self.steps = doc["jobs"]["promote-and-deploy"]["steps"]
+        self.runs = [s.get("run", "") for s in self.steps]
+
+    def test_migrate_step_sits_between_promotion_and_rollout(self):
+        promote = next(i for i, r in enumerate(self.runs) if "imagetools create" in r)
+        migrate = [i for i, r in enumerate(self.runs) if "scripts/ci_migrate.sh" in r]
+        rollout = next(i for i, r in enumerate(self.runs) if "run_parallel" in r)
+        self.assertEqual(len(migrate), 1)
+        self.assertEqual(migrate[0], promote + 1)
+        self.assertEqual(rollout, migrate[0] + 1)
+        step = self.steps[migrate[0]]
+        self.assertNotIn("continue-on-error", step)
+        self.assertNotIn("if", step)
+        body = step["run"]
+        self.assertIn('--project "$PROD_PROJECT"', body)
+        # The digest the promotion copied, never a tag (PR #305 review).
+        self.assertIn("/quantcore-migrate@${QUANTCORE_MIGRATE_DIGEST:?", body)
+        self.assertNotIn("quantcore-migrate:", body)
+        self.assertNotIn(":latest", body)
+        self.assertNotIn("--set-", body)
+
+    def test_the_migrate_image_is_promoted_strictly(self):
+        promote = next(r for r in self.runs if "imagetools create" in r)
+        loop = next(l for l in promote.splitlines() if l.strip().startswith("for img in"))
+        self.assertIn("quantcore-migrate", loop.replace(";", " ").split())
+        # Only keyproxy and news may skip an absent source tag; a skipped migrate image
+        # would roll out an image ahead of its schema.
+        skip = next(l for l in promote.splitlines() if "quantcore-keyproxy" in l and "if" in l)
+        self.assertNotIn("quantcore-migrate", skip)
 
 
 if __name__ == "__main__":

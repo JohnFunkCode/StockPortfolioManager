@@ -22,6 +22,7 @@ from fastMCPTest import stock_price_server as sps  # noqa: E402
 from mcp_gateway import rest_client  # noqa: E402
 from mcp_gateway import serve  # noqa: E402
 from scripts import ci_wrapper_smoke  # noqa: E402
+from scripts import cloudrun_services  # noqa: E402
 
 
 def http_response(status=200, json_body=None, text_body=None):
@@ -161,28 +162,16 @@ class TestMcpDeploymentPolicy(unittest.TestCase):
             "stock-price", "options-analysis", "company-fundamentals",
             "news-sentiment", "market-analysis", "portfolio", "arbitrage",
         })
-        for workflow_name in ("deploy.yml", "prod-rollout.yml"):
-            text = (self.REPO / ".github" / "workflows" / workflow_name).read_text()
-            self.assertIn("MCP_REQUEST_TIMEOUT: 900s", text, workflow_name)
-            # Wrappers roll out through two shell functions run by run_parallel
-            # (#296): every wrapper is an entry of one of them, and both carry
-            # the timeout.
-            for fn, names in (
-                ("deploy_wrapper", ("stock-price", "options-analysis",
-                                    "company-fundamentals", "news-sentiment",
-                                    "market-analysis")),
-                ("deploy_lite_wrapper", ("portfolio", "arbitrage")),
-            ):
-                start = text.index(f"{fn}() {{")
-                body = text[start:text.index("\n          }\n", start)]
-                self.assertIn('gcloud run deploy "quantcore-$1"', body,
-                              f"{workflow_name}: {fn}")
-                self.assertIn('--timeout "$MCP_REQUEST_TIMEOUT"', body,
-                              f"{workflow_name}: {fn}")
-                for name in names:
-                    self.assertIn(f'"{fn} {name}"', text,
-                                  f"{workflow_name}: {name}")
-
+        # Wrappers roll out from the service inventory (#161): each one, in both
+        # projects, carries the 900s request timeout its MCP sessions need, and
+        # the deploy passes it to gcloud.
+        for env_name in ("test", "prod"):
+            for name in sorted(services):
+                svc = cloudrun_services.find(env_name, f"quantcore-{name}")
+                with self.subTest(env=env_name, service=name):
+                    self.assertEqual(svc["timeout"], 900)
+                    args = cloudrun_services.deploy_args(svc, "img", None)
+                    self.assertEqual(args[args.index("--timeout") + 1], "900")
 
 class TestCompanyFundamentalsWrapper(unittest.TestCase):
     """Every tool body must be exactly one rest_client call deep (Rule 6)."""

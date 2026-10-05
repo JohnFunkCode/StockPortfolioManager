@@ -86,9 +86,20 @@ workflow headers and in [`prod-promotion.md`](../operations/prod-promotion.md).
 
 `run.developer` can create a service but cannot set its IAM policy. That is why the create path
 never passes `--allow-unauthenticated`, which would fail. Instead it runs a separate
-`add-iam-policy-binding` after the create. Until the grant below exists, that step fails loudly:
-the service exists but is not public, and the error prints the exact command for an owner to run.
-**Existing services are unaffected.** The update path only *reads* IAM.
+`add-iam-policy-binding` after the create.
+
+**Before it creates anything, the script checks the permission.** It calls Resource Manager's
+`projects.testIamPermissions` for `run.services.create` and `run.services.setIamPolicy`, as the
+deployer, with `gcloud auth print-access-token` (the token goes only into the request header).
+If either is missing, nothing is created: the step fails with `::error title=<name> not
+created::`, naming the missing permission and printing the bind command for an owner to run after
+creating the service by hand. Until the grant below exists, that is what onboarding a wrapper
+does. If the check itself fails (no token, API unreachable), the step fails closed and creates
+nothing. Without the check, run.developer would create a wrapper it could not make public, and
+leave a service behind that answers every client with 403.
+
+**Existing services are unaffected.** The update path makes no permission check and only *reads*
+IAM.
 
 The narrow grant, a custom role holding only the two Cloud Run IAM-policy permissions (to be
 applied by a project owner, once per project):
@@ -113,8 +124,9 @@ What this allows: the deployer can change the invoker policy of any service in t
 including making the api or keyproxy public. That is the same power `roles/run.admin` would give,
 without the rest of run.admin. Keyproxy's protection does not depend on the invoker policy alone,
 because it also requires a user JWT. The roll-out code never changes IAM on an existing service.
-If that trade-off is not acceptable, leave the grant out and make each new wrapper public by
-hand, using the command the failed step prints.
+If that trade-off is not acceptable, leave the grant out. Each new wrapper is then created and
+made public by hand, using the command the refused step prints, and the next roll-out takes it
+over as an existing service.
 
 A new service that runs as a **new** runtime SA also needs `iam.serviceAccountUser` for the
 deployer on that SA before its first roll-out. Otherwise the create fails with

@@ -19,8 +19,10 @@ fails the deploy instead (a deployer holding only run.developer can't grant it).
 
 `deploy` on a MISSING service creates it with its full config when its first_create is
 "auto" (only public services may be), then binds allUsers as run.invoker; for "manual"
-it fails, naming the runbook. Never --set-*: on an existing service it replaces the
-whole set (it took prod down on 2026-07-18).
+it fails, naming the runbook. Before creating, it asks Resource Manager whether the
+deployer holds run.services.setIamPolicy, and creates nothing when it doesn't: a service
+that can't be made public would only be left behind, answering 403. Never --set-*: on
+an existing service it replaces the whole set (it took prod down on 2026-07-18).
 
 Never prints a secret's value: the manifest holds only Secret Manager references.
 Onboarding and the IAM model: docs/architecture/cloudrun-services.md.
@@ -33,6 +35,7 @@ import os
 import subprocess
 import sys
 import tomllib
+import urllib.request
 from pathlib import Path
 
 MANIFEST = Path(__file__).resolve().parent.parent / "deploy" / "cloudrun-services.toml"
@@ -43,6 +46,10 @@ REQUIRED = ("name", "image", "phase", "first_create", "auth", "port", "cpu", "me
 FIRST_CREATE = ("auto", "manual")
 AUTH = ("public", "iap", "private")
 NOT_FOUND = "Cannot find service"
+# What the create path needs beyond run.developer's run.services.create.
+CREATE_PERMISSIONS = ("run.services.create", "run.services.setIamPolicy")
+TEST_PERMISSIONS_URL = ("https://cloudresourcemanager.googleapis.com/v1/projects/"
+                        "{project}:testIamPermissions")
 
 
 class ManifestError(Exception):
@@ -65,42 +72,60 @@ def _resolve(value, env_name, ctx, where):
     return value
 
 
-def load(env_name: str, path: Path | None = None) -> list[dict]:
-    """Every service deployed to `env_name`, fully resolved and validated."""
-    doc = tomllib.loads((path or MANIFEST).read_text())
+def _context(doc: dict, env_name: str) -> dict:
+    """The environment's table, with its own templates filled in."""
     envs = doc.get("environments", {})
     if env_name not in envs:
         raise ManifestError(f"unknown environment {env_name!r} (have: {', '.join(envs)})")
     ctx = dict(envs[env_name])
     ctx["runtime_sa"] = ctx["runtime_sa"].format_map(ctx)
     ctx["api_url"] = ctx["api_url"].format_map(ctx)
+    return ctx
 
+
+def _resolve_service(raw: dict, env_name: str, ctx: dict) -> dict:
+    name = raw["name"]
+
+    def table(key):
+        return {k: _resolve(v, env_name, ctx, f"{name}.{key}.{k}")
+                for k, v in raw.get(key, {}).items()}
+
+    s = {k: _resolve(v, env_name, ctx, f"{name}.{k}")
+         for k, v in raw.items() if k not in ("env", "secrets", "cloudsql")}
+    s["env"], s["secrets"] = table("env"), table("secrets")
+    s["cloudsql"] = [_resolve(v, env_name, ctx, f"{name}.cloudsql")
+                     for v in raw.get("cloudsql", [])]
+    s["project"], s["region"] = ctx["project"], ctx["region"]
+    return s
+
+
+def _check_listing(raw: dict, seen: set) -> None:
+    name = raw.get("name", "?")
+    missing = [k for k in REQUIRED if k not in raw]
+    if missing:
+        raise ManifestError(f"{name}: missing {', '.join(missing)}")
+    if name in seen:
+        raise ManifestError(f"{name}: listed twice")
+    seen.add(name)
+
+
+def load(env_name: str, path: Path | None = None) -> list[dict]:
+    """Every service deployed to `env_name`, fully resolved and validated."""
+    doc = tomllib.loads((path or MANIFEST).read_text())
+    ctx = _context(doc, env_name)
+    all_envs = list(doc["environments"])
     out, seen = [], set()
     for raw in doc.get("services", []):
-        name = raw.get("name", "?")
-        missing = [k for k in REQUIRED if k not in raw]
-        if missing:
-            raise ManifestError(f"{name}: missing {', '.join(missing)}")
-        if name in seen:
-            raise ManifestError(f"{name}: listed twice")
-        seen.add(name)
-        if env_name not in raw.get("environments", list(envs)):
-            continue
-        s = {k: _resolve(v, env_name, ctx, f"{name}.{k}")
-             for k, v in raw.items() if k not in ("env", "secrets", "cloudsql")}
-        s["env"] = {k: _resolve(v, env_name, ctx, f"{name}.env.{k}")
-                    for k, v in raw.get("env", {}).items()}
-        s["secrets"] = {k: _resolve(v, env_name, ctx, f"{name}.secrets.{k}")
-                        for k, v in raw.get("secrets", {}).items()}
-        s["cloudsql"] = [_resolve(v, env_name, ctx, f"{name}.cloudsql")
-                         for v in raw.get("cloudsql", [])]
-        s["project"], s["region"] = ctx["project"], ctx["region"]
-        _validate(s)
-        out.append(s)
+        _check_listing(raw, seen)  # every service, even one this environment skips
+        if env_name in raw.get("environments", all_envs):
+            s = _resolve_service(raw, env_name, ctx)
+            _validate(s)
+            out.append(s)
     return out
 
 
-def _validate(s: dict) -> None:
+def _validate_policy(s: dict) -> None:
+    """The enumerated fields, and which of them may go together."""
     name = s["name"]
     if s["phase"] not in (1, 2):
         raise ManifestError(f"{name}: phase must be 1 or 2")
@@ -113,14 +138,23 @@ def _validate(s: dict) -> None:
     # CI can only bind allUsers; an IAP or private service's access is a manual grant.
     if s["first_create"] == "auto" and s["auth"] != "public":
         raise ManifestError(f"{name}: only a public service can be auto-created")
-    for key in (*s["env"], *s["secrets"]):
-        if key == "PORT":
-            raise ManifestError(f"{name}: PORT is reserved; Cloud Run sets it from `port`")
+
+
+def _validate_keys(s: dict) -> None:
+    """The env and secret tables, which reach gcloud as one comma-joined flag value."""
+    name = s["name"]
+    if "PORT" in s["env"] or "PORT" in s["secrets"]:
+        raise ManifestError(f"{name}: PORT is reserved; Cloud Run sets it from `port`")
     if set(s["env"]) & set(s["secrets"]):
         raise ManifestError(f"{name}: a key is both an env var and a secret")
     for key, value in {**s["env"], **s["secrets"]}.items():
         if "," in value:  # gcloud's list separator
             raise ManifestError(f"{name}: {key} contains a comma")
+
+
+def _validate(s: dict) -> None:
+    _validate_policy(s)
+    _validate_keys(s)
 
 
 # ---------------------------------------------------------------- gcloud
@@ -203,27 +237,51 @@ def diff(s: dict, live: dict) -> list[str]:
     return out
 
 
-def deploy_args(s: dict, image: str, live: dict | None) -> list[str]:
-    args = ["run", "deploy", s["name"], "--project", s["project"], "--region", s["region"],
-            "--image", image,
-            "--port", str(s["port"]), "--cpu", s["cpu"], "--memory", s["memory"],
+def _scalar_args(s: dict) -> list[str]:
+    """Re-asserted on every roll-out: the service's shape."""
+    return ["--port", str(s["port"]), "--cpu", s["cpu"], "--memory", s["memory"],
             "--timeout", str(s["timeout"]), "--concurrency", str(s["concurrency"]),
             "--max-instances", str(s["max_instances"]), "--ingress", s["ingress"],
             "--service-account", s["service_account"],
             "--cpu-boost" if s["cpu_boost"] else "--no-cpu-boost"]
+
+
+def _sparse_args(s: dict, live: dict | None) -> list[str]:
+    """Only the env vars, secrets and Cloud SQL instances the live service lacks."""
     have = live or {"env": {}, "secrets": {}, "cloudsql": []}
-    env = {k: v for k, v in s["env"].items() if have["env"].get(k) != v}
-    sec = {k: v for k, v in s["secrets"].items() if have["secrets"].get(k) != v}
-    sql = [x for x in s["cloudsql"] if x not in have["cloudsql"]]
-    if env:
-        args += ["--update-env-vars", ",".join(f"{k}={v}" for k, v in env.items())]
-    if sec:
-        args += ["--update-secrets", ",".join(f"{k}={v}" for k, v in sec.items())]
-    if sql:
-        args += ["--add-cloudsql-instances", ",".join(sql)]
+    pairs = {flag: ",".join(f"{k}={v}" for k, v in s[kind].items() if have[kind].get(k) != v)
+             for flag, kind in (("--update-env-vars", "env"), ("--update-secrets", "secrets"))}
+    pairs["--add-cloudsql-instances"] = ",".join(
+        x for x in s["cloudsql"] if x not in have["cloudsql"])
+    return [part for flag, value in pairs.items() if value for part in (flag, value)]
+
+
+def deploy_args(s: dict, image: str, live: dict | None) -> list[str]:
     # No --[no-]allow-unauthenticated: either one makes gcloud set IAM, which a deployer
     # with run.developer can't. With --quiet and neither flag, it makes no IAM call.
-    return args + ["--quiet"]
+    return (["run", "deploy", s["name"], "--project", s["project"], "--region", s["region"],
+             "--image", image] + _scalar_args(s) + _sparse_args(s, live) + ["--quiet"])
+
+
+def project_permissions(project: str, wanted: tuple[str, ...]) -> set[str]:
+    """Which of `wanted` the caller holds on `project` (testIamPermissions needs no role).
+
+    gcloud has no command for it, so this is the REST call, with gcloud's own token. The
+    token goes only into the request header; nothing here prints it.
+    """
+    token = gcloud("auth", "print-access-token", capture=True)
+    if token.returncode != 0:
+        raise RuntimeError(f"gcloud auth print-access-token failed (exit {token.returncode})")
+    req = urllib.request.Request(
+        TEST_PERMISSIONS_URL.format(project=project), method="POST",
+        data=json.dumps({"permissions": list(wanted)}).encode(),
+        headers={"Authorization": f"Bearer {token.stdout.strip()}",
+                 "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return set(json.load(r).get("permissions", []))
+    except OSError as e:  # URLError and HTTPError both; neither message carries the token
+        raise RuntimeError(f"testIamPermissions on {project} failed: {e}") from None
 
 
 def grant_command(s: dict) -> str:
@@ -247,40 +305,45 @@ def cmd_names(a) -> int:
     return 0
 
 
-def cmd_deploy(a) -> int:
-    s = find(a.env, a.name)
-    if a.by_digest:
-        var = s["image"].upper().replace("-", "_") + "_DIGEST"
-        digest = os.environ.get(var, "")
-        if not digest:
-            if s.get("skip_without_digest"):
-                print(f"{s['image']} was not promoted for this tag (no {var}); skipping {s['name']}.")
-                return 0
-            print(f"::error title={s['name']} has no image::{var} is unset; "
-                  f"{s['image']} was not promoted.")
-            return 1
-        image = f"{a.registry}/{s['image']}@{digest}"
-    else:
-        image = f"{a.registry}/{s['image']}:{a.tag}"
+def _image(s: dict, a) -> str | None:
+    """The image reference to roll, or None when there is none and that is fatal."""
+    if not a.by_digest:
+        return f"{a.registry}/{s['image']}:{a.tag}"
+    var = s["image"].upper().replace("-", "_") + "_DIGEST"
+    digest = os.environ.get(var, "")
+    return f"{a.registry}/{s['image']}@{digest}" if digest else None
 
-    live = describe(s)
-    if live is None:
-        if s["first_create"] != "auto":
-            print(f"::error title={s['name']} missing::{s['name']} does not exist in "
-                  f"{s['project']} and its first deploy is manual: {s['runbook']}. "
-                  f"Nothing was deployed for it.")
-            return 1
-        print(f"{s['name']} does not exist in {s['project']}; creating it from the inventory.")
-        if gcloud(*deploy_args(s, image, None)).returncode != 0:
-            return 1
-        if gcloud("run", "services", "add-iam-policy-binding", s["name"],
-                  "--project", s["project"], "--region", s["region"],
-                  "--member=allUsers", "--role=roles/run.invoker").returncode != 0:
-            print(f"::error title={s['name']} not public::{s['name']} was created but the "
-                  f"deployer could not make it public. An owner runs: {grant_command(s)}")
-            return 1
-        return 0
 
+def _create(s: dict, image: str) -> int:
+    """First deploy of a missing service: refuse, or create it and make it public."""
+    if s["first_create"] != "auto":
+        print(f"::error title={s['name']} missing::{s['name']} does not exist in "
+              f"{s['project']} and its first deploy is manual: {s['runbook']}. "
+              f"Nothing was deployed for it.")
+        return 1
+    lacking = sorted(set(CREATE_PERMISSIONS) - project_permissions(s["project"],
+                                                                   CREATE_PERMISSIONS))
+    if lacking:
+        print(f"::error title={s['name']} not created::{s['name']} does not exist in "
+              f"{s['project']}, and the deployer lacks {', '.join(lacking)}, so it could "
+              f"not be made public. Nothing was created. Either grant the deployer the "
+              f"role in docs/architecture/cloudrun-services.md, or create it by hand and "
+              f"run: {grant_command(s)}")
+        return 1
+    print(f"{s['name']} does not exist in {s['project']}; creating it from the inventory.")
+    if gcloud(*deploy_args(s, image, None)).returncode != 0:
+        return 1
+    if gcloud("run", "services", "add-iam-policy-binding", s["name"],
+              "--project", s["project"], "--region", s["region"],
+              "--member=allUsers", "--role=roles/run.invoker").returncode != 0:
+        print(f"::error title={s['name']} not public::{s['name']} was created but the "
+              f"deployer could not make it public. An owner runs: {grant_command(s)}")
+        return 1
+    return 0
+
+
+def _roll(s: dict, image: str, live: dict) -> int:
+    """Roll an existing service, applying only the config that differs; never set IAM."""
     cfg = live_config(live)
     for line in diff(s, cfg):
         print(f"{s['name']} differs from the inventory, applying: {line}")
@@ -291,6 +354,21 @@ def cmd_deploy(a) -> int:
               f"binding, so every client gets 403. An owner runs: {grant_command(s)}")
         return 1
     return 0
+
+
+def cmd_deploy(a) -> int:
+    s = find(a.env, a.name)
+    image = _image(s, a)
+    if image is None:
+        var = s["image"].upper().replace("-", "_") + "_DIGEST"
+        if s.get("skip_without_digest"):
+            print(f"{s['image']} was not promoted for this tag (no {var}); skipping {s['name']}.")
+            return 0
+        print(f"::error title={s['name']} has no image::{var} is unset; "
+              f"{s['image']} was not promoted.")
+        return 1
+    live = describe(s)
+    return _create(s, image) if live is None else _roll(s, image, live)
 
 
 def cmd_check(a) -> int:

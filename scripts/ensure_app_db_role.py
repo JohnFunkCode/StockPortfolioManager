@@ -54,6 +54,10 @@ PASSWORD_ENV = "QUANTCORE_APP_DB_PASSWORD"
 MIN_PASSWORD_LENGTH = 16
 SCRAM_ITERATIONS = 4096  # PostgreSQL's default scram_iterations
 FLYWAY_TABLE = "flyway_schema_history"
+# Table privileges the role must not hold; plan_statements revokes them and
+# verify() reports any that survive.
+FORBIDDEN_TABLE_PRIVILEGES = ("TRUNCATE", "REFERENCES", "TRIGGER")
+ROLE_FLAGS = ("SUPERUSER", "CREATEDB", "CREATEROLE", "REPLICATION", "BYPASSRLS")
 
 
 def scram_verifier(password: str, *, salt: bytes | None = None,
@@ -115,6 +119,13 @@ def plan_statements(role: str, database: str, *, role_exists: bool,
                 "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {}").format(r),
         sql.SQL("ALTER DEFAULT PRIVILEGES IN SCHEMA public "
                 "GRANT USAGE, SELECT ON SEQUENCES TO {}").format(r),
+        # Repair: a grant made before this script ran (by hand, or an older
+        # version) survives the GRANTs above. REVOKE of a privilege the role
+        # doesn't hold is a no-op, so these are safe on every run.
+        sql.SQL("REVOKE {} ON ALL TABLES IN SCHEMA public FROM {}")
+        .format(sql.SQL(", ").join(sql.SQL(p) for p in FORBIDDEN_TABLE_PRIVILEGES), r),
+        sql.SQL("REVOKE CREATE ON SCHEMA public FROM {}").format(r),
+        sql.SQL("REVOKE CREATE ON DATABASE {} FROM {}").format(db, r),
     ]
     if flyway_exists:
         # The app reads the ledger (QUANTCORE_SCHEMA_MODE=auto) but never writes it.
@@ -132,11 +143,23 @@ def verify(cur, role: str, database: str) -> list[str]:
     if row is None:
         return [f"role {role} does not exist"]
     oid, *flags, can_login = row
-    names = ("SUPERUSER", "CREATEDB", "CREATEROLE", "REPLICATION", "BYPASSRLS")
-    problems = [f"role has {n}" for n, on in zip(names, flags) if on]
+    return (_attribute_problems(flags, can_login)
+            + _rights_problems(cur, oid, role, database)
+            + _table_problems(cur, role)
+            + _sequence_problems(cur, role))
+
+
+def _attribute_problems(flags, can_login: bool) -> list[str]:
+    """Role attributes: none of ROLE_FLAGS, and LOGIN."""
+    problems = [f"role has {n}" for n, on in zip(ROLE_FLAGS, flags) if on]
     if not can_login:
         problems.append("role cannot LOGIN")
+    return problems
 
+
+def _rights_problems(cur, oid: int, role: str, database: str) -> list[str]:
+    """Rights outside the tables: role membership, CREATE on the schema or database."""
+    problems = []
     cur.execute("SELECT count(*) FROM pg_auth_members WHERE member = %s", (oid,))
     if cur.fetchone()[0]:
         problems.append("role is a member of another role (it would inherit its rights)")
@@ -147,25 +170,40 @@ def verify(cur, role: str, database: str) -> list[str]:
         problems.append("role can CREATE in schema public (DDL)")
     if db_create:
         problems.append(f"role can CREATE in database {database}")
+    return problems
 
+
+def _table_problems(cur, role: str) -> list[str]:
+    """Every table: SELECT; DML except on the ledger; none of the forbidden privileges."""
     cur.execute(
         """
         SELECT c.relname,
                has_table_privilege(%(r)s, c.oid, 'SELECT'),
-               has_table_privilege(%(r)s, c.oid, 'INSERT, UPDATE, DELETE')
+               has_table_privilege(%(r)s, c.oid, 'INSERT, UPDATE, DELETE'),
+               ARRAY(SELECT p FROM unnest(%(forbidden)s::text[]) AS p
+                     WHERE has_table_privilege(%(r)s, c.oid, p))
         FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
         WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')
         ORDER BY c.relname
-        """, {"r": role})
-    for name, can_select, can_write in cur.fetchall():
-        if not can_select:
-            problems.append(f"no SELECT on {name}")
-        if name == FLYWAY_TABLE:
-            if can_write:
-                problems.append(f"can write {name} (the migration ledger)")
-        elif not can_write:
-            problems.append(f"no INSERT/UPDATE/DELETE on {name}")
+        """, {"r": role, "forbidden": list(FORBIDDEN_TABLE_PRIVILEGES)})
+    problems = []
+    for name, can_select, can_write, excess in cur.fetchall():
+        problems += _one_table_problems(name, can_select, can_write, excess)
+    return problems
 
+
+def _one_table_problems(name: str, can_select: bool, can_write: bool,
+                        excess: list[str]) -> list[str]:
+    problems = [] if can_select else [f"no SELECT on {name}"]
+    if name == FLYWAY_TABLE and can_write:
+        problems.append(f"can write {name} (the migration ledger)")
+    elif name != FLYWAY_TABLE and not can_write:
+        problems.append(f"no INSERT/UPDATE/DELETE on {name}")
+    problems += [f"has {p} on {name}" for p in excess]
+    return problems
+
+
+def _sequence_problems(cur, role: str) -> list[str]:
     cur.execute(
         """
         SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -173,8 +211,7 @@ def verify(cur, role: str, database: str) -> list[str]:
           AND NOT has_sequence_privilege(%s, c.oid, 'USAGE')
         ORDER BY c.relname
         """, (role,))
-    problems += [f"no USAGE on sequence {name}" for (name,) in cur.fetchall()]
-    return problems
+    return [f"no USAGE on sequence {name}" for (name,) in cur.fetchall()]
 
 
 def login_probe(app_dsn: str) -> list[str]:
@@ -235,7 +272,7 @@ def _swap_mode(role: str) -> int:
     return 0
 
 
-def main(argv: list[str]) -> int:
+def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     where = parser.add_mutually_exclusive_group()
     where.add_argument("--test", action="store_const", dest="target", const="test")
@@ -248,18 +285,101 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--swap-dsn", action="store_true",
                         help="DSN on stdin -> same DSN as this role on stdout; no database access")
     args = parser.parse_args(argv)
+    args.target = args.target or "test"
+    return args
 
+
+def _print_problems(problems: list[str]) -> None:
+    for line in problems:
+        print(f"  PROBLEM {line}")
+
+
+def _inspect(cur, role: str) -> tuple[bool, bool]:
+    """(the role exists, the Flyway ledger exists)."""
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role,))
+    role_exists = cur.fetchone() is not None
+    cur.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{FLYWAY_TABLE}",))
+    return role_exists, bool(cur.fetchone()[0])
+
+
+def _dry_run(cur, role: str, database: str, role_exists: bool) -> int:
+    problems = verify(cur, role, database)
+    print("role exists" if role_exists else "role does not exist yet")
+    _print_problems(problems)
+    print("dry run: nothing changed")
+    return 1 if problems else 0
+
+
+def _choose_password(args, role_exists: bool) -> tuple[int, str | None]:
+    """(exit code, password). A nonzero code means stop; None means keep the current one."""
+    if args.target == "prod" and input("Apply to PROD? type yes: ").strip() != "yes":
+        print("aborted")
+        return 1, None
+    if args.keep_password:
+        if not role_exists:
+            print("ERROR: --keep-password needs an existing role", file=sys.stderr)
+            return 1, None
+        return 0, None
+    return 0, _read_password(confirm=True)
+
+
+def _apply(conn, role: str, database: str, *, role_exists: bool, flyway_exists: bool,
+           password: str | None) -> int:
+    """Run the plan and verify it in one transaction; commit only if it verifies."""
+    verifier = scram_verifier(password) if password else None
+    with conn.cursor() as cur:
+        for stmt in plan_statements(role, database, role_exists=role_exists,
+                                    verifier=verifier, flyway_exists=flyway_exists):
+            cur.execute(stmt)
+        problems = verify(cur, role, database)
+    if problems:
+        conn.rollback()
+        _print_problems(problems)
+        print("rolled back: nothing changed")
+        return 1
+    conn.commit()
+    print(f"{'updated' if role_exists else 'created'} {role}: DML only, verified")
+    return 0
+
+
+def _probe(dsn: str, role: str, password: str | None) -> int:
+    if password is None:
+        print("login probe skipped (--keep-password)")
+        return 0
+    problems = login_probe(swap_dsn(dsn, role, password))
+    _print_problems(problems)
+    if problems:
+        return 1
+    print("login probe: SELECT works, CREATE TABLE refused")
+    return 0
+
+
+def _run(conn, args, database: str) -> tuple[int, str | None]:
+    """Everything that needs the owner's connection. (exit code, password used)."""
+    with conn.cursor() as cur:
+        role_exists, flyway_exists = _inspect(cur, args.role)
+        if args.dry_run:
+            return _dry_run(cur, args.role, database, role_exists), None
+    rc, password = _choose_password(args, role_exists)
+    if rc:
+        return rc, None
+    rc = _apply(conn, args.role, database, role_exists=role_exists,
+                flyway_exists=flyway_exists, password=password)
+    return rc, password
+
+
+def main(argv: list[str]) -> int:
+    args = _parse_args(argv)
     if args.swap_dsn:
         return _swap_mode(args.role)
 
     import psycopg2
     from quantcore.db import describe_dsn
 
-    target = args.target or "test"
-    dsn = _target_dsn(target)
+    dsn = _target_dsn(args.target)
     parts = urlsplit(dsn)
     database = parts.path.lstrip("/")
-    print(f"target: {target}  {describe_dsn(dsn)}  (as: {parts.username}, role: {args.role})")
+    print(f"target: {args.target}  {describe_dsn(dsn)}  (as: {parts.username}, role: {args.role})")
     if parts.username == args.role:
         print("ERROR: .env's DSN already logs in as the app role; this must run as the owner",
               file=sys.stderr)
@@ -267,54 +387,12 @@ def main(argv: list[str]) -> int:
 
     conn = psycopg2.connect(dsn)
     try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (args.role,))
-            role_exists = cur.fetchone() is not None
-            cur.execute("SELECT to_regclass(%s) IS NOT NULL", (f"public.{FLYWAY_TABLE}",))
-            flyway_exists = cur.fetchone()[0]
-
-            if args.dry_run:
-                problems = verify(cur, args.role, database)
-                print("role exists" if role_exists else "role does not exist yet")
-                for line in problems:
-                    print(f"  PROBLEM {line}")
-                print("dry run: nothing changed")
-                return 1 if problems else 0
-
-            if target == "prod" and input("Apply to PROD? type yes: ").strip() != "yes":
-                print("aborted")
-                return 1
-            if not role_exists and args.keep_password:
-                print("ERROR: --keep-password needs an existing role", file=sys.stderr)
-                return 1
-            password = None if args.keep_password else _read_password(confirm=True)
-            verifier = scram_verifier(password) if password else None
-
-            for stmt in plan_statements(args.role, database, role_exists=role_exists,
-                                        verifier=verifier, flyway_exists=flyway_exists):
-                cur.execute(stmt)
-            problems = verify(cur, args.role, database)
-            if problems:
-                conn.rollback()
-                for line in problems:
-                    print(f"  PROBLEM {line}")
-                print("rolled back: nothing changed")
-                return 1
-        conn.commit()
+        rc, password = _run(conn, args, database)
     finally:
         conn.close()
-    print(f"{'updated' if role_exists else 'created'} {args.role}: DML only, verified")
-
-    if password is None:
-        print("login probe skipped (--keep-password)")
-        return 0
-    problems = login_probe(swap_dsn(dsn, args.role, password))
-    for line in problems:
-        print(f"  PROBLEM {line}")
-    if problems:
-        return 1
-    print("login probe: SELECT works, CREATE TABLE refused")
-    return 0
+    if rc or args.dry_run:
+        return rc
+    return _probe(dsn, args.role, password)
 
 
 if __name__ == "__main__":

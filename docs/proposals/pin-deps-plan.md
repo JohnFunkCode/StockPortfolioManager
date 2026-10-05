@@ -87,5 +87,5 @@ base-only test run.
 | Dockerfiles, cloudbuild, deploy/prod-rollout wiring, `DEPS_EPOCH` removed | Done. `check_cloudbuild.py` OK; `test_dependency_locks` + `test_check_cloudbuild` + `test_ci_parallel` + `test_check_deploy_ref` pass (45 tests). |
 | `audit_deps.sh` + `dep-audit` job | Done. Clean on all 5 locks; negative test fires. |
 | `deps-lock-update.yml` | Written; first run pending John's choice of setting or PAT (gotcha 7). |
-| Scratch Cloud Build (`_TAG`/`_CACHE_TAG=pindeps-218`, `_LATEST_TAG=pindeps-218-latest`) | Build `a8befe8d`, see below. |
+| Scratch Cloud Build (`_TAG`/`_CACHE_TAG=pindeps-218`, `_LATEST_TAG=pindeps-218-latest`) | SUCCESS, build `a8befe8d`, 7m47s. All 7 images installed their locks with `--require-hashes`. api and news took 6m36s each, with a cold cache and torch `+cpu` from the PyTorch index; mcp/report 2m03s, ui 1m23s, keyproxy 53s, migrate 25s. `tag-latest` moved only `:pindeps-218-latest`. |
 | Pi | John's step: on a 64-bit Pi, `pip install --require-hashes -r requirements.lock`, then run the report script. |

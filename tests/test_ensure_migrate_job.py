@@ -114,11 +114,12 @@ class EnsureMigrateJobTest(unittest.TestCase):
         (update,) = self.find(calls, "run jobs update")
         self.assertIn("--image reg/quantcore-migrate@sha256:abc", update)
 
-    def test_creating_without_an_image_fails_before_creating(self):
+    def test_creating_without_an_image_fails_before_any_change(self):
         r, calls = self.run_script()
         self.assertEqual(r.returncode, 2)
         self.assertIn("pass --tag or --image", r.stderr)
-        self.assertEqual(self.find(calls, "run jobs create"), [])
+        # No SA, no grants, no Job: an invocation that cannot finish changes nothing.
+        self.assertEqual([c for c in calls if " describe " not in f" {c} "], [])
 
     def test_tag_and_image_together_are_refused(self):
         r, calls = self.run_script("--tag", "a", "--image", "b")

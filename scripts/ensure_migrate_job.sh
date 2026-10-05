@@ -104,6 +104,16 @@ DSN_SECRET="${DSN_REF%%:*}"
 echo "Cloud SQL: ${SQL}"
 echo "DSN secret: ${DSN_REF} (reference only)"
 
+# Validate before any change: creating the Job needs an image, and an invocation that
+# cannot finish must not leave a half-made SA and grants behind.
+JOB_EXISTS=0
+if gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then
+  JOB_EXISTS=1
+elif [[ -z "$IMAGE" ]]; then
+  echo "ensure_migrate_job: ${JOB} does not exist yet; pass --tag or --image to create it" >&2
+  exit 2
+fi
+
 # ---- the service account and its grants ----
 if gcloud iam service-accounts describe "$SA" --project "$PROJECT" >/dev/null 2>&1; then
   echo "Service account ${SA} already exists."
@@ -121,7 +131,7 @@ run gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT
 
 # ---- the Job ----
 shape=(--service-account "$SA" --task-timeout 600s --max-retries 0 --cpu 1 --memory 1Gi)
-if gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" >/dev/null 2>&1; then
+if (( JOB_EXISTS )); then
   echo "Job ${JOB} exists; updating it in place."
   image_arg=()
   [[ -n "$IMAGE" ]] && image_arg=(--image "$IMAGE")
@@ -129,10 +139,6 @@ if gcloud run jobs describe "$JOB" --project "$PROJECT" --region "$REGION" >/dev
     ${image_arg[@]+"${image_arg[@]}"} "${shape[@]}" \
     --add-cloudsql-instances "$SQL" --update-secrets "QUANTCORE_DB_DSN=${DSN_REF}"
 else
-  if [[ -z "$IMAGE" ]]; then
-    echo "ensure_migrate_job: ${JOB} does not exist yet; pass --tag or --image to create it" >&2
-    exit 2
-  fi
   run gcloud run jobs create "$JOB" --project "$PROJECT" --region "$REGION" \
     --image "$IMAGE" "${shape[@]}" \
     --set-cloudsql-instances "$SQL" --set-secrets "QUANTCORE_DB_DSN=${DSN_REF}"

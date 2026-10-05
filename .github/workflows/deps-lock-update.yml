@@ -37,6 +37,9 @@ jobs:
     # copy of these steps with DEPS_PR_TOKEN. Defence in depth only -- whoever can push a
     # branch can delete this line there too (pin-deps-plan.md, gotcha 8).
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    # The real control: DEPS_PR_TOKEN is an environment secret, and the deps-lock environment
+    # accepts only main, so GitHub withholds it from any other branch whatever this file says.
+    environment: deps-lock
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

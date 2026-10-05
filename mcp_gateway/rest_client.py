@@ -31,6 +31,7 @@ than propagate) can ``except RestError as e: return e.payload``.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any, Optional
 
 import httpx
@@ -104,8 +105,27 @@ def _headers(auth_token: Optional[str]) -> dict[str, str]:
     return headers
 
 
+# One path segment: the characters a ticker can carry (BRK-B, ^GSPC, EURUSD=X,
+# 7203.T) and nothing that could change the request's shape. Wrappers format
+# caller-supplied symbols straight into the path (``f"/api/securities/{symbol}/rsi"``),
+# so this is the one place that stops a "symbol" holding ``/``, ``..``, ``?``, ``#``
+# or ``%`` from steering the request at a different route or query (#297 finding 5).
+# The caller's own token is what gets forwarded, so the reach is only routes that
+# caller could already call -- but a tool should hit exactly the route it names.
+_SEGMENT = re.compile(r"[A-Za-z0-9._\-^=]+")
+
+
 def _path(path: str) -> str:
-    return path if path.startswith("/") else f"/{path}"
+    path = path if path.startswith("/") else f"/{path}"
+    segments = path.rstrip("/").split("/")[1:]
+    if not segments or any(
+        seg in (".", "..") or not _SEGMENT.fullmatch(seg) for seg in segments
+    ):
+        raise RestError(
+            400,
+            {"error": "INVALID_PATH", "message": "Invalid symbol or path segment"},
+        )
+    return path
 
 
 def _handle(response: httpx.Response) -> Any:
@@ -149,9 +169,10 @@ def get(path: str, *, auth_token: Optional[str] = None, **params: Any) -> Any:
     ``List[...] = Query(...)`` signatures.
     """
     clean = {k: v for k, v in params.items() if v is not None}
+    path = _path(path)  # validate before any connection is opened
     with httpx.Client(base_url=_base_url(), timeout=_timeout()) as client:
         return _request(
-            client, "get", _path(path), params=clean, headers=_headers(auth_token)
+            client, "get", path, params=clean, headers=_headers(auth_token)
         )
 
 
@@ -165,11 +186,12 @@ def post(
 ) -> Any:
     """``POST {REST}/{path}`` with an optional JSON body + query params."""
     clean = {k: v for k, v in params.items() if v is not None}
+    path = _path(path)  # validate before any connection is opened
     with httpx.Client(base_url=_base_url(), timeout=_timeout()) as client:
         return _request(
             client,
             "post",
-            _path(path),
+            path,
             params=clean,
             json=json,
             headers=_headers(auth_token),

@@ -46,6 +46,29 @@ class TestRestClientConfig(unittest.TestCase):
         self.assertEqual(rest_client._path("api/x"), "/api/x")
         self.assertEqual(rest_client._path("/api/x"), "/api/x")
 
+    def test_path_accepts_real_ticker_shapes(self):
+        for symbol in ("AAPL", "BRK-B", "BRK.B", "^GSPC", "EURUSD=X", "7203.T"):
+            path = f"/api/securities/{symbol}/rsi"
+            self.assertEqual(rest_client._path(path), path)
+
+    def test_path_rejects_symbols_that_reshape_the_request(self):
+        # #297 finding 5: a caller-supplied symbol is formatted into the path.
+        # A bare "/" only adds segments under the tool's own prefix and suffix, and the
+        # path alone can't tell it from a real separator -- see the #297 plan doc.
+        for symbol in ("../portfolio", "..", "a/../b", "a?b=1", "a#frag", "a%2Fb",
+                       "a b", "", "a\nb"):
+            with self.subTest(symbol=symbol), \
+                    self.assertRaises(rest_client.RestError) as caught:
+                rest_client._path(f"/api/securities/{symbol}/rsi")
+            self.assertEqual(caught.exception.status_code, 400)
+            self.assertEqual(caught.exception.payload["error"], "INVALID_PATH")
+
+    def test_rejected_path_never_reaches_the_network(self):
+        with patch.object(rest_client.httpx, "Client") as client:
+            with self.assertRaises(rest_client.RestError):
+                rest_client.get("/api/securities/../portfolio/rsi")
+        client.assert_not_called()
+
     def test_headers_prefer_explicit_token(self):
         headers = rest_client._headers("tok-123")
         self.assertEqual(headers["Authorization"], "Bearer tok-123")
@@ -149,6 +172,25 @@ class TestMcpServeConfig(unittest.TestCase):
         module.mcp.run.assert_called_once_with(
             transport="http", host="0.0.0.0", port=6123
         )
+
+    def test_local_host_defaults_to_loopback(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(serve.LOCAL_HOST_ENV, None)
+            self.assertEqual(serve.local_host(), "127.0.0.1")
+        with patch.dict(os.environ, {serve.LOCAL_HOST_ENV: "  "}):
+            self.assertEqual(serve.local_host(), "127.0.0.1")
+        with patch.dict(os.environ, {serve.LOCAL_HOST_ENV: "0.0.0.0"}):
+            self.assertEqual(serve.local_host(), "0.0.0.0")
+
+    def test_wrapper_main_blocks_bind_local_host(self):
+        # #297 finding 1: a wrapper run directly must not listen on every interface.
+        repo = Path(__file__).resolve().parent.parent
+        for path in sorted((repo / "fastMCPTest").glob("*.py")):
+            source = path.read_text()
+            with self.subTest(wrapper=path.name):
+                self.assertNotIn('host="0.0.0.0"', source)
+                if "mcp.run(" in source:
+                    self.assertIn("host=local_host()", source)
 
 
 class TestMcpDeploymentPolicy(unittest.TestCase):
@@ -284,6 +326,16 @@ class TestArbitrageWrapperTools(unittest.TestCase):
         health = arb.mcp_health_check()
         self.assertEqual(health["server"], "arbitrage-server")
 
+    def test_health_checks_disclose_no_host_details(self):
+        # Public wrappers answer anyone (#297 finding 4).
+        for module in (arb, pfs, oa):
+            health = module.mcp_health_check()
+            with self.subTest(server=health["server"]):
+                self.assertTrue({"platform", "python_version", "rest_base_url",
+                                 "universe_file", "watchlist_cli_default"}
+                                .isdisjoint(health))
+                self.assertFalse(any("/" in str(v) for v in health.values()), health)
+
 
 class TestWrapperPortMap(unittest.TestCase):
     """Every wrapper must own a distinct local port.
@@ -342,7 +394,9 @@ class TestWrapperPortMap(unittest.TestCase):
             if stem in defaults:
                 self.assertEqual(defaults[stem], service["port"],
                                  f"{stem}: module default vs compose PORT")
-            self.assertIn(f"{service['port']}:{service['port']}", service["ports"], stem)
+            # Published on loopback only: compose runs the api with AUTH_DISABLED (#297).
+            self.assertIn(f"127.0.0.1:{service['port']}:{service['port']}",
+                          service["ports"], stem)
 
     def test_local_mcp_entries_are_unique_and_match_compose(self):
         config = json.loads((self.REPO / ".mcp.json").read_text())

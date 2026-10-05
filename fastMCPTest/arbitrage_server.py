@@ -16,7 +16,6 @@ into a single HTTP request against the FastAPI front door via
 """
 
 import os
-import platform
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -31,6 +30,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 from fastmcp import FastMCP
 
 from mcp_gateway import rest_client
+from mcp_gateway.serve import local_host
 
 mcp = FastMCP("arbitrage-server")
 
@@ -44,12 +44,10 @@ def mcp_health_check() -> dict:
         fastmcp_version = "unknown"
 
     return {
+        # Identity and version only: no host OS, interpreter, internal URL or
+        # filesystem path -- the wrappers are public, so this answers anyone (#297).
         "server": "arbitrage-server",
-        "python_version": sys.version.split()[0],
-        "platform": platform.platform(),
         "fastmcp_version": fastmcp_version,
-        "rest_base_url": rest_client._base_url(),
-        "universe_file": str(PROJECT_ROOT / "arb_universe.yaml"),
     }
 
 
@@ -199,7 +197,7 @@ def discover_arbitrage_pairs(
 
 
 if __name__ == "__main__":
-    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
-    # can be reused per wrapper in docker-compose / Cloud Run; default is this
-    # server's assigned port.
-    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6007")))
+    # Local run (``python fastMCPTest/arbitrage_server.py``): streamable HTTP on loopback
+    # unless MCP_HOST says otherwise (#297). Containers don't come through here --
+    # mcp_gateway.serve is the image entrypoint and binds 0.0.0.0 itself.
+    mcp.run(transport="http", host=local_host(), port=int(os.environ.get("PORT", "6007")))

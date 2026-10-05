@@ -785,6 +785,8 @@ Google ADC on the host (`gcloud auth application-default login`).
 
 **Auth.** The api runs with `AUTH_DISABLED=1` locally (today's no-auth contract),
 so the team can test immediately. JWT validation is enabled only on Cloud Run.
+Because of that, every published port is bound to `127.0.0.1` (`"127.0.0.1:5001:5001"`), so
+the unauthenticated stack is reachable only from this machine, never from the LAN (#297).
 
 ### Images
 
@@ -1038,6 +1040,10 @@ The servers are configured in `.mcp.json` and start automatically when Claude Co
 source .venv/bin/activate
 fastmcp run fastMCPTest/stock_price_server.py
 ```
+
+Run directly (`python fastMCPTest/stock_price_server.py`), a wrapper serves HTTP on
+`127.0.0.1` and its default port; set `MCP_HOST` to bind elsewhere. In a container the
+entrypoint (`mcp_gateway/serve.py`) binds `0.0.0.0`, as Cloud Run requires.
 
 ### Adding an MCP wrapper
 

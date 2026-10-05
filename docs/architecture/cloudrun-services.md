@@ -124,6 +124,24 @@ narrows them: test to runs on `main`, and prod to `prod-rollout.yml` on `main` i
 environment. The runbook, and whether each step has been applied yet, are in
 [`wif-trust-plan.md`](../proposals/wif-trust-plan.md).
 
+### Who can call the services (runtime auth)
+
+**The 7 wrappers and `quantcore-api` are `allUsers` invokers with `ingress = all`, by design.**
+Cloud Run IAM is not the authentication layer. AI clients (Claude Code, Claude Desktop) send a
+bearer JWT that Google can't verify, so a wrapper restricted to named Google identities would
+refuse them all. Authentication happens in one place: `api/auth.py`'s JWT check in
+`quantcore-api`. A wrapper verifies nothing; it forwards the caller's `Authorization` header
+unchanged (`mcp_gateway/rest_client.py`), so an unauthenticated call reaches the api and is
+refused there with 401. keyproxy's invoker is only its runtime SA; quantui's is only the IAP
+service agent. Checked read-only in both projects on 2026-10-05
+([#297](https://github.com/JohnFunkCode/StockPortfolioManager/issues/297), detail in
+[`security-review-297-plan.md`](../proposals/security-review-297-plan.md)).
+
+Two consequences of being public: a wrapper's `mcp_health_check` and the api's `/api/health`
+answer anyone, so they return identity and status only — no host OS, interpreter, internal URL,
+path, or driver error text. And `rest_client` rejects a path segment that could reshape the
+request (`..`, `?`, `#`, `%`, whitespace) before any connection is opened.
+
 ### Onboarding a wrapper by hand
 
 1. Merge the PR that adds the `[[services]]` block, the module and the `WRAPPERS` entry.

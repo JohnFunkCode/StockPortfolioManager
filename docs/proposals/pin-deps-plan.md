@@ -78,8 +78,10 @@ base-only test run.
      -F can_approve_pull_request_reviews=true -f default_workflow_permissions=read`. The PR is
      authored by `github-actions[bot]`. To get CI on it, close and reopen it: a reopen by a person
      fires `pull_request`. Nothing to rotate.
-   - **B. `DEPS_PR_TOKEN` (preferred: the PR gets CI on its own).** GitHub → Settings → Developer
-     settings → Personal access tokens → Fine-grained tokens → Generate new token. Set:
+   - **B. `DEPS_PR_TOKEN` (preferred: the PR gets CI on its own).** The token lives in your
+     **account** settings, not the repo's: profile picture (top right) → Settings → Developer settings
+     (bottom of the left sidebar) → Personal access tokens → Fine-grained tokens → Generate new
+     token, or go straight to <https://github.com/settings/personal-access-tokens/new>. Set:
      - Resource owner: JohnFunkCode.
      - Repository access: *Only select repositories* → StockPortfolioManager.
      - Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**.
@@ -88,7 +90,8 @@ base-only test run.
      - An expiry, with a calendar reminder to rotate it.
 
      Then store it with `gh secret set DEPS_PR_TOKEN` (it prompts, so the token never lands in
-     shell history), or use Settings → Secrets and variables → Actions → New repository secret.
+     shell history), or use the **repo's** Settings → Secrets and
+     variables → Actions → New repository secret.
      The workflow uses `secrets.DEPS_PR_TOKEN || github.token` for both the checkout push and
      `gh pr create`, so nothing else changes. The PR is authored by the token's owner (John), so
      John can't approve his own PR; merge it with the admin bypass the ruleset already grants,

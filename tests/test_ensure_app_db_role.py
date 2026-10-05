@@ -222,6 +222,15 @@ class VerifyTests(unittest.TestCase):
         self.assertEqual(problems, ["can write flyway_schema_history (the migration ledger)",
                                     "no USAGE on sequence watchlist_id_seq"])
 
+    def test_sequence_check_only_calls_the_sequence_function_on_sequences(self):
+        # A plain `relkind = 'S' AND has_sequence_privilege(...)` raised
+        # '"watchlist" is not a sequence' on Cloud SQL: WHERE has no evaluation order.
+        cur = _cursor()
+        tool.verify(cur, "r", "db")
+        query = " ".join(cur.queries[4][0].split())
+        self.assertIn("CASE WHEN c.relkind = 'S' THEN NOT has_sequence_privilege(", query)
+        self.assertNotIn("AND NOT has_sequence_privilege", query)
+
 
 class FakeConn:
     def __init__(self, cursor):

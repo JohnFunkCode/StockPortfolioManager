@@ -106,7 +106,7 @@ trap 'unset QUANTCORE_APP_DB_PASSWORD' EXIT
 
 step "1. Creating the role and verifying its grants"
 "$PYTHON" scripts/ensure_app_db_role.py "$ENV_FLAG" \
-  || die "step 1 failed. Is the Cloud SQL proxy for $ENV running? Nothing after it has run."
+  || die "step 1 failed (error above; if it could not connect, start the $ENV proxy). It runs in one transaction, so the database is unchanged, and no secret has been touched."
 
 step "2. The owner's DSN in $MIGRATOR_SECRET"
 if secret_exists "$MIGRATOR_SECRET"; then

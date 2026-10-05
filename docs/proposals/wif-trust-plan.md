@@ -49,8 +49,10 @@ gh secret delete GCP_PROD_DEPLOY_SA
 ```
 
 **2. Make `prod` deployable from main only.** Do this in the UI, which leaves the reviewers
-alone: Settings → Environments → `prod` → Deployment branches and tags → **Selected branches and
-tags** → add the branch rule `main`. Keep "Allow administrators to bypass" off, as on `deps-lock`.
+alone. Open <https://github.com/JohnFunkCode/StockPortfolioManager/settings/environments> → `prod` →
+Deployment branches and tags → **Selected branches and tags** → add the branch rule `main`. Keep
+"Allow administrators to bypass" off, as on `deps-lock`. (It is the *repository's* Settings tab,
+not the account settings under your avatar, which have no Environments page.)
 
 **3. Narrow the prod provider:**
 
@@ -120,7 +122,7 @@ effect within a minute or two, and nothing else needs undoing.
 | Read-only checks (2026-10-05) | Done; recorded above. |
 | PR: drop `release`, `setup_test_wif.sh` converges, docs | This PR. |
 | 1. Environment secrets, repo copies deleted | Done (2026-10-05). Checked through the API: `prod` holds both, and the repo level holds only the test pair. |
-| 2. `prod` branch policy main-only | Pending (John). |
+| 2. `prod` branch policy main-only | Done (2026-10-05), in the UI. Checked through the API: `custom_branch_policies: true`, one policy (branch `main`), admin bypass off, the five required reviewers unchanged. |
 | 3. Prod provider condition | Done (2026-10-05), before #320 merged. That was harmless: no release had ever run, and dispatches from main satisfy it. Read back with `describe`. |
 | 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
 | 5. Verification | Pending. |

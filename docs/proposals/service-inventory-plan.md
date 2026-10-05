@@ -41,8 +41,14 @@ Reference doc: [`docs/architecture/cloudrun-services.md`](../architecture/cloudr
    serviceAccountUser grants).
    - `gcloud run deploy --allow-unauthenticated` on a create would therefore fail *after* creating
      the service.
-   - So the create omits the flag and runs a separate `add-iam-policy-binding`. Its failure says
-     exactly that and prints the command.
+   - So the create omits the flag and runs a separate `add-iam-policy-binding`.
+   - **A bind that fails after the create is still the wrong order** (PR #309 review): the
+     service is left behind answering 403. So the create path first asks
+     `projects.testIamPermissions` (Resource Manager v1, which needs no role of its own) for
+     `run.services.create` and `run.services.setIamPolicy`, and creates nothing if either is
+     missing. gcloud has no command for that call, so the script POSTs it with
+     `gcloud auth print-access-token`. A failed check fails closed. Verified on 2026-10-05 that
+     the Resource Manager API is enabled in both projects.
    - The update path never passes either `--allow-unauthenticated` or `--no-allow-unauthenticated`,
      because each tries to write IAM. It only reads the policy, and fails on a public service
      that has lost its `allUsers` binding.
@@ -84,4 +90,5 @@ Reference doc: [`docs/architecture/cloudrun-services.md`](../architecture/cloudr
 | `check --env test` / `--env prod` (2026-10-04) | 10/10 `ok` in both. The first manifest-driven roll-out is image-only. |
 | Deployer IAM audit (read-only) | run.developer ✅, AR ✅, serviceAccountUser on all 4 runtime SAs ✅, **setIamPolicy ❌ in both projects**. The grant is documented in `cloudrun-services.md`. |
 | Docs | `cloudrun-services.md` added. CLAUDE.md, readme, prod-promotion.md, quantui.md and prod-rollout-plan P11 updated. |
+| PR #309 review (2026-10-05) | setIamPolicy preflight before any create (refuses, creates nothing, prints the grant). `load`, `_validate`, `deploy_args` and `cmd_deploy` split; every function now scores under complexipy's 15. 5 new tests. |
 | First wrapper created by CI | Pending: the first real onboarding after the setIamPolicy grant. |

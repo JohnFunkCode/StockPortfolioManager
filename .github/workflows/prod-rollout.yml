@@ -1,8 +1,10 @@
 # Prod rollout — promote a tested image set into quantcore-prod-20260606 (Step P9 of
 # docs/proposals/prod-rollout-plan.md). This is the GATED, MANUAL counterpart to
-# deploy.yml: it is NEVER triggered by a push. An operator dispatches it (or it fires
-# on a release tag) to promote an already-built, already-tested image tag from the TEST
-# Artifact Registry into the PROD project and roll it out to the prod Cloud Run stack.
+# deploy.yml: it is NEVER triggered by a push. An operator dispatches it from main to
+# promote an already-built, already-tested image tag from the TEST Artifact Registry into
+# the PROD project and roll it out to the prod Cloud Run stack. Dispatch is the only
+# trigger (#313): the prod WIF provider admits only main + the `prod` environment, and a
+# `release` run would carry a tag ref and be refused at token exchange.
 #
 # Promotion model — Option B2 (prod-rollout-plan.md locked decision #1): images are
 # COPIED BY DIGEST from the test AR into a dedicated prod AR (never rebuilt), so prod
@@ -48,10 +50,8 @@ on:
         description: "Tag in the TEST Artifact Registry to promote (e.g. a 7-char commit SHA, or 'latest')."
         required: true
         default: "latest"
-  release:
-    types: [published]
 
-# Serialize prod rollouts so two dispatches/releases can't race on the same Cloud Run
+# Serialize prod rollouts so two dispatches can't race on the same Cloud Run
 # services (concurrent `gcloud run deploy` ABORTs with an optimistic-lock conflict).
 # A new run waits for the in-flight one rather than cancelling a mid-rollout deploy.
 concurrency:
@@ -127,7 +127,7 @@ jobs:
           set -euo pipefail
           # Wire docker to the AR registry using the WIF credentials from the auth step.
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          TAG="${{ github.event.inputs.image_tag || github.event.release.tag_name }}"
+          TAG="${{ github.event.inputs.image_tag }}"
           echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
           # quantcore-migrate is strict like api: a tag without it cannot be promoted,
           # because rolling out without migrating is the image-ahead-of-schema failure

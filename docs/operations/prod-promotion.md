@@ -104,8 +104,11 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
    recently `image_tag=177e411` for the BYOK rollout on 2026-07-18.)*
 
 2. **Prod WIF + deploy SA + secrets + Environment exist** (one-time, done in P9):
-   - Repo secrets `GCP_PROD_WIF_PROVIDER` and `GCP_PROD_DEPLOY_SA`
-     (`gh secret list --repo … | grep GCP_PROD`).
+   - `GCP_PROD_WIF_PROVIDER` and `GCP_PROD_DEPLOY_SA`, moving from repo secrets to
+     **`prod` environment secrets** (`gh secret list --env prod`). The prod WIF provider
+     admits only `prod-rollout.yml` on `main` in the `prod` environment, so dispatch from
+     `main` (#313; the runbook and its status are in
+     [`wif-trust-plan.md`](../proposals/wif-trust-plan.md)).
    - A `prod` GitHub Environment **with required reviewers**
      (`gh api repos/…/environments -q '.environments[].name'`, then check reviewers in
      Settings → Environments → prod). Without a reviewer the approval gate won't pause.
@@ -295,6 +298,7 @@ migrate image is fine — its migrate step finds nothing pending.
 | Deploy SA | `quantcore-deployer@quantcore-prod-20260606.iam.gserviceaccount.com` |
 | Runtime SAs | `quantcore-run@…` (api/wrappers/report/ui) and `keyproxy-runtime@…` (keyproxy; deployer needs actAs on both) |
 | WIF provider | `projects/127961694257/locations/global/workloadIdentityPools/github-prod/providers/github` |
-| Repo secrets | `GCP_PROD_WIF_PROVIDER`, `GCP_PROD_DEPLOY_SA` |
+| WIF condition | repo + `environment=='prod'` + `ref=='refs/heads/main'` + `prod-rollout.yml` (#313; status in [`wif-trust-plan.md`](../proposals/wif-trust-plan.md)) |
+| Secrets | `GCP_PROD_WIF_PROVIDER`, `GCP_PROD_DEPLOY_SA` (`prod` environment secrets after #313) |
 | Approval gate | `prod` GitHub Environment + required reviewers |
 | Blessed tag | none recorded since `177e411` (2026-07-18), which predates `quantcore-migrate` and can't be promoted; pick a SHA present in all seven repos |

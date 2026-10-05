@@ -118,8 +118,11 @@ whoever holds the deployer:
 New wrappers are rare, and the manual step is two commands, so the trade isn't worth it. **Don't
 re-propose the grant without revisiting that reasoning.**
 
-The deployer is also reachable from more workflows than it should be. That is tracked separately
-in [#313](https://github.com/JohnFunkCode/StockPortfolioManager/issues/313).
+The deployer was also reachable from any workflow run in the repo, because both WIF providers were
+conditioned on the repository alone. [#313](https://github.com/JohnFunkCode/StockPortfolioManager/issues/313)
+narrows them: test to runs on `main`, and prod to `prod-rollout.yml` on `main` in the `prod`
+environment. The runbook, and whether each step has been applied yet, are in
+[`wif-trust-plan.md`](../proposals/wif-trust-plan.md).
 
 ### Onboarding a wrapper by hand
 

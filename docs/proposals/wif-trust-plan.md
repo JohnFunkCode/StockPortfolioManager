@@ -119,8 +119,8 @@ effect within a minute or two, and nothing else needs undoing.
 |---|---|
 | Read-only checks (2026-10-05) | Done; recorded above. |
 | PR: drop `release`, `setup_test_wif.sh` converges, docs | This PR. |
-| 1. Environment secrets, repo copies deleted | Pending (John). |
+| 1. Environment secrets, repo copies deleted | Done (2026-10-05). Checked through the API: `prod` holds both, and the repo level holds only the test pair. |
 | 2. `prod` branch policy main-only | Pending (John). |
-| 3. Prod provider condition | Pending (John). |
-| 4. Test provider condition | Pending (John). |
+| 3. Prod provider condition | Done (2026-10-05), before #320 merged. That was harmless: no release had ever run, and dispatches from main satisfy it. Read back with `describe`. |
+| 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
 | 5. Verification | Pending. |

@@ -297,7 +297,8 @@ creates anything on test or prod, so:
    ```
    Drop `--dry-run` to apply (`--prod` for prod, which prompts). The password is read from
    `QUANTCORE_APP_DB_PASSWORD` or a prompt, and only a SCRAM verifier is sent to the server. The
-   full rollout (secrets, the Job, new revisions) is in
+   full rollout (secrets, the Job, new revisions) is one script,
+   `./scripts/rollout_app_db_role.sh [--prod]`; the steps it runs are in
    [`docs/proposals/db-roles-308-plan.md`](docs/proposals/db-roles-308-plan.md).
 
 **Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:

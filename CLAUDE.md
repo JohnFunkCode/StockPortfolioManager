@@ -455,6 +455,8 @@ cycle — missing=0, mismatch=0 — and now enforces):
   app role cannot write `flyway_schema_history`. The role is cluster-global and carries a
   password, so it is **not** a Flyway migration: an operator runs
   `scripts/ensure_app_db_role.py [--prod]`, which is idempotent, and `--dry-run` only verifies it.
+  The first rollout per project (role, secrets, Job) is `scripts/rollout_app_db_role.sh [--prod]`,
+  which re-runs safely and has a `--rollback`.
   `.env`'s DSNs stay the owner's (`flyway.sh` needs them). Runbook and gotchas:
   [`db-roles-308-plan.md`](docs/proposals/db-roles-308-plan.md).
 

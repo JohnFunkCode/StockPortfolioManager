@@ -29,6 +29,26 @@ operator's to run, not CI's or an agent's. `P` is the project and `E` the enviro
 bash shell at the repo root, with the matching proxy running (`./runProxy-MAC.sh --test`, or no
 flag for prod).
 
+**Run it with the script.** `scripts/rollout_app_db_role.sh` runs steps 0–5 below in order, so
+nothing has to be copied out of this page, then prints steps 6–7:
+
+```bash
+./scripts/rollout_app_db_role.sh
+```
+
+```bash
+./scripts/rollout_app_db_role.sh --prod
+```
+
+It is safe to re-run. It reads only the *user name* out of the secrets, never prints a DSN, and
+decides from it what is left: if the app secret already connects as `quantcore_app` it only
+verifies (`--dry-run`); an existing migrator secret is kept once it is checked to hold
+`quantcore`; any other user stops it before a change. If it fails before step 5, fix the cause and
+run it again — step 1 sets a fresh password, which nothing uses until step 5. `--rollback` does the
+rollback below. `--prod` prompts here, and again in each sub-script.
+
+The commands it runs, for reference:
+
 **Order matters.** Step 2 copies the *current* app secret, which still holds the owner's DSN, so
 it must happen before step 5 replaces that secret.
 
@@ -103,6 +123,12 @@ The role itself can stay in place; it is unused until a secret points at it.
   `ensure_migrate_job.sh` does it in that order and stops before changing anything if the migrator
   secret is missing.
 - **Granting is not enough on a re-run; the script must revoke too.** The first version only GRANTed and `verify()` only checked for *missing* rights, so a role that had been given `TRUNCATE` by hand (or by an earlier experiment) passed verification. Revoking a privilege the role doesn't hold is a no-op, so the REVOKEs are safe on every run. PostgreSQL 16 has no `MAINTAIN` privilege, so it isn't in the list; add it if the instance moves to 17.
+- **PostgreSQL does not evaluate `WHERE` conditions in the order they are written.** The sequence
+  check was `relkind = 'S' AND NOT has_sequence_privilege(role, oid, 'USAGE')`, and Cloud SQL test
+  ran the function on a table first: `"watchlist" is not a sequence`, and step 1 failed (it rolled
+  back, so nothing changed). CI's `postgres:16` happened to plan it the safe way, so the DB test
+  passed. Only `CASE WHEN relkind = 'S' THEN … ELSE false END` guarantees the order;
+  `has_table_privilege` takes any relation and needs no guard.
 - **Local DB tests are blocked by Postgres.app's trust auth.** The DB-backed test
   (`DatabaseTests` in `tests/test_ensure_app_db_role.py`) skips locally and fails rather than
   skips in CI, where the `postgres:16` service uses scram auth and a superuser.
@@ -113,5 +139,7 @@ The role itself can stay in place; it is unused until a secret points at it.
 |---|---|---|---|---|
 | 1. Code + docs | 2026-10-05 | _this PR_ | `create` degrades to `warn` on `InsufficientPrivilege` (`quantcore/db.py`, 2 tests in `test_schema_bootstrap.py`). `ensure_migrate_job.sh --migrator-secret` (default `quantcore-<env>-migrator-dsn`): fails before any change if the secret is absent, grants the SA access to it, points the Job's `QUANTCORE_DB_DSN` at it, then removes the SA's binding on the app secret (19 tests). `scripts/ensure_app_db_role.py` plus `tests/test_ensure_app_db_role.py`: the SCRAM verifier, `--swap-dsn`, the statement plan, and a DB test that logs in as a scratch role and is refused DDL and ledger writes. Docs: CLAUDE.md, AGENTS.md, readme, `flyway.sh` header, `prod-access-grants.md`, and pointers from the flyway-automation and schema-ownership plans. | Nothing applied to either project. Steps 1–7 of the runbook are John's. |
 | 1a. Review fixes | 2026-10-05 | _this PR_ | Guppy review on PR #325: the plan now REVOKEs excess table, schema and database rights and `verify()` reports them (R2). `main()` and `verify()` split into helpers: radon cyclomatic `main` D(21)→A(5), `verify` C(14)→max B(7) in `_one_table_problems`; complexipy cognitive `main` 23→4, `verify` 17→max 6. 17 new unit tests (fake cursor/conn) for `verify`'s helpers and `main`'s steps; the DB test now pre-grants `TRUNCATE`/`REFERENCES`/`TRIGGER` and schema `CREATE`, checks `verify()` reports them, then checks the plan repairs them. | The review's "applied on both projects" criterion is rows 2–3, the operator runbook. |
-| 2. Test rollout | | | | |
+| 1b. Runbook script | 2026-10-05 | _this PR_ | `scripts/rollout_app_db_role.sh [--prod] [--rollback]`: steps 0–5 in one script, after John hit copy/paste problems with the bash block. Guards on the secrets' user names (read with `sed`, never printed); 12 tests in `tests/test_rollout_app_db_role.py` against a stub `gcloud` whose secrets are files. | Gotcha in the stub, not the script: `access | swap | versions add` on the **same** secret raced when the stub's `add` was `cat > file` — it truncated the file before `access` read it. Real Secret Manager versions are immutable, so the stub writes then renames. |
+| 1c. Sequence-check fix | 2026-10-05 | _this PR_ | John's first test run failed in step 1 with `WrongObjectType: "watchlist" is not a sequence`. `_sequence_problems` now guards `has_sequence_privilege` with `CASE` (see Gotchas), with a regression test on the query; the script's step-1 message no longer blames only the proxy. | The failed run changed nothing: role creation and verify are one transaction, and no secret step had run. |
+| 2. Test rollout | 2026-10-05 | `311a925` | Steps 0–5 by John with `rollout_app_db_role.sh` (second attempt, after 1c): role created and verified, login probe refused `CREATE TABLE`; `quantcore-test-migrator-dsn` v1 created; migrate Job repointed and execution `quantcore-migrate-ggjpg` succeeded; `quantcore-test-db-dsn` v2 now connects as `quantcore_app`. | Steps 6–7 pending: the api picks up v2 on its next revision (the deploy.yml that runs when #325 merges), then re-run the script to verify and check the api log for `missing=0 mismatch=0`. The migrate execution took 3.5 min to start (provisioning), not a failure. **Rolled back the same day** (`--rollback`, 15:33): app secret v3 holds the owner again; the role, the migrator secret and the migrate Job's wiring were kept, so re-running the script redoes only steps 1 and 3–5. |
 | 3. Prod rollout | | | | |

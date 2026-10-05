@@ -204,11 +204,16 @@ def _one_table_problems(name: str, can_select: bool, can_write: bool,
 
 
 def _sequence_problems(cur, role: str) -> list[str]:
+    # The CASE is load-bearing: PostgreSQL may evaluate WHERE conditions in any
+    # order, and has_sequence_privilege() raises on a table ("watchlist" is not
+    # a sequence -- seen on Cloud SQL test). Only CASE guarantees the order.
     cur.execute(
         """
         SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = 'public' AND c.relkind = 'S'
-          AND NOT has_sequence_privilege(%s, c.oid, 'USAGE')
+        WHERE n.nspname = 'public'
+          AND CASE WHEN c.relkind = 'S'
+                   THEN NOT has_sequence_privilege(%s, c.oid, 'USAGE')
+                   ELSE false END
         ORDER BY c.relname
         """, (role,))
     return [f"no USAGE on sequence {name}" for (name,) in cur.fetchall()]

@@ -547,6 +547,29 @@ key/secret pair and its own custom OAuth client.
 > rebuilds and redeploys all services, including a fresh `quantui` revision. Harmless, just expect the
 > revision counter to climb on every merge.
 
+### Trying a branch on test before merging
+
+To put an unmerged branch (or a tag, or any SHA) on **test**, run the **`deploy`** workflow by hand
+from **main** and name the code in its `ref` input:
+
+```bash
+gh workflow run deploy.yml --ref main -f ref=my-branch
+```
+
+The tests and scans run on that ref, then it is built and rolled out to test exactly as a merge
+would be. Prod is not touched. A few things to know (#120):
+
+- Run it **from main** (`--ref main`, or "Use workflow from: main" in the UI); a run from another
+  branch is refused, because the deploy machinery must be main's.
+- A ref that **adds, edits or deletes a migration** is refused: it would change the shared test
+  database ahead of main, or fail Flyway's validate against it. Merge the migration first.
+- A ref older than the deploy machinery (one whose `cloudbuild.yaml` lacks an image the roll-out
+  deploys) is refused before the build.
+- Test stays on your ref **until the next merge to main**, which redeploys main. The run's summary
+  names the ref and SHA that went out.
+- The images are tagged with the SHA and `:dispatch-latest`, never `:latest`, so a prod promotion
+  of `latest` can't pick up an unmerged build.
+
 ### Granting a new user access
 
 While the OAuth consent screen is in **Testing** status, an account needs to be on **two** lists for

@@ -1062,7 +1062,7 @@ entrypoint (`mcp_gateway/serve.py`) binds `0.0.0.0`, as Cloud Run requires.
 
 A new wrapper needs no GCP permissions from its author. Add the server module under `fastMCPTest/`,
 an entry in `WRAPPERS` in `scripts/ci_wrapper_smoke.py`, a contract case per tool in
-`tests/test_mcp_tool_contracts.py` (a new tool on an existing wrapper needs one too), and a
+`scripts/mcp_tool_cases.py` (a new tool on an existing wrapper needs one too), and a
 `[[services]]` block (copy a standard wrapper, then set `first_create = "auto"`) in
 `deploy/cloudrun-services.toml`. CI can't
 make a service public (that grant is deliberately not given), so the first roll-out after the merge
@@ -1097,6 +1097,23 @@ PYTHONPATH=. .venv/bin/python scripts/mcp_http_smoke.py \
   --hold-seconds 301 \
   --auth-token "$QUANTCORE_MCP_TOKEN"
 ```
+
+To check every read-only tool on every **test** wrapper at once (#44), run the opt-in live smoke
+after a test deploy. It builds the test URLs from `deploy/cloudrun-services.toml`, refuses prod,
+skips the write tools, and prints only ok/FAIL, the HTTP status and timing. It reads a **test** JWT
+from `QUANTCORE_TEST_MCP_TOKEN` (not `QUANTCORE_MCP_TOKEN`, which holds a prod JWT). The token's
+`--sub` must be a provisioned owner, or the portfolio tools answer 403:
+
+```bash
+export QUANTCORE_TEST_MCP_TOKEN="$(.venv/bin/python scripts/mint_prod_jwt.py --project quantcore-test-20260606 --sub john --expires-hours 1 --output token)"
+```
+
+```bash
+PYTHONPATH=. .venv/bin/python scripts/mcp_live_smoke.py
+```
+
+Narrow it with `--wrapper options-analysis` or `--tool get_gex_profile` (both repeatable). It is
+not part of CI. Details: [`mcp-tool-regression-plan.md`](docs/proposals/mcp-tool-regression-plan.md).
 
 ---
 

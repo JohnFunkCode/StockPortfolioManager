@@ -72,8 +72,11 @@ class EnsureMigrateJobTest(unittest.TestCase):
         self.assertTrue(all("quantcore-prod" not in c for c in calls), calls)
         sa = "quantcore-migrate@quantcore-test-20260606.iam.gserviceaccount.com"
         self.assertEqual(len(self.find(calls, "iam service-accounts create quantcore-migrate ")), 1)
-        (proj,) = self.find(calls, "projects add-iam-policy-binding")
+        proj, logs = self.find(calls, "projects add-iam-policy-binding")
         self.assertIn(f"serviceAccount:{sa} --role roles/cloudsql.client", proj)
+        # The deployer reads a failed execution's log (ci_migrate.sh).
+        self.assertIn("serviceAccount:quantcore-deployer@quantcore-test-20260606"
+                      ".iam.gserviceaccount.com --role roles/logging.viewer", logs)
         # secretAccessor on the DSN secret only, not the report Job's other secrets.
         (secret,) = self.find(calls, "secrets add-iam-policy-binding")
         self.assertTrue(secret.startswith("secrets add-iam-policy-binding quantcore-db-dsn "))
@@ -105,7 +108,7 @@ class EnsureMigrateJobTest(unittest.TestCase):
         self.assertIn("--add-cloudsql-instances proj:us-central1:inst", update)
         self.assertIn("--max-retries 0", update)
         # Grants are re-asserted on every run; add-iam-policy-binding is idempotent.
-        self.assertEqual(len(self.find(calls, "projects add-iam-policy-binding")), 1)
+        self.assertEqual(len(self.find(calls, "projects add-iam-policy-binding")), 2)
 
     def test_existing_job_takes_a_given_image(self):
         r, calls = self.run_script("--image", "reg/quantcore-migrate@sha256:abc",

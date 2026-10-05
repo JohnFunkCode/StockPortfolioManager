@@ -124,3 +124,4 @@ effect within a minute or two, and nothing else needs undoing.
 | 3. Prod provider condition | Done (2026-10-05), before #320 merged. That was harmless: no release had ever run, and dispatches from main satisfy it. Read back with `describe`. |
 | 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
 | 5. Verification | Pending. |
+| PR #320 review (2026-10-05) | Added `tests/test_setup_test_wif.py`. It runs the script against a stub `gcloud` and asserts the exact `--attribute-mapping` and `--attribute-condition` on both the create-oidc path (missing provider) and the update-oidc path (existing provider). A mutation that drops the `ref` clause fails both tests. Out of scope for this PR, by design: step 2 (John's repo setting), the audit-log alert and a bind/unbind check (step 6 follow-ups, John's IAM work), and step 5 (needs the merge). |

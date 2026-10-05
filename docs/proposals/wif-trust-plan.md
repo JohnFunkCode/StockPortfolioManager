@@ -86,12 +86,14 @@ gcloud iam workload-identity-pools providers update-oidc github \
   `gcloud iam workload-identity-pools providers describe github --workload-identity-pool=github-prod --location=global --project=quantcore-prod-20260606 --format='value(attributeCondition)'`
   (the same for `github-test`).
 - Test positive: the next merge to main rolls out to test as usual.
-- Test negative: dispatch `deploy.yml` from a scratch branch
-  (`gh workflow run deploy.yml --ref <scratch-branch>`). Its `deploy` job must fail at the
-  auth step, with an error naming the attribute condition. Nothing reaches test.
 - Prod positive: the next normal prod dispatch from main (approve as usual) authenticates.
-- Prod negative: `gh workflow run prod-rollout.yml --ref <scratch-branch>` is refused at the
-  environment ("not allowed to deploy to prod") before any job runs.
+- Negative, both providers: push a scratch branch that holds only a probe workflow, triggered
+  on push to that branch, with one job per provider. Each job is a single
+  `google-github-actions/auth@v3` step with `token_format: access_token`, which forces the STS
+  exchange at once. The test job uses the repo secrets. The prod job names the prod provider and
+  SA literally, because the environment secrets are out of reach without `environment: prod`. Both
+  jobs must fail with `The given credential is rejected by the attribute condition.` Then delete
+  the branch. Don't use `deploy.yml` or `prod-rollout.yml` for this (gotcha 4).
 
 **Rollback** (if a legitimate run is refused): re-run step 3 or 4 with
 `--attribute-condition="assertion.repository=='JohnFunkCode/StockPortfolioManager'"`. This takes
@@ -114,6 +116,12 @@ effect within a minute or two, and nothing else needs undoing.
    exchange fails.
 3. **`job_workflow_ref` pins the file, not just the repo.** Renaming `prod-rollout.yml` will
    break prod auth until the condition is updated to match.
+4. **The first negative test in this runbook would have passed without testing anything.** It
+   said to dispatch `deploy.yml` from a scratch branch. That run does fail, but `preflight`
+   refuses any dispatch whose ref isn't main (#120), *before* the `deploy` job reaches the auth
+   step, so WIF is never asked. The prod version, dispatching `prod-rollout.yml` from a branch,
+   is a prod dispatch, which is John's call and not a test step. So the negative test is now a
+   scratch probe that does nothing except the token exchange.
 
 ## Checkpoint log
 
@@ -125,5 +133,5 @@ effect within a minute or two, and nothing else needs undoing.
 | 2. `prod` branch policy main-only | Done (2026-10-05), in the UI. Checked through the API: `custom_branch_policies: true`, one policy (branch `main`), admin bypass off, the five required reviewers unchanged. |
 | 3. Prod provider condition | Done (2026-10-05), before #320 merged. That was harmless: no release had ever run, and dispatches from main satisfy it. Read back with `describe`. |
 | 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
-| 5. Verification | Pending. |
+| 5. Verification | Read-back done (both conditions as in steps 3 and 4). Test positive done: deploy run 37355839488 (the merge of #320, `90c89ca`) passed auth and rolled out. Negative done (2026-10-05): probe run 37357151516 on `scratch/wif-negative-313`. Both jobs failed with `unauthorized_client: The given credential is rejected by the attribute condition.` The branch has been deleted. **Prod positive pending** John's next prod dispatch from main. |
 | PR #320 review (2026-10-05) | Added `tests/test_setup_test_wif.py`. It runs the script against a stub `gcloud` and asserts the exact `--attribute-mapping` and `--attribute-condition` on both the create-oidc path (missing provider) and the update-oidc path (existing provider). A mutation that drops the `ref` clause fails both tests. Out of scope for this PR, by design: step 2 (John's repo setting), the audit-log alert and a bind/unbind check (step 6 follow-ups, John's IAM work), and step 5 (needs the merge). |

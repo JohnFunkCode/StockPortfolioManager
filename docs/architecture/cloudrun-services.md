@@ -96,8 +96,9 @@ never passes `--allow-unauthenticated`, which would fail. Instead it runs a sepa
 `projects.testIamPermissions` for `run.services.create` and `run.services.setIamPolicy`, as the
 deployer, with `gcloud auth print-access-token` (the token goes only into the request header).
 If either is missing, nothing is created: the step fails with `::error title=<name> not
-created::`, naming the missing permission and printing the bind command for an owner to run after
-creating the service by hand. That refusal is the normal onboarding path, because the grant is
+created::`, naming the missing permission and pointing to the by-hand onboarding below. There the owner
+runs the same deploy under their own login, which creates the service and binds `allUsers` in
+one go, so there is no separate grant to run. That refusal is the normal onboarding path, because the grant is
 declined (below). If the check itself fails (no token, API unreachable), the step fails closed and creates
 nothing. Without the check, run.developer would create a wrapper it could not make public, and
 leave a service behind that answers every client with 403.

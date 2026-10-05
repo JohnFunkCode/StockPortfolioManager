@@ -63,13 +63,41 @@ base-only test run.
 6. **`dep-audit` is deliberately not in `deploy`'s `needs`.** A new advisory against an unchanged
    lock would otherwise block every unrelated merge from reaching test. It goes red; the fix is a
    floor bump or `lock_deps.sh --upgrade`.
-7. **PRs opened with `GITHUB_TOKEN` don't trigger workflows,** so the weekly PR would have no CI
-   and couldn't pass the required checks. Also, the org/repo setting "Allow GitHub Actions to create
-   and approve pull requests" must be on for `gh pr create` to work at all. Choice (John's): turn
-   that setting on and re-run CI on the PR by hand, **or** add a fine-grained PAT as the
-   `DEPS_PR_TOKEN` secret (contents + pull-requests write), which the workflow prefers when set.
-   Dependabot was ruled out: it doesn't update uv-compiled hashed requirements
-   (dependabot-core#10478).
+7. **PRs opened with `GITHUB_TOKEN` don't trigger workflows,** so the weekly PR would get no CI
+   (`gate`, `lean-import`, `dep-audit`). The `main` ruleset requires one approval but **no status
+   checks**, so the PR could still merge; it would just merge unchecked. Also, the repo setting
+   "Allow GitHub Actions to create and approve pull requests" must be on for `gh pr create` to
+   work with `GITHUB_TOKEN` at all. It was off when checked on 2026-10-05 (`gh api
+   repos/JohnFunkCode/StockPortfolioManager/actions/permissions/workflow` returns
+   `can_approve_pull_request_reviews: false`), and no `DEPS_PR_TOKEN` secret existed. Until one of
+   the two is done, every Monday run fails at `gh pr create`. Choice (John's), one of:
+   - **A. Repo setting.** Settings → Actions → General → *Workflow permissions* → tick "Allow
+     GitHub Actions to create and approve pull requests" → Save. Leave the default permission at
+     "Read repository contents"; the workflow declares its own `contents`/`pull-requests: write`.
+     CLI equivalent: `gh api -X PUT repos/JohnFunkCode/StockPortfolioManager/actions/permissions/workflow
+     -F can_approve_pull_request_reviews=true -f default_workflow_permissions=read`. The PR is
+     authored by `github-actions[bot]`. To get CI on it, close and reopen it: a reopen by a person
+     fires `pull_request`. Nothing to rotate.
+   - **B. `DEPS_PR_TOKEN` (preferred: the PR gets CI on its own).** GitHub → Settings → Developer
+     settings → Personal access tokens → Fine-grained tokens → Generate new token. Set:
+     - Resource owner: JohnFunkCode.
+     - Repository access: *Only select repositories* → StockPortfolioManager.
+     - Repository permissions: **Contents: Read and write**, **Pull requests: Read and write**.
+       Metadata: Read is added automatically. Nothing else is needed: the lock PR never touches
+       `.github/workflows/`, so no *Workflows* permission is required.
+     - An expiry, with a calendar reminder to rotate it.
+
+     Then store it with `gh secret set DEPS_PR_TOKEN` (it prompts, so the token never lands in
+     shell history), or use Settings → Secrets and variables → Actions → New repository secret.
+     The workflow uses `secrets.DEPS_PR_TOKEN || github.token` for both the checkout push and
+     `gh pr create`, so nothing else changes. The PR is authored by the token's owner (John), so
+     John can't approve his own PR; merge it with the admin bypass the ruleset already grants,
+     the same way as other PRs he authors. When the token expires, the Monday run fails at the
+     push.
+
+   Either way, verify by dispatching it once: Actions → Dependency lock update → Run workflow (or
+   `gh workflow run deps-lock-update.yml`). Dependabot was ruled out: it doesn't update uv-compiled
+   hashed requirements (dependabot-core#10478).
 8. **My own Dockerfile comment tripped the "no `--upgrade pip`" test.** The assertion is now a
    regex on `RUN` lines only.
 9. **The Pi needs a 64-bit OS.** PyTorch publishes aarch64 manylinux wheels but none for 32-bit

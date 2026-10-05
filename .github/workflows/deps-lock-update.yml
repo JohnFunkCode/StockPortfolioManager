@@ -15,7 +15,7 @@
 #     workflows on a PR opened by GITHUB_TOKEN, so close and reopen it to get CI; or
 #   - a fine-grained PAT (contents + pull-requests: write on this repo) stored as the secret
 #     DEPS_PR_TOKEN, in which case the PR gets CI like any other.
-# Plan and gotchas: docs/proposals/pin-deps-plan.md.
+# Step-by-step for both: docs/proposals/pin-deps-plan.md, gotcha 7.
 name: Dependency lock update
 
 on:

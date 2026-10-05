@@ -176,7 +176,8 @@ roster would hide the case worth seeing — a cache thin on the symbols the team
    `.lock` files are hash-pinned and generated from the `requirements-*.txt` inputs by
    `scripts/lock_deps.sh` (needs `pip install uv`). After editing a `.txt`, re-run that script
    and commit the lock too, or CI fails. A weekly workflow opens a PR that moves every pin
-   forward and runs `pip-audit`. The inputs are layered —
+   forward and runs `pip-audit`; it needs a one-time repo setting or a `DEPS_PR_TOKEN` secret to
+   open that PR (steps: [`pin-deps-plan.md`](docs/proposals/pin-deps-plan.md), gotcha 7). The inputs are layered —
    `requirements-base.txt` (lean: what the containers install) + `requirements-ml.txt`
    (torch/transformers for FinBERT) + `requirements-report.txt` (matplotlib, jinja2, boto3) — so
    that the deployed images stop carrying the HTML report's rendering stack. If you deliberately

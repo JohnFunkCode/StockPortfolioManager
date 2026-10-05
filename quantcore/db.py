@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import psycopg2
+import psycopg2.errors
 import psycopg2.extras
 from dotenv import load_dotenv
 
@@ -627,6 +628,12 @@ def _resolve_schema_mode(dsn: str) -> tuple[str, str]:
 
     ``--update-env-vars``, never ``--set-env-vars``: the latter replaces the
     whole set and has taken prod down before.
+
+    On a deployed database the services connect as the DML-only app role
+    (``quantcore_app``, #308), which cannot run DDL, so ``create`` there
+    degrades to a ``warn`` check (see :func:`ensure_schema`). The hatch on a
+    deployed database is therefore ``warn``: it stops a drift from failing
+    startup. Creating a missing object takes the migrator role.
     """
     requested = (os.getenv("QUANTCORE_SCHEMA_MODE") or "auto").strip().lower()
     if requested not in SCHEMA_MODES:
@@ -718,7 +725,20 @@ def ensure_schema(dsn: str = None) -> None:
             return
         requested, resolved = _resolve_schema_mode(target_dsn)
         if resolved == "create":
-            init_schema(target_dsn)
+            try:
+                init_schema(target_dsn)
+            except psycopg2.errors.InsufficientPrivilege:
+                # The DML-only app role (#308) may not run DDL, so on a
+                # deployed database `create` cannot work. Failing startup
+                # here would turn the escape hatch into an outage; check
+                # warn-only instead, and say loudly why.
+                logger.error(
+                    "schema check: mode=%s cannot run DDL as this role "
+                    "(insufficient privilege); checking warn-only instead. "
+                    "Schema changes go through the migrator role (#308).",
+                    requested,
+                )
+                _check_schema(target_dsn, requested=requested, resolved="warn")
         else:
             # Raises in verify mode, and the DSN stays unrecorded below, so a
             # caller that catches and retries gets a real second check.

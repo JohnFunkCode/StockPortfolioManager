@@ -401,7 +401,7 @@ hatch is one `gcloud run services update --update-env-vars` away:
 
 | Mode | Behaviour |
 |---|---|
-| `create` | Run the 22-table DDL. Historic behaviour, and the escape hatch. |
+| `create` | Run the 22-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
 | `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
 | `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
 | `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `verify`. |
@@ -444,9 +444,19 @@ cycle — missing=0, mismatch=0 — and now enforces):
   revision keeps serving. The alternative is the drift surfacing hours later as query errors on
   live traffic.
 - Escape hatch, one command, no code change:
-  `gcloud run services update quantcore-api --project <project> --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=create`
+  `gcloud run services update quantcore-api --project <project> --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=warn`
   (`--update-env-vars`, never `--set-env-vars` — the latter replaces the whole set and has taken
-  prod down before).
+  prod down before). It is `warn`, not `create`, once a project runs the app role below: that
+  role can't run DDL, so `create` degrades to a `warn` check and logs an error.
+- **Two database roles** (#308). The owner `quantcore` is the migrator; only the
+  `quantcore-migrate` Job uses it, through its own secret `quantcore-<env>-migrator-dsn`. The
+  services and the report/news Jobs connect as **`quantcore_app`**, DML only, through
+  `quantcore-<env>-db-dsn`. Default privileges cover tables a later migration creates, and the
+  app role cannot write `flyway_schema_history`. The role is cluster-global and carries a
+  password, so it is **not** a Flyway migration: an operator runs
+  `scripts/ensure_app_db_role.py [--prod]`, which is idempotent, and `--dry-run` only verifies it.
+  `.env`'s DSNs stay the owner's (`flyway.sh` needs them). Runbook and gotchas:
+  [`db-roles-308-plan.md`](docs/proposals/db-roles-308-plan.md).
 
 **Migrations (Flyway):** versioned SQL lives in `db/migrations/V*.sql`, configured by `db/flyway.conf` (which deliberately holds **no credentials** — `baselineOnMigrate=true`, `baselineVersion=1`). Run it with the wrapper, which derives the JDBC URL and login from the DSNs in `.env`, defaults to **test**, echoes the target host before running, and confirms before a prod `migrate`:
 

@@ -28,6 +28,10 @@
 # non-transactional ones (CONCURRENTLY, VACUUM, ...). Apply those here, then re-run
 # the workflow. Plan: docs/proposals/flyway-automation-plan.md
 #
+# The DSNs in .env must be the schema owner's (quantcore), the migrator role. The
+# deployed services connect as the DML-only quantcore_app role (#308), which
+# cannot run a migration. docs/proposals/db-roles-308-plan.md
+#
 # Migrations written before that flip may still report "already exists, skipping"
 # because `init_schema()` had already converged the shape. `flyway info` is a
 # changelog view, NOT evidence of what a deployed database contains; run

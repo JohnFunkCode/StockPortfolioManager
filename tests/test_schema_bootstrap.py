@@ -248,6 +248,37 @@ class SchemaModeTest(unittest.TestCase):
         init.assert_called_once()
         self.assertIn("verfiy", "\n".join(logs.output))
 
+    def test_create_without_ddl_rights_degrades_to_a_warn_check(self):
+        """#308: the app role is DML-only, so `create` can't run DDL on a deployed DB.
+
+        Failing startup there would make the escape hatch an outage; it logs
+        why and runs the read-only check instead, which never raises.
+        """
+        conn = FakeConnection([], flyway=True)
+        denied = db.psycopg2.errors.InsufficientPrivilege("permission denied for schema public")
+        with self.assertLogs("quantcore.db", level="INFO") as logs, \
+             patch.dict(os.environ, {"QUANTCORE_SCHEMA_MODE": "create"}), \
+             patch.object(db.psycopg2, "connect", return_value=conn), \
+             patch.object(db, "describe_schema", return_value=_schema("symbols")), \
+             patch.object(db, "init_schema", side_effect=denied):
+            db.ensure_schema("postgresql://fake/one")  # does not raise
+
+        output = "\n".join(logs.output)
+        self.assertIn("insufficient privilege", output)
+        self.assertIn("mode=create resolved=warn", output)
+        self.assertIn("MISSING  table positions", output)
+        self.assertIn("postgresql://fake/one", db._schema_ready_dsns)
+
+    def test_create_still_raises_other_ddl_errors(self):
+        """Only a privilege refusal degrades; a lock timeout stays loud."""
+        conn = FakeConnection([], flyway=True)
+        with patch.dict(os.environ, {"QUANTCORE_SCHEMA_MODE": "create"}), \
+             patch.object(db.psycopg2, "connect", return_value=conn), \
+             patch.object(db, "init_schema",
+                          side_effect=db.psycopg2.errors.LockNotAvailable("lock timeout")):
+            with self.assertRaises(db.psycopg2.errors.LockNotAvailable):
+                db.ensure_schema("postgresql://fake/one")
+
     # -- warn vs verify --------------------------------------------------
 
     def test_warn_logs_a_missing_table_without_raising(self):

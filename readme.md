@@ -281,12 +281,24 @@ creates anything on test or prod, so:
 3. **Failing early is the point.** Startup raises `SchemaDriftError`, so the new Cloud Run
    revision never passes its health check and never takes traffic — the previous revision keeps
    serving. Drift surfaces at deploy time instead of hours later as query errors on live traffic.
-4. **If you need the old behaviour back**, it is one command and no code change:
+4. **If a drift check is blocking startup**, it is one command and no code change:
    ```bash
-   gcloud run services update quantcore-api --project quantcore-prod-20260606 --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=create
+   gcloud run services update quantcore-api --project quantcore-prod-20260606 --region us-central1 --update-env-vars QUANTCORE_SCHEMA_MODE=warn
    ```
    Always `--update-env-vars`, never `--set-env-vars` — the latter replaces the whole variable set
-   and has broken prod before.
+   and has broken prod before. `create` no longer helps on a deployed database: the services
+   connect as a role that can't run DDL (next point), so `create` there degrades to `warn`.
+5. **Two database roles** (#308). The schema owner `quantcore` is used only by the migrate Job,
+   through the secret `quantcore-<env>-migrator-dsn`. Everything else connects as `quantcore_app`
+   (select/insert/update/delete only) through `quantcore-<env>-db-dsn`. An operator creates or
+   re-asserts the app role, without a migration, with:
+   ```bash
+   python scripts/ensure_app_db_role.py --dry-run
+   ```
+   Drop `--dry-run` to apply (`--prod` for prod, which prompts). The password is read from
+   `QUANTCORE_APP_DB_PASSWORD` or a prompt, and only a SCRAM verifier is sent to the server. The
+   full rollout (secrets, the Job, new revisions) is in
+   [`docs/proposals/db-roles-308-plan.md`](docs/proposals/db-roles-308-plan.md).
 
 **Migrating from a legacy SQLite database:** if you have an existing `quantcore.sqlite` file, `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy into PostgreSQL — it initializes the schema, migrates all tables in foreign-key-safe order using batched inserts, resets primary-key sequences, and verifies row counts:
 ```bash
@@ -797,7 +809,7 @@ the unauthenticated stack is reachable only from this machine, never from the LA
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.lock` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.lock` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.lock` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
-| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). Run by `deploy.yml` and `prod-rollout.yml` through `scripts/ci_migrate.sh`, before every roll-out. The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. Design: [the plan](docs/proposals/flyway-automation-plan.md) |
+| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). Run by `deploy.yml` and `prod-rollout.yml` through `scripts/ci_migrate.sh`, before every roll-out. The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. The Job reads the owner's DSN from its own secret, `quantcore-<env>-migrator-dsn`, which must exist first (#308). Design: [the plan](docs/proposals/flyway-automation-plan.md), [roles](docs/proposals/db-roles-308-plan.md) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api and news images carry the heavy ML stack — post-inversion FinBERT

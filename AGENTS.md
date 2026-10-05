@@ -69,8 +69,9 @@ These are the constraints most likely to be violated by an agent that skipped `C
   so the migration must be complete DDL. CI refuses contract and non-transactional migrations
   (`DROP`, `RENAME`, `CONCURRENTLY`, …); apply those by hand with `./scripts/flyway.sh [--prod]
   migrate` and re-run the workflow. Forward-fix only: never edit an applied migration. A failing revision never takes traffic — that is the
-  intended behaviour, not an outage. Escape hatch: `QUANTCORE_SCHEMA_MODE=create` via
-  `--update-env-vars`.
+  intended behaviour, not an outage. Escape hatch: `QUANTCORE_SCHEMA_MODE=warn` via
+  `--update-env-vars`. The services connect as the DML-only `quantcore_app` role; only the
+  migrate Job holds the owner's DSN (#308, see CLAUDE.md).
 - **BYOK never-log policy:** no API keys, `Authorization` headers, envelopes, decrypted payloads,
   request bodies, or exception dumps containing credentials may reach any log or print. New
   failure paths must add the corresponding log assertion.

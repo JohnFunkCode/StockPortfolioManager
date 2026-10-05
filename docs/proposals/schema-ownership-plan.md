@@ -525,6 +525,10 @@ gcloud run services update quantcore-api --project <project> --region us-central
 `--update-env-vars`, never `--set-env-vars` — the latter replaces the whole set and has broken prod
 before.
 
+> **Since #308** the services connect as a DML-only role, so `create` on a deployed database
+> degrades to a `warn` check; the hatch there is `QUANTCORE_SCHEMA_MODE=warn`. See
+> [`db-roles-308-plan.md`](db-roles-308-plan.md).
+
 ### Step 2 — Document the behavioural change loudly
 
 This is the part that changes how people work, and it belongs in `readme.md`, `CLAUDE.md`, and

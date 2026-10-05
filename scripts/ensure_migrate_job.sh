@@ -8,7 +8,9 @@
 #      are its own and not the report Job's).
 #   2. Its grants: roles/cloudsql.client on the project, secretAccessor on the DSN
 #      secret only, and roles/iam.serviceAccountUser on it for the CI deployer
-#      (quantcore-deployer@, or $DEPLOYER_SA), which must act as it to execute the Job.
+#      (quantcore-deployer@, or $DEPLOYER_SA), which must act as it to execute the Job;
+#      and roles/logging.viewer on the project for that deployer, so CI can print a failed
+#      execution's log (scripts/ci_migrate.sh).
 #   3. The Job, with the Cloud SQL instance and the QUANTCORE_DB_DSN secret copied from
 #      quantcore-report in the same project so the two cannot drift, a 600s task
 #      timeout and no retries (a migration failure is deterministic).
@@ -43,7 +45,7 @@ while (( $# )); do
     --image) IMAGE="${2:?--image needs a value}"; shift ;;
     --execute) EXECUTE=1 ;;
     --dry-run) DRY_RUN=1 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "ensure_migrate_job: unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -128,6 +130,9 @@ run gcloud secrets add-iam-policy-binding "$DSN_SECRET" --project "$PROJECT" \
   --member "serviceAccount:${SA}" --role roles/secretmanager.secretAccessor --format=none
 run gcloud iam service-accounts add-iam-policy-binding "$SA" --project "$PROJECT" \
   --member "serviceAccount:${DEPLOYER_SA}" --role roles/iam.serviceAccountUser --format=none
+# So scripts/ci_migrate.sh can print a failed execution's log into the workflow step.
+run gcloud projects add-iam-policy-binding "$PROJECT" \
+  --member "serviceAccount:${DEPLOYER_SA}" --role roles/logging.viewer --condition=None --format=none
 
 # ---- the Job ----
 shape=(--service-account "$SA" --task-timeout 600s --max-retries 0 --cpu 1 --memory 1Gi)

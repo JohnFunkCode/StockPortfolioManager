@@ -134,6 +134,12 @@ class InstallWiringTest(unittest.TestCase):
             doc["jobs"]["update"].get("if"),
             "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
 
+    def test_update_workflow_takes_its_token_from_the_main_only_environment(self):
+        # DEPS_PR_TOKEN lives only in the deps-lock environment (main-only branch policy);
+        # without this line the job can't see it and falls back to GITHUB_TOKEN.
+        doc = yaml.safe_load((WORKFLOWS / "deps-lock-update.yml").read_text())
+        self.assertEqual(doc["jobs"]["update"].get("environment"), "deps-lock")
+
 
 if __name__ == "__main__":
     unittest.main()

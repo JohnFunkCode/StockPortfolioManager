@@ -89,9 +89,9 @@ base-only test run.
        `.github/workflows/`, so no *Workflows* permission is required.
      - An expiry, with a calendar reminder to rotate it.
 
-     Then store it with `gh secret set DEPS_PR_TOKEN` (it prompts, so the token never lands in
-     shell history), or use the **repo's** Settings → Secrets and
-     variables → Actions → New repository secret.
+     Then store it as a secret of the `deps-lock` **environment**, not a repository secret
+     (gotcha 8): `gh secret set DEPS_PR_TOKEN --env deps-lock` (it prompts, so the token never
+     lands in shell history), or Settings → Environments → deps-lock → Add environment secret.
      The workflow uses `secrets.DEPS_PR_TOKEN || github.token` for both the checkout push and
      `gh pr create`, so nothing else changes. The PR is authored by the token's owner (John), so
      John can't approve his own PR; merge it with the admin bypass the ruleset already grants,
@@ -110,15 +110,26 @@ base-only test run.
    - **That guard is defence in depth, not the control.** It lives in the same file an attacker
      would edit on their branch, so it stops accidents (dispatching from the wrong branch), not a
      deliberate misuse.
-   - **The real control (recommended, John's to apply):** move the secret into a GitHub
-     Environment that only `main` can deploy from.
-     1. Repo Settings → Environments → New environment, name `deps-lock`.
-     2. Deployment branches and tags → Selected branches → add `main`.
-     3. Add the secret there as `DEPS_PR_TOKEN`, then delete the repository-level one.
-     4. Add `environment: deps-lock` to the `update` job, in the same PR as step 3.
-     GitHub then withholds the secret from any run on another branch, whatever the workflow file
-     says. Until step 1 exists, `environment: deps-lock` would make GitHub create an unprotected
-     environment on the first run, so the workflow line waits for the settings.
+   - **The real control (applied 2026-10-05):** the secret lives in a GitHub Environment that
+     only `main` can deploy from, and the job names it with `environment: deps-lock`. GitHub
+     withholds the secret from any run on another branch, whatever the workflow file says.
+     Setup, for a rebuild:
+     1. Repo Settings → Environments → New environment, name `deps-lock`. No required
+        reviewers or wait timer (they would hold every Monday run).
+     2. Deployment branches and tags → **Selected branches and tags** → rule: Branch, `main`.
+        Not "Protected branches only": `main` is guarded by a ruleset, not branch protection.
+     3. **Uncheck "Allow administrators to bypass configured protection rules"**, then Save. The
+        API lists the branch policy as a protection rule (`branch_policy`), so the bypass
+        plausibly covers it.
+     4. Add `DEPS_PR_TOKEN` as an environment secret. GitHub never shows a secret again, so this
+        needs the token itself; regenerating it invalidates any other copy.
+     5. Merge the `environment:` line, dispatch once, and only then delete the repository-level
+        secret. **Order matters:** until the job names the environment it can't see the
+        environment secret, so deleting the repo copy first drops it to `github.token`, which
+        may not open PRs. Conversely, naming an environment that doesn't exist makes GitHub
+        create an unprotected one on the first run.
+   - Not covered: the job's own `GITHUB_TOKEN` (`contents`/`pull-requests: write`) is still
+     issued to a dispatch from any branch; only the `if:` guards that.
 9. **My own Dockerfile comment tripped the "no `--upgrade pip`" test.** The assertion is now a
    regex on `RUN` lines only.
 10. **The Pi needs a 64-bit OS.** PyTorch publishes aarch64 manylinux wheels but none for 32-bit
@@ -135,7 +146,8 @@ base-only test run.
 | Locks + `lock_deps.sh` (lock/`--upgrade`/`--check`) | Done. `--check`: "locks ok: 5 locks match their inputs." |
 | Dockerfiles, cloudbuild, deploy/prod-rollout wiring, `DEPS_EPOCH` removed | Done. `check_cloudbuild.py` OK; `test_dependency_locks` + `test_check_cloudbuild` + `test_ci_parallel` + `test_check_deploy_ref` pass (45 tests). |
 | `audit_deps.sh` + `dep-audit` job | Done. Clean on all 5 locks; negative test fires. |
-| `deps-lock-update.yml` | Written; first run pending John's choice of setting or PAT (gotcha 7). |
+| `deps-lock-update.yml` | Done. `DEPS_PR_TOKEN` added (gotcha 7); first dispatch 2026-10-05 (run 37348362140) opened #316 under John's account, all checks ran and passed; merged. |
 | Scratch Cloud Build (`_TAG`/`_CACHE_TAG=pindeps-218`, `_LATEST_TAG=pindeps-218-latest`) | SUCCESS, build `a8befe8d`, 7m47s. All 7 images installed their locks with `--require-hashes`. api and news took 6m36s each, with a cold cache and torch `+cpu` from the PyTorch index; mcp/report 2m03s, ui 1m23s, keyproxy 53s, migrate 25s. `tag-latest` moved only `:pindeps-218-latest`. |
 | PR #315 review (2026-10-05) | Default-branch `if:` on the `update` job + test (gotcha 8). The `main`-only Environment for `DEPS_PR_TOKEN` is documented, not applied. |
+| `deps-lock` environment (2026-10-05) | John created it (main-only, token as environment secret); the job now names it. Pending: admin-bypass unchecked, a dispatch from main, then deleting the repo-level secret. |
 | Pi | John's step: on a 64-bit Pi, `pip install --require-hashes -r requirements.lock`, then run the report script. |

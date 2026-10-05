@@ -127,6 +127,13 @@ class InstallWiringTest(unittest.TestCase):
         self.assertIn("scripts/audit_deps.sh", runs)
         self.assertIn("gh pr create --base main", runs)
 
+    def test_update_workflow_runs_only_from_the_default_branch(self):
+        # workflow_dispatch can target any branch, and the job holds DEPS_PR_TOKEN (#315 review).
+        doc = yaml.safe_load((WORKFLOWS / "deps-lock-update.yml").read_text())
+        self.assertEqual(
+            doc["jobs"]["update"].get("if"),
+            "github.ref == format('refs/heads/{0}', github.event.repository.default_branch)")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -101,11 +101,29 @@ base-only test run.
    Either way, verify by dispatching it once: Actions → Dependency lock update → Run workflow (or
    `gh workflow run deps-lock-update.yml`). Dependabot was ruled out: it doesn't update uv-compiled
    hashed requirements (dependabot-core#10478).
-8. **My own Dockerfile comment tripped the "no `--upgrade pip`" test.** The assertion is now a
+8. **`workflow_dispatch` can run any branch's copy of the workflow with the secret** (PR #315
+   review). Repository secrets are available to every branch, so anyone who can push a branch
+   could dispatch an edited `deps-lock-update.yml` there and use `DEPS_PR_TOKEN` (or the job's
+   write-scoped `GITHUB_TOKEN`). The job now carries
+   `if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)`, and
+   `tests/test_dependency_locks.py` pins it.
+   - **That guard is defence in depth, not the control.** It lives in the same file an attacker
+     would edit on their branch, so it stops accidents (dispatching from the wrong branch), not a
+     deliberate misuse.
+   - **The real control (recommended, John's to apply):** move the secret into a GitHub
+     Environment that only `main` can deploy from.
+     1. Repo Settings → Environments → New environment, name `deps-lock`.
+     2. Deployment branches and tags → Selected branches → add `main`.
+     3. Add the secret there as `DEPS_PR_TOKEN`, then delete the repository-level one.
+     4. Add `environment: deps-lock` to the `update` job, in the same PR as step 3.
+     GitHub then withholds the secret from any run on another branch, whatever the workflow file
+     says. Until step 1 exists, `environment: deps-lock` would make GitHub create an unprotected
+     environment on the first run, so the workflow line waits for the settings.
+9. **My own Dockerfile comment tripped the "no `--upgrade pip`" test.** The assertion is now a
    regex on `RUN` lines only.
-9. **The Pi needs a 64-bit OS.** PyTorch publishes aarch64 manylinux wheels but none for 32-bit
+10. **The Pi needs a 64-bit OS.** PyTorch publishes aarch64 manylinux wheels but none for 32-bit
    armv7, so `pip install --require-hashes -r requirements.lock` fails on 32-bit Pi OS.
-10. **Not covered:**
+11. **Not covered:**
     - pip doesn't hash-check the *build* dependencies of a package that installs from an sdist.
       Every package in the container locks currently resolves to a wheel.
     - The `python:3.12-slim` base image is still a floating tag.
@@ -119,4 +137,5 @@ base-only test run.
 | `audit_deps.sh` + `dep-audit` job | Done. Clean on all 5 locks; negative test fires. |
 | `deps-lock-update.yml` | Written; first run pending John's choice of setting or PAT (gotcha 7). |
 | Scratch Cloud Build (`_TAG`/`_CACHE_TAG=pindeps-218`, `_LATEST_TAG=pindeps-218-latest`) | SUCCESS, build `a8befe8d`, 7m47s. All 7 images installed their locks with `--require-hashes`. api and news took 6m36s each, with a cold cache and torch `+cpu` from the PyTorch index; mcp/report 2m03s, ui 1m23s, keyproxy 53s, migrate 25s. `tag-latest` moved only `:pindeps-218-latest`. |
+| PR #315 review (2026-10-05) | Default-branch `if:` on the `update` job + test (gotcha 8). The `main`-only Environment for `DEPS_PR_TOKEN` is documented, not applied. |
 | Pi | John's step: on a 64-bit Pi, `pip install --require-hashes -r requirements.lock`, then run the report script. |

@@ -68,8 +68,14 @@ roll-out as a merge, without touching main or prod.
 7. **`inputs.ref` is free text.** Interpolating `${{ inputs.ref }}` into a `run:` block is a shell
    injection. It reaches shells only through `env:` (`DEPLOY_REF`), and through `with: ref:` on
    checkouts. A test fails if `${{ inputs.` ever appears in a `run:`.
-8. **Two-dot diff, not three.** `git diff origin/main HEAD` compares trees, so a migration main
-   gained after the ref was cut shows as `D` (ignored), and only `A`/`M` are the ref's own.
+8. **Neither diff alone tells you what the ref did.** The first version used only the two-dot
+   `git diff origin/main HEAD` and ignored `D`, because a migration main gained after the ref was
+   cut also shows as `D` there. That let a ref that **deletes** an applied migration through, and
+   Flyway's validate would then fail after the build (PR #310 review). The three-dot
+   `origin/main...HEAD` (since the merge-base) shows only the ref's own commits, but also lists a
+   change main has since taken identically. So the check intersects the two by path: refused
+   means "the ref's own commits touched it, and it still differs from main", whether `A`, `M` or
+   `D`. Needs the ref checked out with history back to main (`fetch-depth: 0`).
 9. **Test differs from main after a dispatch** until the next push to main redeploys main. The
    step summary is the attribution; this doesn't replace a revert PR when main itself must be
    parked.
@@ -80,4 +86,5 @@ roll-out as a merge, without touching main or prod.
 |---|---|
 | `check_deploy_ref.py` + `deploy.yml` wiring | Done. `test_check_deploy_ref`, `test_ci_parallel`, `test_check_cloudbuild` pass (34 tests); `check_cloudbuild.py` OK. |
 | Docs | CLAUDE.md QuantUI deploy bullet, readme "Trying a branch on test before merging", prod-promotion.md (`:latest` is main only), quantui.md. |
+| PR #310 review (2026-10-05) | Migration check refuses a ref's own deletions too (two- and three-dot diffs intersected; gotcha 8). 4 new tests; 40 pass across `test_check_deploy_ref`, `test_ci_migrate`, `test_ci_parallel`. complexipy max 4. |
 | First real dispatch | Pending: after merge, dispatch a branch from main and confirm the summary, the tags (`:dispatch-latest`, `:latest` unmoved) and the roll-out. |

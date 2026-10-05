@@ -247,7 +247,7 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
 - Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
   `prod-rollout.yml`. Prod is never auto-deployed. Any other branch/tag/SHA reaches **test only**
   by dispatching `deploy.yml` **from main** with its `ref` input (#120): the gates run on the ref,
-  `scripts/check_deploy_ref.py` refuses a ref carrying a migration main lacks, and the build gets
+  `scripts/check_deploy_ref.py` refuses a ref whose own commits add, edit or delete a migration, and the build gets
   scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
   prod-rollout's default. Test then differs from main until the next merge
   ([`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md)).

@@ -29,6 +29,26 @@ operator's to run, not CI's or an agent's. `P` is the project and `E` the enviro
 bash shell at the repo root, with the matching proxy running (`./runProxy-MAC.sh --test`, or no
 flag for prod).
 
+**Run it with the script.** `scripts/rollout_app_db_role.sh` runs steps 0–5 below in order, so
+nothing has to be copied out of this page, then prints steps 6–7:
+
+```bash
+./scripts/rollout_app_db_role.sh
+```
+
+```bash
+./scripts/rollout_app_db_role.sh --prod
+```
+
+It is safe to re-run. It reads only the *user name* out of the secrets, never prints a DSN, and
+decides from it what is left: if the app secret already connects as `quantcore_app` it only
+verifies (`--dry-run`); an existing migrator secret is kept once it is checked to hold
+`quantcore`; any other user stops it before a change. If it fails before step 5, fix the cause and
+run it again — step 1 sets a fresh password, which nothing uses until step 5. `--rollback` does the
+rollback below. `--prod` prompts here, and again in each sub-script.
+
+The commands it runs, for reference:
+
 **Order matters.** Step 2 copies the *current* app secret, which still holds the owner's DSN, so
 it must happen before step 5 replaces that secret.
 
@@ -113,5 +133,6 @@ The role itself can stay in place; it is unused until a secret points at it.
 |---|---|---|---|---|
 | 1. Code + docs | 2026-10-05 | _this PR_ | `create` degrades to `warn` on `InsufficientPrivilege` (`quantcore/db.py`, 2 tests in `test_schema_bootstrap.py`). `ensure_migrate_job.sh --migrator-secret` (default `quantcore-<env>-migrator-dsn`): fails before any change if the secret is absent, grants the SA access to it, points the Job's `QUANTCORE_DB_DSN` at it, then removes the SA's binding on the app secret (19 tests). `scripts/ensure_app_db_role.py` plus `tests/test_ensure_app_db_role.py`: the SCRAM verifier, `--swap-dsn`, the statement plan, and a DB test that logs in as a scratch role and is refused DDL and ledger writes. Docs: CLAUDE.md, AGENTS.md, readme, `flyway.sh` header, `prod-access-grants.md`, and pointers from the flyway-automation and schema-ownership plans. | Nothing applied to either project. Steps 1–7 of the runbook are John's. |
 | 1a. Review fixes | 2026-10-05 | _this PR_ | Guppy review on PR #325: the plan now REVOKEs excess table, schema and database rights and `verify()` reports them (R2). `main()` and `verify()` split into helpers: radon cyclomatic `main` D(21)→A(5), `verify` C(14)→max B(7) in `_one_table_problems`; complexipy cognitive `main` 23→4, `verify` 17→max 6. 17 new unit tests (fake cursor/conn) for `verify`'s helpers and `main`'s steps; the DB test now pre-grants `TRUNCATE`/`REFERENCES`/`TRIGGER` and schema `CREATE`, checks `verify()` reports them, then checks the plan repairs them. | The review's "applied on both projects" criterion is rows 2–3, the operator runbook. |
+| 1b. Runbook script | 2026-10-05 | _this PR_ | `scripts/rollout_app_db_role.sh [--prod] [--rollback]`: steps 0–5 in one script, after John hit copy/paste problems with the bash block. Guards on the secrets' user names (read with `sed`, never printed); 12 tests in `tests/test_rollout_app_db_role.py` against a stub `gcloud` whose secrets are files. | Gotcha in the stub, not the script: `access | swap | versions add` on the **same** secret raced when the stub's `add` was `cat > file` — it truncated the file before `access` read it. Real Secret Manager versions are immutable, so the stub writes then renames. |
 | 2. Test rollout | | | | |
 | 3. Prod rollout | | | | |

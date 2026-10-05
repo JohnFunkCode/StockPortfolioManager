@@ -383,7 +383,7 @@ adapters exactly one service call deep.
 | `scripts/generate_portfolio_report.py`, `templates/`, `html_summary.py`, `simple_text_summary.py` | The legacy HTML report — chart, render, upload. Run from the Pi, never in a container |
 | `experiments/` | `HarvesterExperiment.py` (harvest-ladder algorithm and backtests) plus standalone spread monitors |
 | `db/` | `flyway.conf` + versioned migrations under `db/migrations/` |
-| `scripts/` | Operational scripts — importers, `flyway.sh`, `mint_prod_jwt.py`, IAP/WIF setup, the SQLite→Postgres migration |
+| `scripts/` | Operational scripts — importers, `flyway.sh`, `ensure_*_job.sh` (one-time Cloud Run Job setup), `mint_prod_jwt.py`, IAP/WIF setup, the SQLite→Postgres migration |
 | `tests/` | Backend test suites (`python -m unittest discover -s tests -t .`); front-end tests live beside the code in `frontend/src` |
 | `docs/` | Design proposals, plans with their checkpoint logs, and analysis write-ups |
 | `Dockerfile.*`, `docker-compose.yml`, `cloudbuild.yaml`, `.github/workflows/` | Images, the local container stack, and CI/CD |
@@ -754,7 +754,7 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
-| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). **Built, not yet run by CI**: the Job and workflow step land in later steps of [the plan](docs/proposals/flyway-automation-plan.md) |
+| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). **Built, not yet run by CI.** The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. The workflow step lands in a later step of [the plan](docs/proposals/flyway-automation-plan.md) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api and news images carry the heavy ML stack — post-inversion FinBERT

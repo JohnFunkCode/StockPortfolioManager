@@ -16,18 +16,22 @@
 # ORIGINAL manifest is pushed verbatim and stays addressable in the prod AR by its
 # original digest — so we resolve that digest and DEPLOY BY IT, never by the prod tag.
 #
-# First prod deploy is MANUAL (plan steps P5–P7): each service/job is created once with
-# its full config (Cloud SQL binding, --set-secrets prod DSN/JWT, ingress, resources).
-# This workflow then carries ONLY the new image digest on every subsequent rollout, so
-# that per-service config is preserved — CI never needs the prod DSN or JWT secret.
+# Service config comes from deploy/cloudrun-services.toml (#161). An existing service keeps
+# everything the inventory doesn't name; a missing public MCP wrapper is CREATED with its
+# full config, behind this workflow's `prod` environment approval; a missing manual service
+# (api, keyproxy, quantui; the first buildout, plan P5-P7) fails with its runbook. Secrets
+# are Secret Manager references, so CI never needs the prod DSN or JWT secret.
 #
 # One-time setup (see prod-rollout-plan.md):
 #   * Prod AR repo `quantcore` exists in us-central1 (plan P2).
 #   * A `prod` GitHub Environment with required reviewers (manual approval gate).
 #   * Separate WIF for prod: repo secrets GCP_PROD_WIF_PROVIDER + GCP_PROD_DEPLOY_SA.
 #     The prod deploy SA needs, in quantcore-prod-20260606: roles/run.developer,
-#     roles/artifactregistry.writer (on the prod AR), iam.serviceAccountUser on the prod
-#     runtime SA; and roles/artifactregistry.reader on the TEST AR (to read source digests).
+#     roles/artifactregistry.writer (on the prod AR), iam.serviceAccountUser on each runtime
+#     SA the inventory names (quantcore-run@, keyproxy-runtime@); and
+#     roles/artifactregistry.reader on the TEST AR (to read source digests). Creating a
+#     wrapper also needs run.services.setIamPolicy, to make it public
+#     (docs/architecture/cloudrun-services.md has the grant).
 #     For the migrate step (#200): iam.serviceAccountUser on quantcore-migrate@ and
 #     roles/logging.viewer — both granted by scripts/ensure_migrate_job.sh --prod, which
 #     also creates the quantcore-migrate Job this workflow updates and executes.
@@ -59,36 +63,8 @@ env:
   PROD_PROJECT: quantcore-prod-20260606
   REGION: us-central1
   AR_REPO: quantcore
-  MCP_REQUEST_TIMEOUT: 900s
-  # Cloud Run sizing, pinned so every roll-out RE-ASSERTS it (2026-09-09).
-  #
-  # These values used to live only as live Cloud Run config from each service's manual
-  # first deploy, which meant a `--set-*` slip or a service recreate could silently
-  # revert them with nothing in the repo to notice. Deploys here stay image-only for
-  # env/secrets/Cloud-SQL bindings; sizing is the one shape we now carry explicitly.
-  #
-  # The 7 wrappers were downsized after 14 days of utilization data (<1% mean CPU,
-  # ~6% mean memory). CPU stays at 1 EVERYWHERE and must not be lowered: Cloud Run
-  # rejects <1 vCPU while containerConcurrency > 1, and every service here runs at 80+
-  # ("Total cpu < 1 is not supported with concurrency > 1"). Dropping concurrency to
-  # buy 0.5 vCPU would cost more, not less — the wrappers hold 900s MCP sessions, so
-  # one session per instance means more instances.
-  #
-  # quantcore-api stays 2 CPU / 4Gi DELIBERATELY. Its mean memory is ~6% but its peak
-  # is 58% of 4Gi (~2.4GiB, full options chains at concurrency 160), so halving it to
-  # 2Gi is an OOM, not a tight fit. The mean is the number that hides this.
-  # It also deploys with --cpu-boost (issue #280): extra CPU during startup only, so a
-  # cold start's torch import / baked-FinBERT load finishes sooner. Billed only for
-  # the boosted seconds; the flag sits on the api deploy step below, not in this block.
-  API_CPU: "2"
-  API_MEMORY: 4Gi
-  MCP_CPU: "1"
-  MCP_MEMORY: 512Mi
-  MCP_MEMORY_LITE: 256Mi # portfolio + arbitrage — the two thinnest wrappers
-  UI_CPU: "1"
-  UI_MEMORY: 512Mi
-  KEYPROXY_CPU: "1"
-  KEYPROXY_MEMORY: 512Mi
+  # Every Cloud Run SERVICE's config (sizing included, and why) lives in
+  # deploy/cloudrun-services.toml (#161), not here.
 
 jobs:
   gate:
@@ -137,7 +113,7 @@ jobs:
       contents: read
       id-token: write # Workload Identity Federation (prod)
     steps:
-      # Only for scripts/ci_parallel.sh, which the roll-out step sources (#296).
+      # For scripts/ci_parallel.sh (#296), ci_migrate.sh (#200) and the service inventory (#161).
       - uses: actions/checkout@v7
       - id: auth
         uses: google-github-actions/auth@v3
@@ -198,39 +174,34 @@ jobs:
             --image "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/quantcore-migrate@${QUANTCORE_MIGRATE_DIGEST:?quantcore-migrate was not promoted}"
 
       - name: Roll out prod Cloud Run (two phases, each in parallel; by digest)
-        # Runs only after every digest above landed in the prod AR, and deploys BY those
-        # digests. Every command deploys a DIFFERENT service, so running them at once
-        # can't hit the same-service optimistic-lock conflict the concurrency: block
-        # guards against (#296). scripts/ci_parallel.sh waits on each PID, prints each
-        # command's log in its own group, and fails the step naming every failure.
+        # Every service comes from deploy/cloudrun-services.toml (#161), deployed by
+        # scripts/cloudrun_services.py. An existing service gets the new image plus the
+        # inventory's scalars (cpu, memory, timeout, ...) on every roll-out, and any env,
+        # secret or Cloud SQL entry that differs, with --update-*/--add-* only. A MISSING
+        # service is created with its full config when its first_create is "auto" (the
+        # public MCP wrappers), and FAILS the roll-out naming its runbook when "manual"
+        # (api, keyproxy, quantui). Adding a wrapper is a PR that touches only code and
+        # the inventory. IAM model and onboarding: docs/architecture/cloudrun-services.md.
+        # By digest: each service's image@$QUANTCORE_<IMAGE>_DIGEST, as the promotion
+        # exported it. keyproxy skips when its image wasn't promoted (a pre-8a tag).
         #
-        # Phase 1 is everything that doesn't consume the new api; phase 2 is api's REST
-        # consumers (the 7 wrappers and quantui), and runs only if phase 1 succeeded, so
-        # an api revision that fails its health check (e.g. SchemaDriftError) fails the
-        # run before any consumer rolls onto it.
-        #
-        # Every first prod deploy is MANUAL with full config (plan P5–P7); these
-        # image-only redeploys preserve it. Guards, each annotated when it skips (#163):
-        #   quantcore-arbitrage / -portfolio: created manually (portfolio-lots-plan.md
-        #     Step 4.8a; arbitrage is SERVER_MODULE=fastMCPTest.arbitrage_server,
-        #     PORT=6007). deploy.yml carried portfolio for test long before prod did, so
-        #     the prod service (created 2026-07-29) once went without an image.
-        #   quantcore-keyproxy: the packet-8b runbook (dedicated runtime SA, its two
-        #     secrets, IAM-locked invoker); also skipped for a pre-8a tag (no digest).
-        #   quantcore-news: skipped for a tag that predates it (no digest).
-        #   quantui: unguarded. Its manual --iap deploy (quantui-iap-plan.md Step 8)
-        #     already exists in prod.
+        # Two phases, each in parallel (#296). Every command deploys a DIFFERENT service,
+        # so running them at once can't hit the same-service optimistic-lock conflict the
+        # concurrency: block guards against. scripts/ci_parallel.sh waits on each PID,
+        # prints each command's log in its own group, and fails the step naming every
+        # failure. Phase 1 is everything that doesn't consume the new api; phase 2 is
+        # api's REST consumers, and runs only if phase 1 succeeded, so an api revision
+        # that fails its health check (e.g. SchemaDriftError) fails the run before any
+        # consumer rolls onto it. The report + news Jobs are not services; they stay here.
         run: |
           . scripts/ci_parallel.sh
           IMG="$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO"
+          svc() { python3 scripts/cloudrun_services.py deploy "$1" --env prod --registry "$IMG" --by-digest; }
+          P1="$(python3 scripts/cloudrun_services.py names --env prod --phase 1)"
+          P2="$(python3 scripts/cloudrun_services.py names --env prod --phase 2)"
+          p1=(); for s in $P1; do p1+=("svc $s"); done
+          p2=(); for s in $P2; do p2+=("svc $s"); done
 
-          exists() { gcloud run services describe "$1" --project "$PROD_PROJECT" --region "$REGION" >/dev/null 2>&1; }
-
-          deploy_api() {
-            gcloud run deploy quantcore-api --project "$PROD_PROJECT" --region "$REGION" \
-              --cpu "$API_CPU" --memory "$API_MEMORY" --cpu-boost \
-              --image "$IMG/quantcore-api@$QUANTCORE_API_DIGEST"
-          }
           update_report_job() {
             gcloud run jobs update quantcore-report --project "$PROD_PROJECT" --region "$REGION" \
               --image "$IMG/quantcore-report@$QUANTCORE_REPORT_DIGEST" \
@@ -251,47 +222,8 @@ jobs:
               echo "::warning title=quantcore-news missing::quantcore-news Job not found in $PROD_PROJECT — news is NOT being collected. Create it with scripts/ensure_news_job.sh --prod."
             fi
           }
-          deploy_keyproxy() {
-            if [ -z "${QUANTCORE_KEYPROXY_DIGEST:-}" ]; then
-              echo "no promoted keyproxy digest for this tag — skipping."
-            elif exists quantcore-keyproxy; then
-              gcloud run deploy quantcore-keyproxy --project "$PROD_PROJECT" --region "$REGION" \
-                --cpu "$KEYPROXY_CPU" --memory "$KEYPROXY_MEMORY" \
-                --image "$IMG/quantcore-keyproxy@$QUANTCORE_KEYPROXY_DIGEST"
-            else
-              echo "::warning title=quantcore-keyproxy missing::quantcore-keyproxy not found in $PROD_PROJECT — Sidekick chat cannot reach Anthropic and this roll-out skipped it. First deploy is the packet-8b runbook (byok-key-proxy-plan.md)."
-            fi
-          }
-          # The 5 original wrappers share the mcp image; per-service env is preserved.
-          deploy_wrapper() {
-            gcloud run deploy "quantcore-$1" --project "$PROD_PROJECT" --region "$REGION" \
-              --timeout "$MCP_REQUEST_TIMEOUT" \
-              --cpu "$MCP_CPU" --memory "$MCP_MEMORY" \
-              --image "$IMG/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
-          }
-          # portfolio + arbitrage: same image, lite memory, manual first deploy.
-          deploy_lite_wrapper() {
-            if exists "quantcore-$1"; then
-              gcloud run deploy "quantcore-$1" --project "$PROD_PROJECT" --region "$REGION" \
-                --timeout "$MCP_REQUEST_TIMEOUT" \
-                --cpu "$MCP_CPU" --memory "$MCP_MEMORY_LITE" \
-                --image "$IMG/quantcore-mcp@$QUANTCORE_MCP_DIGEST"
-            else
-              echo "::warning title=quantcore-$1 missing::quantcore-$1 not found in $PROD_PROJECT — its MCP tools are unreachable and this roll-out skipped it. Create it per portfolio-lots-plan.md Step 4.8a."
-            fi
-          }
-          deploy_quantui() {
-            gcloud run deploy quantui --project "$PROD_PROJECT" --region "$REGION" \
-              --cpu "$UI_CPU" --memory "$UI_MEMORY" \
-              --image "$IMG/quantcore-ui@$QUANTCORE_UI_DIGEST"
-          }
 
-          echo "Phase 1: quantcore-api, the report + news Jobs, quantcore-keyproxy"
-          run_parallel deploy_api update_report_job update_news_job deploy_keyproxy
-          echo "Phase 2: api's consumers (the 7 wrappers, quantui)"
-          run_parallel \
-            "deploy_wrapper stock-price" "deploy_wrapper options-analysis" \
-            "deploy_wrapper company-fundamentals" "deploy_wrapper news-sentiment" \
-            "deploy_wrapper market-analysis" \
-            "deploy_lite_wrapper portfolio" "deploy_lite_wrapper arbitrage" \
-            deploy_quantui
+          echo "Phase 1:" $P1 "+ the report and news Jobs"
+          run_parallel "${p1[@]}" update_report_job update_news_job
+          echo "Phase 2:" $P2
+          run_parallel "${p2[@]}"

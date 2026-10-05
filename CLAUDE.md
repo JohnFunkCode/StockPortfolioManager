@@ -278,18 +278,34 @@ Anthropic API key; the backend never holds a usable key at rest.
   the CI deployer needs `roles/iam.serviceAccountUser` on `keyproxy-runtime@` (granted in both
   projects).
 
-### Cloud Run sizing (pinned in CI, single home)
+### Cloud Run service inventory (single home for service config)
 
-**CPU and memory for every Cloud Run *service* live in the sizing env block at the top of
-`.github/workflows/deploy.yml` and `.github/workflows/prod-rollout.yml`** (`API_CPU`/`API_MEMORY`,
-`MCP_CPU`/`MCP_MEMORY`/`MCP_MEMORY_LITE`, `UI_*`, `KEYPROXY_*`), and every `gcloud run deploy` in
-those workflows passes them — so each roll-out **re-asserts** the shape rather than inheriting
-whatever the service happens to hold. Change the values there, not with a one-off
-`gcloud run services update`, or the next deploy reverts you. The two files must agree. Deploys
-remain image-only for env/secrets/Cloud-SQL/IAP bindings; sizing is the one shape carried in the
-repo. The `quantcore-report` **Job** is not covered (it is `jobs update`, not `run deploy`).
+**Every Cloud Run *service*'s config, in both projects, lives in
+[`deploy/cloudrun-services.toml`](deploy/cloudrun-services.toml)** (issue #161). That covers image,
+phase, port, CPU and memory, cpu boost, timeout, concurrency, max instances, ingress, runtime SA,
+env, secrets and Cloud SQL. Both workflows deploy every service through
+`scripts/cloudrun_services.py`, so the workflows hold no per-service config to keep in agreement.
+Rules to keep:
 
-Two constraints are load-bearing — both were learned the expensive way (2026-09-09, full record in
+- **An existing service keeps what the inventory doesn't mention.** Each roll-out re-asserts the
+  scalars and applies only the env/secret/Cloud SQL entries that differ, always with
+  `--update-*`/`--add-*` (never `--set-*`). Change config by editing the inventory, not with a
+  one-off `gcloud run services update`, or the next roll-out reverts the scalars.
+- **A missing service:** `first_create = "auto"` (the MCP wrappers) is created with its full
+  config. `"manual"` (api, keyproxy, quantui) **fails the roll-out**, naming its runbook. Onboarding
+  a wrapper is a PR adding a `[[services]]` block, the module, and a `ci_wrapper_smoke.py`
+  `WRAPPERS` entry; `tests/test_cloudrun_services.py` checks the three agree.
+- **`PORT` is never an env var.** Use `port`, because Cloud Run rejects a set `PORT`.
+- **IAM is read, never changed, on an existing service.** The deployer (`run.developer`) cannot set
+  IAM policy, so creating a public wrapper needs a narrow custom-role grant. Prod IAM grants are
+  John's to apply.
+- `python scripts/cloudrun_services.py check --env test|prod` is a read-only drift report.
+
+Onboarding flow and the IAM model: [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).
+Jobs (`quantcore-report`, `-news`, `-migrate`) are not in the inventory; they are `jobs update`
+steps in the workflows.
+
+Sizing constraints that are load-bearing (2026-09-09, full record in
 [`prod-rollout-plan.md`](docs/proposals/prod-rollout-plan.md) row P11):
 
 - **CPU stays at 1 everywhere and must not be lowered.** Cloud Run rejects `Total cpu < 1 is not
@@ -300,18 +316,16 @@ Two constraints are load-bearing — both were learned the expensive way (2026-0
   number the console shows — but its p99 peak is **58% of 4Gi** on full options chains at
   concurrency 160, recurring daily. Halving it is an OOM, not a tight fit; the mean is the wrong
   metric for a memory ceiling.
-- **`quantcore-api` deploys with `--cpu-boost`** (issue #280) — a flag on its deploy step, not a
-  sizing variable. It adds CPU only during startup, so a cold start's torch import and baked-FinBERT
-  load finish sooner; it is billed only for the boosted seconds. Like the sizing, both workflows
-  pass it on every roll-out, so remove it there rather than with a one-off update.
+- **`cpu_boost = true`** (issue #280) adds CPU only during startup, so the api's torch import and
+  baked-FinBERT load finish sooner; it is billed only for the boosted seconds.
 
 **The roll-out is one step per workflow, in two parallel phases** (#296): phase 1 runs api, the
 report and news Jobs, and keyproxy; phase 2 runs api's consumers (the 7 wrappers and quantui), and
 only if phase 1 succeeded, so a failing api revision stops the run before its consumers roll. Each
-deploy is a shell function run through `run_parallel` from `scripts/ci_parallel.sh`, which waits on
-every PID and annotates each failure by name. Never replace it with a bare `&` + `wait`, which
-swallows exit codes. Add a new service as a function and an entry in the right phase, in **both**
-workflows; `tests/test_ci_parallel.py` checks the wiring. Design and timings:
+service's phase is its `phase` in the inventory. Each deploy runs through `run_parallel` from
+`scripts/ci_parallel.sh`, which waits on every PID and annotates each failure by name. Never
+replace it with a bare `&` + `wait`, which swallows exit codes. `tests/test_ci_parallel.py` checks
+the wiring. Design and timings:
 [`parallel-rollout-plan.md`](docs/proposals/parallel-rollout-plan.md).
 
 ### Artifact Registry cleanup policy

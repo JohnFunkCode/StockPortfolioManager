@@ -1,0 +1,257 @@
+# Cloud Run service inventory (issue #161): the single home for every Cloud Run SERVICE's
+# config, in both projects. Jobs (quantcore-report, -news, -migrate) are not here.
+#
+# Read by scripts/cloudrun_services.py, which both roll-out workflows call:
+#   * service exists          -> image update that re-asserts every scalar below (port, cpu,
+#                                memory, cpu_boost, timeout, concurrency, max_instances,
+#                                ingress, service_account) and applies any env/secret/cloudsql
+#                                entry that differs, with --update-*/--add-* only: a key the
+#                                service holds that isn't listed here is kept. IAM is checked,
+#                                never changed.
+#   * missing, first_create = "auto"   -> created with its full config from this file.
+#   * missing, first_create = "manual" -> the roll-out FAILS naming the runbook.
+# `python scripts/cloudrun_services.py check --env test|prod` diffs this file against the
+# live services, read-only. Onboarding a wrapper and the IAM model:
+# docs/architecture/cloudrun-services.md.
+#
+# Any string may be a table keyed by environment ({ test = "...", prod = "..." }) where the
+# two differ. Templates: {project} {project_number} {region} {runtime_sa} {api_url}.
+#
+# Never put PORT in env: Cloud Run injects it from `port` (the container port), and
+# setting it is rejected (#161). Env values may not contain commas.
+#
+# SIZING (2026-09-09, prod-rollout-plan.md row P11) lives here and nowhere else.
+# CPU stays at 1 EVERYWHERE and must not be lowered: Cloud Run rejects <1 vCPU while
+# concurrency > 1 ("Total cpu < 1 is not supported with concurrency > 1"), and every
+# service runs at 80+. Dropping concurrency to buy 0.5 vCPU would cost more: the wrappers
+# hold 900s MCP sessions, so one session per instance means more instances. The 7
+# wrappers were downsized after 14 days of data (<1% mean CPU, ~6% mean memory).
+# quantcore-api stays 2 CPU / 4Gi DELIBERATELY: mean memory ~6%, but the p99 peak is 58%
+# of 4Gi on full options chains at concurrency 160. Halving it is an OOM. Its cpu_boost
+# (#280) speeds the cold start's torch import and baked-FinBERT load; boosted seconds only.
+
+[environments.test]
+project = "quantcore-test-20260606"
+project_number = "493357101423"
+region = "us-central1"
+runtime_sa = "493357101423-compute@developer.gserviceaccount.com"
+api_url = "https://quantcore-api-493357101423.us-central1.run.app"
+
+[environments.prod]
+project = "quantcore-prod-20260606"
+project_number = "127961694257"
+region = "us-central1"
+runtime_sa = "quantcore-run@quantcore-prod-20260606.iam.gserviceaccount.com"
+api_url = "https://quantcore-api-127961694257.us-central1.run.app"
+
+# ---------------------------------------------------------------- phase 1
+
+[[services]]
+name = "quantcore-api"
+image = "quantcore-api"
+phase = 1
+first_create = "manual"
+runbook = "docs/proposals/prod-rollout-plan.md P5-P7 (Cloud SQL binding, DSN/JWT secrets)"
+auth = "public"
+port = 8080
+cpu = "2"
+memory = "4Gi"
+cpu_boost = true
+timeout = 300
+concurrency = 160
+max_instances = 3
+ingress = "all"
+service_account = "{runtime_sa}"
+cloudsql = ["{project}:{region}:quantcore"]
+[services.env]
+KEYPROXY_URL = "https://quantcore-keyproxy-{project_number}.{region}.run.app"
+KEYPROXY_ID_TOKEN_AUDIENCE = "https://quantcore-keyproxy-{project_number}.{region}.run.app"
+[services.secrets]
+QUANTCORE_DB_DSN = { test = "quantcore-test-db-dsn:latest", prod = "quantcore-prod-db-dsn:latest" }
+QUANTCORE_JWT_SECRET = "quantcore-jwt-secret:latest"
+QUANTCORE_JWT_PUBLIC_KEY = "quantui-signing-pub:latest"
+
+[[services]]
+name = "quantcore-keyproxy"
+image = "quantcore-keyproxy"
+phase = 1
+first_create = "manual"
+runbook = "docs/proposals/byok-key-proxy-plan.md packet 8b (dedicated runtime SA, invoker = quantcore-api's SA only)"
+auth = "private"
+# A tag that predates BYOK packet 8a has no keyproxy image; prod-rollout skips it then.
+skip_without_digest = true
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 300
+concurrency = 80
+max_instances = 1
+ingress = "all"
+service_account = "keyproxy-runtime@{project}.iam.gserviceaccount.com"
+[services.secrets]
+KEYPROXY_PRIVATE_KEYS = "keyproxy-private-key:latest"
+QUANTCORE_JWT_PUBLIC_KEY = "quantui-signing-pub:latest"
+
+# ---------------------------------------------------------------- phase 2: api's consumers
+# The MCP wrappers. A new one is a block here plus its fastMCPTest module; CI creates it.
+
+[[services]]
+name = "quantcore-stock-price"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 2
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.stock_price_server"
+QUANTCORE_REST_URL = "{api_url}"
+
+[[services]]
+name = "quantcore-options-analysis"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 2
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.options_analysis"
+QUANTCORE_REST_URL = "{api_url}"
+
+[[services]]
+name = "quantcore-company-fundamentals"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 2
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.company_fundamentals_server"
+QUANTCORE_REST_URL = "{api_url}"
+
+[[services]]
+name = "quantcore-news-sentiment"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 2
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.news_sentiment_server"
+QUANTCORE_REST_URL = "{api_url}"
+
+[[services]]
+name = "quantcore-market-analysis"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 2
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.market_analysis_server"
+QUANTCORE_REST_URL = "{api_url}"
+
+# portfolio + arbitrage: the two thinnest wrappers (256Mi). Created by hand before #161
+# (portfolio-lots-plan.md Step 4.8a) on ports 6006/6007, with a trailing "/" on the REST
+# URL; both are recorded as they are, since changing a port is a new revision for nothing.
+[[services]]
+name = "quantcore-portfolio"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 6006
+cpu = "1"
+memory = "256Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 20
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.portfolio_server"
+QUANTCORE_REST_URL = "{api_url}/"
+
+[[services]]
+name = "quantcore-arbitrage"
+image = "quantcore-mcp"
+phase = 2
+first_create = "auto"
+auth = "public"
+port = 6007
+cpu = "1"
+memory = "256Mi"
+cpu_boost = true
+timeout = 900
+concurrency = 80
+max_instances = 20
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+SERVER_MODULE = "fastMCPTest.arbitrage_server"
+QUANTCORE_REST_URL = "{api_url}/"
+
+[[services]]
+name = "quantui"
+image = "quantcore-ui"
+phase = 2
+first_create = "manual"
+runbook = "docs/architecture/quantui.md (the manual --iap deploy, quantui-iap-plan.md Steps 5/8)"
+auth = "iap"
+port = 8080
+cpu = "1"
+memory = "512Mi"
+cpu_boost = true
+timeout = 300
+concurrency = 80
+max_instances = 20
+ingress = "all"
+service_account = "{runtime_sa}"
+[services.env]
+# The api's legacy-format URL, from quantui's first deploy; both forms reach the same service.
+QUANTCORE_REST_URL = { test = "https://quantcore-api-uikpdb55ea-uc.a.run.app", prod = "https://quantcore-api-swgixldxzq-uc.a.run.app" }
+QUANTUI_IAP_AUDIENCE = "/projects/{project_number}/locations/{region}/services/quantui"
+[services.secrets]
+QUANTUI_SIGNING_KEY = "quantui-signing-key:latest"
+QUANTCORE_API_TOKEN = "quantui-api-token:latest"

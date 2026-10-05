@@ -87,23 +87,26 @@ class WorkflowWiringTest(unittest.TestCase):
         return matches[0]["run"]
 
     def test_both_workflows(self):
-        for path in WORKFLOWS:
+        for path, env in ((WORKFLOWS[0], "test"), (WORKFLOWS[1], "prod")):
             with self.subTest(workflow=path.name):
                 body = self.rollout_step(path)
                 self.assertIn(". scripts/ci_parallel.sh", body)
                 # api first, its consumers after: two phases.
                 self.assertEqual(body.count("run_parallel "), 2)
-                self.assertIn("--cpu-boost", body)
                 self.assertNotIn("--set-", body)
-                for svc in ("quantcore-api", "quantcore-report", "quantcore-news",
-                            "quantcore-keyproxy", "quantui"):
-                    self.assertIn(svc, body)
-                # The wrappers are deployed as "quantcore-$1".
-                for name in ("stock-price", "options-analysis", "company-fundamentals",
-                             "news-sentiment", "market-analysis"):
-                    self.assertIn(f'"deploy_wrapper {name}"', body)
-                for name in ("portfolio", "arbitrage"):
-                    self.assertIn(f'"deploy_lite_wrapper {name}"', body)
+                # The services come from the inventory (#161), the Jobs stay in the step.
+                for phase in (1, 2):
+                    self.assertIn(f"cloudrun_services.py names --env {env} --phase {phase}",
+                                  body)
+                self.assertIn(f"cloudrun_services.py deploy \"$1\" --env {env}", body)
+                self.assertEqual("--by-digest" in body, env == "prod")
+                for job in ("update_report_job", "update_news_job"):
+                    self.assertIn(f"{job}()", body)
+                self.assertIn('run_parallel "${p1[@]}" update_report_job update_news_job',
+                              body)
+                self.assertIn('run_parallel "${p2[@]}"', body)
+                # Sizing lives only in deploy/cloudrun-services.toml now.
+                self.assertNotIn("API_MEMORY", path.read_text())
 
 
 if __name__ == "__main__":

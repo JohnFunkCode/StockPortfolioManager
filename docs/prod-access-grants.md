@@ -52,6 +52,10 @@ gcloud secrets add-iam-policy-binding quantcore-jwt-secret \
 Only needed if Thomas should pull the prod DB password from Secret Manager rather
 than using the password John already shared. Skip if not needed.
 
+Since #308 this secret holds the DML-only `quantcore_app` login, which reads and writes rows
+but can't run `scripts/flyway.sh`. The owner's DSN is in `quantcore-prod-migrator-dsn`; grant
+that only to someone who applies migrations by hand.
+
 ```bash
 gcloud secrets add-iam-policy-binding quantcore-prod-db-dsn \
   --project="$PROJECT" \

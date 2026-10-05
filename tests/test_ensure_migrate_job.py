@@ -1,5 +1,8 @@
 """scripts/ensure_migrate_job.sh — one-time setup of the quantcore-migrate Job (#200, Step 3).
 
+Since #308 the Job reads the schema owner's DSN from a separate migrator secret, and
+the migrate SA loses its access to the app DSN secret.
+
 Runs the script against a stub `gcloud` on PATH that records every call and answers
 the describes from environment flags. Nothing reaches Google Cloud.
 """
@@ -35,6 +38,13 @@ case "$*" in
   "run jobs describe quantcore-report"*) cat "$STUB_REPORT" ;;
   "run jobs describe quantcore-migrate"*) [[ -n "${STUB_JOB_EXISTS:-}" ]] ;;
   "iam service-accounts describe"*) [[ -n "${STUB_SA_EXISTS:-}" ]] ;;
+  "secrets describe"*) [[ -z "${STUB_NO_MIGRATOR_SECRET:-}" ]] ;;
+  "secrets get-iam-policy"*)
+    if [[ -n "${STUB_APP_SECRET_BOUND:-}" ]]; then
+      printf '{"bindings":[{"role":"roles/secretmanager.secretAccessor","members":["serviceAccount:%s"]}]}' "$STUB_APP_SECRET_BOUND"
+    else
+      printf '{}'
+    fi ;;
   *) [[ -z "${STUB_FAIL_MUTATIONS:-}" ]] ;;
 esac
 """
@@ -77,9 +87,11 @@ class EnsureMigrateJobTest(unittest.TestCase):
         # The deployer reads a failed execution's log (ci_migrate.sh).
         self.assertIn("serviceAccount:quantcore-deployer@quantcore-test-20260606"
                       ".iam.gserviceaccount.com --role roles/logging.viewer", logs)
-        # secretAccessor on the DSN secret only, not the report Job's other secrets.
+        # secretAccessor on the migrator secret only: not the app DSN secret (#308),
+        # not the report Job's other secrets.
         (secret,) = self.find(calls, "secrets add-iam-policy-binding")
-        self.assertTrue(secret.startswith("secrets add-iam-policy-binding quantcore-db-dsn "))
+        self.assertTrue(secret.startswith(
+            "secrets add-iam-policy-binding quantcore-test-migrator-dsn "))
         self.assertIn("roles/secretmanager.secretAccessor", secret)
         (actas,) = self.find(calls, "iam service-accounts add-iam-policy-binding")
         self.assertIn("serviceAccount:quantcore-deployer@quantcore-test-20260606"
@@ -89,8 +101,12 @@ class EnsureMigrateJobTest(unittest.TestCase):
                       "quantcore-migrate:trial-1", create)
         self.assertIn(f"--service-account {sa}", create)
         self.assertIn("--set-cloudsql-instances proj:us-central1:inst", create)
-        self.assertIn("--set-secrets QUANTCORE_DB_DSN=quantcore-db-dsn:3", create)
+        self.assertIn("--set-secrets QUANTCORE_DB_DSN=quantcore-test-migrator-dsn:latest",
+                      create)
+        self.assertNotIn("quantcore-db-dsn", create)
         self.assertNotIn("discord", create)
+        # It never had the app secret, so there is nothing to remove.
+        self.assertEqual(self.find(calls, "secrets remove-iam-policy-binding"), [])
         self.assertIn("--task-timeout 600s", create)
         self.assertIn("--max-retries 0", create)
         self.assertEqual(self.find(calls, "run jobs execute"), [])
@@ -104,11 +120,52 @@ class EnsureMigrateJobTest(unittest.TestCase):
         self.assertNotIn("--set-", update)
         self.assertNotIn("--clear-", update)
         self.assertNotIn("--image", update)  # CI owns the image once the Job exists
-        self.assertIn("--update-secrets QUANTCORE_DB_DSN=quantcore-db-dsn:3", update)
+        self.assertIn("--update-secrets QUANTCORE_DB_DSN=quantcore-test-migrator-dsn:latest",
+                      update)
         self.assertIn("--add-cloudsql-instances proj:us-central1:inst", update)
         self.assertIn("--max-retries 0", update)
         # Grants are re-asserted on every run; add-iam-policy-binding is idempotent.
         self.assertEqual(len(self.find(calls, "projects add-iam-policy-binding")), 2)
+
+    # -- #308: the migrator secret --
+
+    def test_access_to_the_app_secret_is_removed_after_the_job_switches(self):
+        sa = "quantcore-migrate@quantcore-test-20260606.iam.gserviceaccount.com"
+        r, calls = self.run_script(STUB_JOB_EXISTS="1", STUB_SA_EXISTS="1",
+                                   STUB_APP_SECRET_BOUND=sa)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (remove,) = self.find(calls, "secrets remove-iam-policy-binding")
+        self.assertTrue(remove.startswith("secrets remove-iam-policy-binding quantcore-db-dsn "))
+        self.assertIn(f"serviceAccount:{sa} --role roles/secretmanager.secretAccessor", remove)
+        # Only after the Job reads the migrator secret, so a failed update leaves it working.
+        self.assertLess(calls.index(self.find(calls, "run jobs update")[0]), calls.index(remove))
+
+    def test_a_missing_migrator_secret_stops_before_any_change(self):
+        r, calls = self.run_script("--tag", "t", STUB_NO_MIGRATOR_SECRET="1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("quantcore-test-migrator-dsn does not exist", r.stderr)
+        self.assertEqual([c for c in calls if " describe " not in f" {c} "], [])
+
+    def test_the_migrator_secret_can_be_named(self):
+        r, calls = self.run_script("--tag", "t", "--migrator-secret", "owner-dsn")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (create,) = self.find(calls, "run jobs create")
+        self.assertIn("--set-secrets QUANTCORE_DB_DSN=owner-dsn:latest", create)
+
+    def test_the_migrator_secret_may_not_be_the_app_secret(self):
+        r, calls = self.run_script("--tag", "t", "--migrator-secret", "quantcore-db-dsn")
+        self.assertEqual(r.returncode, 2)
+        self.assertEqual([c for c in calls if " describe " not in f" {c} "], [])
+
+    def test_prod_uses_the_prod_migrator_secret(self):
+        r, calls = self.run_script("--prod", "--image", "reg/img@sha256:abc", stdin="y\n")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        (create,) = self.find(calls, "run jobs create")
+        self.assertIn("QUANTCORE_DB_DSN=quantcore-prod-migrator-dsn:latest", create)
+
+    def test_no_secret_value_is_ever_read(self):
+        r, calls = self.run_script("--tag", "t")
+        self.assertEqual(self.find(calls, "secrets versions access"), [])
 
     def test_existing_job_takes_a_given_image(self):
         r, calls = self.run_script("--image", "reg/quantcore-migrate@sha256:abc",
@@ -150,7 +207,8 @@ class EnsureMigrateJobTest(unittest.TestCase):
     def test_dry_run_makes_only_reads(self):
         r, calls = self.run_script("--dry-run", "--prod", "--tag", "t", "--execute")
         self.assertEqual(r.returncode, 0, r.stderr)  # no prompt in a dry run
-        self.assertTrue(all(" describe " in f" {c} " for c in calls), calls)
+        reads = (" describe ", " get-iam-policy ")
+        self.assertTrue(all(any(v in f" {c} " for v in reads) for c in calls), calls)
         self.assertIn("+ gcloud run jobs create quantcore-migrate", r.stdout)
         self.assertIn("+ gcloud run jobs execute quantcore-migrate", r.stdout)
 

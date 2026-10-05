@@ -1,7 +1,8 @@
 """scripts/cloudrun_services.py and deploy/cloudrun-services.toml — the service inventory (#161).
 
 The script runs in-process against a stub `gcloud` on PATH that records every call and
-answers `describe` / `get-iam-policy` from JSON files; nothing reaches Google Cloud. The
+answers `describe` / `get-iam-policy` from JSON files, and the create path's
+testIamPermissions call is a patched urlopen; nothing reaches Google Cloud. The
 inventory tests read the real manifest, so a wrapper added there without its image, smoke
 entry or module fails here rather than on the roll-out.
 """
@@ -114,9 +115,11 @@ case "$*" in
     if [[ -f "$f" ]]; then cat "$f"; else echo '{}'; fi ;;
   "run services add-iam-policy-binding "*) [[ -z "${STUB_BIND_FAILS:-}" ]] ;;
   "run deploy "*) [[ -z "${STUB_DEPLOY_FAILS:-}" ]] ;;
+  "auth print-access-token") [[ -z "${STUB_TOKEN_FAILS:-}" ]] && echo "$FAKE_TOKEN" ;;
 esac
 """
 
+FAKE_TOKEN = "ya29.fake-token-never-printed"
 PUBLIC = {"bindings": [{"role": "roles/run.invoker", "members": ["allUsers"]}]}
 
 
@@ -167,6 +170,21 @@ class StubbedTest(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.svc = {s["name"]: s for s in crs.load("test")}
+        # What testIamPermissions answers: by default the deployer holds everything asked.
+        self.granted = list(crs.CREATE_PERMISSIONS)
+        self.iam_error = None
+        self.iam_requests = []
+        urlopen = mock.patch("urllib.request.urlopen", side_effect=self._urlopen)
+        urlopen.start()
+        self.addCleanup(urlopen.stop)
+
+    def _urlopen(self, req, timeout=None):
+        self.iam_requests.append(req)
+        if self.iam_error:
+            raise self.iam_error
+        asked = json.loads(req.data)["permissions"]
+        return io.BytesIO(json.dumps({"permissions": [x for x in asked
+                                                      if x in self.granted]}).encode())
 
     def live(self, name, iam=None, **kw):
         """Make `name` exist in the stub, with its manifest config unless overridden."""
@@ -176,7 +194,7 @@ class StubbedTest(unittest.TestCase):
 
     def run_cli(self, *argv, **flags):
         env = {"PATH": f"{self.dir}:{os.environ['PATH']}", "STUB_LOG": str(self.log),
-               "STUB_DIR": str(self.dir), **flags}
+               "STUB_DIR": str(self.dir), "FAKE_TOKEN": FAKE_TOKEN, **flags}
         out, err = io.StringIO(), io.StringIO()
         with mock.patch.dict(os.environ, env), contextlib.redirect_stdout(out), \
                 contextlib.redirect_stderr(err):
@@ -271,8 +289,13 @@ class DeployMissingTest(StubbedTest):
         rc, out, calls = self.deploy("svc-wrap")
         self.assertEqual(rc, 0, out)
         self.assertEqual([c.split(" svc-wrap")[0] for c in calls],
-                         ["run services describe", "run deploy",
+                         ["run services describe", "auth print-access-token", "run deploy",
                           "run services add-iam-policy-binding"])
+        (req,) = self.iam_requests
+        self.assertEqual(req.full_url, "https://cloudresourcemanager.googleapis.com/v1/"
+                                       "projects/proj-t:testIamPermissions")
+        self.assertEqual(req.get_header("Authorization"), f"Bearer {FAKE_TOKEN}")
+        self.assertNotIn(FAKE_TOKEN, out)
         (dep,) = self.find(calls, "run deploy svc-wrap")
         self.assertIn("--update-env-vars SERVER_MODULE=fastMCPTest.wrap_server,"
                       "QUANTCORE_REST_URL=https://api-111.us-central1.run.app", dep)
@@ -299,6 +322,43 @@ class DeployMissingTest(StubbedTest):
         self.assertIn("::error title=svc-api missing::", out)
         self.assertIn("RUNBOOK.md step 3", out)
         self.assertEqual([c for c in calls if not c.startswith("run services describe")], [])
+        self.assertEqual(self.iam_requests, [])
+
+    def test_without_setiampolicy_nothing_is_created(self):
+        # The review's case: run.developer alone would create a wrapper it can't make
+        # public, leaving a service that answers 403 behind.
+        self.granted = ["run.services.create"]
+        rc, out, calls = self.deploy("svc-wrap")
+        self.assertEqual(rc, 1)
+        self.assertIn("::error title=svc-wrap not created::", out)
+        self.assertIn("lacks run.services.setIamPolicy", out)
+        self.assertIn("Nothing was created", out)
+        self.assertIn("gcloud run services add-iam-policy-binding svc-wrap --project proj-t", out)
+        self.assertEqual(self.find(calls, "run deploy"), [])
+        self.assertEqual(self.find(calls, "run services add-iam-policy-binding"), [])
+        self.assertNotIn(FAKE_TOKEN, out)
+
+    def test_a_failed_permission_check_fails_closed(self):
+        self.iam_error = crs.urllib.error.URLError("connection refused")
+        rc, out, calls = self.deploy("svc-wrap")
+        self.assertEqual(rc, 1)
+        self.assertIn("::error title=gcloud failed::testIamPermissions on proj-t failed", out)
+        self.assertEqual(self.find(calls, "run deploy"), [])
+        self.assertNotIn(FAKE_TOKEN, out)
+
+    def test_a_failed_token_fails_closed_without_calling_out(self):
+        rc, out, calls = self.deploy("svc-wrap", STUB_TOKEN_FAILS="1")
+        self.assertEqual(rc, 1)
+        self.assertIn("print-access-token failed", out)
+        self.assertEqual(self.iam_requests, [])
+        self.assertEqual(self.find(calls, "run deploy"), [])
+
+    def test_an_existing_service_never_checks_permissions(self):
+        self.live("svc-wrap", iam=PUBLIC)
+        rc, out, calls = self.deploy("svc-wrap")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.iam_requests, [])
+        self.assertEqual(self.find(calls, "auth "), [])
 
 
 class ByDigestTest(StubbedTest):

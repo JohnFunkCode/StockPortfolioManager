@@ -75,8 +75,10 @@ own signing keypair + OAuth client (standalone projects can't auto-provision one
 
 **Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
 filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and rolls it onto
-the **test** `quantui` service automatically (IAP/secret/env config preserved; CPU/memory
-re-asserted from the workflow's sizing env block — see **Cloud Run sizing** below). Verify on the test
+the **test** `quantui` service automatically (IAP preserved; CPU/memory, env and secrets
+re-asserted from `deploy/cloudrun-services.toml` — see [cloudrun-services.md](cloudrun-services.md)).
+quantui is `first_create = "manual"` there: if the service is missing, the roll-out fails rather
+than creating it without IAP. Verify on the test
 URL, then promote to **prod** by manually dispatching `prod-rollout.yml` (`workflow_dispatch`) with
 the commit's 7-char SHA — it copies the image **by digest** test→prod and deploys prod
 `quantui` the same way. Prod is never auto-deployed.

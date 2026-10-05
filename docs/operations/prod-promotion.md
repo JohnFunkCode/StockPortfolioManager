@@ -28,22 +28,27 @@ Promotion takes one such already-built, already-tested
 imagetools create`), **migrates the prod database** with the `quantcore-migrate` Job, and
 deploys prod **by the resolved original digest** (not the tag).
 A manual-approval gate (`prod` GitHub Environment + required reviewers) sits in front of
-the prod rollout. Per-service prod config (Cloud SQL binding, secrets, ingress,
-resources) was set once during the manual first deploy (P5–P7) and is **preserved** on
-every promotion — the workflow only carries the new image.
+the prod rollout. Per-service prod config (port, resources, timeout, ingress, runtime SA, env, secrets,
+Cloud SQL) comes from the service inventory, `deploy/cloudrun-services.toml` (#161). Each
+promotion re-asserts it, applying only what differs and keeping any key the inventory does not
+name. A wrapper missing from prod is **created** from the inventory behind this gate. A missing
+api, keyproxy or quantui fails the promotion, naming its runbook. Before dispatching, preview
+what a promotion would change with
+`python scripts/cloudrun_services.py check --env prod` (read-only). See
+[`cloudrun-services.md`](../architecture/cloudrun-services.md).
 
 ### MCP service request timeout
 
-All streamable HTTP MCP wrappers use a 900-second Cloud Run request timeout. The value is carried
-by `MCP_REQUEST_TIMEOUT` in both deployment workflows and passed explicitly on each image rollout,
-so a later promotion cannot restore the former 300-second default. The shared `mcp_gateway.serve`
+All streamable HTTP MCP wrappers use a 900-second Cloud Run request timeout. The value is each
+wrapper's `timeout` in `deploy/cloudrun-services.toml`, passed explicitly on every roll-out, so a
+later promotion cannot restore the former 300-second default. The shared `mcp_gateway.serve`
 launcher also installs FastMCP's 30-second `PingMiddleware` keepalive. These settings bound the
 transport connection; the pings help clients and intermediaries that enforce idle limits, but they
 do not extend Cloud Run's absolute request deadline. The REST seam remains limited by
 `QUANTCORE_REST_TIMEOUT` (60 seconds by default).
 
-For a first/manual service creation or an existing service that predates this policy, apply and
-verify the setting without replacing environment variables or secrets:
+Every roll-out and every CI-created wrapper applies the timeout from the inventory. To verify one
+service by hand (or apply it out of band, without replacing environment variables or secrets):
 
 ```bash
 gcloud run services update quantcore-stock-price \
@@ -53,7 +58,7 @@ gcloud run services describe quantcore-stock-price \
   --format='value(spec.template.timeoutSeconds)'
 ```
 
-Repeat the update for the other MCP wrapper services before production verification. A successful
+A successful
 check should report `900` and subsequent `/mcp` requests should no longer end at 300 seconds.
 
 For the end-to-end check, run `scripts/mcp_http_smoke.py` with one `--endpoint name=url` and
@@ -112,7 +117,11 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
      denied, as happened on the 2026-07-18 dispatch); and `artifactregistry.reader`
      on the **test** AR. For the migrate step (#200) it also needs
      `iam.serviceAccountUser` on `quantcore-migrate@…` and `roles/logging.viewer` (to
-     print a failed migration's log). `scripts/ensure_migrate_job.sh --prod` grants both.
+     print a failed migration's log). `scripts/ensure_migrate_job.sh --prod` grants both. To **create** a new
+     MCP wrapper (#161) it also needs `run.services.setIamPolicy` to make the service public. That
+     is **not granted** as of 2026-10-04, so a create fails after the service exists and prints
+     the grant command. The custom-role commands are in
+     [`cloudrun-services.md`](../architecture/cloudrun-services.md#iam-model).
    - The **`quantcore-migrate` Job** exists in prod. Without it the migrate step fails and
      nothing rolls out — deliberately, not a skip. One-time setup:
      [`flyway-automation-plan.md`](../proposals/flyway-automation-plan.md) Step 5.

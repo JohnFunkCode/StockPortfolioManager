@@ -535,8 +535,8 @@ key/secret pair and its own custom OAuth client.
 2. **Merge to `main`.** This triggers `.github/workflows/deploy.yml` (no path filters, so any push to
    `main` qualifies). The `gate` job runs tests + smoke; then `cloudbuild.yaml`'s `build-ui` step
    builds `quantcore-ui:<sha>` and the roll-out step rolls it onto the **test**
-   service, in parallel with the MCP wrappers once `quantcore-api` has rolled (IAP + secret + `QUANTCORE_REST_URL` config is preserved across redeploys; CPU/memory
-   come from the workflow's pinned sizing env block).
+   service, in parallel with the MCP wrappers once `quantcore-api` has rolled (IAP is preserved across redeploys; CPU/memory, env and secrets come from the service
+   inventory, `deploy/cloudrun-services.toml`).
 3. **Verify on test** — open the test URL above in the browser, confirm the data grids populate.
 4. **Promote to prod** — run the **`prod-rollout`** GitHub Action (`workflow_dispatch`) with that
    commit's 7-char SHA as `image_tag`. It copies the validated image **by digest** test→prod and
@@ -1010,6 +1010,16 @@ source .venv/bin/activate
 fastmcp run fastMCPTest/stock_price_server.py
 ```
 
+### Adding an MCP wrapper (deploys itself)
+
+A new wrapper needs no GCP permissions from its author. Add the server module under `fastMCPTest/`,
+an entry in `WRAPPERS` in `scripts/ci_wrapper_smoke.py`, and a `[[services]]` block (copy a
+standard wrapper, then set `first_create = "auto"`) in `deploy/cloudrun-services.toml`. Merging
+creates the service on **test**. The next `prod-rollout` dispatch creates it in **prod**, behind
+the reviewer gate. Full flow, the IAM model, and the read-only drift check
+(`python scripts/cloudrun_services.py check --env test`):
+[`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).
+
 ### MCP HTTP timeout policy
 
 Cloud Run MCP services use a 900-second request timeout. This is intentionally longer than the
@@ -1017,9 +1027,9 @@ previous 300-second boundary observed on `/mcp`, while the shared REST gateway k
 upstream calls bounded by `QUANTCORE_REST_TIMEOUT` (60 seconds by default). The container launcher
 adds FastMCP protocol pings every 30 seconds so an active session is not mistaken for an idle
 connection by an intermediate proxy. The pings do not extend Cloud Run's absolute request
-deadline; the 900-second setting is what moves that hard boundary. Deployment workflows apply the
-900-second setting to every MCP wrapper; after a manual first deploy, verify the effective service
-timeout before inviting remote clients.
+deadline; the 900-second setting is what moves that hard boundary. The 900-second setting is each
+wrapper's `timeout` in the service inventory (`deploy/cloudrun-services.toml`), which every
+roll-out re-asserts and every CI-created wrapper starts with.
 
 Large symbol universes should be split into bounded tool calls. Bounding batch requests at the REST
 boundary is planned in [#249](https://github.com/JohnFunkCode/StockPortfolioManager/issues/249).

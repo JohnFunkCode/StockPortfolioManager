@@ -118,10 +118,10 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
      on the **test** AR. For the migrate step (#200) it also needs
      `iam.serviceAccountUser` on `quantcore-migrate@…` and `roles/logging.viewer` (to
      print a failed migration's log). `scripts/ensure_migrate_job.sh --prod` grants both. To **create** a new
-     MCP wrapper (#161) it also needs `run.services.setIamPolicy` to make the service public. That
-     is **not granted** as of 2026-10-04, so the step checks for it first and refuses to create
-     the service, printing the grant command. The custom-role commands are in
-     [`cloudrun-services.md`](../architecture/cloudrun-services.md#iam-model).
+     MCP wrapper (#161) it would also need `run.services.setIamPolicy` to make the service public.
+     That grant is **declined** (2026-10-05), so the step refuses to create the service and
+     prints the bind command. Create it by hand as in
+     [`cloudrun-services.md`](../architecture/cloudrun-services.md#onboarding-a-wrapper-by-hand).
    - The **`quantcore-migrate` Job** exists in prod. Without it the migrate step fails and
      nothing rolls out — deliberately, not a skip. One-time setup:
      [`flyway-automation-plan.md`](../proposals/flyway-automation-plan.md) Step 5.

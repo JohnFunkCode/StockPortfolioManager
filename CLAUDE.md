@@ -297,8 +297,9 @@ Rules to keep:
   `WRAPPERS` entry; `tests/test_cloudrun_services.py` checks the three agree.
 - **`PORT` is never an env var.** Use `port`, because Cloud Run rejects a set `PORT`.
 - **IAM is read, never changed, on an existing service.** The deployer (`run.developer`) cannot set
-  IAM policy, so creating a public wrapper needs a narrow custom-role grant. Prod IAM grants are
-  John's to apply.
+  IAM policy, and the grant that would let it is **declined** (2026-10-05): CI refuses to create a
+  public wrapper and an owner creates it by hand with two commands. Don't re-propose the grant;
+  the reasoning and the WIF gap (#313) are in the doc below.
 - `python scripts/cloudrun_services.py check --env test|prod` is a read-only drift report.
 
 Onboarding flow and the IAM model: [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).

@@ -20,7 +20,7 @@ from unittest import mock
 
 from scripts import ensure_app_db_role as tool
 
-PASSWORD = "correct-horse-battery-staple-308"
+PASSWORD = "test-app-db-password-308-not-real"
 
 
 class ScramVerifierTests(unittest.TestCase):

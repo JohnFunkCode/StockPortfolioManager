@@ -1,0 +1,7 @@
+# Fingerprints of individual known-clean findings in history that the narrow
+# allowlist in .gitleaks.toml no longer matches. Each line is one finding in one
+# commit, never a path or a rule.
+#
+# #308: the dummy app-role password in the test, before it was renamed to the
+# allowlisted test-app-db-password-308-not-real.
+1c5421c4193566e3b7f566b870beb98cd78d985a:tests/test_ensure_app_db_role.py:generic-api-key:23

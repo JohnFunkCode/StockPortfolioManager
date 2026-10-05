@@ -23,6 +23,9 @@ regexes = [
   # The dummy HS256 signing secret shared by the auth test suites — its own
   # value states it is a test secret.
   '''test-secret-key-at-least-32-bytes-long-000''',
+  # The dummy app-role password in tests/test_ensure_app_db_role.py (#308);
+  # its value states it is not real.
+  '''test-app-db-password-308-not-real''',
   # generic-api-key false positives on code identifiers (an EC curve constant
   # next to the word "key", and a HuggingFace model name after "tokenizer=").
   '''ec\.SECP256R1''',

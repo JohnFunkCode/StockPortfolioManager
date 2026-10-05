@@ -215,10 +215,12 @@ The application uses a unified **PostgreSQL** database (codename **QuantCore**, 
 
 ### Migrations (Flyway)
 
-Versioned SQL lives in `db/migrations/V*.sql`. `db/flyway.conf`
-deliberately holds **no credentials**, so use the wrapper — it derives the JDBC URL and login
-from the DSNs in `.env`, defaults to the **test** database, echoes the target host before
-running, and asks for confirmation before a prod `migrate`:
+Versioned SQL lives in `db/migrations/V*.sql`. **CI applies pending migrations before each
+roll-out**: `deploy.yml` on test, `prod-rollout.yml` on prod (see *Migrations are load-bearing*
+below). You run Flyway yourself only to inspect a database, or to apply a migration CI refuses.
+`db/flyway.conf` deliberately holds **no credentials**, so use the wrapper. It derives the JDBC
+URL and login from the DSNs in `.env`, defaults to the **test** database, echoes the target host
+before running, and asks for confirmation before a prod `migrate`:
 
 ```bash
 ./scripts/flyway.sh info               # test (default)
@@ -255,9 +257,19 @@ That two-owners-of-the-schema problem was
 **Migrations are load-bearing — this changes how you ship a schema change.** Startup no longer
 creates anything on test or prod, so:
 
-1. **Migrate first, deploy second — in both projects.** `./scripts/flyway.sh migrate` before the
-   merge to `main` (`deploy.yml` auto-rolls test), and `./scripts/flyway.sh --prod migrate` before
-   dispatching `prod-rollout.yml`. Nothing else will create the object for you.
+1. **CI migrates first and deploys second, in both projects** (issue #200). After the build
+   (test) or the promotion (prod), `scripts/ci_migrate.sh` runs the `quantcore-migrate` Cloud Run
+   Job on that commit's image and waits. If it fails, nothing rolls out, and the previous revisions
+   keep serving on an unchanged schema. Nothing else will create the object for you.
+   - **Contract and non-transactional migrations are refused**: `DROP`, `RENAME`, `ALTER … TYPE`,
+     `CONCURRENTLY`, `VACUUM`, `ALTER SYSTEM`, `CREATE/DROP DATABASE`. The step fails with
+     `migration refused`. Apply that one by hand with `./scripts/flyway.sh migrate`
+     (`--prod migrate` for prod), then re-run the workflow.
+   - **Forward-fix only.** A failed migration rolls back whole. Fix it with a new version; never
+     edit an applied one.
+   - The Job is created **once per project** with `./scripts/ensure_migrate_job.sh` (see the
+     `quantcore-migrate` row under Containers). A missing Job fails the deploy rather than
+     skipping the migration.
 2. **The migration must be complete DDL.** A forgotten column used to be invisible, because
    `init_schema()` created it at startup anyway. Now it is a `MISSING`/`MISMATCH` line and it
    fails the deploy.
@@ -754,7 +766,7 @@ so the team can test immediately. JWT validation is enabled only on Cloud Run.
 | MCP wrappers (×7) | `Dockerfile.mcp` | `requirements-base.txt` (lean) | one image reused per wrapper via `SERVER_MODULE`/`PORT` |
 | `report` | `Dockerfile.report` | `requirements-base.txt` (lean) | `main.py` once-and-exit (Cloud Run Job) — notify, capture, warm; the service name kept the old "report" spelling |
 | `quantcore-keyproxy` | `Dockerfile.keyproxy` | `keyproxy/requirements.txt` (slim) | BYOK credential-isolation boundary; no DB (IAM-locked on Cloud Run) |
-| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). **Built, not yet run by CI.** The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. The workflow step lands in a later step of [the plan](docs/proposals/flyway-automation-plan.md) |
+| `quantcore-migrate` | `Dockerfile.migrate` | `flyway/flyway` + junixsocket jars (no Python) | applies pending `db/migrations` as a Cloud Run Job before each roll-out, refusing contract and non-transactional ones (#200). Run by `deploy.yml` and `prod-rollout.yml` through `scripts/ci_migrate.sh`, before every roll-out. The Job and its service account `quantcore-migrate@` are created once per project by an operator with `./scripts/ensure_migrate_job.sh --tag <trial-tag> [--execute]` (test) or `--prod --image <ref@digest>` (prompts); `--dry-run` prints the changes without making them. Design: [the plan](docs/proposals/flyway-automation-plan.md) |
 | `quantui` | `Dockerfile.ui` | Node/Express | serves the built SPA + `/api/*` proxy (see QuantUI section) |
 
 Only the api and news images carry the heavy ML stack — post-inversion FinBERT

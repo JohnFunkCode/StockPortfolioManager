@@ -89,6 +89,12 @@ secret" — [`.github/workflows/deploy.yml:9`](../../.github/workflows/deploy.ym
 migrations in CD would break that constraint; leaving them manual makes a hard-fail startup check
 a foot-gun on day one. Sequencing it after the drift check is what makes it safe.
 
+> **Superseded in part (2026-10-04, issue #200).** The premise above, that automating migrations
+> would require CD to hold database credentials, no longer holds. CI now migrates before every
+> roll-out by executing a `quantcore-migrate` Cloud Run Job. The Job reads the DSN from Secret
+> Manager under its own service account, so `deploy.yml` and `prod-rollout.yml` still hold no
+> database credentials. See [`flyway-automation-plan.md`](flyway-automation-plan.md).
+
 Why not Option 3 ("baseline honestly"): it renames the status quo without changing any of the four
 failure modes above.
 

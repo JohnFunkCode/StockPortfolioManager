@@ -307,7 +307,7 @@ Rules to keep:
 - **IAM is read, never changed, on an existing service.** The deployer (`run.developer`) cannot set
   IAM policy, and the grant that would let it is **declined** (2026-10-05): CI refuses to create a
   public wrapper and an owner creates it by hand with two commands. Don't re-propose the grant;
-  the reasoning is in the doc below. The WIF providers are being narrowed to `main` (and, for
+  the reasoning is in the doc below. The WIF providers are narrowed to `main` (and, for
   prod, `prod-rollout.yml` in the `prod` environment), #313: a new job that authenticates to
   prod must declare `environment: prod` and run from main
   ([`wif-trust-plan.md`](docs/proposals/wif-trust-plan.md)).

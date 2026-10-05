@@ -513,9 +513,9 @@ feedparser-sgmllib==2.1.0 \
     --hash=sha256:2cab2d43b95a954f920f18aebce7a4dbbb3f539780b127e2aa114f579821e01d \
     --hash=sha256:61facf2918c4389b5b00714f76c5e03431ffcd94cd1f51d657edd6cd7c396579
     # via feedparser
-google-auth==2.59.1 \
-    --hash=sha256:89c3f931683a482ac97e61df7eb9da5e08a91703f3c752b2377d72cfb7d69e6a \
-    --hash=sha256:ce50fc533ac02f489a2b183a0c156672c376ecb2091b1127bc7efba2975fff27
+google-auth==2.60.0 \
+    --hash=sha256:34aa0283ef72c99cd410e35db4417211fa3e6aaa5399183227bbe3b82bd15192 \
+    --hash=sha256:e78414cd2e22cc02884768707def024ca32da17695f2c0e6194cdbe1316c4cd4
     # via -r requirements-base.txt
 griffelib==2.3.0 \
     --hash=sha256:1b8f9cd525681c26b1d6d574faa1371651e8459ca51d209684f50b8096ae06e0 \

@@ -105,6 +105,48 @@ class CheckDeployRefTest(RepoCase):
         git(self.repo, "checkout", "-q", "feature")
         self.assertEqual(self.run_main()[0], 0)
 
+    def test_deleted_migration_is_refused(self):
+        # PR #310 review: an applied migration missing locally fails Flyway's validate.
+        (self.repo / "db" / "migrations" / "V2__base.sql").unlink()
+        self.commit("delete")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("D db/migrations/V2__base.sql", out)
+
+    def test_deleted_middle_migration_is_refused(self):
+        git(self.repo, "checkout", "-q", "main")
+        self.write("db/migrations/V3__mid.sql", "-- v3\n")
+        self.write("db/migrations/V4__top.sql", "-- v4\n")
+        self.commit("main gains V3, V4")
+        git(self.repo, "checkout", "-q", "-B", "feature")
+        (self.repo / "db" / "migrations" / "V3__mid.sql").unlink()
+        self.commit("drop the middle one")
+        code, out = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("D db/migrations/V3__mid.sql", out)
+        self.assertNotIn("V4__top", out)
+
+    def test_ref_behind_main_with_its_own_code_is_ok(self):
+        # Files main gained later look deleted in a plain two-dot diff; they aren't the ref's.
+        self.write("app.py", "x = 1\n")
+        self.commit("code")
+        git(self.repo, "checkout", "-q", "main")
+        self.write("db/migrations/V3__later.sql", "-- v3\n")
+        self.commit("main moves on")
+        git(self.repo, "checkout", "-q", "feature")
+        code, out = self.run_main()
+        self.assertEqual(code, 0, out)
+
+    def test_migration_main_has_since_taken_is_ok(self):
+        # The ref added V3 and main merged the same file: nothing is ahead of main.
+        self.write("db/migrations/V3__new.sql", "-- v3\n")
+        self.commit("migration")
+        git(self.repo, "checkout", "-q", "main")
+        self.write("db/migrations/V3__new.sql", "-- v3\n")
+        self.commit("same migration lands on main")
+        git(self.repo, "checkout", "-q", "feature")
+        self.assertEqual(self.run_main()[0], 0)
+
     def test_ref_missing_an_image_is_refused(self):
         images = check_deploy_ref.required_images() - {"quantcore-migrate"}
         self.write("cloudbuild.yaml", cloudbuild_for(images))

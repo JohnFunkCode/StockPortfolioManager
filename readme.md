@@ -566,8 +566,8 @@ would be. Prod is not touched. A few things to know (#120):
 
 - Run it **from main** (`--ref main`, or "Use workflow from: main" in the UI); a run from another
   branch is refused, because the deploy machinery must be main's.
-- A ref that **adds or edits a migration** is refused: it would change the shared test database
-  ahead of main. Merge the migration first.
+- A ref that **adds, edits or deletes a migration** is refused: it would change the shared test
+  database ahead of main, or fail Flyway's validate against it. Merge the migration first.
 - A ref older than the deploy machinery (one whose `cloudbuild.yaml` lacks an image the roll-out
   deploys) is refused before the build.
 - Test stays on your ref **until the next merge to main**, which redeploys main. The run's summary

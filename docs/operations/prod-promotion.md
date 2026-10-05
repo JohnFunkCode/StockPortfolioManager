@@ -14,17 +14,19 @@ Run over to it, behind a gated, manually-approved GitHub workflow.
 
 ## The model in one paragraph
 
-The test CI ([`deploy.yml`](../../.github/workflows/deploy.yml)) builds the **five**
-images — `quantcore-api`, `quantcore-mcp` (all 5 wrappers share it), `quantcore-report`,
-`quantcore-ui` (QuantUI), and `quantcore-keyproxy` (BYOK) — and tags each with the
-**7-char commit SHA**, deploying them to the **test** Cloud Run stack. Automatic
+The test CI ([`deploy.yml`](../../.github/workflows/deploy.yml)) builds the **seven**
+images — `quantcore-api`, `quantcore-mcp` (all 7 wrappers share it), `quantcore-report`,
+`quantcore-ui` (QuantUI), `quantcore-keyproxy` (BYOK), `quantcore-news`, and
+`quantcore-migrate` (Flyway, issue #200) — and tags each with the **7-char commit SHA**,
+migrating the test database and then deploying them to the **test** Cloud Run stack. Automatic
 build-on-push is **live**: the test-project WIF secrets are wired
 (`scripts/setup_test_wif.sh`), and a `preflight` job skips the deploy only if those
 secrets are ever absent (e.g. on forks).
 
 Promotion takes one such already-built, already-tested
-**tag**, copies all five images **by digest** test AR → prod AR (`docker buildx
-imagetools create`), and deploys prod **by the resolved original digest** (not the tag).
+**tag**, copies all seven images **by digest** test AR → prod AR (`docker buildx
+imagetools create`), **migrates the prod database** with the `quantcore-migrate` Job, and
+deploys prod **by the resolved original digest** (not the tag).
 A manual-approval gate (`prod` GitHub Environment + required reviewers) sits in front of
 the prod rollout. Per-service prod config (Cloud SQL binding, secrets, ingress,
 resources) was set once during the manual first deploy (P5–P7) and is **preserved** on
@@ -73,6 +75,7 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
                                    │
                                    ▼
    promote-and-deploy: imagetools copy by digest TEST AR ─► PROD AR
+                       quantcore-migrate Job: flyway migrate PROD (stops here on failure)
                        gcloud run deploy / jobs update PROD by digest
 ```
 
@@ -107,22 +110,30 @@ operator dispatches prod-rollout.yml -f image_tag=<SHA>
      `keyproxy-runtime@…` (the keyproxy runs as its own least-privilege SA; a missing
      grant there fails the rollout's final step with `iam.serviceaccounts.actAs`
      denied, as happened on the 2026-07-18 dispatch); and `artifactregistry.reader`
-     on the **test** AR.
+     on the **test** AR. For the migrate step (#200) it also needs
+     `iam.serviceAccountUser` on `quantcore-migrate@…` and `roles/logging.viewer` (to
+     print a failed migration's log). `scripts/ensure_migrate_job.sh --prod` grants both.
+   - The **`quantcore-migrate` Job** exists in prod. Without it the migrate step fails and
+     nothing rolls out — deliberately, not a skip. One-time setup:
+     [`flyway-automation-plan.md`](../proposals/flyway-automation-plan.md) Step 5.
 
 ---
 
 ## Choosing the tag to promote
 
-The workflow promotes **one tag across all five images**, so that tag should exist on
-`quantcore-api`, `quantcore-mcp`, `quantcore-report`, `quantcore-ui`, and
-`quantcore-keyproxy` in the test AR. (The ui and keyproxy steps tolerate an absent
-tag/service — tags built before those images existed skip them cleanly.)
+The workflow promotes **one tag across all seven images**, so that tag must exist on
+`quantcore-api`, `quantcore-mcp`, `quantcore-report`, `quantcore-ui` and
+`quantcore-migrate` in the test AR. `quantcore-keyproxy` and `quantcore-news` tolerate an
+absent tag (tags built before those images existed skip them cleanly). **`quantcore-migrate`
+does not**: a tag with no `quantcore-migrate` image (anything built before it, #200 Step 2)
+cannot be promoted, because rolling out without migrating is the failure the migrate step
+removes. The `quantcore-migrate` tag list below is the test of whether a tag qualifies.
 
 - **Normal case — a commit SHA.** Use the 7-char SHA that CI built when your change
-  merged to `main` (it tags all five together). List what's available:
+  merged to `main` (it tags all seven together). List what's available:
 
   ```bash
-  for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy; do
+  for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy quantcore-news quantcore-migrate; do
     echo "== $img =="
     gcloud artifacts docker tags list \
       us-central1-docker.pkg.dev/quantcore-test-20260606/quantcore/$img \
@@ -130,10 +141,11 @@ tag/service — tags built before those images existed skip them cleanly.)
   done
   ```
 
-  Pick a SHA present in **all five** lists (or accept the skip for pre-BYOK tags).
+  Pick a SHA present in **all seven** lists.
 
-- **The current validated baseline is `177e411`** (the BYOK rollout, promoted and
-  E2E-verified on prod 2026-07-18 — api digest `4e50638c…`, keyproxy `9b3b0ecb…`).
+- **The last recorded validated baseline was `177e411`** (the BYOK rollout, promoted and
+  E2E-verified on prod 2026-07-18 — api digest `4e50638c…`, keyproxy `9b3b0ecb…`). It
+  predates `quantcore-migrate`, so it can no longer be promoted; it is history, not a target.
   The `latest` tag is the human-pinned, known-good marker; keep it pointed at the
   blessed set when you promote. **Do not assume a raw commit-SHA tag is blessed** —
   a newer build may sit under its SHA without having been promoted/validated. When in
@@ -158,25 +170,21 @@ tag/service — tags built before those images existed skip them cleanly.)
    stack (the team's daily driver) — the prod images are byte-identical, so a problem on
    test is a problem in prod.
 
-2. **If the change carries a schema change, migrate prod first.** Startup no longer creates
-   tables on a Flyway-managed database — it checks them and raises `SchemaDriftError`, which
-   fails the revision's health check (issue #165). So the migration has to land *before* the
-   image that expects it:
+2. **Schema changes migrate themselves** (issue #200). The workflow runs the
+   `quantcore-migrate` Job against prod after the promotion and **before** anything rolls
+   out, on every release (a no-op when nothing is pending). If it fails, nothing rolls out and
+   the previous revisions keep serving on an unchanged schema; the step's log says which case
+   applies:
 
-   ```bash
-   ./scripts/flyway.sh --prod migrate
-   ```
+   - **`migration failed`** — the failing version was rolled back. Fix forward with a new
+     migration (never edit an applied one) and re-dispatch.
+   - **`migration refused`** — a pending migration is a contract change (drop/rename) or
+     non-transactional, which CI deliberately won't apply. Apply it by hand, then re-dispatch:
 
-   Then confirm the live schema actually matches what the new image expects — `flyway info` is
-   a changelog view, not evidence:
-
-   ```bash
-   python scripts/schema_check.py --prod
-   ```
-
-   Skip this step only when nothing under `db/migrations/` changed between the deployed tag and
-   the one you're promoting. Getting the order wrong is not an outage: the new revision fails
-   its check and never takes traffic, so the previous revision keeps serving while you migrate.
+     ```bash
+     ./scripts/flyway.sh --prod migrate
+     python scripts/schema_check.py --prod   # flyway info is a changelog, not evidence
+     ```
 
 3. **Dispatch the workflow** with the chosen tag:
 
@@ -207,11 +215,11 @@ tag/service — tags built before those images existed skip them cleanly.)
 
 6. **The deploy runs automatically** after approval: it resolves each image's source
    digest, `imagetools`-copies test AR → prod AR, verifies the original digest resolves
-   in the prod AR, then `gcloud run deploy` (api + 5 wrappers + `quantui` +
-   `quantcore-keyproxy`) and `gcloud run jobs update` (report) **by digest**. The
-   quantui/keyproxy steps are image-only and skip when the tag predates those images or
-   the service doesn't exist yet. Per-service env/secrets/Cloud-SQL bindings are
-   untouched.
+   in the prod AR, executes the `quantcore-migrate` Job **by digest** and waits for it,
+   then `gcloud run deploy` (api + 7 wrappers + `quantui` + `quantcore-keyproxy`) and
+   `gcloud run jobs update` (report, news) **by digest**. The keyproxy/news steps are
+   image-only and skip when the tag predates those images or the service doesn't exist
+   yet. Per-service env/secrets/Cloud-SQL bindings are untouched.
 
 ---
 
@@ -258,9 +266,11 @@ gcloud run deploy quantcore-api --project quantcore-prod-20260606 --region us-ce
   --image us-central1-docker.pkg.dev/quantcore-prod-20260606/quantcore/quantcore-api@<good-digest>
 ```
 
-The last-validated baseline is tag **`177e411`** (BYOK rollout, verified end-to-end on
-prod 2026-07-18). Re-dispatching the workflow with `image_tag=177e411` restores that
-set across the whole stack.
+**Roll back by revision or digest, not by re-dispatching an old tag.** A tag that predates
+`quantcore-migrate` (such as the old `177e411` baseline) can no longer be promoted, and
+schema changes are forward-fix only (#200): an older image runs against the newer schema,
+which expand-only migrations keep compatible. Re-dispatching a tag that *does* carry the
+migrate image is fine — its migrate step finds nothing pending.
 
 ---
 
@@ -276,4 +286,4 @@ set across the whole stack.
 | WIF provider | `projects/127961694257/locations/global/workloadIdentityPools/github-prod/providers/github` |
 | Repo secrets | `GCP_PROD_WIF_PROVIDER`, `GCP_PROD_DEPLOY_SA` |
 | Approval gate | `prod` GitHub Environment + required reviewers |
-| Blessed tag | `177e411` (BYOK rollout, validated 2026-07-18) |
+| Blessed tag | none recorded since `177e411` (2026-07-18), which predates `quantcore-migrate` and can't be promoted; pick a SHA present in all seven repos |

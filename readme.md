@@ -1061,8 +1061,10 @@ entrypoint (`mcp_gateway/serve.py`) binds `0.0.0.0`, as Cloud Run requires.
 ### Adding an MCP wrapper
 
 A new wrapper needs no GCP permissions from its author. Add the server module under `fastMCPTest/`,
-an entry in `WRAPPERS` in `scripts/ci_wrapper_smoke.py`, and a `[[services]]` block (copy a
-standard wrapper, then set `first_create = "auto"`) in `deploy/cloudrun-services.toml`. CI can't
+an entry in `WRAPPERS` in `scripts/ci_wrapper_smoke.py`, a contract case per tool in
+`tests/test_mcp_tool_contracts.py` (a new tool on an existing wrapper needs one too), and a
+`[[services]]` block (copy a standard wrapper, then set `first_create = "auto"`) in
+`deploy/cloudrun-services.toml`. CI can't
 make a service public (that grant is deliberately not given), so the first roll-out after the merge
 fails for the new service only, and a project owner creates it with two commands, in test and then
 in prod. From then on CI deploys it like any other. Full flow, the by-hand commands, the IAM model, and the read-only drift check

@@ -7,7 +7,8 @@
 #
 # WHAT THIS CREATES (idempotent — safe to re-run; existing resources are reused):
 #   1. A WIF pool   `github-test`   + an OIDC provider `github` for token.actions.githubusercontent.com,
-#      attribute-restricted to THIS GitHub repository.
+#      whose condition admits only THIS repository's runs on refs/heads/main (#313). An
+#      existing provider is UPDATED to that mapping + condition, so re-running converges it.
 #   2. A deploy service account `quantcore-deployer@<test-project>` with the
 #      minimum roles CI needs: run.developer, cloudbuild.builds.editor,
 #      artifactregistry.writer (project-level), plus iam.serviceAccountUser on
@@ -82,7 +83,12 @@ else
   echo "Pool $POOL_ID already exists — reusing."
 fi
 
-# --- 3. OIDC provider, restricted to this repo -----------------------------
+# --- 3. OIDC provider, restricted to this repo's main branch (#313) --------
+# Repo-only was the old condition: any branch's workflow could mint the deployer. deploy.yml
+# authenticates only on a push to main or a dispatch (always run from main, #120), so
+# pinning the ref costs nothing. Pull-request runs never authenticate.
+ATTR_MAPPING="google.subject=assertion.sub,attribute.repository=assertion.repository,attribute.ref=assertion.ref,attribute.workflow_ref=assertion.job_workflow_ref"
+ATTR_CONDITION="assertion.repository=='${REPO}' && assertion.ref=='refs/heads/main'"
 if ! gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
       --project "$PROJECT_ID" --location global \
       --workload-identity-pool "$POOL_ID" >/dev/null 2>&1; then
@@ -91,10 +97,15 @@ if ! gcloud iam workload-identity-pools providers describe "$PROVIDER_ID" \
     --workload-identity-pool "$POOL_ID" \
     --display-name "GitHub OIDC" \
     --issuer-uri "https://token.actions.githubusercontent.com" \
-    --attribute-mapping "google.subject=assertion.sub,attribute.repository=assertion.repository" \
-    --attribute-condition "assertion.repository=='${REPO}'"
+    --attribute-mapping "$ATTR_MAPPING" \
+    --attribute-condition "$ATTR_CONDITION"
 else
-  echo "Provider $PROVIDER_ID already exists — reusing."
+  gcloud iam workload-identity-pools providers update-oidc "$PROVIDER_ID" \
+    --project "$PROJECT_ID" --location global \
+    --workload-identity-pool "$POOL_ID" \
+    --attribute-mapping "$ATTR_MAPPING" \
+    --attribute-condition "$ATTR_CONDITION"
+  echo "Provider $PROVIDER_ID already existed — mapping + condition updated."
 fi
 
 # --- 4. Deploy service account --------------------------------------------

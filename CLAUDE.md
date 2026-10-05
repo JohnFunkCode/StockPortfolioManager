@@ -80,7 +80,8 @@ uvicorn api.main:app --host 127.0.0.1 --port 5001
 # The test suite needs no wrapper — tests/__init__.py already does the same swap.
 ./scripts/with-test-db.sh python scripts/check_schema_snapshot.py
 
-# Database migrations (defaults to the TEST database; prompts before a prod migrate)
+# Database migrations. CI applies them before each roll-out (#200); by hand only for
+# refused contract/non-transactional ones. Defaults to TEST; prompts before a prod migrate.
 ./scripts/flyway.sh info
 ./scripts/flyway.sh --prod info
 
@@ -384,10 +385,25 @@ a developer's Flyway-managed test database and CI's bare Postgres behave identic
 **Migrations are now load-bearing** (`auto` soaked warn-only on both projects for a full deploy
 cycle — missing=0, mismatch=0 — and now enforces):
 
-- Migrate **before** the image carrying the schema change deploys, in **both** projects:
-  `./scripts/flyway.sh migrate` before the merge to `main` (`deploy.yml` auto-rolls test), and
-  `./scripts/flyway.sh --prod migrate` before dispatching `prod-rollout.yml`. `init_schema()` is
-  no longer the safety net on a deployed database; nothing else will create the object for you.
+- **CI migrates before it rolls out, in both projects** (issue #200). `deploy.yml` runs
+  `scripts/ci_migrate.sh` after the build. `prod-rollout.yml` runs it after the promotion, with the
+  promoted digest. The script points the `quantcore-migrate` Cloud Run Job at that commit's image
+  and runs it with `--wait`. If it fails, nothing rolls out, and the step's `::error::` says which
+  recovery applies. `init_schema()` is no longer the safety net on a deployed database; nothing
+  else will create the object for you.
+- **Contract and non-transactional migrations are refused** (`DROP`, `RENAME`,
+  `ALTER … TYPE`, `CONCURRENTLY`, `VACUUM`, `ALTER SYSTEM`, `CREATE/DROP DATABASE`; the entrypoint
+  `db/migrate-entrypoint.sh` exits 3 and logs `migrate: REFUSED`). Apply those by
+  hand: `./scripts/flyway.sh migrate`, or `--prod migrate` for prod. Then re-run the workflow.
+  Schema changes are **forward-fix only**: never edit an applied migration, and never roll an
+  image back past a migration it doesn't understand.
+- The Job and its service account `quantcore-migrate@` are created **once per project** by an
+  operator, with `scripts/ensure_migrate_job.sh`. A missing Job fails the step; it is never
+  skipped, because skipping would roll out an image ahead of its schema. Prod promotion is
+  **strict** about the `quantcore-migrate` image, so a tag older than `1e7e7f9` can't be promoted.
+  Roll back by revision or digest. Design, decisions and the proof runs:
+  [`docs/proposals/flyway-automation-plan.md`](docs/proposals/flyway-automation-plan.md). Runbook:
+  [`docs/operations/prod-promotion.md`](docs/operations/prod-promotion.md).
 - A migration must now be **complete DDL**. A forgotten column used to be invisible because
   `_SCHEMA` created it at startup anyway; now it is a `MISSING`/`MISMATCH` line and the deploy
   fails.

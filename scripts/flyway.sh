@@ -18,9 +18,15 @@
 # NOTE: Flyway is now the sole owner of the DDL on any database carrying a
 # `flyway_schema_history` ledger — which is test and prod. Startup checks the
 # schema there instead of creating it (QUANTCORE_SCHEMA_MODE=auto -> verify), so
-# `migrate` must run BEFORE deploying an image that carries a schema change, and
 # the migration must be complete DDL: nothing creates the object for you any more,
 # and a drifted schema aborts startup with SchemaDriftError.
+#
+# CI now runs `migrate` before every roll-out (issue #200): scripts/ci_migrate.sh
+# executes the quantcore-migrate Cloud Run Job from deploy.yml (test) and
+# prod-rollout.yml (prod). This script is for inspecting a database, and for the
+# migrations that Job refuses: contract changes (DROP, RENAME, ALTER ... TYPE) and
+# non-transactional ones (CONCURRENTLY, VACUUM, ...). Apply those here, then re-run
+# the workflow. Plan: docs/proposals/flyway-automation-plan.md
 #
 # Migrations written before that flip may still report "already exists, skipping"
 # because `init_schema()` had already converged the shape. `flyway info` is a

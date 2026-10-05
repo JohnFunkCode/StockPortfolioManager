@@ -30,7 +30,6 @@ Usage:
 """
 
 import argparse
-import platform
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -78,17 +77,15 @@ def mcp_health_check() -> dict:
         fastmcp_version = "unknown"
 
     return {
+        # Identity and version only: no host OS, interpreter, internal URL or
+        # filesystem path -- the wrappers are public, so this answers anyone (#297).
         "server": "options-analysis-server",
-        "python_version": sys.version.split()[0],
-        "platform": platform.platform(),
         "fastmcp_version": fastmcp_version,
         "history_period": HISTORY_PERIOD,
         "bb_period": BB_PERIOD,
         "bb_std_dev": BB_STD_DEV,
-        # What the *tools* screen is the server-side DB watchlist (issue #83);
-        # this path is only the CLI's --watchlist default.
+        # What the *tools* screen is the server-side DB watchlist (issue #83).
         "watchlist_default": "database (watchlist table)",
-        "watchlist_cli_default": str(PROJECT_ROOT / "watchlist.yaml"),
     }
 
 

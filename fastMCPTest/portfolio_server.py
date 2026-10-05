@@ -43,7 +43,6 @@ is a UI action.
 """
 
 import os
-import platform
 import sys
 from importlib import metadata as importlib_metadata
 from pathlib import Path
@@ -58,6 +57,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 from fastmcp import FastMCP
 
 from mcp_gateway import rest_client
+from mcp_gateway.serve import local_host
 
 mcp = FastMCP("portfolio-server")
 
@@ -71,9 +71,9 @@ def mcp_health_check() -> dict:
         fastmcp_version = "unknown"
 
     return {
+        # Identity and version only: no host OS, interpreter, internal URL or
+        # filesystem path -- the wrappers are public, so this answers anyone (#297).
         "server": "portfolio-server",
-        "python_version": sys.version.split()[0],
-        "platform": platform.platform(),
         "fastmcp_version": fastmcp_version,
     }
 
@@ -170,6 +170,7 @@ def add_to_watchlist(
 
 
 if __name__ == "__main__":
-    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
-    # can be reused per wrapper in docker-compose / Cloud Run.
-    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6006")))
+    # Local run (``python fastMCPTest/portfolio_server.py``): streamable HTTP on loopback
+    # unless MCP_HOST says otherwise (#297). Containers don't come through here --
+    # mcp_gateway.serve is the image entrypoint and binds 0.0.0.0 itself.
+    mcp.run(transport="http", host=local_host(), port=int(os.environ.get("PORT", "6006")))

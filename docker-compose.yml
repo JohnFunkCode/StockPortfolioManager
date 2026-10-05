@@ -52,7 +52,7 @@ services:
       KEYPROXY_URL: "http://keyproxy:5002"
       PORT: "5001"
     ports:
-      - "5001:5001"                # frontend (npm run dev) and curl hit http://localhost:5001
+      - "127.0.0.1:5001:5001"                # frontend (npm run dev) and curl hit http://localhost:5001
     depends_on:
       cloud-sql-proxy:
         condition: service_started
@@ -82,7 +82,7 @@ services:
       # into .env.docker with \n-escaped newlines). Empty -> ephemeral per-boot
       # keypair, which can never match the pin baked into the quantui bundle.
       KEYPROXY_PRIVATE_KEYS: "${KEYPROXY_DEV_PRIVATE_KEYS:-}"
-    ports: ["5002:5002"]
+    ports: ["127.0.0.1:5002:5002"]
     restart: on-failure
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5002/healthz')"]
@@ -99,7 +99,7 @@ services:
       SERVER_MODULE: fastMCPTest.stock_price_server
       PORT: "6001"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6001:6001"]
+    ports: ["127.0.0.1:6001:6001"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -112,7 +112,7 @@ services:
       SERVER_MODULE: fastMCPTest.options_analysis
       PORT: "6002"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6002:6002"]
+    ports: ["127.0.0.1:6002:6002"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -125,7 +125,7 @@ services:
       SERVER_MODULE: fastMCPTest.company_fundamentals_server
       PORT: "6003"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6003:6003"]
+    ports: ["127.0.0.1:6003:6003"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -138,7 +138,7 @@ services:
       SERVER_MODULE: fastMCPTest.news_sentiment_server
       PORT: "6004"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6004:6004"]
+    ports: ["127.0.0.1:6004:6004"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -151,7 +151,7 @@ services:
       SERVER_MODULE: fastMCPTest.market_analysis_server
       PORT: "6005"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6005:6005"]
+    ports: ["127.0.0.1:6005:6005"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -164,7 +164,7 @@ services:
       SERVER_MODULE: fastMCPTest.arbitrage_server
       PORT: "6007"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6007:6007"]
+    ports: ["127.0.0.1:6007:6007"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -177,7 +177,7 @@ services:
       SERVER_MODULE: fastMCPTest.portfolio_server
       PORT: "6006"
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
-    ports: ["6006:6006"]
+    ports: ["127.0.0.1:6006:6006"]
     depends_on:
       quantcore-api:
         condition: service_healthy
@@ -201,7 +201,7 @@ services:
     environment:
       QUANTCORE_REST_URL: "http://quantcore-api:5001"
       PORT: "8080"
-    ports: ["8080:8080"]
+    ports: ["127.0.0.1:8080:8080"]
     depends_on:
       quantcore-api:
         condition: service_healthy

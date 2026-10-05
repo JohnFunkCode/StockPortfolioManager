@@ -242,6 +242,19 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(body["status"], "ok")
         self.assertTrue(body["db_connected"])
 
+    def test_health_failure_hides_driver_error(self):
+        # /api/health is unauthenticated; a psycopg2 message names host/port/user (#297).
+        leak = 'connection to server at "10.1.2.3", port 5432 failed: user "quantcore"'
+        with patch("quantcore.db.get_connection", side_effect=RuntimeError(leak)), \
+                self.assertLogs("api.routers.system", level="WARNING") as logs:
+            resp = self.client.get("/api/health")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json(), {"status": "error", "db_connected": False,
+                                       "message": "database unavailable"})
+        self.assertNotIn("10.1.2.3", resp.text)
+        self.assertNotIn("10.1.2.3", "\n".join(logs.output))
+        self.assertIn("RuntimeError", "\n".join(logs.output))
+
     def test_dashboard_stats_shape(self):
         resp = self.client.get("/api/dashboard/stats")
         self.assertEqual(resp.status_code, 200)

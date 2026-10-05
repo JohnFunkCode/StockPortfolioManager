@@ -9,6 +9,12 @@ and port are selected purely by environment variables at run time:
                     e.g. "fastMCPTest.stock_price_server" (default below).
     PORT            TCP port to bind (default 8000).
 
+This entrypoint binds ``0.0.0.0`` because it runs inside a container (Cloud Run or
+compose), where the published port is the boundary. A wrapper run directly on a
+workstation (its ``__main__`` block) binds ``local_host()`` instead -- loopback
+unless ``MCP_HOST`` says otherwise -- so a laptop on a shared network doesn't
+serve the tools to it (#297).
+
 This imports the target module and runs ``module.mcp.run(transport="http", ...)``.
 Driving the launch from the module-level ``mcp`` object (rather than the file's
 ``__main__`` block) keeps it uniform across every wrapper — notably
@@ -24,6 +30,13 @@ from fastmcp.server.middleware import PingMiddleware
 
 DEFAULT_PING_INTERVAL_MS = 30_000
 PING_INTERVAL_ENV = "MCP_PING_INTERVAL_MS"
+LOCAL_HOST_ENV = "MCP_HOST"
+DEFAULT_LOCAL_HOST = "127.0.0.1"
+
+
+def local_host() -> str:
+    """Bind address for a wrapper run outside a container: loopback by default."""
+    return os.environ.get(LOCAL_HOST_ENV, "").strip() or DEFAULT_LOCAL_HOST
 
 
 def _ping_interval_ms() -> int:

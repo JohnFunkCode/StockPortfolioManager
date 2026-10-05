@@ -32,6 +32,7 @@ for path in (PROJECT_ROOT, MCP_DIR):
 from fastmcp import FastMCP
 
 from mcp_gateway import rest_client
+from mcp_gateway.serve import local_host
 
 mcp = FastMCP("market-analysis-server")
 
@@ -148,7 +149,7 @@ def get_bid_ask_spread(symbol: str, lookback: int = 20) -> dict:
 
 
 if __name__ == "__main__":
-    # Streamable HTTP transport (Rule 6). PORT is overridable so the same image
-    # can be reused per wrapper in docker-compose / Cloud Run; default is this
-    # server's assigned port.
-    mcp.run(transport="http", host="0.0.0.0", port=int(os.environ.get("PORT", "6005")))
+    # Local run (``python fastMCPTest/market_analysis_server.py``): streamable HTTP on loopback
+    # unless MCP_HOST says otherwise (#297). Containers don't come through here --
+    # mcp_gateway.serve is the image entrypoint and binds 0.0.0.0 itself.
+    mcp.run(transport="http", host=local_host(), port=int(os.environ.get("PORT", "6005")))

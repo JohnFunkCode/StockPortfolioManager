@@ -312,6 +312,12 @@ Rules to keep:
   prod must declare `environment: prod` and run from main
   ([`wif-trust-plan.md`](docs/proposals/wif-trust-plan.md)).
 - `python scripts/cloudrun_services.py check --env test|prod` is a read-only drift report.
+- **The wrappers and `quantcore-api` are `allUsers` by design; `api/auth.py`'s JWT is the single
+  enforcement point** (#297). Don't "harden" them with `--no-allow-unauthenticated` — AI clients
+  send a JWT Google can't verify. Because they're public: health checks return identity and status
+  only (no OS, interpreter, internal URL or driver error), `rest_client._path` rejects
+  request-reshaping segments, and `docker-compose.yml` publishes ports on `127.0.0.1` only (the
+  local api runs `AUTH_DISABLED=1`).
 
 Onboarding flow and the IAM model: [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).
 Jobs (`quantcore-report`, `-news`, `-migrate`) are not in the inventory; they are `jobs update`

@@ -9,10 +9,10 @@ auth, database and the upstream data sources -- for every tool at once.
   environment in ``deploy/cloudrun-services.toml``. ``--env prod`` is refused,
   and so is any target whose project number is prod's.
 - **Read-only tools only.** A tool runs when its first case in
-  ``scripts/mcp_tool_cases.py`` is a ``GET`` (or a wrapper-local health check).
-  Everything else -- ``add_to_watchlist``, ``collect_news``, the two POST
-  calculators -- is listed as skipped, so a new write tool is skipped by
-  default rather than run by accident.
+  ``scripts/mcp_tool_cases.py`` is a ``GET``, a wrapper-local health check, or
+  a POST listed in ``READ_ONLY_POSTS`` (the two calculators). Everything else
+  -- ``add_to_watchlist``, ``collect_news`` -- is listed as skipped, so a new
+  write tool is skipped by default rather than run by accident.
 - **The token is a TEST JWT from ``QUANTCORE_TEST_MCP_TOKEN``**, deliberately
   not ``QUANTCORE_MCP_TOKEN``, which holds a prod JWT for AI clients. Mint one
   with ``scripts/mint_prod_jwt.py --project quantcore-test-20260606``.
@@ -41,7 +41,7 @@ from typing import Any, Callable
 from fastmcp import Client
 
 from scripts.ci_wrapper_smoke import WRAPPERS
-from scripts.mcp_tool_cases import CASES
+from scripts.mcp_tool_cases import CASES, READ_ONLY_POSTS
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "deploy" / "cloudrun-services.toml"
@@ -77,6 +77,12 @@ def targets(env_name: str, manifest: Path = MANIFEST) -> dict[str, str]:
     return urls
 
 
+def is_read_only(module_path: str, tool: str, expected: dict | None) -> bool:
+    """A health check, a GET, or a POST listed in ``READ_ONLY_POSTS``."""
+    return (expected is None or expected["method"] == "GET"
+            or (module_path, tool) in READ_ONLY_POSTS)
+
+
 def plan() -> tuple[dict[str, list[tuple[str, dict]]], list[tuple[str, str]]]:
     """Return ({wrapper: [(tool, args)]}, [(wrapper, tool) skipped as not read-only])."""
     names = {module_path: name for module_path, name, _floor in WRAPPERS}
@@ -85,7 +91,7 @@ def plan() -> tuple[dict[str, list[tuple[str, dict]]], list[tuple[str, str]]]:
     for (module_path, tool), variants in CASES.items():
         args, expected = variants[0]
         name = names[module_path]
-        if expected is None or expected["method"] == "GET":
+        if is_read_only(module_path, tool, expected):
             selected[name].append((tool, args))
         else:
             skipped.append((name, tool))

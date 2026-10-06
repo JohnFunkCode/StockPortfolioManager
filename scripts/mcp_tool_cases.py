@@ -21,6 +21,16 @@ AR = "fastMCPTest.arbitrage_server"
 
 SEC = "/api/securities/BRK-B"
 
+# POST tools that read only, so the live smoke may run them. Neither changes
+# user data: the batch scorer writes the same fundamentals cache the GET scorer
+# does, and the spread pricer's live fetch stores an options snapshot the way
+# the GET contract lookup does. Every other non-GET tool (add_to_watchlist,
+# collect_news, and any new one) is skipped until it is listed here on purpose.
+READ_ONLY_POSTS = frozenset({
+    (OA, "price_vertical_spread"),
+    (CF, "get_fundamental_scores_batch"),
+})
+
 
 def call(method, path, query=None, body=None):
     """The REST call a tool is expected to make. Query values are as sent

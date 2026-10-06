@@ -19,7 +19,7 @@ from fastmcp import Client
 
 from scripts import mcp_live_smoke as smoke
 from scripts.ci_wrapper_smoke import WRAPPERS
-from scripts.mcp_tool_cases import CASES
+from scripts.mcp_tool_cases import CASES, READ_ONLY_POSTS
 from tests.test_mcp_tool_contracts import _StubbedRest
 
 PROD_NUMBER = "127961694257"
@@ -64,7 +64,7 @@ class TestPlan(unittest.TestCase):
             expected = variants[0][1]
             key = (names[module_path], tool)
             with self.subTest(tool=tool):
-                if expected is None or expected["method"] == "GET":
+                if smoke.is_read_only(module_path, tool, expected):
                     self.assertIn(key, chosen)
                 else:
                     self.assertIn(key, skipped)
@@ -74,6 +74,22 @@ class TestPlan(unittest.TestCase):
         _selected, skipped = smoke.plan()
         self.assertIn(("portfolio", "add_to_watchlist"), skipped)
         self.assertIn(("news-sentiment", "collect_news"), skipped)
+        self.assertEqual(skipped, [("news-sentiment", "collect_news"),
+                                   ("portfolio", "add_to_watchlist")])
+
+    def test_read_only_posts_are_selected(self):
+        selected, _ = smoke.plan()
+        chosen = {(name, tool) for name, calls in selected.items() for tool, _a in calls}
+        self.assertIn(("options-analysis", "price_vertical_spread"), chosen)
+        self.assertIn(("company-fundamentals", "get_fundamental_scores_batch"), chosen)
+
+    def test_read_only_posts_name_real_post_cases(self):
+        # A stale or mistyped entry would silently allow nothing; a GET listed
+        # here would be redundant. Each entry must be a current POST case.
+        for key in READ_ONLY_POSTS:
+            with self.subTest(key=key):
+                self.assertIn(key, CASES)
+                self.assertEqual(CASES[key][0][1]["method"], "POST")
 
 
 class TestErrorStatus(unittest.TestCase):

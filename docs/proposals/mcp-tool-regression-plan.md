@@ -47,11 +47,17 @@ No database, no network and no `api.main` import. The whole module runs in about
 ### Part 3: the live smoke
 
 `scripts/mcp_live_smoke.py` reuses `CASES`. For each tool it takes the **first** case and runs it
-against the deployed test wrapper only if that case's call is a `GET` or a wrapper-local health
-check. Everything else is printed as `[skip]`, so a new write tool is skipped by default rather
-than run by accident. Today that selects 58 calls and skips 4: `add_to_watchlist`, `collect_news`,
-`get_fundamental_scores_batch` and `price_vertical_spread` (the last two are read-only POSTs, but
-the rule is by method so it needs no allowlist to maintain).
+against the deployed test wrapper only if that case's call is a `GET`, a wrapper-local health
+check, or a POST listed in `READ_ONLY_POSTS` in `scripts/mcp_tool_cases.py`. Everything else is
+printed as `[skip]`, so a new write tool is skipped by default rather than run by accident. Today
+that selects 60 calls and skips 2: `add_to_watchlist` and `collect_news`.
+
+`READ_ONLY_POSTS` holds the two POST calculators, `price_vertical_spread` and
+`get_fundamental_scores_batch`. The first cut selected by method alone and skipped them, which the
+PR review flagged: the smoke claimed every read-only tool and missed two. They change no user
+data. The batch scorer writes the fundamentals cache the GET scorer also writes, and the spread
+pricer's live fetch stores an options snapshot the way the GET contract lookup does. A test fails
+if an entry names a case that doesn't exist or isn't a POST, so a rename can't silently drop one.
 
 - **Targets** come from the `test` environment and each wrapper's `SERVER_MODULE` in
   `deploy/cloudrun-services.toml`. `--env prod` is refused, and so is a test environment or URL
@@ -71,6 +77,7 @@ the rule is by method so it needs no allowlist to maintain).
 |---|---|---|
 | Parts 1+2: contract test + completeness guard | (this PR) | 9 tests, 62 tools / 70 cases, ~0.2 s. A mutation check confirmed each failure is caught and named by module, tool and args: a changed default (`get_rsi` period 14→21), a deleted case (both guards fire, `61 != 62`), and a wrong path. |
 | Part 3: opt-in live smoke against test | (this PR) | 10 offline tests. Live on test (2026-10-05): 58 calls, 4 skipped. First run with `--sub live-smoke`: 53/58; the 3 portfolio tools 403'd (gotcha 8), `get_news` 504'd once at 60.9 s and passed in 0.2 s on the rerun, and `analyze_options_watchlist` 504'd. Rerun with `--sub john`: all portfolio tools ok; `analyze_options_watchlist` 504'd again at 60.4 s, so it reproduces (gotcha 9). |
+| Part 3 review fix: run the two read-only POSTs | (this PR) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
 
 ## Gotchas
 
@@ -110,3 +117,7 @@ the rule is by method so it needs no allowlist to maintain).
    to analyze the whole watchlist, so the wrapper gives up first. It is a
    real finding, not a smoke defect, and is left for a follow-up rather than fixed here. A single
    `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
+10. **`price_vertical_spread`'s case carries a fixed expiration, `2026-11-20`.** The live smoke
+    sends the first case's arguments verbatim, so after that date it asks for an expired
+    contract. Move the date forward in `scripts/mcp_tool_cases.py` (and its expected body) before
+    then; the offline contract test doesn't care which date it is.

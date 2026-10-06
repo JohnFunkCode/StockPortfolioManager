@@ -91,11 +91,15 @@ class RolloutAppDbRoleTest(unittest.TestCase):
         self.assertEqual(self.secret("quantcore-test-db-dsn"), APP_DSN)
         steps = [c for c in calls if not c.startswith(("gcloud secrets versions access",
                                                        "gcloud secrets describe"))]
-        self.assertEqual(steps, [
+        self.assertEqual(steps[:3], [
             "python scripts/ensure_app_db_role.py --test pw=set",
             "gcloud secrets create quantcore-test-migrator-dsn"
             " --project quantcore-test-20260606 --data-file=-",
             "migrate --execute",
+        ])
+        # The swap is one pipeline (access | --swap-dsn | versions add); its
+        # stages start together, so the order they log in is a race.
+        self.assertCountEqual(steps[3:], [
             "python scripts/ensure_app_db_role.py --swap-dsn pw=set",
             "gcloud secrets versions add quantcore-test-db-dsn"
             " --project quantcore-test-20260606 --data-file=-",

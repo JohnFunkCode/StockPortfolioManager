@@ -132,6 +132,12 @@ The role itself can stay in place; it is unused until a secret points at it.
 - **Local DB tests are blocked by Postgres.app's trust auth.** The DB-backed test
   (`DatabaseTests` in `tests/test_ensure_app_db_role.py`) skips locally and fails rather than
   skips in CI, where the `postgres:16` service uses scram auth and a superuser.
+- **The stages of a shell pipeline start together, so the order they log in is a race.**
+  `test_full_rollout_on_test_runs_the_steps_in_order` asserted that the stub `python --swap-dsn`
+  logged before the stub `gcloud secrets versions add`. They are two stages of one pipeline, and
+  each stub logs as it starts, so on a loaded CI runner the order flipped. It passed locally and on
+  main's run, then failed the #120 proof dispatch's gate (run 37413062556). The test now checks the
+  three sequential steps in order and the pipeline's two stages as a set.
 
 ## Checkpoint log
 

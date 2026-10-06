@@ -86,6 +86,7 @@ gcloud iam workload-identity-pools providers update-oidc github \
   `gcloud iam workload-identity-pools providers describe github --workload-identity-pool=github-prod --location=global --project=quantcore-prod-20260606 --format='value(attributeCondition)'`
   (the same for `github-test`).
 - Test positive: the next merge to main rolls out to test as usual.
+- Dispatch with a `ref` (#120): done 2026-10-06, deploy run 37413470077 dispatched from main with a branch ref authenticated and rolled out to test. See `deploy-ref-to-test-plan.md`.
 - Prod positive: the next normal prod dispatch from main (approve as usual) authenticates.
 - Negative, both providers: push a scratch branch that holds only a probe workflow, triggered
   on push to that branch, with one job per provider. Each job is a single

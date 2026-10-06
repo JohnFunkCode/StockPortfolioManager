@@ -19,6 +19,7 @@ helpers all delegate the analytics here.
 """
 
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BB_PERIOD = 20
 BB_STD_DEV = 2
 HISTORY_PERIOD = "3mo"
+
+# Symbols fetched at once by _run_analysis (#331). Sequential, a watchlist
+# screen outran the MCP wrapper's 60 s REST timeout. Kept modest for Yahoo's
+# rate limits; refresh_options_snapshots runs 4 for the same reason.
+SCREEN_MAX_WORKERS = 8
 
 # Scoring thresholds
 PC_VERY_BULLISH = 0.5
@@ -1118,8 +1124,18 @@ class OptionsScreeningService:
         results: list[SecurityAnalysis] = []
         failed: list[str] = []
 
-        for entry in entries:
-            sec = self.fetch_security(entry["symbol"], entry["name"], entry["tags"])
+        def _fetch(entry: dict) -> Optional[SecurityAnalysis]:
+            return self.fetch_security(entry["symbol"], entry["name"], entry["tags"])
+
+        # map() keeps watchlist order, so equal scores still rank as before.
+        try:
+            with ThreadPoolExecutor(max_workers=max(1, min(SCREEN_MAX_WORKERS, len(entries)))) as pool:
+                fetched = list(pool.map(_fetch, entries))
+        finally:
+            # yfinance leaves a sqlite connection open per worker thread.
+            self._yf.close_thread_caches()
+
+        for entry, sec in zip(entries, fetched):
             if sec is None:
                 failed.append(entry["symbol"])
                 continue

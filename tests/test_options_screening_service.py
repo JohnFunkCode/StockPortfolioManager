@@ -7,12 +7,14 @@ constructing ``SecurityAnalysis`` objects directly and feeding dicts to the
 budget allocator. The repository/gateway collaborators are unused by these code
 paths, so trivial stubs are injected.
 
-The live-fetch methods (``fetch_security``, ``analyze_watchlist``,
-``analyze_symbol``) hit yfinance and are covered by the manual parity diffs
-called for in the plan's testing strategy, not here.
+The live-fetch method ``fetch_security`` hits yfinance and is covered by the
+manual parity diffs called for in the plan's testing strategy, not here.
+``ConcurrentFetchTests`` stubs it to cover how ``_run_analysis`` fans the
+watchlist out across threads (#331).
 """
 
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -30,6 +32,7 @@ from quantcore.services.options_screening import (
     ROI_WEIGHT,
     ROI_CAP_FOR_RANKING,
     MAX_PUT_SCORE,
+    SCREEN_MAX_WORKERS,
     _chain_pc,
 )
 
@@ -452,6 +455,76 @@ class BuildCallTradeTests(unittest.TestCase):
             bands=BollingerBands(upper=102.0, middle=96.0, lower=90.0)
         )
         self.assertIsNone(svc.build_call_trade(no_edge))        # intrinsic 2 < ask 3
+
+
+class _Gateway:
+    """Counts close_thread_caches calls; nothing else is reached."""
+
+    def __init__(self):
+        self.closed = 0
+
+    def close_thread_caches(self):
+        self.closed += 1
+
+
+class ConcurrentFetchTests(unittest.TestCase):
+    """_run_analysis fetches symbols on a bounded pool (#331)."""
+
+    def setUp(self):
+        self.gw = _Gateway()
+        self.svc = OptionsScreeningService(ohlcv_repository=_Stub(), yfinance_gateway=self.gw)
+
+    @staticmethod
+    def _entries(n):
+        return [{"symbol": f"S{i}", "name": f"S{i}", "tags": []} for i in range(n)]
+
+    def test_results_keep_watchlist_order_and_failures_are_listed(self):
+        # Later symbols finish first; the output must still follow the list.
+        delays = {"S0": 0.05, "S1": 0.0, "S2": 0.03, "S3": 0.0}
+
+        def fetch(symbol, name, tags, news_store=None):
+            threading.Event().wait(delays[symbol])
+            return None if symbol in ("S1", "S3") else _security(symbol=symbol)
+
+        with patch.object(self.svc, "fetch_security", side_effect=fetch):
+            out = self.svc._run_analysis(self._entries(4), puts_budget=1000.0, top_n=10)
+        self.assertEqual(out["symbols_scanned"], 4)
+        self.assertEqual(out["fetched"], 2)
+        self.assertEqual(out["failed"], ["S1", "S3"])
+
+    def test_fetches_overlap_up_to_the_worker_bound(self):
+        lock = threading.Lock()
+        state = {"now": 0, "peak": 0}
+        # Each fetch waits until a full pool's worth is in flight (or times out).
+        barrier = threading.Barrier(SCREEN_MAX_WORKERS, timeout=5)
+
+        def fetch(symbol, name, tags, news_store=None):
+            with lock:
+                state["now"] += 1
+                state["peak"] = max(state["peak"], state["now"])
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
+            with lock:
+                state["now"] -= 1
+            return None
+
+        with patch.object(self.svc, "fetch_security", side_effect=fetch):
+            self.svc._run_analysis(self._entries(SCREEN_MAX_WORKERS * 2), 1000.0, 10)
+        self.assertFalse(barrier.broken)
+        self.assertEqual(state["peak"], SCREEN_MAX_WORKERS)
+
+    def test_thread_caches_close_even_when_a_fetch_raises(self):
+        with patch.object(self.svc, "fetch_security", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self.svc._run_analysis(self._entries(3), 1000.0, 10)
+        self.assertEqual(self.gw.closed, 1)
+
+    def test_empty_watchlist_still_answers(self):
+        out = self.svc._run_analysis([], 1000.0, 10)
+        self.assertEqual((out["symbols_scanned"], out["fetched"], out["failed"]), (0, 0, []))
+        self.assertEqual(self.gw.closed, 1)
 
 
 if __name__ == "__main__":

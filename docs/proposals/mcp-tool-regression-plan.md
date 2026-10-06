@@ -115,8 +115,14 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 9. **`analyze_options_watchlist` 504s on test at ~60 s, reproducibly.** 60 s is
    `rest_client.DEFAULT_TIMEOUT` (`QUANTCORE_REST_TIMEOUT`), and the 504 is the wrapper's own:
    `rest_client` maps an `httpx.TimeoutException` to a 504. The REST tier takes longer than that
-   to analyze the whole watchlist, so the wrapper gives up first. It is a
-   real finding, not a smoke defect, and is left for a follow-up (#331) rather than fixed here. A single
+   to analyze the whole watchlist, so the wrapper gives up first. It was a real finding, not a
+   smoke defect. **Fixed in #331:** `OptionsScreeningService._run_analysis` used to fetch one
+   symbol after another; it now fetches `SCREEN_MAX_WORKERS` (8) at a time on one
+   `ThreadPoolExecutor`, keeping watchlist order, and closes yfinance's per-thread caches in a
+   `finally`. The timeout that applies is still the wrapper's 60 s (`quantcore-api` allows 300 s,
+   the wrappers 900 s); it was deliberately not raised, so the screen has to fit inside it. If the
+   watchlist grows until it doesn't, raise the worker count only with Yahoo's rate limits in mind
+   (`refresh_options_snapshots` runs 4). A single
    `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
 10. **`price_vertical_spread`'s case carries a fixed expiration, now `2029-01-19`.** The live
     smoke sends the first case's arguments verbatim, so after that date it asks for an expired

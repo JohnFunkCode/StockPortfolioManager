@@ -115,7 +115,7 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
    `rest_client.DEFAULT_TIMEOUT` (`QUANTCORE_REST_TIMEOUT`), and the 504 is the wrapper's own:
    `rest_client` maps an `httpx.TimeoutException` to a 504. The REST tier takes longer than that
    to analyze the whole watchlist, so the wrapper gives up first. It is a
-   real finding, not a smoke defect, and is left for a follow-up rather than fixed here. A single
+   real finding, not a smoke defect, and is left for a follow-up (#331) rather than fixed here. A single
    `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
 10. **`price_vertical_spread`'s case carries a fixed expiration, `2026-11-20`.** The live smoke
     sends the first case's arguments verbatim, so after that date it asks for an expired

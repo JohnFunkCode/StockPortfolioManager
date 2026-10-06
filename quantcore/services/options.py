@@ -52,6 +52,30 @@ from quantcore.services.options_contracts import (
 
 logger = logging.getLogger(__name__)
 
+# Pause before refresh_options_snapshots retries a failed symbol.
+REFRESH_RETRY_PAUSE_SECONDS = 2
+
+
+def _refresh_symbols(portfolio: list[dict], watchlist: list[dict], source: str) -> list[str]:
+    """The symbols a snapshot refresh covers, for ``source``.
+
+    "portfolio" and "watchlist" take that list as is; anything else ("all")
+    takes the portfolio, then each watchlist symbol not already taken.
+    Entries without a symbol are dropped.
+    """
+    if source == "portfolio":
+        securities = portfolio
+    elif source == "watchlist":
+        securities = watchlist
+    else:
+        seen = {s.get("symbol") for s in portfolio}
+        securities = list(portfolio)
+        for s in watchlist:
+            if s.get("symbol") not in seen:
+                securities.append(s)
+                seen.add(s.get("symbol"))
+    return [s["symbol"] for s in securities if s.get("symbol")]
+
 
 class OptionsService:
     """Options chains, unusual-call detection, delta-adjusted OI, and options REST."""
@@ -1368,61 +1392,14 @@ class OptionsService:
         max_workers: int = 4,
         batch_delay: float = 1.5,
     ) -> dict:
-        if source == "portfolio":
-            securities = portfolio
-        elif source == "watchlist":
-            securities = watchlist
-        else:  # "all"
-            seen = {s["symbol"] for s in portfolio}
-            securities = list(portfolio)
-            for s in watchlist:
-                if s["symbol"] not in seen:
-                    securities.append(s)
-                    seen.add(s["symbol"])
-
-        symbols = [s["symbol"] for s in securities if s.get("symbol")]
-
-        if chain_type == "full":
-            _fetch = self.get_full_options_chain
-        else:
-            _fetch = self._prices.get_stock_price
+        symbols = _refresh_symbols(portfolio, watchlist, source)
+        fetch = (self.get_full_options_chain if chain_type == "full"
+                 else self._prices.get_stock_price)
 
         start = _time.monotonic()
-        results_list = []
-
-        def _fetch_one(sym: str) -> dict:
-            """Fetch with one automatic retry on failure."""
-            try:
-                for attempt in range(2):
-                    try:
-                        _fetch(sym)
-                        return {"symbol": sym, "status": "ok"}
-                    except Exception as exc:
-                        last_exc = exc
-                        if attempt == 0:
-                            _time.sleep(2)  # brief pause before retry
-                return {"symbol": sym, "status": "error", "error": str(last_exc)}
-            finally:
-                # yfinance's peewee caches (tkr-tz.db, cookies.db) hold one
-                # connection per thread, and close_thread_caches() closes only
-                # the calling thread's -- so each worker closes its own, here,
-                # rather than the caller once after the pool (#338).
-                # Provider-internal cache cleanup belongs to the gateway (#75).
-                self._yf.close_thread_caches()
-
-        # Use a single executor for the entire run so threads are reused across
-        # batches rather than spawning fresh threads (and fresh cache
-        # connections) per batch.
-        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            for idx, batch in enumerate(batches):
-                futures = {executor.submit(_fetch_one, sym): sym for sym in batch}
-                for future in as_completed(futures):
-                    results_list.append(future.result())
-                # Pause between batches (skip delay after the last batch)
-                if idx < len(batches) - 1:
-                    _time.sleep(batch_delay)
-
+        results_list = self._refresh_in_batches(
+            fetch, symbols, batch_size, max_workers, batch_delay
+        )
         elapsed = round(_time.monotonic() - start, 1)
         results_list.sort(key=lambda r: r["symbol"])
         succeeded = sum(1 for r in results_list if r["status"] == "ok")
@@ -1441,3 +1418,42 @@ class OptionsService:
                 "Run this endpoint once per trading day to build a P/C ratio trend over time."
             ),
         }
+
+    def _refresh_in_batches(
+        self, fetch, symbols: list[str], batch_size: int, max_workers: int,
+        batch_delay: float,
+    ) -> list[dict]:
+        """Fetch ``symbols`` in batches of ``batch_size``, pausing between them.
+
+        One executor serves the whole run so threads are reused across batches
+        rather than spawning fresh threads (and fresh cache connections) per
+        batch. Results come back in completion order.
+        """
+        batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
+        results: list[dict] = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for idx, batch in enumerate(batches):
+                if idx:
+                    _time.sleep(batch_delay)   # no pause before the first batch
+                futures = [executor.submit(self._refresh_one, fetch, sym) for sym in batch]
+                results.extend(f.result() for f in as_completed(futures))
+        return results
+
+    def _refresh_one(self, fetch, sym: str) -> dict:
+        """Fetch one symbol with one automatic retry; runs on a pool worker."""
+        try:
+            try:
+                fetch(sym)
+            except Exception:
+                _time.sleep(REFRESH_RETRY_PAUSE_SECONDS)   # brief pause before retry
+                fetch(sym)
+            return {"symbol": sym, "status": "ok"}
+        except Exception as exc:
+            return {"symbol": sym, "status": "error", "error": str(exc)}
+        finally:
+            # yfinance's peewee caches (tkr-tz.db, cookies.db) hold one
+            # connection per thread, and close_thread_caches() closes only the
+            # calling thread's -- so each worker closes its own, here, rather
+            # than the caller once after the pool (#338).
+            # Provider-internal cache cleanup belongs to the gateway (#75).
+            self._yf.close_thread_caches()

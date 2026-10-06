@@ -34,8 +34,8 @@ One unauthenticated probe of the prod api (no token, GET only): `/api/health` 20
 | 6 | Branch protection / who can deploy | **Mostly answered by #313** (WIF narrowed to main and, for prod, `prod-rollout.yml` in the `prod` environment). Anything further is a repo setting, John's. |
 
 Further items for John (decisions, not changes made here). **Still open:** #297 closed on
-2026-10-05 with none of these decided and no issue filed for any of them, so this list is their
-only record:
+2026-10-05 with none of these decided; they are tracked in
+[#334](https://github.com/JohnFunkCode/StockPortfolioManager/issues/334):
 
 - **Public `/docs` and `/openapi.json` on the prod api.** API-surface disclosure, no data. Options:
   disable them in prod (`docs_url=None, openapi_url=None` behind an env flag) or accept.

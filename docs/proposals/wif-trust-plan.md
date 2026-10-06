@@ -86,6 +86,7 @@ gcloud iam workload-identity-pools providers update-oidc github \
   `gcloud iam workload-identity-pools providers describe github --workload-identity-pool=github-prod --location=global --project=quantcore-prod-20260606 --format='value(attributeCondition)'`
   (the same for `github-test`).
 - Test positive: the next merge to main rolls out to test as usual.
+- Dispatch with a `ref` (#120): done 2026-10-06, deploy run 37413470077 dispatched from main with a branch ref authenticated and rolled out to test. See `deploy-ref-to-test-plan.md`.
 - Prod positive: the next normal prod dispatch from main (approve as usual) authenticates.
 - Negative, both providers: push a scratch branch that holds only a probe workflow, triggered
   on push to that branch, with one job per provider. Each job is a single
@@ -135,4 +136,4 @@ effect within a minute or two, and nothing else needs undoing.
 | 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
 | 5. Verification | Read-back done (both conditions as in steps 3 and 4). Test positive done: deploy run 37355839488 (the merge of #320, `90c89ca`) passed auth and rolled out. Negative done (2026-10-05): probe run 37357151516 on `scratch/wif-negative-313`. Both jobs failed with `unauthorized_client: The given credential is rejected by the attribute condition.` The branch has been deleted. Prod positive done (2026-10-05): prod-rollout run 37359173476 (dispatched from main, `73f2e1d`) authenticated in `promote-and-deploy` and rolled out; `cloudrun_services.py check --env prod` afterwards reported 0 services differing. **#313 steps 1–5 complete.** |
 | PR #320 review (2026-10-05) | Added `tests/test_setup_test_wif.py`. It runs the script against a stub `gcloud` and asserts the exact `--attribute-mapping` and `--attribute-condition` on both the create-oidc path (missing provider) and the update-oidc path (existing provider). A mutation that drops the `ref` clause fails both tests. Out of scope for this PR, by design: step 2 (John's repo setting), the audit-log alert and a bind/unbind check (step 6 follow-ups, John's IAM work), and step 5 (needs the merge). |
-| 6. Follow-ups (status 2026-10-05) | **Not started, untracked.** #313 closed after steps 1–5. The audit-log alert and the bind/unbind check are optional IAM work for John, and no issue has been filed for either, so this row is their only record. |
+| 6. Follow-ups (status 2026-10-05) | **Not started; tracked in [#335](https://github.com/JohnFunkCode/StockPortfolioManager/issues/335).** #313 closed after steps 1–5. The audit-log alert (with its bind/unbind proof in test) and the collaborator review are optional IAM and repo-settings work for John. |

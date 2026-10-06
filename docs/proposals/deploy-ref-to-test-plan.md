@@ -79,6 +79,15 @@ roll-out as a merge, without touching main or prod.
 9. **Test differs from main after a dispatch** until the next push to main redeploys main. The
    step summary is the attribution; this doesn't replace a revert PR when main itself must be
    parked.
+10. **The run page shows main's SHA, not the deployed one.** A dispatch's `headSha` (and the SHA
+    in the Actions list) is the commit the *workflow file* came from, which is always main. The
+    commit that was built and rolled out is `DEPLOY_SHA`, which appears in the step summary and the
+    `_TAG` of the build. Check the summary or the service image tags, not the run header.
+11. **A dispatch runs the full gate on the ref, so a flake in the ref's tests stops it.** The
+    first proof dispatch (run 37413062556) failed in `tests` on a race that main's own runs had
+    not hit (`test_rollout_app_db_role`, see `db-roles-308-plan.md`); build and roll-out were
+    skipped, and test stayed on main. That is the gate working, but read the gate's failure before
+    assuming the dispatch path is broken.
 
 ## Checkpoint log
 
@@ -87,4 +96,4 @@ roll-out as a merge, without touching main or prod.
 | `check_deploy_ref.py` + `deploy.yml` wiring | Done. `test_check_deploy_ref`, `test_ci_parallel`, `test_check_cloudbuild` pass (34 tests); `check_cloudbuild.py` OK. |
 | Docs | CLAUDE.md QuantUI deploy bullet, readme "Trying a branch on test before merging", prod-promotion.md (`:latest` is main only), quantui.md. |
 | PR #310 review (2026-10-05) | Migration check refuses a ref's own deletions too (two- and three-dot diffs intersected; gotcha 8). 4 new tests; 40 pass across `test_check_deploy_ref`, `test_ci_migrate`, `test_ci_parallel`. complexipy max 4. |
-| First real dispatch | **Not yet run** (checked 2026-10-05). #120 closed without it. The only dispatched `deploy.yml` run so far (37379467307, `d6b8721`) used the default ref, `main`, for #308's step 6, so the ref path is still unproven in a real run. The first time a branch is dispatched, confirm the summary, the tags (`:dispatch-latest` moved, `:latest` unmoved) and the roll-out, then record it here. |
+| First real dispatch | **Done (2026-10-06 UTC).** Ref `docs/loose-ends-334-335-120`, dispatched from main. First attempt, run 37413062556, stopped at the gate on a flaky test (gotcha 11), so nothing was built; fixed in `2d7b4d5`. Second attempt, run 37413470077, succeeded: the summary read "Deploying to TEST: `docs/loose-ends-334-335-120` @ `2d7b4d5…`" with the manual-dispatch line; the build ran with `LATEST_TAG=dispatch-latest CACHE_TAG=dispatch _TAG=2d7b4d5`. In test AR (`quantcore-api`), `:dispatch-latest` moved to the `:2d7b4d5` digest and `:latest` stayed on main's `8533793` build. All 10 test services and the `quantcore-report`/`-news`/`-migrate` Jobs were on `:2d7b4d5`, every service with a ready revision. Also meets #313's "a dispatch with a `ref` still rolls out to test". Test then differed from main until the next merge (gotcha 9). |

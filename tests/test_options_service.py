@@ -7,6 +7,7 @@ straddle at 100 with last prices 4 + 3.5 MUST read a 7.5% expected move.
 Gateway/repositories are Mocks; the Polygon-backed backfill and the
 refresh orchestrator are integration surfaces left to wave 3.
 """
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -262,6 +263,34 @@ class TestFlowSignalsAndPortfolioDelta(OptionsServiceTestBase):
         self.assertEqual(out["unusual_calls"], ok)
         self.assertIsNone(out["delta_adjusted_oi"])
         self.assertIn("daoi boom", out["_errors"]["delta_adjusted_oi"])
+
+    def test_flow_signals_close_caches_on_each_worker(self):
+        # yfinance's cache connections are per thread: each worker closes its
+        # own, including the one whose signal raised (#338).
+        lock = threading.Lock()
+        ran_on, closed_on = [], []
+
+        def record(result=None, exc=None):
+            def call(*a, **kw):
+                with lock:
+                    ran_on.append(threading.get_ident())
+                if exc:
+                    raise exc
+                return result
+            return call
+
+        def close():
+            with lock:
+                closed_on.append(threading.get_ident())
+
+        self.yf.close_thread_caches.side_effect = close
+        with unittest.mock.patch.object(self.service, "get_unusual_calls",
+                                        side_effect=record({"ok": 1})), \
+             unittest.mock.patch.object(self.service, "get_delta_adjusted_oi",
+                                        side_effect=record(exc=RuntimeError("x"))):
+            self.service.get_options_flow_signals("intc")
+        self.assertEqual(sorted(closed_on), sorted(ran_on))
+        self.assertNotIn(threading.get_ident(), closed_on)
 
     def test_portfolio_delta_exposure_put_heavy_position(self):
         chain = {

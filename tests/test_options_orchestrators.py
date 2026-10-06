@@ -4,6 +4,7 @@ backfill's per-date state machine (stored/duplicate/no_data/error/402/400)
 is walked branch by branch with literal Polygon payloads.
 """
 import os
+import threading
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -13,7 +14,9 @@ import requests
 import pytz
 
 from quantcore.gateways.polygon_gateway import PolygonPlanError  # noqa: E402
-from quantcore.services.options import OptionsService  # noqa: E402
+from quantcore.services.options import (  # noqa: E402
+    REFRESH_RETRY_PAUSE_SECONDS, OptionsService, _refresh_symbols,
+)
 
 
 def polygon_contract(kind="call", exp="2026-08-21", oi=100, vol=10, iv=0.30,
@@ -138,7 +141,8 @@ class TestRefreshSnapshots(OrchestratorTestBase):
         self.assertEqual(symbols, ["AAA", "BBB", "CCC"])   # deduped + sorted
         self.assertEqual(out["succeeded"], 3)
         self.assertEqual(out["failed"], 0)
-        self.yf.close_thread_caches.assert_called_once()   # issue-#75 cleanup
+        # issue-#75 cleanup, once per fetch on the fetching thread (#338)
+        self.assertEqual(self.yf.close_thread_caches.call_count, 3)
 
     def test_full_chain_type_uses_the_chain_fetcher(self):
         with patch.object(self.service, "get_full_options_chain",
@@ -160,6 +164,108 @@ class TestRefreshSnapshots(OrchestratorTestBase):
         failed = next(r for r in out["results"] if r["status"] == "error")
         self.assertEqual(failed["symbol"], "AAA")
         self.assertIn("yahoo down", failed["error"])
+
+    def test_a_retry_that_succeeds_is_ok_after_one_pause(self):
+        calls = []
+
+        def once_flaky(sym):
+            calls.append(sym)
+            if sym == "AAA" and calls.count("AAA") == 1:
+                raise RuntimeError("blip")
+            return {"ok": True}
+
+        self.prices.get_stock_price.side_effect = once_flaky
+        with patch("quantcore.services.options._time.sleep") as sleep:
+            out = self.service.refresh_options_snapshots(
+                self.PORTFOLIO, self.WATCHLIST, source="portfolio"
+            )
+        self.assertEqual(out["succeeded"], 2)
+        self.assertEqual(calls.count("AAA"), 2)
+        sleep.assert_called_once_with(REFRESH_RETRY_PAUSE_SECONDS)
+
+    def test_the_error_reported_is_the_retrys(self):
+        attempts = iter(["first", "second"])
+
+        def fail(sym):
+            raise RuntimeError(next(attempts))
+
+        self.prices.get_stock_price.side_effect = fail
+        with patch("quantcore.services.options._time.sleep"):
+            out = self.service.refresh_options_snapshots(
+                [{"symbol": "AAA"}], [], source="portfolio"
+            )
+        self.assertEqual(out["results"],
+                         [{"symbol": "AAA", "status": "error", "error": "second"}])
+
+    def test_batches_pause_between_but_not_after(self):
+        self.prices.get_stock_price.return_value = {"ok": True}
+        portfolio = [{"symbol": s} for s in ("A", "B", "C", "D", "E")]
+        with patch("quantcore.services.options._time.sleep") as sleep:
+            out = self.service.refresh_options_snapshots(
+                portfolio, [], source="portfolio", batch_size=2, batch_delay=7.0,
+            )
+        self.assertEqual(out["total"], 5)
+        self.assertEqual([r["symbol"] for r in out["results"]],
+                         ["A", "B", "C", "D", "E"])
+        # three batches (2+2+1) -> two pauses, none after the last
+        self.assertEqual(sleep.call_args_list, [unittest.mock.call(7.0)] * 2)
+
+    def test_empty_selection_fetches_nothing(self):
+        out = self.service.refresh_options_snapshots([], [], source="all")
+        self.assertEqual(out["total"], 0)
+        self.assertEqual(out["results"], [])
+        self.prices.get_stock_price.assert_not_called()
+
+    def record_threads(self, fail=()):
+        """Record which thread fetched each symbol and which closed caches."""
+        lock = threading.Lock()
+        fetched_on, closed_on = {}, []
+
+        def fetch(sym):
+            with lock:
+                fetched_on[sym] = threading.get_ident()
+            if sym in fail:
+                raise RuntimeError("yahoo down")
+            return {"ok": True}
+
+        def close():
+            with lock:
+                closed_on.append(threading.get_ident())
+
+        self.prices.get_stock_price.side_effect = fetch
+        self.yf.close_thread_caches.side_effect = close
+        return fetched_on, closed_on
+
+    def test_each_fetch_closes_its_own_threads_caches(self):
+        # yfinance's cache connections are per thread, so a close on the
+        # caller would leave every worker's open (#338).
+        fetched_on, closed_on = self.record_threads()
+        self.run_refresh(source="all")
+        self.assertEqual(sorted(closed_on), sorted(fetched_on.values()))
+        self.assertNotIn(threading.get_ident(), closed_on)
+
+    def test_thread_caches_close_on_the_worker_when_a_fetch_fails(self):
+        fetched_on, closed_on = self.record_threads(fail={"AAA"})
+        out = self.run_refresh(source="all")
+        self.assertEqual(out["failed"], 1)
+        self.assertEqual(sorted(closed_on), sorted(fetched_on.values()))
+        self.assertNotIn(threading.get_ident(), closed_on)
+
+
+class TestRefreshSymbols(unittest.TestCase):
+    PORTFOLIO = [{"symbol": "AAA"}, {"symbol": "BBB"}, {"name": "no symbol"}]
+    WATCHLIST = [{"symbol": "BBB"}, {"symbol": "CCC"}, {"symbol": "CCC"},
+                 {"symbol": ""}]
+
+    def test_portfolio_and_watchlist_are_taken_as_is(self):
+        self.assertEqual(_refresh_symbols(self.PORTFOLIO, self.WATCHLIST, "portfolio"),
+                         ["AAA", "BBB"])
+        self.assertEqual(_refresh_symbols(self.PORTFOLIO, self.WATCHLIST, "watchlist"),
+                         ["BBB", "CCC", "CCC"])
+
+    def test_all_appends_each_watchlist_symbol_not_already_taken(self):
+        self.assertEqual(_refresh_symbols(self.PORTFOLIO, self.WATCHLIST, "all"),
+                         ["AAA", "BBB", "CCC"])
 
 
 if __name__ == "__main__":

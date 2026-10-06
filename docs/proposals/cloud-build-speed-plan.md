@@ -228,6 +228,6 @@ loop. Done in #296: [`parallel-rollout-plan.md`](parallel-rollout-plan.md).
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Baseline | — | Cloud Build 9:30 (BUILD 5:19 / PUSH 4:07); deploy job 15:54 | — |
-| Cache + parallel + DEPS_EPOCH + checker | _this PR_ | Cold 5:33, warm 1:43; checker 7/7 tests | Current `:latest` has no inline cache, so the first build is cold |
-| news fully parallel | _this PR_ | Warm, no source change: 0:49 | Cold double-torch install not re-measured |
-| buildx registry cache, `mode=max` + `tag-latest` | _follow-up PR_ | Cold 5:48; warm 1:18, then warm-after-warm 1:19, source changed both times | The inline cache's BuildKit v0.8 re-exports only executed layers; `mode=min` was the wrong guess |
+| Cache + parallel + DEPS_EPOCH + checker | [#295](https://github.com/JohnFunkCode/StockPortfolioManager/pull/295) | Cold 5:33, warm 1:43; checker 7/7 tests | Current `:latest` has no inline cache, so the first build is cold |
+| news fully parallel | [#295](https://github.com/JohnFunkCode/StockPortfolioManager/pull/295) | Warm, no source change: 0:49 | Cold double-torch install not re-measured |
+| buildx registry cache, `mode=max` + `tag-latest` | [#302](https://github.com/JohnFunkCode/StockPortfolioManager/pull/302) | Cold 5:48; warm 1:18, then warm-after-warm 1:19, source changed both times | The inline cache's BuildKit v0.8 re-exports only executed layers; `mode=min` was the wrong guess |

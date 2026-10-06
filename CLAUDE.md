@@ -182,7 +182,7 @@ Full narrative (status vocabulary, the backstop flag, the Plan chip):
 
 ### Unified Database (`quantcore/`)
 
-All persistence is a single **QuantCore** PostgreSQL database (22 tables, DDL in `_SCHEMA` in
+All persistence is a single **QuantCore** PostgreSQL database (23 tables, DDL in `_SCHEMA` in
 `quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
 repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`; two rules
 follow:
@@ -403,7 +403,7 @@ hatch is one `gcloud run services update --update-env-vars` away:
 
 | Mode | Behaviour |
 |---|---|
-| `create` | Run the 22-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
+| `create` | Run the 23-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
 | `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
 | `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
 | `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `verify`. |
@@ -412,7 +412,7 @@ That is the fix for the two-owners problem: on a database Flyway already manages
 creating schema and only checks it. An unrecognized value falls back to `create` and logs an error
 — a typo is most likely made by an operator reaching for the escape hatch mid-incident, and failing
 closed there would deny them exactly what they were reaching for. The check emits one greppable
-line (`schema check: mode=verify resolved=verify tables=22 missing=0 mismatch=0 extra=0`) plus one
+line (`schema check: mode=verify resolved=verify tables=23 missing=0 mismatch=0 extra=0`) plus one
 line per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so
 a developer's Flyway-managed test database and CI's bare Postgres behave identically.
 

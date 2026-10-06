@@ -22,14 +22,14 @@ see [`readme.md`](readme.md).
 python main.py
 
 # Run all tests (suites live under tests/; tests/__init__.py swaps in the test
-# DSN before quantcore.db is imported)
-python -m unittest discover -s tests -t .
+# DSN before quantcore.db is imported; --durations lists the slowest, as CI does)
+python -m unittest discover -s tests -t . --durations 25
 
 # A single test module (dotted path from the repo root)
 python -m unittest tests.test_money
 
 # Backend coverage (CI enforces a ratchet floor)
-coverage run -m unittest discover -s tests -t . && coverage report
+coverage run -m unittest discover -s tests -t . --durations 25 && coverage report
 
 # Frontend tests with coverage
 cd frontend && npx vitest run --coverage
@@ -76,6 +76,8 @@ These are the constraints most likely to be violated by an agent that skipped `C
   request bodies, or exception dumps containing credentials may reach any log or print. New
   failure paths must add the corresponding log assertion.
 - **On existing Cloud Run services always use `--update-env-vars` / `--update-secrets`** — the
-  `--set-*` variants replace the entire set and have broken prod before.
+  `--set-*` variants replace the entire set and have broken prod before. Service config itself
+  lives in `deploy/cloudrun-services.toml` (#161); change it there, not with a one-off
+  `gcloud run services update`, or the next roll-out reverts it.
 - **New or materially changed UI components** must be GenUI-compliant, registered in both
   component registries, and ship vitest tests in the same PR.

@@ -67,7 +67,7 @@ Leave `QUANTCORE_TEST_DB_DSN` exactly as it is. It still means "the Cloud SQL te
 `scripts/flyway.sh`, `scripts/with-test-db.sh`, `scripts/schema_check.py` and the import scripts.
 Only the unit suite reads the new key.
 
-You don't need a Flyway step or a schema load. The suite creates all 22 tables on first connection
+You don't need a Flyway step or a schema load. The suite creates all 23 tables on first connection
 (it pins `QUANTCORE_SCHEMA_MODE=create`).
 
 ## 3. Check which database the suite will use

@@ -19,6 +19,7 @@ helpers all delegate the analytics here.
 """
 
 import math
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -45,6 +46,12 @@ HISTORY_PERIOD = "3mo"
 # screen outran the MCP wrapper's 60 s REST timeout. Kept modest for Yahoo's
 # rate limits; refresh_options_snapshots runs 4 for the same reason.
 SCREEN_MAX_WORKERS = 8
+
+# yfinance logs a failed calendar fetch (e.g. a 401 "Invalid Crumb" while
+# concurrent workers refresh the shared crumb) and returns an empty calendar,
+# which would silently disarm the earnings blackout. An empty answer is
+# retried once after this pause (#331).
+CALENDAR_RETRY_PAUSE_SECONDS = 1.0
 
 # Scoring thresholds
 PC_VERY_BULLISH = 0.5
@@ -241,6 +248,14 @@ class SecurityAnalysis:
 # ---------------------------------------------------------------------------
 # Pure numeric helpers
 # ---------------------------------------------------------------------------
+
+def _is_empty_calendar(cal) -> bool:
+    if cal is None:
+        return True
+    if hasattr(cal, "empty"):
+        return bool(cal.empty)
+    return isinstance(cal, dict) and not cal
+
 
 def _safe_float(val, default: float = 0.0) -> float:
     try:
@@ -530,6 +545,9 @@ class OptionsScreeningService:
         try:
             from datetime import date as _date, datetime as _datetime
             cal = self._yf.calendar(symbol)
+            if _is_empty_calendar(cal):
+                time.sleep(CALENDAR_RETRY_PAUSE_SECONDS)
+                cal = self._yf.calendar(symbol)
             if cal is None:
                 return None
 
@@ -1127,10 +1145,17 @@ class OptionsScreeningService:
         def _fetch(entry: dict) -> Optional[SecurityAnalysis]:
             return self.fetch_security(entry["symbol"], entry["name"], entry["tags"])
 
+        # The first symbol is fetched alone: yfinance shares one cookie/crumb
+        # across threads, and workers that all start without one flip its
+        # strategy on each other's 401s ("Invalid Crumb", #331). One fetch on
+        # this thread settles it before the pool starts.
         # map() keeps watchlist order, so equal scores still rank as before.
         try:
-            with ThreadPoolExecutor(max_workers=max(1, min(SCREEN_MAX_WORKERS, len(entries)))) as pool:
-                fetched = list(pool.map(_fetch, entries))
+            fetched = [_fetch(e) for e in entries[:1]]
+            rest = entries[1:]
+            if rest:
+                with ThreadPoolExecutor(max_workers=min(SCREEN_MAX_WORKERS, len(rest))) as pool:
+                    fetched += pool.map(_fetch, rest)
         finally:
             # yfinance leaves a sqlite connection open per worker thread.
             self._yf.close_thread_caches()

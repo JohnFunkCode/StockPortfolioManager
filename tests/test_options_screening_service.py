@@ -499,6 +499,8 @@ class ConcurrentFetchTests(unittest.TestCase):
         barrier = threading.Barrier(SCREEN_MAX_WORKERS, timeout=5)
 
         def fetch(symbol, name, tags, news_store=None):
+            if symbol == "S0":  # the warm-up fetch runs alone, before the pool
+                return None
             with lock:
                 state["now"] += 1
                 state["peak"] = max(state["peak"], state["now"])
@@ -511,9 +513,25 @@ class ConcurrentFetchTests(unittest.TestCase):
             return None
 
         with patch.object(self.svc, "fetch_security", side_effect=fetch):
-            self.svc._run_analysis(self._entries(SCREEN_MAX_WORKERS * 2), 1000.0, 10)
+            self.svc._run_analysis(self._entries(1 + SCREEN_MAX_WORKERS * 2), 1000.0, 10)
         self.assertFalse(barrier.broken)
         self.assertEqual(state["peak"], SCREEN_MAX_WORKERS)
+
+    def test_first_symbol_is_fetched_alone_on_the_calling_thread(self):
+        # It settles yfinance's shared cookie/crumb before the workers start;
+        # without it they flip the cookie strategy on each other's 401s.
+        caller = threading.current_thread()
+        seen = []
+
+        def fetch(symbol, name, tags, news_store=None):
+            seen.append((symbol, threading.current_thread() is caller))
+            return None
+
+        with patch.object(self.svc, "fetch_security", side_effect=fetch):
+            self.svc._run_analysis(self._entries(5), 1000.0, 10)
+        self.assertEqual(seen[0], ("S0", True))
+        self.assertEqual(sorted(s for s, _ in seen[1:]), ["S1", "S2", "S3", "S4"])
+        self.assertFalse(any(on_caller for _, on_caller in seen[1:]))
 
     def test_thread_caches_close_even_when_a_fetch_raises(self):
         with patch.object(self.svc, "fetch_security", side_effect=RuntimeError("boom")):

@@ -78,6 +78,7 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 | Parts 1+2: contract test + completeness guard | (this PR) | 9 tests, 62 tools / 70 cases, ~0.2 s. A mutation check confirmed each failure is caught and named by module, tool and args: a changed default (`get_rsi` period 14→21), a deleted case (both guards fire, `61 != 62`), and a wrong path. |
 | Part 3: opt-in live smoke against test | (this PR) | 10 offline tests. Live on test (2026-10-05): 58 calls, 4 skipped. First run with `--sub live-smoke`: 53/58; the 3 portfolio tools 403'd (gotcha 8), `get_news` 504'd once at 60.9 s and passed in 0.2 s on the rerun, and `analyze_options_watchlist` 504'd. Rerun with `--sub john`: all portfolio tools ok; `analyze_options_watchlist` 504'd again at 60.4 s, so it reproduces (gotcha 9). |
 | Part 3 review fix: run the two read-only POSTs | (this PR) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
+| Spread case expiration moved out | (this PR) | `price_vertical_spread` first case `2026-11-20` → `2029-01-19` (gotcha 10). 21 offline tests pass. Live on test: ok in 2.4 s, and the result is a real priced spread (`liquidity: thin`; the LEAPS bid/ask makes the natural debit 12.00 against a 10-wide spread, mid 7.72). That is enough for a smoke, which checks that the call works, not that the trade is good. |
 
 ## Gotchas
 
@@ -117,7 +118,10 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
    to analyze the whole watchlist, so the wrapper gives up first. It is a
    real finding, not a smoke defect, and is left for a follow-up (#331) rather than fixed here. A single
    `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
-10. **`price_vertical_spread`'s case carries a fixed expiration, `2026-11-20`.** The live smoke
-    sends the first case's arguments verbatim, so after that date it asks for an expired
-    contract. Move the date forward in `scripts/mcp_tool_cases.py` (and its expected body) before
-    then; the offline contract test doesn't care which date it is.
+10. **`price_vertical_spread`'s case carries a fixed expiration, now `2029-01-19`.** The live
+    smoke sends the first case's arguments verbatim, so after that date it asks for an expired
+    contract. It was `2026-11-20` and was moved to BRK-B's longest-dated listed expiration (a
+    January LEAPS, checked on 2026-10-05 to list both the 400 and 410 call strikes). Move it forward again in
+    `scripts/mcp_tool_cases.py` (args and expected body) before then. Only the first case
+    matters here: the `2026-11-20` dates in other tools' later variants are offline-only, and the
+    offline contract test doesn't care which date it is.

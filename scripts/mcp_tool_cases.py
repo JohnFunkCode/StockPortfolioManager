@@ -112,10 +112,10 @@ CASES = {
            strikes=["400.0", "410.5"], kind="call")),
     ],
     (OA, "price_vertical_spread"): [
-        ({"symbol": "BRK-B", "expiration": "2026-11-20", "long_strike": 400.0,
+        ({"symbol": "BRK-B", "expiration": "2029-01-19", "long_strike": 400.0,
           "short_strike": 410.0},
          call("POST", f"{SEC}/options/vertical-spread", body={
-             "expiration": "2026-11-20", "long_strike": 400.0, "short_strike": 410.0,
+             "expiration": "2029-01-19", "long_strike": 400.0, "short_strike": 410.0,
              "kind": "call", "max_snapshot_age_minutes": 15, "allow_live_fetch": True})),
     ],
     (OA, "get_full_options_chain"): [({"symbol": "BRK-B"}, G(f"{SEC}/options/full-chain"))],

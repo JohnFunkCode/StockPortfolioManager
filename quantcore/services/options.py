@@ -1070,10 +1070,17 @@ class OptionsService:
             "delta_adjusted_oi":  lambda: self.get_delta_adjusted_oi(ticker, now=now),
         }
 
+        def _run(fn):
+            # yfinance's sqlite caches are per thread: close this worker's (#338).
+            try:
+                return fn()
+            finally:
+                self._yf.close_thread_caches()
+
         results: dict = {}
         errors: dict = {}
         with ThreadPoolExecutor(max_workers=2) as executor:
-            futures = {executor.submit(fn): key for key, fn in tasks.items()}
+            futures = {executor.submit(_run, fn): key for key, fn in tasks.items()}
             for future in as_completed(futures):
                 key = futures[future]
                 try:
@@ -1385,36 +1392,36 @@ class OptionsService:
 
         def _fetch_one(sym: str) -> dict:
             """Fetch with one automatic retry on failure."""
-            for attempt in range(2):
-                try:
-                    _fetch(sym)
-                    return {"symbol": sym, "status": "ok"}
-                except Exception as exc:
-                    last_exc = exc
-                    if attempt == 0:
-                        _time.sleep(2)  # brief pause before retry
-            return {"symbol": sym, "status": "error", "error": str(last_exc)}
+            try:
+                for attempt in range(2):
+                    try:
+                        _fetch(sym)
+                        return {"symbol": sym, "status": "ok"}
+                    except Exception as exc:
+                        last_exc = exc
+                        if attempt == 0:
+                            _time.sleep(2)  # brief pause before retry
+                return {"symbol": sym, "status": "error", "error": str(last_exc)}
+            finally:
+                # yfinance's peewee caches (tkr-tz.db, cookies.db) hold one
+                # connection per thread, and close_thread_caches() closes only
+                # the calling thread's -- so each worker closes its own, here,
+                # rather than the caller once after the pool (#338).
+                # Provider-internal cache cleanup belongs to the gateway (#75).
+                self._yf.close_thread_caches()
 
         # Use a single executor for the entire run so threads are reused across
-        # batches.  Creating a new executor per batch spawns fresh threads each
-        # time, and yfinance's peewee cache opens one DB connection per thread
-        # (tkr-tz.db, cookies.db) that is never closed — exhausting file
-        # descriptors after enough batches.
+        # batches rather than spawning fresh threads (and fresh cache
+        # connections) per batch.
         batches = [symbols[i:i + batch_size] for i in range(0, len(symbols), batch_size)]
-        try:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                for idx, batch in enumerate(batches):
-                    futures = {executor.submit(_fetch_one, sym): sym for sym in batch}
-                    for future in as_completed(futures):
-                        results_list.append(future.result())
-                    # Pause between batches (skip delay after the last batch)
-                    if idx < len(batches) - 1:
-                        _time.sleep(batch_delay)
-        finally:
-            # Close yfinance's peewee cache DB connections that are held open
-            # in each worker thread's thread-local storage.
-            # Provider-internal cache cleanup belongs to the gateway (#75).
-            self._yf.close_thread_caches()
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            for idx, batch in enumerate(batches):
+                futures = {executor.submit(_fetch_one, sym): sym for sym in batch}
+                for future in as_completed(futures):
+                    results_list.append(future.result())
+                # Pause between batches (skip delay after the last batch)
+                if idx < len(batches) - 1:
+                    _time.sleep(batch_delay)
 
         elapsed = round(_time.monotonic() - start, 1)
         results_list.sort(key=lambda r: r["symbol"])

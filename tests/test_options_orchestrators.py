@@ -4,6 +4,7 @@ backfill's per-date state machine (stored/duplicate/no_data/error/402/400)
 is walked branch by branch with literal Polygon payloads.
 """
 import os
+import threading
 import unittest
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -138,7 +139,8 @@ class TestRefreshSnapshots(OrchestratorTestBase):
         self.assertEqual(symbols, ["AAA", "BBB", "CCC"])   # deduped + sorted
         self.assertEqual(out["succeeded"], 3)
         self.assertEqual(out["failed"], 0)
-        self.yf.close_thread_caches.assert_called_once()   # issue-#75 cleanup
+        # issue-#75 cleanup, once per fetch on the fetching thread (#338)
+        self.assertEqual(self.yf.close_thread_caches.call_count, 3)
 
     def test_full_chain_type_uses_the_chain_fetcher(self):
         with patch.object(self.service, "get_full_options_chain",
@@ -160,6 +162,41 @@ class TestRefreshSnapshots(OrchestratorTestBase):
         failed = next(r for r in out["results"] if r["status"] == "error")
         self.assertEqual(failed["symbol"], "AAA")
         self.assertIn("yahoo down", failed["error"])
+
+    def record_threads(self, fail=()):
+        """Record which thread fetched each symbol and which closed caches."""
+        lock = threading.Lock()
+        fetched_on, closed_on = {}, []
+
+        def fetch(sym):
+            with lock:
+                fetched_on[sym] = threading.get_ident()
+            if sym in fail:
+                raise RuntimeError("yahoo down")
+            return {"ok": True}
+
+        def close():
+            with lock:
+                closed_on.append(threading.get_ident())
+
+        self.prices.get_stock_price.side_effect = fetch
+        self.yf.close_thread_caches.side_effect = close
+        return fetched_on, closed_on
+
+    def test_each_fetch_closes_its_own_threads_caches(self):
+        # yfinance's cache connections are per thread, so a close on the
+        # caller would leave every worker's open (#338).
+        fetched_on, closed_on = self.record_threads()
+        self.run_refresh(source="all")
+        self.assertEqual(sorted(closed_on), sorted(fetched_on.values()))
+        self.assertNotIn(threading.get_ident(), closed_on)
+
+    def test_thread_caches_close_on_the_worker_when_a_fetch_fails(self):
+        fetched_on, closed_on = self.record_threads(fail={"AAA"})
+        out = self.run_refresh(source="all")
+        self.assertEqual(out["failed"], 1)
+        self.assertEqual(sorted(closed_on), sorted(fetched_on.values()))
+        self.assertNotIn(threading.get_ident(), closed_on)
 
 
 if __name__ == "__main__":

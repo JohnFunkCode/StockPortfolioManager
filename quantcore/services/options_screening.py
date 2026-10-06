@@ -19,8 +19,10 @@ helpers all delegate the analytics here.
 """
 
 import math
+import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 
@@ -39,6 +41,17 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BB_PERIOD = 20
 BB_STD_DEV = 2
 HISTORY_PERIOD = "3mo"
+
+# Symbols fetched at once by _run_analysis (#331). Sequential, a watchlist
+# screen outran the MCP wrapper's 60 s REST timeout. Kept modest for Yahoo's
+# rate limits; refresh_options_snapshots runs 4 for the same reason.
+SCREEN_MAX_WORKERS = 8
+
+# yfinance logs a failed calendar fetch (e.g. a 401 "Invalid Crumb" while
+# concurrent workers refresh the shared crumb) and returns an empty calendar,
+# which would silently disarm the earnings blackout. An empty answer is
+# retried once after this pause (#331).
+CALENDAR_RETRY_PAUSE_SECONDS = 1.0
 
 # Scoring thresholds
 PC_VERY_BULLISH = 0.5
@@ -235,6 +248,54 @@ class SecurityAnalysis:
 # ---------------------------------------------------------------------------
 # Pure numeric helpers
 # ---------------------------------------------------------------------------
+
+def _is_empty_calendar(cal) -> bool:
+    if cal is None:
+        return True
+    if hasattr(cal, "empty"):
+        return bool(cal.empty)
+    return isinstance(cal, dict) and not cal
+
+
+def _calendar_dates(cal) -> Optional[list]:
+    """The candidate earnings dates in a yfinance calendar, or None."""
+    if cal is None:
+        return None
+    # yfinance ≥ 0.2 returns a DataFrame; older versions return a dict.
+    if hasattr(cal, "index"):
+        # DataFrame: rows are field names, columns are dates
+        for label in ("Earnings Date", "Earnings High", "Earnings Low"):
+            if label in cal.index:
+                return cal.loc[label].tolist()
+        # Fallback: use any column values that look like dates
+        return list(cal.columns)
+    if isinstance(cal, dict):
+        return list(cal.values())
+    return None
+
+
+def _as_date(d) -> Optional[date]:
+    if hasattr(d, "date"):
+        return d.date()
+    if isinstance(d, str):
+        try:
+            return datetime.strptime(d[:10], "%Y-%m-%d").date()
+        except ValueError:
+            return None
+    return d if isinstance(d, date) else None
+
+
+def _top_by(results: list, score: str, top_n: int) -> list:
+    """The `top_n` results with a positive `score`, highest first (stable)."""
+    ranked = [r for r in results if getattr(r, score) > 0]
+    return sorted(ranked, key=lambda r: getattr(r, score), reverse=True)[:top_n]
+
+
+def _days_until_next(raw_dates: list, today: date) -> Optional[int]:
+    """Days from `today` to the nearest date on or after it, or None."""
+    days = [(d - today).days for d in map(_as_date, raw_dates) if d is not None and d >= today]
+    return min(days) if days else None
+
 
 def _safe_float(val, default: float = 0.0) -> float:
     try:
@@ -522,47 +583,26 @@ class OptionsScreeningService:
         Values < EARNINGS_BLACKOUT_DAYS (14) trigger the earnings blackout guardrail.
         """
         try:
-            from datetime import date as _date, datetime as _datetime
-            cal = self._yf.calendar(symbol)
-            if cal is None:
+            raw_dates = _calendar_dates(self._fetch_calendar(symbol))
+            if raw_dates is None:
                 return None
-
-            # yfinance ≥ 0.2 returns a DataFrame; older versions return a dict.
-            if hasattr(cal, "index"):
-                # DataFrame: rows are field names, columns are dates
-                # Earnings Date row may appear as "Earnings Date" or similar
-                for label in ("Earnings Date", "Earnings High", "Earnings Low"):
-                    if label in cal.index:
-                        raw_dates = cal.loc[label].tolist()
-                        break
-                else:
-                    # Fallback: use any column values that look like dates
-                    raw_dates = list(cal.columns)
-            elif isinstance(cal, dict):
-                raw_dates = list(cal.values())
-            else:
-                return None
-
             # yfinance supplies date-only earnings labels; compare them with
             # the US market date rather than the host's UTC date.
-            today = market_date(now)
-            future_days = []
-            for d in raw_dates:
-                if d is None:
-                    continue
-                if hasattr(d, "date"):
-                    d = d.date()
-                elif isinstance(d, str):
-                    try:
-                        d = _datetime.strptime(d[:10], "%Y-%m-%d").date()
-                    except ValueError:
-                        continue
-                if isinstance(d, _date) and d >= today:
-                    future_days.append((d - today).days)
-
-            return min(future_days) if future_days else None
+            return _days_until_next(raw_dates, market_date(now))
         except Exception:
             return None
+
+    def _fetch_calendar(self, symbol: str):
+        """yfinance's calendar, asked twice if the first answer is empty.
+
+        yfinance logs a failed fetch (e.g. a 401 "Invalid Crumb") and returns
+        an empty calendar, which would read as "no earnings date" (#331).
+        """
+        cal = self._yf.calendar(symbol)
+        if _is_empty_calendar(cal):
+            time.sleep(CALENDAR_RETRY_PAUSE_SECONDS)
+            cal = self._yf.calendar(symbol)
+        return cal
 
     def fetch_recent_positive_catalyst(self, symbol: str) -> tuple[bool, str]:
         """
@@ -1114,30 +1154,32 @@ class OptionsScreeningService:
             },
         }
 
-    def _run_analysis(self, entries: list[dict], puts_budget: float, top_n: int) -> dict:
-        results: list[SecurityAnalysis] = []
-        failed: list[str] = []
+    def _fetch_one(self, entry: dict) -> Optional[SecurityAnalysis]:
+        try:
+            return self.fetch_security(entry["symbol"], entry["name"], entry["tags"])
+        finally:
+            # yfinance's sqlite cache connections are per thread (peewee keeps
+            # them thread-local), so only the thread that fetched can close its
+            # own; closing from the caller afterwards leaves the workers' open.
+            self._yf.close_thread_caches()
 
-        for entry in entries:
-            sec = self.fetch_security(entry["symbol"], entry["name"], entry["tags"])
-            if sec is None:
-                failed.append(entry["symbol"])
-                continue
-            self.score(sec)
-            results.append(sec)
+    def _fetch_all(self, entries: list[dict]) -> list[Optional[SecurityAnalysis]]:
+        """Fetch every entry, in watchlist order, on a bounded pool (#331).
 
-        long_candidates = sorted(
-            [s for s in results if s.long_score > 0],
-            key=lambda s: s.long_score,
-            reverse=True,
-        )[:top_n]
+        The first symbol is fetched alone: yfinance shares one cookie/crumb
+        across threads, and workers that all start without one flip its
+        strategy on each other's 401s ("Invalid Crumb"). One fetch on this
+        thread settles it before the pool starts. map() keeps watchlist order,
+        so equal scores still rank as before.
+        """
+        fetched = [self._fetch_one(e) for e in entries[:1]]
+        rest = entries[1:]
+        if rest:
+            with ThreadPoolExecutor(max_workers=min(SCREEN_MAX_WORKERS, len(rest))) as pool:
+                fetched += pool.map(self._fetch_one, rest)
+        return fetched
 
-        put_candidates = sorted(
-            [s for s in results if s.put_score > 0],
-            key=lambda s: s.put_score,
-            reverse=True,
-        )[:top_n]
-
+    def _build_put_trades(self, put_candidates: list[SecurityAnalysis], puts_budget: float) -> list:
         trades = []
         for sec in put_candidates:
             trade = self.build_put_trade(
@@ -1147,6 +1189,24 @@ class OptionsScreeningService:
             )
             if trade:
                 trades.append(trade)
+        return trades
+
+    def _run_analysis(self, entries: list[dict], puts_budget: float, top_n: int) -> dict:
+        results: list[SecurityAnalysis] = []
+        failed: list[str] = []
+
+        fetched = self._fetch_all(entries)
+
+        for entry, sec in zip(entries, fetched):
+            if sec is None:
+                failed.append(entry["symbol"])
+                continue
+            self.score(sec)
+            results.append(sec)
+
+        long_candidates = _top_by(results, "long_score", top_n)
+        put_candidates = _top_by(results, "put_score", top_n)
+        trades = self._build_put_trades(put_candidates, puts_budget)
 
         return {
             "symbols_scanned": len(entries),

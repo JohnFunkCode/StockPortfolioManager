@@ -79,6 +79,8 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 | Part 3: opt-in live smoke against test | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | 10 offline tests. Live on test (2026-10-05): 58 calls, 4 skipped. First run with `--sub live-smoke`: 53/58; the 3 portfolio tools 403'd (gotcha 8), `get_news` 504'd once at 60.9 s and passed in 0.2 s on the rerun, and `analyze_options_watchlist` 504'd. Rerun with `--sub john`: all portfolio tools ok; `analyze_options_watchlist` 504'd again at 60.4 s, so it reproduces (gotcha 9). |
 | Part 3 review fix: run the two read-only POSTs | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
 | Spread case expiration moved out | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `price_vertical_spread` first case `2026-11-20` → `2029-01-19` (gotcha 10). 21 offline tests pass. Live on test: ok in 2.4 s, and the result is a real priced spread (`liquidity: thin`; the LEAPS bid/ask makes the natural debit 12.00 against a 10-wide spread, mid 7.72). That is enough for a smoke, which checks that the call works, not that the trade is good. |
+| #331: concurrent watchlist fetch | [#337](https://github.com/JohnFunkCode/StockPortfolioManager/pull/337) | Local, test DB through the proxy, 229 entries / 217 scanned / 216 fetched: sequential 1361 s; concurrent (8 workers) 293–574 s run to run. A 12-symbol profile (market open) put ~5.8 s on each symbol, mostly DB round trips through the local proxy (~0.37 s each: `store_bars`, `get_bars`, `has_open_bar`, `count_cached`), with Yahoo ~1.8 s. So local timing says little about Cloud Run, where the database is close; the 60 s answer is the live smoke on test after merge (or a #120 dispatch). Crumb 401s: 18 → 7 with the warm-up, and the calendar retry recovered 4 of the 6 empty calendars it retried (the other 2 are ETFs, QQQ/VOO, correctly empty) (gotcha 11). |
+| #337 review | [#337](https://github.com/JohnFunkCode/StockPortfolioManager/pull/337) | Cache cleanup moved into each fetch's `finally`: peewee keeps connection state thread-local (checked: a close on one thread leaves another's open), so the caller's single close after the pool missed every worker. Tests now assert the closes happen on the fetching threads, on success and on a raising fetch. `_run_analysis` split into `_fetch_one`/`_fetch_all`/`_top_by`/`_build_put_trades` (radon CC 13 → 5, complexipy 10 → 5); `fetch_earnings_proximity` into `_fetch_calendar`/`_calendar_dates`/`_as_date`/`_days_until_next` (CC 17 → 3, cognitive 24 → 2). 90 tests pass across the options suites. |
 
 ## Gotchas
 
@@ -115,8 +117,15 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 9. **`analyze_options_watchlist` 504s on test at ~60 s, reproducibly.** 60 s is
    `rest_client.DEFAULT_TIMEOUT` (`QUANTCORE_REST_TIMEOUT`), and the 504 is the wrapper's own:
    `rest_client` maps an `httpx.TimeoutException` to a 504. The REST tier takes longer than that
-   to analyze the whole watchlist, so the wrapper gives up first. It is a
-   real finding, not a smoke defect, and is left for a follow-up (#331) rather than fixed here. A single
+   to analyze the whole watchlist, so the wrapper gives up first. It was a real finding, not a
+   smoke defect. **Fixed in #331:** `OptionsScreeningService._run_analysis` used to fetch one
+   symbol after another; it now fetches `SCREEN_MAX_WORKERS` (8) at a time on one
+   `ThreadPoolExecutor` (after one warm-up fetch, gotcha 11), keeping watchlist order, and each fetch closes its own thread's yfinance caches in a
+   `finally` (they are thread-local, so a single close from the caller afterwards would miss the
+   workers'). The timeout that applies is still the wrapper's 60 s (`quantcore-api` allows 300 s,
+   the wrappers 900 s); it was deliberately not raised, so the screen has to fit inside it. If the
+   watchlist grows until it doesn't, raise the worker count only with Yahoo's rate limits in mind
+   (`refresh_options_snapshots` runs 4). A single
    `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
 10. **`price_vertical_spread`'s case carries a fixed expiration, now `2029-01-19`.** The live
     smoke sends the first case's arguments verbatim, so after that date it asks for an expired
@@ -125,3 +134,14 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
     `scripts/mcp_tool_cases.py` (args and expected body) before then. Only the first case
     matters here: the `2026-11-20` dates in other tools' later variants are offline-only, and the
     offline contract test doesn't care which date it is.
+11. **Concurrent yfinance calls flip each other's cookie strategy (#331).** yfinance 1.2.1 shares
+    one cookie/crumb across threads, and on any response ≥400 `YfData._make_request` switches the
+    strategy (basic ↔ csrf), clearing the crumb, and retries. Eight workers that all start without
+    a crumb keep switching it under each other, which logs bursts of `401 Invalid Crumb`. Two
+    fixes, both in `options_screening.py`: the first symbol is fetched alone on the calling thread
+    so the crumb is settled before the pool starts, and an empty calendar is retried once after
+    `CALENDAR_RETRY_PAUSE_SECONDS`. The retry matters more than it looks: yfinance's quote
+    fetch swallows the 401 (`hide_exceptions=True`) and hands back `{}`, so a lost crumb reads as
+    "no earnings date" and **silently disarms the earnings-blackout guardrail**. ETFs answer 404
+    "No fundamentals data" and stay empty after the retry, which is correct. Expect a few 401 lines
+    per run even so, and wide run-to-run timing variance (293–574 s locally for the same list).

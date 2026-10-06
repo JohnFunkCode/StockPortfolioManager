@@ -159,6 +159,30 @@ class TestFetchIvAnalysis(FetchTestBase):
 
 
 class TestEarningsProximity(FetchTestBase):
+    def setUp(self):
+        super().setUp()
+        pause = patch("quantcore.services.options_screening.CALENDAR_RETRY_PAUSE_SECONDS", 0)
+        pause.start()
+        self.addCleanup(pause.stop)
+
+    def test_empty_calendar_is_retried_once(self):
+        # yfinance answers a failed fetch (401 Invalid Crumb under #331's
+        # concurrency) with an empty calendar; one retry recovers the date.
+        earn = market_date() + timedelta(days=5)
+        self.yf.calendar.side_effect = [{}, {"Earnings Date": earn}]
+        self.assertEqual(self.service.fetch_earnings_proximity("INTC"), 5)
+        self.assertEqual(self.yf.calendar.call_count, 2)
+
+    def test_empty_calendar_twice_is_unknown(self):
+        self.yf.calendar.side_effect = [pd.DataFrame(), pd.DataFrame()]
+        self.assertIsNone(self.service.fetch_earnings_proximity("INTC"))
+        self.assertEqual(self.yf.calendar.call_count, 2)
+
+    def test_populated_calendar_is_fetched_once(self):
+        self.yf.calendar.return_value = {"Earnings Date": market_date() + timedelta(days=3)}
+        self.service.fetch_earnings_proximity("INTC")
+        self.assertEqual(self.yf.calendar.call_count, 1)
+
     def test_late_evening_uses_eastern_market_date(self):
         # 23:35 ET on Aug 14 is already Aug 15 in UTC.
         evening = pytz.timezone("America/New_York").localize(

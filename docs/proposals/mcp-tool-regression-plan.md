@@ -80,6 +80,7 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 | Part 3 review fix: run the two read-only POSTs | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
 | Spread case expiration moved out | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `price_vertical_spread` first case `2026-11-20` → `2029-01-19` (gotcha 10). 21 offline tests pass. Live on test: ok in 2.4 s, and the result is a real priced spread (`liquidity: thin`; the LEAPS bid/ask makes the natural debit 12.00 against a 10-wide spread, mid 7.72). That is enough for a smoke, which checks that the call works, not that the trade is good. |
 | #331: concurrent watchlist fetch | [#337](https://github.com/JohnFunkCode/StockPortfolioManager/pull/337) | Local, test DB through the proxy, 229 entries / 217 scanned / 216 fetched: sequential 1361 s; concurrent (8 workers) 293–574 s run to run. A 12-symbol profile (market open) put ~5.8 s on each symbol, mostly DB round trips through the local proxy (~0.37 s each: `store_bars`, `get_bars`, `has_open_bar`, `count_cached`), with Yahoo ~1.8 s. So local timing says little about Cloud Run, where the database is close; the 60 s answer is the live smoke on test after merge (or a #120 dispatch). Crumb 401s: 18 → 7 with the warm-up, and the calendar retry recovered 4 of the 6 empty calendars it retried (the other 2 are ETFs, QQQ/VOO, correctly empty) (gotcha 11). |
+| #337 review | [#337](https://github.com/JohnFunkCode/StockPortfolioManager/pull/337) | Cache cleanup moved into each fetch's `finally`: peewee keeps connection state thread-local (checked: a close on one thread leaves another's open), so the caller's single close after the pool missed every worker. Tests now assert the closes happen on the fetching threads, on success and on a raising fetch. `_run_analysis` split into `_fetch_one`/`_fetch_all`/`_top_by`/`_build_put_trades` (radon CC 13 → 5, complexipy 10 → 5); `fetch_earnings_proximity` into `_fetch_calendar`/`_calendar_dates`/`_as_date`/`_days_until_next` (CC 17 → 3, cognitive 24 → 2). 90 tests pass across the options suites. |
 
 ## Gotchas
 
@@ -119,8 +120,9 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
    to analyze the whole watchlist, so the wrapper gives up first. It was a real finding, not a
    smoke defect. **Fixed in #331:** `OptionsScreeningService._run_analysis` used to fetch one
    symbol after another; it now fetches `SCREEN_MAX_WORKERS` (8) at a time on one
-   `ThreadPoolExecutor` (after one warm-up fetch, gotcha 11), keeping watchlist order, and closes yfinance's per-thread caches in a
-   `finally`. The timeout that applies is still the wrapper's 60 s (`quantcore-api` allows 300 s,
+   `ThreadPoolExecutor` (after one warm-up fetch, gotcha 11), keeping watchlist order, and each fetch closes its own thread's yfinance caches in a
+   `finally` (they are thread-local, so a single close from the caller afterwards would miss the
+   workers'). The timeout that applies is still the wrapper's 60 s (`quantcore-api` allows 300 s,
    the wrappers 900 s); it was deliberately not raised, so the screen has to fit inside it. If the
    watchlist grows until it doesn't, raise the worker count only with Yahoo's rate limits in mind
    (`refresh_options_snapshots` runs 4). A single

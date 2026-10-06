@@ -93,11 +93,14 @@ class YFinanceGateway:
         return df[cols].dropna(subset=["Close"])
 
     def close_thread_caches(self) -> None:
-        """Close yfinance's per-thread peewee cache DB connections.
+        """Close the *calling thread's* yfinance peewee cache DB connections.
 
         yfinance opens one sqlite connection per thread (tkr-tz.db,
         cookies.db) that is never closed; long-running batch work leaks file
-        descriptors without this. Safe no-op if yfinance internals change.
+        descriptors without this. peewee keeps that state thread-local, so
+        this closes only the caller's connection: pool work must call it on
+        each worker (e.g. in a per-task ``finally``), not once afterwards.
+        Safe no-op if yfinance internals change.
         """
         try:
             from yfinance.cache import _CookieDBManager, _TzDBManager

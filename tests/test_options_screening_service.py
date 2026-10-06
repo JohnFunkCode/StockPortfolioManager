@@ -458,13 +458,15 @@ class BuildCallTradeTests(unittest.TestCase):
 
 
 class _Gateway:
-    """Counts close_thread_caches calls; nothing else is reached."""
+    """Records the thread of each close_thread_caches call; nothing else is reached."""
 
     def __init__(self):
-        self.closed = 0
+        self.lock = threading.Lock()
+        self.closed_on = []
 
     def close_thread_caches(self):
-        self.closed += 1
+        with self.lock:
+            self.closed_on.append(threading.get_ident())
 
 
 class ConcurrentFetchTests(unittest.TestCase):
@@ -533,17 +535,38 @@ class ConcurrentFetchTests(unittest.TestCase):
         self.assertEqual(sorted(s for s, _ in seen[1:]), ["S1", "S2", "S3", "S4"])
         self.assertFalse(any(on_caller for _, on_caller in seen[1:]))
 
-    def test_thread_caches_close_even_when_a_fetch_raises(self):
-        with patch.object(self.svc, "fetch_security", side_effect=RuntimeError("boom")):
+    def _record_threads(self, fail=()):
+        fetched_on = []
+
+        def fetch(symbol, name, tags, news_store=None):
+            fetched_on.append(threading.get_ident())
+            if symbol in fail:
+                raise RuntimeError("boom")
+            return None
+
+        return fetched_on, fetch
+
+    def test_each_fetch_closes_its_own_threads_caches(self):
+        # yfinance's cache connections are thread-local: a close on the caller
+        # after the pool exits would leave every worker's connection open.
+        fetched_on, fetch = self._record_threads()
+        with patch.object(self.svc, "fetch_security", side_effect=fetch):
+            self.svc._run_analysis(self._entries(12), 1000.0, 10)
+        self.assertEqual(sorted(self.gw.closed_on), sorted(fetched_on))
+        self.assertGreater(len(set(fetched_on)), 1)   # workers, not just the caller
+
+    def test_thread_caches_close_on_the_worker_when_a_fetch_raises(self):
+        fetched_on, fetch = self._record_threads(fail={"S2"})
+        with patch.object(self.svc, "fetch_security", side_effect=fetch):
             with self.assertRaises(RuntimeError):
                 self.svc._run_analysis(self._entries(3), 1000.0, 10)
-        self.assertEqual(self.gw.closed, 1)
+        self.assertEqual(len(fetched_on), 3)
+        self.assertEqual(sorted(self.gw.closed_on), sorted(fetched_on))
 
     def test_empty_watchlist_still_answers(self):
         out = self.svc._run_analysis([], 1000.0, 10)
         self.assertEqual((out["symbols_scanned"], out["fetched"], out["failed"]), (0, 0, []))
-        self.assertEqual(self.gw.closed, 1)
-
+        self.assertEqual(self.gw.closed_on, [])
 
 if __name__ == "__main__":
     unittest.main()

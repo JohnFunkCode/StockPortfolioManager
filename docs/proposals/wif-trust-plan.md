@@ -128,10 +128,11 @@ effect within a minute or two, and nothing else needs undoing.
 | Step | Result |
 |---|---|
 | Read-only checks (2026-10-05) | Done; recorded above. |
-| PR: drop `release`, `setup_test_wif.sh` converges, docs | This PR. |
+| PR: drop `release`, `setup_test_wif.sh` converges, docs | [#320](https://github.com/JohnFunkCode/StockPortfolioManager/pull/320). |
 | 1. Environment secrets, repo copies deleted | Done (2026-10-05). Checked through the API: `prod` holds both, and the repo level holds only the test pair. |
 | 2. `prod` branch policy main-only | Done (2026-10-05), in the UI. Checked through the API: `custom_branch_policies: true`, one policy (branch `main`), admin bypass off, the five required reviewers unchanged. |
 | 3. Prod provider condition | Done (2026-10-05), before #320 merged. That was harmless: no release had ever run, and dispatches from main satisfy it. Read back with `describe`. |
 | 4. Test provider condition | Done (2026-10-05), with the direct `update-oidc`. Read back with `describe`. |
 | 5. Verification | Read-back done (both conditions as in steps 3 and 4). Test positive done: deploy run 37355839488 (the merge of #320, `90c89ca`) passed auth and rolled out. Negative done (2026-10-05): probe run 37357151516 on `scratch/wif-negative-313`. Both jobs failed with `unauthorized_client: The given credential is rejected by the attribute condition.` The branch has been deleted. Prod positive done (2026-10-05): prod-rollout run 37359173476 (dispatched from main, `73f2e1d`) authenticated in `promote-and-deploy` and rolled out; `cloudrun_services.py check --env prod` afterwards reported 0 services differing. **#313 steps 1–5 complete.** |
 | PR #320 review (2026-10-05) | Added `tests/test_setup_test_wif.py`. It runs the script against a stub `gcloud` and asserts the exact `--attribute-mapping` and `--attribute-condition` on both the create-oidc path (missing provider) and the update-oidc path (existing provider). A mutation that drops the `ref` clause fails both tests. Out of scope for this PR, by design: step 2 (John's repo setting), the audit-log alert and a bind/unbind check (step 6 follow-ups, John's IAM work), and step 5 (needs the merge). |
+| 6. Follow-ups (status 2026-10-05) | **Not started, untracked.** #313 closed after steps 1–5. The audit-log alert and the bind/unbind check are optional IAM work for John, and no issue has been filed for either, so this row is their only record. |

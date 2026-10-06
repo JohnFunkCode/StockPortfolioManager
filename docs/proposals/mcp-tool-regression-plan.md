@@ -11,10 +11,10 @@ an AI client got a wrong answer.
 
 The work has three parts:
 
-1. **Offline contract test, one per tool (this PR).** Every tool runs through fastmcp's in-memory
+1. **Offline contract test, one per tool ([#329](https://github.com/JohnFunkCode/StockPortfolioManager/pull/329)).** Every tool runs through fastmcp's in-memory
    `Client`, with the REST seam stubbed.
-2. **Completeness guard (this PR).** A tool with no contract case fails the build.
-3. **Opt-in live smoke against test (never prod).** `scripts/mcp_live_smoke.py`, a separate PR,
+2. **Completeness guard ([#329](https://github.com/JohnFunkCode/StockPortfolioManager/pull/329)).** A tool with no contract case fails the build.
+3. **Opt-in live smoke against test (never prod).** `scripts/mcp_live_smoke.py`, a separate PR ([#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330)),
    because it needs a test JWT and the deployed URLs.
 
 ## Design
@@ -75,10 +75,10 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 
 | Step | Commit | Result |
 |---|---|---|
-| Parts 1+2: contract test + completeness guard | (this PR) | 9 tests, 62 tools / 70 cases, ~0.2 s. A mutation check confirmed each failure is caught and named by module, tool and args: a changed default (`get_rsi` period 14→21), a deleted case (both guards fire, `61 != 62`), and a wrong path. |
-| Part 3: opt-in live smoke against test | (this PR) | 10 offline tests. Live on test (2026-10-05): 58 calls, 4 skipped. First run with `--sub live-smoke`: 53/58; the 3 portfolio tools 403'd (gotcha 8), `get_news` 504'd once at 60.9 s and passed in 0.2 s on the rerun, and `analyze_options_watchlist` 504'd. Rerun with `--sub john`: all portfolio tools ok; `analyze_options_watchlist` 504'd again at 60.4 s, so it reproduces (gotcha 9). |
-| Part 3 review fix: run the two read-only POSTs | (this PR) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
-| Spread case expiration moved out | (this PR) | `price_vertical_spread` first case `2026-11-20` → `2029-01-19` (gotcha 10). 21 offline tests pass. Live on test: ok in 2.4 s, and the result is a real priced spread (`liquidity: thin`; the LEAPS bid/ask makes the natural debit 12.00 against a 10-wide spread, mid 7.72). That is enough for a smoke, which checks that the call works, not that the trade is good. |
+| Parts 1+2: contract test + completeness guard | [#329](https://github.com/JohnFunkCode/StockPortfolioManager/pull/329) | 9 tests, 62 tools / 70 cases, ~0.2 s. A mutation check confirmed each failure is caught and named by module, tool and args: a changed default (`get_rsi` period 14→21), a deleted case (both guards fire, `61 != 62`), and a wrong path. |
+| Part 3: opt-in live smoke against test | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | 10 offline tests. Live on test (2026-10-05): 58 calls, 4 skipped. First run with `--sub live-smoke`: 53/58; the 3 portfolio tools 403'd (gotcha 8), `get_news` 504'd once at 60.9 s and passed in 0.2 s on the rerun, and `analyze_options_watchlist` 504'd. Rerun with `--sub john`: all portfolio tools ok; `analyze_options_watchlist` 504'd again at 60.4 s, so it reproduces (gotcha 9). |
+| Part 3 review fix: run the two read-only POSTs | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `READ_ONLY_POSTS` allowlist + 2 offline tests (12 in the module). Live on test: `get_fundamental_scores_batch` ok in 23.7 s, `price_vertical_spread` ok in 17.9 s. Now 60 calls, 2 skipped. |
+| Spread case expiration moved out | [#330](https://github.com/JohnFunkCode/StockPortfolioManager/pull/330) | `price_vertical_spread` first case `2026-11-20` → `2029-01-19` (gotcha 10). 21 offline tests pass. Live on test: ok in 2.4 s, and the result is a real priced spread (`liquidity: thin`; the LEAPS bid/ask makes the natural debit 12.00 against a 10-wide spread, mid 7.72). That is enough for a smoke, which checks that the call works, not that the trade is good. |
 
 ## Gotchas
 

@@ -99,5 +99,5 @@ is that concurrent runs serialize instead of running in parallel, which was neve
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Reproduce | — | Single runs: 30/30 locally and through the proxy. Two concurrent runs: 12–17 failures each, 3 of 3 trials. | Proxy was a red herring |
-| Lock + tests + SQLSTATE logging + docs | _this PR_ | Two concurrent `test_repositories_db` runs: 6/6 OK across 3 trials, one waiter per pair. Two concurrent full suites: both 1589 OK (skipped=5), the second waited. Single full suite: 1589 OK in 25 s. The password appeared nowhere in the logs. | See Gotchas |
-| CI fix: diff coverage | _this PR_ | `gate` failed diff-cover at 50%: four reworded handlers were untested. Added `test_every_swallowing_handler_names_the_error`. Full suite: 1591 OK (skipped=5). | Reworded log lines are diff lines |
+| Lock + tests + SQLSTATE logging + docs | [#294](https://github.com/JohnFunkCode/StockPortfolioManager/pull/294) | Two concurrent `test_repositories_db` runs: 6/6 OK across 3 trials, one waiter per pair. Two concurrent full suites: both 1589 OK (skipped=5), the second waited. Single full suite: 1589 OK in 25 s. The password appeared nowhere in the logs. | See Gotchas |
+| CI fix: diff coverage | [#294](https://github.com/JohnFunkCode/StockPortfolioManager/pull/294) | `gate` failed diff-cover at 50%: four reworded handlers were untested. Added `test_every_swallowing_handler_names_the_error`. Full suite: 1591 OK (skipped=5). | Reworded log lines are diff lines |

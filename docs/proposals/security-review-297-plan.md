@@ -33,7 +33,9 @@ One unauthenticated probe of the prod api (no token, GET only): `/api/health` 20
 | 5 | Symbols are formatted straight into REST paths | **Fixed.** `rest_client._path` rejects an empty path, `.`, `..`, and any segment outside `[A-Za-z0-9._\-^=]` (so `?`, `#`, `%`, whitespace) with a 400 `INVALID_PATH`, before any connection is opened. Residual: see gotcha 4. |
 | 6 | Branch protection / who can deploy | **Mostly answered by #313** (WIF narrowed to main and, for prod, `prod-rollout.yml` in the `prod` environment). Anything further is a repo setting, John's. |
 
-Further items for John (decisions, not changes made here):
+Further items for John (decisions, not changes made here). **Still open:** #297 closed on
+2026-10-05 with none of these decided and no issue filed for any of them, so this list is their
+only record:
 
 - **Public `/docs` and `/openapi.json` on the prod api.** API-surface disclosure, no data. Options:
   disable them in prod (`docs_url=None, openapi_url=None` behind an env flag) or accept.
@@ -66,4 +68,4 @@ Further items for John (decisions, not changes made here):
 | Step | Result |
 |---|---|
 | Step 0 read-only checks (2026-10-05) | Done; table above. Posted on #297. |
-| Fixes 1, 4, 5 + tests + docs | This PR. New tests in `tests/test_mcp_seam.py` (path guard, no-network on rejection, loopback default, `__main__` binds, health disclosure, compose loopback) and `tests/test_api_smoke.py` (`/api/health` hides the driver error). Locally: non-DB modules pass; DB modules blocked by gotcha 5. |
+| Fixes 1, 4, 5 + tests + docs | [#323](https://github.com/JohnFunkCode/StockPortfolioManager/pull/323). New tests in `tests/test_mcp_seam.py` (path guard, no-network on rejection, loopback default, `__main__` binds, health disclosure, compose loopback) and `tests/test_api_smoke.py` (`/api/health` hides the driver error). Locally: non-DB modules pass; DB modules blocked by gotcha 5. |

@@ -374,8 +374,12 @@ class DatabaseTests(unittest.TestCase):
                         app.close()
                     with conn.cursor() as cur:
                         self.assertEqual(tool.verify(cur, role, database), [])
-                        cur.execute("DROP OWNED BY " + role)
                     conn.commit()
+                    # No DROP OWNED BY: on Cloud SQL (PG16, non-superuser owner)
+                    # it needs privileges of the role, which CREATEROLE alone
+                    # doesn't give. The role owns nothing, and every grant it
+                    # holds lives in the scratch database, which is dropped
+                    # before the DROP ROLE below.
                 finally:
                     conn.close()
         except ScratchDatabaseUnavailable as exc:

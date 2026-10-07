@@ -124,6 +124,70 @@ class OptionsRepositoryTest(unittest.TestCase):
         self.assertEqual(self.store.snapshot_count(TEST_SYMBOL), 2)
         self.assertEqual(len(self.store.get_snapshot_dates(TEST_SYMBOL)), 2)
 
+    # -- Bulk latest full chains (the watchlist screen's read) -------------
+
+    def _full_side(self, strikes):
+        return {
+            "total_open_interest": 1_000, "total_volume": 400, "avg_iv_pct": 45.0,
+            "contracts": [
+                {"strike": s, "last": 2.0, "bid": 1.9, "ask": 2.1, "iv": 45.0,
+                 "volume": 10, "open_interest": 100, "in_the_money": False}
+                for s in strikes
+            ],
+        }
+
+    def _save_full(self, captured_at, price=100.0):
+        strikes = (50.0, 80.0, 100.0, 120.0, 150.0)
+        return self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=price, bollinger_bands=None,
+            captured_at=captured_at,
+            expirations_data=[
+                {"expiration": exp, "put_call_ratio": 1.1,
+                 "calls": self._full_side(strikes), "puts": self._full_side(strikes)}
+                for exp in ("2026-08-07", "2026-08-14", "2026-08-21")
+            ],
+        )
+
+    def test_latest_full_chains_in_three_queries(self):
+        self._save_full("2026-08-06T21:00:00Z", price=90.0)
+        self._save_full("2026-08-07T21:00:00Z", price=100.0)
+        queries = []
+        real = self.store._get_connection
+
+        def counting():
+            conn = real()
+            execute = conn.execute
+
+            def counted(*a, **kw):
+                queries.append(a[0])
+                return execute(*a, **kw)
+            conn.execute = counted
+            return conn
+        self.store._get_connection = counting
+
+        chains = self.store.get_latest_full_chains(
+            [TEST_SYMBOL.lower(), "ZZNOCHAIN"], "2026-08-10")
+
+        self.assertEqual(len(queries), 3)
+        self.assertEqual(set(chains), {TEST_SYMBOL})
+        snap = chains[TEST_SYMBOL]
+        self.assertEqual(float(snap["price"]), 100.0)          # the latest capture
+        # The 08-07 expiry has passed by 08-10; the rest come oldest first.
+        self.assertEqual([str(e["expiration"])[:10] for e in snap["expirations"]],
+                         ["2026-08-14", "2026-08-21"])
+        near, mid = snap["expirations"]
+        self.assertNotIn("contracts", mid)
+        # Only strikes within ±30% of the snapshot price (100) are loaded.
+        self.assertEqual(sorted({float(c["strike"]) for c in near["contracts"]}),
+                         [80.0, 100.0, 120.0])
+        self.assertEqual({c["kind"] for c in near["contracts"]}, {"call", "put"})
+
+    def test_latest_full_chains_keeps_a_symbol_whose_expirations_passed(self):
+        self._save_full("2026-08-07T21:00:00Z")
+        chains = self.store.get_latest_full_chains([TEST_SYMBOL], "2026-09-01")
+        self.assertEqual(chains[TEST_SYMBOL]["expirations"], [])
+        self.assertEqual(self.store.get_latest_full_chains([], "2026-09-01"), {})
+
     # -- History surfaces ---------------------------------------------------
 
     def test_pc_history_window_and_values(self):

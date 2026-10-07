@@ -17,7 +17,11 @@ isolation property** — the cheap, high-value side effects land before anything
    `OptionsService.get_full_options_chain`, capped expirations, per-symbol try/except) so
    open-interest history accumulates daily for `get_oi_change_analysis`. The universe
    (`capture_symbols`) is John's positions + the global watchlist + **every other owner's**
-   positions (issue #126 decision #5).
+   positions (issue #126 decision #5). **This capture also feeds the watchlist options screen**
+   (`analyze_options_watchlist`, `OptionsScreeningService` with `source="cache"`), which never
+   calls Yahoo. A capture gap therefore shows up there as a `stale` list (symbols with no full
+   chain from the last trading day), not as a slow or failing screen. Non-US listings and OTC ADRs
+   that the capture can't chain always come back stale. That is expected, not an alarm.
 3. **Fundamentals warming** — `run_fundamentals_warming(capture_symbols, …)` refreshes the
    fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
    budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;

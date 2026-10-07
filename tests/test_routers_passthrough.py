@@ -133,6 +133,29 @@ class RouterPassthroughTest(unittest.TestCase):
         self.assertEqual(captured["kind"], "put")
         self.assertEqual(captured["strikes"], [120.0, 125.0])
 
+    def test_screen_watchlist_source_defaults_to_cache_and_is_validated(self):
+        seen = []
+
+        class Screening:
+            def analyze_watchlist(self, **kwargs):
+                seen.append(kwargs["source"])
+                return PAYLOAD
+
+        class Bag:
+            options_screening = Screening()
+
+            def __getattr__(self, name):
+                return _UniversalService()
+
+        self.with_services(lambda: Bag())
+        self.assertEqual(self.client.get("/api/options/screen-watchlist").status_code, 200)
+        resp = self.client.get("/api/options/screen-watchlist?source=live")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(seen, ["cache", "live"])
+        bad = self.client.get("/api/options/screen-watchlist?source=yahoo")
+        self.assertEqual(bad.status_code, 422)
+        self.assertEqual(seen, ["cache", "live"])   # never reached the service
+
 
 if __name__ == "__main__":
     unittest.main()

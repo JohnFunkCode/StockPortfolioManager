@@ -96,7 +96,14 @@ def analyze_options_watchlist(
     top_n: int = 10,
     include_non_us: bool = False,
 ) -> dict:
-    """Analyze the watchlist and return ranked long/put candidates plus put trade ideas."""
+    """Analyze the watchlist and return ranked long/put candidates plus put trade ideas.
+
+    Reads the daily options capture (weekdays 17:00 ET), so results are as of
+    the last close: ``as_of`` gives the capture time, and trade prices are
+    indicative. Symbols without a capture in the last trading day are listed
+    under ``stale`` and not scored; run analyze_options_symbol on one of those,
+    or before acting on a trade, for a live read.
+    """
     # ``watchlist_path`` is not exposed over HTTP (Step 1 curation — the REST tier
     # screens the server-side watchlist, which since issue #83 is the DB table
     # rather than a file) and is accepted here for signature stability; the

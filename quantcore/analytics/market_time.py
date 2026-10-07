@@ -157,3 +157,19 @@ def is_trading_day(day: datetime.date | None = None) -> bool:
     """True when the NYSE holds a regular session on ``day`` (default: today ET)."""
     day = day or market_date()
     return day.weekday() < 5 and day not in nyse_holidays(day.year)
+
+
+def trading_days_after(start: datetime.date, end: datetime.date) -> int:
+    """How many NYSE trading days fall in ``(start, end]`` — 0 when ``end <= start``.
+
+    The age of a once-a-day capture: a Friday capture read on Monday is 1
+    (Monday's session), read on Tuesday it is 2. Holidays and weekends never
+    count, so the day after a holiday doesn't make yesterday's data look old.
+    """
+    count = 0
+    day = start + datetime.timedelta(days=1)
+    while day <= end:
+        if is_trading_day(day):
+            count += 1
+        day += datetime.timedelta(days=1)
+    return count

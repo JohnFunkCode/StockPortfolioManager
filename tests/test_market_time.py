@@ -16,6 +16,7 @@ from quantcore.analytics.market_time import (
     market_date,
     nyse_holidays,
     period_to_days,
+    trading_days_after,
 )
 
 
@@ -140,6 +141,22 @@ class NyseCalendarTest(unittest.TestCase):
     def test_good_friday_follows_easter(self):
         self.assertIn(self.D(2025, 4, 18), nyse_holidays(2025))
         self.assertIn(self.D(2027, 3, 26), nyse_holidays(2027))
+
+
+class TestTradingDaysAfter(unittest.TestCase):
+    def test_counts_sessions_after_start_through_end(self):
+        fri = datetime.date(2026, 10, 2)
+        self.assertEqual(trading_days_after(fri, fri), 0)
+        self.assertEqual(trading_days_after(fri, datetime.date(2026, 10, 4)), 0)  # weekend
+        self.assertEqual(trading_days_after(fri, datetime.date(2026, 10, 5)), 1)
+        self.assertEqual(trading_days_after(fri, datetime.date(2026, 10, 6)), 2)
+
+    def test_holidays_do_not_count_and_reversed_is_zero(self):
+        # Thanksgiving 2026 is Thursday 11-26.
+        self.assertEqual(
+            trading_days_after(datetime.date(2026, 11, 25), datetime.date(2026, 11, 26)), 0)
+        self.assertEqual(
+            trading_days_after(datetime.date(2026, 10, 6), datetime.date(2026, 10, 2)), 0)
 
 
 if __name__ == "__main__":

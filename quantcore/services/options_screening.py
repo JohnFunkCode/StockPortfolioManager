@@ -8,10 +8,24 @@ trade specs.
 
 No LLM required — all scoring logic is rule-based.
 
+Two data sources (``source=``):
+  - ``"cache"`` (the watchlist screen's default) reads only the database: the
+    daily Job's 17:00 ET full-chain capture, cached daily bars, the cached
+    earnings calendar and the news Job's sentiment — a handful of set-based
+    queries for the whole watchlist and **no Yahoo call at all**. A symbol with
+    no capture in the last ``SCREEN_MAX_STALENESS_TRADING_DAYS`` trading days
+    is listed under ``stale`` rather than fetched live: the per-symbol live
+    path is what outran the MCP wrapper's 60 s timeout.
+  - ``"live"`` (``analyze_symbol``'s default) fetches from Yahoo per symbol.
+
 Collaborators are injected (constructor injection; wiring lives only in
 ``registry.py``):
-  - ``yfinance_gateway``  — live quotes, option chains, calendar, news
-  - ``ohlcv_repository``  — cached daily history for Bollinger/HV computations
+  - ``yfinance_gateway``        — live quotes, option chains, calendar, news
+  - ``ohlcv_repository``        — cached daily history for Bollinger/HV computations
+  - ``prices``                  — the live path's history seam (refreshes the cache)
+  - ``options_repository``      — the cached full-chain captures
+  - ``fundamentals_repository`` — the cached earnings calendar
+  - ``news_store``              — FinBERT-scored news sentiment
 
 The ``fastMCPTest/options_analysis.py`` module is now a thin adapter: the
 FastMCP server (5 tools), the CLI ``main()``, and the ``print_*`` presentation
@@ -27,8 +41,9 @@ from pathlib import Path
 from typing import Optional
 
 import numpy as np
+import pandas as pd
 
-from quantcore.analytics.market_time import market_date, period_to_days
+from quantcore.analytics.market_time import market_date, period_to_days, trading_days_after
 import yaml
 
 # Project root (…/StockPortfolioManager) — for resolving the default watchlist.
@@ -42,10 +57,22 @@ BB_PERIOD = 20
 BB_STD_DEV = 2
 HISTORY_PERIOD = "3mo"
 
-# Symbols fetched at once by _run_analysis (#331). Sequential, a watchlist
-# screen outran the MCP wrapper's 60 s REST timeout. Kept modest for Yahoo's
-# rate limits; refresh_options_snapshots runs 4 for the same reason.
+# Symbols fetched at once by the live path (#331). Kept modest for Yahoo's
+# rate limits; refresh_options_snapshots runs 4 for the same reason. The
+# watchlist screen no longer uses it — even at 8 workers a live screen of the
+# whole watchlist took ~190 s, so it reads the cache instead (source="cache").
 SCREEN_MAX_WORKERS = 8
+
+# A cached capture older than this many trading days is reported as stale and
+# not scored. 1 accepts the previous 17:00 ET capture all through the next
+# session (and over a weekend or holiday), and no older.
+SCREEN_MAX_STALENESS_TRADING_DAYS = 1
+
+# History read for the cached screen: enough for the 252-day HV range; the
+# Bollinger Bands use only the last BB_PERIOD bars of it.
+CACHED_HISTORY_DAYS = 365
+
+SOURCES = ("cache", "live")
 
 # yfinance logs a failed calendar fetch (e.g. a 401 "Invalid Crumb" while
 # concurrent workers refresh the shared crumb) and returns an empty calendar,
@@ -244,6 +271,9 @@ class SecurityAnalysis:
     news_signal: str = ""                         # BULLISH/BEARISH/MIXED/NEUTRAL/INSUFFICIENT_DATA
     news_top_headline: str = ""                   # Representative headline for display
 
+    # When the inputs were captured (cache mode only; None = fetched live now)
+    as_of: Optional[str] = None
+
 
 # ---------------------------------------------------------------------------
 # Pure numeric helpers
@@ -336,93 +366,410 @@ def _chain_pc(calls_df, puts_df, price: float, atm_only: bool = False):
     return oi_pc, vol_pc, None  # third slot unused in this helper
 
 
+# ---------------------------------------------------------------------------
+# Shared by the live and cached paths
+# ---------------------------------------------------------------------------
+
+def _bands_from_history(hist) -> Optional[BollingerBands]:
+    if hist is None or hist.empty or len(hist) < BB_PERIOD:
+        return None
+    close = hist["Close"]
+    sma = close.rolling(window=BB_PERIOD).mean().iloc[-1]
+    std = close.rolling(window=BB_PERIOD).std().iloc[-1]
+    return BollingerBands(
+        upper=round(sma + BB_STD_DEV * std, 2),
+        middle=round(sma, 2),
+        lower=round(sma - BB_STD_DEV * std, 2),
+    )
+
+
+def _iv_label(iv_rank: float) -> str:
+    if iv_rank >= IV_RANK_EXTREME_FEAR:
+        return f"extreme fear (rank {iv_rank:.0f}%) — capitulation signal, IV expensive"
+    if iv_rank >= IV_RANK_HIGH_FEAR:
+        return f"elevated fear (rank {iv_rank:.0f}%) — potential bounce zone"
+    if iv_rank >= IV_RANK_ELEVATED:
+        return f"above average (rank {iv_rank:.0f}%) — some fear priced in"
+    if iv_rank <= IV_RANK_VERY_CHEAP:
+        return f"very cheap IV (rank {iv_rank:.0f}%) — complacency, puts are cheap"
+    if iv_rank <= IV_RANK_COMPLACENT:
+        return f"low IV (rank {iv_rank:.0f}%) — complacency, consider cheap puts"
+    return f"neutral IV (rank {iv_rank:.0f}%)"
+
+
+def _hv_series(hist) -> Optional[pd.Series]:
+    """Rolling 30-day HV (annualised, %), or None when history is too short."""
+    if hist is None or hist.empty or len(hist) < 31:
+        return None
+    log_returns = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+    hv_series = (log_returns.rolling(window=30).std() * math.sqrt(252) * 100).dropna()
+    return hv_series if len(hv_series) >= 20 else None
+
+
+def _current_iv(options: Optional[OptionsSummary], fallback: float) -> float:
+    """Mean of the chain's call/put IV; ``fallback`` (HV30) when it has none."""
+    valid_ivs = [v for v in (options.avg_call_iv, options.avg_put_iv) if v > 0] if options else []
+    return round(sum(valid_ivs) / len(valid_ivs), 1) if valid_ivs else fallback
+
+
+def _iv_from_history(hist, options: Optional[OptionsSummary]) -> Optional[IVAnalysis]:
+    """IV Rank / Percentile against a year of rolling HV30 (see IVAnalysis)."""
+    hv_series = _hv_series(hist)
+    if hv_series is None:
+        return None
+
+    hv_30       = round(float(hv_series.iloc[-1]), 1)
+    hv_52w_low  = round(float(hv_series.min()), 1)
+    hv_52w_high = round(float(hv_series.max()), 1)
+    current_iv = _current_iv(options, hv_30)
+
+    # IV Rank: position of current IV within the 52-week HV range
+    hv_range = hv_52w_high - hv_52w_low
+    iv_rank = round((current_iv - hv_52w_low) / hv_range * 100, 1) if hv_range > 0 else 50.0
+    iv_rank = max(0.0, min(100.0, iv_rank))
+
+    return IVAnalysis(
+        current_iv=current_iv,
+        hv_30=hv_30,
+        iv_vs_hv=round(current_iv / hv_30, 2) if hv_30 > 0 else None,
+        hv_52w_low=hv_52w_low,
+        hv_52w_high=hv_52w_high,
+        iv_rank=iv_rank,
+        # IV Percentile: % of days where HV30 < current IV
+        iv_percentile=round(float((hv_series < current_iv).mean() * 100), 1),
+        label=_iv_label(iv_rank),
+    )
+
+
+def _atm_contracts(df, price: float) -> list:
+    """The 5 contracts nearest `price`, sorted by strike."""
+    df = df[df["strike"] > 0].copy()
+    df["moneyness"] = abs(df["strike"] - price)
+    contracts = []
+    for _, row in df.nsmallest(5, "moneyness").iterrows():
+        contracts.append({
+            "strike": round(float(row["strike"]), 2),
+            "last": round(_safe_float(row.get("lastPrice")), 2),
+            "bid": round(_safe_float(row.get("bid")), 2),
+            "ask": round(_safe_float(row.get("ask")), 2),
+            "iv": round(_safe_float(row.get("impliedVolatility")) * 100, 1),
+            "volume": _safe_int(row.get("volume")),
+            "open_interest": _safe_int(row.get("openInterest")),
+            "in_the_money": bool(row.get("inTheMoney", False)),
+        })
+    return sorted(contracts, key=lambda x: x["strike"])
+
+
+def _summary_from_chain(expiration: str, calls_df, puts_df, price: float) -> Optional[OptionsSummary]:
+    """OptionsSummary from one live expiration's calls/puts frames."""
+    if calls_df.empty or puts_df.empty:
+        return None
+    total_call_oi = _safe_int(calls_df["openInterest"].fillna(0).sum())
+    total_put_oi = _safe_int(puts_df["openInterest"].fillna(0).sum())
+    return OptionsSummary(
+        expiration=expiration,
+        put_call_ratio=round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None,
+        total_call_oi=total_call_oi,
+        total_put_oi=total_put_oi,
+        total_call_volume=_safe_int(calls_df["volume"].fillna(0).sum()),
+        total_put_volume=_safe_int(puts_df["volume"].fillna(0).sum()),
+        avg_call_iv=round(_safe_float(calls_df["impliedVolatility"].fillna(0).mean()) * 100, 1),
+        avg_put_iv=round(_safe_float(puts_df["impliedVolatility"].fillna(0).mean()) * 100, 1),
+        atm_calls=_atm_contracts(calls_df, price),
+        atm_puts=_atm_contracts(puts_df, price),
+    )
+
+
+def _atm_pc(calls_df, puts_df, price: float) -> Optional[float]:
+    """OI P/C over the PC_ATM_STRIKES strikes nearest `price` on each side."""
+    if calls_df.empty or puts_df.empty:
+        return None
+    c_dist = abs(calls_df["strike"] - price)
+    p_dist = abs(puts_df["strike"] - price)
+    c_atm = calls_df[c_dist <= c_dist.nsmallest(PC_ATM_STRIKES).iloc[-1]]
+    p_atm = puts_df[p_dist <= p_dist.nsmallest(PC_ATM_STRIKES).iloc[-1]]
+    call_oi = _safe_int(c_atm["openInterest"].fillna(0).sum())
+    put_oi = _safe_int(p_atm["openInterest"].fillna(0).sum())
+    return round(put_oi / call_oi, 2) if call_oi > 0 else None
+
+
+def _pc_analysis(near_exp, near_oi_pc, near_vol_pc, near_atm_pc, mid_exp, mid_oi_pc) -> PutCallAnalysis:
+    """Derive the term-skew and vol/OI signals from the per-expiry ratios."""
+    term_skew = None
+    if near_oi_pc is not None and mid_oi_pc is not None:
+        term_skew = round(near_oi_pc - mid_oi_pc, 2)
+
+    vol_oi_ratio = None
+    if near_vol_pc is not None and near_oi_pc is not None and near_oi_pc > 0:
+        vol_oi_ratio = round(near_vol_pc / near_oi_pc, 2)
+
+    return PutCallAnalysis(
+        near_expiry=near_exp,
+        near_oi_pc=near_oi_pc,
+        near_vol_pc=near_vol_pc,
+        near_atm_pc=near_atm_pc,
+        mid_expiry=mid_exp,
+        mid_oi_pc=mid_oi_pc,
+        term_skew=term_skew,
+        vol_oi_ratio=vol_oi_ratio,
+        put_unwinding=vol_oi_ratio is not None and vol_oi_ratio <= PC_UNWIND_THRESHOLD,
+        fresh_put_buying=vol_oi_ratio is not None and vol_oi_ratio >= PC_FRESH_BUY_THRESH,
+        near_term_fear=term_skew is not None and term_skew >= PC_TERM_SKEW_MIN,
+    )
+
+
+def _news_fields(summary: dict) -> tuple[str, str, bool]:
+    """(signal, top headline, bullish) from a NewsStore sentiment summary.
+
+    BULLISH news blocks puts (a positive catalyst undermines the bearish
+    thesis), but only when it rests on scored articles.
+    """
+    signal = summary.get("signal", "")
+    headline = ""
+    if summary.get("top_positive"):
+        headline = summary["top_positive"][0]
+    elif summary.get("top_negative"):
+        headline = summary["top_negative"][0]
+    bullish = signal == "BULLISH" and summary.get("scored_articles", 0) > 0
+    return signal, headline, bullish
+
+
+# ---------------------------------------------------------------------------
+# The cached path: stored captures → the same dataclasses the live path builds
+# ---------------------------------------------------------------------------
+
+_CHAIN_COLUMNS = ["strike", "openInterest", "volume", "impliedVolatility",
+                  "lastPrice", "bid", "ask", "inTheMoney"]
+
+
+def _chain_frames(contracts: list[dict]):
+    """Stored ``options_contracts`` rows → yfinance-shaped (calls, puts) frames.
+
+    Stored IV is a percentage; yfinance's is a fraction. A stored ask of 0
+    (common in an after-hours capture) falls back to the last trade, so the
+    indicative trade specs aren't silently dropped.
+    """
+    rows = {"call": [], "put": []}
+    for c in contracts:
+        ask = _safe_float(c.get("ask"))
+        last = _safe_float(c.get("last_price"))
+        rows.setdefault(c.get("kind"), []).append({
+            "strike": _safe_float(c.get("strike")),
+            "openInterest": _safe_int(c.get("open_interest")),
+            "volume": _safe_int(c.get("volume")),
+            "impliedVolatility": _safe_float(c.get("implied_vol")) / 100,
+            "lastPrice": last,
+            "bid": _safe_float(c.get("bid")),
+            "ask": ask if ask > 0 else last,
+            "inTheMoney": bool(c.get("in_the_money")),
+        })
+    return (pd.DataFrame(rows["call"], columns=_CHAIN_COLUMNS),
+            pd.DataFrame(rows["put"], columns=_CHAIN_COLUMNS))
+
+
+def _summary_from_cache(exp: dict, price: float) -> Optional[OptionsSummary]:
+    """OptionsSummary from a stored expiration: its all-strike aggregates plus
+    the ATM contracts read from its (strike-banded) contracts."""
+    calls_df, puts_df = _chain_frames(exp.get("contracts") or [])
+    if calls_df.empty or puts_df.empty:
+        return None
+    pc = exp.get("put_call_ratio")
+    return OptionsSummary(
+        expiration=exp["expiration"],
+        put_call_ratio=round(float(pc), 2) if pc is not None else None,
+        total_call_oi=_safe_int(exp.get("total_call_oi")),
+        total_put_oi=_safe_int(exp.get("total_put_oi")),
+        total_call_volume=_safe_int(exp.get("total_call_vol")),
+        total_put_volume=_safe_int(exp.get("total_put_vol")),
+        avg_call_iv=round(_safe_float(exp.get("avg_call_iv")), 1),
+        avg_put_iv=round(_safe_float(exp.get("avg_put_iv")), 1),
+        atm_calls=_atm_contracts(calls_df, price),
+        atm_puts=_atm_contracts(puts_df, price),
+    )
+
+
+def _pc_from_cache(exps: list[dict], price: float) -> Optional[PutCallAnalysis]:
+    """PutCallAnalysis from stored expirations (nearest first)."""
+    if not exps:
+        return None
+    near = exps[0]
+    near_oi_pc = near.get("put_call_ratio")
+    near_oi_pc = round(float(near_oi_pc), 2) if near_oi_pc is not None else None
+    call_vol = _safe_int(near.get("total_call_vol"))
+    near_vol_pc = round(_safe_int(near.get("total_put_vol")) / call_vol, 2) if call_vol > 0 else None
+    calls_df, puts_df = _chain_frames(near.get("contracts") or [])
+    mid = next((e for e in exps[1:] if e.get("put_call_ratio") is not None), None)
+    return _pc_analysis(
+        near["expiration"], near_oi_pc, near_vol_pc, _atm_pc(calls_df, puts_df, price),
+        mid["expiration"] if mid else None,
+        round(float(mid["put_call_ratio"]), 2) if mid else None,
+    )
+
+
+def _captured_date(captured_at: str) -> date:
+    return market_date(datetime.fromisoformat(captured_at.replace("Z", "+00:00")))
+
+
+def _is_stale(snap: Optional[dict], today: date) -> bool:
+    """No capture, nothing unexpired in it, or older than the staleness limit."""
+    if not snap or not snap.get("expirations"):
+        return True
+    age = trading_days_after(_captured_date(snap["captured_at"]), today)
+    return age > SCREEN_MAX_STALENESS_TRADING_DAYS
+
+
+def _security_from_cache(entry: dict, snap: dict, hist, days_to_earnings, news) -> Optional[SecurityAnalysis]:
+    """A SecurityAnalysis built only from stored data (no Yahoo call)."""
+    price = _safe_float(snap.get("price"))
+    if price <= 0 and hist is not None and not hist.empty:
+        price = _safe_float(hist["Close"].iloc[-1])
+    if price <= 0:
+        return None
+    price = round(price, 2)
+    bands = _bands_from_history(hist)
+    if bands is None:
+        return None
+
+    options = _summary_from_cache(snap["expirations"][0], price)
+    signal, headline, bullish = _news_fields(news or {})
+    return SecurityAnalysis(
+        symbol=entry["symbol"].upper(),
+        name=entry["name"],
+        tags=entry["tags"],
+        price=price,
+        bands=bands,
+        options=options,
+        iv=_iv_from_history(hist, options),
+        pc=_pc_from_cache(snap["expirations"], price),
+        days_to_earnings=days_to_earnings,
+        # Cache mode has no live keyword scan: only scored BULLISH news flags it.
+        recent_positive_catalyst=bullish,
+        catalyst_headline=headline if bullish else "",
+        news_signal=signal,
+        news_top_headline=headline,
+        as_of=snap["captured_at"],
+    )
+
+
+@dataclass
+class _CachedInputs:
+    """The four bulk reads the cached screen scores from, keyed by symbol."""
+    chains: dict
+    history: dict
+    earnings: dict
+    news: dict
+
+
+def _try_security_from_cache(entry: dict, sym: str, inputs: _CachedInputs) -> Optional[SecurityAnalysis]:
+    try:
+        return _security_from_cache(entry, inputs.chains[sym], inputs.history.get(sym),
+                                    inputs.earnings.get(sym), inputs.news.get(sym))
+    except Exception:
+        return None
+
+
+def _score_from_cache(entries: list[dict], inputs: _CachedInputs, today: date):
+    """Split the entries into (scored, failed symbols, stale rows)."""
+    results: list[SecurityAnalysis] = []
+    failed: list[str] = []
+    stale: list[dict] = []
+    for entry in entries:
+        sym = entry["symbol"].upper()
+        snap = inputs.chains.get(sym)
+        if _is_stale(snap, today):
+            stale.append({"symbol": sym, "last_captured": snap["captured_at"] if snap else None})
+            continue
+        sec = _try_security_from_cache(entry, sym, inputs)
+        if sec is None:
+            failed.append(entry["symbol"])
+        else:
+            results.append(sec)
+    return results, failed, stale
+
+
+def _mark_cached_response(response: dict, chains: dict, results: list, stale: list) -> dict:
+    """Stamp a ranked response with where its numbers came from and when."""
+    for trade in response["put_trades"]:
+        trade["pricing"] = f"indicative, as of {chains[trade['symbol']]['captured_at']}"
+    response.update({
+        "source": "cache",
+        # The oldest capture any scored symbol rests on.
+        "as_of": min((s.as_of for s in results), default=None),
+        "stale": stale,
+    })
+    if stale:
+        response["stale_hint"] = (
+            "No options capture within the last "
+            f"{SCREEN_MAX_STALENESS_TRADING_DAYS} trading day(s); "
+            "run analyze_options_symbol on these for a live read."
+        )
+    return response
+
+
 class OptionsScreeningService:
     """Rule-based options screener: fetch → score → build trades → rank."""
 
-    def __init__(self, ohlcv_repository, yfinance_gateway, prices=None):
+    def __init__(
+        self,
+        ohlcv_repository,
+        yfinance_gateway,
+        prices=None,
+        *,
+        options_repository=None,
+        fundamentals_repository=None,
+        news_store=None,
+    ):
         self._ohlcv = ohlcv_repository
         self._yf = yfinance_gateway
         # History via PricesService — the single fetch seam (issue #74).
         self._prices = prices
+        # The cached path's readers (source="cache"); see the module docstring.
+        self._options_repo = options_repository
+        self._fundamentals_repo = fundamentals_repository
+        self._news_store = news_store
 
     # ------------------------------------------------------------------
-    # Data fetching
+    # Data fetching (the live path)
     # ------------------------------------------------------------------
 
     def fetch_bollinger_bands(self, symbol: str) -> Optional[BollingerBands]:
         try:
-            hist = self._prices.get_history(symbol, "1d", period_to_days(HISTORY_PERIOD))
-            if hist.empty or len(hist) < BB_PERIOD:
-                return None
-            close = hist["Close"]
-            sma = close.rolling(window=BB_PERIOD).mean().iloc[-1]
-            std = close.rolling(window=BB_PERIOD).std().iloc[-1]
-            return BollingerBands(
-                upper=round(sma + BB_STD_DEV * std, 2),
-                middle=round(sma, 2),
-                lower=round(sma - BB_STD_DEV * std, 2),
-            )
+            return _bands_from_history(
+                self._prices.get_history(symbol, "1d", period_to_days(HISTORY_PERIOD)))
         except Exception:
             return None
 
-    def fetch_options(self, symbol: str, price: float) -> Optional[OptionsSummary]:
+    def _prefetch_chain(self, symbol: str):
+        """(expirations, nearest chain), fetched once for both options readers.
+
+        A failure reads as no expirations, so neither reader refetches it.
+        """
         try:
             expirations = self._yf.expirations(symbol)
             if not expirations:
+                return [], None
+            return expirations, self._yf.option_chain(symbol, expirations[0])
+        except Exception:
+            return [], None
+
+    def fetch_options(
+        self, symbol: str, price: float, expirations=None, near_chain=None,
+    ) -> Optional[OptionsSummary]:
+        try:
+            if expirations is None:
+                expirations = self._yf.expirations(symbol)
+            if not expirations:
                 return None
-
-            nearest_exp = expirations[0]
-            chain = self._yf.option_chain(symbol, nearest_exp)
-            calls_df = chain.calls.copy()
-            puts_df = chain.puts.copy()
-
-            if calls_df.empty or puts_df.empty:
-                return None
-
-            total_call_oi = _safe_int(calls_df["openInterest"].fillna(0).sum())
-            total_put_oi = _safe_int(puts_df["openInterest"].fillna(0).sum())
-            total_call_vol = _safe_int(calls_df["volume"].fillna(0).sum())
-            total_put_vol = _safe_int(puts_df["volume"].fillna(0).sum())
-            avg_call_iv = round(_safe_float(calls_df["impliedVolatility"].fillna(0).mean()) * 100, 1)
-            avg_put_iv = round(_safe_float(puts_df["impliedVolatility"].fillna(0).mean()) * 100, 1)
-
-            put_call_ratio = (
-                round(total_put_oi / total_call_oi, 2) if total_call_oi > 0 else None
-            )
-
-            def _atm_contracts(df, price):
-                df = df[df["strike"] > 0].copy()
-                df["moneyness"] = abs(df["strike"] - price)
-                contracts = []
-                for _, row in df.nsmallest(5, "moneyness").iterrows():
-                    contracts.append({
-                        "strike": round(float(row["strike"]), 2),
-                        "last": round(_safe_float(row.get("lastPrice")), 2),
-                        "bid": round(_safe_float(row.get("bid")), 2),
-                        "ask": round(_safe_float(row.get("ask")), 2),
-                        "iv": round(_safe_float(row.get("impliedVolatility")) * 100, 1),
-                        "volume": _safe_int(row.get("volume")),
-                        "open_interest": _safe_int(row.get("openInterest")),
-                        "in_the_money": bool(row.get("inTheMoney", False)),
-                    })
-                return sorted(contracts, key=lambda x: x["strike"])
-
-            return OptionsSummary(
-                expiration=nearest_exp,
-                put_call_ratio=put_call_ratio,
-                total_call_oi=total_call_oi,
-                total_put_oi=total_put_oi,
-                total_call_volume=total_call_vol,
-                total_put_volume=total_put_vol,
-                avg_call_iv=avg_call_iv,
-                avg_put_iv=avg_put_iv,
-                atm_calls=_atm_contracts(calls_df, price),
-                atm_puts=_atm_contracts(puts_df, price),
-            )
+            if near_chain is None:
+                near_chain = self._yf.option_chain(symbol, expirations[0])
+            return _summary_from_chain(
+                expirations[0], near_chain.calls.copy(), near_chain.puts.copy(), price)
         except Exception:
             return None
 
-    def fetch_put_call_analysis(self, symbol: str, price: float) -> Optional[PutCallAnalysis]:
+    def fetch_put_call_analysis(
+        self, symbol: str, price: float, expirations=None, near_chain=None,
+    ) -> Optional[PutCallAnalysis]:
         """
         Fetch the nearest two option expirations and compute:
           - OI and volume P/C ratios for each
@@ -431,69 +778,36 @@ class OptionsScreeningService:
           - Vol/OI divergence ratio (put unwinding vs fresh buying)
         """
         try:
-            expirations = self._yf.expirations(symbol)
+            if expirations is None:
+                expirations = self._yf.expirations(symbol)
             if not expirations:
                 return None
 
             # --- Nearest expiry ---
-            near_exp   = expirations[0]
-            near_chain = self._yf.option_chain(symbol, near_exp)
-            nc, np_   = near_chain.calls.copy(), near_chain.puts.copy()
-
+            near_exp = expirations[0]
+            if near_chain is None:
+                near_chain = self._yf.option_chain(symbol, near_exp)
+            nc, np_ = near_chain.calls.copy(), near_chain.puts.copy()
             near_oi_pc, near_vol_pc, _ = _chain_pc(nc, np_, price)
 
-            # ATM-only P/C for nearest expiry
-            atm_call_oi = atm_put_oi = 0
-            if not nc.empty and not np_.empty:
-                nc_atm = nc[abs(nc["strike"] - price) <= abs(nc["strike"] - price).nsmallest(PC_ATM_STRIKES).iloc[-1]]
-                np_atm = np_[abs(np_["strike"] - price) <= abs(np_["strike"] - price).nsmallest(PC_ATM_STRIKES).iloc[-1]]
-                atm_call_oi = _safe_int(nc_atm["openInterest"].fillna(0).sum())
-                atm_put_oi  = _safe_int(np_atm["openInterest"].fillna(0).sum())
-            near_atm_pc = round(atm_put_oi / atm_call_oi, 2) if atm_call_oi > 0 else None
+            # --- Mid expiry (first later one with a usable OI P/C) ---
+            mid_exp, mid_oi_pc = self._first_mid_pc(symbol, expirations[1:], price)
 
-            # --- Mid expiry (second available, skip if same week) ---
-            mid_exp    = None
-            mid_oi_pc  = None
-            for exp in expirations[1:]:
-                try:
-                    mid_chain  = self._yf.option_chain(symbol, exp)
-                    mc, mp     = mid_chain.calls.copy(), mid_chain.puts.copy()
-                    oi_pc, _, _ = _chain_pc(mc, mp, price)
-                    if oi_pc is not None:
-                        mid_exp   = exp
-                        mid_oi_pc = oi_pc
-                        break
-                except Exception:
-                    continue
-
-            # --- Derived signals ---
-            term_skew = None
-            if near_oi_pc is not None and mid_oi_pc is not None:
-                term_skew = round(near_oi_pc - mid_oi_pc, 2)
-
-            vol_oi_ratio = None
-            if near_vol_pc is not None and near_oi_pc is not None and near_oi_pc > 0:
-                vol_oi_ratio = round(near_vol_pc / near_oi_pc, 2)
-
-            put_unwinding    = vol_oi_ratio is not None and vol_oi_ratio <= PC_UNWIND_THRESHOLD
-            fresh_put_buying = vol_oi_ratio is not None and vol_oi_ratio >= PC_FRESH_BUY_THRESH
-            near_term_fear   = term_skew is not None and term_skew >= PC_TERM_SKEW_MIN
-
-            return PutCallAnalysis(
-                near_expiry=near_exp,
-                near_oi_pc=near_oi_pc,
-                near_vol_pc=near_vol_pc,
-                near_atm_pc=near_atm_pc,
-                mid_expiry=mid_exp,
-                mid_oi_pc=mid_oi_pc,
-                term_skew=term_skew,
-                vol_oi_ratio=vol_oi_ratio,
-                put_unwinding=put_unwinding,
-                fresh_put_buying=fresh_put_buying,
-                near_term_fear=near_term_fear,
-            )
+            return _pc_analysis(near_exp, near_oi_pc, near_vol_pc, _atm_pc(nc, np_, price),
+                                mid_exp, mid_oi_pc)
         except Exception:
             return None
+
+    def _first_mid_pc(self, symbol: str, expirations, price: float):
+        for exp in expirations:
+            try:
+                mid_chain = self._yf.option_chain(symbol, exp)
+                oi_pc, _, _ = _chain_pc(mid_chain.calls.copy(), mid_chain.puts.copy(), price)
+                if oi_pc is not None:
+                    return exp, oi_pc
+            except Exception:
+                continue
+        return None, None
 
     def fetch_iv_analysis(self, symbol: str, options: Optional[OptionsSummary]) -> Optional[IVAnalysis]:
         """
@@ -505,67 +819,7 @@ class OptionsScreeningService:
         most recent HV30 value so rank/percentile still reflect the vol environment.
         """
         try:
-            hist = self._prices.get_history(symbol, "1d", 365)
-            if hist.empty or len(hist) < 31:
-                return None
-
-            log_returns = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
-
-            # Rolling 30-day HV, annualised
-            hv_series = log_returns.rolling(window=30).std() * math.sqrt(252) * 100
-            hv_series = hv_series.dropna()
-
-            if len(hv_series) < 20:
-                return None
-
-            hv_30       = round(float(hv_series.iloc[-1]), 1)
-            hv_52w_low  = round(float(hv_series.min()), 1)
-            hv_52w_high = round(float(hv_series.max()), 1)
-
-            # Current IV: prefer live options chain; fall back to hv_30
-            if options is not None and (options.avg_call_iv > 0 or options.avg_put_iv > 0):
-                valid_ivs = [v for v in [options.avg_call_iv, options.avg_put_iv] if v > 0]
-                current_iv = round(sum(valid_ivs) / len(valid_ivs), 1)
-            else:
-                current_iv = hv_30
-
-            iv_vs_hv = round(current_iv / hv_30, 2) if hv_30 > 0 else None
-
-            # IV Rank: position of current IV within the 52-week HV range
-            hv_range = hv_52w_high - hv_52w_low
-            if hv_range > 0:
-                iv_rank = round((current_iv - hv_52w_low) / hv_range * 100, 1)
-            else:
-                iv_rank = 50.0
-            iv_rank = max(0.0, min(100.0, iv_rank))
-
-            # IV Percentile: % of days where HV30 < current IV
-            iv_percentile = round(float((hv_series < current_iv).mean() * 100), 1)
-
-            # Label
-            if iv_rank >= IV_RANK_EXTREME_FEAR:
-                label = f"extreme fear (rank {iv_rank:.0f}%) — capitulation signal, IV expensive"
-            elif iv_rank >= IV_RANK_HIGH_FEAR:
-                label = f"elevated fear (rank {iv_rank:.0f}%) — potential bounce zone"
-            elif iv_rank >= IV_RANK_ELEVATED:
-                label = f"above average (rank {iv_rank:.0f}%) — some fear priced in"
-            elif iv_rank <= IV_RANK_VERY_CHEAP:
-                label = f"very cheap IV (rank {iv_rank:.0f}%) — complacency, puts are cheap"
-            elif iv_rank <= IV_RANK_COMPLACENT:
-                label = f"low IV (rank {iv_rank:.0f}%) — complacency, consider cheap puts"
-            else:
-                label = f"neutral IV (rank {iv_rank:.0f}%)"
-
-            return IVAnalysis(
-                current_iv=current_iv,
-                hv_30=hv_30,
-                iv_vs_hv=iv_vs_hv,
-                hv_52w_low=hv_52w_low,
-                hv_52w_high=hv_52w_high,
-                iv_rank=iv_rank,
-                iv_percentile=iv_percentile,
-                label=label,
-            )
+            return _iv_from_history(self._prices.get_history(symbol, "1d", 365), options)
         except Exception:
             return None
 
@@ -640,6 +894,26 @@ class OptionsScreeningService:
         except Exception:
             return False, ""
 
+    def _live_news(self, sym: str, news_store) -> tuple[str, str, bool, str]:
+        """(signal, top headline, catalyst hit, catalyst headline) for the live path.
+
+        Scored news decides when there is some; otherwise the yfinance keyword
+        scan does.
+        """
+        if news_store is None:
+            return ("", "") + self.fetch_recent_positive_catalyst(sym)
+        try:
+            summary = news_store.get_sentiment_summary(sym, days=CATALYST_LOOKBACK_DAYS)
+        except Exception:
+            return ("", "") + self.fetch_recent_positive_catalyst(sym)
+        signal, headline, bullish = _news_fields(summary)
+        if bullish:
+            return signal, headline, True, headline
+        if signal in ("INSUFFICIENT_DATA", ""):
+            # Fall back to keyword scan if no scored articles yet
+            return (signal, headline) + self.fetch_recent_positive_catalyst(sym)
+        return signal, headline, False, ""
+
     def fetch_security(
         self,
         symbol: str,
@@ -659,39 +933,15 @@ class OptionsScreeningService:
             if bands is None:
                 return None
 
-            options     = self.fetch_options(sym, price)
+            # One expirations call and one nearest-chain call serve both readers.
+            expirations, near_chain = self._prefetch_chain(sym)
+            options     = self.fetch_options(sym, price, expirations, near_chain)
             iv_analysis = self.fetch_iv_analysis(sym, options)
-            pc_analysis = self.fetch_put_call_analysis(sym, price)
+            pc_analysis = self.fetch_put_call_analysis(sym, price, expirations, near_chain)
             days_to_earnings = self.fetch_earnings_proximity(sym)
 
-            # --- News sentiment ---
-            news_signal = ""
-            news_top_headline = ""
-            catalyst_hit = False
-            catalyst_headline = ""
-
-            if news_store is not None:
-                try:
-                    summary = news_store.get_sentiment_summary(sym, days=CATALYST_LOOKBACK_DAYS)
-                    news_signal = summary.get("signal", "")
-                    # Use top positive/negative headline for display
-                    if summary.get("top_positive"):
-                        news_top_headline = summary["top_positive"][0]
-                    elif summary.get("top_negative"):
-                        news_top_headline = summary["top_negative"][0]
-
-                    # Map news signal to catalyst flag used by guardrails
-                    # BULLISH news blocks puts (positive catalyst undermines bearish thesis)
-                    if news_signal == "BULLISH" and summary.get("scored_articles", 0) > 0:
-                        catalyst_hit = True
-                        catalyst_headline = news_top_headline
-                    elif news_signal in ("INSUFFICIENT_DATA", ""):
-                        # Fall back to keyword scan if no scored articles yet
-                        catalyst_hit, catalyst_headline = self.fetch_recent_positive_catalyst(sym)
-                except Exception:
-                    catalyst_hit, catalyst_headline = self.fetch_recent_positive_catalyst(sym)
-            else:
-                catalyst_hit, catalyst_headline = self.fetch_recent_positive_catalyst(sym)
+            news_signal, news_top_headline, catalyst_hit, catalyst_headline = self._live_news(
+                sym, news_store if news_store is not None else self._news_store)
 
             return SecurityAnalysis(
                 symbol=sym,
@@ -1130,6 +1380,7 @@ class OptionsScreeningService:
             "name": sec.name,
             "tags": sec.tags,
             "price": sec.price,
+            "as_of": sec.as_of,
             "bb_pos": round(sec.bb_pos, 3),
             "bands": {
                 "lower": sec.bands.lower,
@@ -1191,23 +1442,13 @@ class OptionsScreeningService:
                 trades.append(trade)
         return trades
 
-    def _run_analysis(self, entries: list[dict], puts_budget: float, top_n: int) -> dict:
-        results: list[SecurityAnalysis] = []
-        failed: list[str] = []
-
-        fetched = self._fetch_all(entries)
-
-        for entry, sec in zip(entries, fetched):
-            if sec is None:
-                failed.append(entry["symbol"])
-                continue
+    def _ranked_response(self, entries: list[dict], results: list[SecurityAnalysis],
+                         failed: list[str], puts_budget: float, top_n: int) -> dict:
+        for sec in results:
             self.score(sec)
-            results.append(sec)
-
         long_candidates = _top_by(results, "long_score", top_n)
         put_candidates = _top_by(results, "put_score", top_n)
         trades = self._build_put_trades(put_candidates, puts_budget)
-
         return {
             "symbols_scanned": len(entries),
             "fetched": len(results),
@@ -1216,6 +1457,56 @@ class OptionsScreeningService:
             "put_candidates": [self._build_candidate_summary(s) for s in put_candidates],
             "put_trades": trades,
         }
+
+    def _run_analysis(self, entries: list[dict], puts_budget: float, top_n: int) -> dict:
+        """The live path: every input fetched from Yahoo, per symbol."""
+        results: list[SecurityAnalysis] = []
+        failed: list[str] = []
+        for entry, sec in zip(entries, self._fetch_all(entries)):
+            if sec is None:
+                failed.append(entry["symbol"])
+            else:
+                results.append(sec)
+        response = self._ranked_response(entries, results, failed, puts_budget, top_n)
+        response["source"] = "live"
+        return response
+
+    # ------------------------------------------------------------------
+    # The cached path (source="cache"): database reads only, never Yahoo
+    # ------------------------------------------------------------------
+
+    def _cached_earnings(self, today: date) -> dict[str, Optional[int]]:
+        """{SYMBOL: days to next earnings} from the cached earnings calendar.
+
+        Repository only: ``FundamentalsService.get_earnings_calendar`` computes
+        live on a miss, which is a Yahoo call. A miss reads as unknown (None),
+        the same as the live path's empty calendar.
+        """
+        days: dict[str, Optional[int]] = {}
+        for row in self._fundamentals_repo.get_all_latest("earnings_calendar"):
+            ed = row.get("earnings_date")
+            if row.get("symbol") and ed:
+                days[row["symbol"].upper()] = _days_until_next([str(ed)[:10]], today)
+        return days
+
+    def _run_cached(self, entries: list[dict], puts_budget: float, top_n: int,
+                    *, now: datetime | None = None) -> dict:
+        if self._options_repo is None or self._fundamentals_repo is None or self._news_store is None:
+            raise RuntimeError(
+                "source='cache' needs options_repository, fundamentals_repository "
+                "and news_store; wire them in registry.py or pass source='live'")
+        today = market_date(now)
+        symbols = [e["symbol"].upper() for e in entries]
+        chains = self._options_repo.get_latest_full_chains(symbols, today.isoformat())
+        inputs = _CachedInputs(
+            chains=chains,
+            history=self._ohlcv.daily_history_for_symbols(symbols, CACHED_HISTORY_DAYS),
+            earnings=self._cached_earnings(today),
+            news=self._news_store.get_sentiment_summaries(symbols, days=CATALYST_LOOKBACK_DAYS),
+        )
+        results, failed, stale = _score_from_cache(entries, inputs, today)
+        response = self._ranked_response(entries, results, failed, puts_budget, top_n)
+        return _mark_cached_response(response, chains, results, stale)
 
     @staticmethod
     def _normalize_entries(entries: list[dict]) -> list[dict]:
@@ -1238,6 +1529,13 @@ class OptionsScreeningService:
             })
         return result
 
+    def _run(self, entries: list[dict], puts_budget: float, top_n: int, source: str) -> dict:
+        if source not in SOURCES:
+            raise ValueError(f"source must be one of {SOURCES}, got {source!r}")
+        if source == "cache":
+            return self._run_cached(entries, puts_budget=puts_budget, top_n=top_n)
+        return self._run_analysis(entries, puts_budget=puts_budget, top_n=top_n)
+
     def analyze_watchlist(
         self,
         entries: list[dict] | None = None,
@@ -1245,6 +1543,7 @@ class OptionsScreeningService:
         puts_budget: float = 1000.0,
         top_n: int = 10,
         include_non_us: bool = False,
+        source: str = "cache",
     ) -> dict:
         """Screen a watchlist. Callers supply the rows; the file is the fallback.
 
@@ -1252,6 +1551,10 @@ class OptionsScreeningService:
         not reach for files or repositories it does not own — the route passes
         ``entries`` from ``deps.load_watchlist()``. ``watchlist_path`` stays for
         the standalone CLI path, which still screens a YAML file directly.
+
+        ``source="cache"`` (the default) reads only the database and lists
+        symbols without a recent capture under ``stale``; ``"live"`` fetches
+        every symbol from Yahoo, which for a whole watchlist takes minutes.
         """
         if entries is not None:
             entries = self._normalize_entries(entries)
@@ -1262,8 +1565,9 @@ class OptionsScreeningService:
             entries = self.load_watchlist(path)
         if not include_non_us:
             entries = [e for e in entries if self.is_us_listed(e["symbol"])]
-        return self._run_analysis(entries, puts_budget=puts_budget, top_n=top_n)
+        return self._run(entries, puts_budget, top_n, source)
 
-    def analyze_symbol(self, symbol: str, puts_budget: float = 1000.0, top_n: int = 10) -> dict:
+    def analyze_symbol(self, symbol: str, puts_budget: float = 1000.0, top_n: int = 10,
+                       source: str = "live") -> dict:
         entry = {"symbol": symbol.upper(), "name": symbol.upper(), "tags": []}
-        return self._run_analysis([entry], puts_budget=puts_budget, top_n=top_n)
+        return self._run([entry], puts_budget, top_n, source)

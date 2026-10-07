@@ -97,6 +97,20 @@ def _ts_to_int(ts: object) -> int:
     return int(pd.Timestamp(ts).timestamp())
 
 
+def _bars_frame(bars: list) -> pd.DataFrame:
+    """``(symbol, ts, open, high, low, close, volume)`` rows → a get_bars frame."""
+    return pd.DataFrame(
+        {
+            "Open":   [r[2] for r in bars],
+            "High":   [r[3] for r in bars],
+            "Low":    [r[4] for r in bars],
+            "Close":  [r[5] for r in bars],
+            "Volume": [r[6] for r in bars],
+        },
+        index=pd.DatetimeIndex([pd.Timestamp(r[1], unit="s", tz="UTC") for r in bars]),
+    )
+
+
 def _count_cached(symbol: str, interval: str) -> int:
     with closing(get_connection()) as conn:
         row = conn.execute(
@@ -325,21 +339,7 @@ class OhlcvRepository:
         grouped: dict[str, list] = {}
         for r in rows:
             grouped.setdefault(r[0], []).append(r)
-        return {
-            sym: pd.DataFrame(
-                {
-                    "Open":   [r[2] for r in bars],
-                    "High":   [r[3] for r in bars],
-                    "Low":    [r[4] for r in bars],
-                    "Close":  [r[5] for r in bars],
-                    "Volume": [r[6] for r in bars],
-                },
-                index=pd.DatetimeIndex(
-                    [pd.Timestamp(r[1], unit="s", tz="UTC") for r in bars]
-                ),
-            )
-            for sym, bars in grouped.items()
-        }
+        return {sym: _bars_frame(bars) for sym, bars in grouped.items()}
 
     def daily_bars_for_symbols(self, symbols: list[str]) -> list:
         """All cached daily bars for the given symbols, ordered by symbol, ts."""

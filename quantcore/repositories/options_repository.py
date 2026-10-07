@@ -714,39 +714,53 @@ class OptionsStore:
             result = {r["symbol"]: dict(r, expirations=[]) for r in snaps}
             if not result:
                 return {}
-            by_id = {s["snapshot_id"]: s for s in result.values()}
-            exps = conn.execute(
-                """
-                SELECT * FROM options_expirations
-                WHERE  snapshot_id = ANY(%s) AND expiration >= %s
-                ORDER  BY snapshot_id, expiration
-                """,
-                (list(by_id), from_date),
-            ).fetchall()
-            nearest = {}
-            for e in exps:
-                exp = dict(e)
-                by_id[exp["snapshot_id"]]["expirations"].append(exp)
-                nearest.setdefault(exp["snapshot_id"], exp)
-            for exp in nearest.values():
-                exp["contracts"] = []
+            nearest = self._attach_expirations(conn, result, from_date)
             if nearest:
-                contracts = conn.execute(
-                    """
-                    SELECT c.* FROM options_contracts c
-                    JOIN   options_expirations e ON e.expiration_id = c.expiration_id
-                    JOIN   options_snapshots   s ON s.snapshot_id   = e.snapshot_id
-                    WHERE  c.expiration_id = ANY(%s)
-                      AND  c.strike BETWEEN s.price * (1 - %s) AND s.price * (1 + %s)
-                    ORDER  BY c.expiration_id, c.kind, c.strike
-                    """,
-                    ([e["expiration_id"] for e in nearest.values()],
-                     strike_band, strike_band),
-                ).fetchall()
-                by_exp = {e["expiration_id"]: e for e in nearest.values()}
-                for c in contracts:
-                    by_exp[c["expiration_id"]]["contracts"].append(dict(c))
+                self._attach_band_contracts(conn, nearest, strike_band)
         return result
+
+    @staticmethod
+    def _attach_expirations(conn, snapshots: dict[str, dict], from_date: str) -> list[dict]:
+        """Fill each snapshot's ``expirations`` (>= from_date, oldest first).
+
+        Returns the nearest expiration of each snapshot, each given an empty
+        ``contracts`` list for ``_attach_band_contracts`` to fill.
+        """
+        by_id = {s["snapshot_id"]: s for s in snapshots.values()}
+        exps = conn.execute(
+            """
+            SELECT * FROM options_expirations
+            WHERE  snapshot_id = ANY(%s) AND expiration >= %s
+            ORDER  BY snapshot_id, expiration
+            """,
+            (list(by_id), from_date),
+        ).fetchall()
+        nearest: dict = {}
+        for e in exps:
+            exp = dict(e)
+            by_id[exp["snapshot_id"]]["expirations"].append(exp)
+            nearest.setdefault(exp["snapshot_id"], exp)
+        for exp in nearest.values():
+            exp["contracts"] = []
+        return list(nearest.values())
+
+    @staticmethod
+    def _attach_band_contracts(conn, expirations: list[dict], strike_band: float) -> None:
+        """Load the contracts within ``strike_band`` of the snapshot price."""
+        by_exp = {e["expiration_id"]: e for e in expirations}
+        contracts = conn.execute(
+            """
+            SELECT c.* FROM options_contracts c
+            JOIN   options_expirations e ON e.expiration_id = c.expiration_id
+            JOIN   options_snapshots   s ON s.snapshot_id   = e.snapshot_id
+            WHERE  c.expiration_id = ANY(%s)
+              AND  c.strike BETWEEN s.price * (1 - %s) AND s.price * (1 + %s)
+            ORDER  BY c.expiration_id, c.kind, c.strike
+            """,
+            (list(by_exp), strike_band, strike_band),
+        ).fetchall()
+        for c in contracts:
+            by_exp[c["expiration_id"]]["contracts"].append(dict(c))
 
     def get_snapshot_dates(self, symbol: str, days: int = 365) -> set[str]:
         """

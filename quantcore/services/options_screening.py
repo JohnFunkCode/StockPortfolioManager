@@ -397,24 +397,31 @@ def _iv_label(iv_rank: float) -> str:
     return f"neutral IV (rank {iv_rank:.0f}%)"
 
 
-def _iv_from_history(hist, options: Optional[OptionsSummary]) -> Optional[IVAnalysis]:
-    """IV Rank / Percentile against a year of rolling HV30 (see IVAnalysis)."""
+def _hv_series(hist) -> Optional[pd.Series]:
+    """Rolling 30-day HV (annualised, %), or None when history is too short."""
     if hist is None or hist.empty or len(hist) < 31:
         return None
-
     log_returns = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
-    # Rolling 30-day HV, annualised
     hv_series = (log_returns.rolling(window=30).std() * math.sqrt(252) * 100).dropna()
-    if len(hv_series) < 20:
+    return hv_series if len(hv_series) >= 20 else None
+
+
+def _current_iv(options: Optional[OptionsSummary], fallback: float) -> float:
+    """Mean of the chain's call/put IV; ``fallback`` (HV30) when it has none."""
+    valid_ivs = [v for v in (options.avg_call_iv, options.avg_put_iv) if v > 0] if options else []
+    return round(sum(valid_ivs) / len(valid_ivs), 1) if valid_ivs else fallback
+
+
+def _iv_from_history(hist, options: Optional[OptionsSummary]) -> Optional[IVAnalysis]:
+    """IV Rank / Percentile against a year of rolling HV30 (see IVAnalysis)."""
+    hv_series = _hv_series(hist)
+    if hv_series is None:
         return None
 
     hv_30       = round(float(hv_series.iloc[-1]), 1)
     hv_52w_low  = round(float(hv_series.min()), 1)
     hv_52w_high = round(float(hv_series.max()), 1)
-
-    # Current IV: prefer the options chain; fall back to hv_30
-    valid_ivs = [v for v in (options.avg_call_iv, options.avg_put_iv) if v > 0] if options else []
-    current_iv = round(sum(valid_ivs) / len(valid_ivs), 1) if valid_ivs else hv_30
+    current_iv = _current_iv(options, hv_30)
 
     # IV Rank: position of current IV within the 52-week HV range
     hv_range = hv_52w_high - hv_52w_low
@@ -642,6 +649,61 @@ def _security_from_cache(entry: dict, snap: dict, hist, days_to_earnings, news) 
         news_top_headline=headline,
         as_of=snap["captured_at"],
     )
+
+
+@dataclass
+class _CachedInputs:
+    """The four bulk reads the cached screen scores from, keyed by symbol."""
+    chains: dict
+    history: dict
+    earnings: dict
+    news: dict
+
+
+def _try_security_from_cache(entry: dict, sym: str, inputs: _CachedInputs) -> Optional[SecurityAnalysis]:
+    try:
+        return _security_from_cache(entry, inputs.chains[sym], inputs.history.get(sym),
+                                    inputs.earnings.get(sym), inputs.news.get(sym))
+    except Exception:
+        return None
+
+
+def _score_from_cache(entries: list[dict], inputs: _CachedInputs, today: date):
+    """Split the entries into (scored, failed symbols, stale rows)."""
+    results: list[SecurityAnalysis] = []
+    failed: list[str] = []
+    stale: list[dict] = []
+    for entry in entries:
+        sym = entry["symbol"].upper()
+        snap = inputs.chains.get(sym)
+        if _is_stale(snap, today):
+            stale.append({"symbol": sym, "last_captured": snap["captured_at"] if snap else None})
+            continue
+        sec = _try_security_from_cache(entry, sym, inputs)
+        if sec is None:
+            failed.append(entry["symbol"])
+        else:
+            results.append(sec)
+    return results, failed, stale
+
+
+def _mark_cached_response(response: dict, chains: dict, results: list, stale: list) -> dict:
+    """Stamp a ranked response with where its numbers came from and when."""
+    for trade in response["put_trades"]:
+        trade["pricing"] = f"indicative, as of {chains[trade['symbol']]['captured_at']}"
+    response.update({
+        "source": "cache",
+        # The oldest capture any scored symbol rests on.
+        "as_of": min((s.as_of for s in results), default=None),
+        "stale": stale,
+    })
+    if stale:
+        response["stale_hint"] = (
+            "No options capture within the last "
+            f"{SCREEN_MAX_STALENESS_TRADING_DAYS} trading day(s); "
+            "run analyze_options_symbol on these for a live read."
+        )
+    return response
 
 
 class OptionsScreeningService:
@@ -1436,44 +1498,15 @@ class OptionsScreeningService:
         today = market_date(now)
         symbols = [e["symbol"].upper() for e in entries]
         chains = self._options_repo.get_latest_full_chains(symbols, today.isoformat())
-        history = self._ohlcv.daily_history_for_symbols(symbols, CACHED_HISTORY_DAYS)
-        earnings = self._cached_earnings(today)
-        news = self._news_store.get_sentiment_summaries(symbols, days=CATALYST_LOOKBACK_DAYS)
-
-        results: list[SecurityAnalysis] = []
-        failed: list[str] = []
-        stale: list[dict] = []
-        for entry, sym in zip(entries, symbols):
-            snap = chains.get(sym)
-            if _is_stale(snap, today):
-                stale.append({"symbol": sym, "last_captured": snap["captured_at"] if snap else None})
-                continue
-            try:
-                sec = _security_from_cache(entry, snap, history.get(sym),
-                                           earnings.get(sym), news.get(sym))
-            except Exception:
-                sec = None
-            if sec is None:
-                failed.append(entry["symbol"])
-            else:
-                results.append(sec)
-
+        inputs = _CachedInputs(
+            chains=chains,
+            history=self._ohlcv.daily_history_for_symbols(symbols, CACHED_HISTORY_DAYS),
+            earnings=self._cached_earnings(today),
+            news=self._news_store.get_sentiment_summaries(symbols, days=CATALYST_LOOKBACK_DAYS),
+        )
+        results, failed, stale = _score_from_cache(entries, inputs, today)
         response = self._ranked_response(entries, results, failed, puts_budget, top_n)
-        for trade in response["put_trades"]:
-            trade["pricing"] = f"indicative, as of {chains[trade['symbol']]['captured_at']}"
-        response.update({
-            "source": "cache",
-            # The oldest capture any scored symbol rests on.
-            "as_of": min((s.as_of for s in results), default=None),
-            "stale": stale,
-        })
-        if stale:
-            response["stale_hint"] = (
-                "No options capture within the last "
-                f"{SCREEN_MAX_STALENESS_TRADING_DAYS} trading day(s); "
-                "run analyze_options_symbol on these for a live read."
-            )
-        return response
+        return _mark_cached_response(response, chains, results, stale)
 
     @staticmethod
     def _normalize_entries(entries: list[dict]) -> list[dict]:

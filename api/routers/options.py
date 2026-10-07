@@ -231,13 +231,22 @@ def screen_options_symbol(
 
 @router.get("/options/screen-watchlist")
 def screen_options_watchlist(
-    puts_budget: float = 1000.0, top_n: int = 10, include_non_us: bool = False
+    puts_budget: float = 1000.0,
+    top_n: int = 10,
+    include_non_us: bool = False,
+    source: str = "cache",
 ) -> QuantCoreJSONResponse:
     """Score the server-side watchlist (the DB-backed one, issue #83).
 
     The adapter supplies the rows: the service does not read the watchlist
     table, and the MCP tool's ``watchlist_path`` arg stays unexposed over REST
-    (no arbitrary server filesystem paths)."""
+    (no arbitrary server filesystem paths).
+
+    ``source`` defaults to ``cache`` (the daily capture, seconds). ``live`` is
+    an operator escape hatch only: it fetches every symbol from Yahoo and takes
+    minutes, past the MCP wrapper's timeout, so the MCP tool never sends it."""
+    if source not in ("cache", "live"):
+        return route_error_plain("source must be 'cache' or 'live'", 422)
     try:
         return QuantCoreJSONResponse(
             services().options_screening.analyze_watchlist(
@@ -245,6 +254,7 @@ def screen_options_watchlist(
                 puts_budget=puts_budget,
                 top_n=top_n,
                 include_non_us=include_non_us,
+                source=source,
             )
         )
     except Exception as exc:  # noqa: BLE001

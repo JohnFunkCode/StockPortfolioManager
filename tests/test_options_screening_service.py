@@ -245,7 +245,7 @@ class WatchlistHelperTests(unittest.TestCase):
         """
         svc = _svc()
         captured = {}
-        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+        svc._run = lambda entries, *a, **kw: captured.setdefault("entries", entries)
 
         with patch("builtins.open", side_effect=AssertionError("read a file")):
             svc.analyze_watchlist(entries=[{"symbol": "AAPL", "name": "Apple"}])
@@ -255,7 +255,7 @@ class WatchlistHelperTests(unittest.TestCase):
     def test_analyze_watchlist_still_filters_non_us_symbols(self):
         svc = _svc()
         captured = {}
-        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+        svc._run = lambda entries, *a, **kw: captured.setdefault("entries", entries)
 
         rows = [{"symbol": "AAPL"}, {"symbol": "BMW.DE"}]
         svc.analyze_watchlist(entries=rows)
@@ -269,7 +269,7 @@ class WatchlistHelperTests(unittest.TestCase):
         """`--watchlist some.yaml` on the standalone CLI keeps working."""
         svc = _svc()
         captured = {}
-        svc._run_analysis = lambda entries, **kw: captured.setdefault("entries", entries)
+        svc._run = lambda entries, *a, **kw: captured.setdefault("entries", entries)
 
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "wl.yaml"

@@ -93,6 +93,7 @@ CASES = {
     # ---- options-analysis (11) -------------------------------------------
     (OA, "mcp_health_check"): [({}, None)],
     # watchlist_path is deliberately not forwarded: the REST tier reads the DB.
+    # Nor is source: the route defaults to the cache, and live is REST-only.
     (OA, "analyze_options_watchlist"): [
         ({}, G("/api/options/screen-watchlist", puts_budget="1000.0", top_n="10",
                include_non_us="false")),

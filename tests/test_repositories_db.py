@@ -162,6 +162,26 @@ class TestNewsStore(RepoTestBase):
         trend = self.store.get_sentiment_trend(SYM, days=30)
         self.assertIsInstance(trend, list)
 
+    def test_batch_summaries_match_the_single_symbol_read(self):
+        # The options screen reads every symbol's summary in one query; each
+        # must equal what get_sentiment_summary says for that symbol, and a
+        # symbol with no articles still gets one (INSUFFICIENT_DATA).
+        self.store.save_articles(SYM, [article(1), article(2)])
+        target = self.store.get_unscored_articles(limit=500)
+        mine = [a for a in target if a.get("symbol", SYM) == SYM][0]
+        self.store.update_sentiment(
+            article_id=mine["article_id"], sentiment="positive",
+            sentiment_score=0.9, positive_score=0.9,
+            negative_score=0.05, neutral_score=0.05,
+        )
+        missing = "ZZREPOSNONE"
+        batch = self.store.get_sentiment_summaries([SYM.lower(), missing], days=7)
+        self.assertEqual(set(batch), {SYM, missing})
+        self.assertEqual(batch[SYM], self.store.get_sentiment_summary(SYM, days=7))
+        self.assertEqual(batch[missing], self.store.get_sentiment_summary(missing, days=7))
+        self.assertEqual(batch[missing]["signal"], "INSUFFICIENT_DATA")
+        self.assertEqual(self.store.get_sentiment_summaries([], days=7), {})
+
 
 class TestOptionsPositionStore(RepoTestBase):
     def setUp(self):
@@ -317,6 +337,26 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertEqual(len(rows), 5)
         self.assertEqual(rows[0]["symbol"], SYM)
         self.assertIn("close", rows[0])
+
+    def test_daily_history_for_symbols_matches_get_bars(self):
+        # One query for the whole screen universe, same frame and the same
+        # GAP exclusion as the per-symbol get_bars; an uncached symbol is absent.
+        self.repo.store_bars(SYM, "1d", bars_df())
+        ts = self.repo.latest_closed_ts(SYM, "1d")
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "UPDATE ohlcv SET status = 'GAP' "
+                "WHERE symbol = %s AND interval = '1d' AND ts = %s",
+                (SYM, ts),
+            )
+            conn.commit()
+        out = self.repo.daily_history_for_symbols([SYM.lower(), "ZZREPOSNONE"], days=30)
+        self.assertEqual(set(out), {SYM})
+        single = self.repo.get_bars(SYM, "1d", days=30)
+        self.assertEqual(len(out[SYM]), 4)
+        self.assertEqual(list(out[SYM]["Close"]), list(single["Close"]))
+        self.assertEqual(str(out[SYM].index.tz), "UTC")
+        self.assertEqual(self.repo.daily_history_for_symbols([], days=30), {})
 
 
 class TestUserSettingsRepository(RepoTestBase):

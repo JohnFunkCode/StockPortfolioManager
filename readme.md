@@ -928,6 +928,8 @@ should get data, not a 401.
 
 ### Exact Options Contract & Spread Pricing
 
+`analyze_options_watchlist` is **cache-first**. It scores the whole watchlist from the daily Job's 17:00 ET options capture, cached bars, the cached earnings calendar and stored news sentiment, and never calls Yahoo, so it answers in seconds. Results carry `as_of` (the oldest capture used), and each trade spec is marked `pricing: "indicative, as of …"`. Symbols with no capture from the last trading day are listed under `stale`; run `analyze_options_symbol` (live) on those, and re-price any trade live before acting on it. The REST route `GET /api/options/screen-watchlist` takes `?source=live` as an operator escape hatch. That path is slow and can outrun the MCP wrapper's 60 s timeout, so the MCP tool doesn't offer it.
+
 The stock-price and options-analysis MCP servers both expose exact contract lookup and vertical spread pricing tools for tactical options setups. These tools close the gap between broad directional analysis and executable spread evaluation.
 
 **Tools:**

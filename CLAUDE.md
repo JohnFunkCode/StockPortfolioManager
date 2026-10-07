@@ -143,6 +143,16 @@ Defaults table, every alarm, the news Job, the FinBERT load path, and the report
 
 Sends Discord webhook alerts for: moving average violations (30/50/100/200-day), price below purchase price, and Harvester plan rung hits. Uses `notification.log` file to deduplicate alerts within a run.
 
+### Options watchlist screen
+
+`analyze_options_watchlist` (`OptionsScreeningService.analyze_watchlist`) is **cache-first**: it
+reads the daily Job's 17:00 ET full-chain capture and other cached inputs in ~5 set-based queries
+and **never calls Yahoo**. A symbol without a capture from the last trading day
+(`SCREEN_MAX_STALENESS_TRADING_DAYS`) goes in the `stale` list. **Don't add a per-symbol live
+fallback**, because that path is what timed out the 60 s wrapper (~194 s). `source=live` is a REST-only
+escape hatch, and the MCP tool must not grow it. Why and the numbers:
+[`mcp-tool-regression-plan.md`](docs/proposals/mcp-tool-regression-plan.md) gotcha 9.
+
 ### Arbitrage Scanner
 
 Finds securities stretched against a structurally linked underlying (`nav_vehicle`,

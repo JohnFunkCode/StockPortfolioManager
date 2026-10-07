@@ -682,6 +682,72 @@ class OptionsStore:
 
         return result
 
+    def get_latest_full_chains(
+        self, symbols: list[str], from_date: str, strike_band: float = 0.30,
+    ) -> dict[str, dict]:
+        """The latest full-chain capture for many symbols, in three queries.
+
+        The watchlist screen's bulk read: ``get_full_chain`` costs 1 + 1 +
+        one query per expiration per symbol, which across the watchlist is
+        thousands of round trips. Returns ``{symbol: snapshot}`` where each
+        snapshot is the ``options_snapshots`` row plus ``expirations`` — every
+        expiration on or after ``from_date`` (ISO date), oldest first, with its
+        stored all-strike aggregates. Only the *first* of those carries
+        ``contracts``, and only strikes within ``strike_band`` of the snapshot
+        price: that is all the screen reads, and it bounds the rows the API
+        holds in memory. A symbol whose expirations have all passed still
+        appears, with an empty list, so the caller can say when it was captured.
+        """
+        wanted = sorted({s.upper() for s in symbols})
+        if not wanted:
+            return {}
+        with closing(self._get_connection()) as conn:
+            snaps = conn.execute(
+                """
+                SELECT DISTINCT ON (symbol) *
+                FROM   options_snapshots
+                WHERE  symbol = ANY(%s) AND chain_type = 'full'
+                ORDER  BY symbol, captured_at DESC
+                """,
+                (wanted,),
+            ).fetchall()
+            result = {r["symbol"]: dict(r, expirations=[]) for r in snaps}
+            if not result:
+                return {}
+            by_id = {s["snapshot_id"]: s for s in result.values()}
+            exps = conn.execute(
+                """
+                SELECT * FROM options_expirations
+                WHERE  snapshot_id = ANY(%s) AND expiration >= %s
+                ORDER  BY snapshot_id, expiration
+                """,
+                (list(by_id), from_date),
+            ).fetchall()
+            nearest = {}
+            for e in exps:
+                exp = dict(e)
+                by_id[exp["snapshot_id"]]["expirations"].append(exp)
+                nearest.setdefault(exp["snapshot_id"], exp)
+            for exp in nearest.values():
+                exp["contracts"] = []
+            if nearest:
+                contracts = conn.execute(
+                    """
+                    SELECT c.* FROM options_contracts c
+                    JOIN   options_expirations e ON e.expiration_id = c.expiration_id
+                    JOIN   options_snapshots   s ON s.snapshot_id   = e.snapshot_id
+                    WHERE  c.expiration_id = ANY(%s)
+                      AND  c.strike BETWEEN s.price * (1 - %s) AND s.price * (1 + %s)
+                    ORDER  BY c.expiration_id, c.kind, c.strike
+                    """,
+                    ([e["expiration_id"] for e in nearest.values()],
+                     strike_band, strike_band),
+                ).fetchall()
+                by_exp = {e["expiration_id"]: e for e in nearest.values()}
+                for c in contracts:
+                    by_exp[c["expiration_id"]]["contracts"].append(dict(c))
+        return result
+
     def get_snapshot_dates(self, symbol: str, days: int = 365) -> set[str]:
         """
         Return the set of calendar dates (YYYY-MM-DD) for which a snapshot

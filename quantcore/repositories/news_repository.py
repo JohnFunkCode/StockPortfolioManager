@@ -186,56 +186,33 @@ class NewsStore:
                 """,
                 (symbol.upper(), since),
             ).fetchall()
+        return _summarize(symbol.upper(), days, rows)
 
-        total     = len(rows)
-        scored    = [r for r in rows if r["sentiment"] is not None]
-        n_scored  = len(scored)
+    def get_sentiment_summaries(self, symbols: list[str], days: int = 7) -> dict[str, dict]:
+        """``get_sentiment_summary`` for many symbols in one query.
 
-        pos = [r for r in scored if r["sentiment"] == "positive"]
-        neg = [r for r in scored if r["sentiment"] == "negative"]
-        neu = [r for r in scored if r["sentiment"] == "neutral"]
-
-        avg_pos = round(sum(r["positive_score"] or 0 for r in scored) / n_scored, 3) if n_scored else None
-        avg_neg = round(sum(r["negative_score"] or 0 for r in scored) / n_scored, 3) if n_scored else None
-
-        # Signal logic
-        if n_scored < 3:
-            signal   = "INSUFFICIENT_DATA"
-            strength = 0.0
-        else:
-            pos_pct = len(pos) / n_scored
-            neg_pct = len(neg) / n_scored
-            if pos_pct >= 0.60:
-                signal   = "BULLISH"
-                strength = round(pos_pct, 2)
-            elif neg_pct >= 0.60:
-                signal   = "BEARISH"
-                strength = round(neg_pct, 2)
-            elif pos_pct > neg_pct + 0.15:
-                signal   = "MIXED"
-                strength = round(pos_pct - neg_pct, 2)
-            elif neg_pct > pos_pct + 0.15:
-                signal   = "MIXED"
-                strength = round(neg_pct - pos_pct, 2)
-            else:
-                signal   = "NEUTRAL"
-                strength = round(1.0 - abs(pos_pct - neg_pct), 2)
-
-        return {
-            "symbol":              symbol.upper(),
-            "days":                days,
-            "total_articles":      total,
-            "scored_articles":     n_scored,
-            "positive_count":      len(pos),
-            "negative_count":      len(neg),
-            "neutral_count":       len(neu),
-            "avg_positive_score":  avg_pos,
-            "avg_negative_score":  avg_neg,
-            "signal":              signal,
-            "signal_strength":     strength,
-            "top_positive":        [r["title"] for r in pos[:3]],
-            "top_negative":        [r["title"] for r in neg[:3]],
-        }
+        Every requested symbol gets a summary — one with no articles reads as
+        ``INSUFFICIENT_DATA``, exactly as the single-symbol call would.
+        """
+        wanted = sorted({s.upper() for s in symbols})
+        if not wanted:
+            return {}
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol, sentiment, sentiment_score, positive_score,
+                       negative_score, title, published_at
+                FROM news_articles
+                WHERE symbol = ANY(%s) AND fetched_at >= %s
+                ORDER BY symbol, published_at DESC
+                """,
+                (wanted, since),
+            ).fetchall()
+        grouped: dict[str, list] = {sym: [] for sym in wanted}
+        for r in rows:
+            grouped[r["symbol"]].append(r)
+        return {sym: _summarize(sym, days, rs) for sym, rs in grouped.items()}
 
     def get_sentiment_trend(self, symbol: str, days: int = 30) -> list[dict]:
         """
@@ -323,3 +300,59 @@ class NewsStore:
                 "SELECT DISTINCT symbol FROM news_articles ORDER BY symbol"
             ).fetchall()
             return [r[0] for r in rows]
+
+
+def _signal(n_pos: int, n_neg: int, n_scored: int) -> tuple[str, float]:
+    """The sentiment signal and its strength from scored-article counts."""
+    if n_scored < 3:
+        return "INSUFFICIENT_DATA", 0.0
+    pos_pct = n_pos / n_scored
+    neg_pct = n_neg / n_scored
+    if pos_pct >= 0.60:
+        return "BULLISH", round(pos_pct, 2)
+    if neg_pct >= 0.60:
+        return "BEARISH", round(neg_pct, 2)
+    if abs(pos_pct - neg_pct) > 0.15:
+        return "MIXED", round(abs(pos_pct - neg_pct), 2)
+    return "NEUTRAL", round(1.0 - abs(pos_pct - neg_pct), 2)
+
+
+def _avg(rows, column):
+    """Mean of a score column over scored rows (NULL reads as 0), or None."""
+    if not rows:
+        return None
+    return round(sum(r[column] or 0 for r in rows) / len(rows), 3)
+
+
+def _summarize(symbol: str, days: int, rows) -> dict:
+    """Turn one symbol's article rows (newest first) into its sentiment summary."""
+    total = len(rows)
+    by_sentiment: dict = {"positive": [], "negative": [], "neutral": []}
+    scored = []
+    for r in rows:
+        if r["sentiment"] is not None:
+            scored.append(r)
+            by_sentiment.setdefault(r["sentiment"], []).append(r)
+    n_scored = len(scored)
+    pos, neg, neu = (by_sentiment[k] for k in ("positive", "negative", "neutral"))
+
+    avg_pos = _avg(scored, "positive_score")
+    avg_neg = _avg(scored, "negative_score")
+
+    signal, strength = _signal(len(pos), len(neg), n_scored)
+
+    return {
+        "symbol":              symbol,
+        "days":                days,
+        "total_articles":      total,
+        "scored_articles":     n_scored,
+        "positive_count":      len(pos),
+        "negative_count":      len(neg),
+        "neutral_count":       len(neu),
+        "avg_positive_score":  avg_pos,
+        "avg_negative_score":  avg_neg,
+        "signal":              signal,
+        "signal_strength":     strength,
+        "top_positive":        [r["title"] for r in pos[:3]],
+        "top_negative":        [r["title"] for r in neg[:3]],
+    }

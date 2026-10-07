@@ -151,6 +151,7 @@ than a database on your own machine.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `password authentication failed for user "<you>"` from `psql -h localhost` | Your server requires passwords for TCP connections, not trust auth. | Connect over the local socket with `psql -d postgres` (no `-h`). If that also fails, ask the person who installed the server for the superuser password. |
+| `FATAL: Postgres.app rejected …` for one client app (for example an AI agent) while your own terminal connects fine | Postgres.app gates trust auth per client application, so each app needs its own permission. Running the client outside its sandbox doesn't help. | Allow the app in Postgres.app's settings (its app permissions). Or run that client's suite on Cloud SQL test with `QUANTCORE_UNITTEST_DB=cloudsql`. |
 | `role "quantcore" already exists` | You created it for earlier local work. | Run the `ALTER ROLE quantcore LOGIN CREATEDB;` line and `\password quantcore` instead. |
 | `test_schema_parity` fails with `permission denied to create database` | The role lacks `CREATEDB`. | `ALTER ROLE quantcore CREATEDB;` |
 | `database "quantcore_test" does not exist` | Step 1 was skipped or failed partway. | `createdb -h localhost -O quantcore quantcore_test` |

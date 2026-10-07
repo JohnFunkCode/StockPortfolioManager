@@ -83,6 +83,7 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
 | #337 review | [#337](https://github.com/JohnFunkCode/StockPortfolioManager/pull/337) | Cache cleanup moved into each fetch's `finally`: peewee keeps connection state thread-local (checked: a close on one thread leaves another's open), so the caller's single close after the pool missed every worker. Tests now assert the closes happen on the fetching threads, on success and on a raising fetch. `_run_analysis` split into `_fetch_one`/`_fetch_all`/`_top_by`/`_build_put_trades` (radon CC 13 → 5, complexipy 10 → 5); `fetch_earnings_proximity` into `_fetch_calendar`/`_calendar_dates`/`_as_date`/`_days_until_next` (CC 17 → 3, cognitive 24 → 2). 90 tests pass across the options suites. |
 | #338 | [#338](https://github.com/JohnFunkCode/StockPortfolioManager/issues/338) | The same thread-local cleanup bug in `OptionsService`: `refresh_options_snapshots` closed the caches once on the caller after its pool (its comment claimed it closed each worker's), and `get_options_flow_signals`' two-task pool never closed them at all. Both now close in a per-task `finally` on the worker. The refresh run's outer close is gone, since the caller never touches yfinance. New tests assert the closes land on the fetching threads and never on the caller, including when a fetch raises; they fail against the old code. |
 | #339 review | [#339](https://github.com/JohnFunkCode/StockPortfolioManager/pull/339) | Review flagged `refresh_options_snapshots` over the complexity limits (cyclomatic 16 / 15, cognitive 33 / 25). Split into `_refresh_symbols` (source selection, module-level), `_refresh_in_batches` (one executor, a `batch_delay` pause between batches) and `_refresh_one` (one retry after `REFRESH_RETRY_PAUSE_SECONDS`, worker-side cache close in `finally`). Now 4 / 3; the helpers are 8 / 12, 6 / 8 and 3 / 2 (radon / complexipy). Behaviour unchanged; new tests pin the retry that succeeds, that the reported error is the retry's, the pause count between batches, the empty selection, and each source's selection. Gotcha: deduping the selection with `dict.fromkeys` looks equivalent but is not: only `source="all"` dedupes, and only the watchlist against the portfolio, so a symbol repeated within one list is still fetched (and counted in `total`) twice. |
+| Cache-first watchlist screen (gotcha 9) | this PR | `analyze_watchlist` reads only the database by default. Local run against test through the proxy, with yfinance booby-trapped so any Yahoo call fails: 229 entries, 6.72 s cold and 3.64 s warm, with 200 fetched, 0 failed and 17 stale (29 with `include_non_us`). That clears the 10 s gate the plan set so a ~16 s cold start still fits inside 60 s, so the wrapper timeout is unchanged. The stale symbols are non-US listings and OTC ADRs, plus DOMO, for which the 17:00 capture has no full chain. They are expected to stay stale. `EXPLAIN ANALYZE` of the latest-full-snapshot query: a seq scan and sort of `options_snapshots` (14,965 rows, 201 kept), 70 ms. No index is needed yet, but the cost grows linearly with capture history. The live path's `expirations` and nearest-chain fetches are deduped (`_prefetch_chain`), which halves `analyze_options_symbol`'s Yahoo calls. Gotcha: on this laptop Postgres.app rejected the Claude app's connection (`FATAL: Postgres.app rejected …`) even unsandboxed, because Postgres.app gates trust auth per client app. The DB tests ran on Cloud SQL test (`QUANTCORE_UNITTEST_DB=cloudsql`) instead. |
 
 ## Gotchas
 
@@ -120,16 +121,20 @@ if an entry names a case that doesn't exist or isn't a POST, so a rename can't s
    `rest_client.DEFAULT_TIMEOUT` (`QUANTCORE_REST_TIMEOUT`), and the 504 is the wrapper's own:
    `rest_client` maps an `httpx.TimeoutException` to a 504. The REST tier takes longer than that
    to analyze the whole watchlist, so the wrapper gives up first. It was a real finding, not a
-   smoke defect. **Fixed in #331:** `OptionsScreeningService._run_analysis` used to fetch one
-   symbol after another; it now fetches `SCREEN_MAX_WORKERS` (8) at a time on one
-   `ThreadPoolExecutor` (after one warm-up fetch, gotcha 11), keeping watchlist order, and each fetch closes its own thread's yfinance caches in a
-   `finally` (they are thread-local, so a single close from the caller afterwards would miss the
-   workers'; #338 applied the same rule to `refresh_options_snapshots` and
-   `get_options_flow_signals`, the other two pools that call yfinance). The timeout that applies is still the wrapper's 60 s (`quantcore-api` allows 300 s,
-   the wrappers 900 s); it was deliberately not raised, so the screen has to fit inside it. If the
-   watchlist grows until it doesn't, raise the worker count only with Yahoo's rate limits in mind
-   (`refresh_options_snapshots` runs 4). A single
-   `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before chasing a failure.
+   smoke defect. **#331 did not fix it.** Fetching `SCREEN_MAX_WORKERS` (8) symbols at a time
+   (after one warm-up fetch, gotcha 11, each fetch closing its own thread's yfinance caches in a
+   `finally`, which #338 applied to the other two pools) still left the live screen at ~194 s on
+   test, and the extra concurrency produced `Invalid Crumb` 401s. **The fix is that the screen no
+   longer calls Yahoo:** `analyze_watchlist` defaults to `source="cache"` and scores from the daily
+   Job's 17:00 ET full-chain capture, cached daily bars, the cached earnings calendar and the news
+   Job's sentiment, in about five set-based queries for the whole roster (3.6–6.7 s for 229
+   entries, see the checkpoint log). A symbol without a capture from the last trading day is
+   listed under `stale` instead of being fetched. **Don't add a per-symbol live fallback**, since
+   that is the path that timed out. The live path survives only as `?source=live` on the REST
+   route, for an operator. The MCP tool has no `source`. The timeout that applies is still the
+   wrapper's 60 s (`quantcore-api` allows 300 s, the wrappers 900 s), and it was deliberately not
+   raised. A single `get_news` 504 at 60.9 s was transient; rerun one tool with `--tool` before
+   chasing a failure.
 10. **`price_vertical_spread`'s case carries a fixed expiration, now `2029-01-19`.** The live
     smoke sends the first case's arguments verbatim, so after that date it asks for an expired
     contract. It was `2026-11-20` and was moved to BRK-B's longest-dated listed expiration (a

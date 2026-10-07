@@ -299,6 +299,48 @@ class OhlcvRepository:
     def get_bars(self, symbol: str, interval: str, days: int) -> pd.DataFrame:
         return _query_cache(symbol, interval, days)
 
+    def daily_history_for_symbols(
+        self, symbols: list[str], days: int,
+    ) -> dict[str, pd.DataFrame]:
+        """``get_bars(sym, "1d", days)`` for many symbols in one query.
+
+        Same frame shape and GAP exclusion as ``get_bars``; a symbol with no
+        bars is absent from the result. Never refreshes — callers that need a
+        fresh bar go through ``PricesService.get_history``.
+        """
+        if not symbols:
+            return {}
+        cutoff = int((_utc_now() - datetime.timedelta(days=days)).timestamp())
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                """
+                SELECT symbol, ts, open, high, low, close, volume
+                FROM   ohlcv
+                WHERE  interval = '1d' AND symbol = ANY(%s)
+                  AND  ts >= %s AND status != 'GAP'
+                ORDER  BY symbol, ts ASC
+                """,
+                (sorted({s.upper() for s in symbols}), cutoff),
+            ).fetchall()
+        grouped: dict[str, list] = {}
+        for r in rows:
+            grouped.setdefault(r[0], []).append(r)
+        return {
+            sym: pd.DataFrame(
+                {
+                    "Open":   [r[2] for r in bars],
+                    "High":   [r[3] for r in bars],
+                    "Low":    [r[4] for r in bars],
+                    "Close":  [r[5] for r in bars],
+                    "Volume": [r[6] for r in bars],
+                },
+                index=pd.DatetimeIndex(
+                    [pd.Timestamp(r[1], unit="s", tz="UTC") for r in bars]
+                ),
+            )
+            for sym, bars in grouped.items()
+        }
+
     def daily_bars_for_symbols(self, symbols: list[str]) -> list:
         """All cached daily bars for the given symbols, ordered by symbol, ts."""
         if not symbols:

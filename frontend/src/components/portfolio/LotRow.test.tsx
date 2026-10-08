@@ -66,6 +66,43 @@ describe('LotRow', () => {
     expect(screen.getByText('Sell INTC')).toBeInTheDocument();
   });
 
+  it('flags a lot that has a purchase note', () => {
+    mount({ notes: 'Breakout above the 200-day' });
+    expect(screen.getByRole('img', { name: 'Lot note' })).toBeInTheDocument();
+  });
+
+  it('shows no note flag when the lot has no note', () => {
+    mount({ notes: null });
+    expect(screen.queryByRole('img', { name: 'Lot note' })).not.toBeInTheDocument();
+  });
+
+  it('edits the purchase note through PATCH', async () => {
+    const { api } = mount({ notes: 'old reason' });
+    fireEvent.click(screen.getByLabelText('Edit note'));
+    const field = screen.getByRole('textbox', { name: /Reason for purchase/i }) as HTMLTextAreaElement;
+    expect(field.value).toBe('old reason');
+    fireEvent.change(field, { target: { value: ' new reason ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const call = api.calls.find(([url, init]) => url.includes('/api/portfolio/lots/1') && init?.method === 'PATCH');
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ notes: 'new reason' });
+    });
+  });
+
+  it('clears the purchase note by saving an empty one', async () => {
+    const { api } = mount({ notes: 'old reason' });
+    fireEvent.click(screen.getByLabelText('Edit note'));
+    fireEvent.change(screen.getByRole('textbox', { name: /Reason for purchase/i }), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      const call = api.calls.find(([url, init]) => url.includes('/api/portfolio/lots/1') && init?.method === 'PATCH');
+      expect(JSON.parse(String(call?.[1]?.body))).toEqual({ notes: '' });
+    });
+  });
+
   it('deletes a lot after confirmation', async () => {
     const { api } = mount();
     fireEvent.click(screen.getByLabelText('Delete lot'));

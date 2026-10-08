@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { useSymbolLookup } from '../../hooks/useSecurities';
 import { useCreateLot } from '../../hooks/usePortfolio';
+import LotNoteField from './LotNoteField';
 
 interface Props {
   open: boolean;
@@ -24,6 +25,7 @@ const EMPTY_FORM = {
   purchase_price: '',
   quantity: '',
   trade_date: '',
+  notes: '',
 };
 
 export default function AddLotDialog({ open, onClose }: Props) {
@@ -73,6 +75,7 @@ export default function AddLotDialog({ open, onClose }: Props) {
         purchase_price: parseFloat(form.purchase_price),
         quantity: parseFloat(form.quantity),
         trade_date: form.trade_date,
+        notes: form.notes.trim() || undefined,
       });
       onClose();
     } catch (err: unknown) {
@@ -143,6 +146,12 @@ export default function AddLotDialog({ open, onClose }: Props) {
             onChange={set('trade_date')}
             InputLabelProps={{ shrink: true }}
             sx={{ width: 200 }}
+          />
+          <LotNoteField
+            label="Reason for purchase (optional)"
+            value={form.notes}
+            onChange={(notes) => setForm((f) => ({ ...f, notes }))}
+            placeholder="Why are you buying this?"
           />
 
           {error && (

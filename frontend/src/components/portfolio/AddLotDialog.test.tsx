@@ -60,6 +60,41 @@ describe('AddLotDialog', () => {
     });
   });
 
+  it('sends the reason for purchase when one is entered', async () => {
+    const { api, onClose } = mount();
+    fireEvent.change(screen.getByLabelText(/Symbol/i), { target: { value: 'AAPL' } });
+    fireEvent.change(screen.getByLabelText(/Purchase Price/i), { target: { value: '150' } });
+    fireEvent.change(screen.getByLabelText(/Quantity/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText(/Trade Date/i), { target: { value: '2026-01-15' } });
+    fireEvent.change(screen.getByLabelText(/Reason for purchase/i), {
+      target: { value: '  Breakout above the 200-day  ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Add Lot/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(createBody(api)).toMatchObject({ symbol: 'AAPL', notes: 'Breakout above the 200-day' });
+  });
+
+  it('leaves notes out of the request when the reason is blank', async () => {
+    const { api, onClose } = mount();
+    fireEvent.change(screen.getByLabelText(/Symbol/i), { target: { value: 'AAPL' } });
+    fireEvent.change(screen.getByLabelText(/Purchase Price/i), { target: { value: '150' } });
+    fireEvent.change(screen.getByLabelText(/Quantity/i), { target: { value: '5' } });
+    fireEvent.change(screen.getByLabelText(/Trade Date/i), { target: { value: '2026-01-15' } });
+    fireEvent.change(screen.getByLabelText(/Reason for purchase/i), { target: { value: '   ' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Lot/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(createBody(api)).not.toHaveProperty('notes');
+  });
+
+  it('shows the note length against the 5000-character cap', () => {
+    mount();
+    expect(screen.getByText('0 / 5000')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/Reason for purchase/i), { target: { value: 'abc' } });
+    expect(screen.getByText('3 / 5000')).toBeInTheDocument();
+  });
+
   it('shows an error and stays open when creation fails', async () => {
     const onClose = vi.fn();
     mockApi([

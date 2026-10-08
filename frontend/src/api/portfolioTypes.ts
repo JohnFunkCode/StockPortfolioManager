@@ -91,7 +91,14 @@ export interface CloseLotPayload {
   method?: string;
   lots?: Array<[number, number]>;
   fees?: number;
+  /** Why the shares were sold — the default note for every lot the sale touches. */
+  notes?: string;
+  /** Per-lot overrides of `notes`, keyed by lot_id. */
+  lot_notes?: Record<number, string>;
 }
+
+/** Longest note the API accepts (api/schemas/portfolio.py NOTE_MAX_LENGTH). */
+export const NOTE_MAX_LENGTH = 5000;
 
 export interface CreateLotResponse {
   symbol: string;
@@ -112,6 +119,42 @@ export interface CloseLotAllocation {
   sale_id: number;
   shares_sold: number;
   child_lot_id: number | null;
+  notes?: string | null;
+}
+
+/** One lot a prospective sale would draw from (POST .../close/preview). */
+export interface ClosePreviewAllocation {
+  lot_id: number;
+  shares: number;
+  trade_date: string | null;
+  purchase_price: number | null;
+}
+
+export interface ClosePreviewResponse {
+  symbol: string;
+  allocations: ClosePreviewAllocation[];
+}
+
+/** One recorded sale of (part of) a lot — a lot_sales row. */
+export interface Sale {
+  sale_id: number;
+  lot_id: number;
+  symbol: string;
+  shares_sold: number;
+  sale_price: number;
+  sale_trade_date: string;
+  fees: number | null;
+  allocation_method: string | null;
+  notes: string | null;
+}
+
+export interface UpdateSalePayload {
+  notes: string | null;
+}
+
+export interface UpdateSaleResponse {
+  sale_id: number;
+  updated: boolean;
 }
 
 export interface CloseLotResponse {

@@ -10,9 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, List, Optional, Tuple
+from typing import Annotated, Any, Dict, List, Optional, Tuple
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 
 
 # --------------------------------------------------------------------------- #
@@ -62,6 +62,13 @@ class ImportPortfolioRequest(BaseModel):
     path: Optional[str] = None
 
 
+# Free-text rationale on a lot open / close / sale (issue #266). The cap only
+# guards against accidental pastes; mirrored by NOTE_MAX_LENGTH in
+# frontend/src/api/portfolioTypes.ts.
+NOTE_MAX_LENGTH = 5000
+NoteStr = Annotated[str, StringConstraints(max_length=NOTE_MAX_LENGTH)]
+
+
 class CreateLotRequest(BaseModel):
     """POST /api/portfolio/lots body — creates one new lot (issue #126 Step 4.5)."""
 
@@ -76,7 +83,7 @@ class CreateLotRequest(BaseModel):
     fees: Optional[Decimal] = None
     acquisition_type: Optional[str] = None
     account: Optional[str] = None
-    notes: Optional[str] = None
+    notes: Optional[NoteStr] = None
 
 
 class UpdateLotRequest(BaseModel):
@@ -96,7 +103,7 @@ class UpdateLotRequest(BaseModel):
     fees: Optional[Decimal] = None
     acquisition_type: Optional[str] = None
     account: Optional[str] = None
-    notes: Optional[str] = None
+    notes: Optional[NoteStr] = None
 
 
 class CloseLotRequest(BaseModel):
@@ -113,6 +120,28 @@ class CloseLotRequest(BaseModel):
     method: str = "FIFO"
     lots: Optional[List[Tuple[int, Decimal]]] = None
     fees: Optional[Decimal] = None
+    # Why the shares were sold (issue #266). `notes` is the default written to
+    # every lot the sale touches; `lot_notes` overrides it per lot_id.
+    notes: Optional[NoteStr] = None
+    lot_notes: Optional[Dict[int, NoteStr]] = None
+
+
+class ClosePreviewRequest(BaseModel):
+    """POST /api/portfolio/lots/{lot_id}/close/preview body — read-only.
+
+    Same allocation inputs as CloseLotRequest; returns which lots the sale
+    would touch so the UI can offer one note field per lot.
+    """
+
+    shares: Decimal
+    method: str = "FIFO"
+    lots: Optional[List[Tuple[int, Decimal]]] = None
+
+
+class UpdateSaleRequest(BaseModel):
+    """PATCH /api/portfolio/sales/{sale_id} body — edits a sale's note."""
+
+    notes: Optional[NoteStr] = None  # "" or null clears the note
 
 
 # --------------------------------------------------------------------------- #
@@ -299,6 +328,7 @@ class CloseLotAllocation(BaseModel):
     sale_id: int
     shares_sold: Decimal
     child_lot_id: Optional[int] = None
+    notes: Optional[str] = None
 
 
 class CloseLotResponse(BaseModel):
@@ -307,6 +337,41 @@ class CloseLotResponse(BaseModel):
     sale_price: Decimal
     sale_trade_date: str
     allocations: List[CloseLotAllocation]
+
+
+class ClosePreviewAllocation(BaseModel):
+    lot_id: int
+    shares: Decimal
+    trade_date: Optional[str] = None
+    purchase_price: Optional[Decimal] = None
+
+
+class ClosePreviewResponse(BaseModel):
+    symbol: str
+    allocations: List[ClosePreviewAllocation]
+
+
+class SaleResponse(BaseModel):
+    """One lot_sales row (issue #266) — the first read path for that table."""
+
+    sale_id: int
+    lot_id: int
+    symbol: str
+    shares_sold: Decimal
+    sale_price: Decimal
+    sale_trade_date: str
+    fees: Optional[Decimal] = None
+    allocation_method: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class SalesResponse(BaseModel):
+    sales: List[SaleResponse]
+
+
+class UpdateSaleResponse(BaseModel):
+    sale_id: int
+    updated: bool
 
 
 class WatchlistFundamentalsRow(BaseModel):

@@ -40,6 +40,11 @@ def _quantity(v) -> Optional[Decimal]:
     return Decimal(str(v)).quantize(Decimal("0.000001")) if v not in (None, "") else None
 
 
+def _clean_note(note: Any) -> Optional[str]:
+    """Blank / whitespace-only notes are stored as NULL (issue #266)."""
+    return (str(note).strip() if note is not None else "") or None
+
+
 def _validate_lot_fields(row: Dict[str, Any], *, require_all: bool) -> None:
     """Shared invariant for lot writes: price and quantity must be positive
     and trade_date must be a valid ISO date. ``require_all`` additionally
@@ -392,6 +397,8 @@ class PortfolioService:
         existing lot into the same unusable state add_position rejects.
         """
         _validate_lot_fields(fields, require_all=False)
+        if "notes" in fields:
+            fields = {**fields, "notes": _clean_note(fields["notes"])}
         return self._repo.update_lot(owner, lot_id, fields)
 
     def delete_lot(self, owner: str, lot_id: int) -> bool:
@@ -404,6 +411,60 @@ class PortfolioService:
             self._close_plan_if_flat(owner, lot["symbol"], "last lot deleted")
         return deleted
 
+    def _resolve_close_allocation(
+        self,
+        owner: str,
+        lot_id: int,
+        shares: Any,
+        method: str,
+        lots: Optional[Sequence[Tuple[int, Any]]],
+    ) -> Tuple[Dict[str, Any], Decimal, List[Dict[str, Any]], List[Tuple[Any, Decimal]]]:
+        """Anchor lookup + allocation shared by `close_lot` and `preview_close`."""
+        anchor = self._repo.get_lot(owner, lot_id)
+        if anchor is None:
+            raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
+        shares = Decimal(str(shares))
+        symbol_lots = self._repo.list_lots_for_symbol(owner, anchor["symbol"], status="OPEN")
+        allocation = portfolio_math.allocate(symbol_lots, shares, method, lots)
+        return anchor, shares, symbol_lots, allocation
+
+    def preview_close(
+        self,
+        owner: str,
+        lot_id: int,
+        shares: Any,
+        method: str = "FIFO",
+        lots: Optional[Sequence[Tuple[int, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Which lots a sale of `shares` would touch — writes nothing.
+
+        Lets the Close dialog offer one note field per lot (issue #266).
+        """
+        anchor, _, symbol_lots, allocation = self._resolve_close_allocation(
+            owner, lot_id, shares, method, lots
+        )
+        by_id = {lot["lot_id"]: lot for lot in symbol_lots}
+        return {
+            "symbol": anchor["symbol"],
+            "allocations": [
+                {
+                    "lot_id": allocated_id,
+                    "shares": allocated_shares,
+                    "trade_date": by_id[allocated_id].get("trade_date"),
+                    "purchase_price": by_id[allocated_id].get("purchase_price"),
+                }
+                for allocated_id, allocated_shares in allocation
+            ],
+        }
+
+    def list_sales(self, owner: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """`owner`'s recorded sales (with their notes), optionally for one symbol."""
+        return self._repo.list_sales(owner, symbol.strip().upper() if symbol else None)
+
+    def update_sale_notes(self, owner: str, sale_id: int, notes: Optional[str]) -> bool:
+        """Set or clear a sale's note. Returns False if no such sale for `owner`."""
+        return self._repo.update_sale_notes(owner, sale_id, _clean_note(notes))
+
     def close_lot(
         self,
         owner: str,
@@ -414,6 +475,8 @@ class PortfolioService:
         method: str = "FIFO",
         lots: Optional[Sequence[Tuple[int, Any]]] = None,
         fees: Any = None,
+        notes: Optional[str] = None,
+        lot_notes: Optional[Dict[int, str]] = None,
     ) -> Dict[str, Any]:
         """Close `shares` of the symbol anchored by `lot_id`.
 
@@ -422,21 +485,32 @@ class PortfolioService:
         allocation across every OPEN lot of that symbol; MANUAL uses the
         caller-supplied `lots` pairs. Writes the sale (and any partial-close
         split) atomically via `PortfolioRepository.close_lots`.
-        """
-        anchor = self._repo.get_lot(owner, lot_id)
-        if anchor is None:
-            raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
 
-        shares = Decimal(str(shares))
+        `notes` is the sale rationale recorded on every lot the sale touches;
+        `lot_notes` (`{lot_id: note}`) overrides it per lot (issue #266). Blank
+        notes are stored as NULL; a `lot_notes` key outside the resolved
+        allocation is rejected.
+        """
+        anchor, shares, _, allocation = self._resolve_close_allocation(
+            owner, lot_id, shares, method, lots
+        )
         sale_price = Decimal(str(sale_price))
         fees = Decimal(str(fees)) if fees not in (None, "") else None
 
-        symbol_lots = self._repo.list_lots_for_symbol(owner, anchor["symbol"], status="OPEN")
-        allocation = portfolio_math.allocate(symbol_lots, shares, method, lots)
+        notes = _clean_note(notes)
+        cleaned_lot_notes: Dict[int, str] = {}
+        for note_lot_id, note in (lot_notes or {}).items():
+            cleaned = _clean_note(note)
+            if cleaned is not None:
+                cleaned_lot_notes[int(note_lot_id)] = cleaned
+        extra = set(cleaned_lot_notes) - {allocated_id for allocated_id, _ in allocation}
+        if extra:
+            raise ValueError(f"lot_notes references lot(s) not in this sale: {sorted(extra)}")
 
         allocations = self._repo.close_lots(
             owner, allocation, sale_price, sale_trade_date,
             fees=fees, allocation_method=method,
+            notes=notes, lot_notes=cleaned_lot_notes or None,
         )
         self._close_plan_if_flat(owner, anchor["symbol"], "last open lot closed")
         return {

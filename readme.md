@@ -434,7 +434,7 @@ authoritative endpoint list**; the ~106 routes are too many to mirror here witho
 | Router | Prefix | What it covers |
 |--------|--------|----------------|
 | `system.py` | `/api/health` | Health check — confirms the API and PostgreSQL database are reachable |
-| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities` | Positions and lots (`?owner=`, defaults to `john`), CSV import, and the **global** shared watchlist (no `?owner=`) |
+| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities` | Positions and lots (`?owner=`, defaults to `john`) with an optional free-text reason on each purchase and sale (max 5000 characters; `POST …/lots/{id}/close/preview` names the lots a sale would touch, `GET /api/portfolio/sales` and `PATCH /api/portfolio/sales/{id}` read and edit the sale notes), CSV import, and the **global** shared watchlist (no `?owner=`) |
 | `prices.py` | `/api/securities/{ticker}/…` | OHLCV, technicals and technical/risk signals, RSI, MACD, stochastic, volume + OBV, ATR bands, volume profile, VWAP (+ anchored, + history), candlesticks, higher lows, gaps, drawdown |
 | `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | Chain and contract lookup, exact vertical-spread pricing, IV rank, unusual calls, OI change, GEX profile, gamma-wall history, delta exposure, watchlist screening |
 | `fundamentals.py` | `/api/securities/…` | Fundamental score (+ batch, + changes), revenue growth, earnings acceleration, earnings calendar, history, sector breakdown, cache stats. The four collection reads take `?scope=all\|tracked` (see [Fundamentals across the tracked universe](#fundamentals-across-the-tracked-universe)) |
@@ -923,7 +923,7 @@ should get data, not a 401.
 | `options-analysis-server` | `fastMCPTest/options_analysis.py` | The whole options surface: chain + contracts, exact spread pricing, watchlist scoring, flow (unusual calls, OI change) and dealer positioning (GEX, gamma wall) |
 | `company-fundamentals-server` | `fastMCPTest/company_fundamentals_server.py` | Fundamental score, revenue growth, earnings acceleration, + cross-symbol analytics |
 | `news-sentiment-server` | `fastMCPTest/news_sentiment_server.py` | News collection, per-symbol sentiment, sentiment trend |
-| `portfolio-server` | `fastMCPTest/portfolio_server.py` | Caller's own portfolio (read-only: roll-up, lots, totals) + the shared watchlist (`list_watchlist`, `add_to_watchlist` — no removal tool; removal is a UI action) |
+| `portfolio-server` | `fastMCPTest/portfolio_server.py` | Caller's own portfolio (read-only: roll-up, lots with their purchase notes, sales with their sale notes, totals) + the shared watchlist (`list_watchlist`, `add_to_watchlist` — no removal tool; removal is a UI action) |
 | `arbitrage-server` | `fastMCPTest/arbitrage_server.py` | Arbitrage universe, pair analysis, scan, and cointegration discovery |
 
 ### Exact Options Contract & Spread Pricing

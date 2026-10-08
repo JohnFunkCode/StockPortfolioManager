@@ -17,7 +17,7 @@ from __future__ import annotations
 from contextlib import closing
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from quantcore.db import get_connection
 
@@ -158,6 +158,32 @@ INSERT INTO lot_sales (
     :lot_id, :shares_sold, :sale_price, :sale_trade_date, :fees, :allocation_method, :notes
 )
 RETURNING sale_id;
+"""
+
+# lot_sales has no owner column: ownership is always decided through the lot's
+# positions row (issue #266).
+SQL_LIST_SALES = """
+SELECT
+    ls.sale_id           AS sale_id,
+    ls.lot_id            AS lot_id,
+    s.ticker             AS symbol,
+    ls.shares_sold       AS shares_sold,
+    ls.sale_price        AS sale_price,
+    ls.sale_trade_date   AS sale_trade_date,
+    ls.fees              AS fees,
+    ls.allocation_method AS allocation_method,
+    ls.notes             AS notes
+FROM lot_sales ls
+JOIN positions p ON p.position_id = ls.lot_id
+JOIN symbols s ON s.symbol_id = p.symbol_id
+WHERE p.owner = :owner{symbol_clause}
+ORDER BY ls.sale_trade_date, ls.sale_id;
+"""
+
+SQL_UPDATE_SALE_NOTES = """
+UPDATE lot_sales SET notes = :notes
+WHERE sale_id = :sale_id
+  AND lot_id IN (SELECT position_id FROM positions WHERE owner = :owner);
 """
 
 
@@ -425,6 +451,50 @@ class PortfolioRepository:
                 raise
         return sale_id
 
+    def list_sales(self, owner: str, ticker: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List `owner`'s recorded sales, oldest first; `ticker` narrows to one symbol."""
+        sql = SQL_LIST_SALES.format(
+            symbol_clause="" if ticker is None else "\n  AND s.ticker = :ticker"
+        )
+        params: Dict[str, Any] = {"owner": owner}
+        if ticker is not None:
+            params["ticker"] = ticker.strip().upper()
+        with closing(get_connection()) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [
+            {
+                "sale_id": int(r["sale_id"]),
+                "lot_id": int(r["lot_id"]),
+                "symbol": (r["symbol"] or "").strip().upper(),
+                "shares_sold": _dec(r["shares_sold"]),
+                "sale_price": _dec(r["sale_price"]),
+                "sale_trade_date": str(r["sale_trade_date"]),
+                "fees": _dec(r["fees"]),
+                "allocation_method": r["allocation_method"] or None,
+                "notes": r["notes"] or None,
+            }
+            for r in rows
+        ]
+
+    def update_sale_notes(self, owner: str, sale_id: int, notes: Optional[str]) -> bool:
+        """Set or clear a sale's note. Returns True if a row was updated.
+
+        Owner-scoped through the sale's lot — another owner's `sale_id` matches
+        nothing, so it reads as "not found" rather than leaking existence.
+        """
+        with closing(get_connection()) as conn:
+            try:
+                cur = conn.execute(
+                    SQL_UPDATE_SALE_NOTES,
+                    {"owner": owner, "sale_id": sale_id, "notes": notes},
+                )
+                updated = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return updated > 0
+
     def close_lots(
         self,
         owner: str,
@@ -434,6 +504,7 @@ class PortfolioRepository:
         fees: Any = None,
         allocation_method: Optional[str] = None,
         notes: Optional[str] = None,
+        lot_notes: Optional[Mapping[int, str]] = None,
     ) -> List[Dict[str, Any]]:
         """Atomically record a sale that may span multiple lots (issue #126
         Step 4.3). `allocation` is `[(lot_id, shares), ...]` — the output of
@@ -446,6 +517,10 @@ class PortfolioRepository:
         `purchase_price` with `parent_lot_id` set (partial close). Every lot
         must belong to `owner` and be OPEN. One transaction: any failure
         leaves every lot and `lot_sales` row exactly as it was.
+
+        `notes` is the default sale note written to every `lot_sales` row;
+        `lot_notes` (`{lot_id: note}`) overrides it for individual lots
+        (issue #266). The remainder lot of a split keeps the *purchase* note.
         """
         results: List[Dict[str, Any]] = []
         with closing(get_connection()) as conn:
@@ -463,6 +538,7 @@ class PortfolioRepository:
                             f"{lot['quantity']} open"
                         )
 
+                    sale_notes = (lot_notes or {}).get(lot_id, notes)
                     cur = conn.execute(SQL_INSERT_SALE, {
                         "lot_id": lot_id,
                         "shares_sold": shares,
@@ -470,7 +546,7 @@ class PortfolioRepository:
                         "sale_trade_date": sale_trade_date,
                         "fees": fees,
                         "allocation_method": allocation_method,
-                        "notes": notes,
+                        "notes": sale_notes,
                     })
                     sale_id = int(cur.fetchone()["sale_id"])
 
@@ -503,6 +579,7 @@ class PortfolioRepository:
                         "sale_id": sale_id,
                         "shares_sold": shares,
                         "child_lot_id": child_lot_id,
+                        "notes": sale_notes,
                     })
 
                 conn.commit()

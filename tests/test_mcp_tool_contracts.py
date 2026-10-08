@@ -1,6 +1,6 @@
 """Every MCP tool's REST contract, offline (issue #44, parts 1 and 2).
 
-Each of the 62 tools is called through fastmcp's in-memory ``Client`` with the
+Each of the 63 tools is called through fastmcp's in-memory ``Client`` with the
 REST seam (``mcp_gateway.rest_client``) stubbed by an ``httpx.MockTransport``.
 Per tool this pins:
 
@@ -45,6 +45,13 @@ LOTS = {"lots": [{"symbol": "BRK-B", "qty": 1}, {"symbol": "AAPL", "qty": 2}]}
 POST_PROCESSED = {
     (PF, "get_symbol_lots"): (LOTS, {"ticker": "BRK-B", "lots": [LOTS["lots"][0]]}),
     (PF, "get_portfolio_summary"): ({"symbols": [], "totals": {"value": 10}}, {"value": 10}),
+    (PF, "get_symbol_sales"): (
+        {"sales": [{"sale_id": 1, "notes": "x" * 600}, {"sale_id": 2, "notes": "short"}]},
+        {"ticker": "BRK-B", "sales": [
+            {"sale_id": 1, "notes": "x" * 500 + "…", "notes_truncated": True},
+            {"sale_id": 2, "notes": "short"},
+        ]},
+    ),
 }
 
 _HEALTH_SERVER = {OA: "options-analysis-server", PF: "portfolio-server",
@@ -246,7 +253,7 @@ class TestEveryToolHasAContract(unittest.TestCase):
 
     def test_total_matches_the_documented_count(self):
         # CLAUDE.md states the count (anchored `grep -c "^@mcp.tool"`); keep them in step.
-        self.assertEqual(len(CASES), 62)
+        self.assertEqual(len(CASES), 63)
 
 
 if __name__ == "__main__":

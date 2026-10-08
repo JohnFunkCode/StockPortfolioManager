@@ -2,14 +2,18 @@ import { apiRequest } from './client';
 import type {
   CloseLotPayload,
   CloseLotResponse,
+  ClosePreviewResponse,
   CreateLotPayload,
   CreateLotResponse,
   DeleteLotResponse,
   Lot,
   PortfolioTotals,
+  Sale,
   SymbolRow,
   UpdateLotPayload,
   UpdateLotResponse,
+  UpdateSalePayload,
+  UpdateSaleResponse,
 } from './portfolioTypes';
 
 export const portfolioApi = {
@@ -41,6 +45,24 @@ export const portfolioApi = {
   closeLot: (lotId: number, data: CloseLotPayload) =>
     apiRequest<CloseLotResponse>(`/api/portfolio/lots/${lotId}/close`, {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  /** Which lots a sale of `shares` would touch; writes nothing. */
+  previewClose: (lotId: number, shares: number) =>
+    apiRequest<ClosePreviewResponse>(`/api/portfolio/lots/${lotId}/close/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ shares }),
+    }),
+
+  getSales: (symbol?: string) =>
+    apiRequest<{ sales: Sale[] }>(
+      `/api/portfolio/sales${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`
+    ),
+
+  updateSale: (saleId: number, data: UpdateSalePayload) =>
+    apiRequest<UpdateSaleResponse>(`/api/portfolio/sales/${saleId}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 };

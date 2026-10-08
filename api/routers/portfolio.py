@@ -9,6 +9,9 @@ Ports the Flask handlers (api/app.py) for:
   DELETE    /api/watchlist/{ticker}
   GET       /api/securities
   GET       /api/securities/lookup
+  POST      /api/portfolio/lots/{lot_id}/close/preview   (issue #266)
+  GET       /api/portfolio/sales                          (issue #266)
+  PATCH     /api/portfolio/sales/{sale_id}                (issue #266)
 
 The owner is resolved from the authenticated principal via ``require_owner``
 (issue #126 decision #1) — there is no ``?owner=`` query param; there is no
@@ -46,6 +49,8 @@ from ..schemas.portfolio import (
     AddWatchlistResponse,
     CloseLotRequest,
     CloseLotResponse,
+    ClosePreviewRequest,
+    ClosePreviewResponse,
     CreateLotRequest,
     CreateLotResponse,
     DeleteLotResponse,
@@ -53,11 +58,14 @@ from ..schemas.portfolio import (
     LotsResponse,
     RemovePositionResponse,
     RemoveWatchlistResponse,
+    SalesResponse,
     SecuritiesResponse,
     SymbolLookupResponse,
     SymbolRowsResponse,
     UpdateLotRequest,
     UpdateLotResponse,
+    UpdateSaleRequest,
+    UpdateSaleResponse,
     UpdateWatchlistTagsRequest,
     UpdateWatchlistTagsResponse,
     WatchlistFundamentalsResponse,
@@ -231,6 +239,8 @@ def close_lot(
             method=body.method,
             lots=body.lots,
             fees=body.fees,
+            notes=body.notes,
+            lot_notes=body.lot_notes,
         )
     except ValueError as exc:
         message = str(exc)
@@ -242,6 +252,45 @@ def close_lot(
             status = 422
         return route_error_plain(message, status)
     return QuantCoreJSONResponse(result)
+
+
+@router.post(
+    "/portfolio/lots/{lot_id}/close/preview", response_model=ClosePreviewResponse
+)
+def preview_close_lot(
+    lot_id: int, body: ClosePreviewRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    """Which lots a sale would touch — read-only (issue #266)."""
+    try:
+        result = services().portfolio.preview_close(
+            owner, lot_id, shares=body.shares, method=body.method, lots=body.lots
+        )
+    except ValueError as exc:
+        message = str(exc)
+        return route_error_plain(message, 404 if "not found" in message else 422)
+    return QuantCoreJSONResponse(result)
+
+
+@router.get("/portfolio/sales", response_model=SalesResponse)
+def get_sales(
+    symbol: Optional[str] = None, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    """The owner's recorded sales with their notes (issue #266)."""
+    return QuantCoreJSONResponse(
+        {"sales": services().portfolio.list_sales(owner, symbol)}
+    )
+
+
+@router.patch("/portfolio/sales/{sale_id}", response_model=UpdateSaleResponse)
+def update_sale(
+    sale_id: int, body: UpdateSaleRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    if "notes" not in body.model_fields_set:
+        return route_error_plain("no fields to update", 400)
+    updated = services().portfolio.update_sale_notes(owner, sale_id, body.notes)
+    if not updated:
+        return route_error_plain(f"sale {sale_id} not found", 404)
+    return QuantCoreJSONResponse({"sale_id": sale_id, "updated": True})
 
 
 # --------------------------------------------------------------------------- #

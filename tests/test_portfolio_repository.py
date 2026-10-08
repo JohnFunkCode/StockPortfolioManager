@@ -257,5 +257,127 @@ class PortfolioRepositoryCloseLotsTest(unittest.TestCase):
         self.assertEqual(row["n"], 0)
 
 
+class PortfolioRepositorySaleNotesTest(unittest.TestCase):
+    """Issue #266: the reason for a sale is recorded per lot_sales row, can be
+    read back (list_sales) and edited (update_sale_notes), and every one of
+    those paths is owner-scoped through the sale's lot."""
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM positions WHERE owner = %s", (OWNER,))
+            conn.commit()
+
+    def _row(self, **overrides):
+        row = {
+            "name": "Test Lot",
+            "symbol": SYMBOL,
+            "purchase_price": 10.0,
+            "quantity": 5,
+            "purchase_date": "2026-01-02",
+            "currency": "USD",
+        }
+        row.update(overrides)
+        return row
+
+    def _two_lots(self):
+        lot1 = self.repo.add_position(OWNER, self._row(purchase_date="2026-01-01"))
+        lot2 = self.repo.add_position(OWNER, self._row(purchase_date="2026-02-01"))
+        return lot1, lot2
+
+    def _close_both(self, **kwargs):
+        lot1, lot2 = self._two_lots()
+        results = self.repo.close_lots(
+            OWNER, [(lot1, Decimal("5")), (lot2, Decimal("3"))],
+            sale_price=Decimal("18.00"), sale_trade_date="2026-03-01",
+            allocation_method="FIFO", **kwargs,
+        )
+        return lot1, lot2, results
+
+    def test_default_note_is_written_to_every_sale_row(self):
+        _, _, results = self._close_both(notes="Rebalancing")
+
+        self.assertEqual([r["notes"] for r in results], ["Rebalancing", "Rebalancing"])
+        sales = self.repo.list_sales(OWNER, SYMBOL)
+        self.assertEqual([s["notes"] for s in sales], ["Rebalancing", "Rebalancing"])
+
+    def test_lot_notes_override_the_default_for_one_lot(self):
+        lot1, lot2 = self._two_lots()
+        self.repo.close_lots(
+            OWNER, [(lot1, Decimal("5")), (lot2, Decimal("3"))],
+            sale_price=Decimal("18.00"), sale_trade_date="2026-03-01",
+            allocation_method="FIFO", notes="default", lot_notes={lot2: "specific"},
+        )
+        by_lot = {s["lot_id"]: s["notes"] for s in self.repo.list_sales(OWNER)}
+        self.assertEqual(by_lot, {lot1: "default", lot2: "specific"})
+
+    def test_a_sale_without_notes_stores_none(self):
+        self._close_both()
+        self.assertTrue(all(s["notes"] is None for s in self.repo.list_sales(OWNER)))
+
+    def test_partial_close_child_keeps_the_purchase_note(self):
+        lot_id = self.repo.add_position(OWNER, self._row(quantity=10, notes="thesis"))
+
+        results = self.repo.close_lots(
+            OWNER, [(lot_id, Decimal("4"))], sale_price=Decimal("20.00"),
+            sale_trade_date="2026-03-01", allocation_method="FIFO", notes="trim",
+        )
+
+        child = self.repo.get_lot(OWNER, results[0]["child_lot_id"])
+        self.assertEqual(child["notes"], "thesis")
+        self.assertEqual(self.repo.get_lot(OWNER, lot_id)["notes"], "thesis")
+        self.assertEqual(self.repo.list_sales(OWNER)[0]["notes"], "trim")
+
+    def test_list_sales_returns_the_sale_fields(self):
+        lot_id = self.repo.add_position(OWNER, self._row(quantity=10))
+        self.repo.close_lots(
+            OWNER, [(lot_id, Decimal("10"))], sale_price=Decimal("15.00"),
+            sale_trade_date="2026-03-01", allocation_method="FIFO", notes="why",
+        )
+
+        (sale,) = self.repo.list_sales(OWNER)
+        self.assertEqual(sale["lot_id"], lot_id)
+        self.assertEqual(sale["symbol"], SYMBOL)
+        self.assertEqual(sale["shares_sold"], Decimal("10"))
+        self.assertEqual(sale["sale_price"], Decimal("15"))
+        self.assertEqual(sale["sale_trade_date"], "2026-03-01")
+        self.assertEqual(sale["allocation_method"], "FIFO")
+        self.assertEqual(sale["notes"], "why")
+
+    def test_list_sales_is_scoped_by_owner_and_symbol(self):
+        self._close_both(notes="mine")
+
+        self.assertEqual(len(self.repo.list_sales(OWNER)), 2)
+        self.assertEqual(len(self.repo.list_sales(OWNER, SYMBOL.lower())), 2)
+        self.assertEqual(self.repo.list_sales(OWNER, "ZZOTHER"), [])
+        self.assertEqual(self.repo.list_sales("zz_someone_else"), [])
+
+    def test_update_sale_notes_sets_and_clears(self):
+        _, _, results = self._close_both(notes="before")
+        sale_id = results[0]["sale_id"]
+
+        self.assertTrue(self.repo.update_sale_notes(OWNER, sale_id, "after"))
+        by_id = {s["sale_id"]: s["notes"] for s in self.repo.list_sales(OWNER)}
+        self.assertEqual(by_id[sale_id], "after")
+        self.assertEqual(by_id[results[1]["sale_id"]], "before")
+
+        self.assertTrue(self.repo.update_sale_notes(OWNER, sale_id, None))
+        by_id = {s["sale_id"]: s["notes"] for s in self.repo.list_sales(OWNER)}
+        self.assertIsNone(by_id[sale_id])
+
+    def test_update_sale_notes_is_owner_scoped(self):
+        _, _, results = self._close_both(notes="mine")
+        sale_id = results[0]["sale_id"]
+
+        self.assertFalse(self.repo.update_sale_notes("zz_someone_else", sale_id, "hijack"))
+        self.assertFalse(self.repo.update_sale_notes(OWNER, 999999999, "nobody"))
+        by_id = {s["sale_id"]: s["notes"] for s in self.repo.list_sales(OWNER)}
+        self.assertEqual(by_id[sale_id], "mine")
+
+
 if __name__ == "__main__":
     unittest.main()

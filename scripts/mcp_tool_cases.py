@@ -182,10 +182,11 @@ CASES = {
     (MA, "get_bid_ask_spread"): [({"symbol": "BRK-B"}, G(
         f"{SEC}/bid-ask-spread", lookback="20"))],
 
-    # ---- portfolio (6) ---------------------------------------------------
+    # ---- portfolio (7) ---------------------------------------------------
     (PF, "mcp_health_check"): [({}, None)],
     (PF, "get_portfolio"): [({}, G("/api/portfolio/symbols"))],
     (PF, "get_symbol_lots"): [({"ticker": " brk-b "}, G("/api/portfolio/lots"))],
+    (PF, "get_symbol_sales"): [({"ticker": " brk-b "}, G("/api/portfolio/sales", symbol="BRK-B"))],
     (PF, "get_portfolio_summary"): [({}, G("/api/portfolio/symbols"))],
     (PF, "list_watchlist"): [({}, G("/api/watchlist"))],
     (PF, "add_to_watchlist"): [

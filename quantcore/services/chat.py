@@ -315,6 +315,21 @@ def _split_csv(raw) -> list[str]:
     return [str(p).strip().upper() for p in parts if str(p).strip()]
 
 
+# Lot and sale notes are free text of up to 5000 characters (issue #266); cap
+# what the model is handed so a symbol with many long notes cannot flood its
+# context. Mirrors NOTE_PREVIEW_CHARS in fastMCPTest/portfolio_server.py.
+NOTE_PREVIEW_CHARS = 500
+
+
+def _note_fields(note) -> dict:
+    """`{"notes": ...}` for a lot or sale that has a note, else nothing."""
+    if not note:
+        return {}
+    if len(note) > NOTE_PREVIEW_CHARS:
+        return {"notes": note[:NOTE_PREVIEW_CHARS] + "…", "notes_truncated": True}
+    return {"notes": note}
+
+
 def _plain(value):
     """Coerce a repository/service value into something json.dumps accepts.
 
@@ -556,10 +571,19 @@ class ChatService:
                     "price_stale",
                 )
             }
+            | _note_fields(lot.get("notes"))
             for lot in self._portfolio.list_lots(owner, status="OPEN")
             if lot["symbol"] == symbol
         ]
-        return {"symbol": symbol, "lot_count": len(lots), "lots": lots}
+        sales = [
+            {
+                key: _plain(sale.get(key))
+                for key in ("sale_trade_date", "shares_sold", "sale_price")
+            }
+            | _note_fields(sale.get("notes"))
+            for sale in self._portfolio.list_sales(owner, symbol)
+        ]
+        return {"symbol": symbol, "lot_count": len(lots), "lots": lots, "sales": sales}
 
     def _resolve_model(self, context: TurnContext) -> str:
         """Requested model wins if allow-listed; else fall back to the

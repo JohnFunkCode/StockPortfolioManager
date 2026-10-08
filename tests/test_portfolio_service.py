@@ -506,6 +506,101 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
                 sale_trade_date="2026-03-01",
             )
 
+    # ---- lot / sale notes (issue #266) --------------------------------
+    def test_close_lot_records_a_trimmed_sale_note(self):
+        lot_id = self._add(symbol="ZZTEST", quantity="10")
+
+        result = self.service.close_lot(
+            OWNER_A, lot_id, shares="4", sale_price="15.00",
+            sale_trade_date="2026-03-01", notes="  Hit my target  ",
+        )
+
+        self.assertEqual(result["allocations"][0]["notes"], "Hit my target")
+        (sale,) = self.service.list_sales(OWNER_A, "zztest")
+        self.assertEqual(sale["notes"], "Hit my target")
+        self.assertEqual(sale["symbol"], "ZZTEST")
+
+    def test_close_lot_stores_a_blank_note_as_none(self):
+        lot_id = self._add(symbol="ZZTEST", quantity="10")
+
+        result = self.service.close_lot(
+            OWNER_A, lot_id, shares="4", sale_price="15.00",
+            sale_trade_date="2026-03-01", notes="   ",
+        )
+
+        self.assertIsNone(result["allocations"][0]["notes"])
+
+    def test_close_lot_lot_notes_override_the_default_per_lot(self):
+        lot1 = self._add(symbol="ZZTEST", quantity="5", purchase_date="2020-01-01")
+        lot2 = self._add(symbol="ZZTEST", quantity="5", purchase_date="2020-02-01")
+
+        result = self.service.close_lot(
+            OWNER_A, lot1, shares="8", sale_price="15.00",
+            sale_trade_date="2026-03-01", method="FIFO",
+            notes="default", lot_notes={lot2: "  specific  "},
+        )
+
+        by_lot = {a["lot_id"]: a["notes"] for a in result["allocations"]}
+        self.assertEqual(by_lot, {lot1: "default", lot2: "specific"})
+
+    def test_close_lot_rejects_lot_notes_outside_the_sale_and_writes_nothing(self):
+        lot_id = self._add(symbol="ZZTEST", quantity="10")
+
+        with self.assertRaises(ValueError):
+            self.service.close_lot(
+                OWNER_A, lot_id, shares="4", sale_price="15.00",
+                sale_trade_date="2026-03-01", lot_notes={999999: "stray"},
+            )
+
+        (lot,) = self.service.list_positions(OWNER_A)
+        self.assertEqual(lot["quantity"], Decimal("10"))
+        self.assertEqual(self.service.list_sales(OWNER_A), [])
+
+    def test_preview_close_names_the_lots_without_writing(self):
+        lot1 = self._add(symbol="ZZTEST", quantity="5", purchase_date="2020-01-01")
+        lot2 = self._add(symbol="ZZTEST", quantity="5", purchase_date="2020-02-01")
+
+        preview = self.service.preview_close(OWNER_A, lot2, shares="8")
+
+        self.assertEqual(preview["symbol"], "ZZTEST")
+        self.assertEqual(
+            [(a["lot_id"], a["shares"]) for a in preview["allocations"]],
+            [(lot1, Decimal("5")), (lot2, Decimal("3"))],
+        )
+        self.assertEqual(preview["allocations"][0]["purchase_price"], Decimal("10.00"))
+        self.assertIn("trade_date", preview["allocations"][0])
+        self.assertEqual(len(self.service.list_positions(OWNER_A)), 2)
+        self.assertEqual(self.service.list_sales(OWNER_A), [])
+
+    def test_preview_close_unknown_lot_raises(self):
+        with self.assertRaises(ValueError):
+            self.service.preview_close(OWNER_A, 999999, shares="1")
+
+    def test_update_sale_notes_trims_clears_and_is_owner_scoped(self):
+        lot_id = self._add(symbol="ZZTEST", quantity="10")
+        result = self.service.close_lot(
+            OWNER_A, lot_id, shares="4", sale_price="15.00",
+            sale_trade_date="2026-03-01", notes="before",
+        )
+        sale_id = result["allocations"][0]["sale_id"]
+
+        self.assertTrue(self.service.update_sale_notes(OWNER_A, sale_id, "  edited  "))
+        self.assertEqual(self.service.list_sales(OWNER_A)[0]["notes"], "edited")
+
+        self.assertTrue(self.service.update_sale_notes(OWNER_A, sale_id, "   "))
+        self.assertIsNone(self.service.list_sales(OWNER_A)[0]["notes"])
+
+        self.assertFalse(self.service.update_sale_notes(OWNER_B, sale_id, "hijack"))
+        self.assertEqual(self.service.list_sales(OWNER_B), [])
+
+    def test_update_lot_blank_note_clears_it(self):
+        lot_id = self._add(symbol="ZZTEST", notes="old reason")
+        self.assertEqual(self.service.list_positions(OWNER_A)[0]["notes"], "old reason")
+
+        self.assertTrue(self.service.update_lot(OWNER_A, lot_id, notes="   "))
+
+        self.assertIsNone(self.service.list_positions(OWNER_A)[0]["notes"])
+
 
 class AllSymbolsTest(unittest.TestCase):
     """Half of the "tracked" roster the fundamentals views scope to (#147 B4).

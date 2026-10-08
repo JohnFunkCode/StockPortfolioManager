@@ -1,10 +1,11 @@
 """
 Portfolio MCP Server (issue #126 PR 4, Step 4.8; watchlist tools from issue #83)
 
-Provides three read-only tools over the caller's own portfolio:
+Provides four read-only tools over the caller's own portfolio:
 
   get_portfolio         — per-symbol roll-up (value, gain/loss, $/day) + totals
   get_symbol_lots        — the individual lots making up one symbol's position
+  get_symbol_sales       — the recorded sales of one symbol, with why each happened
   get_portfolio_summary  — just the portfolio-wide totals
 
 plus two tools over the shared watchlist:
@@ -61,6 +62,18 @@ from mcp_gateway.serve import local_host
 
 mcp = FastMCP("portfolio-server")
 
+# Lot and sale notes are free text of up to 5000 characters (issue #266). What a
+# tool hands the model is capped so a symbol with many long notes cannot flood
+# its context; the full text stays available from the REST tier.
+NOTE_PREVIEW_CHARS = 500
+
+
+def _truncate_note(item: dict) -> dict:
+    note = item.get("notes")
+    if isinstance(note, str) and len(note) > NOTE_PREVIEW_CHARS:
+        return {**item, "notes": note[:NOTE_PREVIEW_CHARS] + "…", "notes_truncated": True}
+    return item
+
 
 @mcp.tool()
 def mcp_health_check() -> dict:
@@ -103,12 +116,37 @@ def get_symbol_lots(ticker: str) -> dict:
     basis or when a specific lot was opened, which the per-symbol roll-up
     from get_portfolio collapses away.
 
+    A lot's `notes` is the user's own reason for buying it, when they wrote
+    one. Notes longer than 500 characters are cut and flagged with
+    `notes_truncated: true`.
+
     Args:
         ticker: Stock ticker symbol (e.g. 'AAPL')
     """
     ticker = ticker.strip().upper()
     lots = rest_client.get("/api/portfolio/lots").get("lots", [])
-    return {"ticker": ticker, "lots": [lot for lot in lots if lot.get("symbol") == ticker]}
+    return {
+        "ticker": ticker,
+        "lots": [_truncate_note(lot) for lot in lots if lot.get("symbol") == ticker],
+    }
+
+
+@mcp.tool()
+def get_symbol_sales(ticker: str) -> dict:
+    """Return the caller's recorded sales of one symbol, oldest first.
+
+    One entry per lot a sale drew from — shares sold, sale price, sale date,
+    fees — and `notes`, the user's own reason for selling when they wrote one.
+    Pair with get_symbol_lots (which carries the reason for buying) to compare
+    why a position was opened with why it was closed. Notes longer than 500
+    characters are cut and flagged with `notes_truncated: true`.
+
+    Args:
+        ticker: Stock ticker symbol (e.g. 'AAPL')
+    """
+    ticker = ticker.strip().upper()
+    sales = rest_client.get("/api/portfolio/sales", symbol=ticker).get("sales", [])
+    return {"ticker": ticker, "sales": [_truncate_note(sale) for sale in sales]}
 
 
 @mcp.tool()

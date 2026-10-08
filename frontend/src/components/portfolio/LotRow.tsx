@@ -1,12 +1,15 @@
 import { useState } from 'react';
-import { IconButton, Stack, TableCell, TableRow, TextField, Tooltip, Typography } from '@mui/material';
+import { Box, IconButton, Stack, TableCell, TableRow, TextField, Tooltip, Typography } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import SellIcon from '@mui/icons-material/Sell';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
+import NotesIcon from '@mui/icons-material/Notes';
+import StickyNote2OutlinedIcon from '@mui/icons-material/StickyNote2Outlined';
 import ConfirmDialog from '../common/ConfirmDialog';
 import CloseLotDialog from './CloseLotDialog';
+import EditLotNoteDialog from './EditLotNoteDialog';
 import { useDeleteLot, useUpdateLot } from '../../hooks/usePortfolio';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw, formatShares } from '../../utils/formatting';
 import type { Lot } from '../../api/portfolioTypes';
@@ -22,6 +25,7 @@ export default function LotRow({ lot }: { lot: Lot }) {
   const [quantity, setQuantity] = useState(String(lot.quantity ?? ''));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
 
   const updateLot = useUpdateLot();
   const deleteLot = useDeleteLot();
@@ -52,7 +56,18 @@ export default function LotRow({ lot }: { lot: Lot }) {
   return (
     <>
       <TableRow>
-        <TableCell />
+        <TableCell>
+          {lot.notes && (
+            <Tooltip
+              title={<span style={{ whiteSpace: 'pre-wrap' }}>{lot.notes}</span>}
+              slotProps={{ tooltip: { sx: { maxWidth: 420 } } }}
+            >
+              <Box component="span" role="img" aria-label="Lot note" sx={{ display: 'inline-flex' }}>
+                <NotesIcon fontSize="small" color="action" />
+              </Box>
+            </Tooltip>
+          )}
+        </TableCell>
         <TableCell>
           {editing ? (
             <TextField
@@ -110,6 +125,11 @@ export default function LotRow({ lot }: { lot: Lot }) {
                   <EditIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
+              <Tooltip title="Edit note">
+                <IconButton size="small" onClick={() => setEditingNote(true)}>
+                  <StickyNote2OutlinedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
               <Tooltip title="Sell / close lot">
                 <IconButton size="small" onClick={() => setClosing(true)}>
                   <SellIcon fontSize="small" />
@@ -146,6 +166,7 @@ export default function LotRow({ lot }: { lot: Lot }) {
       />
 
       {closing && <CloseLotDialog open lot={lot} onClose={() => setClosing(false)} />}
+      {editingNote && <EditLotNoteDialog open lot={lot} onClose={() => setEditingNote(false)} />}
     </>
   );
 }

@@ -2,8 +2,8 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-08-14
-**MCP Tools:** 62 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 91 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 8 nav pages + 2 drill-downs (+ Sidekick chat rail) | **CLI Tools:** 1 | **Standalone Scripts:** ~10
+**Last Updated:** 2026-10-08
+**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 111 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 8 nav pages + 2 drill-downs (+ Sidekick chat rail) | **CLI Tools:** 1 | **Standalone Scripts:** ~10
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18** (browser key vault + Settings page + `keyproxy` credential-isolation service; per-user ES256 JWTs replaced the static UI→API token). Phase 3 Step 1 closed the residual MCP-tool→REST-endpoint gaps, so **every MCP tool now has a REST equivalent**. Issue #93 ("Recover Phases 3-7: Support-Level Analysis Tools", PR #108, merged 2026-07-20) added 4 more analysis tools (volume profile, support confluence, OI-change analysis, signed GEX profile) — all REST-exposed, one (`get_support_confluence`) is also WebUI-surfaced. The surface-parity problem this document originally tracked has moved almost entirely to the WebUI layer. See the section immediately below.
 
@@ -11,7 +11,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 
 ## ⭐ Built But Not Yet Surfaced in the WebUI
 
-**Headline finding, refreshed 2026-07-20.** The REST tier exposes 91 operations, but the React frontend calls only a subset of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
+**Headline finding, refreshed 2026-07-20.** The REST tier exposes 111 operations (91 when this frontend-coverage audit was last done), but the React frontend calls only a subset of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
 
 > **Partially superseded — the gap list below was last fully audited 2026-07-20.** Issue #147 Parts C
 > and D have since shipped the **Watchlist** and **Fundamentals** pages, which closed the
@@ -79,14 +79,14 @@ This document is a comprehensive inventory of every user-facing capability in th
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (7 servers) | 62 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 91 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
+| REST Endpoints | 111 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 8 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Securities, Watchlist, Fundamentals, Arbitrage, Settings (BYOK keys); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 15 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server). `collect_options.py` has been **deleted** |
 | Standalone Scripts | ~10 | `main.py` (daily report Job), watchlist fundamentals report, INTC/WMT spread monitors, `import_portfolio.py`, migration/ops scripts |
 
-**MCP tool count by server (verified against source, 2026-08-14 — issue #208):** stock-price 21 · company-fundamentals 12 · options-analysis 11 · portfolio 6 · arbitrage 5 · news-sentiment 4 · market-analysis 3 = **62 tools across 7 servers**. **No tool is dual-registered.** The prior revision of this document claimed `get_option_contracts` and `price_vertical_spread` appeared on both stock-price and options-analysis; they do not — `60e4bcd` ("consolidate options tools onto options-analysis-server") moved every options tool off stock-price, which is the whole of the 29→21 drop. The claim appears only in this document — `CLAUDE.md` never carried it, though it did say "5 remote MCP servers in `.mcp.json`" when there are 7, corrected in the same PR as this refresh.
+**MCP tool count by server (verified against source, 2026-08-14 — issue #208):** stock-price 21 · company-fundamentals 12 · options-analysis 11 · portfolio 7 · arbitrage 5 · news-sentiment 4 · market-analysis 3 = **63 tools across 7 servers**. **No tool is dual-registered.** The prior revision of this document claimed `get_option_contracts` and `price_vertical_spread` appeared on both stock-price and options-analysis; they do not — `60e4bcd` ("consolidate options tools onto options-analysis-server") moved every options tool off stock-price, which is the whole of the 29→21 drop. The claim appears only in this document — `CLAUDE.md` never carried it, though it did say "5 remote MCP servers in `.mcp.json`" when there are 7, corrected in the same PR as this refresh.
 
 Count it with the **anchored** grep — `grep -c "^@mcp.tool" fastMCPTest/*.py`. The unanchored form over-counts: `fastMCPTest/options_analysis.py` mentions `@mcp.tool()` inside its module docstring, which reads as a 12th tool that does not exist.
 
@@ -251,10 +251,12 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 |---|---|---|---|---|---|
 | Per-symbol position rows (quantity, basis, current value, gain/loss, `active_plan_id`) | `get_portfolio` | `GET /api/portfolio/symbols` | Portfolio, Securities pages | `portfolio_table` / `portfolio_allocation` cards | `main.py` (report) |
 | Portfolio totals (cost basis, current value, gain/loss $ and %, $/day) | `get_portfolio_summary` | `GET /api/portfolio/symbols` → `totals` | Portfolio page header | `get_portfolio_summary` (issue #208) | — |
-| Per-symbol lots (quantity, purchase price, date, gain/loss) | `get_symbol_lots` | `GET /api/portfolio/lots` (filtered to the ticker by the caller) | Portfolio page → symbol drill-down | `get_symbol_lots` (issue #208), `symbol_lots` card | — |
+| Per-symbol lots (quantity, purchase price, date, gain/loss, and the reason it was bought) | `get_symbol_lots` | `GET /api/portfolio/lots` (filtered to the ticker by the caller) | Portfolio page → symbol drill-down | `get_symbol_lots` (issue #208), `symbol_lots` card | — |
+| Recorded sales of a symbol, with the reason for each (issue #266) | `get_symbol_sales` | `GET /api/portfolio/sales?symbol=` | — (sale notes are shown in the realized-P/L view, #235) | `get_symbol_lots` (returns `sales` alongside `lots`) | — |
 | Legacy flat position list | — | `GET /api/portfolio` | — | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / remove action | — | — |
-| Lot lifecycle (create / edit / delete / close) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close` | Portfolio page lot dialogs | — | — |
+| Lot lifecycle (create / edit / delete / close), with an optional reason on each purchase and sale (issue #266; `lot_notes` gives each lot of a multi-lot sale its own reason) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close`, `POST .../lots/{id}/close/preview` (read-only: which lots a sale would touch) | Portfolio page lot dialogs, lot-row note icon + Edit note | — | — |
+| Edit a sale's reason (issue #266) | — | `PATCH /api/portfolio/sales/{id}` | — (API only until #235) | — | — |
 | **⚠ Bulk CSV import (full-sync per owner)** | — | `POST /api/portfolio/import` | **—** | — | `scripts/import_portfolio.py --csv portfolio.csv --owner john` |
 | View / add watchlist | `list_watchlist`, `add_to_watchlist` | `GET`/`POST /api/watchlist` | Securities page + AddSecurityDialog | — | `scripts/import_watchlist.py` |
 | Watchlist returns + fundamentals (ranked, 6 queries, 0 network calls) | — | `GET /api/watchlist/fundamentals` | **Watchlist page** | `watchlist_fundamentals` card | — |
@@ -340,7 +342,7 @@ One unified **QuantCore** PostgreSQL database (17 tables, `psycopg2` via `QUANTC
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (91 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (111 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, options analytics (IV rank, max pain, P/C history), technical signals, portfolio/watchlist CRUD, and the sentiment dashboard** are all fully surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, gated digest-promotion to prod, IAP-gated UI, per-user JWTs, daily report Job.

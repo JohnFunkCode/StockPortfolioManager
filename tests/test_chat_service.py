@@ -1148,8 +1148,29 @@ class TestPortfolioTools(ChatServiceTestBase):
                 "days_held": 200,
                 "dollars_per_day": Decimal("1.25"),
                 "price_stale": False,
+                "notes": "Breakout above the 200-day",
             },
             {"symbol": "MSFT", "quantity": Decimal("5")},
+        ]
+        self.portfolio.list_sales.return_value = [
+            {
+                "sale_id": 7,
+                "lot_id": 3,
+                "symbol": "AAPL",
+                "shares_sold": Decimal("4"),
+                "sale_price": Decimal("130.50"),
+                "sale_trade_date": "2026-03-02",
+                "notes": "Hit my target",
+            },
+            {
+                "sale_id": 8,
+                "lot_id": 4,
+                "symbol": "AAPL",
+                "shares_sold": Decimal("1"),
+                "sale_price": Decimal("131.00"),
+                "sale_trade_date": "2026-03-03",
+                "notes": None,
+            },
         ]
 
     def test_summary_reads_the_resolved_owner(self):
@@ -1180,6 +1201,31 @@ class TestPortfolioTools(ChatServiceTestBase):
         self.assertEqual(payload["lot_count"], 1)
         self.assertEqual(payload["lots"][0]["trade_date"], "2026-01-15")
         self.assertEqual(payload["lots"][0]["purchase_price"], 100.0)
+
+    def test_symbol_lots_carries_the_purchase_and_sale_reasons(self):
+        """Issue #266: the model can answer "why did I buy/sell X?"."""
+        _, client = self.tool_turn(
+            "get_symbol_lots", {"ticker": "aapl"}, context=self.OWNED
+        )
+        self.portfolio.list_sales.assert_called_once_with("john", "AAPL")
+        payload = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+        self.assertEqual(payload["lots"][0]["notes"], "Breakout above the 200-day")
+        self.assertEqual(payload["sales"][0]["notes"], "Hit my target")
+        self.assertEqual(payload["sales"][0]["sale_price"], 130.5)
+        self.assertEqual(payload["sales"][0]["sale_trade_date"], "2026-03-02")
+        # A sale without a note carries no `notes` key at all.
+        self.assertNotIn("notes", payload["sales"][1])
+
+    def test_symbol_lots_truncates_long_notes(self):
+        """A 5000-character note must not flood the model's context."""
+        self.portfolio.list_lots.return_value[0]["notes"] = "x" * 600
+        _, client = self.tool_turn(
+            "get_symbol_lots", {"ticker": "aapl"}, context=self.OWNED
+        )
+        payload = json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+        lot = payload["lots"][0]
+        self.assertEqual(lot["notes"], "x" * 500 + "\u2026")
+        self.assertTrue(lot["notes_truncated"])
 
     def test_a_model_supplied_owner_is_discarded_not_forwarded(self):
         """No schema declares an `owner`, so its presence means the model

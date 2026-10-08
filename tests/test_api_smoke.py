@@ -732,6 +732,159 @@ class LotRoutesTest(unittest.TestCase):
         self.assertEqual(body["symbol"], self.SYMBOL)
         self.assertEqual(len(body["allocations"]), 1)
 
+    # ---- lot / sale notes (issue #266) --------------------------------
+    def _close_url(self, lot):
+        return f"/api/portfolio/lots/{lot['lot_id']}/close"
+
+    def _sales(self):
+        resp = self.client.get("/api/portfolio/sales", params={"symbol": self.SYMBOL})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        return resp.json()["sales"]
+
+    def test_create_lot_round_trips_the_purchase_note(self):
+        lot = self._create_lot(notes="Breakout above the 200-day")
+        self.assertEqual(lot["notes"], "Breakout above the 200-day")
+
+    def test_create_lot_rejects_a_note_over_the_cap(self):
+        resp = self.client.post("/api/portfolio/lots", json={
+            "symbol": self.SYMBOL, "purchase_price": "10.00", "quantity": "5",
+            "trade_date": "2026-06-01", "notes": "x" * 5001,
+        })
+        self.assertEqual(resp.status_code, 422)
+
+    def test_update_lot_can_clear_the_purchase_note(self):
+        lot = self._create_lot(notes="old reason")
+        resp = self.client.patch(f"/api/portfolio/lots/{lot['lot_id']}", json={"notes": ""})
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        lots = self.client.get("/api/portfolio/lots").json()["lots"]
+        mine = next(l for l in lots if l["lot_id"] == lot["lot_id"])
+        self.assertIsNone(mine["notes"])
+
+    def test_close_lot_records_the_sale_note(self):
+        lot = self._create_lot()
+        resp = self.client.post(self._close_url(lot), json={
+            "shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "notes": "Hit my target",
+        })
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["allocations"][0]["notes"], "Hit my target")
+
+        (sale,) = self._sales()
+        self.assertEqual(sale["notes"], "Hit my target")
+        self.assertEqual(sale["symbol"], self.SYMBOL)
+        self.assertEqual(sale["lot_id"], lot["lot_id"])
+
+    def test_close_lot_per_lot_notes_across_two_lots(self):
+        older = self._create_lot(trade_date="2026-05-01")
+        newer = self._create_lot(trade_date="2026-06-01")
+
+        resp = self.client.post(self._close_url(older), json={
+            "shares": "7", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "notes": "default", "lot_notes": {str(newer["lot_id"]): "specific"},
+        })
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        by_lot = {s["lot_id"]: s["notes"] for s in self._sales()}
+        self.assertEqual(by_lot, {older["lot_id"]: "default", newer["lot_id"]: "specific"})
+
+    def test_close_lot_rejects_lot_notes_for_a_lot_outside_the_sale(self):
+        lot = self._create_lot()
+        resp = self.client.post(self._close_url(lot), json={
+            "shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "lot_notes": {"999999999": "stray"},
+        })
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(self._sales(), [])
+
+    def test_close_lot_rejects_a_note_over_the_cap(self):
+        lot = self._create_lot()
+        resp = self.client.post(self._close_url(lot), json={
+            "shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "notes": "x" * 5001,
+        })
+        self.assertEqual(resp.status_code, 422)
+
+    def test_close_preview_lists_the_lots_a_sale_would_touch(self):
+        older = self._create_lot(trade_date="2026-05-01")
+        newer = self._create_lot(trade_date="2026-06-01")
+
+        resp = self.client.post(
+            f"/api/portfolio/lots/{newer['lot_id']}/close/preview", json={"shares": "7"}
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["symbol"], self.SYMBOL)
+        self.assertEqual(
+            [a["lot_id"] for a in body["allocations"]], [older["lot_id"], newer["lot_id"]]
+        )
+        # Read-only: both lots are still open and nothing was sold.
+        lots = [l for l in self.client.get("/api/portfolio/lots").json()["lots"]
+                if l["symbol"] == self.SYMBOL]
+        self.assertEqual(len(lots), 2)
+        self.assertEqual(self._sales(), [])
+
+    def test_close_preview_missing_lot_returns_404(self):
+        resp = self.client.post(
+            "/api/portfolio/lots/999999999/close/preview", json={"shares": "1"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_close_preview_oversell_returns_422(self):
+        lot = self._create_lot()
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close/preview", json={"shares": "999"}
+        )
+        self.assertEqual(resp.status_code, 422)
+
+    def test_update_sale_sets_and_clears_the_note(self):
+        lot = self._create_lot()
+        sale_id = self.client.post(self._close_url(lot), json={
+            "shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "notes": "before",
+        }).json()["allocations"][0]["sale_id"]
+
+        resp = self.client.patch(f"/api/portfolio/sales/{sale_id}", json={"notes": "edited"})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), {"sale_id": sale_id, "updated": True})
+        self.assertEqual(self._sales()[0]["notes"], "edited")
+
+        resp = self.client.patch(f"/api/portfolio/sales/{sale_id}", json={"notes": ""})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertIsNone(self._sales()[0]["notes"])
+
+    def test_update_sale_without_notes_returns_plain_400(self):
+        resp = self.client.patch("/api/portfolio/sales/1", json={})
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.json(), {"error": "no fields to update"})
+
+    def test_update_missing_sale_returns_404(self):
+        resp = self.client.patch("/api/portfolio/sales/999999999", json={"notes": "x"})
+        self.assertEqual(resp.status_code, 404)
+        self.assertEqual(resp.json(), {"error": "sale 999999999 not found"})
+
+    def test_update_sale_rejects_a_note_over_the_cap(self):
+        resp = self.client.patch("/api/portfolio/sales/1", json={"notes": "x" * 5001})
+        self.assertEqual(resp.status_code, 422)
+
+    def test_sales_are_owner_scoped(self):
+        lot = self._create_lot()
+        sale_id = self.client.post(self._close_url(lot), json={
+            "shares": "2", "sale_price": "12.00", "sale_trade_date": "2026-07-01",
+            "notes": "private",
+        }).json()["allocations"][0]["sale_id"]
+
+        # A different owner sees none of it, and can neither edit nor preview it.
+        self._override_principal(TEST_IDENTITY)
+        resp = self.client.get("/api/portfolio/sales", params={"symbol": self.SYMBOL})
+        self.assertEqual(resp.json(), {"sales": []})
+        resp = self.client.patch(f"/api/portfolio/sales/{sale_id}", json={"notes": "hijack"})
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close/preview", json={"shares": "1"}
+        )
+        self.assertEqual(resp.status_code, 404)
+
     def test_close_missing_lot_returns_404(self):
         resp = self.client.post(
             "/api/portfolio/lots/999999999/close",

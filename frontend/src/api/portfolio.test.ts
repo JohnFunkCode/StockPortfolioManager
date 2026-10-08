@@ -39,6 +39,20 @@ describe('portfolioApi GET endpoints', () => {
   });
 });
 
+describe('portfolioApi sales', () => {
+  it('getSales hits /api/portfolio/sales with no symbol by default', async () => {
+    const api = mockApi([['/api/portfolio/sales', { sales: [] }]]);
+    await portfolioApi.getSales();
+    expect(api.calls[0][0]).toMatch(/\/api\/portfolio\/sales$/);
+  });
+
+  it('getSales narrows to one symbol', async () => {
+    const api = mockApi([['/api/portfolio/sales', { sales: [] }]]);
+    await portfolioApi.getSales('BRK-B');
+    expect(api.calls[0][0]).toContain('/api/portfolio/sales?symbol=BRK-B');
+  });
+});
+
 describe('portfolioApi mutations', () => {
   it('createLot POSTs the payload to /api/portfolio/lots', async () => {
     const api = mockApi([[/\/api\/portfolio\/lots/, { symbol: 'INTC' }]]);
@@ -73,5 +87,36 @@ describe('portfolioApi mutations', () => {
     expect(api.calls[0][0]).toContain('/api/portfolio/lots/42/close');
     expect(api.calls[0][1]?.method).toBe('POST');
     expect(JSON.parse(String(api.calls[0][1]?.body)).shares).toBe(5);
+  });
+
+  it('closeLot sends sale notes and per-lot overrides', async () => {
+    const api = mockApi([[/\/api\/portfolio\/lots\/42\/close/, { symbol: 'INTC', allocations: [] }]]);
+    await portfolioApi.closeLot(42, {
+      shares: 5,
+      sale_price: 35,
+      sale_trade_date: '2026-07-20',
+      notes: 'target hit',
+      lot_notes: { 7: 'trim the older lot' },
+    });
+    expect(JSON.parse(String(api.calls[0][1]?.body))).toMatchObject({
+      notes: 'target hit',
+      lot_notes: { '7': 'trim the older lot' },
+    });
+  });
+
+  it('previewClose POSTs the share count to /close/preview', async () => {
+    const api = mockApi([[/\/api\/portfolio\/lots\/42\/close\/preview/, { symbol: 'INTC', allocations: [] }]]);
+    await portfolioApi.previewClose(42, 5);
+    expect(api.calls[0][0]).toContain('/api/portfolio/lots/42/close/preview');
+    expect(api.calls[0][1]?.method).toBe('POST');
+    expect(JSON.parse(String(api.calls[0][1]?.body))).toEqual({ shares: 5 });
+  });
+
+  it('updateSale PATCHes /api/portfolio/sales/{sale_id}', async () => {
+    const api = mockApi([[/\/api\/portfolio\/sales\/9/, { sale_id: 9, updated: true }]]);
+    await portfolioApi.updateSale(9, { notes: 'reason' });
+    expect(api.calls[0][0]).toContain('/api/portfolio/sales/9');
+    expect(api.calls[0][1]?.method).toBe('PATCH');
+    expect(JSON.parse(String(api.calls[0][1]?.body))).toEqual({ notes: 'reason' });
   });
 });

@@ -11,7 +11,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 
 ## ⭐ Built But Not Yet Surfaced in the WebUI
 
-**Headline finding, refreshed 2026-07-20.** The REST tier exposes 91 operations, but the React frontend calls only a subset of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
+**Headline finding, refreshed 2026-07-20.** The REST tier exposes 111 operations (91 when this frontend-coverage audit was last done), but the React frontend calls only a subset of them. Everything listed here is fully built, tested, and reachable over REST today — surfacing it is **frontend-only work** (no backend changes needed). Items are grouped by likely user value.
 
 > **Partially superseded — the gap list below was last fully audited 2026-07-20.** Issue #147 Parts C
 > and D have since shipped the **Watchlist** and **Fundamentals** pages, which closed the
@@ -80,7 +80,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 91 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 111 operations | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/securities/screen`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 8 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Securities, Watchlist, Fundamentals, Arbitrage, Settings (BYOK keys); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 15 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server). `collect_options.py` has been **deleted** |
@@ -342,7 +342,7 @@ One unified **QuantCore** PostgreSQL database (17 tables, `psycopg2` via `QUANTC
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (91 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (111 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, options analytics (IV rank, max pain, P/C history), technical signals, portfolio/watchlist CRUD, and the sentiment dashboard** are all fully surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, gated digest-promotion to prod, IAP-gated UI, per-user JWTs, daily report Job.

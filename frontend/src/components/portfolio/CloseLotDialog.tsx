@@ -38,16 +38,28 @@ export default function CloseLotDialog({ open, lot, onClose }: Props) {
 
   // Which lots the sale will draw from. A FIFO/LIFO/HIFO sale can span several,
   // and each lot may have been bought (and now be sold) for a different reason.
+  // Sell is held back until the preview has answered for the share count that is
+  // typed right now: a missing or stale preview would file one shared note on a
+  // sale that really spans several lots, losing the per-lot reasons.
   const [debouncedShares, setDebouncedShares] = useState(shares);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedShares(shares), 300);
     return () => clearTimeout(timer);
   }, [shares]);
-  const preview = useClosePreview(lot.lot_id, parseFloat(debouncedShares) || 0);
-  const allocations = preview.data?.allocations ?? [];
+  const typedShares = parseFloat(shares) || 0;
+  const previewedShares = parseFloat(debouncedShares) || 0;
+  const preview = useClosePreview(lot.lot_id, previewedShares);
+  const previewIsCurrent = typedShares === previewedShares;
+  const previewReady = preview.isSuccess && previewIsCurrent;
+  const previewFailed = preview.isError && previewIsCurrent;
+  // A zero/blank count has nothing to preview; Sell stays enabled so the usual
+  // "Shares must be greater than zero." validation can speak.
+  const awaitingPreview = typedShares > 0 && !previewReady;
+  const allocations = previewReady ? (preview.data?.allocations ?? []) : [];
   const perLotNotes = allocations.length > 1 && !sameForAll;
 
   const handleSubmit = () => {
+    if (awaitingPreview) return;
     const sharesNum = parseFloat(shares);
     const priceNum = parseFloat(salePrice);
     if (!sharesNum || sharesNum <= 0) {
@@ -121,6 +133,19 @@ export default function CloseLotDialog({ open, lot, onClose }: Props) {
             required
             InputLabelProps={{ shrink: true }}
           />
+          {awaitingPreview && !previewFailed && (
+            <Typography variant="caption" color="text.secondary">
+              Checking which lots this sale covers…
+            </Typography>
+          )}
+          {previewFailed && (
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="caption" sx={{ color: '#ef4444' }}>
+                Couldn't check which lots this sale covers: {(preview.error as Error).message}
+              </Typography>
+              <Button size="small" onClick={() => preview.refetch()}>Retry</Button>
+            </Stack>
+          )}
           {allocations.length > 1 && (
             <>
               <Typography variant="caption" color="text.secondary">
@@ -164,7 +189,12 @@ export default function CloseLotDialog({ open, lot, onClose }: Props) {
       </DialogContent>
       <DialogActions>
         <Button onClick={onClose} disabled={mutation.isPending}>Cancel</Button>
-        <Button onClick={handleSubmit} variant="contained" color="success" disabled={mutation.isPending}>
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          color="success"
+          disabled={mutation.isPending || awaitingPreview}
+        >
           {mutation.isPending ? 'Selling…' : 'Sell'}
         </Button>
       </DialogActions>

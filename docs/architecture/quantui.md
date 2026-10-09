@@ -111,7 +111,12 @@ Procedure:
 3. **Start the Cloud SQL Auth Proxy** for the target project — the script writes the
    `owner_identities` row straight to the database: `./runProxy-MAC.sh --test` (5434) or
    `./runProxy-MAC.sh` (5433, prod). `.env` must hold the matching DSN (`QUANTCORE_TEST_DB_DSN` /
-   `QUANTCORE_DB_DSN`).
+   `QUANTCORE_DB_DSN`). The write needs `psycopg2`, so the script runs `.venv/bin/python` when the
+   project venv exists and falls back to `python` on `PATH` otherwise. Gotcha: before that change,
+   running it without `source .venv/bin/activate` picked up a system Python (Anaconda) with no
+   `psycopg2`. Every IAP grant still landed, but every row write failed, which left exactly the
+   RestrictedAccess state. If you see `ModuleNotFoundError: No module named 'psycopg2'`, create
+   the venv and re-run; re-running is safe.
 4. **Run the script** per project: `./scripts/grant_quantui_iap_access.sh` for test,
    `./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod. It re-processes every
    entry in the array, which is safe: the IAP binding is idempotent and the insert is

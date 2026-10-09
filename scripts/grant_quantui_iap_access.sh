@@ -47,6 +47,7 @@ USERS=(
   "superdavidabrown@gmail.com:dabrown"
   "thomas@zoidbergfolio.com:thomas"
   "dr.sagerjl@gmail.com:sager"
+  "philalexander726@gmail.com:phil"
 )
 
 # --- DB DSN selection --------------------------------------------------------
@@ -62,6 +63,14 @@ if [ -z "${DB_DSN}" ]; then
 fi
 export QUANTCORE_DB_DSN="${DB_DSN}"
 export PYTHONPATH=.
+
+# Prefer the project venv: a bare `python` resolves to whatever is first on
+# PATH (e.g. Anaconda), which lacks psycopg2 and fails every DB write after
+# the IAP grants have already landed.
+PYTHON="python"
+if [ -x .venv/bin/python ]; then
+  PYTHON=".venv/bin/python"
+fi
 
 FAILED_DB=()
 
@@ -79,7 +88,7 @@ for pair in "${USERS[@]}"; do
     --role="${ROLE}"
 
   echo "==> Recording ${u} -> ${owner} in owner_identities (${DSN_VAR})"
-  if ! OWNER_IDENTITY="${u}" OWNER_HANDLE="${owner}" python -c "
+  if ! OWNER_IDENTITY="${u}" OWNER_HANDLE="${owner}" "${PYTHON}" -c "
 import os
 import sys
 from quantcore.db import get_connection

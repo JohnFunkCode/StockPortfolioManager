@@ -85,9 +85,23 @@ the commit's 7-char SHA — it copies the image **by digest** test→prod and de
 dispatch `deploy.yml` from main with `ref` set to the branch (readme "Trying a branch on test
 before merging").
 
-**Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
-(1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`
-on `quantui`. Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and
-run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
-`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
-Audience tab in Console. Both are required — only one results in a blocked login.
+**Granting a new user:** QuantUI-only access needs no project-level IAM roles (those are for
+minting MCP tokens and the Cloud SQL proxy, see
+[`team-access.md`](../operations/team-access.md)). While the OAuth consent screen is in "Testing",
+an account needs all **three** of:
+
+1. an entry on the consent screen **Audience** test-user list (Console → APIs & Services → OAuth
+   consent screen → Audience → Add users) — manual, no script does this;
+2. `roles/iap.httpsResourceAccessor` on the `quantui` service (not the project);
+3. an `owner_identities` row mapping the email to its owner handle (e.g. `thomas`).
+
+Missing (1) or (2) is a blocked login; missing (3) gets the user through IAP and onto the
+RestrictedAccess screen. Granting the IAP role by hand with `gcloud` produces exactly that state,
+so use the script, which does (2) and (3) together and verifies the row: add `"email:handle"` to
+the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and run it per project
+(`./scripts/grant_quantui_iap_access.sh` for test;
+`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod). It writes the row
+directly to the database, so the matching Cloud SQL Auth Proxy must be running (5434 test, 5433
+prod; `./runProxy-MAC.sh [--test]`) and `.env` must hold the DSN (`QUANTCORE_TEST_DB_DSN` /
+`QUANTCORE_DB_DSN`). The address must be a real, active Google account — otherwise IAM silently
+drops the binding while `gcloud` reports success.

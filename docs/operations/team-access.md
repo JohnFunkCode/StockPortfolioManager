@@ -9,9 +9,9 @@ Related runbooks:
 - [`prod-jwt-tokens.md`](prod-jwt-tokens.md) — the HS256 service-token path in detail
 - [`prod-promotion.md`](prod-promotion.md) — promoting a build from test to prod
 - [`../architecture/quantui.md`](../architecture/quantui.md) — **granting a QuantUI user** (the
-  "Granting a new user" paragraph is the single home for that procedure: an account needs both the
-  consent-screen Audience entry and the IAP accessor role, via
-  `scripts/grant_quantui_iap_access.sh`; either one alone is a blocked login)
+  "Granting a new user" paragraph is the single home for that procedure: the consent-screen
+  Audience entry, the IAP accessor role, and an `owner_identities` row, the last two via
+  `scripts/grant_quantui_iap_access.sh`. A UI-only user needs none of the roles below)
 
 ## GCP roles a team member needs
 
@@ -80,6 +80,6 @@ get data, not a 401.
 When onboarding someone, a project owner:
 
 1. grants the four roles above in each project they need;
-2. grants QuantUI access per [`quantui.md`](../architecture/quantui.md) (both halves);
+2. grants QuantUI access per [`quantui.md`](../architecture/quantui.md) (all three parts);
 3. reminds them the MCP token expires after 90 days and should be rotated quarterly, with their own
    `--sub`.

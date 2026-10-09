@@ -97,11 +97,23 @@ an account needs all **three** of:
 
 Missing (1) or (2) is a blocked login; missing (3) gets the user through IAP and onto the
 RestrictedAccess screen. Granting the IAP role by hand with `gcloud` produces exactly that state,
-so use the script, which does (2) and (3) together and verifies the row: add `"email:handle"` to
-the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and run it per project
-(`./scripts/grant_quantui_iap_access.sh` for test;
-`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod). It writes the row
-directly to the database, so the matching Cloud SQL Auth Proxy must be running (5434 test, 5433
-prod; `./runProxy-MAC.sh [--test]`) and `.env` must hold the DSN (`QUANTCORE_TEST_DB_DSN` /
-`QUANTCORE_DB_DSN`). The address must be a real, active Google account — otherwise IAM silently
-drops the binding while `gcloud` reports success.
+so use `scripts/grant_quantui_iap_access.sh`, which does (2) and (3) together and verifies the
+row. The address must be a real, active Google account — otherwise IAM silently drops the binding
+while `gcloud` reports success.
+
+Procedure:
+
+1. **Add the user to the script.** The script takes no email argument; it reads the hard-coded
+   `USERS=( … )` array. Append an `"email:handle"` entry, where the handle is the user's owner
+   partition (the `positions.owner` value, e.g. `"thomas@zoidbergfolio.com:thomas"`). Commit the
+   edit — the array is the record of who has been granted.
+2. **Add them to the Audience list** in Console (requirement 1 above), in each project.
+3. **Start the Cloud SQL Auth Proxy** for the target project — the script writes the
+   `owner_identities` row straight to the database: `./runProxy-MAC.sh --test` (5434) or
+   `./runProxy-MAC.sh` (5433, prod). `.env` must hold the matching DSN (`QUANTCORE_TEST_DB_DSN` /
+   `QUANTCORE_DB_DSN`).
+4. **Run the script** per project: `./scripts/grant_quantui_iap_access.sh` for test,
+   `./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod. It re-processes every
+   entry in the array, which is safe: the IAP binding is idempotent and the insert is
+   `ON CONFLICT DO NOTHING`. An email already mapped to a *different* handle fails loudly and is
+   left untouched — fix that row by hand.

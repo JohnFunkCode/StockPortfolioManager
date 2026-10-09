@@ -266,7 +266,8 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   ([`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md)).
 - Granting a user needs **three** things: the consent-screen Audience entry (manual, Console),
   `roles/iap.httpsResourceAccessor` on `quantui`, and an `owner_identities` row — the last two
-  only via `scripts/grant_quantui_iap_access.sh` (needs the proxy running). Missing either of the
+  only via `scripts/grant_quantui_iap_access.sh`, which takes no email argument — the user is first
+  added to its `USERS` array (committed), and it needs the proxy running. Missing either of the
   first two is a blocked login; missing the row is the RestrictedAccess screen, which is what a
   hand-run `gcloud` IAP grant produces.
 

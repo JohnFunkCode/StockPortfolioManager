@@ -85,9 +85,40 @@ the commit's 7-char SHA — it copies the image **by digest** test→prod and de
 dispatch `deploy.yml` from main with `ref` set to the branch (readme "Trying a branch on test
 before merging").
 
-**Granting a new user:** while the OAuth consent screen is in "Testing", an account must be on BOTH
-(1) the consent screen **Audience** test-user list and (2) hold `roles/iap.httpsResourceAccessor`
-on `quantui`. Add the email to the `USERS=( … )` array in `scripts/grant_quantui_iap_access.sh` and
-run it per project (`./scripts/grant_quantui_iap_access.sh` for test;
-`./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod), plus add them to the
-Audience tab in Console. Both are required — only one results in a blocked login.
+**Granting a new user:** QuantUI-only access needs no project-level IAM roles (those are for
+minting MCP tokens and the Cloud SQL proxy, see
+[`team-access.md`](../operations/team-access.md)). While the OAuth consent screen is in "Testing",
+an account needs all **three** of:
+
+1. an entry on the consent screen **Audience** test-user list (Console → APIs & Services → OAuth
+   consent screen → Audience → Add users) — manual, no script does this;
+2. `roles/iap.httpsResourceAccessor` on the `quantui` service (not the project);
+3. an `owner_identities` row mapping the email to its owner handle (e.g. `thomas`).
+
+Missing (1) or (2) is a blocked login; missing (3) gets the user through IAP and onto the
+RestrictedAccess screen. Granting the IAP role by hand with `gcloud` produces exactly that state,
+so use `scripts/grant_quantui_iap_access.sh`, which does (2) and (3) together and verifies the
+row. The address must be a real, active Google account — otherwise IAM silently drops the binding
+while `gcloud` reports success.
+
+Procedure:
+
+1. **Add the user to the script.** The script takes no email argument; it reads the hard-coded
+   `USERS=( … )` array. Append an `"email:handle"` entry, where the handle is the user's owner
+   partition (the `positions.owner` value, e.g. `"thomas@zoidbergfolio.com:thomas"`). Commit the
+   edit — the array is the record of who has been granted.
+2. **Add them to the Audience list** in Console (requirement 1 above), in each project.
+3. **Start the Cloud SQL Auth Proxy** for the target project — the script writes the
+   `owner_identities` row straight to the database: `./runProxy-MAC.sh --test` (5434) or
+   `./runProxy-MAC.sh` (5433, prod). `.env` must hold the matching DSN (`QUANTCORE_TEST_DB_DSN` /
+   `QUANTCORE_DB_DSN`). The write needs `psycopg2`, so the script runs `.venv/bin/python` when the
+   project venv exists and falls back to `python` on `PATH` otherwise. Gotcha: before that change,
+   running it without `source .venv/bin/activate` picked up a system Python (Anaconda) with no
+   `psycopg2`. Every IAP grant still landed, but every row write failed, which left exactly the
+   RestrictedAccess state. If you see `ModuleNotFoundError: No module named 'psycopg2'`, create
+   the venv and re-run; re-running is safe.
+4. **Run the script** per project: `./scripts/grant_quantui_iap_access.sh` for test,
+   `./scripts/grant_quantui_iap_access.sh quantcore-prod-20260606` for prod. It re-processes every
+   entry in the array, which is safe: the IAP binding is idempotent and the insert is
+   `ON CONFLICT DO NOTHING`. An email already mapped to a *different* handle fails loudly and is
+   left untouched — fix that row by hand.

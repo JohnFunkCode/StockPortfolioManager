@@ -264,9 +264,12 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
   prod-rollout's default. Test then differs from main until the next merge
   ([`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md)).
-- Granting a user needs **both** the consent-screen Audience entry and
-  `roles/iap.httpsResourceAccessor` (`scripts/grant_quantui_iap_access.sh`) — either alone is a
-  blocked login.
+- Granting a user needs **three** things: the consent-screen Audience entry (manual, Console),
+  `roles/iap.httpsResourceAccessor` on `quantui`, and an `owner_identities` row — the last two
+  only via `scripts/grant_quantui_iap_access.sh`, which takes no email argument — the user is first
+  added to its `USERS` array (committed), and it needs the proxy running. Missing either of the
+  first two is a blocked login; missing the row is the RestrictedAccess screen, which is what a
+  hand-run `gcloud` IAP grant produces.
 
 Serving model, auth fallback ladder, the pages, and the grant procedure:
 [`docs/architecture/quantui.md`](docs/architecture/quantui.md).

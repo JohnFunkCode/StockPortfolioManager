@@ -25,7 +25,7 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createProxyMiddleware } from 'http-proxy-middleware';
+import { createApiProxy } from './proxy.mjs';
 import { createAuthProvider, IapAuthError } from './auth.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -75,8 +75,8 @@ app.use((_req, res, next) => {
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 // /api/* -> REST tier, with the bearer attached here (never in the browser).
-// onProxyReq is synchronous, so the (possibly async) verify+mint runs in this
-// middleware first and parks the header on the request for the proxy to read.
+// The proxy's onProxyReq (proxy.mjs) is synchronous, so the (possibly async)
+// verify+mint runs in this middleware first and parks the header on the request.
 app.use('/api', async (req, res, next) => {
   try {
     req.quantuiAuthorization = await authProvider.authorizationFor(
@@ -95,18 +95,8 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-app.use(
-  '/api',
-  createProxyMiddleware({
-    target: API_TARGET,
-    changeOrigin: true,
-    onProxyReq: (proxyReq, req) => {
-      if (req.quantuiAuthorization) {
-        proxyReq.setHeader('authorization', req.quantuiAuthorization);
-      }
-    },
-  })
-);
+// No path filter here or in proxy.mjs: see proxy.mjs for why (the braces exception, #354).
+app.use('/api', createApiProxy(API_TARGET));
 
 // Static assets, then SPA fallback so client-side routes (react-router) resolve.
 app.use(express.static(DIST_DIR));

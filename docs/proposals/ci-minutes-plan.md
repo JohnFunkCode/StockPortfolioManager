@@ -220,11 +220,14 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
 
 ## Out of scope
 
-- **The frontend npm locks are not audited by CI.** `npm audit` on 2026-10-09 found:
+- **The frontend npm locks were not audited by CI.** `npm audit` on 2026-10-09 found:
   - `frontend/` runtime dependencies: 2 high and 11 moderate;
   - `frontend/server`: **2 critical**, 3 high and 2 moderate.
 
-  `frontend/server` is the package that mints the user JWTs. Tracked separately: [#354](https://github.com/JohnFunkCode/StockPortfolioManager/issues/354).
+  **Done in [#354](https://github.com/JohnFunkCode/StockPortfolioManager/issues/354).** It was
+  kept in line with this plan: the npm audit is a step in the existing `dep-audit` job (no
+  extra billed job), runs off the same `deps_changed` output (both npm locks added), and needs
+  neither `npm ci` nor `setup-node`. Detail in [`pin-deps-plan.md`](pin-deps-plan.md) gotchas 12–14.
 - **An Actions budget ($10–20/month)** if the repo goes private. That is John's decision.
 
 ## Checkpoint log

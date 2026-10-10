@@ -100,7 +100,9 @@ class InstallWiringTest(unittest.TestCase):
         self.assertIn("scripts/lock_deps.sh --check", "\n".join(deploy["gate"]))
         self.assertIn("pip install --require-hashes -r requirements-base.lock",
                       "\n".join(deploy["lean-import"]))
-        self.assertIn("scripts/audit_deps.sh", "\n".join(steps("dep-audit.yml")["audit"]))
+        audit = "\n".join(steps("dep-audit.yml")["audit"])
+        self.assertIn("scripts/audit_deps.sh", audit)
+        self.assertIn("scripts/audit_npm.sh", audit)   # #354
 
     def test_prod_rollout_gate_stays_base_only(self):
         # The lean-import property: prod-rollout tests on the base set alone.
@@ -124,6 +126,13 @@ class InstallWiringTest(unittest.TestCase):
         on = doc.get("on", doc.get(True))
         self.assertTrue(on["schedule"])
         self.assertIn("workflow_call", on)
+
+    def test_npm_audit_runs_even_after_a_pip_finding(self):
+        # #354: one red half must not hide the other's result.
+        job = yaml.safe_load((WORKFLOWS / "dep-audit.yml").read_text())["jobs"]["audit"]
+        npm = [s for s in job["steps"] if "audit_npm.sh" in s.get("run", "")]
+        self.assertEqual(len(npm), 1)
+        self.assertEqual(npm[0].get("if"), "${{ !cancelled() }}")
 
     def test_dep_audit_is_not_a_rollout_gate(self):
         doc = yaml.safe_load((WORKFLOWS / "deploy.yml").read_text())

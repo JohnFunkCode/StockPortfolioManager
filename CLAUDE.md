@@ -528,8 +528,10 @@ the script and commit both — the gate's `lock_deps.sh --check` step fails a st
 are compiled against the base lock, so a shared package has one pin everywhere
 (`tests/test_dependency_locks.py`). Versions move only through the weekly
 `deps-lock-update.yml` PR (`--upgrade`); `scripts/audit_deps.sh` (pip-audit, OSV) runs there and in
-the reusable `dep-audit.yml` — called from `deploy.yml` only when a lock or the audit's wiring
-changed, and **daily on main's locks** (#351), since an advisory can land against an unchanged pin.
+the reusable `dep-audit.yml`, which also runs `scripts/audit_npm.sh` — npm audit of the runtime deps
+of both frontend locks, failing on high/critical unless an expiring no-fix exception covers it
+(#354) — called from `deploy.yml` only when a lock or the audit's wiring
+changed (npm locks included), and **daily on main's locks** (#351), since an advisory can land against an unchanged pin.
 It goes red on an advisory but is deliberately not a roll-out gate. Gotchas (the PyTorch index shadowing numpy, torch on the Pi):
 [`docs/proposals/pin-deps-plan.md`](docs/proposals/pin-deps-plan.md).
 

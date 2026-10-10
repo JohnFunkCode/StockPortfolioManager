@@ -218,8 +218,7 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
   - `frontend/` runtime dependencies: 2 high and 11 moderate;
   - `frontend/server`: **2 critical**, 3 high and 2 moderate.
 
-  `frontend/server` is the package that mints the user JWTs. Tracked separately: *(issue link
-  added once filed)*.
+  `frontend/server` is the package that mints the user JWTs. Tracked separately: [#354](https://github.com/JohnFunkCode/StockPortfolioManager/issues/354).
 - **An Actions budget ($10–20/month)** if the repo goes private. That is John's decision.
 
 ## Checkpoint log

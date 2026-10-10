@@ -41,6 +41,7 @@ jobs:
     # accepts only main, so GitHub withholds it from any other branch whatever this file says.
     environment: deps-lock
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # ~2 min observed; the default is 360 (#351)
     steps:
       - uses: actions/checkout@v7
         with:

@@ -1,0 +1,39 @@
+# Known-vulnerability audit of every dependency lock (#218, reshaped by #351).
+#
+# Two ways in, one job definition:
+#   - deploy.yml calls it (workflow_call) when scripts/ci_changes.sh says a lock or the audit's
+#     own wiring changed. Inside a called workflow the `github` context is the caller's, so the
+#     plain checkout audits the PR/push commit, exactly as the old inline job did.
+#   - every day on main (schedule), because the advisory database moves daily: a lock nobody
+#     touched can turn vulnerable on a Saturday. deps-lock-update.yml is NOT that backstop -- it
+#     audits the *upgraded* locks, so an upgrade that happens to fix an advisory goes green and
+#     says nothing about what main actually pins.
+# Never a roll-out gate: an advisory published today must not block an unrelated merge.
+#
+# Gotchas (docs/proposals/ci-minutes-plan.md):
+#   - GitHub emails a scheduled run's failure to the user who LAST CHANGED THE CRON LINE --
+#     whoever edits it inherits the alarm.
+#   - On a public repo GitHub disables schedules after 60 days without repository activity.
+name: Dependency audit
+
+on:
+  schedule:
+    - cron: "41 10 * * *"   # daily 10:41 UTC (06:41 ET): a failure email is waiting at the start of the day
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install pip-audit==2.10.1
+      - run: scripts/audit_deps.sh

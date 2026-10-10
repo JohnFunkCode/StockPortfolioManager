@@ -73,7 +73,7 @@ The MCP wrappers never touch the database. They call the REST tier through a sin
     set
   - a gitleaks secret scan
   - schema-snapshot and Cloud Build config checks
-  - a dependency-vulnerability audit
+  - a dependency-vulnerability audit on any lock change, plus a daily audit of main's locks
 - **Hash-pinned dependency locks.** Every install uses `pip install --require-hashes`, and a
   weekly PR moves the pins.
 - **Flyway migrations run by CI before each rollout.** Contract and non-transactional migrations

@@ -20,8 +20,10 @@ images — `quantcore-api`, `quantcore-mcp` (all 7 wrappers share it), `quantcor
 `quantcore-migrate` (Flyway, issue #200) — and tags each with the **7-char commit SHA**,
 migrating the test database and then deploying them to the **test** Cloud Run stack. Automatic
 build-on-push is **live**: the test-project WIF secrets are wired
-(`scripts/setup_test_wif.sh`), and a `preflight` job skips the deploy only if those
-secrets are ever absent (e.g. on forks).
+(`scripts/setup_test_wif.sh`). There is no longer a credentials probe (#351): if those
+secrets are ever absent, the deploy's auth step fails the run loudly rather than skipping it.
+A change that touches only `*.md` files starts no run and doesn't deploy (the images can't
+differ — `.dockerignore` drops `*.md` and `docs/`).
 
 Promotion takes one such already-built, already-tested
 **tag**, copies all seven images **by digest** test AR → prod AR (`docker buildx
@@ -161,7 +163,9 @@ removes. The `quantcore-migrate` tag list below is the test of whether a tag qua
   The `latest` tag is the human-pinned, known-good marker; keep it pointed at the
   blessed set when you promote. Only a push to main moves it: a `deploy.yml` dispatch of
   another ref to test (#120) tags its build `:dispatch-latest` instead. A SHA tag from such a
-  dispatch is an **unmerged** build — never promote one. **Do not assume a raw commit-SHA tag is blessed** —
+  dispatch is an **unmerged** build — never promote one. A **docs-only** merge (only `*.md`
+  files) starts no `deploy.yml` run (#351), so its SHA has **no** image tag; promote the
+  last code commit's SHA (or `latest`) instead — the images are identical. **Do not assume a raw commit-SHA tag is blessed** —
   a newer build may sit under its SHA without having been promoted/validated. When in
   doubt, verify the digest behind the tag:
 

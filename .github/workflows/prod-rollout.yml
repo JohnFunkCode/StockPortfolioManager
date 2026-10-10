@@ -70,6 +70,7 @@ jobs:
   gate:
     name: Tests + wrapper smoke + OpenAPI surface
     runs-on: ubuntu-latest
+    timeout-minutes: 15   # max observed ~2 min; the default is 360 (#351)
     services:
       postgres:
         image: postgres:16
@@ -109,6 +110,9 @@ jobs:
     needs: gate
     runs-on: ubuntu-latest
     environment: prod # manual-approval gate (required reviewers)
+    # The clock starts after approval, so time spent waiting on a reviewer doesn't count. Max
+    # observed ~7 min (2026-10); the default 360 would bill 6 h on a hung Cloud Build wait (#351).
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write # Workload Identity Federation (prod)

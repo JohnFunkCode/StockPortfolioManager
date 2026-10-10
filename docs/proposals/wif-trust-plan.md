@@ -14,8 +14,9 @@ tokens only for runs on `main`.
 ## What was checked before changing anything (2026-10-05, read-only)
 
 - **Which jobs authenticate.** Only two workflows call `google-github-actions/auth`:
-  - `deploy.yml`'s `deploy` job, which has no environment. It runs only after `preflight`,
-    and `preflight` runs only on a push to main or a dispatch. **Pull-request runs never
+  - `deploy.yml`'s `deploy` job, which has no environment. It runs only on a push to main
+    or a dispatch (gated by `preflight` when this was written; by `deploy`'s own `if:` since
+    #351). **Pull-request runs never
     authenticate**, and dispatches always run from main (#120). So `ref=='refs/heads/main'` costs
     nothing on test.
   - `prod-rollout.yml`'s `promote-and-deploy` job, which declares `environment: prod`. The
@@ -118,8 +119,8 @@ effect within a minute or two, and nothing else needs undoing.
 3. **`job_workflow_ref` pins the file, not just the repo.** Renaming `prod-rollout.yml` will
    break prod auth until the condition is updated to match.
 4. **The first negative test in this runbook would have passed without testing anything.** It
-   said to dispatch `deploy.yml` from a scratch branch. That run does fail, but `preflight`
-   refuses any dispatch whose ref isn't main (#120), *before* the `deploy` job reaches the auth
+   said to dispatch `deploy.yml` from a scratch branch. That run does fail, but `preflight` (since
+   #351, `deploy`'s first step) refuses any dispatch whose ref isn't main (#120), *before* the `deploy` job reaches the auth
    step, so WIF is never asked. The prod version, dispatching `prod-rollout.yml` from a branch,
    is a prod dispatch, which is John's call and not a test step. So the negative test is now a
    scratch probe that does nothing except the token exchange.

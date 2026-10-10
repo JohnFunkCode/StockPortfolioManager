@@ -4,8 +4,9 @@
 #   scripts/audit_deps.sh      needs pip-audit on PATH (pip install pip-audit)
 #
 # Exit 1, with one ::error line per lock, if any pinned version has a published advisory.
-# Run by deploy.yml's dep-audit job (red, but not a roll-out gate: an advisory published
-# today must not block an unrelated merge) and by deps-lock-update.yml every week.
+# Run by .github/workflows/dep-audit.yml: called from deploy.yml when a lock changes, and daily
+# on main's locks (#351) -- red, but never a roll-out gate (an advisory published today must not
+# block an unrelated merge). deps-lock-update.yml also runs it weekly on the upgraded locks.
 #
 # OSV, not the default PyPI service: PyPI's audit skips torch, whose pin is the CPU build
 # 2.14.1+cpu from the PyTorch index ("not found on PyPI"). With OSV, --require-hashes only

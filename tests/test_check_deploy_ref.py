@@ -204,18 +204,26 @@ class DispatchWiringTest(unittest.TestCase):
         self.assertEqual(ref["default"], "main")
 
     def test_gates_check_out_the_ref(self):
-        for job in ("gate", "lean-import", "frontend-gate", "secret-scan"):
+        for job in ("gate", "lean-import", "frontend-gate"):
             with self.subTest(job=job):
                 checkout = self.jobs[job]["steps"][0]
                 self.assertTrue(checkout["uses"].startswith("actions/checkout@"))
                 self.assertEqual(checkout["with"]["ref"], "${{ inputs.ref }}")
         self.assertEqual(self.jobs["gate"]["outputs"]["sha"], "${{ steps.sha.outputs.sha }}")
 
-    def test_preflight_admits_dispatch_only_from_main(self):
-        self.assertIn("github.event_name == 'workflow_dispatch'", self.jobs["preflight"]["if"])
-        body = self.step("preflight", "has_creds")
-        self.assertIn('"$GITHUB_REF" != refs/heads/main', body)
-        self.assertIn("exit 1", body)
+    def test_deploy_admits_dispatch_only_from_main(self):
+        # #351: the preflight credentials probe is gone. A main push or a dispatch always
+        # deploys, and missing WIF secrets fail at the auth step instead of skipping quietly.
+        cond = self.jobs["deploy"]["if"]
+        self.assertIn("github.event_name == 'workflow_dispatch'", cond)
+        # No repository guard: a rename or transfer must not silently stop every deploy.
+        self.assertNotIn("github.repository", cond)
+        first = self.jobs["deploy"]["steps"][0]
+        self.assertNotIn("uses", first, "the refusal must run before either checkout")
+        self.assertIn('"$GITHUB_REF" != refs/heads/main', first["run"])
+        self.assertIn("exit 1", first["run"])
+        self.assertNotIn("preflight", self.jobs)
+        self.assertNotIn("has_creds", self.text)
 
     def test_deploy_builds_the_gated_sha(self):
         deploy = self.jobs["deploy"]
@@ -250,6 +258,103 @@ class DispatchWiringTest(unittest.TestCase):
             for s in job.get("steps", []):
                 with self.subTest(job=name, step=s.get("name") or s.get("id")):
                     self.assertIsNone(re.search(r"\$\{\{\s*inputs\.", s.get("run", "")))
+
+
+WORKFLOWS = ROOT / ".github" / "workflows"
+
+
+def load_workflow(name):
+    doc = yaml.safe_load((WORKFLOWS / name).read_text())
+    doc["on"] = doc.get("on", doc.get(True))   # PyYAML reads a bare `on:` as True
+    return doc
+
+
+class CiCostWiringTest(unittest.TestCase):
+    """Each assertion pins one #351 decision (docs/proposals/ci-minutes-plan.md)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.doc = load_workflow("deploy.yml")
+        cls.jobs = cls.doc["jobs"]
+
+    def step_named(self, job, name):
+        found = [s for s in self.jobs[job]["steps"] if s.get("name") == name]
+        self.assertEqual(len(found), 1, f"{job}: expected one step named {name!r}")
+        return found[0]
+
+    def test_secret_scan_lives_in_lean_import(self):
+        steps = self.jobs["lean-import"]["steps"]
+        self.assertEqual(steps[0]["with"]["fetch-depth"], 0)   # full range for gitleaks
+        ids = [s.get("id") or s.get("name") for s in steps]
+        gitleaks = self.step_named("lean-import", "Secret scan (gitleaks)")
+        self.assertTrue(gitleaks["uses"].startswith("gitleaks/gitleaks-action@"))
+        self.assertEqual(gitleaks["env"]["GITLEAKS_CONFIG"], ".gitleaks.toml")
+        # The classifier runs first, so its outputs exist even when a later step fails.
+        self.assertLess(ids.index("changes"), ids.index("Secret scan (gitleaks)"))
+        # ...and a secret hit doesn't hide the import smoke (or the reverse).
+        after = steps[ids.index("Secret scan (gitleaks)") + 1:]
+        self.assertTrue(after)
+        for s in after:
+            self.assertEqual(s.get("if"), "${{ !cancelled() }}", s.get("name"))
+
+    def test_folded_jobs_are_gone(self):
+        self.assertIn("lean-import", self.jobs["deploy"]["needs"])
+        self.assertNotIn("secret-scan", self.jobs)
+        self.assertNotIn("preflight", self.jobs)
+
+    def test_lean_import_exports_the_classification(self):
+        out = self.jobs["lean-import"]["outputs"]
+        self.assertEqual(out["deps_changed"], "${{ steps.changes.outputs.deps_changed }}")
+        self.assertEqual(out["frontend_changed"],
+                         "${{ steps.changes.outputs.frontend_changed }}")
+        run = self.jobs["lean-import"]["steps"][1]["run"]
+        self.assertIn("scripts/ci_changes.sh", run)
+        self.assertIn("$GITHUB_OUTPUT", run)
+
+    def test_docs_only_changes_run_nothing(self):
+        # Exactly **.md: docs/openapi-surface.txt is read by the gates, so never docs/**.
+        for event in ("push", "pull_request"):
+            with self.subTest(event=event):
+                self.assertEqual(self.doc["on"][event]["paths-ignore"], ["**.md"])
+        self.assertNotIn("paths-ignore", self.doc["on"]["workflow_dispatch"] or {})
+
+    def test_skips_fail_open(self):
+        # `!= 'false'`: an empty output (classifier never ran) still runs the gate.
+        self.assertIn("needs.lean-import.outputs.frontend_changed != 'false'",
+                      self.jobs["frontend-gate"]["if"])
+        self.assertIn("needs.lean-import.outputs.deps_changed != 'false'",
+                      self.jobs["dep-audit"]["if"])
+
+    def test_deploy_tolerates_a_skipped_frontend_gate(self):
+        cond = self.jobs["deploy"]["if"]
+        self.assertIn("!cancelled()", cond)
+        self.assertIn("!contains(needs.*.result, 'failure')", cond)
+
+    def test_every_job_has_a_timeout(self):
+        for name in ("deploy.yml", "dep-audit.yml", "prod-rollout.yml", "deps-lock-update.yml"):
+            for job_name, job in load_workflow(name)["jobs"].items():
+                with self.subTest(workflow=name, job=job_name):
+                    if "uses" in job:
+                        # A reusable-workflow call can't carry one; its called job does.
+                        called = load_workflow(Path(job["uses"]).name)
+                        for inner in called["jobs"].values():
+                            self.assertIsInstance(inner.get("timeout-minutes"), int)
+                    else:
+                        self.assertIsInstance(job.get("timeout-minutes"), int)
+
+    def test_only_pr_runs_cancel_in_progress(self):
+        # Never a bare `true`: that would cut a main roll-out off mid-deploy.
+        self.assertEqual(self.doc["concurrency"]["cancel-in-progress"],
+                         "${{ github.event_name == 'pull_request' }}")
+
+    def test_coverage_html_uploads_only_on_failure(self):
+        uploads = [(job, s) for job in ("gate", "frontend-gate")
+                   for s in self.jobs[job]["steps"]
+                   if s.get("uses", "").startswith("actions/upload-artifact@")]
+        self.assertEqual(len(uploads), 2)
+        for job, s in uploads:
+            with self.subTest(job=job):
+                self.assertEqual(s.get("if"), "failure()")
 
 
 if __name__ == "__main__":

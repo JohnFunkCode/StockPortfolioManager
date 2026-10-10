@@ -264,6 +264,13 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
   prod-rollout's default. Test then differs from main until the next merge
   ([`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md)).
+- **What a run skips** (#351): a change touching only `*.md` files starts **no** `deploy.yml`
+  run and doesn't deploy (keep `paths-ignore` at exactly `**.md` — `docs/openapi-surface.txt` is
+  test input). `frontend-gate` runs only on a frontend change and `dep-audit` only on a lock
+  change, both fail-open. Missing WIF secrets **fail** the deploy (there is no preflight skip).
+  A new push to a PR cancels its in-flight run; main and dispatch runs are never cancelled. The
+  ruleset requires no status checks — adding one would make docs-only PRs unmergeable
+  ([`ci-minutes-plan.md`](docs/proposals/ci-minutes-plan.md)).
 - Granting a user needs **three** things: the consent-screen Audience entry (manual, Console),
   `roles/iap.httpsResourceAccessor` on `quantui`, and an `owner_identities` row — the last two
   only via `scripts/grant_quantui_iap_access.sh`, which takes no email argument — the user is first
@@ -521,8 +528,9 @@ the script and commit both — the gate's `lock_deps.sh --check` step fails a st
 are compiled against the base lock, so a shared package has one pin everywhere
 (`tests/test_dependency_locks.py`). Versions move only through the weekly
 `deps-lock-update.yml` PR (`--upgrade`); `scripts/audit_deps.sh` (pip-audit, OSV) runs there and in
-`deploy.yml`'s `dep-audit` job, which goes red on an advisory but is deliberately not a roll-out
-gate. Gotchas (the PyTorch index shadowing numpy, torch on the Pi):
+the reusable `dep-audit.yml` — called from `deploy.yml` only when a lock or the audit's wiring
+changed, and **daily on main's locks** (#351), since an advisory can land against an unchanged pin.
+It goes red on an advisory but is deliberately not a roll-out gate. Gotchas (the PyTorch index shadowing numpy, torch on the Pi):
 [`docs/proposals/pin-deps-plan.md`](docs/proposals/pin-deps-plan.md).
 
 **matplotlib, jinja2, and boto3 are report-script-only** (issue #147). They serve
@@ -549,7 +557,9 @@ skipped; anything else that fails to import is a red build, and `deploy` won't r
 until it's green. It needs a Postgres service despite being import-only, because `api/main.py`
 builds the app at module level and that calls `ensure_schema()`. It deliberately does not run the
 tests — the `gate` job already does, and a second full execution would cost minutes to answer a
-question about imports.
+question about imports. It also hosts the **gitleaks secret scan** and the **change classifier**
+(`scripts/ci_changes.sh`, #351), whose `deps_changed`/`frontend_changed` outputs gate `dep-audit`
+and `frontend-gate` at job level; the classifier fails open, and the gates test `!= 'false'`.
 
 The `gate` job also runs **`scripts/check_cloudbuild.py`**, which parses `cloudbuild.yaml` and
 checks every `quantcore-*` image a step builds is tagged by `tag-latest` (and vice versa), that

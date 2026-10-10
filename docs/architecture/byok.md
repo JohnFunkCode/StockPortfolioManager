@@ -24,5 +24,5 @@
   doesn't exist);
   `prod-rollout.yml` promotes/deploys it by digest the same way. First deploy in each project is
   the manual packet-8b runbook (secrets `keyproxy-private-key`, `quantui-signing-key`/`-pub`;
-  private keys are piped straight into Secret Manager, never printed). Gitleaks secret-scanning
-  job runs in CI (`.gitleaks.toml`).
+  private keys are piped straight into Secret Manager, never printed). Gitleaks secret scanning
+  runs in CI as a step of `deploy.yml`'s `lean-import` job (`.gitleaks.toml`; its own job until #351).

@@ -1,9 +1,20 @@
 # Phase 3 Step 10 — CI/CD for the QuantCore platform (architectural standard v2 §10).
 #
-# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff), the lean
+# PRs + pushes run the gate (tests + wrapper smoke + OpenAPI surface diff) and the lean
 # install import smoke (requirements-base.lock — the set the containers ship, which the
-# gate does NOT install), and a gitleaks secret scan (BYOK packet 8a — a pasted API key
-# or PEM in a diff fails CI before it ever lands; allowlist in .gitleaks.toml).
+# gate does NOT install), whose job also hosts the gitleaks secret scan (BYOK packet 8a — a
+# pasted API key or PEM in a diff fails CI before it ever lands; allowlist in .gitleaks.toml)
+# and the change classifier (scripts/ci_changes.sh) that decides whether the frontend gate
+# and the dependency audit run at all.
+#
+# CI MINUTES (#351) — every job bills rounded up to the whole minute, so work that can't
+# matter is skipped at the JOB level, never with a step `if:`. A change touching only `.md`
+# files starts no run (paths-ignore below; the images exclude *.md, so a docs-only merge has
+# nothing to deploy). frontend-gate runs only on a frontend change, dep-audit only on a lock
+# change (plus daily on main, in dep-audit.yml). Both fail open: an unknown base runs them.
+# A docs-only PR therefore shows NO checks, which is fine only because the main ruleset
+# requires none — revisit this before adding a required status check. A newer push to a PR
+# cancels that PR's in-flight run. Plan: docs/proposals/ci-minutes-plan.md.
 # Pushes to main additionally build the 7 images (Cloud Build, native amd64), apply the pending
 # Flyway migrations with the quantcore-migrate Job (#200; a failure stops the roll-out), and roll
 # the images out to the Cloud Run services + the report/news Jobs in the TEST project, in two
@@ -21,13 +32,12 @@
 # NOT automated — it stays a manual, supervised config change (QUANTCORE_DB_DSN / Cloud SQL
 # connector).
 #
-# TRIGGER STATUS — push/PR triggers are RESTORED, but the `deploy` job is guarded by a
-# `preflight` job that only emits `has_creds=true` when the GCP_WIF_PROVIDER / GCP_DEPLOY_SA
-# repo secrets are present. Until the test-project WIF is wired (run scripts/setup_test_wif.sh),
-# those secrets are absent, so `deploy` is SKIPPED — it never fails auth on a `main` push. Once
-# the script has created the WIF pool/provider + quantcore-deployer SA and set the two secrets,
-# pushes to main auto-roll-out with no further workflow edit. The `gate` job always runs.
-# PROD-FLIP stays manual/supervised (QUANTCORE_DB_DSN / Cloud SQL connector) — never automated.
+# TRIGGER STATUS — a push to main, or a dispatch from main, always deploys once the gates
+# pass. There is no credentials probe any more (#351): the GCP_WIF_PROVIDER / GCP_DEPLOY_SA
+# repo secrets have been set since 2026-06-17, so a missing secret now FAILS the run at the
+# auth step (re-create them with scripts/setup_test_wif.sh) instead of quietly skipping the
+# deploy behind a green check. PROD-FLIP stays manual/supervised (QUANTCORE_DB_DSN / Cloud SQL
+# connector) — never automated.
 #
 # DEPLOY ANY REF TO TEST (#120) — "Run workflow" from main with `ref` set to a branch, tag or
 # SHA builds that ref and rolls it out to TEST only (prod stays prod-rollout.yml's digest
@@ -48,9 +58,13 @@ on:
         description: "Branch, tag or SHA to build and deploy to TEST (run this from main)"
         required: true
         default: main
+  # Exactly '**.md' (#351): every changed path must be Markdown for the run to be skipped.
+  # Never widen it to docs/** — docs/openapi-surface.txt is read by the gate.
   push:
     branches: [main]
+    paths-ignore: ['**.md']
   pull_request:
+    paths-ignore: ['**.md']
 
 # Serialize deploys per ref so back-to-back merges to main don't race on the same
 # Cloud Run services (concurrent `gcloud run deploy` on one service ABORTs with an
@@ -60,9 +74,11 @@ on:
 # dispatch must be run from main, so it shares main's group: it can never race a merge.
 # GitHub keeps one PENDING run per group, so a newer queued run replaces an older queued
 # one (a dispatch queued behind a merge can be superseded, and vice versa).
+# On a PR only, a newer push CANCELS the in-flight run (#351): its result is already stale.
+# Main pushes and dispatches are never cancelled, so a roll-out is never cut off mid-deploy.
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   PROJECT_ID: quantcore-test-20260606
@@ -75,6 +91,9 @@ jobs:
   gate:
     name: Tests + wrapper smoke + OpenAPI surface
     runs-on: ubuntu-latest
+    # Every job carries a limit (#351): the default is 360 min, so one hung job would bill
+    # six hours. Limits are ~2-3x the observed maximum; a timeout is a red run, never silent.
+    timeout-minutes: 15
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
     services:
@@ -137,11 +156,13 @@ jobs:
           diff-cover coverage.xml --compare-branch "origin/${{ github.base_ref }}" \
             --fail-under 85 --markdown-report diff-cover.md
           cat diff-cover.md >> "$GITHUB_STEP_SUMMARY"
+      # The HTML report is kept only when something failed (#351): the gates above and the
+      # Summary tables don't need it, and every passing run's copy was storage nobody read.
       - name: Coverage HTML artifact
-        if: always()
+        if: failure()
         run: coverage html
       - uses: actions/upload-artifact@v7
-        if: always()
+        if: failure()
         with:
           name: backend-coverage-html
           path: htmlcov/
@@ -162,9 +183,18 @@ jobs:
   # prod gate, which is exactly what happened on 2026-08-10. Separate job rather
   # than a step, because the two dependency sets cannot share a Python
   # environment. Import-only — the gate already runs the tests.
+  #
+  # It also hosts two short checks that used to be jobs of their own, each billing a whole
+  # minute for ~15 s of work (#351): the change classifier, whose outputs decide whether
+  # frontend-gate and dep-audit run, and the gitleaks secret scan. lean-import rather than
+  # gate because it is short and runs in parallel, so neither lengthens the path to deploy.
   lean-import:
-    name: Lean install import smoke (requirements-base.lock)
+    name: Lean import smoke + secret scan (requirements-base.lock)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      deps_changed: ${{ steps.changes.outputs.deps_changed }}
+      frontend_changed: ${{ steps.changes.outputs.frontend_changed }}
     services:
       # api/main.py builds the app at import time, which calls ensure_schema() —
       # so even an import-only smoke needs a database to reach.
@@ -188,18 +218,50 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
+          # Full history: gitleaks scans every commit in the push/PR range, and the
+          # classifier diffs against the PR base or the push's `before`.
+          fetch-depth: 0
+      - name: Classify the change (which gates can be skipped)
+        # First, so its outputs exist even when a later step fails. ci_changes.sh fails
+        # open (true) on any base it can't diff against; a dispatch deploys a ref nobody
+        # gated on main, so it runs every gate.
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.base_ref }}
+          PUSH_BEFORE: ${{ github.event.before }}
+        run: |
+          case "$EVENT" in
+            pull_request) scripts/ci_changes.sh "origin/${PR_BASE}" ;;
+            push)         scripts/ci_changes.sh "$PUSH_BEFORE" ;;
+            *)            printf 'deps_changed=true\nfrontend_changed=true\n' ;;
+          esac | tee -a "$GITHUB_OUTPUT"
+      - name: Secret scan (gitleaks)
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+      # !cancelled(): a secret hit must not hide the import result, nor the reverse.
       - uses: actions/setup-python@v7
+        if: ${{ !cancelled() }}
         with:
           python-version: "3.12"
           cache: pip
       - name: Install lean deps (the set the containers ship)
+        if: ${{ !cancelled() }}
         run: pip install --require-hashes -r requirements-base.lock
       - name: Import smoke
+        if: ${{ !cancelled() }}
         run: python scripts/ci_lean_import_smoke.py
 
+  # Only on a frontend change (#351; patterns in scripts/ci_changes.sh). `!= 'false'`, not
+  # `== 'true'`: if lean-import died before classifying, the output is empty and this runs.
   frontend-gate:
     name: Frontend tests + typecheck + coverage
+    needs: lean-import
+    if: ${{ !cancelled() && needs.lean-import.outputs.frontend_changed != 'false' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend
@@ -232,7 +294,8 @@ jobs:
             ' >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@v7
-        if: always()
+        # Kept only when something failed (#351), as for the backend report.
+        if: failure()
         with:
           name: frontend-coverage-html
           path: frontend/coverage/
@@ -246,72 +309,27 @@ jobs:
           npm ci
           npm test
 
-  secret-scan:
-    name: Secret scan (gitleaks)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
-          # Full history so the scan covers every commit in the push/PR range.
-          fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
-
   # Known-vulnerability audit of every dependency lock (#218). Deliberately NOT in deploy's
-  # `needs`: an advisory published today goes red on every PR (loud), but must not block an
-  # unrelated merge or a roll-out. The weekly deps-lock-update.yml runs the same audit.
+  # `needs`: an advisory published today goes red (loud), but must not block an unrelated
+  # merge or a roll-out. It runs here only when a lock (or the audit's own wiring) changed
+  # (#351) — between lock changes, dep-audit.yml's daily schedule audits main's locks, which
+  # is what catches an advisory published against an unchanged pin. Same job, reused.
   dep-audit:
     name: Dependency audit (pip-audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-      - run: pip install pip-audit==2.10.1
-      - run: scripts/audit_deps.sh
-
-  preflight:
-    name: Check deploy credentials are configured
-    needs: gate
-    # A push to main, or any #120 dispatch (refused below unless run from main).
-    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    outputs:
-      has_creds: ${{ steps.check.outputs.has_creds }}
-    steps:
-      - id: check
-        # Secrets can't be referenced in a job-level `if`, so probe them here and
-        # publish a boolean output the `deploy` job gates on. Absent secrets ⇒ skip,
-        # never a hard auth failure.
-        env:
-          WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
-          DEPLOY_SA: ${{ secrets.GCP_DEPLOY_SA }}
-        run: |
-          # The deploy machinery must be main's: a dispatch "from" a branch would run that
-          # branch's copy of this file against test. Pick the code with the `ref` input.
-          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
-            echo "::error title=run this from main::Dispatch deploy.yml from main and name the code to deploy in the 'ref' input (this run is from $GITHUB_REF)."
-            exit 1
-          fi
-          if [ -n "$WIF_PROVIDER" ] && [ -n "$DEPLOY_SA" ]; then
-            echo "has_creds=true" >> "$GITHUB_OUTPUT"
-            echo "Deploy credentials present — deploy job will run."
-          else
-            echo "has_creds=false" >> "$GITHUB_OUTPUT"
-            echo "GCP_WIF_PROVIDER / GCP_DEPLOY_SA not set — skipping deploy (run scripts/setup_test_wif.sh)."
-          fi
+    needs: lean-import
+    if: ${{ !cancelled() && needs.lean-import.outputs.deps_changed != 'false' }}
+    uses: ./.github/workflows/dep-audit.yml
 
   deploy:
     name: Build + roll out to Cloud Run (test project)
-    needs: [gate, lean-import, frontend-gate, secret-scan, preflight]
-    if: needs.preflight.outputs.has_creds == 'true'
+    needs: [gate, lean-import, frontend-gate]
+    # A push to main, or any #120 dispatch (refused in the first step unless run from main).
+    # frontend-gate is usually SKIPPED (no frontend change), and a skipped need skips its
+    # dependents by default — hence !cancelled() + "nothing failed" rather than success().
+    # Deliberately no github.repository guard: a rename must not silently stop deploys.
+    if: ${{ !cancelled() && !contains(needs.*.result, 'failure') && ((github.ref == 'refs/heads/main' && github.event_name == 'push') || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write # Workload Identity Federation
@@ -321,6 +339,14 @@ jobs:
       DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
       DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
     steps:
+      - name: Refuse a dispatch not run from main
+        # The deploy machinery must be main's: a dispatch "from" a branch would run that
+        # branch's copy of this file against test. Pick the code with the `ref` input.
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error title=run this from main::Dispatch deploy.yml from main and name the code to deploy in the 'ref' input (this run is from $GITHUB_REF)."
+            exit 1
+          fi
       # main's machinery at the root (scripts, inventory); the code to build under ref/.
       - uses: actions/checkout@v7
       - uses: actions/checkout@v7
@@ -345,6 +371,8 @@ jobs:
       - name: Check the ref can deploy (migrations, images)
         run: python3 scripts/check_deploy_ref.py --ref-dir ref --base origin/main
       - id: auth
+        # Fails the run if the GCP_WIF_PROVIDER / GCP_DEPLOY_SA repo secrets are missing —
+        # deliberately loud (#351); re-create them with scripts/setup_test_wif.sh.
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}

@@ -13,12 +13,12 @@ roll-out as a merge, without touching main or prod.
 ## Design
 
 - **Input.** `workflow_dispatch.inputs.ref` (required, default `main`).
-- **Run from main only.** The preflight job fails a dispatch whose `GITHUB_REF` isn't
+- **Run from main only.** `deploy`'s first step (the preflight job until #351) fails a dispatch whose `GITHUB_REF` isn't
   `refs/heads/main`. So the workflow file, `scripts/`, and the service inventory that drive the
   deploy are always main's; the dispatched ref only supplies the code that is tested and built.
   It also keeps the concurrency group (`deploy-${{ github.ref }}`) equal to main's, so a dispatch
   and a merge can never roll out at the same time.
-- **Gates run on the ref.** `gate`, `lean-import`, `frontend-gate` and `secret-scan` check out
+- **Gates run on the ref.** `gate`, `lean-import` (which now also runs the secret scan, #351) and `frontend-gate` check out
   `ref: ${{ inputs.ref }}`, which is empty (the event's commit) on push and PR runs. `gate`
   outputs the SHA it tested (`git rev-parse HEAD`), and `deploy` builds exactly that SHA. A
   branch that moves while the run is in flight can't slip an untested commit into the build.
@@ -35,7 +35,7 @@ roll-out as a merge, without touching main or prod.
   - has a `cloudbuild.yaml` that doesn't build every image the roll-out deploys (the test
     inventory's images plus the migrate, report and news Jobs).
 - **Tests:** `tests/test_check_deploy_ref.py` covers the script against throwaway git repos and
-  the workflow wiring (input, gate checkouts, preflight refusal, SHA hand-off, tags, summary, and
+  the workflow wiring (input, gate checkouts, the dispatch refusal, SHA hand-off, tags, summary, and
   that `inputs.ref` never appears inside a `run:`).
 
 ## Gotchas (record of what would mislead)
@@ -48,9 +48,9 @@ roll-out as a merge, without touching main or prod.
 2. **Dispatching "from" a branch runs that branch's workflow.** GitHub takes the workflow file
    from the ref the dispatch is run on, not from an input. A run from a branch would therefore
    use the branch's deploy scripts against test, and sit in a different concurrency group from
-   main, racing merges. The preflight refusal closes both.
+   main, racing merges. The refusal in `deploy`'s first step closes both.
 3. **One pending run per concurrency group.** GitHub keeps at most one *pending* run per group;
-   a newer queued run cancels the older queued one (`cancel-in-progress: false` protects only the
+   a newer queued run cancels the older queued one (`cancel-in-progress`, false for push and dispatch runs since #351, protects only the
    running one). A dispatch queued behind a merge can be replaced by the next merge, and vice
    versa. Re-dispatch if yours vanished.
 4. **A ref behind main is safe for the schema.** Flyway's default `ignoreMigrationPatterns`

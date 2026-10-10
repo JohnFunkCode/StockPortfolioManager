@@ -73,8 +73,8 @@ authenticates the UI→API hop and carries user identity to the BYOK keyproxy. E
 own signing keypair + OAuth client (standalone projects can't auto-provision one; attach via
 `scripts/attach_quantui_iap_oauth.sh`).
 
-**Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (no path
-filters) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and rolls it onto
+**Deploy workflow for a UI change:** edit `frontend/` → PR → merge to `main`. `deploy.yml` (whose only path
+filter skips changes that touch nothing but `*.md` files, #351) builds `quantcore-ui` (`build-ui` step in `cloudbuild.yaml`) and rolls it onto
 the **test** `quantui` service automatically (IAP preserved; CPU/memory, env and secrets
 re-asserted from `deploy/cloudrun-services.toml` — see [cloudrun-services.md](cloudrun-services.md)).
 quantui is `first_create = "manual"` there: if the service is missing, the roll-out fails rather

@@ -31,7 +31,9 @@ base-only test run.
   lock changes. `_DEPS_EPOCH` and the `pip install --upgrade pip` lines are gone.
 - **CI:** the `gate` job installs the dev lock and runs `lock_deps.sh --check` (a `.txt` edited
   without re-locking fails). A new `dep-audit` job runs `scripts/audit_deps.sh` (pip-audit over all
-  five locks).
+  five locks). Since #351 it is the reusable `dep-audit.yml`, called only when a lock or the
+  audit's wiring changed, plus a daily scheduled run on main's locks
+  ([`ci-minutes-plan.md`](ci-minutes-plan.md)).
 - **Updates:** `.github/workflows/deps-lock-update.yml` runs Mondays 09:17 UTC and on dispatch:
   `lock_deps.sh --upgrade`, audit, and if any lock changed, force-push `deps/lock-update` and
   open/refresh one PR against main. The workflow goes red if the audit failed.
@@ -62,7 +64,9 @@ base-only test run.
    install time. Negative test: a `requests==2.19.0` pin was reported with 10 advisories, exit 1.
 6. **`dep-audit` is deliberately not in `deploy`'s `needs`.** A new advisory against an unchanged
    lock would otherwise block every unrelated merge from reaching test. It goes red; the fix is a
-   floor bump or `lock_deps.sh --upgrade`.
+   floor bump or `lock_deps.sh --upgrade`. (#351 keeps this: the PR-time audit now runs only on
+   a lock change, and the daily scheduled run is what catches an advisory against an unchanged
+   lock. The weekly update run can't be that backstop — it audits the *upgraded* locks.)
 7. **PRs opened with `GITHUB_TOKEN` don't trigger workflows,** so the weekly PR would get no CI
    (`gate`, `lean-import`, `dep-audit`). The `main` ruleset requires one approval but **no status
    checks**, so the PR could still merge; it would just merge unchecked. Also, the repo setting
@@ -150,4 +154,5 @@ base-only test run.
 | Scratch Cloud Build (`_TAG`/`_CACHE_TAG=pindeps-218`, `_LATEST_TAG=pindeps-218-latest`) | SUCCESS, build `a8befe8d`, 7m47s. All 7 images installed their locks with `--require-hashes`. api and news took 6m36s each, with a cold cache and torch `+cpu` from the PyTorch index; mcp/report 2m03s, ui 1m23s, keyproxy 53s, migrate 25s. `tag-latest` moved only `:pindeps-218-latest`. |
 | PR #315 review (2026-10-05) | Default-branch `if:` on the `update` job + test (gotcha 8). The `main`-only Environment for `DEPS_PR_TOKEN` is documented, not applied. |
 | `deps-lock` environment (2026-10-05) | Done. John created it (main-only, token as environment secret, admin bypass off) and the job names it (#317). Run 37352301979, dispatched from main, deployed to `deps-lock` and finished green; it opened no PR because nothing had moved since #316. The repo-level `DEPS_PR_TOKEN` was then deleted, so only the environment copy remains (checked through the API). |
+| #351 (2026-10-09) | `dep-audit` moved to the reusable `dep-audit.yml`: PR/push audit only when `scripts/ci_changes.sh` reports `deps_changed`, plus daily 10:41 UTC on main. Still not in `deploy.needs`. See [`ci-minutes-plan.md`](ci-minutes-plan.md). |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

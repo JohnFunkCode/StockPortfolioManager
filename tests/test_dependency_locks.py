@@ -100,7 +100,7 @@ class InstallWiringTest(unittest.TestCase):
         self.assertIn("scripts/lock_deps.sh --check", "\n".join(deploy["gate"]))
         self.assertIn("pip install --require-hashes -r requirements-base.lock",
                       "\n".join(deploy["lean-import"]))
-        self.assertIn("scripts/audit_deps.sh", "\n".join(deploy["dep-audit"]))
+        self.assertIn("scripts/audit_deps.sh", "\n".join(steps("dep-audit.yml")["audit"]))
 
     def test_prod_rollout_gate_stays_base_only(self):
         # The lean-import property: prod-rollout tests on the base set alone.
@@ -108,6 +108,22 @@ class InstallWiringTest(unittest.TestCase):
         self.assertIn("pip install --require-hashes -r requirements-base.lock", runs)
         self.assertNotIn("requirements-dev", runs)
         self.assertNotIn("requirements-ml", runs)
+
+    def test_deploy_audits_only_on_a_dependency_change(self):
+        # #351: deploy.yml calls the reusable workflow, gated on the classifier's output.
+        jobs = yaml.safe_load((WORKFLOWS / "deploy.yml").read_text())["jobs"]
+        audit = jobs["dep-audit"]
+        self.assertEqual(audit["uses"], "./.github/workflows/dep-audit.yml")
+        self.assertEqual(audit["needs"], "lean-import")
+        self.assertIn("needs.lean-import.outputs.deps_changed", audit["if"])
+        self.assertIn("deps_changed", jobs["lean-import"]["outputs"])
+
+    def test_dep_audit_also_runs_daily(self):
+        # The backstop for an advisory published against an unchanged pin.
+        doc = yaml.safe_load((WORKFLOWS / "dep-audit.yml").read_text())
+        on = doc.get("on", doc.get(True))
+        self.assertTrue(on["schedule"])
+        self.assertIn("workflow_call", on)
 
     def test_dep_audit_is_not_a_rollout_gate(self):
         doc = yaml.safe_load((WORKFLOWS / "deploy.yml").read_text())

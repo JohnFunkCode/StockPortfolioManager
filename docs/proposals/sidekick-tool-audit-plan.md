@@ -1,7 +1,7 @@
 # Sidekick's tool vocabulary — close the accidental gaps, make the deliberate ones legible
 
 **Source issue:** [#208](https://github.com/JohnFunkCode/StockPortfolioManager/issues/208)
-**Status:** **IN PROGRESS** — plan approved 2026-08-14, implementation started
+**Status:** **COMPLETE** — plan approved 2026-08-14, merged 2026-08-15 in PR #209 (`cd214a1`); follow-up fixes in PR #210
 **Shape:** one PR, six commits (auth/route plumbing → `chat.py` → `chat_tools.py` → `registry.py` → tests → docs)
 **Related:** [`architectural-standard-v2.md`](architectural-standard-v2.md) (§5.5 is itself amended
 by this work), [`../capabilities-matrix.md`](../capabilities-matrix.md) (the doc the issue asks to

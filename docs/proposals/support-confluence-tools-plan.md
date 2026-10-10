@@ -1,6 +1,6 @@
 # Proposal: Support-Level Analysis Tools (ATR, Anchored VWAP, Volume Profile, OI-Change, GEX, Confluence)
 
-Status: **DRAFT — for team discussion before implementation**
+Status: **COMPLETE** — implemented through PRs #94 (`1393e47`, 2026-07-16) and #108 (`2b74e86`, UI, 2026-07-20); written as a draft for team discussion
 Date: 2026-07-15
 Tracking: [Issue #93](https://github.com/JohnFunkCode/StockPortfolioManager/issues/93) — progress comments posted there at the completion of each phase
 

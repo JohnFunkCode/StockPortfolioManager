@@ -309,13 +309,13 @@ jobs:
           npm ci
           npm test
 
-  # Known-vulnerability audit of every dependency lock (#218). Deliberately NOT in deploy's
-  # `needs`: an advisory published today goes red (loud), but must not block an unrelated
-  # merge or a roll-out. It runs here only when a lock (or the audit's own wiring) changed
+  # Known-vulnerability audit of every dependency lock, pip and npm (#218, #354). Deliberately
+  # NOT in deploy's `needs`: an advisory published today goes red (loud), but must not block an
+  # unrelated merge or a roll-out. It runs here only when a lock (or the audit's own wiring) changed
   # (#351) — between lock changes, dep-audit.yml's daily schedule audits main's locks, which
   # is what catches an advisory published against an unchanged pin. Same job, reused.
   dep-audit:
-    name: Dependency audit (pip-audit)
+    name: Dependency audit (pip-audit + npm audit)
     needs: lean-import
     if: ${{ !cancelled() && needs.lean-import.outputs.deps_changed != 'false' }}
     uses: ./.github/workflows/dep-audit.yml

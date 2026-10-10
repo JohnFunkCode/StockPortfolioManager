@@ -1,4 +1,5 @@
-# Known-vulnerability audit of every dependency lock (#218, reshaped by #351).
+# Known-vulnerability audit of every dependency lock (#218, reshaped by #351): the Python locks
+# (scripts/audit_deps.sh) and the frontend npm locks' runtime deps (scripts/audit_npm.sh, #354).
 #
 # Two ways in, one job definition:
 #   - deploy.yml calls it (workflow_call) when scripts/ci_changes.sh says a lock or the audit's
@@ -27,7 +28,7 @@ permissions:
 
 jobs:
   audit:
-    name: Dependency audit (pip-audit)
+    name: Dependency audit (pip-audit + npm audit)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -36,4 +37,11 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install pip-audit==2.10.1
-      - run: scripts/audit_deps.sh
+      - name: pip-audit (Python locks)
+        run: scripts/audit_deps.sh
+      # Reads the locks only (--package-lock-only), so no npm ci, and uses the runner image's own
+      # npm -- no setup-node download, to keep this inside the job's first billed minute (#351).
+      # !cancelled(): a pip finding must not hide the npm result, or the reverse.
+      - name: npm audit (frontend locks, runtime deps)
+        if: ${{ !cancelled() }}
+        run: scripts/audit_npm.sh

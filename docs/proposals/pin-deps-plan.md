@@ -33,7 +33,8 @@ base-only test run.
   without re-locking fails). A new `dep-audit` job runs `scripts/audit_deps.sh` (pip-audit over all
   five locks). Since #351 it is the reusable `dep-audit.yml`, called only when a lock or the
   audit's wiring changed, plus a daily scheduled run on main's locks
-  ([`ci-minutes-plan.md`](ci-minutes-plan.md)).
+  ([`ci-minutes-plan.md`](ci-minutes-plan.md)). Since #354 the same job also runs
+  `scripts/audit_npm.sh` over the two frontend npm locks (see gotchas 12–14).
 - **Updates:** `.github/workflows/deps-lock-update.yml` runs Mondays 09:17 UTC and on dispatch:
   `lock_deps.sh --upgrade`, audit, and if any lock changed, force-push `deps/lock-update` and
   open/refresh one PR against main. The workflow goes red if the audit failed.
@@ -142,6 +143,23 @@ base-only test run.
     - pip doesn't hash-check the *build* dependencies of a package that installs from an sdist.
       Every package in the container locks currently resolves to a wheel.
     - The `python:3.12-slim` base image is still a floating tag.
+12. **(#354) The npm audit lives in the existing `dep-audit` job, not a new one.** Actions bills
+    each job rounded up to a minute (the reason for #351), and `npm audit --package-lock-only`
+    takes ~1.4 s, so a separate job would cost a whole minute per run for seconds of work. It
+    uses the runner image's own npm (no `setup-node` download) and needs no `npm ci`. It is
+    triggered by the same `deps_changed` output, which now includes both npm locks, and a
+    frontend *source* change doesn't trigger it.
+13. **(#354) braces GHSA-vfj7-8cjw-p6xm has no fixed version** (every release ≤3.0.3 is
+    affected), so `frontend/server` can't reach zero highs. It is reached only through
+    http-proxy-middleware → micromatch, and `server.mjs` passes no glob pattern. Rather than
+    lowering the audit level, `audit_npm.sh` carries an **expiring, per-lock exception**: an
+    expired one fails the run, and one that matches nothing warns so it gets deleted. Exceptions
+    are for "no fix exists", never for "not upgraded yet".
+14. **(#354) The lock refresh moved Vite to 6.4.4, which closed the `?raw` bypass of
+    `server.fs.allow`.** `src/vault/envelope.test.ts` imports `tests/vectors/…json?raw` from
+    outside `frontend/` and began failing with "Denied ID". The fix allows exactly
+    `../tests/vectors` in `vitest.config.ts`, never the repo root. Also: `npm update` did not
+    take vitest to the fixed 4.1.x; the `package.json` range had to be bumped explicitly.
 
 ## Checkpoint log
 
@@ -155,4 +173,5 @@ base-only test run.
 | PR #315 review (2026-10-05) | Default-branch `if:` on the `update` job + test (gotcha 8). The `main`-only Environment for `DEPS_PR_TOKEN` is documented, not applied. |
 | `deps-lock` environment (2026-10-05) | Done. John created it (main-only, token as environment secret, admin bypass off) and the job names it (#317). Run 37352301979, dispatched from main, deployed to `deps-lock` and finished green; it opened no PR because nothing had moved since #316. The repo-level `DEPS_PR_TOKEN` was then deleted, so only the environment copy remains (checked through the API). |
 | #351 (2026-10-09) | `dep-audit` moved to the reusable `dep-audit.yml`: PR/push audit only when `scripts/ci_changes.sh` reports `deps_changed`, plus daily 10:41 UTC on main. Still not in `deploy.needs`. See [`ci-minutes-plan.md`](ci-minutes-plan.md). |
+| #354 (2026-10-09) | `npm audit fix` cleared both `frontend/server` criticals (proxy-addr, express) and every fixable high; the frontend lock is at 0 vulnerabilities (vitest ^4.1.11, vite 6.4.4). `scripts/audit_npm.sh` + `npm_audit_filter.py` added to `dep-audit.yml`; braces carries the one exception (gotcha 13, expires 2027-01-09). Server `node --test` 14/14, vitest 641/641 with coverage above the floors. |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

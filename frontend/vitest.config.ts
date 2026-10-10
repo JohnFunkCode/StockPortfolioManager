@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   plugins: [react()],
+  // src/vault/envelope.test.ts imports the shared keyproxy vectors from the
+  // repo root. Vite 6.4.4 (#354) closed the `?raw` hole that let that read
+  // past server.fs.allow, so allow exactly that directory — never the root.
+  server: { fs: { allow: ['.', '../tests/vectors'] } },
   test: {
     environment: 'jsdom',
     // jsdom disables localStorage on the default about:blank origin.

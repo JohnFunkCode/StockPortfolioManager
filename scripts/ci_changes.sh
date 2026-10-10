@@ -39,7 +39,9 @@ deps=false
 frontend=false
 while IFS= read -r f; do
   case "$f" in
-    requirements*.lock|keyproxy/requirements.lock|scripts/audit_deps.sh|.github/workflows/dep-audit.yml)
+    requirements*.lock|keyproxy/requirements.lock|scripts/audit_deps.sh|.github/workflows/dep-audit.yml|\
+    frontend/package-lock.json|frontend/server/package-lock.json|scripts/audit_npm.sh|\
+    scripts/npm_audit_filter.py)
       deps=true ;;
   esac
   case "$f" in

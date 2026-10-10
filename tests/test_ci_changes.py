@@ -58,8 +58,21 @@ class CiChangesTest(unittest.TestCase):
         self.commit("keyproxy/requirements.lock")
         self.assert_classified("true", "false")
 
+    def test_npm_lock_change_is_deps_and_frontend(self):
+        # #354: dep-audit.yml audits both npm locks; frontend-gate tests against them.
+        for rel in ("frontend/package-lock.json", "frontend/server/package-lock.json"):
+            with self.subTest(rel=rel):
+                self.commit(rel)
+                self.assert_classified("true", "true")
+                self.base = git(self.repo, "rev-parse", "HEAD")
+
+    def test_frontend_source_alone_is_not_deps(self):
+        self.commit("frontend/package.json", "frontend/src/App.tsx")
+        self.assert_classified("false", "true")
+
     def test_audit_wiring_is_deps(self):
-        for rel in ("scripts/audit_deps.sh", ".github/workflows/dep-audit.yml"):
+        for rel in ("scripts/audit_deps.sh", ".github/workflows/dep-audit.yml",
+                    "scripts/audit_npm.sh", "scripts/npm_audit_filter.py"):
             with self.subTest(rel=rel):
                 self.commit(rel)
                 self.assertEqual(self.classify()["deps_changed"], "true")
@@ -102,12 +115,15 @@ class CiChangesTest(unittest.TestCase):
                 self.assert_classified("true", "true", base=base)
 
     def test_every_audited_lock_is_a_deps_pattern(self):
-        audit = (ROOT / "scripts" / "audit_deps.sh").read_text()
-        locks = re.search(r"LOCKS=\(([^)]*)\)", audit).group(1).split()
-        self.assertTrue(locks)
-        script = SCRIPT.read_text()
-        deps_line = next(line for line in script.splitlines() if "requirements*.lock|" in line)
-        patterns = deps_line.strip().rstrip(")").split("|")
+        locks = []
+        for audit in ("audit_deps.sh", "audit_npm.sh"):     # pip (#218) and npm (#354)
+            text = (ROOT / "scripts" / audit).read_text()
+            found = re.search(r"LOCKS=\(([^)]*)\)", text).group(1).split()
+            self.assertTrue(found, audit)
+            locks += found
+        # The deps case arm may span backslash-continued lines.
+        arm = re.search(r"(requirements\*\.lock\|.*?)\)\n", SCRIPT.read_text(), re.S).group(1)
+        patterns = [p.strip() for p in arm.replace("\\\n", "").split("|")]
         for lock in locks:
             with self.subTest(lock=lock):
                 self.assertTrue(any(fnmatch(lock, p) for p in patterns), lock)

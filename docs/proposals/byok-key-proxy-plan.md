@@ -1,6 +1,7 @@
 # BYOK — Bring Your Own LLM API Key (browser vault + Key Proxy) — plan + checkpoint log
 
-> Status: **PROPOSAL — awaiting team review.** No code has been written. This doc is the canonical
+> Status: **COMPLETE — live on test and prod since 2026-07-18** (PRs #105/#106, merged at `177e411`;
+> written as a proposal before any code). This doc is the canonical
 > plan and checkpoint log for the BYOK feature, mirroring the cadence of `quantui-iap-plan.md` /
 > `phase3-gateway-plan.md`: one commit per work packet, pushed, logged below (see "Executing this
 > plan — session protocol", added 2026-07-16 to tailor the plan for execution by Claude Opus 4.8;

@@ -1,7 +1,7 @@
 # Watchlist persistence — move `watchlist.yaml` into the database
 
 **Source issue:** [#83](https://github.com/JohnFunkCode/StockPortfolioManager/issues/83)
-**Status:** PLANNED — no code written
+**Status:** **COMPLETE** — merged 2026-07-28 in PR #162 (`661ab58`) and rolled out to prod; see the checkpoint log
 **Shape:** one branch `feat/watchlist-db`, one commit per step, **one PR**
 **Related:** #126 / [`portfolio-lots-plan.md`](portfolio-lots-plan.md) (owner scoping + principal plumbing this plan reuses, COMPLETE)
 

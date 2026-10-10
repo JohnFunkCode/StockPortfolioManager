@@ -1,6 +1,6 @@
 # Sidekick model selector — user-selectable Anthropic model (issue #124) — implementation plan
 
-> Status: **PROPOSAL — no code written yet.** This is the canonical, self-contained implementation
+> Status: **COMPLETE** — merged 2026-07-26 in PR #133 (`67fbbea`). This is the canonical, self-contained implementation
 > plan for GitHub issue #124. It is written to be executed by **Claude Sonnet 5**: every work
 > packet names exact files, anchor lines, the change to make, and how to verify it. Follow the
 > packets in order; each is a single logical commit. Progress comments go on issue #124 at packet

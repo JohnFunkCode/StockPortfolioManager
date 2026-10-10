@@ -7,7 +7,7 @@
 # points the moving :${_LATEST_TAG} at that same digest once all seven have built.
 # There is no `images:` block: buildx pushes from inside its own builder.
 #
-# Images (one mcp image is reused by all five wrappers — server + port are
+# Images (one mcp image is reused by all seven wrappers — server + port are
 # selected at run time via SERVER_MODULE/PORT env, see mcp_gateway/serve.py):
 #   quantcore-api       FastAPI front door + services in-process (carries FinBERT/torch)
 #   quantcore-mcp       the shared thin MCP wrapper image
@@ -108,7 +108,7 @@ steps:
       - --push
       - .
 
-  # --- mcp (Dockerfile.mcp) — one image for all 5 wrappers ---
+  # --- mcp (Dockerfile.mcp) — one image for all 7 wrappers ---
   - name: gcr.io/cloud-builders/docker
     id: build-mcp
     waitFor: [builder]

@@ -211,6 +211,12 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
 8. **Linting the workflows locally.** `pip install actionlint-py` into a scratch venv gives an
    `actionlint` binary with no Go or Homebrew needed. It caught nothing here, but it is the
    cheapest check before a push.
+9. **On a PR, `paths-ignore` looks at the whole PR, not at the newest commit.** For
+   `pull_request`, GitHub compares the PR head with its base. A docs-only commit pushed onto a PR
+   that also changes code still starts a full run, and that run cancels the one in flight. It
+   happened here: 7393a1e, which only touched `.md`, ran every gate and cancelled d83c23b's run.
+   Only a PR whose *entire* diff is `.md` starts nothing. On `push`, GitHub compares against the
+   previous head (`before`), so a docs-only merge to main does skip.
 
 ## Out of scope
 
@@ -227,7 +233,7 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
 |---|---|
 | Workflows, `ci_changes.sh`, `dep-audit.yml`, tests (2026-10-09) | Done. `test_check_deploy_ref`, `test_dependency_locks`, `test_ci_parallel` and `test_ci_changes` pass (63 tests). actionlint is clean on all four workflows. Classifier checked locally: an all-zeros or bogus base gives true/true; `HEAD~3` gives false/true. |
 | Docs sweep | Done. Updated `CLAUDE.md`, `readme.md`, `byok.md`, `quantui.md`, `prod-promotion.md`, and the `pin-deps`, `deploy-ref-to-test` and `wif-trust` plans. `ubuntu-26-runner-plan.md` is left as the historical record of that run. |
-| PR run | *pending* |
-| False paths: a `.md`-only commit starts no run; a Python-only commit skips both conditional gates; a second push cancels the first | *pending* |
-| After merge: `gh workflow run dep-audit.yml`, first scheduled run, main-push deploy | *pending* |
+| PR run | Done (run 38021622506 on 7393a1e). `lean-import` (with gitleaks), `gate`, `frontend-gate` and `dep-audit` (through the reusable workflow) all passed. `deploy` was skipped, as it should be on a PR. There was no `preflight` or `secret-scan` job. The PR changes `deploy.yml` and `dep-audit.yml`, so both conditional gates ran. |
+| False paths: a `.md`-only commit starts no run; a Python-only commit skips both conditional gates; a second push cancels the first | Partly done. **A second push cancels the first:** confirmed, because 7393a1e cancelled d83c23b's run 38021588397. **A `.md`-only change starts no run:** confirmed by this docs-only PR, which shows no checks. A docs-only commit on a code PR still runs (gotcha 9). **The Python-only skip:** not yet run, to avoid re-pushing after approval. Check it on the next Python-only PR. |
+| After merge: `gh workflow run dep-audit.yml`, first scheduled run, main-push deploy | Mostly done (2026-10-10). **Dispatch:** run 38022040266 was green. **Main push of d072284:** run 38021963094 was green. The roll-out job opened with the refusal step (passed), then the checkouts, and recorded `Deploying main @ d072284… to TEST`. The roll-out job took 8.5 min and the whole run ~12 min, with no `preflight` job. **First scheduled run (10:41 UTC):** *pending*. |
 | Billed minutes after, ~5 PR runs and ~5 main pushes | *pending* |

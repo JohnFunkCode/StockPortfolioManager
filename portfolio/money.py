@@ -3,6 +3,9 @@ from decimal import Decimal, ROUND_HALF_UP
 import requests
 from typing import Union
 
+# A slow endpoint must not hang the legacy report run (#348).
+EXCHANGE_RATE_TIMEOUT_SECONDS = 10
+
 class Money:
     def __init__(self, amount: Union[float, Decimal], currency: str):
         self.amount = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
@@ -34,16 +37,28 @@ class Money:
 
     @staticmethod
     def _fetch_exchange_rate(base_currency: str, target_currency: str) -> float:
-        url = f"https://open.er-api.com/v6/latest/USD{base_currency}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            rates = response.json().get("rates", {})
-            if target_currency.upper() in rates:
-                return rates[target_currency.upper()]
-            else:
-                raise ValueError(f"Currency {target_currency} not supported.")
-        else:
+        # The endpoint takes a single base code (/v6/latest/EUR). It ignores anything after the
+        # first three letters, so the old /latest/USD{base} URL silently returned USD-based rates
+        # for every holding -- a EUR->USD conversion came back at a rate of 1 (#348). The
+        # base_code check below catches that class of mistake instead of trusting the URL.
+        base = base_currency.upper()
+        target = target_currency.upper()
+        url = f"https://open.er-api.com/v6/latest/{base}"
+        try:
+            response = requests.get(url, timeout=EXCHANGE_RATE_TIMEOUT_SECONDS)
+        except requests.RequestException as exc:
+            raise ConnectionError("Failed to fetch exchange rates.") from exc
+        if response.status_code != 200:
             raise ConnectionError("Failed to fetch exchange rates.")
+        body = response.json()
+        if body.get("result") != "success":
+            raise ConnectionError(f"Exchange-rate API returned an error: {body.get('error-type', 'unknown')}")
+        if body.get("base_code", base).upper() != base:
+            raise ValueError(f"Exchange-rate API returned rates for {body.get('base_code')}, not {base}.")
+        rates = body.get("rates", {})
+        if target not in rates:
+            raise ValueError(f"Currency {target_currency} not supported.")
+        return rates[target]
 
     def __repr__(self):
         symbol = self._get_currency_symbol()

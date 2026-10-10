@@ -1,7 +1,8 @@
 # CI minutes — cut billed Actions minutes (issue #351)
 
-**Status:** implemented on branch `issue-351-ci-minutes` (2026-10-09). The "after" numbers are
-still pending; they go in the checkpoint log once ~5 PR runs and ~5 main pushes have run.
+**Status:** merged to main 2026-10-10 (PR #353, `d072284`) and running. Still open: the
+Python-only skip hasn't been seen on a real PR yet, and the billed-minutes sample is too small to
+show the folding saving (see the checkpoint log).
 
 ## Context
 
@@ -218,6 +219,12 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
    Only a PR whose *entire* diff is `.md` starts nothing. On `push`, GitHub compares against the
    previous head (`before`), so a docs-only merge to main does skip.
 
+10. **Measure billed minutes per job, not per run.** A run's wall-clock time (or a single
+    duration from `…/runs/{id}/timing`) hides the per-job round-up, and the round-up is what this
+    work cuts. Sum `ceil((completed_at - started_at)/60)` over the jobs that weren't skipped. And
+    compare like with like: a run that changes `deploy.yml` re-runs every conditional gate, so the
+    PR that introduced these skips is the one run that can't show them.
+
 ## Out of scope
 
 - **The frontend npm locks were not audited by CI.** `npm audit` on 2026-10-09 found:
@@ -238,5 +245,5 @@ Expected saving: roughly **450–700 billed min/month**, against ~2,338 today.
 | Docs sweep | Done. Updated `CLAUDE.md`, `readme.md`, `byok.md`, `quantui.md`, `prod-promotion.md`, and the `pin-deps`, `deploy-ref-to-test` and `wif-trust` plans. `ubuntu-26-runner-plan.md` is left as the historical record of that run. |
 | PR run | Done (run 38021622506 on 7393a1e). `lean-import` (with gitleaks), `gate`, `frontend-gate` and `dep-audit` (through the reusable workflow) all passed. `deploy` was skipped, as it should be on a PR. There was no `preflight` or `secret-scan` job. The PR changes `deploy.yml` and `dep-audit.yml`, so both conditional gates ran. |
 | False paths: a `.md`-only commit starts no run; a Python-only commit skips both conditional gates; a second push cancels the first | Partly done. **A second push cancels the first:** confirmed, because 7393a1e cancelled d83c23b's run 38021588397. **A `.md`-only change starts no run:** confirmed by this docs-only PR, which shows no checks. A docs-only commit on a code PR still runs (gotcha 9). **The Python-only skip:** not yet run, to avoid re-pushing after approval. Check it on the next Python-only PR. |
-| After merge: `gh workflow run dep-audit.yml`, first scheduled run, main-push deploy | Mostly done (2026-10-10). **Dispatch:** run 38022040266 was green. **Main push of d072284:** run 38021963094 was green. The roll-out job opened with the refusal step (passed), then the checkouts, and recorded `Deploying main @ d072284… to TEST`. The roll-out job took 8.5 min and the whole run ~12 min, with no `preflight` job. **First scheduled run (10:41 UTC):** *pending*. |
-| Billed minutes after, ~5 PR runs and ~5 main pushes | *pending* |
+| After merge: `gh workflow run dep-audit.yml`, first scheduled run, main-push deploy | Mostly done (2026-10-10). **Dispatch:** run 38022040266 was green. **Main push of d072284:** run 38021963094 was green. The roll-out job opened with the refusal step (passed), then the checkouts, and recorded `Deploying main @ d072284… to TEST`. The roll-out job took 8.5 min and the whole run ~12 min, with no `preflight` job. **First scheduled run:** run 38046032500 started 10:45 UTC on 2026-10-10 (main `569d1a9`) and was green. It is also the first daily run with the npm audit (#354): all five pip locks were clean, and `frontend/server`'s only finding was braces, reported as excepted. |
+| Billed minutes after, ~5 PR runs and ~5 main pushes | **Interim (2026-10-10), the sample is too small.** Billed minutes are each job's duration rounded up to the minute, summed over the jobs that ran, from `gh api …/actions/runs/{id}/jobs`. **Before** (7 PR runs, 5 main pushes, 2026-10-07 → 10-10): PR runs 9–11, mean **10.0**; main pushes 17–22, mean **18.6**. Two of those 7 PR runs were `.md`-only (#344, #350), and today they would bill **0** (3a): ~20 of the 70 PR minutes. **After** (4 PR runs, 2 main pushes, all from #351 and #354): PR runs 9–10, mean **9.5**; main pushes 18 and 19. All six of these runs changed `deploy.yml`, a lock, or `frontend/`, so every conditional gate ran: they are the worst case, and the only saving they can show is from the folded jobs. That saving is ~0.5 min per PR run and isn't visible yet on main pushes, where `lean-import` now sometimes bills 2 and the roll-out's 8–9 min swings more than that. The skips (3a docs-only, 3b frontend, 2 dep-audit) are where the minutes are; re-measure after a few Python-only and docs-only PRs. |

@@ -155,8 +155,11 @@ base-only test run.
     lowering the audit level, `audit_npm.sh` carries an **expiring, per-lock exception**: an
     expired one fails the run, and one that matches nothing warns so it gets deleted. Exceptions
     are for "no fix exists", never for "not upgraded yet". The reachability claim is pinned, not
-    trusted: `frontend/server/proxy-context.test.mjs` fails if `createProxyMiddleware` is ever
-    given a path context or a `context`/`pathFilter` option, the only route to micromatch.
+    trusted. The proxy's options live in `frontend/server/proxy.mjs`, and `proxy.test.mjs`
+    checks the **resolved** options object against a key allow-list, so a filter added through a
+    spread or an imported object fails too. It also checks that `proxy.mjs` is the only module
+    importing hpm. The first version scanned source text for an inline `context:`, and review
+    pointed out that a spread would get past it.
     Upgrading hpm doesn't remove braces (4.2.0 still needs `micromatch ^4.0.8`); replacing the
     library with a small `node:http` proxy does, and is tracked in #357.
 14. **(#354) The lock refresh moved Vite to 6.4.4, which closed the `?raw` bypass of
@@ -179,4 +182,5 @@ base-only test run.
 | #351 (2026-10-09) | `dep-audit` moved to the reusable `dep-audit.yml`: PR/push audit only when `scripts/ci_changes.sh` reports `deps_changed`, plus daily 10:41 UTC on main. Still not in `deploy.needs`. See [`ci-minutes-plan.md`](ci-minutes-plan.md). |
 | #354 (2026-10-09) | `npm audit fix` cleared both `frontend/server` criticals (proxy-addr, express) and every fixable high; the frontend lock is at 0 vulnerabilities (vitest ^4.1.11, vite 6.4.4). `scripts/audit_npm.sh` + `npm_audit_filter.py` added to `dep-audit.yml`; braces carries the one exception (gotcha 13, expires 2027-01-09). Server `node --test` 14/14, vitest 641/641 with coverage above the floors. |
 | #354 follow-up (2026-10-09) | `proxy-context.test.mjs` guards the braces exception's reasoning (verified red with a `'/api/**'` context); server `node --test` 16/16. Removing hpm altogether is #357. |
+| #354 review (2026-10-09) | The guard moved from a source scan to the resolved options: the proxy config was extracted to `proxy.mjs` and `proxy-context.test.mjs` was replaced by `proxy.test.mjs`. Verified red with a spread `pathFilter` and with a second hpm importer; server `node --test` 18/18. `npm_audit_filter.judge()` was split into helpers (Radon CC 13→6, complexipy 24→5) with the same 9 tests passing. |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

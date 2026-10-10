@@ -23,7 +23,7 @@ LOCKS=(frontend/package-lock.json frontend/server/package-lock.json)
 
 # GHSA id | lock | expires (YYYY-MM-DD) | why it is safe to carry
 EXCEPTIONS=(
-  "GHSA-vfj7-8cjw-p6xm|frontend/server/package-lock.json|2027-01-09|braces: every version is affected (no fix). Reached only via http-proxy-middleware -> micromatch; server.mjs passes no glob pattern, so no attacker input reaches braces (pinned by frontend/server/proxy-context.test.mjs; removal is #357)."
+  "GHSA-vfj7-8cjw-p6xm|frontend/server/package-lock.json|2027-01-09|braces: every version is affected (no fix). Reached only via http-proxy-middleware -> micromatch; the proxy is given no path filter, so no attacker input reaches braces (pinned by frontend/server/proxy.test.mjs; removal is #357)."
 )
 
 rc=0

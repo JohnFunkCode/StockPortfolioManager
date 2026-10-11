@@ -4,8 +4,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import https from 'node:https';
+import { spawnSync } from 'node:child_process';
 import { once } from 'node:events';
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -21,12 +24,12 @@ async function listen(server) {
 
 // Spins up `handler` as the upstream and the proxy in front of it (mounted at /api, as in
 // server.mjs, with an optional parked bearer). Returns the proxy port and a cleanup.
-async function harness(handler, { bearer } = {}) {
-  const upstream = http.createServer(handler);
+async function harness(handler, { bearer, tls } = {}) {
+  const upstream = tls ? https.createServer(tls, handler) : http.createServer(handler);
   const upstreamPort = await listen(upstream);
   const app = express();
   app.use('/api', (req, _res, next) => { if (bearer) req.quantuiAuthorization = bearer; next(); });
-  app.use('/api', createApiProxy(`http://127.0.0.1:${upstreamPort}`));
+  app.use('/api', createApiProxy(`${tls ? 'https' : 'http'}://127.0.0.1:${upstreamPort}`));
   const front = http.createServer(app);
   const port = await listen(front);
   return {
@@ -209,6 +212,67 @@ test('a client disconnect aborts the upstream request', async (t) => {
   await once(res, 'data');
   res.destroy();
   await closed; // resolves only if the proxy tore down its upstream request
+});
+
+// A throwaway self-signed certificate for 127.0.0.1, generated per run -- never committed, so
+// no private key sits in the repo for the secret scan to flag. Returns null without openssl.
+function selfSignedCert() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'proxy-tls-'));
+  try {
+    const run = spawnSync('openssl', [
+      'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=127.0.0.1',
+      '-addext', 'subjectAltName=IP:127.0.0.1',
+      '-keyout', path.join(dir, 'key.pem'), '-out', path.join(dir, 'cert.pem'),
+    ], { stdio: 'ignore' });
+    if (run.error?.code === 'ENOENT') return null;
+    assert.equal(run.status, 0, 'openssl failed to make the test certificate');
+    return { key: readFileSync(path.join(dir, 'key.pem')), cert: readFileSync(path.join(dir, 'cert.pem')) };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('an https: target streams over verified TLS with the same rewriting', async (t) => {
+  const tls = selfSignedCert();
+  if (!tls) return t.skip('openssl not found');
+  // Trust the fixture the way production trusts quantcore-api's certificate: by verifying it, not
+  // by turning verification off. The proxy uses https.globalAgent, which merges its options.
+  const previousCa = https.globalAgent.options.ca;
+  https.globalAgent.options.ca = tls.cert;
+  t.after(() => { https.globalAgent.options.ca = previousCa; https.globalAgent.destroy(); });
+
+  let finish;
+  let seen;
+  const h = await harness((req, res) => {
+    seen = { url: req.url, host: req.headers.host, authorization: req.headers.authorization, cookie: req.headers.cookie };
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.write('data: one\n\n');
+    finish = () => res.end('data: two\n\n');
+  }, { bearer: 'Bearer minted', tls }); t.after(h.close);
+
+  const res = await request(h.port, {
+    path: '/api/chat?x=1', headers: { authorization: 'Bearer from-browser', cookie: 'GCP_IAP_UID=secret' },
+  });
+  assert.equal(res.statusCode, 200);
+  const [first] = await once(res, 'data');
+  assert.equal(String(first), 'data: one\n\n');
+  finish();
+  assert.equal(await readAll(res), 'data: two\n\n');
+  assert.deepEqual(seen, {
+    url: '/api/chat?x=1', host: `127.0.0.1:${h.upstreamPort}`, authorization: 'Bearer minted', cookie: undefined,
+  });
+});
+
+test('an https: target whose certificate is not trusted is a 502, not an insecure fallback', async (t) => {
+  const tls = selfSignedCert();
+  if (!tls) return t.skip('openssl not found');
+  t.mock.method(console, 'error', () => {});
+  let reached = false;
+  const h = await harness((_req, res) => { reached = true; res.end('nope'); }, { tls }); t.after(h.close);
+  const res = await request(h.port);
+  await readAll(res);
+  assert.equal(res.statusCode, 502);
+  assert.equal(reached, false);
 });
 
 test('http-proxy-middleware stays gone', () => {

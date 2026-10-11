@@ -162,6 +162,14 @@ base-only test run.
     pointed out that a spread would get past it.
     Upgrading hpm doesn't remove braces (4.2.0 still needs `micromatch ^4.0.8`); replacing the
     library with a small `node:http` proxy does, and is tracked in #357.
+    **Resolved (#357, 2026-10-10):** hpm was replaced by a `node:http` proxy, so braces and
+    micromatch left the lock, `npm audit --omit=dev` reports 0, and `EXCEPTIONS` is empty. The
+    mechanism stays for the next advisory with no fix. `proxy.test.mjs` now tests the proxy's
+    behaviour against a live local upstream instead of guarding hpm's options. Two things to
+    watch with an empty list: macOS `/bin/bash` 3.2 treats `"${EXCEPTIONS[@]}"` on an empty
+    array as unbound under `set -u`, so the script expands it as
+    `${EXCEPTIONS[@]+"${EXCEPTIONS[@]}"}`. And `tests/test_audit_npm.py` parses the array as
+    `EXCEPTIONS=(` … `\n)`, so an empty one stays multi-line rather than `EXCEPTIONS=()`.
 14. **(#354) The lock refresh moved Vite to 6.4.4, which closed the `?raw` bypass of
     `server.fs.allow`.** `src/vault/envelope.test.ts` imports `tests/vectors/…json?raw` from
     outside `frontend/` and began failing with "Denied ID". The fix allows exactly
@@ -183,4 +191,5 @@ base-only test run.
 | #354 (2026-10-09) | `npm audit fix` cleared both `frontend/server` criticals (proxy-addr, express) and every fixable high; the frontend lock is at 0 vulnerabilities (vitest ^4.1.11, vite 6.4.4). `scripts/audit_npm.sh` + `npm_audit_filter.py` added to `dep-audit.yml`; braces carries the one exception (gotcha 13, expires 2027-01-09). Server `node --test` 14/14, vitest 641/641 with coverage above the floors. |
 | #354 follow-up (2026-10-09) | `proxy-context.test.mjs` guards the braces exception's reasoning (verified red with a `'/api/**'` context); server `node --test` 16/16. Removing hpm altogether is #357. |
 | #354 review (2026-10-09) | The guard moved from a source scan to the resolved options: the proxy config was extracted to `proxy.mjs` and `proxy-context.test.mjs` was replaced by `proxy.test.mjs`. Verified red with a spread `pathFilter` and with a second hpm importer; server `node --test` 18/18. `npm_audit_filter.judge()` was split into helpers (Radon CC 13→6, complexipy 24→5) with the same 9 tests passing. |
+| #357 (2026-10-10) | http-proxy-middleware replaced by a dependency-free `node:http`/`node:https` streaming proxy in `frontend/server/proxy.mjs`. Request denylist: hop-by-hop headers, `host` (rewritten), the browser's `authorization`, `x-goog-iap-jwt-assertion` and `cookie`; no timeout. The braces exception is gone, both npm locks audit at 0, and the server's `node --test` passes 26/26. The new abort and credential-stripping tests were verified red against mutated proxies. **Gotcha found on test:** reloading mid-reply left the interrupted Sidekick tool chip spinning, which looked like the proxy holding a stream. It wasn't: the reload aborted the request correctly. The chip's `running` state is persisted to `hl-chat-messages`, and only `finalizeInterruptedTools` settles it at runtime, which a reload never reaches. This bug predates #357. It's fixed in the same PR: `settleStoredTools` in `frontend/src/chat/ChatContext.tsx` turns a restored `running` chip into `error` on load. Review follow-up: two tests run against an HTTPS upstream (server tests now 28/28), using a self-signed certificate generated per run with `openssl`. It's never committed, because a committed key would trip gitleaks. The tests trust that certificate through `https.globalAgent.options.ca` rather than turning verification off, and an untrusted certificate must give a 502. Both tests were checked red against an `http`-only proxy and against one with `rejectUnauthorized: false`. |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

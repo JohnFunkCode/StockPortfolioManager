@@ -63,6 +63,31 @@ describe('ChatProvider persistence + controls', () => {
     expect(result.current.messages).toEqual([]);
   });
 
+  it('settles a tool chip restored as running to error (reload mid-reply)', () => {
+    const stored: ChatMessage[] = [
+      { role: 'user', segments: [{ type: 'text', text: 'hi' }] },
+      { role: 'assistant', segments: [
+        { type: 'tool_status', tool: 'get_stock_price', state: 'done' },
+        { type: 'tool_status', tool: 'get_full_options_chain', state: 'running' },
+        { type: 'text', text: 'partial' },
+      ] },
+    ];
+    localStorage.setItem('hl-chat-messages', JSON.stringify(stored));
+    const { result } = renderHook(() => useChat(), { wrapper });
+    expect(result.current.messages[0]).toEqual(stored[0]);
+    expect(result.current.messages[1].segments).toEqual([
+      { type: 'tool_status', tool: 'get_stock_price', state: 'done' },
+      { type: 'tool_status', tool: 'get_full_options_chain', state: 'error' },
+      { type: 'text', text: 'partial' },
+    ]);
+  });
+
+  it('treats non-array stored messages as empty', () => {
+    localStorage.setItem('hl-chat-messages', '{"not":"an array"}');
+    const { result } = renderHook(() => useChat(), { wrapper });
+    expect(result.current.messages).toEqual([]);
+  });
+
   it('queueInteraction dedupes per (instance, action) and removeInteraction drops one', () => {
     const { result } = renderHook(() => useChat(), { wrapper });
     const base = { component_id: 'inst', component: 'spread_payoff', action: 'select_strike' };

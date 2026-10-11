@@ -22,15 +22,15 @@ cd "$(dirname "$0")/.."
 LOCKS=(frontend/package-lock.json frontend/server/package-lock.json)
 
 # GHSA id | lock | expires (YYYY-MM-DD) | why it is safe to carry
+# None today: the braces entry went with http-proxy-middleware (#357).
 EXCEPTIONS=(
-  "GHSA-vfj7-8cjw-p6xm|frontend/server/package-lock.json|2027-01-09|braces: every version is affected (no fix). Reached only via http-proxy-middleware -> micromatch; the proxy is given no path filter, so no attacker input reaches braces (pinned by frontend/server/proxy.test.mjs; removal is #357)."
 )
 
 rc=0
 for lock in "${LOCKS[@]}"; do
   echo "--- npm audit $lock"
   json=$(cd "$(dirname "$lock")" && npm audit --package-lock-only --omit=dev --json 2>/dev/null)
-  if ! printf '%s' "$json" | python3 scripts/npm_audit_filter.py "$lock" "${EXCEPTIONS[@]}"; then
+  if ! printf '%s' "$json" | python3 scripts/npm_audit_filter.py "$lock" ${EXCEPTIONS[@]+"${EXCEPTIONS[@]}"}; then
     rc=1
   fi
 done

@@ -81,7 +81,9 @@ class ExceptionListTest(unittest.TestCase):
     def test_every_exception_is_well_formed_and_bounded(self):
         script = (ROOT / "scripts" / "audit_npm.sh").read_text()
         locks = re.search(r"LOCKS=\(([^)]*)\)", script).group(1).split()
-        body = re.search(r"EXCEPTIONS=\((.*?)\n\)", script, re.S).group(1)
+        match = re.search(r"EXCEPTIONS=\((.*?)\n\)", script, re.S)
+        self.assertIsNotNone(match, "keep EXCEPTIONS=( ... ) multi-line, closing ')' on its own line")
+        body = match.group(1)
         entries = re.findall(r'"([^"]+)"', body)
         for entry in entries:
             ghsa, lock, expires, why = entry.split("|", 3)

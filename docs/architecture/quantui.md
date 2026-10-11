@@ -61,8 +61,11 @@ The security detail page's Technical Analysis tab includes the **Support Conflue
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
 Types headers) and **reverse-proxies `/api/*` to `quantcore-api`, attaching a per-user token
-server-side** (the proxy's options live in `frontend/server/proxy.mjs`, with no path filter, which is
-what keeps the braces advisory unreachable, #354): it verifies the Google-signed IAP assertion (`x-goog-iap-jwt-assertion`) and mints
+server-side** through a small dependency-free `node:http`/`node:https` streaming proxy
+(`frontend/server/proxy.mjs`, #357). The proxy keeps the `/api` prefix, streams both bodies (chat is
+SSE), and forwards only the minted bearer. It drops the browser's `authorization`, the IAP
+assertion, cookies and hop-by-hop headers, and answers a terse 502 when the api is unreachable. The
+server verifies the Google-signed IAP assertion (`x-goog-iap-jwt-assertion`) and mints
 a 15-min **ES256 JWT** (`sub` = the IAP email, `aud: ['quantcore-api','quantcore-keyproxy']`) in
 `frontend/server/auth.mjs`, signed with the `quantui-signing-key` secret (public half in
 `quantui-signing-pub`, given to the verifiers). Fallback ladder keyed on configuration:

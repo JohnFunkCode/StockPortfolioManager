@@ -75,8 +75,8 @@ app.use((_req, res, next) => {
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));
 
 // /api/* -> REST tier, with the bearer attached here (never in the browser).
-// The proxy's onProxyReq (proxy.mjs) is synchronous, so the (possibly async)
-// verify+mint runs in this middleware first and parks the header on the request.
+// The (possibly async) verify+mint runs in this middleware first and parks the header
+// on the request; the proxy (proxy.mjs) sends only that, never the browser's credentials.
 app.use('/api', async (req, res, next) => {
   try {
     req.quantuiAuthorization = await authProvider.authorizationFor(
@@ -95,7 +95,7 @@ app.use('/api', async (req, res, next) => {
   }
 });
 
-// No path filter here or in proxy.mjs: see proxy.mjs for why (the braces exception, #354).
+// A node:http streaming proxy, no dependency (#357): see proxy.mjs.
 app.use('/api', createApiProxy(API_TARGET));
 
 // Static assets, then SPA fallback so client-side routes (react-router) resolve.

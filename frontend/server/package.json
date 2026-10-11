@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "http-proxy-middleware": "^2.0.7",
     "jose": "^6.2.3"
   }
 }

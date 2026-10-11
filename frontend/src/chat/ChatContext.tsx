@@ -128,9 +128,26 @@ function loadStored<T>(key: string, fallback: T): T {
   }
 }
 
+// No stream survives a page load, so a tool chip restored as 'running' was interrupted (a reload
+// mid-reply) and would spin forever -- finalizeInterruptedTools never ran for it. Settle it as
+// 'error' on load, the same outcome a dropped stream gets.
+export function settleStoredTools(messages: ChatMessage[]): ChatMessage[] {
+  if (!Array.isArray(messages)) return [];
+  return messages.map((m) =>
+    m.segments?.some((s) => s.type === 'tool_status' && s.state === 'running')
+      ? {
+          ...m,
+          segments: m.segments.map((s) =>
+            s.type === 'tool_status' && s.state === 'running' ? { ...s, state: 'error' as const } : s,
+          ),
+        }
+      : m,
+  );
+}
+
 export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
-    loadStored<ChatMessage[]>(MESSAGES_KEY, []),
+    settleStoredTools(loadStored<ChatMessage[]>(MESSAGES_KEY, [])),
   );
   const [railOpen, setRailOpenState] = useState<boolean>(() =>
     loadStored<boolean>(OPEN_KEY, false),

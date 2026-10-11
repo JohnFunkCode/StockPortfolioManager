@@ -373,6 +373,8 @@ def cmd_deploy(a) -> int:
 
 
 def cmd_check(a) -> int:
+    if a.missing_manual:
+        return _check_missing_manual(a.env)
     drift = 0
     for s in load(a.env):
         live = describe(s)
@@ -396,6 +398,26 @@ def cmd_check(a) -> int:
     return 1 if drift else 0
 
 
+def _check_missing_manual(env: str) -> int:
+    """Fail only on a MISSING first_create="manual" service (#346).
+
+    prod-rollout runs this after its approval and before it changes anything, so a
+    roll-out that would stop half-way on "manual first deploy" stops before the promotion
+    instead. Drift is not checked here: the roll-out itself re-asserts the inventory.
+    """
+    missing = 0
+    for s in load(env):
+        if s["first_create"] != "manual":
+            continue
+        if describe(s) is None:
+            print(f"::error title={s['name']} missing::{s['name']} does not exist in "
+                  f"{env}; it is created by hand first: {s['runbook']}")
+            missing += 1
+        else:
+            print(f"{s['name']}: present")
+    return 1 if missing else 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -412,6 +434,8 @@ def main(argv=None) -> int:
                      help="image@$<IMAGE>_DIGEST, as prod-rollout's promotion exports it")
     c = sub.add_parser("check", help="read-only: diff the inventory against live services")
     c.add_argument("--env", required=True)
+    c.add_argument("--missing-manual", action="store_true",
+                   help="fail only on a missing first_create=manual service (prod-rollout)")
     a = p.parse_args(argv)
     try:
         return {"names": cmd_names, "deploy": cmd_deploy, "check": cmd_check}[a.cmd](a)

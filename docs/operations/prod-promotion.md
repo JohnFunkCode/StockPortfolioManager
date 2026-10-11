@@ -30,7 +30,10 @@ Promotion takes one such already-built, already-tested
 imagetools create`), **migrates the prod database** with the `quantcore-migrate` Job, and
 deploys prod **by the resolved original digest** (not the tag).
 A manual-approval gate (`prod` GitHub Environment + required reviewers) sits in front of
-the prod rollout. Per-service prod config (port, resources, timeout, ingress, runtime SA, env, secrets,
+the prod rollout, and it is the **only** pause (#346): a `preflight` job with no prod access
+resolves the tag to digests and a commit and pre-checks the pending migrations in about 30 s,
+then the run asks for one approval and finishes unattended. What ships is exactly the digests
+the preflight showed, even if the tag moves after approval. Per-service prod config (port, resources, timeout, ingress, runtime SA, env, secrets,
 Cloud SQL) comes from the service inventory, `deploy/cloudrun-services.toml` (#161). Each
 promotion re-asserts it, applying only what differs and keeping any key the inventory does not
 name. A wrapper missing from prod is **created** from the inventory behind this gate. A missing
@@ -75,15 +78,20 @@ push to main ──► deploy.yml builds+tests, tags <SHA>, deploys TEST
                   (validate on test)
                                    ▼
 operator dispatches prod-rollout.yml -f image_tag=<SHA>
-   gate job: tests + wrapper smoke + OpenAPI surface diff
+   preflight (test creds, no prod access, ~30 s):
+     tag ─► seven digests + commit SHA; migrations since the last promoted
+     commit through the migrate image's scanner; job summary for the approver
                                    │  (must pass)
                                    ▼
-   manual approval (prod Environment reviewer)
+   ONE manual approval (prod Environment reviewer) — then unattended
                                    │
                                    ▼
-   promote-and-deploy: imagetools copy by digest TEST AR ─► PROD AR
+   promote-and-deploy: tests + wrapper smoke + OpenAPI surface diff (before prod auth)
+                       prod auth; manual services (api/keyproxy/quantui) must exist
+                       imagetools copy the preflight's digests TEST AR ─► PROD AR
                        quantcore-migrate Job: flyway migrate PROD (stops here on failure)
                        gcloud run deploy / jobs update PROD by digest
+                       upload `promoted-sha` artifact (next run's migration baseline)
 ```
 
 ---
@@ -141,7 +149,8 @@ The workflow promotes **one tag across all seven images**, so that tag must exis
 absent tag (tags built before those images existed skip them cleanly). **`quantcore-migrate`
 does not**: a tag with no `quantcore-migrate` image (anything built before it, #200 Step 2)
 cannot be promoted, because rolling out without migrating is the failure the migrate step
-removes. The `quantcore-migrate` tag list below is the test of whether a tag qualifies.
+removes. The `quantcore-migrate` tag list below is the test of whether a tag qualifies;
+the workflow's `preflight` job applies the same test and fails before asking for approval.
 
 - **Normal case — a commit SHA.** Use the 7-char SHA that CI built when your change
   merged to `main` (it tags all seven together). List what's available:
@@ -214,30 +223,41 @@ removes. The `quantcore-migrate` tag list below is the test of whether a tag qua
 
    (Or in the UI: Actions → **prod-rollout** → Run workflow → enter the tag.)
 
-4. **Watch the gate job.** It spins up Postgres and runs unit tests + the wrapper smoke
-   (`ci_wrapper_smoke.py`) + the OpenAPI surface diff (`check_openapi_snapshot.py`). If
-   any fail, the promotion stops before touching prod — fix forward and re-dispatch.
+   If step 2 had you apply a refused migration by hand, add
+   `-f allow_refused_migrations=true`. The preflight then only warns about it. Use it for
+   nothing else: the migrate Job's own scan stays the backstop and refuses anything still
+   pending.
+
+4. **Read the preflight summary, then approve — once.** The `preflight` job (test
+   credentials, no prod access) finishes in about 30 s and writes a job summary: the commit
+   the tag resolves to, the digest of every image it will promote, and the migrations added
+   or changed since the last promoted commit. It fails, before any approval is asked for, on
+   a missing required image (a tag without `quantcore-migrate`, say) or a migration the
+   migrate Job would refuse. The migration baseline is the `promoted-sha` artifact of the
+   latest successful run (90-day retention). With none — the first run after #346, or a gap
+   longer than 90 days — the summary says "not checked" and the run carries a warning; it is
+   not a failure.
+
+   Then `promote-and-deploy` pauses for the `prod` Environment's required reviewer. Approve
+   it via "Review deployments" on the run page. **That is the only pause.**
 
    ```bash
    gh run watch --repo JohnFunkCode/StockPortfolioManager
    ```
 
-5. **Approve the prod gate.** After the gate passes, the `promote-and-deploy` job pauses
-   for the `prod` Environment's required reviewer. Approve it in the UI (the run page
-   shows "Review deployments") or:
-
-   ```bash
-   gh run view --repo JohnFunkCode/StockPortfolioManager <run-id>     # find the pending review
-   # then approve via the "Review deployments" button on the run page
-   ```
-
-6. **The deploy runs automatically** after approval: it resolves each image's source
-   digest, `imagetools`-copies test AR → prod AR, verifies the original digest resolves
-   in the prod AR, executes the `quantcore-migrate` Job **by digest** and waits for it,
-   then `gcloud run deploy` (api + 7 wrappers + `quantui` + `quantcore-keyproxy`) and
-   `gcloud run jobs update` (report, news) **by digest**. The keyproxy/news steps are
-   image-only and skip when the tag predates those images or the service doesn't exist
-   yet. Per-service env/secrets/Cloud-SQL bindings are untouched.
+5. **Everything after approval is unattended**, in this order. First the gate steps, which
+   run before the job authenticates to prod, so a failure touches nothing: unit tests on
+   the lean lock, the wrapper smoke (`ci_wrapper_smoke.py`) and the OpenAPI surface diff
+   (`check_openapi_snapshot.py`). Then prod auth, then a read-only check that api,
+   keyproxy and quantui exist (`cloudrun_services.py check --missing-manual`). Then it
+   `imagetools`-copies **the preflight's digests** — never the tag again; a `::notice` says
+   so if the tag has moved since — test AR → prod AR and verifies each resolves there. It
+   runs the `quantcore-migrate` Job **by digest** and waits, then `gcloud run deploy`
+   (api + 7 wrappers + `quantui` + `quantcore-keyproxy`) and `gcloud run jobs update`
+   (report, news) **by digest**. The keyproxy/news steps are image-only and skip when the
+   tag predates those images or the service doesn't exist yet. Per-service
+   env/secrets/Cloud-SQL bindings are untouched. Last, it uploads the `promoted-sha`
+   artifact that the next run's preflight diffs against.
 
 ---
 
@@ -304,5 +324,6 @@ migrate image is fine — its migrate step finds nothing pending.
 | WIF provider | `projects/127961694257/locations/global/workloadIdentityPools/github-prod/providers/github` |
 | WIF condition | repo + `environment=='prod'` + `ref=='refs/heads/main'` + `prod-rollout.yml` (#313; status in [`wif-trust-plan.md`](../proposals/wif-trust-plan.md)) |
 | Secrets | `GCP_PROD_WIF_PROVIDER`, `GCP_PROD_DEPLOY_SA` (`prod` environment secrets after #313) |
-| Approval gate | `prod` GitHub Environment + required reviewers |
+| Approval gate | `prod` GitHub Environment + required reviewers; one approval, after the `preflight` job (#346) |
+| Migration baseline | `promoted-sha` artifact of the latest successful prod-rollout run (90 days) |
 | Blessed tag | none recorded since `177e411` (2026-07-18), which predates `quantcore-migrate` and can't be promoted; pick a SHA present in all seven repos |

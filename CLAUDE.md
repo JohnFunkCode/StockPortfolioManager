@@ -258,7 +258,11 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
 - The browser never sees a bearer: `frontend/server/` verifies the IAP assertion and mints a
   per-user ES256 JWT server-side.
 - Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
-  `prod-rollout.yml`. Prod is never auto-deployed. Any other branch/tag/SHA reaches **test only**
+  `prod-rollout.yml`. Prod is never auto-deployed. It asks for **one** approval (#346), right
+  after a `preflight` job with test credentials and no prod access binds the tag's digests and
+  pre-checks migrations. The gate steps run after approval but before prod auth, and the job
+  promotes the preflight's digests, never the tag. One `environment: prod` job only: each would
+  ask again ([`single-approval-rollout-plan.md`](docs/proposals/single-approval-rollout-plan.md)). Any other branch/tag/SHA reaches **test only**
   by dispatching `deploy.yml` **from main** with its `ref` input (#120): the gates run on the ref,
   `scripts/check_deploy_ref.py` refuses a ref whose own commits add, edit or delete a migration, and the build gets
   scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
@@ -513,7 +517,7 @@ the API and MCP images:
 
 | File | Holds | Installed by (via its lock) |
 |---|---|---|
-| `requirements-base.txt` | the lean set above | `Dockerfile.mcp`/`.report`, `lean-import`, prod-rollout's gate |
+| `requirements-base.txt` | the lean set above | `Dockerfile.mcp`/`.report`, `lean-import`, prod-rollout's gate steps |
 | `requirements-ml.txt` | base + torch / transformers (FinBERT) | `Dockerfile.api`/`.news` |
 | `requirements-report.txt` | **matplotlib, jinja2, boto3** | nothing in any container |
 | `requirements-dev.txt` | base + report + coverage/diff-cover | CI's `gate` job |

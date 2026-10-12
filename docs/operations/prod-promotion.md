@@ -249,7 +249,9 @@ the workflow's `preflight` job applies the same test and fails before asking for
    run before the job authenticates to prod, so a failure touches nothing: unit tests on
    the lean lock, the wrapper smoke (`ci_wrapper_smoke.py`) and the OpenAPI surface diff
    (`check_openapi_snapshot.py`). Then prod auth, then a read-only check that api,
-   keyproxy and quantui exist (`cloudrun_services.py check --missing-manual`). Then it
+   keyproxy and quantui exist (`cloudrun_services.py check --missing-manual`). That check
+   runs after the approval, not in the preflight, because the preflight can't read prod
+   (#313); a missing manual service fails here, before any prod change. Then it
    `imagetools`-copies **the preflight's digests** — never the tag again; a `::notice` says
    so if the tag has moved since — test AR → prod AR and verifies each resolves there. It
    runs the `quantcore-migrate` Job **by digest** and waits, then `gcloud run deploy`

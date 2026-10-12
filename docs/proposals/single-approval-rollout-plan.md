@@ -53,6 +53,7 @@ says so.
 | Where the gate runs | inline in the prod job, after approval, before prod auth |
 | Refused-migration check | diff against the last promoted SHA (artifact) |
 | deploy.yml display name | rename to `Deploy Version To Test` |
+| Missing-manual-service check | after approval, before any prod change (not in the preflight; gotcha 9) |
 
 ## Gotchas
 
@@ -77,6 +78,15 @@ says so.
 8. **Postgres.app refuses connections from Claude locally**, sandboxed or not ("You did not allow
    Claude to connect without a password"). Every DB-backed module errors, so the full suite has to
    be run by John or by CI.
+9. **The preflight can't check prod, so the missing-manual-service check runs after the
+   approval.** Issue #346 lists that check among the pre-approval candidates, and the PR review
+   asked for it there. But under #313 every prod token needs `environment: prod`, so the
+   preflight would need a new prod identity: a provider or reviewer-less environment without
+   that claim, plus a `run.viewer` SA. That would be an exception to #313's rule that prod tokens
+   exist only in the prod environment, made for a case that only happens while onboarding a
+   manual service, which already has a runbook. Deferred (John, 2026-10-11). The check still runs
+   before any prod mutation, so the cost of a miss is one wasted approval, never a partial roll-out.
+   Revisit if a read-only prod identity is ever added for another reason.
 
 ## Checkpoint log
 

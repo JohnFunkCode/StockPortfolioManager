@@ -49,7 +49,7 @@
 # run summary names the deployed SHA), and this does not replace a revert PR when main
 # itself should be parked at a state. Plan: docs/proposals/deploy-ref-to-test-plan.md.
 
-name: deploy
+name: Deploy Version To Test
 
 on:
   workflow_dispatch:

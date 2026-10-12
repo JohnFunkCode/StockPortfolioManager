@@ -440,6 +440,22 @@ class NamesAndCheckTest(StubbedTest):
         self.assertEqual(rc, 1)
         self.assertIn("svc-api: MISSING (manual first deploy: RUNBOOK.md step 3)", out)
 
+    def test_missing_manual_fails_only_on_a_missing_manual_service(self):
+        # prod-rollout's pre-promotion check (#346): drift and a missing auto service pass.
+        self.live("svc-api", iam=PUBLIC, memory="2Gi")
+        self.live("svc-proxy", iam=PUBLIC)
+        rc, out, calls = self.run_cli("check", "--env", "test", "--missing-manual")
+        self.assertEqual(rc, 0, out)
+        self.assertNotIn("DRIFT", out)
+        self.assertEqual(self.find(calls, "run deploy"), [])
+
+    def test_missing_manual_names_the_runbook(self):
+        self.live("svc-proxy")
+        rc, out, _ = self.run_cli("check", "--env", "test", "--missing-manual")
+        self.assertEqual(rc, 1)
+        self.assertIn("::error title=svc-api missing::", out)
+        self.assertIn("RUNBOOK.md step 3", out)
+
 
 class ValidationTest(StubbedTest):
     def assert_refused(self, old, new, message):

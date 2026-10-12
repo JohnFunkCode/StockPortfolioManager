@@ -372,9 +372,12 @@ daily, news and migration tasks run as Cloud Run Jobs. There are two GCP project
 system of record for all analysis**, and **test** is for development and CI.
 
 - Merging to `main` builds every image, migrates the test database, and rolls out to test.
-- Prod is promoted only by manually dispatching the prod-rollout workflow with a commit SHA. It
-  copies the tested images **by digest**, migrates prod, then rolls out.
-- An unmerged branch can be tried on test by dispatching the deploy workflow from `main` with a
+- Prod is promoted only by manually dispatching the prod-rollout workflow with a commit SHA. A
+  preflight with no prod access shows what would ship; after **one** approval the run tests,
+  copies the tested images **by digest**, migrates prod, then rolls out, unattended.
+  Runbook: [`prod-promotion.md`](docs/operations/prod-promotion.md).
+- An unmerged branch can be tried on test by dispatching the deploy workflow ("Deploy Version To
+  Test" in the Actions list) from `main` with a
   `ref` input. A ref that changes migrations is refused. Details:
   [`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md).
 

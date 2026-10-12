@@ -38,10 +38,21 @@
 #     roles/logging.viewer — both granted by scripts/ensure_migrate_job.sh --prod, which
 #     also creates the quantcore-migrate Job this workflow updates and executes.
 #
+# One approval, then unattended (#346). `preflight` (no environment, TEST credentials only)
+# resolves every image's digest and the commit, and pre-checks the migrations since the last
+# promotion, in seconds; the approval prompt follows it. Everything else, the gate included,
+# runs in the single `prod` job after approval: GitHub asks once per environment job, and the
+# prod WIF provider forces any job that authenticates to prod onto `environment: prod`. The
+# gate steps run BEFORE the prod auth step, so a gate failure touches nothing in prod. The
+# prod job copies the digests the preflight showed, never the tag again. Don't rename this
+# file: the prod WIF provider's job_workflow_ref pins it. Design and gotchas:
+# docs/proposals/single-approval-rollout-plan.md.
+#
 # PROD-FLIP / first buildout (P1–P8) is deliberately NOT automated — it stays a
 # supervised manual sequence. This workflow only handles repeatable image promotion.
 
 name: prod-rollout
+run-name: prod-rollout ${{ inputs.image_tag }}
 
 on:
   workflow_dispatch:
@@ -50,6 +61,10 @@ on:
         description: "Tag in the TEST Artifact Registry to promote (e.g. a 7-char commit SHA, or 'latest')."
         required: true
         default: "latest"
+      allow_refused_migrations:
+        description: "Let a migration the migrate Job refuses through the preflight. Only after ./scripts/flyway.sh --prod migrate applied it by hand."
+        type: boolean
+        default: false
 
 # Serialize prod rollouts so two dispatches can't race on the same Cloud Run
 # services (concurrent `gcloud run deploy` ABORTs with an optimistic-lock conflict).
@@ -67,10 +82,56 @@ env:
   # deploy/cloudrun-services.toml (#161), not here.
 
 jobs:
-  gate:
-    name: Tests + wrapper smoke + OpenAPI surface
+  preflight:
+    name: Preflight (resolve digests + commit, pre-check migrations)
     runs-on: ubuntu-latest
-    timeout-minutes: 15   # max observed ~2 min; the default is 360 (#351)
+    # No environment: this job must finish BEFORE the approval prompt, and it never touches prod.
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write # WIF (TEST project, read-only use of its AR)
+      actions: read   # gh run download of the last promoted-sha artifact
+    outputs:
+      sha: ${{ steps.pre.outputs.sha }}
+      api_digest: ${{ steps.pre.outputs.api_digest }}
+      mcp_digest: ${{ steps.pre.outputs.mcp_digest }}
+      report_digest: ${{ steps.pre.outputs.report_digest }}
+      ui_digest: ${{ steps.pre.outputs.ui_digest }}
+      keyproxy_digest: ${{ steps.pre.outputs.keyproxy_digest }}
+      news_digest: ${{ steps.pre.outputs.news_digest }}
+      migrate_digest: ${{ steps.pre.outputs.migrate_digest }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # git diff <last promoted>..<this commit> -- db/migrations
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v3
+      - id: pre
+        name: Resolve + pre-check (summary lists what the approval promotes)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          ALLOW_REFUSED: ${{ inputs.allow_refused_migrations }}
+        run: |
+          args=(--tag "$IMAGE_TAG")
+          if [ "$ALLOW_REFUSED" = "true" ]; then args+=(--allow-refused-migrations); fi
+          python3 scripts/prod_preflight.py "${args[@]}"
+
+  promote-and-deploy:
+    name: Gate + promote digests (test -> prod AR) + roll out prod Cloud Run
+    needs: preflight
+    runs-on: ubuntu-latest
+    environment: prod # the one manual-approval gate (required reviewers)
+    # The clock starts after approval. Gate ~2 min + roll-out max observed ~7 min (2026-10);
+    # the default 360 would bill 6 h on a hung Cloud Build wait (#351).
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      id-token: write # Workload Identity Federation (prod)
     services:
       postgres:
         image: postgres:16
@@ -89,7 +150,9 @@ jobs:
       AUTH_DISABLED: "1"
       PYTHONPATH: .
     steps:
+      # Also for scripts/ci_parallel.sh (#296), ci_migrate.sh (#200) and the service inventory (#161).
       - uses: actions/checkout@v7
+      # The gate, BEFORE the prod auth step: a failure here touches nothing in prod.
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -105,20 +168,6 @@ jobs:
       - name: OpenAPI surface diff
         run: python scripts/check_openapi_snapshot.py
 
-  promote-and-deploy:
-    name: Promote digests (test -> prod AR) + roll out prod Cloud Run
-    needs: gate
-    runs-on: ubuntu-latest
-    environment: prod # manual-approval gate (required reviewers)
-    # The clock starts after approval, so time spent waiting on a reviewer doesn't count. Max
-    # observed ~7 min (2026-10); the default 360 would bill 6 h on a hung Cloud Build wait (#351).
-    timeout-minutes: 30
-    permissions:
-      contents: read
-      id-token: write # Workload Identity Federation (prod)
-    steps:
-      # For scripts/ci_parallel.sh (#296), ci_migrate.sh (#200) and the service inventory (#161).
-      - uses: actions/checkout@v7
       - id: auth
         uses: google-github-actions/auth@v3
         with:
@@ -126,28 +175,49 @@ jobs:
           service_account: ${{ secrets.GCP_PROD_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Resolve source digests + copy by digest into the prod AR (imagetools)
+      - name: Manual services exist (read-only, before any change)
+        # A missing first_create="manual" service (api, keyproxy, quantui) would fail the
+        # roll-out half-way, after the promotion and migration. Fail it here instead.
+        run: python3 scripts/cloudrun_services.py check --env prod --missing-manual
+
+      - name: Copy the preflight's digests into the prod AR (imagetools)
+        env:
+          SHA: ${{ needs.preflight.outputs.sha }}
+          QUANTCORE_API_SRC_DIGEST: ${{ needs.preflight.outputs.api_digest }}
+          QUANTCORE_MCP_SRC_DIGEST: ${{ needs.preflight.outputs.mcp_digest }}
+          QUANTCORE_REPORT_SRC_DIGEST: ${{ needs.preflight.outputs.report_digest }}
+          QUANTCORE_UI_SRC_DIGEST: ${{ needs.preflight.outputs.ui_digest }}
+          QUANTCORE_KEYPROXY_SRC_DIGEST: ${{ needs.preflight.outputs.keyproxy_digest }}
+          QUANTCORE_NEWS_SRC_DIGEST: ${{ needs.preflight.outputs.news_digest }}
+          QUANTCORE_MIGRATE_SRC_DIGEST: ${{ needs.preflight.outputs.migrate_digest }}
         run: |
           set -euo pipefail
           # Wire docker to the AR registry using the WIF credentials from the auth step.
           gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
-          TAG="${{ github.event.inputs.image_tag }}"
-          echo "Promoting tag '$TAG' from $TEST_PROJECT -> $PROD_PROJECT"
-          # quantcore-migrate is strict like api: a tag without it cannot be promoted,
-          # because rolling out without migrating is the image-ahead-of-schema failure
-          # #200 removes. Roll back by redeploying a revision/digest, not an old tag.
+          TAG="${{ inputs.image_tag }}"
+          echo "Promoting tag '$TAG' (commit $SHA) from $TEST_PROJECT -> $PROD_PROJECT"
+          # The digests come from the preflight, which the approver saw (#346): never re-read
+          # the tag, so a tag moved after approval can't change what ships. quantcore-migrate
+          # is strict like api (the preflight fails without it); keyproxy and news may be
+          # absent on tags that predate them, and arrive here as an empty digest.
           for img in quantcore-api quantcore-mcp quantcore-report quantcore-ui quantcore-keyproxy quantcore-news quantcore-migrate; do
-            SRC_TAGGED="$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG"
-            # Resolve the immutable source-manifest digest so the copy + deploy reference
-            # exact bytes. quantcore-keyproxy (BYOK packet 8a) tolerates an absent source
-            # image so tags built before 8a landed stay promotable; the others stay strict.
-            if { [ "$img" = "quantcore-keyproxy" ] || [ "$img" = "quantcore-news" ]; } && ! gcloud artifacts docker images describe \
-                "$SRC_TAGGED" --format='value(image_summary.digest)' >/dev/null 2>&1; then
-              echo "$img:$TAG not in the test AR (tag predates it) — skipping its promotion."
-              continue
+            key="$(echo "$img" | tr 'a-z-' 'A-Z_')"
+            src_key="${key}_SRC_DIGEST"
+            DIGEST="${!src_key:-}"
+            if [ -z "$DIGEST" ]; then
+              # Belt and braces: the preflight already failed on any other image.
+              if [ "$img" = "quantcore-keyproxy" ] || [ "$img" = "quantcore-news" ]; then
+                echo "$img:$TAG not in the test AR (tag predates it) — skipping its promotion."
+                continue
+              fi
+              echo "::error title=$img missing::the preflight bound no digest for $img"; exit 1
             fi
-            DIGEST="$(gcloud artifacts docker images describe "$SRC_TAGGED" \
-              --format='value(image_summary.digest)')"
+            NOW="$(gcloud artifacts docker images describe \
+              "$REGION-docker.pkg.dev/$TEST_PROJECT/$AR_REPO/$img:$TAG" \
+              --format='value(image_summary.digest)' 2>/dev/null || true)"
+            if [ "$NOW" != "$DIGEST" ]; then
+              echo "::notice title=$img tag moved::$img:$TAG is now ${NOW:-gone}; promoting the approved $DIGEST"
+            fi
             echo "$img @ $DIGEST"
             # Registry-to-registry manifest copy. The prod tag ends up on a NEW OCI index
             # (imagetools wraps it), but the original manifest is pushed verbatim and so is
@@ -161,8 +231,7 @@ jobs:
               "$REGION-docker.pkg.dev/$PROD_PROJECT/$AR_REPO/$img@$DIGEST" \
               --format='value(image_summary.digest)' >/dev/null
             # Export the digest for the deploy steps (deploy by digest, not tag).
-            key="$(echo "$img" | tr 'a-z-' 'A-Z_')_DIGEST"
-            echo "$key=$DIGEST" >> "$GITHUB_ENV"
+            echo "${key}_DIGEST=$DIGEST" >> "$GITHUB_ENV"
           done
 
       - name: Migrate the prod database (quantcore-migrate Job, by digest)
@@ -231,3 +300,14 @@ jobs:
           run_parallel "${p1[@]}" update_report_job update_news_job
           echo "Phase 2:" $P2
           run_parallel "${p2[@]}"
+
+      # Last, success-only (the default `if: success()`): the next run's preflight diffs the
+      # migrations since this commit. A failed roll-out records nothing, so the next diff still
+      # starts from the last commit that actually reached prod.
+      - name: Record the promoted commit
+        run: echo "${{ needs.preflight.outputs.sha }}" > promoted-sha.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: promoted-sha
+          path: promoted-sha.txt
+          retention-days: 90

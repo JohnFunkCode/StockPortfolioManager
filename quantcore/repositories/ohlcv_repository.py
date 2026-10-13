@@ -138,6 +138,32 @@ def _has_open_bar(symbol: str, interval: str) -> bool:
     return row is not None
 
 
+_PRICE_COLS = ("Open", "High", "Low", "Close")
+
+
+def _drop_invalid_bars(symbol: str, interval: str, df: pd.DataFrame) -> pd.DataFrame:
+    """Drop bars the table's CHECK constraints would reject, before the write.
+
+    yfinance occasionally returns garbage bars — NIB.F came back with a daily
+    bar at -4.08 across all four prices. ``ohlcv`` has ``CHECK(close > 0)`` and
+    ``CHECK(volume >= 0)``, and one bad row fails the whole executemany, which
+    took the request down with it. The constraint is right and stays; the bad
+    bar goes. Any non-positive or NaN price drops the bar (a bar with one
+    impossible price isn't trustworthy for the others), as does a negative
+    volume. NaN volume is still stored as before.
+    """
+    prices = df[list(_PRICE_COLS)].apply(pd.to_numeric, errors="coerce")
+    volume = pd.to_numeric(df["Volume"], errors="coerce")
+    bad = (prices.isna() | (prices <= 0)).any(axis=1) | (volume < 0)
+    dropped = int(bad.sum())
+    if dropped:
+        logger.warning(
+            "Dropped %d invalid OHLCV bar(s) for %s %s (non-positive/NaN price or negative volume)",
+            dropped, symbol, interval,
+        )
+    return df[~bad]
+
+
 def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     """
     Upsert OHLCV rows.  If an existing CLOSED bar's close diverges ≥0.1% from
@@ -149,7 +175,14 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     history, which is what turned a multi-symbol correction cascade into a
     30+ minute synchronous hold (see db.py's executemany docstring for the
     same fix applied to the options-snapshot path).
+
+    Bars that would violate the table's CHECK constraints are dropped first
+    (``_drop_invalid_bars``). If every bar is invalid, nothing is written —
+    not even the fetch_log stamp, so the next read retries the fetch.
     """
+    if df.empty:
+        return
+    df = _drop_invalid_bars(symbol, interval, df)
     if df.empty:
         return
 

@@ -358,6 +358,47 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertEqual(str(out[SYM].index.tz), "UTC")
         self.assertEqual(self.repo.daily_history_for_symbols([], days=30), {})
 
+    def test_negative_price_bar_is_dropped_not_fatal(self):
+        # NIB.F: yfinance returned a daily bar at -4.08 across OHLC, the
+        # executemany hit CHECK(close > 0), and the whole batch — and the
+        # get_stock_price request — failed with a 500. The bad bar must be
+        # dropped before the write and the rest of the fetch must land.
+        # Real PricesService + repository + database; only Yahoo is stubbed.
+        from quantcore.services.prices import PricesService
+
+        df = bars_df()
+        bad_ts = df.index[2]
+        df.loc[bad_ts, ["Open", "High", "Low", "Close"]] = -4.0813985
+        gateway = Mock()
+        gateway.fetch_history.return_value = df
+        service = PricesService(
+            ohlcv_repository=self.repo,
+            yfinance_gateway=gateway,
+            options_repository=Mock(),
+            sentiment_repository=Mock(),
+        )
+
+        with self.assertLogs("quantcore.repositories.ohlcv_repository", "WARNING") as logs:
+            out = service.get_history(SYM, "1d", 30)
+
+        gateway.fetch_history.assert_called_once()
+        self.assertEqual(len(out), 4)
+        self.assertNotIn(bad_ts, out.index)
+        self.assertTrue((out["Close"] > 0).all())
+        self.assertEqual(self.repo.count_cached(SYM, "1d"), 4)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn(SYM, logs.output[0])
+        self.assertIn("Dropped 1 ", logs.output[0])
+        dsn = os.environ.get("QUANTCORE_DB_DSN", "")
+        if dsn:
+            self.assertNotIn(dsn, logs.output[0])
+
+    def test_all_invalid_bars_write_nothing(self):
+        df = bars_df()
+        df["Close"] = float("nan")
+        self.repo.store_bars(SYM, "1d", df)
+        self.assertEqual(self.repo.count_cached(SYM, "1d"), 0)
+
 
 class TestUserSettingsRepository(RepoTestBase):
     def setUp(self):
@@ -397,7 +438,7 @@ if __name__ == "__main__":
 # Fundamentals cache edge branches (85%-campaign part 10)
 # ---------------------------------------------------------------------------
 
-from unittest.mock import patch  # noqa: E402
+from unittest.mock import Mock, patch  # noqa: E402
 
 from quantcore.repositories import fundamentals_repository as fr  # noqa: E402
 

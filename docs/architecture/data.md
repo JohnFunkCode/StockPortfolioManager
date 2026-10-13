@@ -30,6 +30,15 @@ escaping as a bare `TypeError` into the Create Plan dialog:
   (→ 422) rather than substituting `close` — an unadjusted bar beside adjusted ones is a fake step
   that inflates the volatility sizing the ladder.
 
+**The prices cache drops bars the table would reject; the constraint stays** (#369). yfinance
+sometimes returns impossible bars. For NIB.F it returned a daily bar at −4.08 across all of OHLC,
+and because `_store_bars` writes the whole fetch in one `executemany`, `CHECK(close > 0)` failed the
+whole batch, and `get_stock_price` with it (a 500). `_store_bars` now drops any bar with a
+non-positive or NaN price, or a negative volume, before the upsert, and logs one warning naming the
+symbol and the count. If every bar is dropped, nothing is written, not even `fetch_log`. Don't
+relax the CHECK to let these through: the data is wrong, not the constraint. The harvester's
+writer (`SQL_UPSERT_DAILY_BAR`) does not filter yet.
+
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 
 ## Positions and the watchlist

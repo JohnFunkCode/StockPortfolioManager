@@ -4,7 +4,8 @@ Issue: [#241](https://github.com/JohnFunkCode/StockPortfolioManager/issues/241)
 
 > **Follow-up (#367):** the GET streams this plan keeps alive account for ~99.9% of wrapper
 > billing, and no tool uses them. [`mcp-stateless-plan.md`](mcp-stateless-plan.md) turns them
-> off with FastMCP stateless mode, after which this plan's keepalive is dead code.
+> off with FastMCP stateless mode. Its step 3 removed this plan's `PingMiddleware` keepalive from
+> `mcp_gateway/serve.py`; the 900 s timeout stays.
 
 ## Decision
 

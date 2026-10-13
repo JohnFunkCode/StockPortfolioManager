@@ -20,16 +20,16 @@ Driving the launch from the module-level ``mcp`` object (rather than the file's
 ``__main__`` block) keeps it uniform across every wrapper — notably
 ``options_analysis``, whose ``__main__`` is the in-process CLI (Rule 6), not an
 ``mcp.run`` call. No business logic or DB access lives here.
+
+There is deliberately no keepalive middleware: the wrappers run with
+``FASTMCP_STATELESS_HTTP=true`` (#367), so there is no long-lived session for a
+ping to keep open. See docs/proposals/mcp-stateless-plan.md.
 """
 
 import importlib
 import os
 
-from fastmcp.server.middleware import PingMiddleware
 
-
-DEFAULT_PING_INTERVAL_MS = 30_000
-PING_INTERVAL_ENV = "MCP_PING_INTERVAL_MS"
 LOCAL_HOST_ENV = "MCP_HOST"
 DEFAULT_LOCAL_HOST = "127.0.0.1"
 
@@ -39,28 +39,10 @@ def local_host() -> str:
     return os.environ.get(LOCAL_HOST_ENV, "").strip() or DEFAULT_LOCAL_HOST
 
 
-def _ping_interval_ms() -> int:
-    """Return the positive FastMCP keepalive interval for HTTP sessions."""
-    raw = os.environ.get(PING_INTERVAL_ENV)
-    if raw is None or not raw.strip():
-        return DEFAULT_PING_INTERVAL_MS
-    try:
-        interval = int(raw)
-    except ValueError:
-        return DEFAULT_PING_INTERVAL_MS
-    return interval if interval > 0 else DEFAULT_PING_INTERVAL_MS
-
-
-def _configure_keepalive(mcp) -> None:  # noqa: ANN001 — FastMCP is a runtime dependency
-    """Keep streamable HTTP sessions active through idle proxy windows."""
-    mcp.add_middleware(PingMiddleware(interval_ms=_ping_interval_ms()))
-
-
 def main() -> None:
     module_name = os.environ.get("SERVER_MODULE", "fastMCPTest.stock_price_server")
     port = int(os.environ.get("PORT", "8000"))
     module = importlib.import_module(module_name)
-    _configure_keepalive(module.mcp)
     module.mcp.run(transport="http", host="0.0.0.0", port=port)
 
 

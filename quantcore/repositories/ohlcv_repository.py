@@ -164,6 +164,53 @@ def _drop_invalid_bars(symbol: str, interval: str, df: pd.DataFrame) -> pd.DataF
     return df[~bad]
 
 
+def _existing_closed_closes(conn, symbol: str, interval: str, closed_ts: list) -> dict:
+    """Cached close per ts for the CLOSED bars among ``closed_ts`` (one query)."""
+    if not closed_ts:
+        return {}
+    return {
+        r[0]: float(r[1])
+        for r in conn.execute(
+            "SELECT ts, close FROM ohlcv "
+            "WHERE symbol=? AND interval=? AND status='CLOSED' AND ts = ANY(?)",
+            (symbol, interval, closed_ts),
+        ).fetchall()
+    }
+
+
+def _reconciled_status(
+    symbol: str, interval: str, ts_int: int, new_close: float,
+    status: BarStatus, existing_closed: dict,
+) -> BarStatus:
+    """Upgrade a CLOSED bar to CORRECTED when its close moved >0.1% (split detection)."""
+    cached_close = existing_closed.get(ts_int) if status == BarStatus.CLOSED else None
+    if not cached_close:   # no cached CLOSED bar, or a cached 0 we can't compare against
+        return status
+    if abs(cached_close - new_close) / abs(cached_close) <= 0.001:
+        return status
+    logger.warning(
+        "CORRECTED bar detected: %s %s ts=%s  cached=%.4f  new=%.4f",
+        symbol, interval, ts_int, cached_close, new_close,
+    )
+    return BarStatus.CORRECTED
+
+
+def _upsert_row(
+    symbol: str, interval: str, ts_int: int, new_close: float,
+    status: BarStatus, row: pd.Series,
+) -> tuple:
+    return (
+        symbol, interval, ts_int,
+        float(row["Open"]), float(row["High"]),
+        float(row["Low"]),  new_close,
+        int(row["Volume"]) if row["Volume"] is not None else 0,
+        status.value,
+        None,  # adj_close: not available from yfinance with auto_adjust=True
+        "yfinance",
+        int(time()),
+    )
+
+
 def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     """
     Upsert OHLCV rows.  If an existing CLOSED bar's close diverges ≥0.1% from
@@ -197,41 +244,15 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
     closed_ts = [ts_int for ts_int, _, status, _ in prepared if status == BarStatus.CLOSED]
 
     with closing(get_connection()) as conn:
-        existing_closed = {}
-        if closed_ts:
-            existing_closed = {
-                r[0]: float(r[1])
-                for r in conn.execute(
-                    "SELECT ts, close FROM ohlcv "
-                    "WHERE symbol=? AND interval=? AND status='CLOSED' AND ts = ANY(?)",
-                    (symbol, interval, closed_ts),
-                ).fetchall()
-            }
-
-        upsert_rows = []
-        for ts_int, new_close, status, row in prepared:
-            if status == BarStatus.CLOSED and ts_int in existing_closed:
-                cached_close = existing_closed[ts_int]
-                if (
-                    cached_close != 0
-                    and abs(cached_close - new_close) / abs(cached_close) > 0.001
-                ):
-                    status = BarStatus.CORRECTED
-                    logger.warning(
-                        "CORRECTED bar detected: %s %s ts=%s  cached=%.4f  new=%.4f",
-                        symbol, interval, ts_int, cached_close, new_close,
-                    )
-
-            upsert_rows.append((
-                symbol, interval, ts_int,
-                float(row["Open"]), float(row["High"]),
-                float(row["Low"]),  new_close,
-                int(row["Volume"]) if row["Volume"] is not None else 0,
-                status.value,
-                None,  # adj_close: not available from yfinance with auto_adjust=True
-                "yfinance",
-                int(time()),
-            ))
+        existing_closed = _existing_closed_closes(conn, symbol, interval, closed_ts)
+        upsert_rows = [
+            _upsert_row(
+                symbol, interval, ts_int, new_close,
+                _reconciled_status(symbol, interval, ts_int, new_close, status, existing_closed),
+                row,
+            )
+            for ts_int, new_close, status, row in prepared
+        ]
 
         conn.executemany(
             """

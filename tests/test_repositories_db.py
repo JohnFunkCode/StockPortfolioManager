@@ -32,7 +32,7 @@ def purge():
     with closing(get_connection()) as conn:
         conn.execute("DELETE FROM fundamentals_history WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM news_articles WHERE symbol = %s", (SYM,))
-        conn.execute("DELETE FROM fetch_log WHERE symbol = %s AND interval = 'news'", (SYM,))
+        conn.execute("DELETE FROM fetch_log WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM options_positions WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM ohlcv WHERE symbol = %s", (SYM,))
         conn.execute("DELETE FROM user_settings WHERE owner = %s", (TEST_OWNER,))
@@ -398,6 +398,14 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         df["Close"] = float("nan")
         self.repo.store_bars(SYM, "1d", df)
         self.assertEqual(self.repo.count_cached(SYM, "1d"), 0)
+        # No fetch_log stamp either: a stamp would mark the symbol fresh and
+        # stop the next read retrying the fetch.
+        with closing(get_connection()) as conn:
+            stamps = conn.execute(
+                "SELECT COUNT(*) FROM fetch_log WHERE symbol = %s AND interval = '1d'",
+                (SYM,),
+            ).fetchone()[0]
+        self.assertEqual(stamps, 0)
 
 
 class TestUserSettingsRepository(RepoTestBase):

@@ -52,6 +52,12 @@ transport connection; the pings help clients and intermediaries that enforce idl
 do not extend Cloud Run's absolute request deadline. The REST seam remains limited by
 `QUANTCORE_REST_TIMEOUT` (60 seconds by default).
 
+**Stateless mode (#367).** Each wrapper's `FASTMCP_STATELESS_HTTP` in the inventory decides
+whether it serves the long-lived `GET /mcp` stream at all. With `"true"`, a GET gets `405` and
+only tool-call POSTs are billed. The 900-second timeout and the pings then matter only for
+stateful wrappers. Test runs `"true"` and prod `"false"` until the client check on test passes.
+See [`mcp-stateless-plan.md`](../proposals/mcp-stateless-plan.md), including the rollback.
+
 Every roll-out and every CI-created wrapper applies the timeout from the inventory. To verify one
 service by hand (or apply it out of band, without replacing environment variables or secrets):
 

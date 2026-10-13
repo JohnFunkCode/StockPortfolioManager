@@ -2,6 +2,10 @@
 
 Issue: [#241](https://github.com/JohnFunkCode/StockPortfolioManager/issues/241)
 
+> **Follow-up (#367):** the GET streams this plan keeps alive account for ~99.9% of wrapper
+> billing, and no tool uses them. [`mcp-stateless-plan.md`](mcp-stateless-plan.md) turns them
+> off with FastMCP stateless mode, after which this plan's keepalive is dead code.
+
 ## Decision
 
 The reported 301-second truncated `/mcp` responses are treated as a Cloud Run request-timeout

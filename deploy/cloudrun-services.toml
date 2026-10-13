@@ -95,6 +95,9 @@ QUANTCORE_JWT_PUBLIC_KEY = "quantui-signing-pub:latest"
 
 # ---------------------------------------------------------------- phase 2: api's consumers
 # The MCP wrappers. A new one is a block here plus its fastMCPTest module; CI creates it.
+# FASTMCP_STATELESS_HTTP (#367): stateless wrappers answer the idle GET /mcp stream with 405,
+# so Cloud Run stops billing ~900 s per client per server for a channel no tool uses. Trial on
+# test first; every wrapper carries the same value (tests/test_cloudrun_services.py).
 
 [[services]]
 name = "quantcore-stock-price"
@@ -114,6 +117,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.stock_price_server"
 QUANTCORE_REST_URL = "{api_url}"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantcore-options-analysis"
@@ -133,6 +137,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.options_analysis"
 QUANTCORE_REST_URL = "{api_url}"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantcore-company-fundamentals"
@@ -152,6 +157,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.company_fundamentals_server"
 QUANTCORE_REST_URL = "{api_url}"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantcore-news-sentiment"
@@ -171,6 +177,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.news_sentiment_server"
 QUANTCORE_REST_URL = "{api_url}"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantcore-market-analysis"
@@ -190,6 +197,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.market_analysis_server"
 QUANTCORE_REST_URL = "{api_url}"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 # portfolio + arbitrage: the two thinnest wrappers (256Mi). Created by hand before #161
 # (portfolio-lots-plan.md Step 4.8a) on ports 6006/6007, with a trailing "/" on the REST
@@ -212,6 +220,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.portfolio_server"
 QUANTCORE_REST_URL = "{api_url}/"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantcore-arbitrage"
@@ -231,6 +240,7 @@ service_account = "{runtime_sa}"
 [services.env]
 SERVER_MODULE = "fastMCPTest.arbitrage_server"
 QUANTCORE_REST_URL = "{api_url}/"
+FASTMCP_STATELESS_HTTP = { test = "true", prod = "false" }
 
 [[services]]
 name = "quantui"

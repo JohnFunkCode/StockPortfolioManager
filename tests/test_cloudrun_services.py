@@ -542,6 +542,18 @@ class RealInventoryTest(unittest.TestCase):
         for module in deployed:
             self.assertTrue((ROOT / (module.replace(".", "/") + ".py")).is_file(), module)
 
+    def test_wrappers_agree_on_stateless_http(self):
+        # #367: one wrapper left stateful keeps billing its idle GET stream. The exact
+        # value per environment is pinned too, so prod can't go stateless before the
+        # step 2 client check: step 3 of docs/proposals/mcp-stateless-plan.md edits this.
+        expected = {"test": "true", "prod": "false"}
+        self.assertEqual(set(self.envs), set(expected))
+        for env, services in self.envs.items():
+            values = {s["name"]: s["env"].get("FASTMCP_STATELESS_HTTP")
+                      for s in services if "SERVER_MODULE" in s["env"]}
+            with self.subTest(env=env):
+                self.assertEqual(set(values.values()), {expected[env]}, values)
+
     def test_runbooks_exist(self):
         for s in self.envs["test"]:
             if s["first_create"] == "manual":

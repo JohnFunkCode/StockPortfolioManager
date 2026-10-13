@@ -28,7 +28,7 @@ Set `FASTMCP_STATELESS_HTTP=true` on every wrapper. FastMCP then serves `/mcp` f
 
 - **Nothing is lost.** No tool uses `Context`, progress, client logging, elicitation, sampling or list-changed notifications.
 - **It's config only.** The setting goes in `deploy/cloudrun-services.toml`; the code doesn't change.
-- **All wrappers carry the same value.** `tests/test_cloudrun_services.py::test_wrappers_agree_on_stateless_http` enforces this, because one stateful wrapper would keep billing.
+- **All wrappers carry the same value.** `tests/test_cloudrun_services.py::test_wrappers_agree_on_stateless_http` enforces this, because one stateful wrapper would keep billing. It also pins each environment's exact value (test `true`, prod `false`), so prod can't go stateless by accident before step 2 (PR review).
 
 ### Considered and rejected
 
@@ -41,7 +41,7 @@ Set `FASTMCP_STATELESS_HTTP=true` on every wrapper. FastMCP then serves `/mcp` f
 |---|---|---|
 | 1 | Trial PR: `{ test = "true", prod = "false" }` on all seven wrappers, plus the parity test. Merge rolls test; prod gets an explicit `"false"`, the default, so promoting this commit is a no-op there. | in review |
 | 2 | Client check on test (John): Claude Code and Codex against the test wrapper URLs; `scripts/mcp_http_smoke.py`; test logs show POSTs only, or GETs ending at once with 405. | pending |
-| 3 | Prod PR: `prod = "true"`; remove `PingMiddleware` / `MCP_PING_INTERVAL_MS` from `mcp_gateway/serve.py` (dead in stateless mode); update `docs/operations/prod-promotion.md`; promote. | pending |
+| 3 | Prod PR: `prod = "true"`, and the same in the parity test's `expected` (it pins each environment's value); remove `PingMiddleware` / `MCP_PING_INTERVAL_MS` from `mcp_gateway/serve.py` (dead in stateless mode); update `docs/operations/prod-promotion.md`; promote. | pending |
 | 4 | Measure a week after prod: billed instance time per wrapper (and the BigQuery export). Record it here and on #265. | pending |
 
 ### Step 1 checkpoint (2026-10-13)

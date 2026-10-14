@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The daily QuantCore job: notifications, options capture, GEX, fundamentals warming.
+"""The daily QuantCore job: notifications, options capture, GEX, news check, fundamentals warming.
 
 Runs as the ``quantcore-report`` Cloud Run Job on Cloud Scheduler, and locally
 as ``python main.py``. It no longer builds the HTML report — that moved to
@@ -9,12 +9,18 @@ as ``python main.py``. It no longer builds the HTML report — that moved to
 The step order is an isolation property, not an accident. The cheap,
 high-value work runs first (Discord notifications and the Harvester rung
 checks), then the options-chain capture that keeps the open-interest history
-accumulating, and only then the fundamentals warmer — the one step with a
-wall-clock budget. Each of the last two swallows its own failures, so a slow
-or broken tail cannot take down the useful side effects that already
-succeeded. That defect — "a failure in the report path can fail the job and
-take the *useful* side effects down with it" — is what issue #147 was about,
-and the warmer is exactly the kind of long-running step that would inherit it.
+accumulating, then gamma/GEX computed from the chain the capture just
+persisted (no second Yahoo fetch, #373), the capture health check, the news
+staleness check, and only then the fundamentals warmer. Each tail step
+swallows its own failures, so a slow or broken tail cannot take down the
+useful side effects that already succeeded. That defect — "a failure in the
+report path can fail the job and take the *useful* side effects down with it"
+— is what issue #147 was about.
+
+Warming stays last on purpose (#373): the end-of-day options chain can only be
+captured at the close, while a fundamentals profile skipped tonight can be
+warmed any later night. When the budget is short, the step that can be
+redone is the one that gives way.
 
 The job does nothing on a day the NYSE is closed (weekend or holiday): no
 prices move, so a notification would be noise and a capture would be a
@@ -125,8 +131,60 @@ def _remaining_budget(requested: float, job_started: float,
     return max(1.0, min(requested, left))
 
 
+def _tally_chain(sym, chain, tally, rate_limited=False) -> str:
+    """Classify one fetched chain into ``tally`` and return its log-line note.
+
+    ``rate_limited`` says the gateway's 429 counter moved during this symbol;
+    a partial chain with it set lands in ``rate_limited_partials``, because the
+    service swallows a per-expiration failure and still persists the rest.
+    """
+    missed = chain.get("failed_expirations") or 0
+    if missed:
+        tally["partial_expirations_failed"] += missed
+        tally["partial_symbols"].append(sym)
+        if rate_limited:
+            tally["rate_limited_partials"].append(sym)
+    if chain.get("persisted"):
+        tally["captured"] += 1
+        return f" ({missed} expiration fetch(es) failed)" if missed else ""
+    if chain.get("no_listed_options"):
+        tally["no_options"] += 1
+        tally["no_options_symbols"].append(sym)
+        return " (no listed options)"
+    tally["duplicate"] += 1
+    return " (not persisted — duplicate)"
+
+
+def _tally_failure(sym, tally, rate_limited) -> None:
+    """Count one failed capture, marking it rate-limited when a 429 was seen."""
+    tally["failed"] += 1
+    tally["failures"].append(sym)
+    if rate_limited:
+        tally["rate_limited_failures"].append(sym)
+
+
+def _capture_summary(symbols, attempted, tally, rate_limited_calls,
+                     elapsed, budget) -> dict:
+    """Build and log the capture step's summary dict."""
+    summary = {
+        "requested": len(symbols), "attempted": attempted, **tally,
+        "rate_limited_calls": rate_limited_calls,
+        "skipped": len(symbols) - attempted,
+        "elapsed_seconds": round(elapsed, 1), "budget_seconds": budget,
+        "budget_exhausted": attempted < len(symbols),
+    }
+    print(f"  captured {tally['captured']}, duplicate {tally['duplicate']}, "
+          f"no_options {tally['no_options']}, failed {tally['failed']}, "
+          f"partial {len(tally['partial_symbols'])} "
+          f"({tally['partial_expirations_failed']} expirations), "
+          f"rate-limited calls {rate_limited_calls}, "
+          f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
+          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
+    return summary
+
+
 def capture_options_chains(symbols, options, budget_seconds=None,
-                           clock=time.monotonic) -> dict:
+                           clock=time.monotonic, rate_limit_count=None) -> dict:
     """Capture a full options chain per symbol under a wall-clock budget.
 
     Same shape as ``warm_fundamentals_cache``: a per-symbol guard so one bad
@@ -142,111 +200,194 @@ def capture_options_chains(symbols, options, budget_seconds=None,
     fetch failed raises in the service and lands in ``failed``. A real
     duplicate is a non-empty chain the store declined to persist again.
     Expirations that failed inside an otherwise-captured chain are summed into
-    ``partial_expirations_failed`` so a creeping outage shows in the log.
+    ``partial_expirations_failed`` and the symbol listed in ``partial_symbols``;
+    the GEX step skips those symbols and the health check alarms when there
+    are too many of them (#378 review).
+
+    ``rate_limit_count`` reads the gateway's running 429 counter (#373). The
+    service folds a 429 into a generic error, so the counter's movement across
+    a symbol is what marks that symbol's failure as rate-limited:
+    ``rate_limited_failures`` lists those symbols and ``rate_limited_calls`` is
+    the night's total 429s, retried ones included. The same movement across a
+    symbol that came back *partial* lists it in ``rate_limited_partials``.
     """
     budget = (_env_float(OPTIONS_CAPTURE_BUDGET_SECONDS_ENV,
                          DEFAULT_OPTIONS_CAPTURE_BUDGET_SECONDS)
               if budget_seconds is None else budget_seconds)
     print(f"Capturing options chains for {len(symbols)} symbols, budget {budget:.0f}s...")
 
+    count_429 = rate_limit_count or (lambda: 0)
+    calls_429_before = count_429()
     started = clock()
-    captured = duplicate = no_options = failed = attempted = 0
-    partial_expirations_failed = 0
-    failures = []
-    no_options_symbols = []
-    partial_symbols = []
+    attempted = 0
+    tally = {"captured": 0, "duplicate": 0, "no_options": 0, "no_options_symbols": [],
+             "partial_expirations_failed": 0, "partial_symbols": [],
+             "rate_limited_partials": [],
+             "failed": 0, "failures": [], "rate_limited_failures": []}
     for sym in symbols:
         if clock() - started >= budget:
             break
         attempted += 1
+        symbol_429_before = count_429()
         try:
             chain = options.get_full_options_chain(sym, max_expirations=6)
-            missed = chain.get("failed_expirations") or 0
-            if missed:
-                partial_expirations_failed += missed
-                partial_symbols.append(sym)
-            if chain.get("persisted"):
-                captured += 1
-                note = f" ({missed} expiration fetch(es) failed)" if missed else ""
-            elif chain.get("no_listed_options"):
-                no_options += 1
-                no_options_symbols.append(sym)
-                note = " (no listed options)"
-            else:
-                duplicate += 1
-                note = " (not persisted — duplicate)"
+            note = _tally_chain(sym, chain, tally, count_429() > symbol_429_before)
             print(f"  {sym}: {chain.get('expiration_count', 0)} expirations, "
                   f"{chain.get('total_contracts', 0)} contracts{note}")
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the job
-            failed += 1
-            failures.append(sym)
+            _tally_failure(sym, tally, count_429() > symbol_429_before)
             print(f"  {sym}: options chain capture failed: {exc}")
 
-    summary = {
-        "requested": len(symbols), "attempted": attempted, "captured": captured,
-        "duplicate": duplicate, "no_options": no_options,
-        "no_options_symbols": no_options_symbols,
-        "partial_expirations_failed": partial_expirations_failed,
-        "partial_symbols": partial_symbols,
-        "failed": failed, "failures": failures,
-        "skipped": len(symbols) - attempted,
-        "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
-        "budget_exhausted": attempted < len(symbols),
-    }
-    print(f"  captured {captured}, duplicate {duplicate}, no_options {no_options}, "
-          f"failed {failed}, partial {len(partial_symbols)} "
-          f"({partial_expirations_failed} expirations), "
-          f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
-          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
-    return summary
+    return _capture_summary(symbols, attempted, tally, count_429() - calls_429_before,
+                            clock() - started, budget)
 
 
 def record_gamma_and_gex(symbols, options, budget_seconds=None,
-                         clock=time.monotonic, today=None, skip=()) -> dict:
+                         clock=time.monotonic, today=None, skip=(),
+                         partial=()) -> dict:
     """Persist the daily gamma-wall and GEX rows for the tracked universe.
 
-    ``get_delta_adjusted_oi`` writes ``gamma_wall_history`` and ``get_gex_profile``
-    writes ``gex_history``, but nothing called them on a schedule, so both
-    series only had days someone happened to ask. Each call fetches its own
-    chain, so this is the expensive step; it is budgeted, and the start of the
-    walk rotates with the date so a budget that cannot cover the universe still
-    visits every symbol over a few nights instead of starving the tail of the
-    list forever. ``skip`` names symbols the capture found no listed options
-    for -- fetching their chain again would only spend Yahoo calls. Never raises.
+    Both rows are computed from the full chain the capture step persisted a
+    moment ago (``OptionsService.record_gex_from_snapshot``), so this step makes
+    no Yahoo calls at all. It used to call ``get_delta_adjusted_oi`` and
+    ``get_gex_profile``, each fetching the chain live again -- roughly doubling
+    the night's Yahoo traffic, which is what tipped it into 429s (#373). A
+    symbol with no full snapshot from today returns ``None`` and is counted as
+    ``no_snapshot``: there is nothing to compute from, and fetching it live
+    would bring the 429s back.
+
+    The walk is still budgeted and its start still rotates with the date, so a
+    budget that cannot cover the universe visits every symbol over a few
+    nights. ``skip`` names symbols the capture found no listed options for.
+
+    ``partial`` names symbols whose capture lost one or more expirations. The
+    snapshot doesn't record that, so computed from it the profile would
+    silently understate exposure -- the missing expiration is often the
+    near-dated one that carries most of the gamma. They are counted as
+    ``partial_skipped`` and get no row today: a gap in the history is honest,
+    a low number is not (#378 review). Never raises.
     """
     budget = (_env_float(GEX_BUDGET_SECONDS_ENV, DEFAULT_GEX_BUDGET_SECONDS)
               if budget_seconds is None else budget_seconds)
     skip = set(skip)
+    partial = set(partial) - skip
     ordered = [sym for sym in symbols if sym not in skip]
     if ordered:
         shift = (today or date.today()).toordinal() % len(ordered)
         ordered = ordered[shift:] + ordered[:shift]
-    print(f"Recording gamma wall / GEX for {len(ordered)} symbols, budget {budget:.0f}s...")
+    print(f"Recording gamma wall / GEX for {len(ordered)} symbols from today's "
+          f"snapshots, budget {budget:.0f}s...")
 
     started = clock()
-    recorded = failed = attempted = 0
+    recorded = failed = attempted = no_snapshot = partial_skipped = 0
     for sym in ordered:
         if clock() - started >= budget:
             break
         attempted += 1
+        if sym in partial:
+            partial_skipped += 1
+            print(f"  {sym}: capture was partial; gamma/GEX not recorded")
+            continue
         try:
-            options.get_delta_adjusted_oi(sym)
-            options.get_gex_profile(sym)
-            recorded += 1
+            if options.record_gex_from_snapshot(sym) is None:
+                no_snapshot += 1
+                print(f"  {sym}: no full snapshot from today; gamma/GEX not recorded")
+            else:
+                recorded += 1
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the step
             failed += 1
             print(f"  {sym}: gamma/GEX record failed: {exc}")
 
     summary = {
         "requested": len(ordered), "attempted": attempted, "recorded": recorded,
+        "no_snapshot": no_snapshot, "partial_skipped": partial_skipped,
         "failed": failed, "skipped": len(ordered) - attempted,
         "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
         "budget_exhausted": attempted < len(ordered),
     }
-    print(f"  recorded {recorded}, failed {failed}, skipped {summary['skipped']} "
+    print(f"  recorded {recorded}, no_snapshot {no_snapshot}, "
+          f"partial_skipped {partial_skipped}, failed {failed}, "
+          f"skipped {summary['skipped']} "
           f"in {summary['elapsed_seconds']}s"
           + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
     return summary
+
+
+def _coverage_problem(chains, optionable, no_options, floor):
+    """Chain coverage of the optionable universe below ``floor`` (#374)."""
+    if optionable <= 0:
+        return None
+    coverage = chains / optionable
+    if coverage >= floor:
+        return None
+    return (f"Options chains: {chains} of {optionable} optionable symbols "
+            f"landed today ({coverage:.0%}, floor {floor:.0%}; "
+            f"{no_options} with no listed options excluded).")
+
+
+def _no_options_problem(capture, universe_size, cap):
+    """Too much of the universe reporting no options -- likely Yahoo, not delistings."""
+    no_options = capture.get("no_options", 0)
+    if not universe_size or no_options / universe_size <= cap:
+        return None
+    return (f"Options capture: {no_options} of {universe_size} symbols returned no "
+            f"options chain (ceiling {cap:.0%}), e.g. "
+            + ", ".join(capture.get("no_options_symbols", [])[:5]) + ".")
+
+
+def _capture_failure_problem(capture, ceiling):
+    """Capture failure rate above ``ceiling``, naming 429s when they dominate (#373)."""
+    attempted, failed = capture.get("attempted"), capture.get("failed", 0)
+    if not attempted or failed / attempted <= ceiling:
+        return None
+    limited = capture.get("rate_limited_failures") or []
+    if len(limited) * 2 > failed:
+        # Mostly 429s: say so, because the fix is spacing the calls out
+        # (schedule, budget), not chasing the symbols (#373).
+        return (f"Options capture: Yahoo rate-limited {len(limited)} symbols "
+                f"({failed} of {attempted} attempts failed, "
+                f"ceiling {ceiling:.0%}; {capture.get('rate_limited_calls', 0)} "
+                f"429 responses), e.g. " + ", ".join(limited[:5]) + ".")
+    return (f"Options capture: {failed} of {attempted} "
+            f"attempts failed (ceiling {ceiling:.0%}), e.g. "
+            + ", ".join(capture["failures"][:5]) + ".")
+
+
+def _partial_capture_problem(capture, ceiling):
+    """Partially-captured symbols above ``ceiling`` of attempts (#378 review).
+
+    A partial chain still persists, so it never reaches ``failed``; a Yahoo
+    rate-limit that only costs some expirations would otherwise stay silent.
+    Names 429s when they account for most of the partials.
+    """
+    attempted = capture.get("attempted")
+    partial = capture.get("partial_symbols") or []
+    if not attempted or len(partial) / attempted <= ceiling:
+        return None
+    limited = capture.get("rate_limited_partials") or []
+    cause = (f"Yahoo rate-limited {len(limited)} of them"
+             if len(limited) * 2 > len(partial) else "expiration fetches failed")
+    return (f"Options capture: {len(partial)} of {attempted} symbols captured "
+            f"partially ({cause}; {capture.get('partial_expirations_failed', 0)} "
+            f"expirations missing, ceiling {ceiling:.0%}; gamma/GEX skipped for "
+            f"them), e.g. " + ", ".join(partial[:5]) + ".")
+
+
+def _capture_budget_problem(capture):
+    """The capture is meant to finish every night; an exhausted budget alarms."""
+    if not capture.get("budget_exhausted"):
+        return None
+    return (f"Options capture hit its {capture['budget_seconds']:.0f}s budget with "
+            f"{capture['skipped']} symbol(s) not attempted -- raise "
+            f"`{OPTIONS_CAPTURE_BUDGET_SECONDS_ENV}`.")
+
+
+def _gex_failure_problem(gex, ceiling):
+    """Gamma/GEX record failure rate above ``ceiling``."""
+    if not gex or not gex["attempted"] or gex["failed"] / gex["attempted"] <= ceiling:
+        return None
+    return (f"Gamma/GEX record: {gex['failed']} of {gex['attempted']} attempts "
+            f"failed (ceiling {ceiling:.0%}).")
 
 
 def check_capture_health(universe_size, capture, gex, counts, notifier,
@@ -256,10 +397,11 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
 
     ``counts`` is what the *database* holds for today (``capture_counts``), not
     what the loop believes it did -- a loop can report success against a
-    transaction that never committed. Three independent triggers: chain
-    coverage of the universe, the failure rate of a step's attempts, and an
-    exhausted capture budget (unlike the GEX step, the capture is meant to
-    finish every night). Returns the list of problems; sends one alert if any.
+    transaction that never committed. Independent triggers: chain coverage of
+    the universe, the failure rate of a step's attempts, the share of symbols
+    captured only partially, and an exhausted capture budget (unlike the GEX step, the capture is meant to
+    finish every night). When more than half the failed captures were 429s the
+    failure line names Yahoo rate-limiting instead of a generic gap (#373). Returns the list of problems; sends one alert if any.
 
     Coverage is measured against the symbols that *have* listed options:
     ``universe_size`` minus the capture's ``no_options``. A no-options symbol
@@ -276,40 +418,17 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
                                 DEFAULT_CAPTURE_NO_OPTIONS_CEILING) \
         if no_options_ceiling is None else no_options_ceiling
 
-    no_options = (capture or {}).get("no_options", 0)
+    capture = capture or {}
+    no_options = capture.get("no_options", 0)
     optionable = universe_size - no_options
-    problems = []
-    if optionable > 0:
-        coverage = counts["chains"] / optionable
-        if coverage < floor:
-            problems.append(
-                f"Options chains: {counts['chains']} of {optionable} optionable symbols "
-                f"landed today ({coverage:.0%}, floor {floor:.0%}; "
-                f"{no_options} with no listed options excluded)."
-            )
-    if universe_size and no_options / universe_size > no_options_cap:
-        problems.append(
-            f"Options capture: {no_options} of {universe_size} symbols returned no "
-            f"options chain (ceiling {no_options_cap:.0%}), e.g. "
-            + ", ".join(capture.get("no_options_symbols", [])[:5]) + "."
-        )
-    if capture and capture["attempted"] and capture["failed"] / capture["attempted"] > ceiling:
-        problems.append(
-            f"Options capture: {capture['failed']} of {capture['attempted']} "
-            f"attempts failed (ceiling {ceiling:.0%}), e.g. "
-            + ", ".join(capture["failures"][:5]) + "."
-        )
-    if capture and capture["budget_exhausted"]:
-        problems.append(
-            f"Options capture hit its {capture['budget_seconds']:.0f}s budget with "
-            f"{capture['skipped']} symbol(s) not attempted -- raise "
-            f"`{OPTIONS_CAPTURE_BUDGET_SECONDS_ENV}`."
-        )
-    if gex and gex["attempted"] and gex["failed"] / gex["attempted"] > ceiling:
-        problems.append(
-            f"Gamma/GEX record: {gex['failed']} of {gex['attempted']} attempts "
-            f"failed (ceiling {ceiling:.0%})."
-        )
+    problems = [p for p in (
+        _coverage_problem(counts["chains"], optionable, no_options, floor),
+        _no_options_problem(capture, universe_size, no_options_cap),
+        _capture_failure_problem(capture, ceiling),
+        _partial_capture_problem(capture, ceiling),
+        _capture_budget_problem(capture),
+        _gex_failure_problem(gex, ceiling),
+    ) if p]
 
     print(f"Capture health: chains {counts['chains']}/{optionable} "
           f"({no_options} no-options), "
@@ -327,7 +446,9 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
 
 def run_capture_tail(symbols, services, notifier, job_started,
                      clock=time.monotonic) -> None:
-    """Options capture, gamma/GEX recording, then the health check. Never raises.
+    """Options capture, gamma/GEX from the captured snapshot, then the health check.
+
+    Never raises.
 
     The same outer-guard role ``run_fundamentals_warming`` plays for the last
     step: notifications already went out before this, so nothing here may turn
@@ -341,6 +462,7 @@ def run_capture_tail(symbols, services, notifier, job_started,
                 _env_float(OPTIONS_CAPTURE_BUDGET_SECONDS_ENV,
                            DEFAULT_OPTIONS_CAPTURE_BUDGET_SECONDS),
                 job_started, clock),
+            rate_limit_count=lambda: services.yfinance_gateway.rate_limited,
         )
         gex = record_gamma_and_gex(
             symbols, services.options,
@@ -348,6 +470,7 @@ def run_capture_tail(symbols, services, notifier, job_started,
                 _env_float(GEX_BUDGET_SECONDS_ENV, DEFAULT_GEX_BUDGET_SECONDS),
                 job_started, clock),
             skip=capture["no_options_symbols"],
+            partial=capture["partial_symbols"],
         )
         counts = services.options.capture_counts(market_date().isoformat())
         check_capture_health(len(symbols), capture, gex, counts, notifier)

@@ -91,34 +91,103 @@ class CaptureOptionsChainsTest(unittest.TestCase):
         self.assertEqual(s["attempted"] + s["skipped"], 6)
 
 
-class RecordGammaTest(unittest.TestCase):
-    def test_calls_both_writers_per_symbol_and_survives_failures(self):
+class CaptureRateLimitTest(unittest.TestCase):
+    """#373: the gateway's 429 counter marks which failures were rate limits."""
+
+    def test_failures_that_moved_the_429_counter_are_rate_limited(self):
+        counter = {"n": 0}
+
+        def get_chain(sym, max_expirations=6):
+            if sym == "LIMITED":
+                counter["n"] += 3            # the gateway retried twice, then gave up
+                raise RuntimeError("all 6 option-chain fetches failed for LIMITED")
+            if sym == "BROKEN":
+                raise ValueError("Could not retrieve price for symbol: BROKEN")
+            return {"persisted": True, "expiration_count": 6}
+
         o = MagicMock()
-        o.get_gex_profile.side_effect = [None, RuntimeError("x")]
-        s = main.record_gamma_and_gex(["A", "B"], o, budget_seconds=1000,
-                                      today=datetime.date(2026, 1, 1))
-        self.assertEqual((s["recorded"], s["failed"]), (1, 1))
-        self.assertEqual(o.get_delta_adjusted_oi.call_count, 2)
+        o.get_full_options_chain.side_effect = get_chain
+        s = main.capture_options_chains(
+            ["A", "LIMITED", "BROKEN"], o, budget_seconds=1000,
+            rate_limit_count=lambda: counter["n"])
+        self.assertEqual(s["failures"], ["LIMITED", "BROKEN"])
+        self.assertEqual(s["rate_limited_failures"], ["LIMITED"])
+        self.assertEqual(s["rate_limited_calls"], 3)
+
+    def test_a_partial_chain_that_moved_the_429_counter_is_rate_limited(self):
+        # #378 review: the service swallows a per-expiration 429 and persists the
+        # rest, so the symbol "succeeds" -- the counter is what marks it.
+        counter = {"n": 0}
+
+        def get_chain(sym, max_expirations=6):
+            if sym == "LIMITED":
+                counter["n"] += 3
+            return {"persisted": True, "expiration_count": 6,
+                    "failed_expirations": 2 if sym in ("LIMITED", "FLAKY") else 0}
+
+        o = MagicMock()
+        o.get_full_options_chain.side_effect = get_chain
+        s = main.capture_options_chains(
+            ["A", "LIMITED", "FLAKY"], o, budget_seconds=1000,
+            rate_limit_count=lambda: counter["n"])
+        self.assertEqual(s["partial_symbols"], ["LIMITED", "FLAKY"])
+        self.assertEqual(s["rate_limited_partials"], ["LIMITED"])
+        self.assertEqual((s["failed"], s["rate_limited_failures"]), (0, []))
+
+    def test_no_counter_means_no_rate_limit_attribution(self):
+        s = main.capture_options_chains(["A"], _options(fail={"A"}), budget_seconds=1000)
+        self.assertEqual((s["rate_limited_failures"], s["rate_limited_calls"]), ([], 0))
+
+
+class RecordGammaTest(unittest.TestCase):
+    """#373: gamma/GEX come from the snapshot the capture just persisted."""
+
+    def test_uses_the_snapshot_and_never_the_live_fetchers(self):
+        o = MagicMock()
+        o.record_gex_from_snapshot.side_effect = [
+            {"gamma_wall_saved": True, "gex_saved": True}, None, RuntimeError("x"),
+        ]
+        s = main.record_gamma_and_gex(["A", "B", "C"], o, budget_seconds=1000,
+                                      today=datetime.date.fromordinal(3 * 1000))
+        self.assertEqual((s["recorded"], s["no_snapshot"], s["failed"]), (1, 1, 1))
+        self.assertEqual(o.record_gex_from_snapshot.call_count, 3)
+        o.get_delta_adjusted_oi.assert_not_called()
+        o.get_gex_profile.assert_not_called()
 
     def test_skips_symbols_without_listed_options(self):
-        seen = []
         o = MagicMock()
-        o.get_delta_adjusted_oi.side_effect = lambda sym: seen.append(sym)
         s = main.record_gamma_and_gex(["A", "NOPT", "C"], o, budget_seconds=1000,
                                       today=datetime.date(2026, 1, 1), skip=["NOPT"])
-        self.assertNotIn("NOPT", seen)
+        seen = [c.args[0] for c in o.record_gex_from_snapshot.call_args_list]
         self.assertEqual(sorted(seen), ["A", "C"])
         self.assertEqual(s["requested"], 2)
-        o.get_gex_profile.assert_called()
-        self.assertNotIn("NOPT", [c.args[0] for c in o.get_gex_profile.call_args_list])
+
+    def test_skips_partially_captured_symbols(self):
+        # #378 review: a snapshot missing an expiration would understate GEX;
+        # no row is better than a wrong one.
+        o = MagicMock()
+        o.record_gex_from_snapshot.return_value = {"gex_saved": True}
+        s = main.record_gamma_and_gex(["A", "PART", "NOPT"], o, budget_seconds=1000,
+                                      today=datetime.date(2026, 1, 1),
+                                      skip=["NOPT"], partial=["PART", "NOPT"])
+        seen = [c.args[0] for c in o.record_gex_from_snapshot.call_args_list]
+        self.assertEqual(seen, ["A"])
+        # NOPT is in both lists: skipped once, never counted as partial.
+        self.assertEqual((s["requested"], s["attempted"], s["recorded"],
+                          s["partial_skipped"]), (2, 2, 1, 1))
 
     def test_start_rotates_with_the_date(self):
-        seen = []
         o = MagicMock()
-        o.get_delta_adjusted_oi.side_effect = lambda sym: seen.append(sym)
         main.record_gamma_and_gex(["A", "B", "C"], o, budget_seconds=1000,
                                   today=datetime.date.fromordinal(3 * 1000 + 1))
+        seen = [c.args[0] for c in o.record_gex_from_snapshot.call_args_list]
         self.assertEqual(seen, ["B", "C", "A"])
+
+    def test_budget_stops_the_walk(self):
+        s = main.record_gamma_and_gex(list("ABCDEF"), MagicMock(), budget_seconds=3,
+                                      clock=_Clock(1.0), today=datetime.date(2026, 1, 1))
+        self.assertTrue(s["budget_exhausted"])
+        self.assertEqual(s["attempted"] + s["skipped"], 6)
 
 
 class CheckCaptureHealthTest(unittest.TestCase):
@@ -148,6 +217,25 @@ class CheckCaptureHealthTest(unittest.TestCase):
             10, self._capture(failed=8, failures=["A"], skipped=2, budget_exhausted=True),
             {"attempted": 4, "failed": 3}, {"chains": 10, "gamma_wall": 1, "gex": 1}, n)
         self.assertEqual(len(problems), 3)
+
+    def test_rate_limited_failures_are_named_as_such(self):
+        n = MagicMock()
+        problems = main.check_capture_health(
+            10, self._capture(failed=6, failures=list("ABCDEF"),
+                              rate_limited_failures=list("ABCDE"), rate_limited_calls=15),
+            None, {"chains": 10, "gamma_wall": 0, "gex": 0}, n)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("Yahoo rate-limited 5 symbols", problems[0])
+        self.assertIn("15 429 responses", problems[0])
+
+    def test_mostly_other_failures_keep_the_generic_wording(self):
+        n = MagicMock()
+        problems = main.check_capture_health(
+            10, self._capture(failed=6, failures=list("ABCDEF"),
+                              rate_limited_failures=["A"], rate_limited_calls=3),
+            None, {"chains": 10, "gamma_wall": 0, "gex": 0}, n)
+        self.assertEqual(len(problems), 1)
+        self.assertNotIn("rate-limited", problems[0])
 
     def test_no_options_symbols_leave_the_coverage_denominator(self):
         # The #374 night: 120 symbols, 29 with no listed options, every
@@ -206,15 +294,108 @@ class CheckCaptureHealthTest(unittest.TestCase):
             10, self._capture(), None, {"chains": 0, "gamma_wall": 0, "gex": 0}, n)
 
 
+def _tail_services():
+    services = MagicMock()
+    services.yfinance_gateway.rate_limited = 0
+    return services
+
+
+class CaptureHealthHelpersTest(unittest.TestCase):
+    """Each alarm's threshold, at its boundary (the helpers split out for #378's review)."""
+
+    def test_coverage_exactly_at_the_floor_is_healthy(self):
+        self.assertIsNone(main._coverage_problem(9, 10, 0, 0.9))
+        self.assertIn("8 of 10", main._coverage_problem(8, 10, 2, 0.9))
+
+    def test_coverage_with_nothing_optionable_is_not_judged(self):
+        self.assertIsNone(main._coverage_problem(0, 0, 5, 0.9))
+
+    def test_no_options_exactly_at_the_ceiling_is_healthy(self):
+        capture = {"no_options": 25, "no_options_symbols": ["A"]}
+        self.assertIsNone(main._no_options_problem(capture, 100, 0.25))
+        self.assertIsNone(main._no_options_problem(capture, 0, 0.25))
+        capture["no_options"] = 26
+        self.assertIn("26 of 100", main._no_options_problem(capture, 100, 0.25))
+
+    def test_exactly_half_rate_limited_keeps_the_generic_wording(self):
+        capture = {"attempted": 4, "failed": 4, "failures": ["A", "B", "C", "D"],
+                   "rate_limited_failures": ["A", "B"]}
+        line = main._capture_failure_problem(capture, 0.5)
+        self.assertTrue(line.startswith("Options capture: 4 of 4 attempts failed"))
+        capture["rate_limited_failures"] = ["A", "B", "C"]
+        self.assertIn("Yahoo rate-limited 3 symbols",
+                      main._capture_failure_problem(capture, 0.5))
+
+    def test_failures_at_the_ceiling_or_nothing_attempted_are_healthy(self):
+        self.assertIsNone(main._capture_failure_problem({"attempted": 4, "failed": 2}, 0.5))
+        self.assertIsNone(main._capture_failure_problem({}, 0.5))
+
+    def test_partial_captures_at_the_ceiling_or_nothing_attempted_are_healthy(self):
+        capture = {"attempted": 4, "partial_symbols": ["A", "B"],
+                   "partial_expirations_failed": 5}
+        self.assertIsNone(main._partial_capture_problem(capture, 0.5))
+        self.assertIsNone(main._partial_capture_problem({"partial_symbols": ["A"]}, 0.5))
+
+    def test_partial_capture_wording_names_rate_limits_only_when_most(self):
+        capture = {"attempted": 4, "partial_symbols": ["A", "B", "C", "D"],
+                   "partial_expirations_failed": 7, "rate_limited_partials": ["A", "B"]}
+        line = main._partial_capture_problem(capture, 0.5)
+        self.assertTrue(line.startswith(
+            "Options capture: 4 of 4 symbols captured partially "
+            "(expiration fetches failed; 7 expirations missing"))
+        self.assertIn("gamma/GEX skipped", line)
+        self.assertTrue(line.endswith("e.g. A, B, C, D."))
+        capture["rate_limited_partials"] = ["A", "B", "C"]
+        self.assertIn("(Yahoo rate-limited 3 of them;",
+                      main._partial_capture_problem(capture, 0.5))
+
+    def test_budget_and_gex_helpers(self):
+        self.assertIsNone(main._capture_budget_problem({"budget_exhausted": False}))
+        self.assertIsNone(main._gex_failure_problem(None, 0.5))
+        self.assertIsNone(main._gex_failure_problem({"attempted": 0, "failed": 0}, 0.5))
+        self.assertIsNone(main._gex_failure_problem({"attempted": 4, "failed": 2}, 0.5))
+
+
+class TallyChainTest(unittest.TestCase):
+    def _tally(self):
+        return {"captured": 0, "duplicate": 0, "no_options": 0, "no_options_symbols": [],
+                "partial_expirations_failed": 0, "partial_symbols": [],
+                "failed": 0, "failures": [], "rate_limited_failures": [],
+                "rate_limited_partials": []}
+
+    def test_partial_counts_even_when_not_persisted(self):
+        tally = self._tally()
+        note = main._tally_chain("X", {"failed_expirations": 2}, tally)
+        self.assertEqual(note, " (not persisted — duplicate)")
+        self.assertEqual((tally["duplicate"], tally["partial_expirations_failed"],
+                          tally["partial_symbols"]), (1, 2, ["X"]))
+
+    def test_rate_limited_counts_only_for_a_partial_chain(self):
+        tally = self._tally()
+        main._tally_chain("FULL", {"persisted": True}, tally, rate_limited=True)
+        main._tally_chain("PART", {"persisted": True, "failed_expirations": 1}, tally,
+                          rate_limited=True)
+        main._tally_chain("FLAKY", {"persisted": True, "failed_expirations": 1}, tally)
+        self.assertEqual(tally["partial_symbols"], ["PART", "FLAKY"])
+        self.assertEqual(tally["rate_limited_partials"], ["PART"])
+
+    def test_failure_marks_rate_limited_only_when_flagged(self):
+        tally = self._tally()
+        main._tally_failure("A", tally, rate_limited=True)
+        main._tally_failure("B", tally, rate_limited=False)
+        self.assertEqual((tally["failed"], tally["failures"], tally["rate_limited_failures"]),
+                         (2, ["A", "B"], ["A"]))
+
+
 class RunCaptureTailTest(unittest.TestCase):
     def test_never_raises(self):
-        services = MagicMock()
+        services = _tail_services()
         services.options.get_full_options_chain.side_effect = RuntimeError("boom")
         services.options.capture_counts.side_effect = RuntimeError("db down")
         main.run_capture_tail(["A"], services, MagicMock(), job_started=0.0)
 
     def test_gex_step_skips_what_the_capture_found_without_options(self):
-        services = MagicMock()
+        services = _tail_services()
         services.options.get_full_options_chain.side_effect = (
             lambda sym, max_expirations=6: {"expiration_count": 0,
                                              "no_listed_options": True}
@@ -224,9 +405,65 @@ class RunCaptureTailTest(unittest.TestCase):
         notifier = MagicMock()
         main.run_capture_tail(["A", "B", "C", "D", "NOPT"], services, notifier,
                               job_started=0.0, clock=lambda: 0.0)
-        called = [c.args[0] for c in services.options.get_delta_adjusted_oi.call_args_list]
+        called = [c.args[0] for c in services.options.record_gex_from_snapshot.call_args_list]
         self.assertEqual(sorted(called), ["A", "B", "C", "D"])
         notifier.send_capture_gap_alert.assert_not_called()
+
+    def test_partial_captures_skip_gex_and_alarm(self):
+        services = _tail_services()
+
+        def get_chain(sym, max_expirations=6):
+            services.yfinance_gateway.rate_limited += 1
+            return {"persisted": True, "expiration_count": 6, "failed_expirations": 1}
+
+        services.options.get_full_options_chain.side_effect = get_chain
+        services.options.capture_counts.return_value = {
+            "chains": 2, "gamma_wall": 0, "gex": 0}
+        notifier = MagicMock()
+        main.run_capture_tail(["A", "B"], services, notifier,
+                              job_started=0.0, clock=lambda: 0.0)
+        services.options.record_gex_from_snapshot.assert_not_called()
+        problems = notifier.send_capture_gap_alert.call_args.args[0]
+        self.assertTrue(any("2 of 2 symbols captured partially (Yahoo rate-limited 2"
+                            in p for p in problems))
+
+    def test_steps_run_in_order_and_gex_reads_the_snapshot(self):
+        # #373 kept the order on purpose: capture, then gamma/GEX from what the
+        # capture persisted, then the database read the health check alarms on.
+        services = _tail_services()
+        calls = []
+        services.options.get_full_options_chain.side_effect = (
+            lambda sym, max_expirations=6: calls.append(("capture", sym))
+            or {"persisted": True, "expiration_count": 6})
+        services.options.record_gex_from_snapshot.side_effect = (
+            lambda sym: calls.append(("gex", sym)) or {"gex_saved": True})
+        services.options.capture_counts.side_effect = (
+            lambda day: calls.append(("counts", None))
+            or {"chains": 2, "gamma_wall": 2, "gex": 2})
+        main.run_capture_tail(["A", "B"], services, MagicMock(),
+                              job_started=0.0, clock=lambda: 0.0)
+        steps = [step for step, _ in calls]
+        self.assertEqual(steps[:2], ["capture", "capture"])
+        self.assertEqual(sorted(steps[2:4]), ["gex", "gex"])
+        self.assertEqual(steps[4:], ["counts"])
+        services.options.get_delta_adjusted_oi.assert_not_called()
+        services.options.get_gex_profile.assert_not_called()
+
+    def test_tail_reports_rate_limited_capture_failures(self):
+        services = _tail_services()
+
+        def get_chain(sym, max_expirations=6):
+            services.yfinance_gateway.rate_limited += 3
+            raise RuntimeError(f"all 6 option-chain fetches failed for {sym}")
+
+        services.options.get_full_options_chain.side_effect = get_chain
+        services.options.capture_counts.return_value = {
+            "chains": 0, "gamma_wall": 0, "gex": 0}
+        notifier = MagicMock()
+        main.run_capture_tail(["A", "B"], services, notifier,
+                              job_started=0.0, clock=lambda: 0.0)
+        problems = notifier.send_capture_gap_alert.call_args.args[0]
+        self.assertTrue(any("Yahoo rate-limited 2 symbols" in p for p in problems))
 
     def test_remaining_budget_is_clamped_to_the_deadline(self):
         got = main._remaining_budget(900, job_started=0.0, clock=lambda: 1500.0)

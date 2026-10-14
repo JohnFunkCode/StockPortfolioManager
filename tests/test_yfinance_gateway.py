@@ -252,5 +252,74 @@ class FastTicker:
         return {"currency": "SEK", "marketCap": 340_000_000_000}
 
 
+class _ScriptedTicker:
+    """yf.Ticker stand-in whose option calls raise from a script, then succeed."""
+
+    def __init__(self, errors, result):
+        self._errors = list(errors)
+        self._result = result
+        self.calls = 0
+
+    def _next(self):
+        self.calls += 1
+        if self._errors:
+            raise self._errors.pop(0)
+        return self._result
+
+    @property
+    def options(self):
+        return self._next()
+
+    def option_chain(self, expiration):
+        return self._next()
+
+
+class TestRateLimitRetry(unittest.TestCase):
+    """#373: a 429 is retried twice with a 2s/6s backoff; nothing else is."""
+
+    def _gateway(self, ticker):
+        sleeps = []
+        gw = YFinanceGateway(sleep=sleeps.append)
+        patcher = patch.object(gw_mod.yf, "Ticker", return_value=ticker)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return gw, sleeps
+
+    def test_a_429_is_retried_and_then_succeeds(self):
+        ticker = _ScriptedTicker(
+            [gw_mod.yf.exceptions.YFRateLimitError()], ("2026-08-21",))
+        gw, sleeps = self._gateway(ticker)
+        with self.assertLogs(gw_mod.logger, "WARNING"):
+            self.assertEqual(gw.expirations("NVDA"), ("2026-08-21",))
+        self.assertEqual((ticker.calls, sleeps, gw.rate_limited), (2, [2.0], 1))
+
+    def test_gives_up_after_two_retries(self):
+        errors = [RuntimeError("HTTP Error 429: Too Many Requests")] * 3
+        ticker = _ScriptedTicker(errors, "never")
+        gw, sleeps = self._gateway(ticker)
+        with self.assertLogs(gw_mod.logger, "WARNING"):
+            with self.assertRaises(RuntimeError):
+                gw.option_chain("NVDA", "2026-08-21")
+        self.assertEqual((ticker.calls, sleeps, gw.rate_limited), (3, [2.0, 6.0], 3))
+
+    def test_other_errors_are_not_retried(self):
+        ticker = _ScriptedTicker([ValueError("no such expiration")], "never")
+        gw, sleeps = self._gateway(ticker)
+        with self.assertRaises(ValueError):
+            gw.option_chain("NVDA", "2026-08-21")
+        self.assertEqual((ticker.calls, sleeps, gw.rate_limited), (1, [], 0))
+
+    def test_is_rate_limited(self):
+        cases = {
+            "yfinance rate-limit error": (gw_mod.yf.exceptions.YFRateLimitError(), True),
+            "429 in message": (RuntimeError("HTTP Error 429"), True),
+            "too many requests": (RuntimeError("Too Many Requests. Rate limited."), True),
+            "other": (RuntimeError("all 6 option-chain fetches failed"), False),
+        }
+        for name, (exc, expected) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(gw_mod.is_rate_limited(exc), expected)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -112,14 +112,17 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
-this order** — notifications → options capture → fundamentals warming → gamma/GEX recording →
-capture health check. The order is a deliberate isolation property: the cheap, high-value side
+this order** — notifications → options capture → gamma/GEX (from the persisted snapshot, no
+Yahoo calls) → capture health check → news staleness → fundamentals warming. The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
 
 - The warming pass and the capture tail are each wrapped in an outer `try/except` that **never
   raises**, so a late failure cannot fail a run whose notifications already went out — and each is
   made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
   halves.
+- **The GEX step reads the snapshot the capture just persisted** (`record_gex_from_snapshot`) —
+  don't put a live Yahoo fetch back there; that doubled the run's Yahoo calls and drew 429s
+  (#373). Warming stays last because a missed end-of-day chain can't be re-captured.
 - Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,

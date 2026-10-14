@@ -344,6 +344,19 @@ FinBERT. It is a separate image because FinBERT needs torch, which the lean dail
 not carry. It is tuned by `NEWS_TASK_TIMEOUT_SECONDS` (1800), `NEWS_COLLECT_BUDGET_SECONDS` (900),
 `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90) and `NEWS_EMPTY_MIN_ATTEMPTS` (10).
 
+The nightly scorer takes the newest unscored articles first, so articles left unscored while
+FinBERT was down are never reached. After an outage, score them oldest first with
+`scripts/backfill_news_sentiment.py`, run on the news image as a one-off execution of the Job. The
+`python` is needed because overriding the args replaces the image's whole command. Dry-run first:
+
+```bash
+gcloud run jobs execute quantcore-news --project quantcore-test-20260606 --region us-central1 --wait --args "^@^python@scripts/backfill_news_sentiment.py@--since@2026-10-02@--dry-run"
+```
+
+Drop `--dry-run` to score. If the Scheduler entry fails with code 7 (PERMISSION_DENIED), re-run
+`scripts/ensure_news_job.sh [--prod]`, which re-grants the Scheduler's service account
+`roles/run.invoker` on the Job.
+
 Every alarm, the rationale for the order, and the FinBERT load path are in
 [`docs/architecture/daily-jobs.md`](docs/architecture/daily-jobs.md).
 

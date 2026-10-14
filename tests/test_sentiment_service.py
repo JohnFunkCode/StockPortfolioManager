@@ -190,6 +190,20 @@ class TestNewsCollector(unittest.TestCase):
         self.assertEqual(scored, 1)  # one clean, one skipped, one failed update
         self.assertEqual(store.update_sentiment.call_count, 2)
 
+    def test_score_unscored_defaults_to_newest_first_with_no_date_filter(self):
+        collector, store = self.make()
+        store.get_unscored_articles.return_value = []
+        collector.score_unscored(limit=500)
+        store.get_unscored_articles.assert_called_once_with(
+            limit=500, since=None, oldest_first=False)
+
+    def test_score_unscored_passes_the_backfill_window_to_the_store(self):
+        collector, store = self.make()
+        store.get_unscored_articles.return_value = []
+        collector.score_unscored(limit=50, since="2026-10-02", oldest_first=True)
+        store.get_unscored_articles.assert_called_once_with(
+            limit=50, since="2026-10-02", oldest_first=True)
+
 
 class SentimentServiceTestBase(unittest.TestCase):
     def setUp(self):
@@ -239,6 +253,17 @@ class TestServiceSurfaces(SentimentServiceTestBase):
         self.news.get_symbols.return_value = ["INTC", "WMT"]
         listing = self.service.list_news_symbols()
         self.assertEqual(listing["total_symbols"], 2)
+
+    def test_backfill_surfaces_delegate(self):
+        with patch.object(self.service._collector, "score_unscored", return_value=7) as score:
+            self.assertEqual(
+                self.service.score_unscored(limit=9, since="2026-10-02", oldest_first=True), 7)
+        score.assert_called_once_with(limit=9, since="2026-10-02", oldest_first=True)
+
+        self.news.count_unscored_by_day.return_value = {"2026-10-02": 3}
+        self.assertEqual(self.service.count_unscored_by_day(since="2026-10-02"),
+                         {"2026-10-02": 3})
+        self.news.count_unscored_by_day.assert_called_once_with(since="2026-10-02")
 
 
 NEW_STYLE_ITEM = {
@@ -436,6 +461,46 @@ class FinbertLoaderTest(unittest.TestCase):
             self.assertFalse(sentiment_mod._ensure_finbert())
             self.assertFalse(sentiment_mod._ensure_finbert())
         self.assertEqual(self.calls, ["/m"])
+
+    def test_local_load_failure_logs_the_file_modes(self):
+        # #375: safetensors reports EACCES as "No such file or directory", so a
+        # failed load from the baked path also logs each weights file's mode.
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        weights = os.path.join(tmp.name, "model.safetensors")
+        open(weights, "w").close()
+        os.chmod(weights, 0o600)
+
+        def broken(source, **kwargs):
+            raise OSError("No such file or directory")
+        self.transformers.AutoTokenizer.from_pretrained = broken
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: tmp.name}), \
+             self.assertLogs(sentiment_mod.log, level="WARNING") as logs:
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        text = "\n".join(logs.output)
+        self.assertIn("model.safetensors mode=600", text)
+        self.assertIn("readable=True", text)    # the owner can; appuser could not
+        self.assertNotIn("QUANTCORE_DB_DSN", text)
+        self.assertNotIn("://", text)
+
+    def test_describe_model_files_edge_cases(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertEqual(sentiment_mod._describe_model_files(tmp), "no weights files")
+            self.assertIn("cannot list directory",
+                          sentiment_mod._describe_model_files(os.path.join(tmp, "missing")))
+
+    def test_hub_load_failure_does_not_describe_files(self):
+        def broken(source, **kwargs):
+            raise OSError("offline")
+        self.transformers.AutoTokenizer.from_pretrained = broken
+        env = {k: v for k, v in os.environ.items() if k != sentiment_mod.FINBERT_MODEL_PATH_ENV}
+        with patch.dict(os.environ, env, clear=True), \
+             patch.object(sentiment_mod, "_describe_model_files") as describe, \
+             self.assertLogs(sentiment_mod.log, level="WARNING"):
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        describe.assert_not_called()
 
     def test_service_warm_delegates(self):
         with patch.object(sentiment_mod, "_ensure_finbert", return_value=True) as ensure:

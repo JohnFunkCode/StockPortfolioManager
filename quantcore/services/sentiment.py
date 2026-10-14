@@ -60,6 +60,30 @@ def _finbert_source() -> tuple[str, bool]:
     return _FINBERT_MODEL, False
 
 
+def _describe_model_files(path: str) -> str:
+    """Mode and readability of each weights file, for the load-failure log (#375).
+
+    safetensors reports EACCES as "No such file or directory", so without this a
+    permission problem in the baked image reads like a missing file.
+    """
+    try:
+        names = sorted(n for n in os.listdir(path)
+                       if n.endswith((".safetensors", ".bin")))
+    except OSError as exc:
+        return f"cannot list directory ({type(exc).__name__})"
+    if not names:
+        return "no weights files"
+    parts = []
+    for name in names:
+        full = os.path.join(path, name)
+        try:
+            mode = f"{os.stat(full).st_mode & 0o777:o}"
+        except OSError as exc:
+            mode = type(exc).__name__
+        parts.append(f"{name} mode={mode} readable={os.access(full, os.R_OK)}")
+    return "; ".join(parts)
+
+
 def _ensure_finbert() -> bool:
     """Load FinBERT on first call.  Returns True if available, False otherwise."""
     global _finbert_tokenizer, _finbert_model, _finbert_available
@@ -91,6 +115,9 @@ def _ensure_finbert() -> bool:
             _finbert_available = False
         except Exception as exc:
             log.warning("Could not load FinBERT (%s) — sentiment scoring disabled.", exc)
+            source, local_only = _finbert_source()
+            if local_only:
+                log.warning("FinBERT files at %s: %s", source, _describe_model_files(source))
             _finbert_available = False
     return _finbert_available
 
@@ -344,13 +371,16 @@ class NewsCollector:
 
         return totals
 
-    def score_unscored(self, limit: int = 200) -> int:
+    def score_unscored(self, limit: int = 200, *, since: Optional[str] = None,
+                       oldest_first: bool = False) -> int:
         """
-        Score all articles in the DB that don't yet have sentiment.
+        Score up to *limit* articles in the DB that don't yet have sentiment.
 
+        Newest first unless *oldest_first*; *since* bounds ``fetched_at``.
         Returns the number of articles scored.
         """
-        unscored = self.store.get_unscored_articles(limit=limit)
+        unscored = self.store.get_unscored_articles(limit=limit, since=since,
+                                                    oldest_first=oldest_first)
         if not unscored:
             return 0
 
@@ -443,9 +473,19 @@ class SentimentService:
         return {"last_collected_at": last.isoformat(),
                 "age_hours": age.total_seconds() / 3600.0}
 
-    def score_unscored(self, limit: int = 200) -> int:
-        """FinBERT-score stored articles that have no sentiment yet (nightly job)."""
-        return self._collector.score_unscored(limit=limit)
+    def score_unscored(self, limit: int = 200, *, since: Optional[str] = None,
+                       oldest_first: bool = False) -> int:
+        """FinBERT-score stored articles that have no sentiment yet.
+
+        The nightly job takes the newest first; the backfill script passes
+        ``since`` + ``oldest_first`` to drain an outage's backlog (#375).
+        """
+        return self._collector.score_unscored(limit=limit, since=since,
+                                              oldest_first=oldest_first)
+
+    def count_unscored_by_day(self, since: Optional[str] = None) -> dict[str, int]:
+        """Unscored article counts per ``fetched_at`` day, for the backfill's dry run."""
+        return self._news.count_unscored_by_day(since=since)
 
     def warm(self) -> bool:
         """Load FinBERT now rather than on first score. True if it is available.

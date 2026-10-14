@@ -43,7 +43,7 @@ fundamentals warming. The three steps that carry the weight:
    | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
    | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
    | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the *optionable* universe's chains landed today (symbols with no listed options are excluded) |
-   | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed |
+   | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed, or of the capture's attempts were captured only partially |
    | `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` | `0.25` | alarm when more than this fraction of the universe returned no options chain |
 
    An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
@@ -94,6 +94,16 @@ fundamentals warming. The three steps that carry the weight:
    unusable. The live MCP/REST `get_delta_adjusted_oi`/`get_gex_profile` are unchanged; both
    paths share the same per-row math.
 
+   **A partial capture gets no GEX row.** The snapshot doesn't record that an expiration failed,
+   so a GEX computed from it would silently understate exposure, often by the near-dated
+   expiration that carries most of the gamma. The capture's `partial_symbols` are passed to the
+   GEX step as `partial` and counted as `partial_skipped`: that day's row is missing rather than
+   wrong. When partials exceed `OPTIONS_CAPTURE_FAILURE_CEILING` of the attempts, the health check
+   alarms with sample symbols and names Yahoo rate-limiting when most of them saw a 429
+   (`rate_limited_partials`). A partial chain still persists, so without this trigger a
+   rate-limit that only cost some expirations would never reach `failed` and would stay silent
+   (#378 review).
+
    *Gotcha:* the snapshot stores `iv` as a **percent rounded to 1 decimal** (`31.4`, not
    `0.314`); `_snapshot_rows` divides by 100. The rounding moves the Greeks in the 4th
    significant figure, accepted, and `tests/test_gex_profile.py`'s parity test pins the tolerance
@@ -103,8 +113,8 @@ fundamentals warming. The three steps that carry the weight:
    error (HTTP 429 / "Too Many Requests" / `YFRateLimitError`) at most twice, sleeping 2 s then
    6 s; any other error is raised at once. Every 429 bumps the gateway's thread-safe
    `rate_limited` counter. The capture attributes counter deltas to symbols, so its summary
-   reports `rate_limited_failures` (failed symbols that saw a 429) and `rate_limited_calls`
-   (total 429 responses). When rate-limited failures are more than half of the failures,
+   reports `rate_limited_failures` (failed symbols that saw a 429), `rate_limited_partials`
+   (partially captured symbols that saw one) and `rate_limited_calls` (total 429 responses). When rate-limited failures are more than half of the failures,
    `check_capture_health` says **"Yahoo rate-limited N symbols (M 429 responses)"** instead of the
    generic failure line, so the alarm names the cause. The backoff fits the budget because the
    capture loop checks its deadline before each symbol.

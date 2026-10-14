@@ -142,33 +142,20 @@ class TestRestClientVerbs(unittest.TestCase):
 
 
 class TestMcpServeConfig(unittest.TestCase):
-    def test_ping_interval_defaults_and_rejects_invalid_values(self):
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(serve._ping_interval_ms(), serve.DEFAULT_PING_INTERVAL_MS)
-        with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: "45000"}):
-            self.assertEqual(serve._ping_interval_ms(), 45000)
-        for value in ("0", "-1", "not-a-number"):
-            with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: value}):
-                self.assertEqual(serve._ping_interval_ms(), serve.DEFAULT_PING_INTERVAL_MS)
+    def test_launcher_installs_no_keepalive(self):
+        # #367: stateless wrappers hold no session, so a ping middleware is dead code.
+        self.assertFalse(hasattr(serve, "_configure_keepalive"))
+        self.assertNotIn("PingMiddleware", Path(serve.__file__).read_text())
 
-    def test_configure_keepalive_uses_fastmcp_ping_middleware(self):
-        mcp = Mock()
-        with patch.dict(os.environ, {serve.PING_INTERVAL_ENV: "15000"}):
-            serve._configure_keepalive(mcp)
-        middleware = mcp.add_middleware.call_args.args[0]
-        self.assertEqual(type(middleware).__name__, "PingMiddleware")
-        self.assertEqual(middleware.interval_ms, 15000)
-
-    def test_main_wires_keepalive_before_starting_server(self):
+    def test_main_starts_server_on_port(self):
         module = Mock()
         module.mcp = Mock()
         with patch.dict(os.environ, {
             "SERVER_MODULE": "fake.wrapper",
             "PORT": "6123",
-        }), patch.object(serve.importlib, "import_module", return_value=module), \
-                patch.object(serve, "_configure_keepalive") as configure:
+        }), patch.object(serve.importlib, "import_module", return_value=module):
             serve.main()
-        configure.assert_called_once_with(module.mcp)
+        module.mcp.add_middleware.assert_not_called()
         module.mcp.run.assert_called_once_with(
             transport="http", host="0.0.0.0", port=6123
         )

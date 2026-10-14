@@ -46,16 +46,15 @@ what a promotion would change with
 
 All streamable HTTP MCP wrappers use a 900-second Cloud Run request timeout. The value is each
 wrapper's `timeout` in `deploy/cloudrun-services.toml`, passed explicitly on every roll-out, so a
-later promotion cannot restore the former 300-second default. The shared `mcp_gateway.serve`
-launcher also installs FastMCP's 30-second `PingMiddleware` keepalive. These settings bound the
-transport connection; the pings help clients and intermediaries that enforce idle limits, but they
-do not extend Cloud Run's absolute request deadline. The REST seam remains limited by
-`QUANTCORE_REST_TIMEOUT` (60 seconds by default).
+later promotion cannot restore the former 300-second default. It bounds a single request; the
+REST seam remains limited by `QUANTCORE_REST_TIMEOUT` (60 seconds by default).
 
 **Stateless mode (#367).** Each wrapper's `FASTMCP_STATELESS_HTTP` in the inventory decides
-whether it serves the long-lived `GET /mcp` stream at all. With `"true"`, a GET gets `405` and
-only tool-call POSTs are billed. The 900-second timeout and the pings then matter only for
-stateful wrappers. Test runs `"true"` and prod `"false"` until the client check on test passes.
+whether it serves the long-lived `GET /mcp` stream at all. Both projects run `"true"`: a GET gets
+`405`, and only tool-call POSTs are billed. The launcher no longer installs FastMCP's
+`PingMiddleware` (#241), because there is no session left for it to keep alive. If a rollback
+sets a wrapper back to `"false"`, its streams are billed again until Cloud Run's 900 s deadline,
+without pings.
 See [`mcp-stateless-plan.md`](../proposals/mcp-stateless-plan.md), including the rollback.
 
 Every roll-out and every CI-created wrapper applies the timeout from the inventory. To verify one

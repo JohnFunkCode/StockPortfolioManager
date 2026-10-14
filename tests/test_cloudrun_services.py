@@ -544,9 +544,9 @@ class RealInventoryTest(unittest.TestCase):
 
     def test_wrappers_agree_on_stateless_http(self):
         # #367: one wrapper left stateful keeps billing its idle GET stream. The exact
-        # value per environment is pinned too, so prod can't go stateless before the
-        # step 2 client check: step 3 of docs/proposals/mcp-stateless-plan.md edits this.
-        expected = {"test": "true", "prod": "false"}
+        # value per environment is pinned too, so flipping one back is a reviewed change
+        # (rollback: docs/proposals/mcp-stateless-plan.md).
+        expected = {"test": "true", "prod": "true"}
         self.assertEqual(set(self.envs), set(expected))
         for env, services in self.envs.items():
             values = {s["name"]: s["env"].get("FASTMCP_STATELESS_HTTP")

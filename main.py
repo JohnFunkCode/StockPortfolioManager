@@ -131,6 +131,51 @@ def _remaining_budget(requested: float, job_started: float,
     return max(1.0, min(requested, left))
 
 
+def _tally_chain(sym, chain, tally) -> str:
+    """Classify one fetched chain into ``tally`` and return its log-line note."""
+    missed = chain.get("failed_expirations") or 0
+    if missed:
+        tally["partial_expirations_failed"] += missed
+        tally["partial_symbols"].append(sym)
+    if chain.get("persisted"):
+        tally["captured"] += 1
+        return f" ({missed} expiration fetch(es) failed)" if missed else ""
+    if chain.get("no_listed_options"):
+        tally["no_options"] += 1
+        tally["no_options_symbols"].append(sym)
+        return " (no listed options)"
+    tally["duplicate"] += 1
+    return " (not persisted — duplicate)"
+
+
+def _tally_failure(sym, tally, rate_limited) -> None:
+    """Count one failed capture, marking it rate-limited when a 429 was seen."""
+    tally["failed"] += 1
+    tally["failures"].append(sym)
+    if rate_limited:
+        tally["rate_limited_failures"].append(sym)
+
+
+def _capture_summary(symbols, attempted, tally, rate_limited_calls,
+                     elapsed, budget) -> dict:
+    """Build and log the capture step's summary dict."""
+    summary = {
+        "requested": len(symbols), "attempted": attempted, **tally,
+        "rate_limited_calls": rate_limited_calls,
+        "skipped": len(symbols) - attempted,
+        "elapsed_seconds": round(elapsed, 1), "budget_seconds": budget,
+        "budget_exhausted": attempted < len(symbols),
+    }
+    print(f"  captured {tally['captured']}, duplicate {tally['duplicate']}, "
+          f"no_options {tally['no_options']}, failed {tally['failed']}, "
+          f"partial {len(tally['partial_symbols'])} "
+          f"({tally['partial_expirations_failed']} expirations), "
+          f"rate-limited calls {rate_limited_calls}, "
+          f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
+          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
+    return summary
+
+
 def capture_options_chains(symbols, options, budget_seconds=None,
                            clock=time.monotonic, rate_limit_count=None) -> dict:
     """Capture a full options chain per symbol under a wall-clock budget.
@@ -164,12 +209,10 @@ def capture_options_chains(symbols, options, budget_seconds=None,
     count_429 = rate_limit_count or (lambda: 0)
     calls_429_before = count_429()
     started = clock()
-    captured = duplicate = no_options = failed = attempted = 0
-    partial_expirations_failed = 0
-    failures = []
-    rate_limited_failures = []
-    no_options_symbols = []
-    partial_symbols = []
+    attempted = 0
+    tally = {"captured": 0, "duplicate": 0, "no_options": 0, "no_options_symbols": [],
+             "partial_expirations_failed": 0, "partial_symbols": [],
+             "failed": 0, "failures": [], "rate_limited_failures": []}
     for sym in symbols:
         if clock() - started >= budget:
             break
@@ -177,49 +220,15 @@ def capture_options_chains(symbols, options, budget_seconds=None,
         symbol_429_before = count_429()
         try:
             chain = options.get_full_options_chain(sym, max_expirations=6)
-            missed = chain.get("failed_expirations") or 0
-            if missed:
-                partial_expirations_failed += missed
-                partial_symbols.append(sym)
-            if chain.get("persisted"):
-                captured += 1
-                note = f" ({missed} expiration fetch(es) failed)" if missed else ""
-            elif chain.get("no_listed_options"):
-                no_options += 1
-                no_options_symbols.append(sym)
-                note = " (no listed options)"
-            else:
-                duplicate += 1
-                note = " (not persisted — duplicate)"
+            note = _tally_chain(sym, chain, tally)
             print(f"  {sym}: {chain.get('expiration_count', 0)} expirations, "
                   f"{chain.get('total_contracts', 0)} contracts{note}")
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the job
-            failed += 1
-            failures.append(sym)
-            if count_429() > symbol_429_before:
-                rate_limited_failures.append(sym)
+            _tally_failure(sym, tally, count_429() > symbol_429_before)
             print(f"  {sym}: options chain capture failed: {exc}")
 
-    summary = {
-        "requested": len(symbols), "attempted": attempted, "captured": captured,
-        "duplicate": duplicate, "no_options": no_options,
-        "no_options_symbols": no_options_symbols,
-        "partial_expirations_failed": partial_expirations_failed,
-        "partial_symbols": partial_symbols,
-        "failed": failed, "failures": failures,
-        "rate_limited_failures": rate_limited_failures,
-        "rate_limited_calls": count_429() - calls_429_before,
-        "skipped": len(symbols) - attempted,
-        "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
-        "budget_exhausted": attempted < len(symbols),
-    }
-    print(f"  captured {captured}, duplicate {duplicate}, no_options {no_options}, "
-          f"failed {failed}, partial {len(partial_symbols)} "
-          f"({partial_expirations_failed} expirations), "
-          f"rate-limited calls {summary['rate_limited_calls']}, "
-          f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
-          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
-    return summary
+    return _capture_summary(symbols, attempted, tally, count_429() - calls_429_before,
+                            clock() - started, budget)
 
 
 def record_gamma_and_gex(symbols, options, budget_seconds=None,
@@ -280,6 +289,63 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
     return summary
 
 
+def _coverage_problem(chains, optionable, no_options, floor):
+    """Chain coverage of the optionable universe below ``floor`` (#374)."""
+    if optionable <= 0:
+        return None
+    coverage = chains / optionable
+    if coverage >= floor:
+        return None
+    return (f"Options chains: {chains} of {optionable} optionable symbols "
+            f"landed today ({coverage:.0%}, floor {floor:.0%}; "
+            f"{no_options} with no listed options excluded).")
+
+
+def _no_options_problem(capture, universe_size, cap):
+    """Too much of the universe reporting no options -- likely Yahoo, not delistings."""
+    no_options = capture.get("no_options", 0)
+    if not universe_size or no_options / universe_size <= cap:
+        return None
+    return (f"Options capture: {no_options} of {universe_size} symbols returned no "
+            f"options chain (ceiling {cap:.0%}), e.g. "
+            + ", ".join(capture.get("no_options_symbols", [])[:5]) + ".")
+
+
+def _capture_failure_problem(capture, ceiling):
+    """Capture failure rate above ``ceiling``, naming 429s when they dominate (#373)."""
+    attempted, failed = capture.get("attempted"), capture.get("failed", 0)
+    if not attempted or failed / attempted <= ceiling:
+        return None
+    limited = capture.get("rate_limited_failures") or []
+    if len(limited) * 2 > failed:
+        # Mostly 429s: say so, because the fix is spacing the calls out
+        # (schedule, budget), not chasing the symbols (#373).
+        return (f"Options capture: Yahoo rate-limited {len(limited)} symbols "
+                f"({failed} of {attempted} attempts failed, "
+                f"ceiling {ceiling:.0%}; {capture.get('rate_limited_calls', 0)} "
+                f"429 responses), e.g. " + ", ".join(limited[:5]) + ".")
+    return (f"Options capture: {failed} of {attempted} "
+            f"attempts failed (ceiling {ceiling:.0%}), e.g. "
+            + ", ".join(capture["failures"][:5]) + ".")
+
+
+def _capture_budget_problem(capture):
+    """The capture is meant to finish every night; an exhausted budget alarms."""
+    if not capture.get("budget_exhausted"):
+        return None
+    return (f"Options capture hit its {capture['budget_seconds']:.0f}s budget with "
+            f"{capture['skipped']} symbol(s) not attempted -- raise "
+            f"`{OPTIONS_CAPTURE_BUDGET_SECONDS_ENV}`.")
+
+
+def _gex_failure_problem(gex, ceiling):
+    """Gamma/GEX record failure rate above ``ceiling``."""
+    if not gex or not gex["attempted"] or gex["failed"] / gex["attempted"] <= ceiling:
+        return None
+    return (f"Gamma/GEX record: {gex['failed']} of {gex['attempted']} attempts "
+            f"failed (ceiling {ceiling:.0%}).")
+
+
 def check_capture_health(universe_size, capture, gex, counts, notifier,
                          coverage_floor=None, failure_ceiling=None,
                          no_options_ceiling=None) -> list:
@@ -308,51 +374,16 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
                                 DEFAULT_CAPTURE_NO_OPTIONS_CEILING) \
         if no_options_ceiling is None else no_options_ceiling
 
-    no_options = (capture or {}).get("no_options", 0)
+    capture = capture or {}
+    no_options = capture.get("no_options", 0)
     optionable = universe_size - no_options
-    problems = []
-    if optionable > 0:
-        coverage = counts["chains"] / optionable
-        if coverage < floor:
-            problems.append(
-                f"Options chains: {counts['chains']} of {optionable} optionable symbols "
-                f"landed today ({coverage:.0%}, floor {floor:.0%}; "
-                f"{no_options} with no listed options excluded)."
-            )
-    if universe_size and no_options / universe_size > no_options_cap:
-        problems.append(
-            f"Options capture: {no_options} of {universe_size} symbols returned no "
-            f"options chain (ceiling {no_options_cap:.0%}), e.g. "
-            + ", ".join(capture.get("no_options_symbols", [])[:5]) + "."
-        )
-    if capture and capture["attempted"] and capture["failed"] / capture["attempted"] > ceiling:
-        limited = capture.get("rate_limited_failures") or []
-        if len(limited) * 2 > capture["failed"]:
-            # Mostly 429s: say so, because the fix is spacing the calls out
-            # (schedule, budget), not chasing the symbols (#373).
-            problems.append(
-                f"Options capture: Yahoo rate-limited {len(limited)} symbols "
-                f"({capture['failed']} of {capture['attempted']} attempts failed, "
-                f"ceiling {ceiling:.0%}; {capture.get('rate_limited_calls', 0)} "
-                f"429 responses), e.g. " + ", ".join(limited[:5]) + "."
-            )
-        else:
-            problems.append(
-                f"Options capture: {capture['failed']} of {capture['attempted']} "
-                f"attempts failed (ceiling {ceiling:.0%}), e.g. "
-                + ", ".join(capture["failures"][:5]) + "."
-            )
-    if capture and capture["budget_exhausted"]:
-        problems.append(
-            f"Options capture hit its {capture['budget_seconds']:.0f}s budget with "
-            f"{capture['skipped']} symbol(s) not attempted -- raise "
-            f"`{OPTIONS_CAPTURE_BUDGET_SECONDS_ENV}`."
-        )
-    if gex and gex["attempted"] and gex["failed"] / gex["attempted"] > ceiling:
-        problems.append(
-            f"Gamma/GEX record: {gex['failed']} of {gex['attempted']} attempts "
-            f"failed (ceiling {ceiling:.0%})."
-        )
+    problems = [p for p in (
+        _coverage_problem(counts["chains"], optionable, no_options, floor),
+        _no_options_problem(capture, universe_size, no_options_cap),
+        _capture_failure_problem(capture, ceiling),
+        _capture_budget_problem(capture),
+        _gex_failure_problem(gex, ceiling),
+    ) if p]
 
     print(f"Capture health: chains {counts['chains']}/{optionable} "
           f"({no_options} no-options), "

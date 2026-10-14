@@ -266,6 +266,64 @@ def _tail_services():
     return services
 
 
+class CaptureHealthHelpersTest(unittest.TestCase):
+    """Each alarm's threshold, at its boundary (the helpers split out for #378's review)."""
+
+    def test_coverage_exactly_at_the_floor_is_healthy(self):
+        self.assertIsNone(main._coverage_problem(9, 10, 0, 0.9))
+        self.assertIn("8 of 10", main._coverage_problem(8, 10, 2, 0.9))
+
+    def test_coverage_with_nothing_optionable_is_not_judged(self):
+        self.assertIsNone(main._coverage_problem(0, 0, 5, 0.9))
+
+    def test_no_options_exactly_at_the_ceiling_is_healthy(self):
+        capture = {"no_options": 25, "no_options_symbols": ["A"]}
+        self.assertIsNone(main._no_options_problem(capture, 100, 0.25))
+        self.assertIsNone(main._no_options_problem(capture, 0, 0.25))
+        capture["no_options"] = 26
+        self.assertIn("26 of 100", main._no_options_problem(capture, 100, 0.25))
+
+    def test_exactly_half_rate_limited_keeps_the_generic_wording(self):
+        capture = {"attempted": 4, "failed": 4, "failures": ["A", "B", "C", "D"],
+                   "rate_limited_failures": ["A", "B"]}
+        line = main._capture_failure_problem(capture, 0.5)
+        self.assertTrue(line.startswith("Options capture: 4 of 4 attempts failed"))
+        capture["rate_limited_failures"] = ["A", "B", "C"]
+        self.assertIn("Yahoo rate-limited 3 symbols",
+                      main._capture_failure_problem(capture, 0.5))
+
+    def test_failures_at_the_ceiling_or_nothing_attempted_are_healthy(self):
+        self.assertIsNone(main._capture_failure_problem({"attempted": 4, "failed": 2}, 0.5))
+        self.assertIsNone(main._capture_failure_problem({}, 0.5))
+
+    def test_budget_and_gex_helpers(self):
+        self.assertIsNone(main._capture_budget_problem({"budget_exhausted": False}))
+        self.assertIsNone(main._gex_failure_problem(None, 0.5))
+        self.assertIsNone(main._gex_failure_problem({"attempted": 0, "failed": 0}, 0.5))
+        self.assertIsNone(main._gex_failure_problem({"attempted": 4, "failed": 2}, 0.5))
+
+
+class TallyChainTest(unittest.TestCase):
+    def _tally(self):
+        return {"captured": 0, "duplicate": 0, "no_options": 0, "no_options_symbols": [],
+                "partial_expirations_failed": 0, "partial_symbols": [],
+                "failed": 0, "failures": [], "rate_limited_failures": []}
+
+    def test_partial_counts_even_when_not_persisted(self):
+        tally = self._tally()
+        note = main._tally_chain("X", {"failed_expirations": 2}, tally)
+        self.assertEqual(note, " (not persisted — duplicate)")
+        self.assertEqual((tally["duplicate"], tally["partial_expirations_failed"],
+                          tally["partial_symbols"]), (1, 2, ["X"]))
+
+    def test_failure_marks_rate_limited_only_when_flagged(self):
+        tally = self._tally()
+        main._tally_failure("A", tally, rate_limited=True)
+        main._tally_failure("B", tally, rate_limited=False)
+        self.assertEqual((tally["failed"], tally["failures"], tally["rate_limited_failures"]),
+                         (2, ["A", "B"], ["A"]))
+
+
 class RunCaptureTailTest(unittest.TestCase):
     def test_never_raises(self):
         services = _tail_services()

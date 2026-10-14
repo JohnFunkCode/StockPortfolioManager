@@ -61,10 +61,15 @@ isolation property** — the cheap, high-value side effects land before anything
    listed options.
 
    **Symbols with no listed options (#374).** About 29 universe symbols (foreign listings, small
-   caps, a few possibly delisted) have no options at all; `get_full_options_chain` returns
-   `expiration_count: 0` and persists nothing. The capture summary counts them as `no_options`
-   (and names them in `no_options_symbols`), **not** `duplicate` — a `duplicate` is a non-empty
-   chain the store declined to persist again. Coverage is `chains / (universe − no_options)`; before
+   caps, a few possibly delisted) have no options at all; when Yahoo lists no expirations,
+   `get_full_options_chain` returns `no_listed_options: true` and persists nothing. The capture
+   summary counts them as `no_options` (and names them in `no_options_symbols`), **not**
+   `duplicate` — a `duplicate` is a non-empty chain the store declined to persist again. Only the
+   explicit flag qualifies; `expiration_count: 0` alone is not proof. When expirations are listed
+   but **every** chain fetch fails (e.g. 429s), the service raises instead of persisting an empty
+   snapshot, so the symbol is a `failed` capture, not a silent "captured" one; expirations that
+   fail inside an otherwise-captured chain are reported as `failed_expirations` and summed into the
+   summary's `partial_expirations_failed`/`partial_symbols`. Coverage is `chains / (universe − no_options)`; before
    this, those symbols sat in the denominator and held coverage at ~76% every night. The GEX step
    is passed the same list as `skip`, so it spends no Yahoo calls re-fetching chains that don't
    exist. Excluding them is only safe because of the fourth trigger: when more than

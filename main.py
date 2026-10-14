@@ -135,10 +135,14 @@ def capture_options_chains(symbols, options, budget_seconds=None,
     symbol failing) and a healthy run both exited 0 with nothing to tell them
     apart. Never raises.
 
-    A symbol with no listed options (``expiration_count == 0``) is counted as
+    A symbol the service marks ``no_listed_options`` is counted as
     ``no_options``, not ``duplicate``: there was never a chain to persist, so it
-    must not count against coverage (#374). A real duplicate is a non-empty
-    chain the store declined to persist again.
+    must not count against coverage (#374). Only that explicit flag qualifies --
+    ``expiration_count == 0`` alone is not proof, and a symbol whose every chain
+    fetch failed raises in the service and lands in ``failed``. A real
+    duplicate is a non-empty chain the store declined to persist again.
+    Expirations that failed inside an otherwise-captured chain are summed into
+    ``partial_expirations_failed`` so a creeping outage shows in the log.
     """
     budget = (_env_float(OPTIONS_CAPTURE_BUDGET_SECONDS_ENV,
                          DEFAULT_OPTIONS_CAPTURE_BUDGET_SECONDS)
@@ -147,18 +151,24 @@ def capture_options_chains(symbols, options, budget_seconds=None,
 
     started = clock()
     captured = duplicate = no_options = failed = attempted = 0
+    partial_expirations_failed = 0
     failures = []
     no_options_symbols = []
+    partial_symbols = []
     for sym in symbols:
         if clock() - started >= budget:
             break
         attempted += 1
         try:
             chain = options.get_full_options_chain(sym, max_expirations=6)
+            missed = chain.get("failed_expirations") or 0
+            if missed:
+                partial_expirations_failed += missed
+                partial_symbols.append(sym)
             if chain.get("persisted"):
                 captured += 1
-                note = ""
-            elif chain.get("expiration_count") == 0:
+                note = f" ({missed} expiration fetch(es) failed)" if missed else ""
+            elif chain.get("no_listed_options"):
                 no_options += 1
                 no_options_symbols.append(sym)
                 note = " (no listed options)"
@@ -176,13 +186,16 @@ def capture_options_chains(symbols, options, budget_seconds=None,
         "requested": len(symbols), "attempted": attempted, "captured": captured,
         "duplicate": duplicate, "no_options": no_options,
         "no_options_symbols": no_options_symbols,
+        "partial_expirations_failed": partial_expirations_failed,
+        "partial_symbols": partial_symbols,
         "failed": failed, "failures": failures,
         "skipped": len(symbols) - attempted,
         "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
         "budget_exhausted": attempted < len(symbols),
     }
     print(f"  captured {captured}, duplicate {duplicate}, no_options {no_options}, "
-          f"failed {failed}, "
+          f"failed {failed}, partial {len(partial_symbols)} "
+          f"({partial_expirations_failed} expirations), "
           f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
           + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
     return summary

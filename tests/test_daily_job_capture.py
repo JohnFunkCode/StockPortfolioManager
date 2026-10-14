@@ -48,17 +48,40 @@ class CaptureOptionsChainsTest(unittest.TestCase):
         self.assertFalse(s["budget_exhausted"])
 
     def test_symbol_without_listed_options_is_not_a_duplicate(self):
-        # #374: get_full_options_chain returns expiration_count 0 and no
-        # ``persisted`` for a symbol with no listed options.
+        # #374: get_full_options_chain marks a symbol with no listed options
+        # ``no_listed_options`` and does not persist anything.
         o = MagicMock()
         o.get_full_options_chain.side_effect = [
             {"persisted": True, "expiration_count": 6},
-            {"expiration_count": 0, "total_contracts": 0},
+            {"expiration_count": 0, "total_contracts": 0,
+             "no_listed_options": True},
             {"persisted": False, "expiration_count": 6},
         ]
         s = main.capture_options_chains(["A", "NOPT", "C"], o, budget_seconds=1000)
         self.assertEqual((s["captured"], s["no_options"], s["duplicate"]), (1, 1, 1))
         self.assertEqual(s["no_options_symbols"], ["NOPT"])
+
+    def test_zero_expirations_without_the_flag_is_not_no_options(self):
+        # #374 review: an empty result is only excluded from coverage when the
+        # service says the symbol has no listed options; anything else must
+        # not shrink the denominator.
+        o = MagicMock()
+        o.get_full_options_chain.side_effect = [
+            {"persisted": False, "expiration_count": 0},
+        ]
+        s = main.capture_options_chains(["A"], o, budget_seconds=1000)
+        self.assertEqual((s["no_options"], s["duplicate"]), (0, 1))
+
+    def test_partial_expiration_failures_are_counted(self):
+        o = MagicMock()
+        o.get_full_options_chain.side_effect = [
+            {"persisted": True, "expiration_count": 4, "failed_expirations": 2},
+            {"persisted": True, "expiration_count": 6, "failed_expirations": 0},
+        ]
+        s = main.capture_options_chains(["A", "B"], o, budget_seconds=1000)
+        self.assertEqual(s["captured"], 2)
+        self.assertEqual(s["partial_expirations_failed"], 2)
+        self.assertEqual(s["partial_symbols"], ["A"])
 
     def test_budget_stops_the_walk(self):
         s = main.capture_options_chains(
@@ -193,7 +216,8 @@ class RunCaptureTailTest(unittest.TestCase):
     def test_gex_step_skips_what_the_capture_found_without_options(self):
         services = MagicMock()
         services.options.get_full_options_chain.side_effect = (
-            lambda sym, max_expirations=6: {"expiration_count": 0}
+            lambda sym, max_expirations=6: {"expiration_count": 0,
+                                             "no_listed_options": True}
             if sym == "NOPT" else {"persisted": True, "expiration_count": 6})
         services.options.capture_counts.return_value = {
             "chains": 4, "gamma_wall": 4, "gex": 4}

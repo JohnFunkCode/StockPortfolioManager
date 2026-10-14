@@ -40,8 +40,9 @@ isolation property** — the cheap, high-value side effects land before anything
    | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
    | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
    | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
-   | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the universe's chains landed today |
+   | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the *optionable* universe's chains landed today (symbols with no listed options are excluded) |
    | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed |
+   | `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` | `0.25` | alarm when more than this fraction of the universe returned no options chain |
 
    An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
    var must not silently disarm the alarm.
@@ -56,7 +57,19 @@ isolation property** — the cheap, high-value side effects land before anything
    universe still visits everyone over a few nights), then `check_capture_health`. The health check
    reads what actually **landed in the database** (`OptionsService.capture_counts`) rather than
    trusting the loop's own tally, and sends one Discord alarm (`send_capture_gap_alert`) on low
-   chain coverage, a high failure rate, or an exhausted capture budget. Every step budget is
+   chain coverage, a high failure rate, an exhausted capture budget, or too many symbols with no
+   listed options.
+
+   **Symbols with no listed options (#374).** About 29 universe symbols (foreign listings, small
+   caps, a few possibly delisted) have no options at all; `get_full_options_chain` returns
+   `expiration_count: 0` and persists nothing. The capture summary counts them as `no_options`
+   (and names them in `no_options_symbols`), **not** `duplicate` — a `duplicate` is a non-empty
+   chain the store declined to persist again. Coverage is `chains / (universe − no_options)`; before
+   this, those symbols sat in the denominator and held coverage at ~76% every night. The GEX step
+   is passed the same list as `skip`, so it spends no Yahoo calls re-fetching chains that don't
+   exist. Excluding them is only safe because of the fourth trigger: when more than
+   `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` of the universe reports no options, that is Yahoo returning
+   empty expirations, not a wave of delistings, and it alarms with sample symbols. Every step budget is
    clamped to what is left of the task deadline (`_remaining_budget`), so budgets can't add up past
    the timeout. The tail is wrapped in an outer `try/except` that never raises.
 

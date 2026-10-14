@@ -53,11 +53,13 @@ OPTIONS_CAPTURE_BUDGET_SECONDS_ENV = "OPTIONS_CAPTURE_BUDGET_SECONDS"
 GEX_BUDGET_SECONDS_ENV = "GEX_RECORD_BUDGET_SECONDS"
 CAPTURE_COVERAGE_FLOOR_ENV = "OPTIONS_CAPTURE_COVERAGE_FLOOR"
 CAPTURE_FAILURE_CEILING_ENV = "OPTIONS_CAPTURE_FAILURE_CEILING"
+CAPTURE_NO_OPTIONS_CEILING_ENV = "OPTIONS_CAPTURE_NO_OPTIONS_CEILING"
 
 DEFAULT_OPTIONS_CAPTURE_BUDGET_SECONDS = 600.0
 DEFAULT_GEX_BUDGET_SECONDS = 300.0
 DEFAULT_CAPTURE_COVERAGE_FLOOR = 0.90  # alarm when fewer of the universe's chains landed
 DEFAULT_CAPTURE_FAILURE_CEILING = 0.50  # alarm when more of a step's attempts failed
+DEFAULT_CAPTURE_NO_OPTIONS_CEILING = 0.25  # alarm when more of the universe listed no options
 
 DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
 WARM_DEADLINE_MARGIN_SECONDS = 60.0
@@ -132,6 +134,11 @@ def capture_options_chains(symbols, options, budget_seconds=None,
     this loop was unbudgeted and only printed failures, so a Yahoo outage (every
     symbol failing) and a healthy run both exited 0 with nothing to tell them
     apart. Never raises.
+
+    A symbol with no listed options (``expiration_count == 0``) is counted as
+    ``no_options``, not ``duplicate``: there was never a chain to persist, so it
+    must not count against coverage (#374). A real duplicate is a non-empty
+    chain the store declined to persist again.
     """
     budget = (_env_float(OPTIONS_CAPTURE_BUDGET_SECONDS_ENV,
                          DEFAULT_OPTIONS_CAPTURE_BUDGET_SECONDS)
@@ -139,8 +146,9 @@ def capture_options_chains(symbols, options, budget_seconds=None,
     print(f"Capturing options chains for {len(symbols)} symbols, budget {budget:.0f}s...")
 
     started = clock()
-    captured = duplicate = failed = attempted = 0
+    captured = duplicate = no_options = failed = attempted = 0
     failures = []
+    no_options_symbols = []
     for sym in symbols:
         if clock() - started >= budget:
             break
@@ -149,11 +157,16 @@ def capture_options_chains(symbols, options, budget_seconds=None,
             chain = options.get_full_options_chain(sym, max_expirations=6)
             if chain.get("persisted"):
                 captured += 1
+                note = ""
+            elif chain.get("expiration_count") == 0:
+                no_options += 1
+                no_options_symbols.append(sym)
+                note = " (no listed options)"
             else:
                 duplicate += 1
+                note = " (not persisted — duplicate)"
             print(f"  {sym}: {chain.get('expiration_count', 0)} expirations, "
-                  f"{chain.get('total_contracts', 0)} contracts"
-                  + ("" if chain.get("persisted") else " (not persisted — duplicate)"))
+                  f"{chain.get('total_contracts', 0)} contracts{note}")
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the job
             failed += 1
             failures.append(sym)
@@ -161,19 +174,22 @@ def capture_options_chains(symbols, options, budget_seconds=None,
 
     summary = {
         "requested": len(symbols), "attempted": attempted, "captured": captured,
-        "duplicate": duplicate, "failed": failed, "failures": failures,
+        "duplicate": duplicate, "no_options": no_options,
+        "no_options_symbols": no_options_symbols,
+        "failed": failed, "failures": failures,
         "skipped": len(symbols) - attempted,
         "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
         "budget_exhausted": attempted < len(symbols),
     }
-    print(f"  captured {captured}, duplicate {duplicate}, failed {failed}, "
+    print(f"  captured {captured}, duplicate {duplicate}, no_options {no_options}, "
+          f"failed {failed}, "
           f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s"
           + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
     return summary
 
 
 def record_gamma_and_gex(symbols, options, budget_seconds=None,
-                         clock=time.monotonic, today=None) -> dict:
+                         clock=time.monotonic, today=None, skip=()) -> dict:
     """Persist the daily gamma-wall and GEX rows for the tracked universe.
 
     ``get_delta_adjusted_oi`` writes ``gamma_wall_history`` and ``get_gex_profile``
@@ -182,11 +198,13 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
     chain, so this is the expensive step; it is budgeted, and the start of the
     walk rotates with the date so a budget that cannot cover the universe still
     visits every symbol over a few nights instead of starving the tail of the
-    list forever. Never raises.
+    list forever. ``skip`` names symbols the capture found no listed options
+    for -- fetching their chain again would only spend Yahoo calls. Never raises.
     """
     budget = (_env_float(GEX_BUDGET_SECONDS_ENV, DEFAULT_GEX_BUDGET_SECONDS)
               if budget_seconds is None else budget_seconds)
-    ordered = list(symbols)
+    skip = set(skip)
+    ordered = [sym for sym in symbols if sym not in skip]
     if ordered:
         shift = (today or date.today()).toordinal() % len(ordered)
         ordered = ordered[shift:] + ordered[:shift]
@@ -219,7 +237,8 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
 
 
 def check_capture_health(universe_size, capture, gex, counts, notifier,
-                         coverage_floor=None, failure_ceiling=None) -> list:
+                         coverage_floor=None, failure_ceiling=None,
+                         no_options_ceiling=None) -> list:
     """Alarm when the datasets that landed fall short of what was attempted.
 
     ``counts`` is what the *database* holds for today (``capture_counts``), not
@@ -228,20 +247,39 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
     coverage of the universe, the failure rate of a step's attempts, and an
     exhausted capture budget (unlike the GEX step, the capture is meant to
     finish every night). Returns the list of problems; sends one alert if any.
+
+    Coverage is measured against the symbols that *have* listed options:
+    ``universe_size`` minus the capture's ``no_options``. A no-options symbol
+    can never land a chain, so counting it would hold coverage under the floor
+    every night (#374). A fourth trigger keeps that exclusion honest -- if more
+    than ``no_options_ceiling`` of the universe reports no options, that is far
+    more likely Yahoo returning empty expirations than ~everything delisting.
     """
     floor = _env_float(CAPTURE_COVERAGE_FLOOR_ENV, DEFAULT_CAPTURE_COVERAGE_FLOOR) \
         if coverage_floor is None else coverage_floor
     ceiling = _env_float(CAPTURE_FAILURE_CEILING_ENV, DEFAULT_CAPTURE_FAILURE_CEILING) \
         if failure_ceiling is None else failure_ceiling
+    no_options_cap = _env_float(CAPTURE_NO_OPTIONS_CEILING_ENV,
+                                DEFAULT_CAPTURE_NO_OPTIONS_CEILING) \
+        if no_options_ceiling is None else no_options_ceiling
 
+    no_options = (capture or {}).get("no_options", 0)
+    optionable = universe_size - no_options
     problems = []
-    if universe_size:
-        coverage = counts["chains"] / universe_size
+    if optionable > 0:
+        coverage = counts["chains"] / optionable
         if coverage < floor:
             problems.append(
-                f"Options chains: {counts['chains']} of {universe_size} symbols "
-                f"landed today ({coverage:.0%}, floor {floor:.0%})."
+                f"Options chains: {counts['chains']} of {optionable} optionable symbols "
+                f"landed today ({coverage:.0%}, floor {floor:.0%}; "
+                f"{no_options} with no listed options excluded)."
             )
+    if universe_size and no_options / universe_size > no_options_cap:
+        problems.append(
+            f"Options capture: {no_options} of {universe_size} symbols returned no "
+            f"options chain (ceiling {no_options_cap:.0%}), e.g. "
+            + ", ".join(capture.get("no_options_symbols", [])[:5]) + "."
+        )
     if capture and capture["attempted"] and capture["failed"] / capture["attempted"] > ceiling:
         problems.append(
             f"Options capture: {capture['failed']} of {capture['attempted']} "
@@ -260,7 +298,8 @@ def check_capture_health(universe_size, capture, gex, counts, notifier,
             f"failed (ceiling {ceiling:.0%})."
         )
 
-    print(f"Capture health: chains {counts['chains']}/{universe_size}, "
+    print(f"Capture health: chains {counts['chains']}/{optionable} "
+          f"({no_options} no-options), "
           f"gamma_wall {counts['gamma_wall']}, gex {counts['gex']}, "
           f"{len(problems)} problem(s).")
     if problems:
@@ -295,6 +334,7 @@ def run_capture_tail(symbols, services, notifier, job_started,
             budget_seconds=_remaining_budget(
                 _env_float(GEX_BUDGET_SECONDS_ENV, DEFAULT_GEX_BUDGET_SECONDS),
                 job_started, clock),
+            skip=capture["no_options_symbols"],
         )
         counts = services.options.capture_counts(market_date().isoformat())
         check_capture_health(len(symbols), capture, gex, counts, notifier)

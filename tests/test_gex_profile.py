@@ -208,5 +208,116 @@ class TestGexHistoryWrapper(unittest.TestCase):
         self.assertEqual(result["note"], "One row per calendar day, last write wins.")
 
 
+class _NoYahoo:
+    """A gateway that fails the test if the snapshot path touches it."""
+
+    def __getattr__(self, name):
+        raise AssertionError(f"snapshot path called YFinanceGateway.{name}")
+
+
+_ET = pytz.timezone("America/New_York")
+_NOW = _ET.localize(datetime(2026, 8, 14, 17, 5))
+_EXPS = ["2026-08-21", "2026-09-18", "2026-10-16", "2026-11-20"]
+# IVs with more precision than the capture keeps, so parity proves the
+# percent-at-one-decimal rounding stays inside the tolerance.
+_CALLS = [(95.0, 1200, 0.4237), (100.0, 3400, 0.3981), (105.0, 5100, 0.3712),
+          (110.0, 2200, 0.3655), (120.0, 900, 0.0)]          # 0 IV → 30% fallback
+_PUTS = [(80.0, 700, 0.5123), (90.0, 2600, 0.4618), (95.0, 4100, 0.4402),
+         (100.0, 1900, 0.4166)]
+
+
+def _live_chains():
+    def frame(rows):
+        return pd.DataFrame({"strike": [r[0] for r in rows],
+                             "openInterest": [r[1] for r in rows],
+                             "impliedVolatility": [r[2] for r in rows]})
+    return {exp: SimpleNamespace(calls=frame(_CALLS), puts=frame(_PUTS)) for exp in _EXPS}
+
+
+def _snapshot(captured_at=None, chain_type="full", price=101.25):
+    def contracts(kind, rows):
+        return [{"kind": kind, "strike": k, "open_interest": oi,
+                 "iv": round(iv * 100, 1)} for k, oi, iv in rows]
+    return {
+        "symbol": "NVDA", "chain_type": chain_type, "price": price,
+        "captured_at": captured_at or _NOW.astimezone(pytz.utc).isoformat(),
+        "expirations": [{"expiration": exp,
+                         "contracts": contracts("call", _CALLS) + contracts("put", _PUTS)}
+                        for exp in _EXPS],
+    }
+
+
+def _assert_close(case, live, snap, path="", rel=2e-3):
+    """Every numeric leaf agrees within ``rel``; everything else is equal."""
+    if isinstance(live, dict):
+        case.assertEqual(set(live), set(snap), path)
+        for key in live:
+            _assert_close(case, live[key], snap[key], f"{path}.{key}", rel)
+    elif isinstance(live, list):
+        case.assertEqual(len(live), len(snap), path)
+        for i, (a, b) in enumerate(zip(live, snap)):
+            _assert_close(case, a, b, f"{path}[{i}]", rel)
+    elif isinstance(live, float) and not isinstance(live, bool):
+        case.assertAlmostEqual(live, snap, delta=max(abs(live) * rel, 0.02), msg=path)
+    else:
+        case.assertEqual(live, snap, path)
+
+
+class TestRecordGexFromSnapshot(unittest.TestCase):
+    """#373: the daily job records gamma/GEX from the persisted capture."""
+
+    def _snap_service(self, snapshot):
+        store = Mock()
+        store.get_latest_snapshot.return_value = snapshot
+        return _service(_NoYahoo(), store), store
+
+    def test_matches_the_live_path_within_tolerance(self):
+        live_store = Mock()
+        live = _service(_StubGateway(price=101.25, expirations=_EXPS, chains=_live_chains()),
+                        live_store)
+        live_daoi = live.get_delta_adjusted_oi("NVDA", now=_NOW)
+        live_gex = live.get_gex_profile("NVDA", max_expirations=4, now=_NOW)
+
+        svc, store = self._snap_service(_snapshot())
+        result = svc.record_gex_from_snapshot("nvda", now=_NOW)
+
+        self.assertEqual(result["symbol"], "NVDA")
+        self.assertTrue(result["gamma_wall_saved"] and result["gex_saved"])
+        _assert_close(self, live_daoi, store.save_gamma_wall.call_args.args[1], "daoi")
+        _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
+
+    def test_never_touches_the_gateway(self):
+        svc, store = self._snap_service(_snapshot())
+        self.assertIsNotNone(svc.record_gex_from_snapshot("NVDA", now=_NOW))
+
+    def test_daoi_uses_three_expirations_and_gex_up_to_six(self):
+        svc, store = self._snap_service(_snapshot())
+        svc.record_gex_from_snapshot("NVDA", now=_NOW)
+        self.assertEqual(store.save_gex_summary.call_args.args[1]["expirations_scanned"], _EXPS)
+        self.assertEqual(len(store.save_gamma_wall.call_args.args[1]["expirations_scanned"]), 3)
+
+    def test_returns_none_without_a_usable_snapshot(self):
+        yesterday = (_NOW - timedelta(days=1)).astimezone(pytz.utc).isoformat()
+        cases = {
+            "missing": None,
+            "atm only": _snapshot(chain_type="atm"),
+            "stale": _snapshot(captured_at=yesterday),
+            "zero price": _snapshot(price=0),
+            "nan price": _snapshot(price=float("nan")),
+        }
+        for name, snap in cases.items():
+            with self.subTest(name):
+                svc, store = self._snap_service(snap)
+                self.assertIsNone(svc.record_gex_from_snapshot("NVDA", now=_NOW))
+                store.save_gamma_wall.assert_not_called()
+                store.save_gex_summary.assert_not_called()
+
+    def test_late_evening_capture_counts_as_the_eastern_day(self):
+        # 23:30 ET is 03:30 UTC the next calendar day; still today's capture.
+        late = _ET.localize(datetime(2026, 8, 14, 23, 30))
+        svc, _ = self._snap_service(_snapshot(captured_at=late.astimezone(pytz.utc).isoformat()))
+        self.assertIsNotNone(svc.record_gex_from_snapshot("NVDA", now=late))
+
+
 if __name__ == "__main__":
     unittest.main()

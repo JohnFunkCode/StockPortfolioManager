@@ -8,8 +8,10 @@
 `main.py` is the daily Cloud Run Job (`quantcore-report` — the service name kept the old
 spelling; the work did not). It loads John's positions and the shared watchlist from the database
 (via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`),
-fetches prices/metrics, and then does three things **in this order, which is a deliberate
-isolation property** — the cheap, high-value side effects land before anything that can run long:
+fetches prices/metrics, and then runs **in this order, which is a deliberate isolation property**
+— the cheap, high-value side effects land before anything that can run long: notifications →
+options capture → gamma/GEX (from the snapshot) → capture health check → news staleness →
+fundamentals warming. The three steps that carry the weight:
 
 1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
    `alert_if_watchlist_empty()`.
@@ -22,7 +24,7 @@ isolation property** — the cheap, high-value side effects land before anything
    calls Yahoo. A capture gap therefore shows up there as a `stale` list (symbols with no full
    chain from the last trading day), not as a slow or failing screen. Non-US listings and OTC ADRs
    that the capture can't chain always come back stale. That is expected, not an alarm.
-3. **Fundamentals warming** — `run_fundamentals_warming(capture_symbols, …)` refreshes the
+3. **Fundamentals warming** (last, deliberately — #373) — `run_fundamentals_warming(capture_symbols, …)` refreshes the
    fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
    budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;
    the universe converges over a few nights. Ordering comes from
@@ -47,13 +49,17 @@ isolation property** — the cheap, high-value side effects land before anything
    An unparseable value logs a warning and falls back to the default — a typo in a Cloud Run env
    var must not silently disarm the alarm.
 
+   **Why warming stays last (#373).** When Yahoo rate-limits the run, whatever runs last starves.
+   The end-of-day chain capture can't be redone the next day — an OI snapshot missed is missed
+   for good — while fundamentals can be re-warmed any night and converge anyway. So the capture
+   tail keeps priority, and the fix was to make it cheaper rather than to move it.
+
    **Closed-market days and the capture tail.** `main.py` exits 0 before doing anything on a day
    the NYSE is closed (`is_trading_day`, holidays computed from rules in
    `quantcore/analytics/market_time.py` — no calendar dependency; Cloud Scheduler fires Mon–Fri, so
    this guard is for weekday holidays). Notifications are skipped too, deliberately. After
-   notifications, `run_capture_tail` runs the options capture, then `record_gamma_and_gex` (the only
-   scheduled caller of `get_delta_adjusted_oi`/`get_gex_profile`, so `gamma_wall_history` and
-   `gex_history` accumulate daily; its walk rotates with the date so a budget that can't cover the
+   notifications, `run_capture_tail` runs the options capture, then `record_gamma_and_gex` (which is
+   how `gamma_wall_history` and `gex_history` accumulate daily; its walk rotates with the date so a budget that can't cover the
    universe still visits everyone over a few nights), then `check_capture_health`. The health check
    reads what actually **landed in the database** (`OptionsService.capture_counts`) rather than
    trusting the loop's own tally, and sends one Discord alarm (`send_capture_gap_alert`) on low
@@ -78,6 +84,41 @@ isolation property** — the cheap, high-value side effects land before anything
    clamped to what is left of the task deadline (`_remaining_budget`), so budgets can't add up past
    the timeout. The tail is wrapped in an outer `try/except` that never raises.
 
+   **GEX reads the persisted snapshot, not Yahoo (#373).** `record_gamma_and_gex` calls
+   `OptionsService.record_gex_from_snapshot`, which computes delta-adjusted OI (first 3
+   expirations) and the GEX profile (up to the 6 the capture stores) from the full-chain snapshot
+   the capture just wrote, and saves them through `save_gamma_wall`/`save_gex_summary` — **zero
+   Yahoo calls**. Before this, the step re-fetched every chain the capture had just persisted,
+   roughly doubling the run's Yahoo traffic. It returns `None` (counted as `no_snapshot`, symbol
+   skipped) when there is no full snapshot from today's **Eastern** trading day or its price is
+   unusable. The live MCP/REST `get_delta_adjusted_oi`/`get_gex_profile` are unchanged; both
+   paths share the same per-row math.
+
+   *Gotcha:* the snapshot stores `iv` as a **percent rounded to 1 decimal** (`31.4`, not
+   `0.314`); `_snapshot_rows` divides by 100. The rounding moves the Greeks in the 4th
+   significant figure, accepted, and `tests/test_gex_profile.py`'s parity test pins the tolerance
+   against the live path.
+
+   **429 backoff (#373).** `YFinanceGateway.expirations` and `.option_chain` retry a rate-limit
+   error (HTTP 429 / "Too Many Requests" / `YFRateLimitError`) at most twice, sleeping 2 s then
+   6 s; any other error is raised at once. Every 429 bumps the gateway's thread-safe
+   `rate_limited` counter. The capture attributes counter deltas to symbols, so its summary
+   reports `rate_limited_failures` (failed symbols that saw a 429) and `rate_limited_calls`
+   (total 429 responses). When rate-limited failures are more than half of the failures,
+   `check_capture_health` says **"Yahoo rate-limited N symbols (M 429 responses)"** instead of the
+   generic failure line, so the alarm names the cause. The backoff fits the budget because the
+   capture loop checks its deadline before each symbol.
+
+   **Test runs 45 minutes after prod (#373).** Prod keeps its slots (report 17:00, news 17:30
+   ET); test's `quantcore-report-daily` runs at **17:45** and `quantcore-news-daily` at
+   **18:15**, so neither of test's Yahoo-heavy jobs overlaps prod's. The news slot is
+   reproducible with `scripts/ensure_news_job.sh --schedule "15 18 * * 1-5"`; the report
+   scheduler has no script, so its slot is set with
+   `gcloud scheduler jobs update http quantcore-report-daily --project quantcore-test-20260606 --location us-central1 --schedule "45 17 * * 1-5" --time-zone America/New_York`.
+   *Caveat:* this only helps if Yahoo counts the two projects as one client (shared egress).
+   Cloud Run in two projects without a NAT may not share IPs; compare prod's
+   `rate_limited_calls` for a week before and after to find out.
+
    The fundamentals batch endpoint accepts at most 25 unique symbols. It trims, uppercases, and
    deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
    before provider/database work begins. Larger universes must be split across requests.
@@ -95,7 +136,7 @@ only means no exception; issue #275). The yfinance source is `YFinanceGateway.ne
 `yf.Search(symbol).news` filtered by `relatedTickers` — `Ticker.news` and Yahoo's RSS feed both
 return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
 `NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **one-time infra** per project,
-created with `scripts/ensure_news_job.sh [--prod]` (idempotent; copies service account, Cloud SQL and
+created with `scripts/ensure_news_job.sh [--prod] [--schedule "CRON"]` (idempotent; `--schedule` sets the cron on create and re-asserts it on an existing entry, which is otherwise left alone; copies service account, Cloud SQL and
 secrets from the `quantcore-report` Job). Re-running it is also the repair for a Scheduler that fails with **code 7 (PERMISSION_DENIED)**: the Scheduler's OIDC service account needs `roles/run.invoker` on the `quantcore-news` Job, and the script re-asserts that binding on every run — it once granted it only when it created the Scheduler entry, so an entry created another way failed every night with no execution started (#372). The `deploy.yml` and `prod-rollout.yml` roll-outs skip its image update until the
 Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. Two more alarms close the
 remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`

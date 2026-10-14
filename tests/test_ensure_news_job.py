@@ -104,6 +104,42 @@ class EnsureNewsJobTest(unittest.TestCase):
         self.assertEqual(self.find(calls, "run jobs add-iam-policy-binding"), [])
         self.assertEqual(self.find(calls, "scheduler jobs create"), [])
 
+    def test_schedule_is_left_alone_on_an_existing_entry_by_default(self):
+        r, calls = self.run_script(STUB_JOB_EXISTS="1", STUB_NEWS_SA=NEWS_SA)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.find(calls, "scheduler jobs update"), [])
+
+    def test_schedule_flag_updates_an_existing_entry(self):
+        # #373: test's slot is reproducible from the script, not a one-off gcloud.
+        r, calls = self.run_script("--schedule", "15 18 * * 1-5", STUB_JOB_EXISTS="1",
+                                   STUB_NEWS_SA=NEWS_SA)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        upd = self.find(calls, "scheduler jobs update http quantcore-news-daily")
+        self.assertEqual(len(upd), 1)
+        self.assertIn("--schedule 15 18 * * 1-5", upd[0])
+        self.assertIn("--time-zone America/New_York", upd[0])
+        self.assertIn("--project quantcore-test-20260606", upd[0])
+        self.assertEqual(len(self.find(calls, "run jobs add-iam-policy-binding")), 1)
+
+    def test_schedule_flag_is_used_on_create(self):
+        r, calls = self.run_script("--schedule", "15 18 * * 1-5", STUB_REPORT_SA=REPORT_SA)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        sched = self.find(calls, "scheduler jobs create http quantcore-news-daily")
+        self.assertIn("--schedule 15 18 * * 1-5", sched[0])
+        self.assertEqual(self.find(calls, "scheduler jobs update"), [])
+
+    def test_default_schedule_on_create(self):
+        r, calls = self.run_script(STUB_REPORT_SA=REPORT_SA)
+        sched = self.find(calls, "scheduler jobs create http quantcore-news-daily")
+        self.assertIn("--schedule 30 17 * * 1-5", sched[0])
+
+    def test_bad_arguments_fail_before_any_gcloud_call(self):
+        for args in (["--schedule"], ["--bogus"]):
+            with self.subTest(args):
+                r, calls = self.run_script(*args)
+                self.assertEqual(r.returncode, 2)
+                self.assertEqual(calls, [])
+
     def test_prod_prompts_and_aborts_without_yes(self):
         r, calls = self.run_script("--prod", stdin="n\n", STUB_JOB_EXISTS="1",
                                    STUB_NEWS_SA=NEWS_SA)

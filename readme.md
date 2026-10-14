@@ -356,7 +356,13 @@ gcloud run jobs execute quantcore-news --project quantcore-test-20260606 --regio
 
 Drop `--dry-run` to score. If the Scheduler entry fails with code 7 (PERMISSION_DENIED), re-run
 `scripts/ensure_news_job.sh [--prod]`, which re-grants the Scheduler's service account
-`roles/run.invoker` on the Job.
+`roles/run.invoker` on the Job. `--schedule "CRON"` (America/New_York) sets the Scheduler's
+cron on create and re-asserts it on an existing entry; test runs 45 minutes after prod so the two
+projects' Yahoo traffic doesn't overlap:
+
+```bash
+./scripts/ensure_news_job.sh --schedule "15 18 * * 1-5"
+```
 
 Every alarm, the rationale for the order, and the FinBERT load path are in
 [`docs/architecture/daily-jobs.md`](docs/architecture/daily-jobs.md).

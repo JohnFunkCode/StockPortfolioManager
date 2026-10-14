@@ -77,6 +77,52 @@ def _refresh_symbols(portfolio: list[dict], watchlist: list[dict], source: str) 
     return [s["symbol"] for s in securities if s.get("symbol")]
 
 
+def _usable_rows(rows: list[dict]):
+    """Yield ``(strike, open_interest, sigma)`` for the contracts the DAOI/GEX
+    math counts: positive strike and OI, IV as a decimal with the 30% fallback
+    when it is missing or zero."""
+    for row in rows:
+        K = float(row["strike"] or 0)
+        oi = row["open_interest"]
+        if K <= 0 or oi <= 0:
+            continue
+        iv = row["iv"]
+        yield K, oi, (iv if iv > 0 else 0.30)   # fallback 30% if IV missing
+
+
+def _frame_rows(df) -> list[dict]:
+    """A yfinance calls/puts DataFrame as ``_usable_rows`` input (IV already
+    a decimal)."""
+    if df.empty:
+        return []
+    return [
+        {
+            "strike": float(row.get("strike", 0) or 0),
+            "open_interest": _safe_int(row.get("openInterest")),
+            "iv": float(row.get("impliedVolatility", 0) or 0),
+        }
+        for _, row in df.iterrows()
+    ]
+
+
+def _snapshot_rows(contracts: list[dict], kind: str) -> list[dict]:
+    """Persisted ``options_contracts`` rows as ``_usable_rows`` input.
+
+    The capture stores IV as a **percent rounded to one decimal** (``42.3``),
+    so it is divided by 100 here; the rounding moves the Greeks only in the
+    fourth significant figure (pinned by the snapshot-parity test).
+    """
+    return [
+        {
+            "strike": float(c.get("strike") or 0),
+            "open_interest": _safe_int(c.get("open_interest")),
+            "iv": float(c.get("iv") or 0) / 100.0,
+        }
+        for c in contracts
+        if c.get("kind") == kind
+    ]
+
+
 class OptionsService:
     """Options chains, unusual-call detection, delta-adjusted OI, and options REST."""
 
@@ -440,7 +486,33 @@ class OptionsService:
             }
 
         today = market_date(now)
+        chains = self._live_chain_rows(symbol, expirations[:max_expirations])
+        result = self._daoi_from_chains(symbol, price, chains, today, risk_free_rate)
+        if result is None:
+            return {
+                "symbol": symbol.upper(),
+                "price": round(price, 2),
+                "signal": "none",
+                "interpretation": "Could not compute delta-adjusted OI — check symbol or options availability.",
+            }
+        self._options.save_gamma_wall(symbol.upper(), result)
+        return result
 
+    def _daoi_from_chains(
+        self,
+        symbol: str,
+        price: float,
+        chains: list,
+        today: datetime.date,
+        risk_free_rate: float,
+    ) -> dict | None:
+        """Delta-adjusted OI + gamma wall over ``chains`` — no I/O, no persistence.
+
+        ``chains`` is ``[(expiration, call_rows, put_rows)]`` as built by
+        ``_live_chain_rows`` (Yahoo) or ``_snapshot_rows`` (the persisted
+        capture), so both paths share one copy of the math. Returns ``None``
+        when no expiration could be scanned.
+        """
         total_call_daoi = 0.0
         total_put_daoi  = 0.0
 
@@ -449,31 +521,15 @@ class OptionsService:
 
         expiry_summaries = []
 
-        for exp in expirations[:max_expirations]:
-            try:
-                exp_date = datetime.date.fromisoformat(exp)
-                T = max((exp_date - today).days / 365.0, 1 / 365.0)
-                chain    = self._yf.option_chain(symbol.upper(), exp)
-                calls_df = chain.calls.copy()
-                puts_df  = chain.puts.copy()
-            except Exception:
-                continue
+        for exp, call_rows, put_rows in chains:
+            exp_date = datetime.date.fromisoformat(exp)
+            T = max((exp_date - today).days / 365.0, 1 / 365.0)
 
             exp_call_daoi = 0.0
             exp_put_daoi  = 0.0
 
-            for df, is_call in [(calls_df, True), (puts_df, False)]:
-                if df.empty:
-                    continue
-                for _, row in df.iterrows():
-                    K   = float(row.get("strike", 0) or 0)
-                    oi  = _safe_int(row.get("openInterest"))
-                    raw_iv = float(row.get("impliedVolatility", 0) or 0)
-                    sigma = raw_iv if raw_iv > 0 else 0.30   # fallback 30% if IV missing
-
-                    if K <= 0 or oi <= 0:
-                        continue
-
+            for rows, is_call in [(call_rows, True), (put_rows, False)]:
+                for K, oi, sigma in _usable_rows(rows):
                     d1     = bs_d1(price, K, T, sigma, risk_free_rate)
                     delta  = bs_delta(price, K, T, sigma, risk_free_rate, is_call, d1=d1)
                     daoi   = delta * oi
@@ -493,19 +549,14 @@ class OptionsService:
 
             expiry_summaries.append({
                 "expiration":      exp,
-                "days_to_expiry":  (datetime.date.fromisoformat(exp) - today).days,
+                "days_to_expiry":  (exp_date - today).days,
                 "call_daoi_shares": round(exp_call_daoi, 0),
                 "put_daoi_shares":  round(exp_put_daoi, 0),
                 "net_daoi_shares":  round(exp_call_daoi + exp_put_daoi, 0),
             })
 
         if not expiry_summaries:
-            return {
-                "symbol": symbol.upper(),
-                "price": round(price, 2),
-                "signal": "none",
-                "interpretation": "Could not compute delta-adjusted OI — check symbol or options availability.",
-            }
+            return None
 
         net_daoi = total_call_daoi + total_put_daoi
 
@@ -590,8 +641,6 @@ class OptionsService:
             "signal_note":         signal_note,
             "by_expiration":       expiry_summaries,
         }
-
-        self._options.save_gamma_wall(symbol.upper(), result)
         return result
 
     def get_gamma_wall_history(self, symbol: str, since_days: int = 90) -> dict:
@@ -797,36 +846,42 @@ class OptionsService:
             }
 
         today = market_date(now)
+        chains = self._live_chain_rows(symbol, expirations[:max_expirations])
+        result = self._gex_from_chains(symbol, price, chains, today, risk_free_rate)
+        if result is None:
+            return {
+                "symbol": symbol.upper(),
+                "price": round(price, 2),
+                "signal": "none",
+                "interpretation": "Could not compute GEX profile — check symbol or options availability.",
+            }
+        self._options.save_gex_summary(symbol.upper(), result)
+        return result
 
+    def _gex_from_chains(
+        self,
+        symbol: str,
+        price: float,
+        chains: list,
+        today: datetime.date,
+        risk_free_rate: float,
+    ) -> dict | None:
+        """Signed GEX profile + vanna/charm over ``chains`` — no I/O, no
+        persistence. Same ``chains`` shape as ``_daoi_from_chains``; ``None``
+        when no expiration could be scanned."""
         strike_gex: dict[float, dict] = {}   # strike → {"call_gex": .., "put_gex": ..}
         net_vanna = 0.0
         net_charm = 0.0
         by_expiration = []
 
-        for exp in expirations[:max_expirations]:
-            try:
-                exp_date = datetime.date.fromisoformat(exp)
-                T = max((exp_date - today).days / 365.0, 1 / 365.0)
-                chain    = self._yf.option_chain(symbol.upper(), exp)
-                calls_df = chain.calls.copy()
-                puts_df  = chain.puts.copy()
-            except Exception:
-                continue
+        for exp, call_rows, put_rows in chains:
+            exp_date = datetime.date.fromisoformat(exp)
+            T = max((exp_date - today).days / 365.0, 1 / 365.0)
 
             exp_net_gex = 0.0
 
-            for df, is_call in [(calls_df, True), (puts_df, False)]:
-                if df.empty:
-                    continue
-                for _, row in df.iterrows():
-                    K   = float(row.get("strike", 0) or 0)
-                    oi  = _safe_int(row.get("openInterest"))
-                    raw_iv = float(row.get("impliedVolatility", 0) or 0)
-                    sigma = raw_iv if raw_iv > 0 else 0.30   # fallback 30% if IV missing
-
-                    if K <= 0 or oi <= 0:
-                        continue
-
+            for rows, is_call in [(call_rows, True), (put_rows, False)]:
+                for K, oi, sigma in _usable_rows(rows):
                     d1    = bs_d1(price, K, T, sigma, risk_free_rate)
                     gamma = bs_gamma(price, K, T, sigma, risk_free_rate, d1=d1)
                     # Dealer convention: long calls (+), short puts (−).
@@ -851,12 +906,7 @@ class OptionsService:
             })
 
         if not by_expiration:
-            return {
-                "symbol": symbol.upper(),
-                "price": round(price, 2),
-                "signal": "none",
-                "interpretation": "Could not compute GEX profile — check symbol or options availability.",
-            }
+            return None
 
         sorted_strikes = sorted(strike_gex.keys())
         net_by_strike  = {k: strike_gex[k]["call_gex"] + strike_gex[k]["put_gex"]
@@ -942,9 +992,81 @@ class OptionsService:
             "gex_ladder":              gex_ladder,
             "by_expiration":           by_expiration,
         }
-
-        self._options.save_gex_summary(symbol.upper(), result)
         return result
+
+    def _live_chain_rows(self, symbol: str, expirations) -> list:
+        """Fetch each expiration's chain from Yahoo as ``[(exp, calls, puts)]``.
+        An expiration whose date or fetch fails is skipped, not fatal."""
+        chains = []
+        for exp in expirations:
+            try:
+                datetime.date.fromisoformat(exp)
+                chain    = self._yf.option_chain(symbol.upper(), exp)
+                calls_df = chain.calls.copy()
+                puts_df  = chain.puts.copy()
+            except Exception:
+                continue
+            chains.append((exp, _frame_rows(calls_df), _frame_rows(puts_df)))
+        return chains
+
+    def record_gex_from_snapshot(
+        self,
+        symbol: str,
+        *,
+        now: datetime.datetime | None = None,
+        risk_free_rate: float = 0.045,
+        daoi_expirations: int = 3,
+        gex_expirations: int = 6,
+    ) -> dict | None:
+        """Record today's gamma wall and GEX summary from the persisted chain.
+
+        The daily job used to call ``get_delta_adjusted_oi`` and
+        ``get_gex_profile``, which re-fetch from Yahoo every chain the capture
+        had just persisted — about half the job's Yahoo calls (#373). This
+        reads the latest ``full`` snapshot instead and makes **zero** Yahoo
+        calls. Expirations and price are the snapshot's own, so the record
+        describes exactly the chain that was captured.
+
+        Returns ``None`` (nothing saved) when there is no full snapshot from
+        today's market date; otherwise a small summary of what was saved.
+        """
+        sym = symbol.upper()
+        snap = self._options.get_latest_snapshot(sym)
+        if not snap or snap.get("chain_type") != "full" or not snap.get("captured_at"):
+            return None
+        today = market_date(now)
+        if OptionsStore._trading_day(snap["captured_at"]) != today.isoformat():
+            return None
+        price = snap.get("price")
+        if price is None or math.isnan(float(price)) or float(price) <= 0:
+            return None
+        price = float(price)
+
+        chains = []
+        for exp in snap.get("expirations") or []:
+            try:
+                datetime.date.fromisoformat(exp["expiration"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            contracts = exp.get("contracts") or []
+            chains.append((
+                exp["expiration"],
+                _snapshot_rows(contracts, "call"),
+                _snapshot_rows(contracts, "put"),
+            ))
+
+        daoi = self._daoi_from_chains(sym, price, chains[:daoi_expirations], today, risk_free_rate)
+        gex = self._gex_from_chains(sym, price, chains[:gex_expirations], today, risk_free_rate)
+        if daoi is not None:
+            self._options.save_gamma_wall(sym, daoi)
+        if gex is not None:
+            self._options.save_gex_summary(sym, gex)
+        return {
+            "symbol": sym,
+            "captured_at": snap["captured_at"],
+            "gamma_wall_saved": daoi is not None,
+            "gex_saved": gex is not None,
+        }
 
     def capture_counts(self, day: str) -> dict:
         """Symbols captured per daily dataset on market day ``day`` (job health check)."""

@@ -15,6 +15,7 @@ test_architecture_guards.py.
 import datetime
 import logging
 import threading
+import time
 
 import pandas as pd
 import yfinance as yf
@@ -33,6 +34,25 @@ _FIELD_NAMES = {"Open", "High", "Low", "Close", "Volume", "Adj Close",
                 "Dividends", "Stock Splits"}
 
 
+# Backoff before each retry of a rate-limited options call (#373). Two retries,
+# ten seconds at most per call: enough to ride out a short 429 burst, short
+# enough that the daily capture's per-symbol budget check still bounds the run.
+_RATE_LIMIT_BACKOFF_SECONDS = (2.0, 6.0)
+
+
+def is_rate_limited(exc: BaseException) -> bool:
+    """True when ``exc`` is Yahoo saying "slow down" (HTTP 429).
+
+    yfinance raises ``YFRateLimitError`` for most of these, but some paths
+    surface the raw HTTP error instead, so the message is checked as well.
+    """
+    rate_limit_error = getattr(getattr(yf, "exceptions", None), "YFRateLimitError", None)
+    if rate_limit_error is not None and isinstance(exc, rate_limit_error):
+        return True
+    text = str(exc)
+    return "429" in text or "Too Many Requests" in text
+
+
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     """yf.download returns MultiIndex columns in newer versions; flatten to
     field names whichever level holds them."""
@@ -45,6 +65,39 @@ def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 class YFinanceGateway:
+    def __init__(self, sleep=time.sleep):
+        # ``sleep`` is injectable so the retry tests do not wait out the backoff.
+        self._sleep = sleep
+        self._rate_limit_lock = threading.Lock()
+        self._rate_limited = 0
+
+    @property
+    def rate_limited(self) -> int:
+        """How many options calls Yahoo has answered with a 429 so far.
+
+        Counts every 429, retried or not, over this gateway's lifetime. The
+        daily job reads it before and after each symbol to tell a rate-limited
+        failure from any other kind (#373).
+        """
+        with self._rate_limit_lock:
+            return self._rate_limited
+
+    def _with_rate_limit_retry(self, call, what: str):
+        """Run ``call``, retrying only on a 429, with a bounded backoff."""
+        for attempt in range(len(_RATE_LIMIT_BACKOFF_SECONDS) + 1):
+            try:
+                return call()
+            except Exception as exc:
+                if not is_rate_limited(exc):
+                    raise
+                with self._rate_limit_lock:
+                    self._rate_limited += 1
+                if attempt == len(_RATE_LIMIT_BACKOFF_SECONDS):
+                    raise
+                delay = _RATE_LIMIT_BACKOFF_SECONDS[attempt]
+                logger.warning("Yahoo rate-limited %s; retrying in %.0fs", what, delay)
+                self._sleep(delay)
+
     def fetch_history(
         self,
         symbol: str,
@@ -159,12 +212,15 @@ class YFinanceGateway:
         return yf.Ticker(symbol).fast_info
 
     def expirations(self, symbol: str) -> tuple:
-        """Available option expiration dates for a symbol."""
-        return yf.Ticker(symbol).options
+        """Available option expiration dates for a symbol (retried on a 429)."""
+        return self._with_rate_limit_retry(
+            lambda: yf.Ticker(symbol).options, f"{symbol} expirations")
 
     def option_chain(self, symbol: str, expiration: str):
-        """Option chain (calls/puts DataFrames) for one expiration."""
-        return yf.Ticker(symbol).option_chain(expiration)
+        """Option chain (calls/puts DataFrames) for one expiration (retried on a 429)."""
+        return self._with_rate_limit_retry(
+            lambda: yf.Ticker(symbol).option_chain(expiration),
+            f"{symbol} {expiration} chain")
 
     def news(self, symbol: str, count: int = 10) -> list:
         """Recent news items for a symbol, as flat ``yf.Search`` dicts.

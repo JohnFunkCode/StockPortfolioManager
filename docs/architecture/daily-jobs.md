@@ -78,7 +78,7 @@ only means no exception; issue #275). The yfinance source is `YFinanceGateway.ne
 return nothing now, silently. Env: `NEWS_TASK_TIMEOUT_SECONDS` (1800),
 `NEWS_COLLECT_BUDGET_SECONDS` (900), `NEWS_FAILURE_CEILING` (0.50), `NEWS_EMPTY_CEILING` (0.90), `NEWS_EMPTY_MIN_ATTEMPTS` (10). The Job and its Cloud Scheduler entry are **one-time infra** per project,
 created with `scripts/ensure_news_job.sh [--prod]` (idempotent; copies service account, Cloud SQL and
-secrets from the `quantcore-report` Job). The `deploy.yml` and `prod-rollout.yml` roll-outs skip its image update until the
+secrets from the `quantcore-report` Job). Re-running it is also the repair for a Scheduler that fails with **code 7 (PERMISSION_DENIED)**: the Scheduler's OIDC service account needs `roles/run.invoker` on the `quantcore-news` Job, and the script re-asserts that binding on every run — it once granted it only when it created the Scheduler entry, so an entry created another way failed every night with no execution started (#372). The `deploy.yml` and `prod-rollout.yml` roll-outs skip its image update until the
 Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. Two more alarms close the
 remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
 returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`
@@ -102,6 +102,27 @@ throttles CPU outside requests and a startup preload would tax every cold start.
 - The bake downloads with `use_safetensors=False` on purpose: left alone, `transformers` also
   fetches the Hub bot's safetensors-conversion PR ref and pulls **both** formats (836 MB, extra Hub
   calls, more 429 exposure). Don't "simplify" that flag away.
+- **Baked weights must be readable by the runtime user** (#375). The bake runs as root in the
+  builder stage and `save_pretrained` wrote `model.safetensors` as `0600 root`; the final stage
+  runs as `appuser` (uid 1000), so every load failed — and **safetensors reports that `EACCES` as
+  "No such file or directory"**, which sent the first diagnosis looking for a missing file. Scoring
+  silently returned 0 for every article from 2026-10-02 until the fix. Three guards now: the bake
+  chmods the tree `a+r` (directories `a+rx`); `verify()` refuses any file or directory the
+  runtime user can't read before it loads anything (a root-run reload can't see the problem —
+  root reads `0600`); and both Dockerfiles read one byte of every baked file **as `appuser`**
+  after `USER appuser`, so an unreadable layer fails the build. When a local load still fails,
+  `_ensure_finbert` logs each file's mode and `os.access` result next to the error.
+
+**The nightly scorer is newest-first, so an outage leaves a backlog it never reaches.**
+`score_unscored` takes the newest unscored articles up to its limit (500), which is right for
+freshness, but once each night brings that many new articles the rows left unscored by a FinBERT
+outage stay unscored for good. After any outage, drain them oldest-first with
+`scripts/backfill_news_sentiment.py --since YYYY-MM-DD [--batch 500] [--dry-run]`. It needs
+FinBERT, so on a deployed project it runs as a one-off execution of the `quantcore-news` Job on the
+news image (invocation in `readme.md`). It stops with exit 1 when a batch scores nothing while rows
+remain (FinBERT didn't load, or the rows have no text), so a broken model can't loop. Nothing else
+needs re-deriving: `get_news_sentiment` and `get_sentiment_trend` aggregate `news_articles` at read
+time.
 
 Since issue #147 `main.py` **does not render the HTML report**. That moved verbatim to
 **`scripts/generate_portfolio_report.py`** (`--output PATH`, or `--publish` to upload to S3),

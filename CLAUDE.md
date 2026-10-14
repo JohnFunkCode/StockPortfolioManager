@@ -132,7 +132,8 @@ effects land before anything that can run long. Rules to keep:
   torch, which the lean report image must not carry.
 - **FinBERT weights are baked into the images, never downloaded at runtime.** Bumping the model is
   a reviewed one-line change to `DEFAULT_REVISION` in `scripts/bake_finbert.py`, never a follow of
-  Hub `main`. Don't "simplify" away the bake's `use_safetensors=False`.
+  Hub `main`. Don't "simplify" away the bake's `use_safetensors=False`. Baked weights must be readable by
+  the runtime user `appuser` (#375 — safetensors reports `EACCES` as "No such file").
 - `main.py` **does not render the HTML report** — `scripts/generate_portfolio_report.py` does, and
   the Pi runs that script and **not** `main.py` (running both would double every alert).
 

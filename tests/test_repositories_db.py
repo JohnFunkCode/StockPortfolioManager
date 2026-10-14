@@ -138,6 +138,50 @@ class TestNewsStore(RepoTestBase):
         every = self.store.get_articles(SYM, days=7, scored_only=False)
         self.assertEqual(len(every), 2)
 
+    def _stamp_fetched_at(self, stamps):
+        """Give the SYM articles 1..n these fetched_at values (ISO text).
+
+        Far-future days keep the global count_unscored_by_day() read to our rows.
+        """
+        self.store.save_articles(SYM, [article(i) for i in range(1, len(stamps) + 1)])
+        with closing(get_connection()) as conn:
+            for i, stamp in enumerate(stamps, start=1):
+                conn.execute("UPDATE news_articles SET fetched_at = %s WHERE url = %s",
+                             (stamp, f"https://example.com/{SYM}/{i}"))
+            conn.commit()
+
+    def test_unscored_backfill_window_and_order(self):
+        # #375: the backlog catch-up reads from a date, oldest first; the
+        # nightly default stays newest first with no date filter.
+        self._stamp_fetched_at(["2099-01-01T10:00:00+00:00",
+                                "2099-01-02T10:00:00+00:00",
+                                "2099-01-03T10:00:00+00:00"])
+        titles = lambda rows: [r["title"] for r in rows]
+        self.assertEqual(titles(self.store.get_unscored_articles(SYM, limit=10)),
+                         ["Headline 3", "Headline 2", "Headline 1"])
+        self.assertEqual(
+            titles(self.store.get_unscored_articles(SYM, limit=10, since="2099-01-02")),
+            ["Headline 3", "Headline 2"])
+        self.assertEqual(
+            titles(self.store.get_unscored_articles(SYM, limit=1, since="2099-01-02",
+                                                    oldest_first=True)),
+            ["Headline 2"])
+
+    def test_count_unscored_by_day(self):
+        self._stamp_fetched_at(["2099-01-01T10:00:00+00:00",
+                                "2099-01-03T09:00:00+00:00",
+                                "2099-01-03T23:00:00+00:00"])
+        self.assertEqual(self.store.count_unscored_by_day(since="2099-01-01"),
+                         {"2099-01-01": 1, "2099-01-03": 2})
+        first = self.store.get_unscored_articles(SYM, limit=1, oldest_first=True,
+                                                 since="2099-01-01")[0]
+        self.store.update_sentiment(
+            article_id=first["article_id"], sentiment="neutral", sentiment_score=0.5,
+            positive_score=0.2, negative_score=0.3, neutral_score=0.5)
+        self.assertEqual(self.store.count_unscored_by_day(since="2099-01-02"),
+                         {"2099-01-03": 2})
+        self.assertGreaterEqual(sum(self.store.count_unscored_by_day().values()), 2)
+
     def test_collection_heartbeat_is_independent_of_articles(self):
         before = self.store.last_collection_at()
         self.store.record_collection(SYM.lower())

@@ -28,11 +28,17 @@ Choices worth keeping:
   of a 2 a.m. Job. ``HF_TOKEN`` in the environment is honoured if supplied.
 - **Verifies the result** by reloading it with ``local_files_only=True`` and
   scoring one sentence, so a broken bake cannot produce a shippable image.
+- **World-readable** (issue #375). ``save_pretrained`` writes the safetensors
+  file 0600, the bake runs as root, and the runtime is ``appuser`` -- so every
+  runtime load failed, and safetensors reported the EACCES as "No such file or
+  directory". The root-run reload in ``verify()`` can't see that (root reads
+  0600), so ``verify()`` checks the mode bits explicitly.
 """
 from __future__ import annotations
 
 import argparse
 import os
+import stat
 import sys
 import time
 
@@ -69,8 +75,35 @@ def download_with_retry(revision: str, attempts: int = DEFAULT_ATTEMPTS,
     raise AssertionError("unreachable")
 
 
+def _make_world_readable(out_dir: str) -> None:
+    """Add read (files) and read+traverse (directories) for group and other."""
+    read = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
+    traverse = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+    for root, dirs, files in os.walk(out_dir):
+        os.chmod(root, stat.S_IMODE(os.stat(root).st_mode) | read | traverse)
+        for name in files:
+            path = os.path.join(root, name)
+            os.chmod(path, stat.S_IMODE(os.stat(path).st_mode) | read)
+
+
+def check_world_readable(out_dir: str) -> None:
+    """Raise unless every file is other-readable and every directory other-traversable."""
+    for root, dirs, files in os.walk(out_dir):
+        mode = stat.S_IMODE(os.stat(root).st_mode)
+        if not mode & stat.S_IROTH or not mode & stat.S_IXOTH:
+            raise RuntimeError(f"baked FinBERT directory {root} is mode {mode:o}; "
+                               "the runtime user cannot read it")
+        for name in files:
+            path = os.path.join(root, name)
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+            if not mode & stat.S_IROTH:
+                raise RuntimeError(f"baked FinBERT file {path} is mode {mode:o}; "
+                                   "the runtime user cannot read it")
+
+
 def verify(out_dir: str) -> None:
-    """Reload from disk with no network and score one sentence."""
+    """Check permissions, then reload from disk with no network and score one sentence."""
+    check_world_readable(out_dir)
     import torch
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -90,6 +123,7 @@ def bake(out_dir: str, revision: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
     tokenizer.save_pretrained(out_dir)
     model.save_pretrained(out_dir, safe_serialization=True)
+    _make_world_readable(out_dir)
     verify(out_dir)
     print(f"Baked {MODEL_ID}@{revision[:7]} into {out_dir}.")
 

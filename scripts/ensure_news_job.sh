@@ -4,8 +4,13 @@
 # deploy.yml / prod-rollout.yml only UPDATE the Job's image and now warn loudly when
 # it is missing (#275); this is the one-time operator step that creates it. Service
 # account, Cloud SQL instance, and secrets are copied from the existing quantcore-report
-# Job in the same project, so the two cannot drift. Safe to re-run: existing pieces are
-# left alone.
+# Job in the same project, so the two cannot drift. Safe to re-run: an existing Job or
+# Scheduler entry is left alone.
+#
+# The one thing it always (re-)asserts is roles/run.invoker on the Job for the
+# Scheduler's service account (#372). Without it the Scheduler's :run call fails with
+# code 7 (PERMISSION_DENIED) every night and no execution starts; the binding is
+# idempotent, so re-running this repairs a project where the entry already existed.
 #
 #   ./scripts/ensure_news_job.sh            # test project
 #   ./scripts/ensure_news_job.sh --prod     # prod project (prompts)
@@ -50,15 +55,29 @@ print(",".join(pairs))')"
     --task-timeout 1800s --max-retries 0 --cpu 2 --memory 4Gi
 fi
 
+sched_sa() {
+  gcloud scheduler jobs describe "$1" --project "$PROJECT" --location "$REGION" \
+    --format='value(httpTarget.oauthToken.serviceAccountEmail)' 2>/dev/null || true
+}
+SCHED_SA="$(sched_sa quantcore-news-daily)"
+[[ -n "$SCHED_SA" ]] || SCHED_SA="$(sched_sa quantcore-report-daily)"
+if [[ -z "$SCHED_SA" ]]; then
+  echo "ERROR: no Scheduler service account found on quantcore-news-daily or quantcore-report-daily." >&2
+  exit 1
+fi
+
 if gcloud scheduler jobs describe quantcore-news-daily --project "$PROJECT" --location "$REGION" >/dev/null 2>&1; then
   echo "Scheduler quantcore-news-daily already exists — leaving it alone."
 else
   NUM="$(gcloud projects describe "$PROJECT" --format='value(projectNumber)')"
-  SCHED_SA="$(gcloud scheduler jobs describe quantcore-report-daily --project "$PROJECT" \
-    --location "$REGION" --format='value(httpTarget.oauthToken.serviceAccountEmail)')"
   gcloud scheduler jobs create http quantcore-news-daily --project "$PROJECT" --location "$REGION" \
     --schedule "$SCHEDULE" --time-zone America/New_York --http-method POST \
     --uri "https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${NUM}/jobs/quantcore-news:run" \
     --oauth-service-account-email "$SCHED_SA"
 fi
+
+# Always, not only on create (#372): idempotent, and the repair for an existing entry.
+echo "Granting roles/run.invoker on quantcore-news to ${SCHED_SA}."
+gcloud run jobs add-iam-policy-binding quantcore-news --project "$PROJECT" --region "$REGION" \
+  --member "serviceAccount:${SCHED_SA}" --role roles/run.invoker >/dev/null
 echo "Done. Verify: gcloud run jobs execute quantcore-news --project $PROJECT --region $REGION --wait"

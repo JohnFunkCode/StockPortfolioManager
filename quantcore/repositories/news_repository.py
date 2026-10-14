@@ -145,22 +145,53 @@ class NewsStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def get_unscored_articles(self, symbol: Optional[str] = None, limit: int = 100) -> list[dict]:
-        """Return articles that have not yet been scored by FinBERT."""
-        sym_clause = "AND symbol = ?" if symbol else ""
-        params = [symbol.upper()] if symbol else []
+    def get_unscored_articles(self, symbol: Optional[str] = None, limit: int = 100, *,
+                              since: Optional[str] = None,
+                              oldest_first: bool = False) -> list[dict]:
+        """Return articles that have not yet been scored by FinBERT.
+
+        Newest first by default, so the nightly scorer spends its budget on that
+        night's articles. ``since`` (an ISO date or timestamp, compared against
+        ``fetched_at``) and ``oldest_first`` are for the backlog catch-up in
+        ``scripts/backfill_news_sentiment.py`` (#375).
+        """
+        clauses, params = [], []
+        if symbol:
+            clauses.append("AND symbol = ?")
+            params.append(symbol.upper())
+        if since:
+            clauses.append("AND fetched_at >= ?")
+            params.append(since)
         params.append(limit)
+        order = "ASC" if oldest_first else "DESC"
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 f"""
                 SELECT * FROM news_articles
-                WHERE sentiment IS NULL {sym_clause}
-                ORDER BY fetched_at DESC
+                WHERE sentiment IS NULL {' '.join(clauses)}
+                ORDER BY fetched_at {order}, article_id {order}
                 LIMIT ?
                 """,
                 params,
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def count_unscored_by_day(self, since: Optional[str] = None) -> dict[str, int]:
+        """Unscored article counts keyed by ``fetched_at`` day (YYYY-MM-DD), oldest first."""
+        since_clause = "AND fetched_at >= ?" if since else ""
+        params = [since] if since else []
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT substr(fetched_at, 1, 10) AS day, COUNT(*) AS n
+                FROM news_articles
+                WHERE sentiment IS NULL {since_clause}
+                GROUP BY day
+                ORDER BY day
+                """,
+                params,
+            ).fetchall()
+        return {r["day"]: int(r["n"]) for r in rows}
 
     def get_sentiment_summary(self, symbol: str, days: int = 7) -> dict:
         """

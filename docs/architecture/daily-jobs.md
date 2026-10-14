@@ -152,7 +152,7 @@ Job exists, but now emit a `::warning::` annotation instead of a silent `echo`. 
 remaining silent paths: `news_job.py` flags new articles stored with **zero** scored (`score_unscored`
 returns 0 when FinBERT won't load), and the daily **report Job** runs `alert_if_news_stale`
 (`main.py`, via `SentimentService.news_freshness`) — hosted there because a news Job that never runs
-cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend). The age is read from a per-symbol `fetch_log` heartbeat (`interval='news'`, written by `collect_news` via `NewsStore.record_collection`) rather than `MAX(news_articles.fetched_at)`, which only moves on new inserts and would false-alarm on a quiet news stretch.
+cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized for a Monday-holiday weekend). The age is read from a per-symbol `fetch_log` heartbeat (`interval='news'`, written by `collect_news` via `NewsStore.record_collection`) rather than `MAX(news_articles.fetched_at)`, which only moves on new inserts and would false-alarm on a quiet news stretch. An age of `None` means **no** heartbeat rows exist. On test, the usual cause was the unit suite: `test_no_heartbeat_reads_none` has to delete every `interval='news'` row, and before it restored them, a suite run against Cloud SQL test wiped the real Job's heartbeat. The next report then alarmed with `age Noneh` (2026-10-14). The test now restores the rows; any new test that clears shared rows must do the same.
 
 **FinBERT weights are baked into the images, never downloaded at runtime** (issue #280). The
 builder stage of `Dockerfile.api` and `Dockerfile.news` runs `scripts/bake_finbert.py`, which

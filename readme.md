@@ -334,6 +334,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `GEX_RECORD_BUDGET_SECONDS` | 300 |
 | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | 0.90 |
 | `OPTIONS_CAPTURE_FAILURE_CEILING` | 0.50 |
+| `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` | 0.25 |
 | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | 900 (and it always stops 60 s before the deadline) |
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | 0.80 |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | 168 |

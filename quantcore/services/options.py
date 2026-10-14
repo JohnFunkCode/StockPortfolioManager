@@ -121,15 +121,21 @@ class OptionsService:
         else:
             bollinger_bands = None
 
+        # An empty expiration list is Yahoo saying the symbol has no listed
+        # options -- the one case the daily job may drop from its coverage
+        # denominator, so it is marked explicitly rather than inferred from
+        # ``expiration_count == 0`` (#374). A rate-limited ``.options`` raises
+        # (YFRateLimitError) instead of returning empty.
         expirations = self._yf.expirations(symbol.upper())
         if not expirations:
             return {
-                "symbol":           symbol.upper(),
-                "price":            round(price, 2),
-                "bollinger_bands":  bollinger_bands,
-                "expiration_count": 0,
-                "total_contracts":  0,
-                "expirations":      [],
+                "symbol":            symbol.upper(),
+                "price":             round(price, 2),
+                "bollinger_bands":   bollinger_bands,
+                "expiration_count":  0,
+                "total_contracts":   0,
+                "expirations":       [],
+                "no_listed_options": True,
             }
 
         # Optional cap keeps scheduled bulk captures (main.py daily job) light;
@@ -161,6 +167,16 @@ class OptionsService:
             })
             total_contracts += len(calls_data["contracts"]) + len(puts_data["contracts"])
 
+        failed_expirations = len(expirations) - len(expirations_data)
+        if not expirations_data:
+            # Listed expirations but not one chain came back: a fetch failure,
+            # not an empty chain. Persisting it would store an empty snapshot
+            # and report it as a capture, hiding the outage (#374 review).
+            raise RuntimeError(
+                f"all {failed_expirations} option-chain fetches failed for "
+                f"{symbol.upper()}"
+            )
+
         snapshot_id = self._options.save_full_chain(
             symbol=symbol.upper(),
             price=price,
@@ -179,6 +195,8 @@ class OptionsService:
             "expirations":      [e["expiration"] for e in expirations_data],
             "snapshot_id":      snapshot_id,
             "persisted":        persisted,
+            "failed_expirations": failed_expirations,
+            "no_listed_options": False,
             "storage_warning":  None if persisted else "Snapshot was not inserted; a full-chain capture may already exist for this market day.",
         }
 

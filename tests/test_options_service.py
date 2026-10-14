@@ -350,6 +350,40 @@ class TestFullChainFetch(OptionsServiceTestBase):
         out = self.service.get_full_options_chain("INTC")
         self.assertEqual(out["expiration_count"], 0)
         self.assertEqual(out["total_contracts"], 0)
+        self.assertTrue(out["no_listed_options"])
+        self.options.save_full_chain.assert_not_called()
+
+    def _arm_history(self):
+        self.service._prices.get_history.return_value = pd.DataFrame(
+            {"Close": [100.0] * 30},
+            index=pd.bdate_range(end="2026-07-14", periods=30),
+        )
+
+    def test_every_chain_fetch_failing_raises_and_persists_nothing(self):
+        # #374 review: listed expirations with no chain returned is an outage
+        # (e.g. 429s), not "no options" -- it must not be stored as an empty
+        # snapshot and counted as a capture.
+        self.arm_price(expirations=(TODAY_EXP, "2099-01-16"))
+        self._arm_history()
+        self.yf.option_chain.side_effect = RuntimeError("Too Many Requests")
+        with self.assertRaisesRegex(RuntimeError, "all 2 option-chain fetches failed"):
+            self.service.get_full_options_chain("INTC")
+        self.options.save_full_chain.assert_not_called()
+
+    def test_partial_chain_failure_is_reported(self):
+        self.arm_price(expirations=(TODAY_EXP, "2099-01-16"))
+        self._arm_history()
+        good = chain_frames(
+            calls_rows=[call_row(100, volume=10, oi=100, last=4, bid=3.9, ask=4.1)],
+            puts_rows=[],
+        )
+        self.yf.option_chain.side_effect = [good, RuntimeError("Too Many Requests")]
+        self.options.save_full_chain.return_value = 7
+        out = self.service.get_full_options_chain("INTC")
+        self.assertTrue(out["persisted"])
+        self.assertFalse(out["no_listed_options"])
+        self.assertEqual(out["expiration_count"], 1)
+        self.assertEqual(out["failed_expirations"], 1)
 
 
 if __name__ == "__main__":

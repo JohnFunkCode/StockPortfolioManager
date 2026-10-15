@@ -47,8 +47,11 @@ and the tokenizer and config files were fetched unverified.
 **Decided 2026-10-15: approved.** John approves using the model under its CC BY-NC-SA 4.0
 license. **Revisit this if the project is ever taken into commercial use.** The NonCommercial
 term would then apply, and the alternatives below would not avoid it, since the weights are the
-same.
+same. Recorded on the
+[PR](https://github.com/JohnFunkCode/StockPortfolioManager/pull/394#issuecomment-6199120659) and the
+[issue](https://github.com/JohnFunkCode/StockPortfolioManager/issues/381#issuecomment-6199121147).
 
+The background to the decision:
 
 At the old pin `4556d13` the model card declared **no license**. From `2f82991` (2026-10-12, the
 commit that added `model.safetensors`) it declares **`cc-by-nc-sa-4.0`**: non-commercial and
@@ -56,8 +59,8 @@ share-alike. Pinning `0bc2ac1` means building from a revision whose card states 
 
 - **The weights are byte-identical,** so the old revision is arguably covered by the same terms
   now anyway.
-- **This is a policy call, not a code one.** If you'd rather not adopt the new card, the
-  alternative changes nothing else in this design:
+- **It was a policy call, not a code one.** The alternative that was declined would have changed
+  nothing else in this design:
   - Stay on `4556d13`'s files.
   - Fetch the identical `model.safetensors` from SFconvertbot's `refs/pr/29` by its commit sha.
   - Keep the same allow-list and hash check.
@@ -134,3 +137,5 @@ JSON.
 - **2026-10-15:** The PR's gitleaks step flagged the two hash lines. A scoped allowlist and a
   pinned `GITLEAKS_VERSION` fixed it. Local gitleaks 8.30.1 finds no leaks on the PR range or in
   the full history, and a negative check on the same hex in another file is still flagged.
+- **2026-10-15:** John approved the CC BY-NC-SA 4.0 license, to be revisited before any commercial
+  use. The decision is noted on the PR and on #381.

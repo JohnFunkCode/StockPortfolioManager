@@ -82,6 +82,20 @@ share-alike. Pinning `0bc2ac1` means building from a revision whose card states 
   keys the sequence-classification head doesn't use. The old `.bin` path printed the same thing.
   The weights that matter load: all 201 tensors, and the labels come out right.
 
+- **gitleaks flags the `EXPECTED_SHA256` entries.** Its `generic-api-key` rule reads
+  `"special_tokens_map.json": "<64 hex>"` as a key (entropy ~3.7), which failed the PR's
+  `lean-import` job.
+  - The fix is a second `[[allowlists]]` table in `.gitleaks.toml`. It is path **AND** regex:
+    only a bare 64-hex digest, and only in `scripts/bake_finbert.py`. The same hex anywhere else
+    still trips the scan.
+  - It is not a `.gitleaksignore` fingerprint, because a fingerprint is tied to one commit and
+    line, so every model bump would need a new one.
+  - **What misled:** `[[allowlists]]` needs gitleaks >= 8.25, and `gitleaks-action@v3` silently
+    defaults to **8.24.3**. 8.24.3 would refuse the config outright, and a local 8.30 run passes
+    either way. `deploy.yml` now pins `GITLEAKS_VERSION`, and `tests/test_check_deploy_ref.py`
+    asserts the pin is >= 8.25. The legacy `[allowlist]` table can't be mixed with
+    `[[allowlists]]`, so the existing one was renamed too.
+
 ## Out of scope
 
 `experiments/INTC_bear_call_spread_monitor.py` and `experiments/WMT_bull_call_spread_monitor.py`
@@ -111,3 +125,6 @@ JSON.
   - No logit change is expected.
   - To produce the evidence, extract `/opt/models/finbert` from a pre-#381 test image and run
     `python scripts/finbert_parity.py OLD NEW`.
+- **2026-10-15:** The PR's gitleaks step flagged the two hash lines. A scoped allowlist and a
+  pinned `GITLEAKS_VERSION` fixed it. Local gitleaks 8.30.1 finds no leaks on the PR range or in
+  the full history, and a negative check on the same hex in another file is still flagged.

@@ -427,13 +427,48 @@ class FinbertLoaderTest(unittest.TestCase):
     def test_baked_path_loads_offline(self):
         with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: "/opt/models/finbert"}):
             self.assertTrue(sentiment_mod._ensure_finbert())
-        self.assertEqual(self.calls, [("/opt/models/finbert", {"local_files_only": True})] * 2)
+        self.assertEqual(self.calls, [
+            ("/opt/models/finbert", {"local_files_only": True}),
+            ("/opt/models/finbert", {"local_files_only": True, "use_safetensors": True}),
+        ])
 
     def test_without_path_falls_back_to_the_hub(self):
         env = {k: v for k, v in os.environ.items() if k != sentiment_mod.FINBERT_MODEL_PATH_ENV}
         with patch.dict(os.environ, env, clear=True):
             self.assertTrue(sentiment_mod._ensure_finbert())
-        self.assertEqual(self.calls, [("ProsusAI/finbert", {"local_files_only": False})] * 2)
+        pin = sentiment_mod.FINBERT_REVISION
+        self.assertEqual(self.calls, [
+            ("ProsusAI/finbert", {"local_files_only": False, "revision": pin}),
+            ("ProsusAI/finbert", {"local_files_only": False, "use_safetensors": True,
+                                  "revision": pin}),
+        ])
+
+    def test_baked_path_with_a_pickle_file_is_refused(self):
+        # #381: a pickle-format weights file is never loaded, even next to safetensors.
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        for name in ("model.safetensors", "pytorch_model.bin"):
+            open(os.path.join(tmp.name, name), "w").close()
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: tmp.name}), \
+             self.assertLogs(sentiment_mod.log, level="WARNING") as logs:
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, [])          # nothing was loaded
+        self.assertIn("pytorch_model.bin", "\n".join(logs.output))
+
+    def test_baked_path_with_a_nested_pickle_file_is_refused(self):
+        # Review of #394: the refusal walks subdirectories, not just the top level.
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        open(os.path.join(tmp.name, "model.safetensors"), "w").close()
+        os.makedirs(os.path.join(tmp.name, "sub"))
+        open(os.path.join(tmp.name, "sub", "pytorch_model.bin"), "w").close()
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: tmp.name}), \
+             self.assertLogs(sentiment_mod.log, level="WARNING") as logs:
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, [])
+        self.assertIn(os.path.join("sub", "pytorch_model.bin"), "\n".join(logs.output))
 
     def test_concurrent_first_callers_share_one_load(self):
         barrier = threading.Barrier(8)

@@ -15,14 +15,20 @@ Choices worth keeping:
 
 - **The revision is pinned.** A new checkpoint shifts the score distribution and
   puts a step change into stored sentiment history, so an upgrade is a reviewed
-  one-line change to ``FINBERT_REVISION`` (default below), never a silent
-  follow of ``main``.
-- **``use_safetensors=False`` on the download.** The pinned revision ships only
-  ``pytorch_model.bin``; left to itself ``transformers`` probes the Hub bot's
-  safetensors-conversion PR ref and downloads *both* formats (~836 MB and extra
-  Hub calls). We fetch the ``.bin`` once and write safetensors ourselves.
+  change to ``DEFAULT_REVISION`` *and* ``EXPECTED_SHA256`` (below), never a
+  silent follow of ``main``. ``FINBERT_REVISION`` overrides the default, but a
+  revision whose files don't match the hashes fails the bake.
+- **Pickle-format weights are never fetched or loaded** (issue #381). A
+  ``.bin``/``.pt``/``.ckpt`` file is a pickle, and unpickling runs code. The
+  download is an explicit allow-list of the five files below -- the official
+  ``model.safetensors`` that ProsusAI added on 2026-10-12, plus tokenizer and
+  config -- so ``pytorch_model.bin`` is never even requested. Each file's sha256
+  is checked against the committed value *before* anything parses it, and the
+  load passes ``use_safetensors=True``. (Before #381 the bake downloaded the
+  ``.bin`` with ``use_safetensors=False`` and converted it; the upstream
+  safetensors is byte-identical to that conversion's source tensors.)
 - **Saved as safetensors**, so the runtime load is a fast mmap rather than an
-  unpickle -- and nothing at runtime unpickles a downloaded file.
+  unpickle. ``verify()`` refuses any pickle-format file in the output.
 - **Retries with back-off** because Cloud Build shares egress IPs and can be
   rate limited too; a bake that still fails fails the *build*, visibly, instead
   of a 2 a.m. Job. ``HF_TOKEN`` in the environment is honoured if supplied.
@@ -37,31 +43,90 @@ Choices worth keeping:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
+import shutil
 import stat
 import sys
+import tempfile
 import time
 
 MODEL_ID = "ProsusAI/finbert"
-# Hub `main` of ProsusAI/finbert as of 2026-10-02. Bump deliberately (see docstring).
-DEFAULT_REVISION = "4556d13015211d73dccd3fdd39d39232506f3e43"
+# Hub `main` of ProsusAI/finbert as of 2026-10-15: the first revisions with an
+# official model.safetensors. Mirrored by FINBERT_REVISION in
+# quantcore/services/sentiment.py (a test keeps them equal). Bump deliberately,
+# together with EXPECTED_SHA256 (see docstring).
+DEFAULT_REVISION = "0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031"
+# The only files the bake downloads, and their sha256 at DEFAULT_REVISION.
+# The four small files are byte-identical to the pre-#381 pin (4556d13).
+EXPECTED_SHA256 = {
+    "model.safetensors": "e5897858ff819aad7629b96ce521ae5477952d03634ef5dd30ed2d76357a9f00",
+    "config.json": "f6449ddda85eb726207a40be59c0cd3bd4b142ccb27298d5e45f9ae3396b1abe",
+    "vocab.txt": "07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3",
+    "tokenizer_config.json": "ffc7913f6084b138dad68de5a0c2f0ee25ac983709260901e01f53be5796b9d9",
+    "special_tokens_map.json": "303df45a03609e4ead04bc3dc1536d0ab19b5358db685b6f3da123d05ec200e3",
+}
+# Pickle-based serializations: loading one can execute code (#381).
+PICKLE_SUFFIXES = (".bin", ".pt", ".pth", ".ckpt", ".pkl", ".pickle")
 DEFAULT_ATTEMPTS = 5
 DEFAULT_BACKOFF_SECONDS = 15.0
 
 
-def _download(revision: str):
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+def _download(revision: str) -> str:
+    """Fetch exactly the allow-listed files into a fresh directory; return its path."""
+    from huggingface_hub import snapshot_download
 
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, revision=revision)
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_ID, revision=revision, use_safetensors=False)
-    return tokenizer, model
+    staging = tempfile.mkdtemp(prefix="finbert-download-")
+    try:
+        snapshot_download(MODEL_ID, revision=revision, local_dir=staging,
+                          allow_patterns=sorted(EXPECTED_SHA256))
+    except BaseException:
+        # A retry starts a fresh directory, so don't leave a partial download behind.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    return staging
+
+
+def _sha256(path: str) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def find_pickle_files(directory: str) -> list:
+    """Every pickle-format file under ``directory``, as paths relative to it."""
+    found = []
+    for root, _dirs, files in os.walk(directory):
+        for name in files:
+            if name.lower().endswith(PICKLE_SUFFIXES):
+                found.append(os.path.relpath(os.path.join(root, name), directory))
+    return sorted(found)
+
+
+def verify_hashes(directory: str, expected: dict = EXPECTED_SHA256) -> None:
+    """Raise unless every expected file is present with its committed sha256.
+
+    Runs before anything parses the files, so a tampered download is never loaded.
+    """
+    pickles = find_pickle_files(directory)
+    if pickles:
+        raise RuntimeError(f"pickle-format files were downloaded: {pickles}")
+    for name, want in sorted(expected.items()):
+        path = os.path.join(directory, name)
+        if not os.path.isfile(path):
+            raise RuntimeError(f"FinBERT download is missing {name}")
+        got = _sha256(path)
+        if got != want:
+            raise RuntimeError(f"FinBERT {name} sha256 is {got}, expected {want}; "
+                               "refusing to load it")
 
 
 def download_with_retry(revision: str, attempts: int = DEFAULT_ATTEMPTS,
                         backoff: float = DEFAULT_BACKOFF_SECONDS,
                         download=_download, sleep=time.sleep):
-    """Download tokenizer + model, retrying with linear back-off on any error."""
+    """Run ``download(revision)``, retrying with linear back-off on any error."""
     for attempt in range(1, attempts + 1):
         try:
             return download(revision)
@@ -101,28 +166,44 @@ def check_world_readable(out_dir: str) -> None:
                                    "the runtime user cannot read it")
 
 
-def verify(out_dir: str) -> None:
-    """Check permissions, then reload from disk with no network and score one sentence."""
-    check_world_readable(out_dir)
-    import torch
+def _load(directory: str):
+    """Load tokenizer + model from a local directory, safetensors only."""
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(out_dir, local_files_only=True)
-    model = AutoModelForSequenceClassification.from_pretrained(out_dir, local_files_only=True)
+    tokenizer = AutoTokenizer.from_pretrained(directory, local_files_only=True)
+    model = AutoModelForSequenceClassification.from_pretrained(
+        directory, local_files_only=True, use_safetensors=True)
+    return tokenizer, model
+
+
+def verify(out_dir: str) -> None:
+    """Check permissions and formats, then reload offline and score one sentence."""
+    check_world_readable(out_dir)
+    if not any(name.endswith(".safetensors") for name in os.listdir(out_dir)):
+        raise RuntimeError(f"no .safetensors file was written to {out_dir}")
+    pickles = find_pickle_files(out_dir)
+    if pickles:
+        raise RuntimeError(f"pickle-format files in baked FinBERT: {pickles}")
+    import torch
+
+    tokenizer, model = _load(out_dir)
     model.eval()
     with torch.no_grad():
         logits = model(**tokenizer("Profits rose sharply.", return_tensors="pt")).logits
     if tuple(logits.shape) != (1, 3):
         raise RuntimeError(f"baked FinBERT returned logits of shape {tuple(logits.shape)}")
-    if not any(name.endswith(".safetensors") for name in os.listdir(out_dir)):
-        raise RuntimeError(f"no .safetensors file was written to {out_dir}")
 
 
 def bake(out_dir: str, revision: str) -> None:
-    tokenizer, model = download_with_retry(revision)
-    os.makedirs(out_dir, exist_ok=True)
-    tokenizer.save_pretrained(out_dir)
-    model.save_pretrained(out_dir, safe_serialization=True)
+    staging = download_with_retry(revision)
+    try:
+        verify_hashes(staging)
+        tokenizer, model = _load(staging)
+        os.makedirs(out_dir, exist_ok=True)
+        tokenizer.save_pretrained(out_dir)
+        model.save_pretrained(out_dir, safe_serialization=True)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
     _make_world_readable(out_dir)
     verify(out_dir)
     print(f"Baked {MODEL_ID}@{revision[:7]} into {out_dir}.")

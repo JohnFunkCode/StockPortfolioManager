@@ -1,11 +1,12 @@
 """Tests for scripts/bake_finbert.py — the build-time FinBERT bake (issue #280).
 
 The download is never real here: ``bake()`` and ``verify()`` run against fake
-``torch``/``transformers`` modules, so these tests also pass on the lean
+``torch``/``transformers``/``huggingface_hub`` modules, so these tests also pass on the lean
 install. PR CI does not build the images, so this is the only pre-merge check
 of the save -> safetensors -> offline-reload path; the image build re-runs
 ``verify()`` against the real model.
 """
+import hashlib
 import os
 import stat
 import tempfile
@@ -56,23 +57,53 @@ def _fake_ml_modules(logits_shape=(1, 3)):
 
 
 class BakeTest(unittest.TestCase):
-    def test_saves_tokenizer_and_safetensors_model_then_verifies(self):
+    """bake(): download -> hash check -> safetensors-only load -> save -> verify."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.staging = os.path.join(self.tmp.name, "staging")
+        os.makedirs(self.staging)
+        self.out = os.path.join(self.tmp.name, "finbert")
+
+    def _bake(self, tokenizer=None, model=None, verify=None, verify_hashes=None):
         calls = mock.Mock()
-        tokenizer, model = calls.tokenizer, calls.model
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(bake_finbert, "download_with_retry",
-                               return_value=(tokenizer, model)) as download, \
-             mock.patch.object(bake_finbert, "verify", calls.verify), \
+        tokenizer = tokenizer or calls.tokenizer
+        model = model or calls.model
+        with mock.patch.object(bake_finbert, "download_with_retry",
+                               return_value=self.staging) as download, \
+             mock.patch.object(bake_finbert, "verify_hashes",
+                               verify_hashes or calls.verify_hashes), \
+             mock.patch.object(bake_finbert, "_load", calls._load), \
+             mock.patch.object(bake_finbert, "verify", verify or calls.verify), \
              mock.patch("builtins.print"):
-            out = os.path.join(tmp, "finbert")
-            bake_finbert.bake(out, "rev")
-            self.assertTrue(os.path.isdir(out))
+            calls._load.return_value = (tokenizer, model)
+            bake_finbert.bake(self.out, "rev")
         download.assert_called_once_with("rev")
+        return calls
+
+    def test_checks_hashes_then_loads_saves_and_verifies(self):
+        calls = self._bake()
+        self.assertTrue(os.path.isdir(self.out))
         self.assertEqual(calls.mock_calls, [
-            mock.call.tokenizer.save_pretrained(out),
-            mock.call.model.save_pretrained(out, safe_serialization=True),
-            mock.call.verify(out),          # verify runs last, against what was written
+            mock.call.verify_hashes(self.staging),   # before anything parses the files
+            mock.call._load(self.staging),
+            mock.call.tokenizer.save_pretrained(self.out),
+            mock.call.model.save_pretrained(self.out, safe_serialization=True),
+            mock.call.verify(self.out),              # verify runs last, against what was written
         ])
+
+    def test_staging_directory_is_removed(self):
+        self._bake()
+        self.assertFalse(os.path.exists(self.staging))
+
+    def test_hash_mismatch_stops_before_load_and_still_cleans_up(self):
+        with mock.patch.object(bake_finbert, "_load") as load, \
+             self.assertRaisesRegex(RuntimeError, "sha256"):
+            self._bake(verify_hashes=mock.Mock(side_effect=RuntimeError("sha256 mismatch")))
+        load.assert_not_called()
+        self.assertFalse(os.path.exists(self.staging))
+        self.assertFalse(os.path.exists(self.out))
 
     def test_written_files_are_made_readable_before_verify(self):
         # #375: save_pretrained wrote model.safetensors as 0600 root, which the
@@ -89,21 +120,77 @@ class BakeTest(unittest.TestCase):
 
         model = mock.Mock()
         model.save_pretrained.side_effect = write
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(bake_finbert, "download_with_retry",
-                               return_value=(mock.Mock(), model)), \
-             mock.patch.object(bake_finbert, "verify", side_effect=record_mode), \
-             mock.patch("builtins.print"):
-            bake_finbert.bake(os.path.join(tmp, "finbert"), "rev")
+        self._bake(model=model, verify=mock.Mock(side_effect=record_mode))
         self.assertEqual(seen["mode"], 0o644)
 
     def test_verify_failure_fails_the_bake(self):
-        with tempfile.TemporaryDirectory() as tmp, \
-             mock.patch.object(bake_finbert, "download_with_retry",
-                               return_value=(mock.Mock(), mock.Mock())), \
-             mock.patch.object(bake_finbert, "verify", side_effect=RuntimeError("bad")), \
-             self.assertRaises(RuntimeError):
-            bake_finbert.bake(os.path.join(tmp, "finbert"), "rev")
+        with self.assertRaises(RuntimeError):
+            self._bake(verify=mock.Mock(side_effect=RuntimeError("bad")))
+
+
+class DownloadTest(unittest.TestCase):
+    def test_fetches_only_the_allow_list_at_the_revision(self):
+        hub = types.SimpleNamespace(snapshot_download=mock.Mock())
+        with mock.patch.dict("sys.modules", {"huggingface_hub": hub}):
+            staging = bake_finbert._download("rev")
+        self.addCleanup(os.rmdir, staging)
+        hub.snapshot_download.assert_called_once_with(
+            "ProsusAI/finbert", revision="rev", local_dir=staging,
+            allow_patterns=sorted(bake_finbert.EXPECTED_SHA256))
+
+    def test_failed_download_removes_its_staging_dir(self):
+        # Review of #394: a retry starts fresh, so a failure must not leave a partial dir.
+        hub = types.SimpleNamespace(snapshot_download=mock.Mock(side_effect=OSError("429")))
+        made = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def mkdtemp(**kw):
+            made.append(real_mkdtemp(**kw))
+            return made[-1]
+
+        with mock.patch.dict("sys.modules", {"huggingface_hub": hub}), \
+             mock.patch.object(bake_finbert.tempfile, "mkdtemp", side_effect=mkdtemp):
+            with self.assertRaisesRegex(OSError, "429"):
+                bake_finbert._download("rev")
+        self.assertEqual(len(made), 1)
+        self.assertFalse(os.path.exists(made[0]))
+
+    def test_allow_list_has_no_pickle_format_file(self):
+        self.assertIn("model.safetensors", bake_finbert.EXPECTED_SHA256)
+        for name in bake_finbert.EXPECTED_SHA256:
+            self.assertFalse(name.endswith(bake_finbert.PICKLE_SUFFIXES), name)
+            self.assertNotIn("*", name)     # exact names, never a glob
+
+
+class VerifyHashesTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.expected = {}
+        for name, body in (("model.safetensors", b"weights"), ("config.json", b"{}")):
+            with open(os.path.join(self.tmp.name, name), "wb") as fh:
+                fh.write(body)
+            self.expected[name] = hashlib.sha256(body).hexdigest()
+
+    def test_matching_files_pass(self):
+        bake_finbert.verify_hashes(self.tmp.name, self.expected)
+
+    def test_tampered_file_is_rejected(self):
+        with open(os.path.join(self.tmp.name, "model.safetensors"), "ab") as fh:
+            fh.write(b"!")
+        with self.assertRaisesRegex(RuntimeError, r"model\.safetensors sha256"):
+            bake_finbert.verify_hashes(self.tmp.name, self.expected)
+
+    def test_missing_file_is_rejected(self):
+        os.remove(os.path.join(self.tmp.name, "config.json"))
+        with self.assertRaisesRegex(RuntimeError, "missing config.json"):
+            bake_finbert.verify_hashes(self.tmp.name, self.expected)
+
+    def test_any_pickle_file_is_rejected(self):
+        os.makedirs(os.path.join(self.tmp.name, "sub"))
+        open(os.path.join(self.tmp.name, "sub", "pytorch_model.BIN"), "w").close()
+        with self.assertRaisesRegex(RuntimeError, "pickle"):
+            bake_finbert.verify_hashes(self.tmp.name, self.expected)
 
 
 class VerifyTest(unittest.TestCase):
@@ -117,12 +204,12 @@ class VerifyTest(unittest.TestCase):
             bake_finbert.verify(tmp)
         return tmp, transformers
 
-    def test_reloads_offline_from_the_baked_directory(self):
+    def test_reloads_offline_safetensors_only_from_the_baked_directory(self):
         tmp, transformers = self._verify()
         transformers.AutoTokenizer.from_pretrained.assert_called_once_with(
             tmp, local_files_only=True)
         transformers.AutoModelForSequenceClassification.from_pretrained.assert_called_once_with(
-            tmp, local_files_only=True)
+            tmp, local_files_only=True, use_safetensors=True)
 
     def test_wrong_logits_shape_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "shape"):
@@ -130,7 +217,11 @@ class VerifyTest(unittest.TestCase):
 
     def test_missing_safetensors_is_rejected(self):
         with self.assertRaisesRegex(RuntimeError, "safetensors"):
-            self._verify(files=("pytorch_model.bin",))
+            self._verify(files=("config.json",))
+
+    def test_pickle_file_next_to_safetensors_is_rejected(self):
+        with self.assertRaisesRegex(RuntimeError, "pytorch_model.bin"):
+            self._verify(files=("model.safetensors", "pytorch_model.bin"))
 
 
 class PermissionsTest(unittest.TestCase):
@@ -193,6 +284,13 @@ class MainTest(unittest.TestCase):
              mock.patch.object(bake_finbert, "bake") as bake:
             bake_finbert.main(["--out", "/x"])
         bake.assert_called_once_with("/x", "abc123")
+
+    def test_pin_matches_the_runtime_fallback(self):
+        # The bake can't import quantcore (the Dockerfile copies it alone), so
+        # sentiment.py mirrors the pin; keep the two in step.
+        from quantcore.services import sentiment
+        self.assertEqual(bake_finbert.DEFAULT_REVISION, sentiment.FINBERT_REVISION)
+        self.assertEqual(bake_finbert.PICKLE_SUFFIXES, sentiment.PICKLE_SUFFIXES)
 
 
 if __name__ == "__main__":

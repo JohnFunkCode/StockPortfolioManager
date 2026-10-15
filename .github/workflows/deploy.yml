@@ -241,6 +241,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_CONFIG: .gitleaks.toml
+          # Pinned: the action defaults to 8.24.3, and .gitleaks.toml's [[allowlists]]
+          # tables (path AND regex, #381) need >= 8.25 — older versions reject the config.
+          GITLEAKS_VERSION: "8.30.1"
       # !cancelled(): a secret hit must not hide the import result, nor the reverse.
       - uses: actions/setup-python@v7
         if: ${{ !cancelled() }}

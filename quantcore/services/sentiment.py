@@ -43,6 +43,12 @@ _YF_RSS_URL = (
 # FINBERT_MODEL_PATH at it, so a deployed process never calls the Hub.
 _FINBERT_MODEL = "ProsusAI/finbert"
 FINBERT_MODEL_PATH_ENV = "FINBERT_MODEL_PATH"
+# Mirrors DEFAULT_REVISION in scripts/bake_finbert.py (tests keep them equal), so
+# the Hub fallback loads the same checkpoint the images bake.
+FINBERT_REVISION = "0bc2ac10dda6929bcb1f77ccc43c7ec5c424f031"
+# Pickle-based weights formats: loading one can execute code (#381). The model is
+# only ever loaded from safetensors, and a directory holding one of these is refused.
+PICKLE_SUFFIXES = (".bin", ".pt", ".pth", ".ckpt", ".pkl", ".pickle")
 
 # Lazy-loaded globals — only allocated on first FinBERT use
 _finbert_tokenizer = None
@@ -58,6 +64,16 @@ def _finbert_source() -> tuple[str, bool]:
     if path:
         return path, True
     return _FINBERT_MODEL, False
+
+
+def _pickle_files(path: str) -> list[str]:
+    """Pickle-format files anywhere under ``path``, as relative paths (never contents)."""
+    found = []
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            if name.lower().endswith(PICKLE_SUFFIXES):
+                found.append(os.path.relpath(os.path.join(root, name), path))
+    return sorted(found)
 
 
 def _describe_model_files(path: str) -> str:
@@ -100,9 +116,17 @@ def _ensure_finbert() -> bool:
             started = time.monotonic()
             log.info("Loading FinBERT from %s '%s'…",
                      "baked path" if local_only else "the Hugging Face Hub", source)
-            tokenizer = AutoTokenizer.from_pretrained(source, local_files_only=local_only)
+            if local_only:
+                pickles = _pickle_files(source)
+                if pickles:
+                    raise RuntimeError(f"refusing pickle-format files {pickles}")
+                pinned = {}
+            else:
+                pinned = {"revision": FINBERT_REVISION}
+            tokenizer = AutoTokenizer.from_pretrained(
+                source, local_files_only=local_only, **pinned)
             model = AutoModelForSequenceClassification.from_pretrained(
-                source, local_files_only=local_only)
+                source, local_files_only=local_only, use_safetensors=True, **pinned)
             model.eval()
             _finbert_tokenizer, _finbert_model = tokenizer, model
             _finbert_available = True

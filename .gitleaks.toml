@@ -1,14 +1,14 @@
 # Gitleaks config for the secret-scan CI job (BYOK packet 8a, plan issue #100).
 #
 # Extends the default ruleset — the point is to fail CI if a real API key or
-# private-key PEM ever lands in a diff. The allowlist below is deliberately
+# private-key PEM ever lands in a diff. The allowlists below are deliberately
 # NARROW: it exempts specific known-clean matches, never whole test suites,
 # so a real credential pasted into a test file still trips the scan.
 
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Known-clean matches: PEM-marker string literals in parsing code, dummy test values, and code identifiers the generic rule trips on"
 paths = [
   # PEM *marker* string literals only (bundle parsing / awk extraction) —
@@ -31,3 +31,13 @@ regexes = [
   '''ec\.SECP256R1''',
   '''ProsusAI/finbert''',
 ]
+
+# The sha256 of each file the FinBERT bake downloads (#381) — public file hashes, not
+# secrets, but generic-api-key flags the "<file>": "<hex>" dict entries. AND keeps it
+# narrow: only a bare 64-hex digest, and only in that one script, so a model bump that
+# changes the hashes doesn't need new fingerprints in .gitleaksignore.
+[[allowlists]]
+description = "FinBERT bake's EXPECTED_SHA256 file digests"
+condition = "AND"
+paths = ['''^scripts/bake_finbert\.py$''']
+regexes = ['''^[0-9a-f]{64}$''']

@@ -134,9 +134,15 @@ effects land before anything that can run long. Rules to keep:
 - News collection is a **separate Job** (`news_job.py`, `Dockerfile.news`) because FinBERT needs
   torch, which the lean report image must not carry.
 - **FinBERT weights are baked into the images, never downloaded at runtime.** Bumping the model is
-  a reviewed one-line change to `DEFAULT_REVISION` in `scripts/bake_finbert.py`, never a follow of
-  Hub `main`. Don't "simplify" away the bake's `use_safetensors=False`. Baked weights must be readable by
-  the runtime user `appuser` (#375 — safetensors reports `EACCES` as "No such file").
+  a reviewed change to `DEFAULT_REVISION` **and** `EXPECTED_SHA256` in `scripts/bake_finbert.py`
+  plus `FINBERT_REVISION` in `quantcore/services/sentiment.py` (a test keeps them equal), never a
+  follow of Hub `main`. Baked weights must be readable by the runtime user `appuser` (#375 —
+  safetensors reports `EACCES` as "No such file").
+- **Model weights load only from hash-verified safetensors — never a pickle** (#381). A
+  `.bin`/`.pt`/`.ckpt` file is a program, not data. The bake downloads an allow-list of files and
+  checks each sha256 before parsing; every model `from_pretrained` passes `use_safetensors=True`;
+  `torch.load`/`pickle.load`/`trust_remote_code` are banned. `tests/test_no_pickle_model_loads.py`
+  enforces it (AST scan, `experiments/` excluded). Don't add a pickle path back to dodge a 429.
 - `main.py` **does not render the HTML report** — `scripts/generate_portfolio_report.py` does, and
   the Pi runs that script and **not** `main.py` (running both would double every alert).
 

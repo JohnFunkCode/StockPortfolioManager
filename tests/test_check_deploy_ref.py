@@ -289,6 +289,10 @@ class CiCostWiringTest(unittest.TestCase):
         gitleaks = self.step_named("lean-import", "Secret scan (gitleaks)")
         self.assertTrue(gitleaks["uses"].startswith("gitleaks/gitleaks-action@"))
         self.assertEqual(gitleaks["env"]["GITLEAKS_CONFIG"], ".gitleaks.toml")
+        # .gitleaks.toml uses [[allowlists]] (#381), which the action's default 8.24.3
+        # rejects as an invalid config; it needs an explicit >= 8.25 pin.
+        version = tuple(int(p) for p in gitleaks["env"]["GITLEAKS_VERSION"].split("."))
+        self.assertGreaterEqual(version, (8, 25, 0))
         # The classifier runs first, so its outputs exist even when a later step fails.
         self.assertLess(ids.index("changes"), ids.index("Secret scan (gitleaks)"))
         # ...and a secret hit doesn't hide the import smoke (or the reverse).

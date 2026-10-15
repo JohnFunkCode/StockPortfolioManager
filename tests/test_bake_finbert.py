@@ -138,6 +138,23 @@ class DownloadTest(unittest.TestCase):
             "ProsusAI/finbert", revision="rev", local_dir=staging,
             allow_patterns=sorted(bake_finbert.EXPECTED_SHA256))
 
+    def test_failed_download_removes_its_staging_dir(self):
+        # Review of #394: a retry starts fresh, so a failure must not leave a partial dir.
+        hub = types.SimpleNamespace(snapshot_download=mock.Mock(side_effect=OSError("429")))
+        made = []
+        real_mkdtemp = tempfile.mkdtemp
+
+        def mkdtemp(**kw):
+            made.append(real_mkdtemp(**kw))
+            return made[-1]
+
+        with mock.patch.dict("sys.modules", {"huggingface_hub": hub}), \
+             mock.patch.object(bake_finbert.tempfile, "mkdtemp", side_effect=mkdtemp):
+            with self.assertRaisesRegex(OSError, "429"):
+                bake_finbert._download("rev")
+        self.assertEqual(len(made), 1)
+        self.assertFalse(os.path.exists(made[0]))
+
     def test_allow_list_has_no_pickle_format_file(self):
         self.assertIn("model.safetensors", bake_finbert.EXPECTED_SHA256)
         for name in bake_finbert.EXPECTED_SHA256:

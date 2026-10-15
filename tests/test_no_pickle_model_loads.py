@@ -5,7 +5,8 @@ program, not data. This test scans every git-tracked ``*.py`` outside ``tests/``
 and ``experiments/`` (the standalone monitors, never deployed) and fails on:
 
 - ``torch.load``, ``pickle.load``/``loads``, ``joblib.load`` (and the ``dill`` /
-  ``cloudpickle`` equivalents), including ``from pickle import load``;
+  ``cloudpickle`` equivalents), including ``from pickle import load``, aliased
+  imports (``import torch as t; t.load``) and submodules (``torch.serialization``);
 - ``trust_remote_code=`` set to anything but ``False``;
 - a ``*.from_pretrained(...)`` call on anything but a tokenizer that does not pass
   ``use_safetensors=True``.
@@ -39,11 +40,44 @@ def _is_true(node: ast.expr) -> bool:
     return isinstance(node, ast.Constant) and node.value is True
 
 
+def _pickle_module_bindings(tree: ast.AST) -> dict:
+    """Local name → pickle module it is bound to, aliases included.
+
+    ``import torch as t`` binds ``t``; ``import torch.serialization`` binds ``torch``;
+    ``from torch import serialization as s`` binds ``s`` (a submodule's ``load`` is
+    still a pickle load). Without this, an alias walks straight past the guard.
+    """
+    bound = {m: m for m in PICKLE_MODULES}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                top = alias.name.split(".")[0]
+                if top in PICKLE_MODULES:
+                    bound[alias.asname or top] = top
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            top = node.module.split(".")[0]
+            if top in PICKLE_MODULES:
+                for alias in node.names:
+                    if alias.name not in BANNED_LOADERS:
+                        bound[alias.asname or alias.name] = f"{node.module}.{alias.name}"
+    return bound
+
+
+def _root_name(node: ast.expr):
+    """``t`` for ``t.serialization.load``'s receiver; None if not a plain name chain."""
+    while isinstance(node, ast.Attribute):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
+
+
 def find_violations(source: str, filename: str = "<string>") -> list:
     """Every banned model-loading construct in ``source``, as ``file:line: why``."""
     found = []
-    for node in ast.walk(ast.parse(source, filename)):
-        if isinstance(node, ast.ImportFrom) and node.module in PICKLE_MODULES:
+    tree = ast.parse(source, filename)
+    bound = _pickle_module_bindings(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module \
+                and node.module.split(".")[0] in PICKLE_MODULES:
             for alias in node.names:
                 if alias.name in BANNED_LOADERS:
                     found.append(f"{filename}:{node.lineno}: imports {node.module}.{alias.name}")
@@ -56,9 +90,10 @@ def find_violations(source: str, filename: str = "<string>") -> list:
                 found.append(f"{filename}:{node.lineno}: trust_remote_code is not False")
         if not isinstance(func, ast.Attribute):
             continue
-        if (func.attr in BANNED_LOADERS and isinstance(func.value, ast.Name)
-                and func.value.id in PICKLE_MODULES):
-            found.append(f"{filename}:{node.lineno}: calls {func.value.id}.{func.attr}")
+        root = _root_name(func.value)
+        if func.attr in BANNED_LOADERS and root in bound:
+            found.append(f"{filename}:{node.lineno}: calls {bound[root]}.{func.attr}"
+                         + (f" (as {root})" if bound[root] != root else ""))
         if func.attr == "from_pretrained" and "Tokenizer" not in _receiver_name(func.value):
             if not any(kw.arg == "use_safetensors" and _is_true(kw.value)
                        for kw in node.keywords):
@@ -105,6 +140,22 @@ class ScannerTest(unittest.TestCase):
 
     def test_flags_joblib_load(self):
         self.assertFlags("import joblib\njoblib.load('m.pkl')\n", "joblib.load")
+
+    def test_flags_aliased_imports(self):
+        # Review of #394: an alias must not walk past the guard.
+        self.assertFlags("import torch as t\nt.load('w.pt')\n", "torch.load (as t)")
+        self.assertFlags("import pickle as p\np.loads(b'')\n", "pickle.loads (as p)")
+        self.assertFlags("import joblib as jl\njl.load('m.pkl')\n", "joblib.load (as jl)")
+        self.assertFlags("from pickle import load as l\n", "imports pickle.load")
+        self.assertFlags("from pickle import loads as _l\n", "imports pickle.loads")
+
+    def test_flags_submodule_loaders(self):
+        self.assertFlags("import torch.serialization\ntorch.serialization.load('w')\n",
+                         "torch.load")
+        self.assertFlags("from torch import serialization as s\ns.load('w')\n",
+                         "torch.serialization.load (as s)")
+        self.assertFlags("from torch.serialization import load\n",
+                         "imports torch.serialization.load")
 
     def test_flags_trust_remote_code(self):
         self.assertFlags("AutoModel.from_pretrained('x', use_safetensors=True, "

@@ -20,10 +20,11 @@ and the tokenizer and config files were fetched unverified.
    - `snapshot_download` is called with an `allow_patterns` list of five files.
    - Each file's sha256 is checked against `EXPECTED_SHA256` before anything parses it.
    - The weights load with `use_safetensors=True` and are re-saved as safetensors.
+   - A failed download removes its staging directory, so a retry starts clean.
    - `verify()` now also refuses any pickle-suffix file in the output.
 2. **The runtime** (`quantcore/services/sentiment.py`)
-   - `_ensure_finbert` refuses a local `FINBERT_MODEL_PATH` that contains a pickle-suffix file. It
-     logs the file names, nothing else.
+   - `_ensure_finbert` refuses a local `FINBERT_MODEL_PATH` that contains a pickle-suffix file
+     anywhere in its tree (subdirectories included). It logs the relative file names, nothing else.
    - It loads with `use_safetensors=True`.
    - The Hub fallback is pinned to `FINBERT_REVISION`. A test keeps that value equal to the bake's
      `DEFAULT_REVISION`, because the script is copied into the builder alone and can't import
@@ -36,6 +37,8 @@ and the tokenizer and config files were fetched unverified.
    - It fails on any of these:
      - `torch`/`pickle`/`dill`/`cloudpickle`/`joblib` `.load`/`.loads`/`.Unpickler`
      - `from pickle import load`
+     - the same through an alias (`import torch as t; t.load`, `from pickle import loads as l`)
+       or a submodule (`torch.serialization.load`)
      - `trust_remote_code` set to anything but `False`
      - a non-tokenizer `from_pretrained` without `use_safetensors=True`
    - It self-tests each rule.
@@ -105,6 +108,17 @@ share-alike. Pinning `0bc2ac1` means building from a revision whose card states 
     asserts the pin is >= 8.25. The legacy `[allowlist]` table can't be mixed with
     `[[allowlists]]`, so the existing one was renamed too.
 
+- **Extracting the old bake didn't need docker.** Docker Desktop wasn't running, and the sandbox
+  can't start it. The registry API was enough:
+  - Fetch the manifest with a `gcloud auth print-access-token` bearer.
+  - Stream the largest layer's tar and keep only `opt/models/finbert/*`. The FinBERT layer was
+    the 405 MB one.
+- **The two bakes' `model.safetensors` files differ by 24 bytes, but the tensors don't.** The
+  local bake ran under a stale venv with transformers 5.5.3, not the locked 5.19.0. That version
+  saves LayerNorm parameters under the legacy `gamma`/`beta` names, where 5.19.0 uses
+  `weight`/`bias`, and `config.json` records a different `transformers_version`. The loader maps
+  both spellings. An image build uses the lock, so it matches the old bake's naming.
+
 ## Out of scope
 
 `experiments/INTC_bear_call_spread_monitor.py` and `experiments/WMT_bull_call_spread_monitor.py`
@@ -127,15 +141,20 @@ JSON.
     - "Profits rose sharply." → positive 0.84
     - "Shares plunged after the CEO resigned unexpectedly." → negative 0.96
     - "The stock was little changed in light trading." → neutral 0.87
-- **Parity against the deployed bake: not run.** The old bake exists only inside the test api
-  image, a multi-GB pull from Artifact Registry. What stands in for it:
-  - The new upstream tensors are byte-identical to `refs/pr/29`, which is SFconvertbot's tensor
-    conversion of the same `.bin` that the old bake converted.
-  - No logit change is expected.
-  - To produce the evidence, extract `/opt/models/finbert` from a pre-#381 test image and run
-    `python scripts/finbert_parity.py OLD NEW`.
+- **2026-10-15: parity against the deployed bake was at first not run**, because the old bake
+  exists only inside the test api image. It was run after review (entry below).
 - **2026-10-15:** The PR's gitleaks step flagged the two hash lines. A scoped allowlist and a
   pinned `GITLEAKS_VERSION` fixed it. Local gitleaks 8.30.1 finds no leaks on the PR range or in
   the full history, and a negative check on the same hex in another file is still flagged.
 - **2026-10-15:** John approved the CC BY-NC-SA 4.0 license, to be revisited before any commercial
   use. The decision is noted on the PR and on #381.
+- **2026-10-15:** The review (REQUEST_CHANGES) raised four findings, and each was addressed:
+  - The guard now resolves import aliases and submodules, with self-tests for each form.
+  - The runtime pickle refusal walks the whole tree, with a nested-file test.
+  - The bake's `_download` removes its staging directory when the download fails, with a test.
+  - **Logit parity was run against the deployed bake.**
+    - The old bake is `/opt/models/finbert` from the pre-#381 test api image `:latest` (`82be9a6`).
+    - `scripts/finbert_parity.py OLD NEW` reports, for 20 headlines, `max |Δlogit| = 0`, with
+      identical labels.
+    - All 201 tensors are bit-identical. Stored sentiment history takes no step.
+

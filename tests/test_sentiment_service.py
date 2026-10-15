@@ -456,6 +456,20 @@ class FinbertLoaderTest(unittest.TestCase):
         self.assertEqual(self.calls, [])          # nothing was loaded
         self.assertIn("pytorch_model.bin", "\n".join(logs.output))
 
+    def test_baked_path_with_a_nested_pickle_file_is_refused(self):
+        # Review of #394: the refusal walks subdirectories, not just the top level.
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        open(os.path.join(tmp.name, "model.safetensors"), "w").close()
+        os.makedirs(os.path.join(tmp.name, "sub"))
+        open(os.path.join(tmp.name, "sub", "pytorch_model.bin"), "w").close()
+        with patch.dict(os.environ, {sentiment_mod.FINBERT_MODEL_PATH_ENV: tmp.name}), \
+             self.assertLogs(sentiment_mod.log, level="WARNING") as logs:
+            self.assertFalse(sentiment_mod._ensure_finbert())
+        self.assertEqual(self.calls, [])
+        self.assertIn(os.path.join("sub", "pytorch_model.bin"), "\n".join(logs.output))
+
     def test_concurrent_first_callers_share_one_load(self):
         barrier = threading.Barrier(8)
         results = []

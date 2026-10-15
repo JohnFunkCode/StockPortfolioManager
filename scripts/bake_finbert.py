@@ -77,8 +77,13 @@ def _download(revision: str) -> str:
     from huggingface_hub import snapshot_download
 
     staging = tempfile.mkdtemp(prefix="finbert-download-")
-    snapshot_download(MODEL_ID, revision=revision, local_dir=staging,
-                      allow_patterns=sorted(EXPECTED_SHA256))
+    try:
+        snapshot_download(MODEL_ID, revision=revision, local_dir=staging,
+                          allow_patterns=sorted(EXPECTED_SHA256))
+    except BaseException:
+        # A retry starts a fresh directory, so don't leave a partial download behind.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     return staging
 
 

@@ -67,11 +67,13 @@ def _finbert_source() -> tuple[str, bool]:
 
 
 def _pickle_files(path: str) -> list[str]:
-    """Pickle-format files directly in ``path`` (names only, never contents)."""
-    try:
-        return sorted(n for n in os.listdir(path) if n.lower().endswith(PICKLE_SUFFIXES))
-    except OSError:
-        return []
+    """Pickle-format files anywhere under ``path``, as relative paths (never contents)."""
+    found = []
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            if name.lower().endswith(PICKLE_SUFFIXES):
+                found.append(os.path.relpath(os.path.join(root, name), path))
+    return sorted(found)
 
 
 def _describe_model_files(path: str) -> str:

@@ -1,7 +1,7 @@
 # FinBERT: load only hash-verified safetensors (issue #381)
 
-**Status:** implemented on branch `issue-381-finbert-safetensors`, pending review. Prod roll-out
-is the usual manual `prod-rollout.yml` dispatch.
+**Status:** merged in PR #394 (`a16cc11`, 2026-10-15) and verified on test. Prod roll-out is
+the usual manual `prod-rollout.yml` dispatch.
 
 ## Why
 
@@ -157,4 +157,17 @@ JSON.
     - `scripts/finbert_parity.py OLD NEW` reports, for 20 headlines, `max |Δlogit| = 0`, with
       identical labels.
     - All 201 tensors are bit-identical. Stored sentiment history takes no step.
+- **2026-10-15: merged as `a16cc11` and verified on test** (deploy run `38785345813`, all jobs
+  green).
+  - api revision `quantcore-api-00174-nrn` logs `Loading FinBERT from baked path
+    '/opt/models/finbert'`, then `FinBERT loaded in 4.8s` and `Scored 200/200 article(s)`.
+  - Collect-and-score through the api returned 200 for NVDA and MSFT, with every article in the
+    7-day window scored (59/59 and 56/56). The first call took ~100 s, because the api loads
+    FinBERT lazily on the first scoring request.
+  - News Job `quantcore-news-xvv8f` loaded 201/201 tensors and logged `230/230 collected, 688 new,
+    30 empty, 500 scored, 0 problem(s)`. 500 is the `SCORE_LIMIT` cap, and the RSS `HTTPError`
+    fallback warnings appeared before this deploy too. No pickle refusal appears in any log.
+  - MCP live smoke: 58/61 ok, with every news-sentiment tool passing. The three failures were
+    BRK-B Yahoo `401 Invalid Crumb` errors, not related to this change.
+  - Results are posted on #381 and PR #394.
 

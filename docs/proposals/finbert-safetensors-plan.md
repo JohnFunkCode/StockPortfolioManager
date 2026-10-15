@@ -44,6 +44,12 @@ and the tokenizer and config files were fetched unverified.
 
 ## Decision for John: the model card's license
 
+**Decided 2026-10-15: approved.** John approves using the model under its CC BY-NC-SA 4.0
+license. **Revisit this if the project is ever taken into commercial use.** The NonCommercial
+term would then apply, and the alternatives below would not avoid it, since the weights are the
+same.
+
+
 At the old pin `4556d13` the model card declared **no license**. From `2f82991` (2026-10-12, the
 commit that added `model.safetensors`) it declares **`cc-by-nc-sa-4.0`**: non-commercial and
 share-alike. Pinning `0bc2ac1` means building from a revision whose card states that license.

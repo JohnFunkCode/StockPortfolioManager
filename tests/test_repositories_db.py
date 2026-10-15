@@ -194,10 +194,55 @@ class TestNewsStore(RepoTestBase):
         self.assertEqual(self.store.article_count(SYM), 0)
 
     def test_no_heartbeat_reads_none(self):
+        # Every heartbeat row has to go for MAX() to read None, and on the shared
+        # Cloud SQL test database those rows are the real news Job's -- deleting
+        # them for good made the next report raise "news collection is stale
+        # (age None)". Put them back; ON CONFLICT keeps any newer stamp.
+        self._clear_heartbeats()
+        self.assertIsNone(self.store.last_collection_at())
+
+    def _clear_heartbeats(self):
+        """Delete every news heartbeat; a registered cleanup puts them back."""
         with closing(get_connection()) as conn:
+            saved = conn.execute(
+                "SELECT symbol, fetched_at FROM fetch_log WHERE interval = 'news'"
+            ).fetchall()
             conn.execute("DELETE FROM fetch_log WHERE interval = 'news'")
             conn.commit()
+        self.addCleanup(self._restore_heartbeats, saved)
+        return saved
+
+    @staticmethod
+    def _delete_heartbeat(symbol):
+        with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM fetch_log WHERE symbol = %s AND interval = 'news'",
+                         (symbol,))
+            conn.commit()
+
+    @staticmethod
+    def _restore_heartbeats(rows):
+        with closing(get_connection()) as conn:
+            for symbol, fetched_at in rows:
+                conn.execute(
+                    "INSERT INTO fetch_log (symbol, interval, fetched_at) VALUES (%s, 'news', %s) "
+                    "ON CONFLICT (symbol, interval) DO NOTHING",
+                    (symbol, fetched_at),
+                )
+            conn.commit()
+
+    def test_no_heartbeat_restores_existing_rows(self):
+        # Guards the restore above: a pre-existing heartbeat survives the clear.
+        # Its own symbol, since purge() only drops SYM's. Cleanups run LIFO, so the
+        # synthetic row is deleted last -- after the restore re-inserts it -- on
+        # every path, a failed assertion included.
+        other = SYM + "HB"
+        self.store.record_collection(other)
+        self.addCleanup(self._delete_heartbeat, other)
+        stamp = self.store.last_collection_at()
+        saved = self._clear_heartbeats()
         self.assertIsNone(self.store.last_collection_at())
+        self._restore_heartbeats(saved)   # the registered cleanup re-runs it; a no-op
+        self.assertEqual(self.store.last_collection_at(), stamp)
 
     def test_summary_and_trend_shapes(self):
         self.store.save_articles(SYM, [article(1)])

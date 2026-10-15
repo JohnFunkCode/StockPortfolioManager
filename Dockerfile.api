@@ -60,7 +60,7 @@ COPY . .
 USER appuser
 # Fail the build if the runtime user can't read the baked weights (#375): the bake
 # runs as root, which reads anything, so only a read as appuser proves it.
-RUN python -c "import pathlib; fs=[p for p in pathlib.Path('/opt/models/finbert').rglob('*') if p.is_file()]; assert any(p.suffix == '.safetensors' for p in fs), fs; [open(p, 'rb').read(1) for p in fs]"
+RUN python -c "import pathlib; fs=[p for p in pathlib.Path('/opt/models/finbert').rglob('*') if p.is_file()]; assert any(p.suffix == '.safetensors' for p in fs), fs; assert not [p for p in fs if p.suffix.lower() in ('.bin', '.pt', '.pth', '.ckpt', '.pkl', '.pickle')], fs; [open(p, 'rb').read(1) for p in fs]"
 EXPOSE 5001
 
 # Shell form so $PORT is expanded (Cloud Run injects its own PORT).

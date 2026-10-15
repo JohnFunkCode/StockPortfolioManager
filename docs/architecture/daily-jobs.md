@@ -156,21 +156,33 @@ cannot report its own absence. Ceiling: `NEWS_STALE_MAX_AGE_HOURS` (120, sized f
 
 **FinBERT weights are baked into the images, never downloaded at runtime** (issue #280). The
 builder stage of `Dockerfile.api` and `Dockerfile.news` runs `scripts/bake_finbert.py`, which
-downloads a **pinned** `ProsusAI/finbert` revision (`DEFAULT_REVISION` in the script), re-saves it
-as a single safetensors file in `/opt/models/finbert`, and verifies it loads offline; both images
+downloads a **pinned** `ProsusAI/finbert` revision (`DEFAULT_REVISION` in the script) — an
+allow-list of five files, each checked against `EXPECTED_SHA256` before anything parses it — re-saves
+it as a single safetensors file in `/opt/models/finbert`, and verifies it loads offline; both images
 set `FINBERT_MODEL_PATH=/opt/models/finbert` and `HF_HUB_OFFLINE=1`. `_ensure_finbert`
 (`quantcore/services/sentiment.py`) loads from that path with `local_files_only=True` when it is
-set and falls back to the Hub id when it is not (local dev), under a lock so concurrent first
+set and falls back to the Hub id pinned to `FINBERT_REVISION` when it is not (local dev), under a lock so concurrent first
 callers share one load. The news Job warms the model on a background thread
 (`SentimentService.warm()`) while collecting; the API deliberately stays lazy, because Cloud Run
 throttles CPU outside requests and a startup preload would tax every cold start. Rules that follow:
 
-- **Bumping the model is a reviewed one-line change** to `DEFAULT_REVISION` (or
-  `--build-arg FINBERT_REVISION=<sha>`), never a follow of Hub `main` — a new checkpoint shifts the
-  score distribution and puts a step into stored sentiment history.
-- The bake downloads with `use_safetensors=False` on purpose: left alone, `transformers` also
-  fetches the Hub bot's safetensors-conversion PR ref and pulls **both** formats (836 MB, extra Hub
-  calls, more 429 exposure). Don't "simplify" that flag away.
+- **Bumping the model is a reviewed change** to `DEFAULT_REVISION`, `EXPECTED_SHA256` (the bake)
+  and `FINBERT_REVISION` (`sentiment.py`) together, never a follow of Hub `main` — a new checkpoint
+  shifts the score distribution and puts a step into stored sentiment history.
+  `--build-arg FINBERT_REVISION=<sha>` still reaches the bake, but a revision whose files don't
+  match the committed hashes fails the build. Show the bump scores the same with
+  `scripts/finbert_parity.py OLD_DIR NEW_DIR`.
+- **No pickle-format model is ever fetched or loaded** (#381). Unpickling a `.bin`/`.pt`/`.ckpt`
+  runs code. The bake's `snapshot_download` uses an explicit `allow_patterns` list
+  (`model.safetensors`, config, tokenizer files), so `pytorch_model.bin` is never requested — which
+  also keeps the old 429 protection: no bot-PR lookup, one format, ~438 MB. Pickles are refused in
+  four places: `verify_hashes()` on the download, the bake's `verify()` on the output,
+  `_ensure_finbert` on a local `FINBERT_MODEL_PATH`, and the Dockerfiles' `appuser` check. Every
+  model `from_pretrained` passes `use_safetensors=True`, and `tests/test_no_pickle_model_loads.py`
+  fails CI on `torch.load`, `pickle.load`, `trust_remote_code` or a model load without it. (Until
+  #381 the bake passed `use_safetensors=False` and deserialized the upstream `.bin` — a 429
+  workaround, not a security choice; plan and gotchas in
+  [`finbert-safetensors-plan.md`](../proposals/finbert-safetensors-plan.md).)
 - **Baked weights must be readable by the runtime user** (#375). The bake runs as root in the
   builder stage and `save_pretrained` wrote `model.safetensors` as `0600 root`; the final stage
   runs as `appuser` (uid 1000), so every load failed — and **safetensors reports that `EACCES` as

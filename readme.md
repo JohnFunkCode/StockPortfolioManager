@@ -305,7 +305,8 @@ only. The stack runs services only; the daily Jobs are not part of it.
 | `quantcore-ui` | `Dockerfile.ui` | Express serving the SPA and proxying `/api` |
 
 FinBERT weights are pinned and baked in at build time by `scripts/bake_finbert.py`, so no
-container downloads a model at runtime.
+container downloads a model at runtime. The bake fetches only safetensors weights, checks every
+file against a committed sha256, and never loads a pickle-format model (#381).
 
 ---
 

@@ -8,9 +8,8 @@ conflicted, it does not decide that a conflict means HTTP 409. That call is
 `WatchlistService`'s.
 
 Rows come back in the exact shape `api/deps.load_watchlist()` produced from the
-YAML — every key, including the `None` placeholders the front end,
-`PricesService.screen_securities`, `SentimentService` and `GET /api/securities`
-all read.
+YAML — every key, including the `None` placeholders that
+`PricesService.screen_securities` and `SentimentService` read.
 
 The list is global (plan decision 1): no `owner` column, no owner parameter.
 """
@@ -103,9 +102,9 @@ def _utc_now_iso() -> str:
 def _row_to_dict(row) -> Dict[str, Any]:
     """Map a watchlist row to the YAML-parity dict the REST layer expects.
 
-    The four `None` placeholders are not padding: `GET /api/securities` merges
-    these rows with portfolio rows into one list, so both sides must carry the
-    same keys.
+    The four `None` placeholders are not padding: the screener and the
+    sentiment summary read watchlist and portfolio rows through the same code,
+    so both sides must carry the same keys.
     """
     return {
         "name": (row["name"] or "").strip() if row["name"] is not None else "",

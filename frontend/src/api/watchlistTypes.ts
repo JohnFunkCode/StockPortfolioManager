@@ -66,6 +66,22 @@ export interface WatchlistFundamentalsResponse {
   rows: WatchlistFundamentalsRow[];
 }
 
+/** One row of GET /api/watchlist/mine (issue #224): the fundamentals row plus
+ * whether the caller holds the symbol. The portfolio is a subset of the shared
+ * watchlist, so every row is a watchlist entry; `quantity` and `avg_price`
+ * (quantity-weighted over open lots, computed server-side) are `null` on an
+ * unheld row. */
+export interface WatchlistMineRow extends WatchlistFundamentalsRow {
+  held: boolean;
+  quantity: number | null;
+  avg_price: number | null;
+}
+
+export interface WatchlistMineResponse extends Omit<WatchlistFundamentalsResponse, 'rows'> {
+  held_count: number;
+  rows: WatchlistMineRow[];
+}
+
 /** PATCH /api/watchlist/{ticker} — tags are the only editable field, and they
  * are replaced wholesale rather than merged. */
 export interface UpdateWatchlistTagsResponse {

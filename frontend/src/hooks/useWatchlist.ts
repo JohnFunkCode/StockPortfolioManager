@@ -14,17 +14,27 @@ export function useWatchlistFundamentals() {
   });
 }
 
+/** The merged `/watchlist` page's read (issue #224): the fundamentals rows
+ * with the caller's own holdings marked. */
+export function useWatchlistMine() {
+  return useQuery({
+    queryKey: ['watchlist-mine'],
+    queryFn: () => watchlistApi.getMine(),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 /** Replace a symbol's tags.
  *
- * Invalidates `['securities']` as well as this page's own key: the securities
- * table renders the same tags and drives its filter off them, so leaving it
- * alone would show two different answers on two tabs. */
+ * Invalidates every read that renders the tags (`['watchlist-mine']`,
+ * `['watchlist-fundamentals']`, `['securities']`), so no two views disagree. */
 export function useSetWatchlistTags() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ ticker, tags }: { ticker: string; tags: string[] }) =>
       watchlistApi.setTags(ticker, tags),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['watchlist-mine'] });
       qc.invalidateQueries({ queryKey: ['watchlist-fundamentals'] });
       qc.invalidateQueries({ queryKey: ['securities'] });
     },

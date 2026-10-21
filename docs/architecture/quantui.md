@@ -34,6 +34,19 @@ stale/unscored counts (Rule 8.4); the page sorts on `market_cap_usd` and leaves 
 `market_cap` column deliberately **unsortable**, because ordering mixed currencies ranks exchange
 rates rather than companies.
 
+Since issue #224 it is also the only research list: the **Securities page is retired** and
+`/securities` is a `nav: false` redirect to `/watchlist`, so old links still land. The page now
+reads `GET /api/watchlist/mine` — the same rows plus, for the caller, `held`, `quantity` and
+`avg_price` (quantity-weighted over open lots, `position_rollup` in
+`quantcore/analytics/portfolio_math.py`). The team's rule is that the portfolio is a subset of the
+watchlist, so there are no held-only rows: a held symbol that is off the list is left out and
+logged as a warning. A held row gets a Held chip, and the Show filter is All / Held. The screener,
+the sentiment dashboard and the options-snapshot refresh moved over as
+`components/watchlist/ScreenerPanel.tsx`, `SentimentDashboard.tsx` and `OptionsRefreshPanel.tsx`.
+The per-symbol drill-down keeps its `/securities/:symbol` URL (its Back button returns to
+`/watchlist`), and `GET /api/securities` — the old list route — is gone; `/api/securities/lookup`
+and every `/api/securities/{ticker}/*` route stay.
+
 The **Fundamentals page** (`/fundamentals`, issue #147 Part D) answers "what's good?" across the
 **tracked universe** — the shared watchlist plus *every* owner's positions, deliberately the same
 set `main.py` captures options for and warms fundamentals over. Five panels

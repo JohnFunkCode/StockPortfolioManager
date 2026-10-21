@@ -12,6 +12,7 @@ from quantcore.analytics.portfolio_math import (
     gain_loss,
     gain_loss_pct,
     period_return,
+    position_rollup,
     summary_totals,
 )
 
@@ -226,6 +227,56 @@ class TestSummaryTotals(unittest.TestCase):
         totals = summary_totals(lots, as_of=date(2026, 1, 11))
         self.assertEqual(totals["total_investment"], Decimal("0.00"))
         self.assertEqual(totals["total_current_value"], Decimal("0.00"))
+
+
+class TestPositionRollup(unittest.TestCase):
+    """Issue #224: one held row per symbol, every open lot counted."""
+
+    def test_no_lots_is_none_not_zero(self):
+        self.assertEqual(
+            position_rollup([]),
+            {"quantity": None, "avg_price": None, "lot_count": 0},
+        )
+
+    def test_single_lot(self):
+        result = position_rollup([{"quantity": Decimal("10"), "purchase_price": Decimal("50")}])
+        self.assertEqual(result["quantity"], Decimal("10"))
+        self.assertEqual(result["avg_price"], Decimal("50.00"))
+        self.assertEqual(result["lot_count"], 1)
+
+    def test_mixed_lot_sizes_are_quantity_weighted(self):
+        # 10 @ 100 + 30 @ 200 = 7000 over 40 shares = 175, not the plain mean 150
+        # and not the last lot's 200 (the retired /api/securities bug).
+        result = position_rollup([
+            {"quantity": Decimal("10"), "purchase_price": Decimal("100")},
+            {"quantity": Decimal("30"), "purchase_price": Decimal("200")},
+        ])
+        self.assertEqual(result["quantity"], Decimal("40"))
+        self.assertEqual(result["avg_price"], Decimal("175.00"))
+        self.assertEqual(result["lot_count"], 2)
+
+    def test_lot_missing_a_field_is_skipped(self):
+        result = position_rollup([
+            {"quantity": Decimal("5"), "purchase_price": Decimal("20")},
+            {"quantity": None, "purchase_price": Decimal("999")},
+            {"quantity": Decimal("7"), "purchase_price": None},
+        ])
+        self.assertEqual(result["quantity"], Decimal("5"))
+        self.assertEqual(result["avg_price"], Decimal("20.00"))
+        self.assertEqual(result["lot_count"], 1)
+
+    def test_zero_total_quantity_does_not_divide(self):
+        result = position_rollup([{"quantity": Decimal("0"), "purchase_price": Decimal("10")}])
+        self.assertIsNone(result["quantity"])
+        self.assertIsNone(result["avg_price"])
+
+    def test_avg_price_rounds_half_up_to_cents(self):
+        # (1 * 10.00 + 2 * 10.01) / 3 = 10.00666... -> 10.01
+        result = position_rollup([
+            {"quantity": Decimal("1"), "purchase_price": Decimal("10.00")},
+            {"quantity": Decimal("2"), "purchase_price": Decimal("10.01")},
+        ])
+        self.assertEqual(result["avg_price"], Decimal("10.01"))
 
 
 if __name__ == "__main__":

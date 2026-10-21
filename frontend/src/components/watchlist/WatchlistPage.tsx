@@ -2,9 +2,16 @@
  * The `/watchlist` page — the replacement for the nightly HTML report
  * (issue #147 Part C).
  *
- * One request feeds the whole table (`GET /api/watchlist/fundamentals`, six
- * queries and zero network calls server-side), so everything here is rendering
- * and filtering. Two rules the report taught us, kept visible:
+ * It is also the old Securities page (issue #224): the screener, the sentiment
+ * dashboard and the options-refresh panel moved here, and each row says whether
+ * the signed-in user holds it. The portfolio is a subset of the shared
+ * watchlist, so "held" is a flag on a watchlist row, never a row of its own.
+ *
+ * One request feeds the whole table (`GET /api/watchlist/mine`, seven queries
+ * and zero network calls server-side — the six of `/watchlist/fundamentals`
+ * plus the owner's open lots), so everything here is rendering and filtering.
+ * Qty and Avg Price are rolled up server-side (`position_rollup`), not here.
+ * Two rules the report taught us, kept visible:
  *
  * - **Returns arrive as percent, not fractions** (`quantcore/analytics/returns.py`
  *   — "dates and closes in, Decimal percent out"), so the columns use
@@ -36,11 +43,14 @@ import {
   Select,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
 import type { SelectChangeEvent } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import FilterListIcon from '@mui/icons-material/FilterList';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import {
@@ -54,9 +64,13 @@ import type { GridComparatorFn, GridSortDirection } from '@mui/x-data-grid';
 import AddSecurityDialog from '../securities/AddSecurityDialog';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
-import { useWatchlistFundamentals, useSetWatchlistTags } from '../../hooks/useWatchlist';
-import { useRemoveFromWatchlist } from '../../hooks/useSecurities';
-import type { WatchlistFundamentalsRow } from '../../api/watchlist';
+import ScreenerPanel from './ScreenerPanel';
+import SentimentDashboard from './SentimentDashboard';
+import OptionsRefreshPanel from './OptionsRefreshPanel';
+import { SentimentBadge } from './sentiment';
+import { useWatchlistMine, useSetWatchlistTags } from '../../hooks/useWatchlist';
+import { useRemoveFromWatchlist, useSentimentSummary } from '../../hooks/useSecurities';
+import type { WatchlistMineRow } from '../../api/watchlist';
 import {
   formatCurrency,
   formatDate,
@@ -123,8 +137,8 @@ function scoreThenReturn(direction: GridSortDirection): GridComparatorFn<number 
   return (a, b, paramsA, paramsB) => {
     const primary = compare(a, b);
     if (primary !== 0) return primary;
-    const rowA = paramsA.api.getRow(paramsA.id) as WatchlistFundamentalsRow | null;
-    const rowB = paramsB.api.getRow(paramsB.id) as WatchlistFundamentalsRow | null;
+    const rowA = paramsA.api.getRow(paramsA.id) as WatchlistMineRow | null;
+    const rowB = paramsB.api.getRow(paramsB.id) as WatchlistMineRow | null;
     return compare(rowA?.return_30d ?? null, rowB?.return_30d ?? null);
   };
 }
@@ -161,14 +175,22 @@ function readSortModel(): GridSortModel {
 
 export default function WatchlistPage() {
   const navigate = useNavigate();
-  const { data, isLoading, error } = useWatchlistFundamentals();
+  const { data, isLoading, error } = useWatchlistMine();
   const setTags = useSetWatchlistTags();
   const removeFromWatchlist = useRemoveFromWatchlist();
+  const {
+    data: sentimentData,
+    isLoading: sentimentLoading,
+    refetch: refetchSentiment,
+  } = useSentimentSummary('all');
 
   const [search, setSearch] = useState('');
+  const [show, setShow] = useState<'all' | 'held'>('all');
+  const [screenerOpen, setScreenerOpen] = useState(false);
+  const [sentimentOpen, setSentimentOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<string | null>(null);
-  const [tagTarget, setTagTarget] = useState<WatchlistFundamentalsRow | null>(null);
+  const [tagTarget, setTagTarget] = useState<WatchlistMineRow | null>(null);
   const [tagChips, setTagChips] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
 
@@ -183,7 +205,15 @@ export default function WatchlistPage() {
     });
   };
 
-  const rows = useMemo<WatchlistFundamentalsRow[]>(() => data?.rows ?? [], [data]);
+  const rows = useMemo<WatchlistMineRow[]>(() => data?.rows ?? [], [data]);
+
+  const sentimentMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    (sentimentData?.items ?? []).forEach((item) => {
+      if (item.overall_sentiment) map[item.symbol] = item.overall_sentiment;
+    });
+    return map;
+  }, [sentimentData]);
 
   const allTags = useMemo<string[]>(() => {
     const set = new Set<string>();
@@ -191,9 +221,10 @@ export default function WatchlistPage() {
     return Array.from(set).sort();
   }, [rows]);
 
-  const filtered = useMemo<WatchlistFundamentalsRow[]>(
+  const filtered = useMemo<WatchlistMineRow[]>(
     () =>
       rows.filter((r) => {
+        if (show === 'held' && !r.held) return false;
         if (tagFilter.length > 0 && !tagFilter.some((t) => (r.tags ?? []).includes(t))) {
           return false;
         }
@@ -205,10 +236,10 @@ export default function WatchlistPage() {
         }
         return true;
       }),
-    [rows, tagFilter, search],
+    [rows, show, tagFilter, search],
   );
 
-  const openTagEditor = (row: WatchlistFundamentalsRow) => {
+  const openTagEditor = (row: WatchlistMineRow) => {
     setTagTarget(row);
     setTagChips([...(row.tags ?? [])]);
     setTagInput('');
@@ -242,19 +273,30 @@ export default function WatchlistPage() {
     removeFromWatchlist.mutate(removeTarget, { onSuccess: () => setRemoveTarget(null) });
   };
 
-  const columns: GridColDef<WatchlistFundamentalsRow>[] = [
+  const columns: GridColDef<WatchlistMineRow>[] = [
     {
       field: 'symbol',
       headerName: 'Symbol',
-      width: 100,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, string>) => (
-        <Typography
-          variant="body2"
-          sx={{ cursor: 'pointer', color: 'secondary.main', fontWeight: 600, lineHeight: '52px' }}
-          onClick={() => navigate(`/securities/${p.value}`)}
-        >
-          {p.value}
-        </Typography>
+      width: 130,
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, string>) => (
+        <Stack direction="row" spacing={0.75} alignItems="center" sx={{ height: '100%' }}>
+          <Typography
+            variant="body2"
+            sx={{ cursor: 'pointer', color: 'secondary.main', fontWeight: 600 }}
+            onClick={() => navigate(`/securities/${p.value}`)}
+          >
+            {p.value}
+          </Typography>
+          {p.row.held && (
+            <Tooltip title="In your portfolio">
+              <Chip
+                size="small"
+                label="Held"
+                sx={{ fontSize: 10, height: 18, bgcolor: '#1e3a2f', color: GREEN, border: `1px solid ${GREEN}` }}
+              />
+            </Tooltip>
+          )}
+        </Stack>
       ),
     },
     { field: 'name', headerName: 'Name', flex: 1, minWidth: 160 },
@@ -263,18 +305,45 @@ export default function WatchlistPage() {
       headerName: 'Price',
       width: 100,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <Typography variant="body2">
           {p.value == null ? '—' : formatCurrency(p.value, p.row.currency)}
         </Typography>
       ),
     },
     {
+      field: 'quantity',
+      headerName: 'Qty',
+      width: 80,
+      type: 'number',
+      getSortComparator: nullsLast,
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
+        <Typography variant="body2" sx={{ color: p.value == null ? '#4b5563' : undefined }}>
+          {p.value == null ? '—' : p.value.toLocaleString()}
+        </Typography>
+      ),
+    },
+    {
+      field: 'avg_price',
+      headerName: 'Avg Price',
+      width: 104,
+      type: 'number',
+      getSortComparator: nullsLast,
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) =>
+        p.value == null ? (
+          <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>
+        ) : (
+          <Tooltip title="Average over your open lots, weighted by quantity">
+            <Typography variant="body2">{formatCurrency(p.value, p.row.currency)}</Typography>
+          </Tooltip>
+        ),
+    },
+    {
       field: 'return_5d',
       headerName: '5d',
       width: 70,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <ReturnCell value={p.value} />
       ),
     },
@@ -283,7 +352,7 @@ export default function WatchlistPage() {
       headerName: '30d',
       width: 70,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <ReturnCell value={p.value} />
       ),
     },
@@ -292,7 +361,7 @@ export default function WatchlistPage() {
       headerName: '60d',
       width: 70,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <ReturnCell value={p.value} />
       ),
     },
@@ -301,7 +370,7 @@ export default function WatchlistPage() {
       headerName: 'YTD',
       width: 70,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <ReturnCell value={p.value} />
       ),
     },
@@ -310,7 +379,7 @@ export default function WatchlistPage() {
       headerName: '1y',
       width: 70,
       type: 'number',
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <ReturnCell value={p.value} />
       ),
     },
@@ -320,7 +389,7 @@ export default function WatchlistPage() {
       width: 92,
       type: 'number',
       getSortComparator: scoreThenReturn,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => {
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => {
         if (p.value == null) {
           return (
             <Tooltip title="No cached fundamentals for this symbol yet">
@@ -338,6 +407,15 @@ export default function WatchlistPage() {
         );
       },
     },
+    {
+      field: 'news',
+      headerName: 'News',
+      width: 90,
+      sortable: false,
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow>) => (
+        <SentimentBadge sentiment={sentimentMap[p.row.symbol]} />
+      ),
+    },
     { field: 'sector', headerName: 'Sector', width: 120 },
     {
       field: 'market_cap_usd',
@@ -345,7 +423,7 @@ export default function WatchlistPage() {
       width: 110,
       type: 'number',
       getSortComparator: nullsLast,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) =>
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) =>
         p.value == null ? (
           <Tooltip title="No USD conversion for a non-dollar listing yet (issue #185)">
             <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>
@@ -361,7 +439,7 @@ export default function WatchlistPage() {
       // Deliberately not sortable: the values are in different currencies, so
       // ordering them ranks exchange rates rather than companies.
       sortable: false,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <Typography variant="body2" sx={{ color: '#d1d5db' }}>
           {formatMarketCap(p.value, p.row.market_cap_currency ?? p.row.currency)}
         </Typography>
@@ -373,7 +451,7 @@ export default function WatchlistPage() {
       width: 86,
       type: 'number',
       getSortComparator: nullsLast,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, number | null>) => {
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => {
         if (p.value == null) {
           return <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>;
         }
@@ -401,7 +479,7 @@ export default function WatchlistPage() {
       flex: 1,
       minWidth: 150,
       sortable: false,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow, string[]>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow, string[]>) => (
         <Stack
           direction="row"
           spacing={0.5}
@@ -440,7 +518,7 @@ export default function WatchlistPage() {
       headerName: '',
       width: 96,
       sortable: false,
-      renderCell: (p: GridRenderCellParams<WatchlistFundamentalsRow>) => (
+      renderCell: (p: GridRenderCellParams<WatchlistMineRow>) => (
         <Stack direction="row" spacing={0.5} onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Edit tags">
             <IconButton
@@ -474,6 +552,13 @@ export default function WatchlistPage() {
         <Stack direction="row" spacing={1.5} alignItems="baseline" flexWrap="wrap" useFlexGap>
           <Typography variant="h4">Watchlist</Typography>
           <Chip size="small" label={`${data?.count ?? 0} securities`} sx={{ fontSize: 11 }} />
+          {(data?.held_count ?? 0) > 0 && (
+            <Chip
+              size="small"
+              label={`${data?.held_count} held`}
+              sx={{ fontSize: 11, bgcolor: '#1e3a2f', color: GREEN, border: `1px solid ${GREEN}` }}
+            />
+          )}
           {data?.as_of && (
             <Chip
               size="small"
@@ -517,6 +602,17 @@ export default function WatchlistPage() {
             sx={{ minWidth: 180 }}
           />
 
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={show}
+            onChange={(_, v) => v && setShow(v)}
+            aria-label="Show"
+          >
+            <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="held">Held</ToggleButton>
+          </ToggleButtonGroup>
+
           <FormControl size="small" sx={{ minWidth: 220 }}>
             <InputLabel>Tags</InputLabel>
             <Select
@@ -553,11 +649,37 @@ export default function WatchlistPage() {
             </Button>
           )}
 
+          <Button
+            size="small"
+            startIcon={<FilterListIcon />}
+            variant={screenerOpen ? 'contained' : 'outlined'}
+            onClick={() => setScreenerOpen((o) => !o)}
+          >
+            Screener
+          </Button>
+          <Button
+            size="small"
+            variant={sentimentOpen ? 'contained' : 'outlined'}
+            color="secondary"
+            onClick={() => setSentimentOpen((o) => !o)}
+          >
+            Sentiment
+          </Button>
+
           <Typography variant="body2" color="text.secondary" sx={{ ml: 'auto' }}>
             {filtered.length} of {rows.length} securities
           </Typography>
         </Stack>
       </Paper>
+
+      <ScreenerPanel open={screenerOpen} />
+      <SentimentDashboard
+        open={sentimentOpen}
+        data={sentimentData}
+        isLoading={sentimentLoading}
+        onRefresh={() => refetchSentiment()}
+      />
+      <OptionsRefreshPanel />
 
       <DataGrid
         rows={filtered}

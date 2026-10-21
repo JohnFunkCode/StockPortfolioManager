@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 
-vi.mock('../../hooks/useSecurities', async (importOriginal) => ({
+vi.mock('../../hooks/useWatchlist', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  useSecurities: () => ({
-    data: { securities: [{ symbol: 'INTC', name: 'Intel' }] },
+  useWatchlistMine: () => ({
+    data: { rows: [{ symbol: 'INTC', name: 'Intel' }] },
   }),
 }));
 

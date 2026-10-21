@@ -13,10 +13,10 @@
  * and costs one click rather than two.
  */
 import type { ReactElement } from 'react';
+import { Navigate } from 'react-router-dom';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import ListAltIcon from '@mui/icons-material/ListAlt';
-import BarChartIcon from '@mui/icons-material/BarChart';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import AssessmentIcon from '@mui/icons-material/Assessment';
@@ -25,7 +25,6 @@ import DashboardPage from './components/dashboard/DashboardPage';
 import PortfolioPage from './components/portfolio/PortfolioPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
-import SecuritiesPage from './components/securities/SecuritiesPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
 import ArbitragePage from './components/arbitrage/ArbitragePage';
 import WatchlistPage from './components/watchlist/WatchlistPage';
@@ -61,7 +60,8 @@ export const routes: AppRoute[] = [
   { path: '/plans', label: 'Plans', group: MY_POSITIONS, icon: <ListAltIcon />, element: <PlansPage /> },
   { path: '/plans/:id', label: 'Plan detail', nav: false, element: <PlanDetailPage /> },
   { path: '/harvester', label: 'Harvester', group: MY_POSITIONS, icon: <DashboardIcon />, element: <DashboardPage /> },
-  { path: '/securities', label: 'Securities', group: RESEARCH, icon: <BarChartIcon />, element: <SecuritiesPage /> },
+  // The Securities page merged into Watchlist (#224); old links and bookmarks land there.
+  { path: '/securities', label: 'Securities (redirect)', nav: false, element: <Navigate to="/watchlist" replace /> },
   { path: '/securities/:symbol', label: 'Security detail', nav: false, element: <SecurityDetailPage /> },
   { path: '/watchlist', label: 'Watchlist', group: RESEARCH, icon: <VisibilityIcon />, element: <WatchlistPage /> },
   { path: '/fundamentals', label: 'Fundamentals', group: RESEARCH, icon: <AssessmentIcon />, element: <FundamentalsPage /> },

@@ -49,7 +49,7 @@ def load_watchlist() -> list[dict]:
 
     Issue #83: this read the repo's ``watchlist.yaml``, which is baked into the
     container image and read-only in Cloud Run, so anything the UI added
-    vanished. Repointing this one function also fixes ``GET /api/securities``,
-    the sentiment summary and the screener, which all go through it.
+    vanished. Repointing this one function also fixes the sentiment summary
+    and the screener, which both go through it.
     """
     return get_services().watchlist.list_entries()

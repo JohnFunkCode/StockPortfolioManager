@@ -21,7 +21,6 @@ GET    /api/portfolio/lots  ->  get_lots_api_portfolio_lots_get
 GET    /api/portfolio/sales  ->  get_sales_api_portfolio_sales_get
 GET    /api/portfolio/symbols  ->  get_symbol_rows_api_portfolio_symbols_get
 GET    /api/rungs/{rung_id}  ->  get_rung_api_rungs__rung_id__get
-GET    /api/securities  ->  get_securities_api_securities_get
 GET    /api/securities/fundamentals/cache-stats  ->  get_cache_stats_api_securities_fundamentals_cache_stats_get
 GET    /api/securities/fundamentals/score-changes  ->  get_fundamental_score_changes_api_securities_fundamentals_score_changes_get
 GET    /api/securities/fundamentals/sector-breakdown  ->  get_sector_fundamental_breakdown_api_securities_fundamentals_sector_breakdown_get
@@ -88,6 +87,7 @@ GET    /api/symbols  ->  list_symbols_api_symbols_get
 GET    /api/symbols/{ticker}/price  ->  get_symbol_price_api_symbols__ticker__price_get
 GET    /api/watchlist  ->  get_watchlist_api_watchlist_get
 GET    /api/watchlist/fundamentals  ->  get_watchlist_fundamentals_api_watchlist_fundamentals_get
+GET    /api/watchlist/mine  ->  get_watchlist_mine_api_watchlist_mine_get
 PATCH  /api/plans/{instance_id}  ->  update_plan_api_plans__instance_id__patch
 PATCH  /api/portfolio/lots/{lot_id}  ->  update_lot_api_portfolio_lots__lot_id__patch
 PATCH  /api/portfolio/sales/{sale_id}  ->  update_sale_api_portfolio_sales__sale_id__patch

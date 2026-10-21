@@ -40,12 +40,10 @@ describe('App routing', () => {
     expect(screen.getAllByRole('link').length).toBeGreaterThan(0);
   });
 
-  it('renders the securities route', async () => {
-    mockApi([[/\/api\//, { securities: [] }]]);
+  it('redirects the retired /securities page to the merged Watchlist (#224)', async () => {
+    mockApi([[/\/api\//, { rows: [], count: 0, stale_count: 0, unscored_count: 0, held_count: 0 }]]);
     renderApp('/securities');
-    await waitFor(() =>
-      expect(screen.getAllByRole('link').length).toBeGreaterThan(0),
-    );
+    expect(await screen.findByRole('heading', { name: /Watchlist/ })).toBeInTheDocument();
   });
 
   it('shows the not-found fallback for an unknown route', () => {
@@ -58,7 +56,7 @@ describe('App routing', () => {
     mockApi([
       [/\/api\//, () => ({ __status: 403, error: 'not_provisioned', message: 'not_provisioned' })],
     ]);
-    renderApp('/securities');
+    renderApp('/watchlist');
     await waitFor(() =>
       expect(
         screen.getByText(/restricted to authorized users/i),

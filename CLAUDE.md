@@ -233,9 +233,12 @@ format). The watchlist is DB-backed and **global** — one shared list, `added_b
 `watchlist.yaml` is import-only and there is deliberately **no fallback to the YAML file** (an
 empty table is a loud Discord alarm). Rules to keep:
 
-- `GET /api/watchlist/fundamentals` must stay **declared before** `/watchlist/{ticker}` in
-  `api/routers/portfolio.py`, and its six-query, zero-network shape must not be "simplified" into a
-  per-symbol loop (`tests/test_watchlist_service.py` guards it).
+- `GET /api/watchlist/fundamentals` and `GET /api/watchlist/mine` must stay **declared before**
+  `/watchlist/{ticker}` in `api/routers/portfolio.py`, and their six- and seven-query,
+  zero-network shapes must not be "simplified" into a per-symbol loop
+  (`tests/test_watchlist_service.py` guards both). `/watchlist/mine` is the Watchlist page's
+  source since the Securities page was retired (#224); the portfolio is a subset of the
+  watchlist, so a held symbol off the list is logged and left out, never added as a row.
 - Watchlist removal is UI-only: `mcp_gateway/rest_client.py` has no `delete` verb.
 - **A watchlist entry's currency is resolved server-side** from `info["currency"]` (not
   `financialCurrency`), failing soft *and* fast: `YFinanceGateway.ticker_info` uses a daemon

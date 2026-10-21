@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 
+from quantcore.analytics.portfolio_math import position_rollup
 from quantcore.analytics.returns import normalize_market_cap
 from quantcore.repositories.watchlist_repository import WatchlistRepository
 from quantcore.services.portfolio import DuplicateSymbolError
@@ -81,6 +82,7 @@ class WatchlistService:
         yfinance: Any = None,
         prices: Any = None,
         fundamentals: Any = None,
+        portfolio_repository: Any = None,
     ):
         self._repo = repository
         # The gateway is what makes `currency` a looked-up fact rather than a
@@ -95,6 +97,13 @@ class WatchlistService:
         # returns_and_fundamentals needs them.
         self._prices = prices
         self._fundamentals = fundamentals
+        # The owner's lots, for owner_view (issue #224). A *repository*, not
+        # PortfolioService: PortfolioService already reaches the watchlist side
+        # through the registry's roster callable, and a service edge back would
+        # close a construction cycle — the same reason the Harvester/Portfolio
+        # pair is wired with repositories. Owner isolation is list_positions'
+        # SQL predicate, not anything here.
+        self._positions = portfolio_repository
 
     # ------------------------------------------------------------------
     # Currency resolution
@@ -172,13 +181,85 @@ class WatchlistService:
         as "we stopped watching that" instead of "this number is a week old".
         A symbol never scored at all simply has ``None`` fundamentals.
         """
-        if self._prices is None or self._fundamentals is None:
-            raise RuntimeError(
-                "returns_and_fundamentals requires the prices and fundamentals "
-                "services; construct WatchlistService via the registry"
-            )
+        self._require("returns_and_fundamentals", self._prices, self._fundamentals)
+        rows = self._build_rows(self.list_entries(), as_of)
+        return self._envelope(rows, as_of)
+
+    def owner_view(self, *, owner: str, as_of: Optional[date] = None) -> Dict[str, Any]:
+        """The shared watchlist with ``owner``'s holdings marked (issue #224).
+
+        This is the merged Watchlist page's one read. Every row is the
+        ``returns_and_fundamentals`` row plus ``held``, ``quantity`` and
+        ``avg_price`` (the last two summed / quantity-weighted over the owner's
+        OPEN lots by ``position_rollup``; ``None`` on an unheld row), and the
+        envelope adds ``held_count``.
+
+        **Seven queries, zero network** — the six of ``returns_and_fundamentals``
+        plus one ``list_positions(owner)``, constant in list size and guarded by
+        ``tests/test_watchlist_service.py`` the same way.
+
+        The portfolio is a subset of the watchlist by decision, so rows come
+        from the watchlist only. A held symbol that is *not* on it (data that
+        predates the rule) is left off and logged as a warning naming it —
+        neither silently shown as if it were watched nor silently lost.
+        """
+        self._require("owner_view", self._prices, self._fundamentals, self._positions)
 
         entries = self.list_entries()
+        lots_by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+        for lot in self._positions.list_positions(owner):
+            symbol = str(lot.get("symbol") or "").strip().upper()
+            if symbol:
+                lots_by_symbol.setdefault(symbol, []).append(lot)
+
+        watched = {str(e.get("symbol") or "").strip().upper() for e in entries}
+        unwatched = sorted(set(lots_by_symbol) - watched)
+        if unwatched:
+            logger.warning(
+                "owner_view: %d held symbol(s) not on the watchlist, omitted: %s",
+                len(unwatched), ", ".join(unwatched),
+            )
+
+        rows = self._build_rows(entries, as_of)
+        for row in rows:
+            lots = lots_by_symbol.get(row["symbol"])
+            rollup = position_rollup(lots) if lots else {"quantity": None, "avg_price": None}
+            row["held"] = bool(lots)
+            row["quantity"] = rollup["quantity"]
+            row["avg_price"] = rollup["avg_price"]
+
+        envelope = self._envelope(rows, as_of)
+        envelope["held_count"] = sum(1 for r in rows if r["held"])
+        return envelope
+
+    @staticmethod
+    def _require(method: str, *dependencies: Any) -> None:
+        if any(d is None for d in dependencies):
+            raise RuntimeError(
+                f"{method} requires the prices and fundamentals services (and, for "
+                "owner_view, the portfolio repository); construct WatchlistService "
+                "via the registry"
+            )
+
+    @staticmethod
+    def _envelope(rows: List[Dict[str, Any]], as_of: Optional[date]) -> Dict[str, Any]:
+        return {
+            "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "as_of": as_of.isoformat() if as_of else None,
+            "count": len(rows),
+            "stale_count": sum(1 for r in rows if r["fundamentals_stale"]),
+            "unscored_count": sum(1 for r in rows if r["composite_score"] is None),
+            "rows": rows,
+        }
+
+    def _build_rows(
+        self, entries: List[Dict[str, Any]], as_of: Optional[date]
+    ) -> List[Dict[str, Any]]:
+        """The returns-and-fundamentals rows for ``entries``, best score first.
+
+        Five queries: one bulk returns read and four fundamentals cache sweeps,
+        whatever the number of entries.
+        """
         symbols = [str(e.get("symbol") or "").strip().upper() for e in entries]
         symbols = [s for s in symbols if s]
 
@@ -279,15 +360,7 @@ class WatchlistService:
             ),
             reverse=True,
         )
-
-        return {
-            "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "as_of": as_of.isoformat() if as_of else None,
-            "count": len(rows),
-            "stale_count": sum(1 for r in rows if r["fundamentals_stale"]),
-            "unscored_count": sum(1 for r in rows if r["composite_score"] is None),
-            "rows": rows,
-        }
+        return rows
 
     # ------------------------------------------------------------------
     # Writes

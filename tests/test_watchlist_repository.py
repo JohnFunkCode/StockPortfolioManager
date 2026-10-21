@@ -196,8 +196,7 @@ class WatchlistRepositoryTest(unittest.TestCase):
 
     def test_row_shape_matches_the_legacy_yaml_loader(self):
         """api/deps.load_watchlist() emitted these exact keys, including the
-        None placeholders that let GET /api/securities merge watchlist rows
-        with portfolio rows into one list.
+        None placeholders the screener and sentiment code still read.
         """
         self.repo.add_entry(SYMBOL, name="Test Co", currency="usd", tags=["x"])
 

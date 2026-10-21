@@ -13,13 +13,11 @@ afterEach(() => {
 
 describe('securitiesApi GET endpoints', () => {
   it('getAll picks the endpoint by source', async () => {
-    const api = mockApi([[/\/api\/(securities|portfolio|watchlist)/, { securities: [] }]]);
-    await securitiesApi.getAll();
+    const api = mockApi([[/\/api\/(portfolio|watchlist)/, { securities: [] }]]);
     await securitiesApi.getAll('portfolio');
     await securitiesApi.getAll('watchlist');
-    expect(api.calls[0][0]).toContain('/api/securities');
-    expect(api.calls[1][0]).toContain('/api/portfolio');
-    expect(api.calls[2][0]).toContain('/api/watchlist');
+    expect(api.calls[0][0]).toContain('/api/portfolio');
+    expect(api.calls[1][0]).toContain('/api/watchlist');
   });
 
   it('detail GETs forward their ids and query params', async () => {

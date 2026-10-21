@@ -8,6 +8,7 @@ import os
 import tempfile
 import time
 import unittest
+from decimal import Decimal
 
 from quantcore.services.portfolio import DuplicateSymbolError
 from quantcore.services.watchlist import WatchlistService
@@ -673,6 +674,110 @@ class WatchlistReturnsAndFundamentalsTest(unittest.TestCase):
         svc = WatchlistService(FakeRepository())
         with self.assertRaises(RuntimeError):
             svc.returns_and_fundamentals()
+
+
+class CountingPortfolioRepository:
+    """Owner-filtered OPEN lots, as ``PortfolioRepository.list_positions``
+    returns them; counts every read so the query budget is asserted."""
+
+    def __init__(self, lots):
+        self._lots = list(lots)
+        self.queries = 0
+
+    def list_positions(self, owner, status="OPEN"):
+        self.queries += 1
+        return [
+            dict(lot) for lot in self._lots
+            if lot["owner"] == owner and lot.get("status", "OPEN") == status
+        ]
+
+
+class OwnerViewTest(WatchlistReturnsAndFundamentalsTest):
+    """Issue #224: the merged Watchlist page's ``GET /api/watchlist/mine``.
+
+    Subclasses the six-query test for its fixtures; the inherited cases run
+    again unchanged, which also proves the extra repository leaves
+    ``returns_and_fundamentals`` alone.
+    """
+
+    def _build(self, symbols, scores=None, lots=()):
+        svc = super()._build(symbols, scores)
+        self.positions = CountingPortfolioRepository(lots)
+        svc._positions = self.positions
+        return svc
+
+    @staticmethod
+    def _lot(symbol, quantity, price, owner="john"):
+        return {
+            "owner": owner, "symbol": symbol, "status": "OPEN",
+            "quantity": Decimal(str(quantity)), "purchase_price": Decimal(str(price)),
+        }
+
+    def test_seven_queries_and_no_yfinance_regardless_of_list_size(self):
+        for size in (1, 3, 25):
+            with self.subTest(symbols=size):
+                symbols = [f"SYM{i}" for i in range(size)]
+                svc = self._build(symbols, lots=[self._lot(s, 1, 10) for s in symbols])
+                result = svc.owner_view(owner="john")
+
+                total = (self.repo.queries + self.ohlcv.queries
+                         + self.fund_repo.queries + self.positions.queries)
+                self.assertEqual(total, 7, f"{size} symbols cost {total} queries")
+                self.assertEqual(self.positions.queries, 1)
+                self.assertEqual(self.yf.touched, [])
+                self.assertEqual(result["count"], size)
+                self.assertEqual(result["held_count"], size)
+
+    def test_marks_held_rows_and_leaves_the_rest_unheld(self):
+        svc = self._build(["NVDA", "AMD"], lots=[self._lot("NVDA", 10, 100)])
+        result = svc.owner_view(owner="john")
+        rows = {row["symbol"]: row for row in result["rows"]}
+
+        self.assertTrue(rows["NVDA"]["held"])
+        self.assertEqual(rows["NVDA"]["quantity"], Decimal("10"))
+        self.assertEqual(rows["NVDA"]["avg_price"], Decimal("100.00"))
+        self.assertFalse(rows["AMD"]["held"])
+        self.assertIsNone(rows["AMD"]["quantity"])
+        self.assertIsNone(rows["AMD"]["avg_price"])
+        self.assertEqual(result["held_count"], 1)
+        # Still the shared list's row: tags and returns come through.
+        self.assertEqual(rows["AMD"]["tags"], ["chips"])
+        self.assertIsNotNone(rows["NVDA"]["return_30d"])
+
+    def test_multi_lot_holding_rolls_up_every_lot(self):
+        """The retired /api/securities kept only the last lot."""
+        svc = self._build(["NVDA"], lots=[
+            self._lot("NVDA", 10, 100),
+            self._lot("nvda ", 30, 200),
+        ])
+        row = svc.owner_view(owner="john")["rows"][0]
+        self.assertEqual(row["quantity"], Decimal("40"))
+        self.assertEqual(row["avg_price"], Decimal("175.00"))
+
+    def test_held_symbol_off_the_watchlist_is_excluded_and_logged(self):
+        svc = self._build(["NVDA"], lots=[
+            self._lot("NVDA", 1, 10),
+            self._lot("TSLA", 5, 250),
+        ])
+        with self.assertLogs("quantcore.services.watchlist", "WARNING") as logs:
+            result = svc.owner_view(owner="john")
+
+        self.assertEqual([row["symbol"] for row in result["rows"]], ["NVDA"])
+        self.assertEqual(result["held_count"], 1)
+        self.assertIn("TSLA", "\n".join(logs.output))
+
+    def test_another_owners_lots_are_invisible(self):
+        svc = self._build(["NVDA"], lots=[self._lot("NVDA", 99, 1, owner="thomas")])
+        result = svc.owner_view(owner="john")
+        row = result["rows"][0]
+        self.assertFalse(row["held"])
+        self.assertIsNone(row["quantity"])
+        self.assertEqual(result["held_count"], 0)
+
+    def test_without_a_portfolio_repository_it_refuses(self):
+        svc = super()._build(["NVDA"])
+        with self.assertRaises(Exception):
+            svc.owner_view(owner="john")
 
 
 if __name__ == "__main__":

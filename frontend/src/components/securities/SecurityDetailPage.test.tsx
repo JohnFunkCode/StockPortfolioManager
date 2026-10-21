@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { Route, Routes } from 'react-router-dom';
 
 import SecurityDetailPage from './SecurityDetailPage';
 import {
@@ -9,11 +10,14 @@ import {
   optionsSnapshot,
   pcHistoryRows,
   renderWithProviders,
+  mineRow,
   securityRow,
+  watchlistMine,
 } from '../../testUtils';
 
 /** Every endpoint the detail page and its tabs may touch. */
 function armAll(overrides: Record<string, unknown> = {}) {
+  const source = overrides.source ?? 'portfolio';
   return mockApi([
     ['/technicals', overrides.tech ?? { ticker: 'INTC', indicators: indicatorRows(60) }],
     ['/options/latest', { ticker: 'INTC', snapshot: optionsSnapshot() }],
@@ -30,8 +34,13 @@ function armAll(overrides: Record<string, unknown> = {}) {
     }],
     ['/options/iv-rank', { ticker: 'INTC', current_iv: 45, iv_rank: 50, iv_percentile: 55, iv_52w_high: 80, iv_52w_low: 20, data_points: 100, history: ivExpirations() }],
     ['/earnings', { ticker: 'INTC', earnings_date: '2026-08-01', days_to_earnings: 30 }],
-    ['/api/securities', {
-      securities: [securityRow('INTC', { source: overrides.source ?? 'portfolio' })],
+    // Membership (#224): /watchlist/mine says on-watchlist (+ held), the
+    // portfolio read covers a held name that is off the watchlist.
+    ['/api/watchlist/mine', watchlistMine(
+      source === 'portfolio' ? [] : [mineRow('INTC', { held: source === 'both' })],
+    )],
+    [/\/api\/portfolio(\?|$)/, {
+      securities: source === 'watchlist' ? [] : [securityRow('INTC', { source: 'portfolio' })],
     }],
     // Must precede the catch-all, which would otherwise swallow the DELETE.
     ['/api/watchlist/INTC', overrides.watchlistDelete ?? { symbol: 'INTC', removed: true }],
@@ -192,6 +201,19 @@ describe('SecurityDetailPage', () => {
     renderPage();
     await screen.findByText('Remove from Portfolio');
     expect(screen.queryByText('Remove from Watchlist')).not.toBeInTheDocument();
+  });
+
+  it('Back returns to the merged Watchlist page (#224)', async () => {
+    armAll();
+    renderWithProviders(
+      <Routes>
+        <Route path="/securities/:symbol" element={<SecurityDetailPage />} />
+        <Route path="/watchlist" element={<div>watchlist landing</div>} />
+      </Routes>,
+      { route: '/securities/INTC' },
+    );
+    fireEvent.click(await screen.findByRole('button', { name: /back/i }));
+    expect(await screen.findByText('watchlist landing')).toBeInTheDocument();
   });
 
   it('still renders the page when technicals fail', async () => {

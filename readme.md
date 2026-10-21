@@ -223,7 +223,7 @@ authoritative endpoint list.** There are 111 routes, so the table below only gro
 | Router | Prefix | Covers |
 |--------|--------|--------|
 | `system.py` | `/api/health` | health check |
-| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, CSV import, delta exposure. Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals) and security lookup |
+| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, CSV import, delta exposure. Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals; `GET /api/watchlist/mine` adds the caller's holdings to it) and security lookup |
 | `prices.py` | `/api/securities/{ticker}/…` | OHLCV, price summary, technicals, VWAP (rolling, anchored, history), ATR bands, volume profile, candlesticks, gaps, drawdown |
 | `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | chains and contracts, spread pricing, IV rank, flow, OI change, GEX, gamma-wall history, the watchlist screen |
 | `fundamentals.py` | `/api/securities/…` | scores (single and batch, at most 25 symbols), growth, acceleration, earnings calendar, history, sector breakdown, cache stats. Collection reads take `?scope=all\|tracked` |
@@ -254,13 +254,12 @@ level. Pages are declared once, in `frontend/src/navigation.tsx`.
 | Portfolio | `/` | My Positions | positions and lots, gain/loss, lot and sale notes, and a chip linking each holding to its harvest plan |
 | Plans | `/plans` | My Positions | harvest plans with status. A plan can only exist for a symbol you hold |
 | Harvester | `/harvester` | My Positions | ladder roll-ups: active plans, rungs hit, shares harvested |
-| Securities | `/securities` | Research | per-symbol technical and fundamental views |
-| Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns, USD market caps, staleness and tags |
+| Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns, USD market caps, staleness, tags and news sentiment. Rows you hold carry a Held chip with your quantity and average price, and a Show filter narrows to them. Also hosts the technical screener, the sentiment dashboard and the options-snapshot refresh. It replaced the Securities page (#224); `/securities` redirects here |
 | Fundamentals | `/fundamentals` | Research | the tracked universe ranked by score, cut by sector, with score movement and the earnings calendar |
 | Arbitrage | `/arbitrage` | Research | scan results and per-pair factor breakdowns |
 | Settings | `/settings` | top level | your BYOK key vault and Sidekick model |
 
-The drill-down pages, `/plans/:id` and `/securities/:symbol`, are reached from those pages and
+The drill-down pages, `/plans/:id` and `/securities/:symbol` (opened from a Watchlist row), are reached from those pages and
 never from the nav bar. Every page carries the Sidekick chat rail.
 
 `./runUI-MAC.sh` starts the database proxy, the API and the Vite dev server together.

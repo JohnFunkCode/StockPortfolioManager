@@ -13,9 +13,12 @@ This document is a comprehensive inventory of every user-facing capability in th
 
 **Re-audited 2026-10-22** against what the frontend actually calls: every `apiRequest` path in
 `frontend/src/api/*.ts`, traced through `frontend/src/hooks/` to the components that consume it. A
-client function with no component behind it counts as **not surfaced**. Of the 111 REST operations,
-the WebUI reaches **59** (counting the fetches Sidekick cards make themselves), leaving 52 with no UI consumer; everything listed here is fully built, tested, and reachable over REST
-today, so surfacing it is **frontend-only work**. Every gap row from the 2026-07-20 audit is still
+client function with no component behind it counts as **not surfaced**, and so does a standalone
+endpoint whose data the UI only gets through an aggregate one. Of the 111 REST operations, the
+WebUI reaches **56** (counting the fetches Sidekick cards make themselves), leaving **55** with no
+UI consumer — each one is listed, by reason, in the
+[WebUI consumer inventory](#appendix-rest-operations-with-no-webui-consumer) at the end. Everything
+listed here is fully built, tested, and reachable over REST today, so surfacing it is **frontend-only work**. Every gap row from the 2026-07-20 audit is still
 open — nothing in Tiers 1–3 has shipped a UI since.
 
 ### Tier 1 — High-value analysis synthesis (flagship tools, invisible to UI users)
@@ -82,7 +85,7 @@ Analysis tab (issue #93).
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 111 operations (59 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 111 operations (56 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 15 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
@@ -147,7 +150,7 @@ Capabilities are organized by domain. **Bold ⚠ rows** are built-but-not-in-UI 
 | P/C ratio history (daily aggregated) | — | `GET .../options/history` | Options Performance tab (PCRatioChart) | — |
 | Backfill historical P/C via Polygon.io | — | `POST .../options/history/backfill` | Options Performance tab (backfill button) | — |
 | Bulk options snapshot refresh (portfolio or watchlist symbols) | — | `POST /api/securities/refresh-options-snapshots` | Watchlist page → `OptionsRefreshPanel` | — |
-| **⚠ Covered call / put / long setup screening (watchlist)** — cache-first, never calls Yahoo | `analyze_options_watchlist` | `GET /api/options/screen-watchlist` | **—** | `options_analysis.py --puts-budget 1000` |
+| **⚠ Covered call / put / long setup screening (watchlist)** — cache-first; the MCP path never calls Yahoo (`source=live` remains a REST-only operator escape hatch) | `analyze_options_watchlist` | `GET /api/options/screen-watchlist` | **—** | `options_analysis.py --puts-budget 1000` |
 | **⚠ Same, single symbol** | `analyze_options_symbol` | `GET .../options/screen` | **—** | `options_analysis.py` |
 | Portfolio delta exposure (aggregated) | — | `GET /api/portfolio/delta-exposure` | Harvester page → MM delta table | — |
 | Options-position alerts (ITM, expiration, profit target) | — | — | — | `main.py` daily Job (`Notifier.check_options_alerts`, reads `options_positions`) |
@@ -241,9 +244,9 @@ Fully surfaced — REST + WebUI, no gaps. Plans are owner-scoped in SQL, and a p
 |---|---|---|---|
 | Build volatility-based harvest plan (refused without an `OPEN` lot) | `POST /api/plans` | Plans page → create dialog (held symbols only) | `experiments/HarvesterExperiment.py` (algorithm reference) |
 | List plans (active + superseded) | `GET /api/plans` | Plans page (DataGrid + filters) | — |
-| Plan detail with rungs | `GET /api/plans/{id}`, `/{id}/rungs` | Plan Detail page (with `LivePrice`) | — |
+| Plan detail with rungs | `GET /api/plans/{id}` (rungs included), `/{id}/rungs` | Plan Detail page via `/plans/{id}` (with `LivePrice`); `/{id}/rungs` has no UI caller | — |
 | Edit plan notes / delete plan | `PATCH`/`DELETE /api/plans/{id}` | Plan Detail / Plans page | — |
-| Rung detail / achieve / execute | `GET /api/rungs/{id}`, `POST .../achieve`, `POST .../execute` | Plan Detail dialogs | — |
+| Rung detail / achieve / execute | `GET /api/rungs/{id}`, `POST .../achieve`, `POST .../execute` | Plan Detail dialogs (achieve/execute); `GET /api/rungs/{id}` has no UI caller | — |
 | Harvester stats (plan/rung/symbol counts) | `GET /api/dashboard/stats` | Harvester page stats cards | — |
 | Auto-close a plan when the position goes flat | (side effect of lot close/delete) | — | `PortfolioService._close_plan_if_flat` |
 | Scan active plans for rung hits → Discord alerts | — | — | `main.py` daily Cloud Run Job (via `HarvesterService`) |
@@ -260,7 +263,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 |---|---|---|---|---|---|
 | Per-symbol position rows (quantity, basis, current value, gain/loss, `active_plan_id`) | `get_portfolio` | `GET /api/portfolio/symbols` | Portfolio page | `portfolio_table` / `portfolio_allocation` cards | `main.py` (report) |
 | Portfolio totals (cost basis, current value, gain/loss $ and %, $/day) | `get_portfolio_summary` | `GET /api/portfolio/symbols` → `totals` | Portfolio page header | `get_portfolio_summary` (issue #208) | — |
-| Per-symbol lots (quantity, purchase price, date, gain/loss, and the reason it was bought) | `get_symbol_lots` | `GET /api/portfolio/lots` (filtered to the ticker by the caller) | Portfolio page → symbol drill-down | `get_symbol_lots` (issue #208), `symbol_lots` card | — |
+| Per-symbol lots (quantity, purchase price, date, gain/loss, and the reason it was bought) | `get_symbol_lots` | `GET /api/portfolio/lots` (filtered to the ticker by the caller); the UI reads lots nested in `GET /api/portfolio/symbols` | Portfolio page → symbol drill-down (via `/symbols`) | `get_symbol_lots` (issue #208), `symbol_lots` card | — |
 | **⚠ Recorded sales of a symbol, with the reason for each** (issue #266) | `get_symbol_sales` | `GET /api/portfolio/sales?symbol=` | **—** (hook exists, no component — #235) | `get_symbol_lots` (returns `sales` alongside `lots`) | — |
 | **⚠ Edit a sale's reason** (issue #266) | — | `PATCH /api/portfolio/sales/{id}` | **—** (hook exists, no component — #235) | — | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
@@ -378,7 +381,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 59 of 111 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 56 of 111 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation + stop-loss panels** — the two most powerful synthesis endpoints, invisible in the UI.
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -393,11 +396,50 @@ The WebUI reaches 59 of 111 REST operations. It has kept pace with portfolio, wa
 2. Add a **Fundamentals tab** to Security Detail reusing the existing tab pattern (`.../fundamentals` fan-out already aggregates score/revenue/acceleration).
 3. Append a **Microstructure section** to the existing Signals tab (`.../microstructure` returns all three signals in one call).
 4. Wire the existing `useSales` / `useUpdateSale` hooks into a sale-history view (#235).
-5. Delete `html_summary.py` / `simple_text_summary.py` (superseded legacy reports), and the unused `useOHLCV` hook.
+5. Delete `html_summary.py` / `simple_text_summary.py` (superseded legacy reports), and the unused `useOHLCV` hook (also referenced by `frontend/src/hooks/useSecurities.test.tsx`, so the test changes with it).
+
+---
+
+## Appendix: REST operations with no WebUI consumer
+
+The 55 operations in `docs/openapi-surface.txt` that no production frontend component reaches
+(2026-10-22). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
+`chatStream.ts`, keep only the ones whose client method has a non-test caller in `hooks/`,
+`components/` or `chat/`, and diff that set against the surface file. Three client methods look
+like coverage and aren't: `portfolioApi.getLots`, `rungsApi.list` and `rungsApi.get` have no
+callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
+
+**Gaps — listed in the ⭐ section above (34):**
+`GET /api/arbitrage/universe` · `GET /api/options/screen-watchlist` · `GET /api/portfolio/sales` ·
+`PATCH /api/portfolio/sales/{sale_id}` · `POST /api/portfolio/import` ·
+`POST /api/securities/fundamentals/scores-batch` · and under `/api/securities/{ticker}/`:
+`anchored-vwap`, `atr-bands`, `volume-profile`, `vwap/history`, `relative-strength`,
+`relative-strength/history`, `recommendation`, `stop-loss`, `microstructure`, `short-interest`,
+`dark-pool`, `bid-ask-spread`, `fundamentals`, `fundamentals/score`, `fundamentals/revenue-growth`,
+`fundamentals/earnings-acceleration`, `fundamentals/history`, `news/trend`, `POST news/collect`,
+`options/chain`, `options/full-chain`, `options/contracts`, `options/screen`,
+`options/gamma-wall-history`, `options/oi-change`, `options/gex-profile`, `options/unusual-calls`,
+`options/delta-adjusted-oi`.
+
+**The capability is in the UI, through an aggregate endpoint (18)** — these need no UI of their own:
+
+| Standalone operation(s) | Reached instead through |
+|---|---|
+| `/{ticker}/rsi`, `/macd`, `/ohlcv`, `/price-summary` | `/{ticker}/technicals` |
+| `/{ticker}/stochastic`, `/volume`, `/obv`, `/vwap`, `/candlestick`, `/higher-lows`, `/gaps` | `/{ticker}/signals/technical` |
+| `/{ticker}/drawdown` | `/{ticker}/signals/risk` |
+| `/{ticker}/news/sentiment` | `/api/securities/news/sentiment-summary` |
+| `/{ticker}/earnings-calendar` | `/{ticker}/earnings` |
+| `GET /api/portfolio/lots` | `GET /api/portfolio/symbols` (lots nested per symbol) |
+| `GET /api/plans/{instance_id}/rungs`, `GET /api/rungs/{rung_id}` | `GET /api/plans/{instance_id}` (rungs included) |
+| `GET /api/watchlist` | `GET /api/watchlist/mine` |
+
+**Admin / debug — no UI intended (3):** `GET /api/health` · `GET /api/securities/news/symbols` ·
+`GET /api/symbols`.
 
 ---
 
 **Document Version:** 2.3
-**Last Updated:** 2026-10-22 (full re-audit of WebUI coverage against `frontend/src/api` → hooks → components: 59 of 111 operations reached. Reflects the Securities → Watchlist merge (#224: `GET /api/securities` retired, `GET /api/watchlist/mine` added, `/securities` redirects), the My Positions / Research nav menus, `get_symbol_sales` (#266), the 23-table schema under Flyway, the news Job, and the full notification list. Corrected stale WebUI claims: the arbitrage universe, `GET /api/symbols`, and the sales endpoints have no UI consumer; `LivePrice` lives on Plan Detail; delta exposure and dashboard stats are on the Harvester page)
+**Last Updated:** 2026-10-22 (full re-audit of WebUI coverage against `frontend/src/api` → hooks → components: 56 of 111 operations reached, the other 55 inventoried in an appendix. Reflects the Securities → Watchlist merge (#224: `GET /api/securities` retired, `GET /api/watchlist/mine` added, `/securities` redirects), the My Positions / Research nav menus, `get_symbol_sales` (#266), the 23-table schema under Flyway, the news Job, and the full notification list. Corrected stale WebUI claims: the arbitrage universe, `GET /api/symbols`, and the sales endpoints have no UI consumer; `LivePrice` lives on Plan Detail; delta exposure and dashboard stats are on the Harvester page)
 **Prior version:** 2.2, 2026-08-14 (issue #208 — the Sidekick tool audit: added `arbitrage-server` and `portfolio-server`, corrected the tool count to 62 across 7, deleted the dual-registration claim)
 **Maintained By:** John Funk

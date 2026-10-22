@@ -7,7 +7,8 @@ Ports the Flask handlers (api/app.py) for:
   GET/POST  /api/watchlist
   PATCH     /api/watchlist/{ticker}   (tags only — issue #147 Part C)
   DELETE    /api/watchlist/{ticker}
-  GET       /api/securities
+  GET       /api/watchlist/fundamentals
+  GET       /api/watchlist/mine        (owner-scoped — issue #224)
   GET       /api/securities/lookup
   POST      /api/portfolio/lots/{lot_id}/close/preview   (issue #266)
   GET       /api/portfolio/sales                          (issue #266)
@@ -69,6 +70,7 @@ from ..schemas.portfolio import (
     UpdateWatchlistTagsRequest,
     UpdateWatchlistTagsResponse,
     WatchlistFundamentalsResponse,
+    WatchlistMineResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
 
@@ -320,6 +322,20 @@ def get_watchlist_fundamentals() -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(services().watchlist.returns_and_fundamentals())
 
 
+# Same ordering hazard as /watchlist/fundamentals above; the smoke test covers
+# both.
+@router.get("/watchlist/mine", response_model=WatchlistMineResponse)
+def get_watchlist_mine(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
+    """The shared watchlist with the caller's own holdings marked (issue #224).
+
+    Every row is a watchlist row — held symbols must already be on the list —
+    carrying ``held`` plus ``quantity``/``avg_price`` rolled up from the
+    owner's open lots. Seven queries, no network calls. Replaces the retired
+    ``GET /api/securities``.
+    """
+    return QuantCoreJSONResponse(services().watchlist.owner_view(owner=owner))
+
+
 @router.post("/watchlist", response_model=AddWatchlistResponse, status_code=201)
 def add_to_watchlist(
     body: AddWatchlistRequest, principal: Principal = Depends(require_principal)
@@ -395,25 +411,6 @@ def remove_from_watchlist(
     if removed == 0:
         return route_error_plain(f"{ticker} not found in watchlist", 404)
     return QuantCoreJSONResponse({"symbol": ticker, "removed": True})
-
-
-# --------------------------------------------------------------------------- #
-# Securities — combined portfolio + watchlist
-# --------------------------------------------------------------------------- #
-@router.get("/securities", response_model=SecuritiesResponse)
-def get_securities(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
-    portfolio = {s["symbol"]: s for s in load_portfolio(owner)}
-    watchlist = {s["symbol"]: s for s in load_watchlist()}
-    combined: dict[str, dict] = {}
-    for sym, s in portfolio.items():
-        combined[sym] = s
-    for sym, s in watchlist.items():
-        if sym in combined:
-            combined[sym]["source"] = "both"
-            combined[sym]["tags"] = s["tags"]
-        else:
-            combined[sym] = s
-    return QuantCoreJSONResponse({"securities": list(combined.values())})
 
 
 @router.get("/securities/lookup", response_model=SymbolLookupResponse)

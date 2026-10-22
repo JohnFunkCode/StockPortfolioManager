@@ -44,8 +44,8 @@ TEST_TEMPLATE = "zz_api_smoke_template"
 WATCHLIST_SYMBOL = "ZZWLAPI"
 
 # The exact key set api/deps.load_watchlist() produced from watchlist.yaml.
-# GET /api/securities merges watchlist rows with portfolio rows into one list,
-# so the DB-backed rows have to keep carrying the None placeholders.
+# The screener and sentiment code still read watchlist rows in this legacy
+# shape, so the DB-backed rows keep carrying the None placeholders.
 LEGACY_SECURITY_KEYS = {
     "name", "symbol", "currency", "purchase_price", "quantity",
     "purchase_date", "sale_price", "sale_date", "source", "tags",
@@ -324,10 +324,11 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIsInstance(resp.json()["securities"], list)
 
-    def test_securities_combined_shape(self):
+    def test_securities_list_route_is_retired(self):
+        # Issue #224: the merged Watchlist page reads /api/watchlist/mine. The
+        # lookup and per-ticker /api/securities/* routes stay.
         resp = self.client.get("/api/securities")
-        self.assertEqual(resp.status_code, 200)
-        self.assertIsInstance(resp.json()["securities"], list)
+        self.assertIn(resp.status_code, (404, 405))
 
     def test_add_position_missing_symbol_returns_plain_400(self):
         # Note the bare {"error": ...} body (no "status" key) — distinct from
@@ -475,22 +476,39 @@ class ApiSmokeTest(unittest.TestCase):
             require_owner, self._route_dependencies("POST", "/api/portfolio")
         )
 
-    def test_securities_marks_a_symbol_in_both_lists_as_both(self):
-        self._override_principal(TEST_IDENTITY)
-        self.client.post("/api/portfolio", json={
-            "symbol": WATCHLIST_SYMBOL, "purchase_price": 10.0, "quantity": 2,
-            "purchase_date": "2026-06-01",
-        })
-        self.addCleanup(self.client.delete, f"/api/portfolio/{WATCHLIST_SYMBOL}")
+    def test_watchlist_mine_marks_held_rows_with_rolled_up_lots(self):
         self.client.post("/api/watchlist", json={
             "symbol": WATCHLIST_SYMBOL, "tags": ["ai"],
         })
+        self._override_principal(TEST_IDENTITY)
+        resp = self.client.post("/api/portfolio", json={
+            "symbol": WATCHLIST_SYMBOL, "purchase_price": 10.0, "quantity": 2,
+            "purchase_date": "2026-06-01",
+        })
+        self.assertIn(resp.status_code, (200, 201), resp.text)
+        resp = self.client.post("/api/portfolio/lots", json={
+            "symbol": WATCHLIST_SYMBOL, "name": "Watchlist Smoke Co",
+            "currency": "USD", "purchase_price": "20.00", "quantity": "6",
+            "trade_date": "2026-06-02",
+        })
+        self.assertEqual(resp.status_code, 201, resp.text)
 
-        combined = self.client.get("/api/securities").json()["securities"]
-        [entry] = [s for s in combined if s["symbol"] == WATCHLIST_SYMBOL]
-        self.assertEqual(entry["source"], "both")
-        self.assertEqual(entry["tags"], ["ai"], "watchlist tags win on a merge")
-        self.assertEqual(entry["quantity"], 2, "portfolio fields survive")
+        body = self.client.get("/api/watchlist/mine").json()
+        [row] = [r for r in body["rows"] if r["symbol"] == WATCHLIST_SYMBOL]
+        self.assertTrue(row["held"])
+        # Both lots count -- the retired /api/securities kept only the last.
+        self.assertEqual(float(row["quantity"]), 8)
+        self.assertEqual(float(row["avg_price"]), 17.5)
+        self.assertEqual(row["tags"], ["ai"])
+        self.assertGreaterEqual(body["held_count"], 1)
+
+        # Another owner sees the same shared row, unheld.
+        self.app.dependency_overrides.pop(require_principal, None)
+        body = self.client.get("/api/watchlist/mine").json()
+        [row] = [r for r in body["rows"] if r["symbol"] == WATCHLIST_SYMBOL]
+        self.assertFalse(row["held"])
+        self.assertIsNone(row["quantity"])
+        self.assertIsNone(row["avg_price"])
 
     # --- Watchlist fundamentals (issue #147) -----------------------------
 
@@ -530,6 +548,26 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertIsNone(row["fundamentals_stale"])
         self.assertEqual(row["market_cap_currency"], "USD")
         self.assertGreaterEqual(body["unscored_count"], 1)
+
+    def test_watchlist_mine_returns_the_envelope_not_a_ticker(self):
+        """Same route-order guard as the fundamentals test above, for the
+        merged page's endpoint (issue #224)."""
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "name": "Watchlist Smoke Co",
+        })
+
+        resp = self.client.get("/api/watchlist/mine")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(
+            set(body),
+            {"generated_at", "as_of", "count", "stale_count",
+             "unscored_count", "held_count", "rows"},
+        )
+        self.assertEqual(body["count"], len(body["rows"]))
+        [row] = [r for r in body["rows"] if r["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(row["name"], "Watchlist Smoke Co")
+        self.assertFalse(row["held"])
 
     def test_lookup_missing_symbol_returns_plain_400(self):
         resp = self.client.get("/api/securities/lookup")
@@ -583,7 +621,7 @@ class ApiSmokeTest(unittest.TestCase):
         self._override_principal(UNMAPPED_IDENTITY)
         for resp in (
             self.client.get("/api/portfolio"),
-            self.client.get("/api/securities"),
+            self.client.get("/api/watchlist/mine"),
             self.client.get("/api/portfolio/delta-exposure"),
         ):
             self.assertEqual(resp.status_code, 403)

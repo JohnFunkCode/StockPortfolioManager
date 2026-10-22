@@ -32,6 +32,7 @@ import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist } from '../../hooks/useSecurities';
+import { useWatchlistMine } from '../../hooks/useWatchlist';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
 import PriceChart from './charts/PriceChart';
@@ -469,9 +470,17 @@ export default function SecurityDetailPage() {
 
   const ticker = symbol.toUpperCase();
 
-  const { data: securitiesData } = useSecurities();
-  const security = securitiesData?.securities.find((s) => s.symbol === ticker);
-  const source = security?.source ?? null;
+  // Membership comes from the merged list (#224): a /watchlist/mine row is on
+  // the shared watchlist, and `held` says it is also a position. The portfolio
+  // read covers a held symbol that is off the watchlist, which /mine excludes.
+  const { data: mineData } = useWatchlistMine();
+  const { data: portfolioData } = useSecurities('portfolio');
+  const watchRow = mineData?.rows.find((r) => r.symbol === ticker);
+  const heldRow = portfolioData?.securities.find((s) => s.symbol === ticker);
+  const security = watchRow ?? heldRow;
+  const source: 'watchlist' | 'portfolio' | 'both' | null = watchRow
+    ? (watchRow.held || heldRow ? 'both' : 'watchlist')
+    : (heldRow ? 'portfolio' : null);
 
   const { portfolio: addPortfolio } = useAddSecurity();
   const { mutate: removeFromPortfolio, isPending: removing } = useRemoveFromPortfolio();
@@ -547,7 +556,7 @@ export default function SecurityDetailPage() {
       <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 2 }} flexWrap="wrap">
         <Button
           startIcon={<ArrowBackIcon />}
-          onClick={() => navigate('/securities')}
+          onClick={() => navigate('/watchlist')}
           size="small"
         >
           Back

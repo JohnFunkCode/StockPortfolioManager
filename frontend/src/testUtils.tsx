@@ -45,7 +45,7 @@ function jsonResponse(body: object, status = 200): Response {
  * Stub global.fetch from an ordered route table. First matching entry wins.
  *   mockApi([
  *     ['/api/securities/INTC/technicals', { ticker: 'INTC', indicators: [...] }],
- *     [/\/api\/securities$/, { securities: [] }],
+ *     [/\/api\/portfolio$/, { securities: [] }],
  *   ])
  * A responder function may return `{ __status: 500, ...body }` to force a status.
  * Cleanup is automatic via vi.unstubAllGlobals() in afterEach (vitest config
@@ -445,6 +445,31 @@ export function watchlistFundamentals(
     count: rows.length,
     stale_count: rows.filter((r) => r.fundamentals_stale === true).length,
     unscored_count: rows.filter((r) => r.composite_score == null).length,
+    rows,
+    ...overrides,
+  };
+}
+
+/** One row of GET /api/watchlist/mine (#224): a watchlist row plus the
+ * caller's position in it. Not held by default. */
+export function mineRow(symbol = 'INTC', overrides: object = {}) {
+  return {
+    ...watchlistRow(symbol),
+    held: false,
+    quantity: null as number | null,
+    avg_price: null as number | null,
+    ...overrides,
+  };
+}
+
+/** The whole GET /api/watchlist/mine envelope around some rows. */
+export function watchlistMine(
+  rows: Array<ReturnType<typeof mineRow>> = [mineRow()],
+  overrides: object = {},
+) {
+  return {
+    ...watchlistFundamentals(rows as Array<ReturnType<typeof watchlistRow>>),
+    held_count: rows.filter((r) => r.held).length,
     rows,
     ...overrides,
   };

@@ -2,12 +2,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { securitiesApi } from '../api/securities';
 import type { AddSecurityPayload } from '../api/securitiesTypes';
 
+// `source` is required: the combined list (GET /api/securities) was retired
+// with the Securities page (#224) — the merged list is useWatchlistMine.
 // `enabled` exists for callers that mount the hook long before they need it —
 // CreatePlanDialog stays mounted while shut, and a closed dialog should not be
 // fetching a symbol list nobody is looking at.
-export function useSecurities(source?: 'portfolio' | 'watchlist', enabled = true) {
+export function useSecurities(source: 'portfolio' | 'watchlist', enabled = true) {
   return useQuery({
-    queryKey: ['securities', source ?? 'all'],
+    queryKey: ['securities', source],
     queryFn: () => securitiesApi.getAll(source),
     enabled,
     staleTime: 5 * 60 * 1000,
@@ -169,17 +171,18 @@ export function useRemoveFromPortfolio() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (ticker: string) => securitiesApi.removeFromPortfolio(ticker),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['securities'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['securities'] });
+      // The Watchlist page's Held chip and Qty/Avg Price come from /watchlist/mine.
+      qc.invalidateQueries({ queryKey: ['watchlist-mine'] });
+    },
   });
 }
 
-// A row that is in both lists stays in the table after this succeeds — it just
-// drops back to a plain position — so the same ['securities'] invalidation the
-// portfolio removal uses is what refreshes the source badge.
-//
-// It also drops off the /watchlist page, which reads a different key: the
-// mutation is shared, so the invalidation has to cover both or the page the
-// user removed from is the one that keeps showing the row.
+// The removed row drops off the /watchlist page, which reads ['watchlist-mine']
+// (and the older ['watchlist-fundamentals'] for any other reader): the mutation
+// is shared, so the invalidation has to cover every key or the page the user
+// removed from is the one that keeps showing the row.
 export function useRemoveFromWatchlist() {
   const qc = useQueryClient();
   return useMutation({
@@ -187,6 +190,7 @@ export function useRemoveFromWatchlist() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['securities'] });
       qc.invalidateQueries({ queryKey: ['watchlist-fundamentals'] });
+      qc.invalidateQueries({ queryKey: ['watchlist-mine'] });
     },
   });
 }
@@ -197,6 +201,7 @@ export function useAddSecurity() {
     qc.invalidateQueries({ queryKey: ['securities'] });
     // Same dialog adds from the /watchlist page — see useRemoveFromWatchlist.
     qc.invalidateQueries({ queryKey: ['watchlist-fundamentals'] });
+    qc.invalidateQueries({ queryKey: ['watchlist-mine'] });
   };
   const watchlist = useMutation({
     mutationFn: (payload: AddSecurityPayload) => securitiesApi.addToWatchlist(payload),

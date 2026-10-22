@@ -29,7 +29,14 @@ describe('routes', () => {
 
   it('hides the drill-down detail routes from the nav bar', () => {
     const hidden = routes.filter((route) => route.nav === false).map((r) => r.path);
-    expect(hidden).toEqual(['/plans/:id', '/securities/:symbol']);
+    expect(hidden).toEqual(['/plans/:id', '/securities', '/securities/:symbol']);
+  });
+
+  it('keeps /securities only as a redirect to the merged Watchlist page', () => {
+    // Issue #224 merged the Securities list into Watchlist; old links still land.
+    const securities = routes.find((route) => route.path === '/securities');
+    expect(securities?.nav).toBe(false);
+    expect(securities?.element).toMatchObject({ props: { to: '/watchlist', replace: true } });
   });
 
   it('no longer carries the retired /symbols page', () => {
@@ -42,7 +49,7 @@ describe('routes', () => {
 describe('navItems', () => {
   it('is every route except the detail routes', () => {
     expect(navItems.map((item) => item.path)).toEqual([
-      '/', '/plans', '/harvester', '/securities', '/watchlist', '/fundamentals', '/arbitrage',
+      '/', '/plans', '/harvester', '/watchlist', '/fundamentals', '/arbitrage',
       '/settings',
     ]);
   });
@@ -71,7 +78,7 @@ describe('navSections', () => {
       ),
     ).toEqual([
       [MY_POSITIONS, ['Portfolio', 'Plans', 'Harvester']],
-      [RESEARCH, ['Securities', 'Watchlist', 'Fundamentals', 'Arbitrage']],
+      [RESEARCH, ['Watchlist', 'Fundamentals', 'Arbitrage']],
       ['', 'Settings'],
     ]);
   });

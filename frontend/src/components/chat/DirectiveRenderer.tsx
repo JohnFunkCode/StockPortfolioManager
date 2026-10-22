@@ -6,7 +6,7 @@
  */
 import { Component, type ReactNode } from 'react';
 import { Alert, Box, Typography } from '@mui/material';
-import { useSecurities } from '../../hooks/useSecurities';
+import { useWatchlistMine } from '../../hooks/useWatchlist';
 import {
   COMPONENT_REGISTRY,
   validateDirective,
@@ -36,8 +36,8 @@ class DirectiveErrorBoundary extends Component<{ children: ReactNode }, { failed
 
 /** "TICKER — Name" header so multi-ticker chats stay unambiguous. */
 function DirectiveTitle({ ticker }: { ticker: string }) {
-  const { data } = useSecurities();
-  const name = data?.securities.find((s) => s.symbol === ticker)?.name;
+  const { data } = useWatchlistMine();
+  const name = data?.rows.find((r) => r.symbol === ticker)?.name;
   return (
     <Typography variant="subtitle2" data-testid="directive-title" sx={{ fontWeight: 700, mb: 0.5 }}>
       {ticker}

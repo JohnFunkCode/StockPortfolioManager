@@ -433,3 +433,25 @@ class WatchlistFundamentalsResponse(BaseModel):
     stale_count: int
     unscored_count: int
     rows: List[WatchlistFundamentalsRow]
+
+
+class WatchlistMineRow(WatchlistFundamentalsRow):
+    """A watchlist row marked with the caller's own holding (issue #224).
+
+    ``quantity`` sums the owner's open lots and ``avg_price`` is their
+    quantity-weighted purchase price; both are ``None`` on an unheld row.
+    """
+
+    held: bool = False
+    quantity: Optional[float] = None
+    avg_price: Optional[float] = None
+
+
+class WatchlistMineResponse(BaseModel):
+    generated_at: str
+    as_of: Optional[str] = None
+    count: int
+    stale_count: int
+    unscored_count: int
+    held_count: int
+    rows: List[WatchlistMineRow]

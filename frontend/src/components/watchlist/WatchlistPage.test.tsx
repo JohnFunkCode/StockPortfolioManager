@@ -13,8 +13,8 @@ import WatchlistPage from './WatchlistPage';
 import {
   mockApi,
   renderWithProviders,
-  watchlistFundamentals,
-  watchlistRow,
+  mineRow,
+  watchlistMine,
   type MockedApi,
 } from '../../testUtils';
 
@@ -25,7 +25,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 const ROWS = [
-  watchlistRow('INTC', {
+  mineRow('INTC', {
     tags: ['chips'],
     price: 31.5,
     composite_score: 72,
@@ -35,7 +35,7 @@ const ROWS = [
     market_cap_currency: 'USD',
     market_cap_usd: 140_000_000_000,
   }),
-  watchlistRow('WMT', {
+  mineRow('WMT', {
     tags: ['retail'],
     price: 92.25,
     composite_score: 61,
@@ -46,7 +46,7 @@ const ROWS = [
   }),
   // A Stockholm listing: priced in SEK, and market_cap_usd is null until an FX
   // source lands (issue #185).
-  watchlistRow('ASSA-B.ST', {
+  mineRow('ASSA-B.ST', {
     name: 'Assa Abloy',
     currency: 'SEK',
     tags: ['industrials', 'europe', 'locks', 'compounder', 'extra'],
@@ -63,10 +63,17 @@ const ROWS = [
   }),
 ];
 
+// The page also reads the bulk news sentiment for its News column (#224).
+const SENTIMENT = {
+  items: [{ symbol: 'INTC', overall_sentiment: 'positive', article_count: 4 }],
+  count: 1,
+};
+
 function arm(overrides: Array<[string | RegExp, unknown]> = []): MockedApi {
   return mockApi([
     ...(overrides as Array<[string | RegExp, never]>),
-    ['/api/watchlist/fundamentals', watchlistFundamentals(ROWS)],
+    ['/api/securities/news/sentiment-summary', SENTIMENT],
+    ['/api/watchlist/mine', watchlistMine(ROWS)],
   ]);
 }
 
@@ -102,7 +109,10 @@ describe('WatchlistPage', () => {
   });
 
   it('surfaces a load error instead of an empty table', async () => {
-    mockApi([['/api/watchlist/fundamentals', { __status: 500, error: 'watchlist down' }]]);
+    mockApi([
+      ['/api/securities/news/sentiment-summary', SENTIMENT],
+      ['/api/watchlist/mine', { __status: 500, error: 'watchlist down' }],
+    ]);
     renderWithProviders(<WatchlistPage />);
     await waitFor(() => expect(screen.getByText(/watchlist down/i)).toBeInTheDocument());
     expect(screen.queryByRole('grid')).not.toBeInTheDocument();
@@ -112,8 +122,8 @@ describe('WatchlistPage', () => {
     const api = await mount();
     expect(inGrid().getByText('WMT')).toBeInTheDocument();
     expect(inGrid().getByText('ASSA-B.ST')).toBeInTheDocument();
-    // One fetch for the whole page — not one per symbol.
-    expect(api.calls).toHaveLength(1);
+    // One fetch for the whole table — not one per symbol.
+    expect(api.calls.filter(([url]) => String(url).includes('/api/watchlist'))).toHaveLength(1);
   });
 
   it('summarises count, price date, stale and unscored in the header', async () => {
@@ -257,13 +267,16 @@ describe('WatchlistPage', () => {
       // truncates a two-item sort model to its first entry, so a second entry
       // would look applied and rank nothing.
       const TIED = [
-        watchlistRow('AAA', { composite_score: 61, return_30d: 2 }),
-        watchlistRow('BBB', { composite_score: 61, return_30d: 9 }),
-        watchlistRow('CCC', { composite_score: 61, return_30d: null }),
+        mineRow('AAA', { composite_score: 61, return_30d: 2 }),
+        mineRow('BBB', { composite_score: 61, return_30d: 9 }),
+        mineRow('CCC', { composite_score: 61, return_30d: null }),
       ];
 
       async function mountTied() {
-        mockApi([['/api/watchlist/fundamentals', watchlistFundamentals(TIED)]]);
+        mockApi([
+          ['/api/securities/news/sentiment-summary', SENTIMENT],
+          ['/api/watchlist/mine', watchlistMine(TIED)],
+        ]);
         renderWithProviders(<WatchlistPage />);
         await waitFor(() => expect(inGrid().getByText('AAA')).toBeInTheDocument());
       }
@@ -452,6 +465,65 @@ describe('WatchlistPage', () => {
 
       await waitFor(() => expect(screen.getByText(/not found in watchlist/i)).toBeInTheDocument());
       expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+  });
+
+  describe('holdings (#224)', () => {
+    // INTC held across lots; WMT and ASSA-B.ST are watchlist-only.
+    const HELD = ROWS.map((r) =>
+      r.symbol === 'INTC' ? { ...r, held: true, quantity: 1250, avg_price: 28.4 } : r,
+    );
+    const mountHeld = () => mount([['/api/watchlist/mine', watchlistMine(HELD)]]);
+
+    it('marks a held row and shows its quantity and average price', async () => {
+      await mountHeld();
+      expect(inGrid().getAllByText('Held')).toHaveLength(1);
+      expect(inGrid().getByText('1,250')).toBeInTheDocument();
+      expect(inGrid().getByText('$28.40')).toBeInTheDocument();
+      expect(screen.getByText('1 held')).toBeInTheDocument();
+    });
+
+    it('shows no held chip in the header when nothing is held', async () => {
+      await mount();
+      expect(screen.queryByText(/\d+ held/)).toBeNull();
+      expect(inGrid().queryByText('Held')).toBeNull();
+    });
+
+    it('narrows to held rows with the Show filter, and back', async () => {
+      await mountHeld();
+      const show = screen.getByRole('group', { name: 'Show' });
+      fireEvent.click(within(show).getByRole('button', { name: 'Held' }));
+      await waitFor(() => expect(inGrid().queryByText('WMT')).toBeNull());
+      expect(inGrid().getByText('INTC')).toBeInTheDocument();
+      expect(inGrid().queryByText('ASSA-B.ST')).toBeNull();
+
+      fireEvent.click(within(show).getByRole('button', { name: 'All' }));
+      await waitFor(() => expect(inGrid().getByText('WMT')).toBeInTheDocument());
+    });
+  });
+
+  describe('moved from the Securities page (#224)', () => {
+    it('shows the news sentiment badge from the bulk summary', async () => {
+      await mount();
+      expect(inGrid().getByText('↑ pos')).toBeInTheDocument();
+    });
+
+    it('opens the sentiment dashboard', async () => {
+      await mount();
+      fireEvent.click(screen.getByRole('button', { name: 'Sentiment' }));
+      expect(await screen.findByText('News Sentiment Dashboard (FinBERT)')).toBeVisible();
+    });
+
+    it('opens the screener', async () => {
+      await mount();
+      fireEvent.click(screen.getByRole('button', { name: 'Screener' }));
+      expect(await screen.findByText('Technical Screener (from cached OHLCV data)')).toBeVisible();
+    });
+
+    it('carries the options snapshot refresh panel', async () => {
+      await mount();
+      expect(screen.getByText('Options Snapshot Collection')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Refresh All \(ATM\)/ })).toBeEnabled();
     });
   });
 

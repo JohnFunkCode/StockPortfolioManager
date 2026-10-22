@@ -172,6 +172,33 @@ def summary_totals(lots: Iterable[Dict[str, Any]], as_of: date) -> Dict[str, Opt
     }
 
 
+def position_rollup(lots: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Roll one symbol's open lots up to a single held position (issue #224).
+
+    ``quantity`` is the sum across lots and ``avg_price`` the quantity-weighted
+    average purchase price — what the Watchlist page shows as "Avg Price".
+    Every lot counts, so a multi-lot holding is never reduced to its last lot
+    (the bug in the retired ``GET /api/securities``).
+
+    A lot missing ``quantity`` or ``purchase_price`` is skipped, as in
+    ``summary_totals``. With nothing usable (or a zero total quantity) both
+    figures are ``None`` rather than a misleading 0.
+    """
+    lots = [
+        lot for lot in lots
+        if lot.get("purchase_price") is not None and lot.get("quantity") is not None
+    ]
+    total_quantity = sum((lot["quantity"] for lot in lots), Decimal("0"))
+    if not lots or not total_quantity:
+        return {"quantity": None, "avg_price": None, "lot_count": len(lots)}
+    total_cost = sum((lot["purchase_price"] * lot["quantity"] for lot in lots), Decimal("0"))
+    return {
+        "quantity": total_quantity,
+        "avg_price": _money(total_cost / total_quantity),
+        "lot_count": len(lots),
+    }
+
+
 def allocate(
     lots: Sequence[Dict[str, Any]],
     shares_to_sell: Decimal,

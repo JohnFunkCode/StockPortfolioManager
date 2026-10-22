@@ -181,6 +181,7 @@ def get_services() -> Services:
         yfinance=yfinance_gateway,
         prices=prices,
         fundamentals=fundamentals,
+        portfolio_repository=portfolio_repository,
     )
     # Chat client factory precedence (BYOK packet 3c):
     #   CHAT_FAKE=1            → deterministic scripted FakeChatClient

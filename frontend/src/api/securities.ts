@@ -90,14 +90,9 @@ export const securitiesApi = {
       { method: 'POST', body: JSON.stringify(body) },
     ),
 
-  getAll: (source?: 'portfolio' | 'watchlist') => {
-    const endpoint = source === 'portfolio'
-      ? '/api/portfolio'
-      : source === 'watchlist'
-        ? '/api/watchlist'
-        : '/api/securities';
-    return apiRequest<SecuritiesResponse>(endpoint);
-  },
+  // The combined GET /api/securities was retired with the Securities page (#224).
+  getAll: (source: 'portfolio' | 'watchlist') =>
+    apiRequest<SecuritiesResponse>(source === 'portfolio' ? '/api/portfolio' : '/api/watchlist'),
 
   getOHLCV: (ticker: string, days = 180) =>
     apiRequest<OHLCVResponse>(`/api/securities/${ticker}/ohlcv?days=${days}`),

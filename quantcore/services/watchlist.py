@@ -73,6 +73,148 @@ def _normalize(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+_FUNDAMENTALS_TYPES = (
+    "fundamental_score", "revenue_growth", "earnings_calendar", "earnings_acceleration",
+)
+
+
+def _symbol(raw: Any) -> str:
+    return str(raw or "").strip().upper()
+
+
+def _freshness(fetched_ts: Any, ttl_seconds: int, now_ts: int):
+    """``(stale, age_hours)`` for a cache entry, both ``None`` when never fetched."""
+    if not fetched_ts:
+        return None, None
+    age = now_ts - fetched_ts
+    return ttl_seconds > 0 and age > ttl_seconds, round(age / 3600.0, 1)
+
+
+def _rank_key(row: Dict[str, Any]):
+    score, momentum = row["composite_score"], row["return_30d"]
+    return (
+        score is not None,
+        score if score is not None else -999,
+        momentum if momentum is not None else -999,
+    )
+
+
+def _score_columns(score: Dict[str, Any]) -> Dict[str, Any]:
+    """The composite and per-metric columns out of a fundamental_score payload."""
+    return {
+        "composite_score": score.get("composite_score"),
+        "fundamental_label": score.get("fundamental_label"),
+        "coverage": score.get("coverage"),
+        "sector": score.get("sector"),
+        "rev_cagr_3y": _metric(score, "RevCAGR3Y").get("value"),
+        "rev_cagr_score": _metric(score, "RevCAGR3Y").get("score"),
+        "rev_accel_score": _metric(score, "RevAccel").get("score"),
+        "op_margin_score": _metric(score, "OpMargin3Y").get("score"),
+        "fcf_margin_score": _metric(score, "FCFMargin3Y").get("score"),
+        "valuation_score": _metric(score, "ValMetric").get("score"),
+        "momentum_score": _metric(score, "Mom12_1").get("score"),
+    }
+
+
+def _price_columns(prices: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "price": prices.get("price"),
+        "price_as_of": prices.get("as_of"),
+        "return_5d": prices.get("return_5d"),
+        "return_30d": prices.get("return_30d"),
+        "return_60d": prices.get("return_60d"),
+        "return_ytd": prices.get("return_ytd"),
+        "return_1y": prices.get("return_1y"),
+    }
+
+
+def _row_for(
+    entry: Dict[str, Any],
+    price_rows: Dict[str, Dict[str, Any]],
+    by_type: Dict[str, Dict[str, Dict[str, Any]]],
+    ttl_seconds: int,
+    now_ts: int,
+) -> Dict[str, Any]:
+    """One returns-and-fundamentals row for a watchlist entry."""
+    symbol = _symbol(entry.get("symbol"))
+    score = by_type["fundamental_score"].get(symbol) or {}
+    revenue = by_type["revenue_growth"].get(symbol) or {}
+    earnings = by_type["earnings_calendar"].get(symbol) or {}
+    eps = by_type["earnings_acceleration"].get(symbol) or {}
+
+    # Age the row off the score entry — it is the one that carries the
+    # columns a reader actually judges the symbol by.
+    stale, age_hours = _freshness(score.get("_fetched_at_ts"), ttl_seconds, now_ts)
+
+    # The cap's unit comes from the score payload when it has one: that value
+    # was captured in the same fetch as the cap itself, whereas the watchlist
+    # row's currency is whatever was stored at add time — right for entries
+    # added since the lookup landed, but still USD for anything seeded from
+    # watchlist.yaml that scripts/repair_watchlist_currency.py has not been
+    # run over.
+    cap = normalize_market_cap(
+        score.get("market_cap"),
+        score.get("market_cap_currency") or entry.get("currency"),
+    )
+
+    return {
+        "symbol": symbol,
+        "name": entry.get("name") or symbol,
+        "currency": entry.get("currency") or "USD",
+        "tags": list(entry.get("tags") or []),
+        **_price_columns(price_rows.get(symbol, {})),
+        **_score_columns(score),
+        **cap,
+        "revenue_trajectory": revenue.get("trajectory"),
+        "earnings_date": (earnings.get("earnings_date") or None),
+        "eps_acceleration": eps.get("acceleration_label"),
+        "fundamentals_cached_at": score.get("fetched_at"),
+        "fundamentals_stale": stale,
+        "fundamentals_age_hours": age_hours,
+    }
+
+
+def _lots_by_symbol(lots: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
+    grouped: Dict[str, List[Dict[str, Any]]] = {}
+    for lot in lots:
+        symbol = _symbol(lot.get("symbol"))
+        if symbol:
+            grouped.setdefault(symbol, []).append(lot)
+    return grouped
+
+
+def _warn_unwatched(
+    lots_by_symbol: Dict[str, List[Dict[str, Any]]], entries: List[Dict[str, Any]]
+) -> None:
+    """Log held symbols that are not on the watchlist (owner_view leaves them off)."""
+    watched = {_symbol(e.get("symbol")) for e in entries}
+    unwatched = sorted(set(lots_by_symbol) - watched)
+    if unwatched:
+        logger.warning(
+            "owner_view: %d held symbol(s) not on the watchlist, omitted: %s",
+            len(unwatched), ", ".join(unwatched),
+        )
+
+
+def _mark_holdings(
+    rows: List[Dict[str, Any]], lots_by_symbol: Dict[str, List[Dict[str, Any]]]
+) -> None:
+    """Add ``held``, ``quantity`` and ``avg_price`` to each row in place.
+
+    ``held`` means "the owner has an OPEN lot record for this symbol". It stays
+    true even when ``position_rollup`` can't use any of those lots (a lot
+    missing its quantity or price) and so reports ``None`` figures: the
+    holding exists, its numbers are unknown, and hiding it would misstate the
+    first fact to tidy the second.
+    """
+    for row in rows:
+        lots = lots_by_symbol.get(row["symbol"])
+        rollup = position_rollup(lots) if lots else {"quantity": None, "avg_price": None}
+        row["held"] = bool(lots)
+        row["quantity"] = rollup["quantity"]
+        row["avg_price"] = rollup["avg_price"]
+
+
 class WatchlistService:
     """Watchlist reads and writes, backed by ``WatchlistRepository``."""
 
@@ -206,27 +348,11 @@ class WatchlistService:
         self._require("owner_view", self._prices, self._fundamentals, self._positions)
 
         entries = self.list_entries()
-        lots_by_symbol: Dict[str, List[Dict[str, Any]]] = {}
-        for lot in self._positions.list_positions(owner):
-            symbol = str(lot.get("symbol") or "").strip().upper()
-            if symbol:
-                lots_by_symbol.setdefault(symbol, []).append(lot)
-
-        watched = {str(e.get("symbol") or "").strip().upper() for e in entries}
-        unwatched = sorted(set(lots_by_symbol) - watched)
-        if unwatched:
-            logger.warning(
-                "owner_view: %d held symbol(s) not on the watchlist, omitted: %s",
-                len(unwatched), ", ".join(unwatched),
-            )
+        lots_by_symbol = _lots_by_symbol(self._positions.list_positions(owner))
+        _warn_unwatched(lots_by_symbol, entries)
 
         rows = self._build_rows(entries, as_of)
-        for row in rows:
-            lots = lots_by_symbol.get(row["symbol"])
-            rollup = position_rollup(lots) if lots else {"quantity": None, "avg_price": None}
-            row["held"] = bool(lots)
-            row["quantity"] = rollup["quantity"]
-            row["avg_price"] = rollup["avg_price"]
+        _mark_holdings(rows, lots_by_symbol)
 
         envelope = self._envelope(rows, as_of)
         envelope["held_count"] = sum(1 for r in rows if r["held"])
@@ -260,107 +386,33 @@ class WatchlistService:
         Five queries: one bulk returns read and four fundamentals cache sweeps,
         whatever the number of entries.
         """
-        symbols = [str(e.get("symbol") or "").strip().upper() for e in entries]
-        symbols = [s for s in symbols if s]
-
+        symbols = [s for s in (_symbol(e.get("symbol")) for e in entries) if s]
         price_rows = self._prices.bulk_period_returns(symbols, as_of=as_of)
-
-        # Four cache sweeps, keyed by symbol. Each returns every symbol the cache
-        # has ever scored, not just ours — indexing is cheaper than filtering in
-        # SQL four times over.
-        by_type = {
-            dt: {
-                str(row.get("symbol") or "").upper(): row
-                for row in self._fundamentals.get_all_latest(dt)
-            }
-            for dt in ("fundamental_score", "revenue_growth",
-                       "earnings_calendar", "earnings_acceleration")
-        }
-
+        by_type = self._fundamentals_by_type()
         ttl_seconds = self._fundamentals.cache_ttl_seconds()
         now_ts = int(time.time())
 
-        rows: List[Dict[str, Any]] = []
-        for entry in entries:
-            symbol = str(entry.get("symbol") or "").strip().upper()
-            if not symbol:
-                continue
-
-            score = by_type["fundamental_score"].get(symbol) or {}
-            revenue = by_type["revenue_growth"].get(symbol) or {}
-            earnings = by_type["earnings_calendar"].get(symbol) or {}
-            eps = by_type["earnings_acceleration"].get(symbol) or {}
-
-            # Age the row off the score entry — it is the one that carries the
-            # columns a reader actually judges the symbol by.
-            fetched_ts = score.get("_fetched_at_ts")
-            if not fetched_ts:
-                stale, age_hours = None, None
-            else:
-                age_hours = round((now_ts - fetched_ts) / 3600.0, 1)
-                stale = ttl_seconds > 0 and (now_ts - fetched_ts) > ttl_seconds
-
-            prices = price_rows.get(symbol, {})
-            # The cap's unit comes from the score payload when it has one:
-            # that value was captured in the same fetch as the cap itself,
-            # whereas the watchlist row's currency is whatever was stored at
-            # add time — right for entries added since the lookup landed, but
-            # still USD for anything seeded from watchlist.yaml that
-            # scripts/repair_watchlist_currency.py has not been run over.
-            cap = normalize_market_cap(
-                score.get("market_cap"),
-                score.get("market_cap_currency") or entry.get("currency"),
-            )
-
-            rows.append({
-                "symbol": symbol,
-                "name": entry.get("name") or symbol,
-                "currency": entry.get("currency") or "USD",
-                "tags": list(entry.get("tags") or []),
-
-                "price": prices.get("price"),
-                "price_as_of": prices.get("as_of"),
-                "return_5d": prices.get("return_5d"),
-                "return_30d": prices.get("return_30d"),
-                "return_60d": prices.get("return_60d"),
-                "return_ytd": prices.get("return_ytd"),
-                "return_1y": prices.get("return_1y"),
-
-                "composite_score": score.get("composite_score"),
-                "fundamental_label": score.get("fundamental_label"),
-                "coverage": score.get("coverage"),
-                "sector": score.get("sector"),
-                **cap,
-
-                "rev_cagr_3y": _metric(score, "RevCAGR3Y").get("value"),
-                "rev_cagr_score": _metric(score, "RevCAGR3Y").get("score"),
-                "rev_accel_score": _metric(score, "RevAccel").get("score"),
-                "op_margin_score": _metric(score, "OpMargin3Y").get("score"),
-                "fcf_margin_score": _metric(score, "FCFMargin3Y").get("score"),
-                "valuation_score": _metric(score, "ValMetric").get("score"),
-                "momentum_score": _metric(score, "Mom12_1").get("score"),
-
-                "revenue_trajectory": revenue.get("trajectory"),
-                "earnings_date": (earnings.get("earnings_date") or None),
-                "eps_acceleration": eps.get("acceleration_label"),
-
-                "fundamentals_cached_at": score.get("fetched_at"),
-                "fundamentals_stale": stale,
-                "fundamentals_age_hours": age_hours,
-            })
-
+        rows = [
+            _row_for(entry, price_rows, by_type, ttl_seconds, now_ts)
+            for entry in entries
+            if _symbol(entry.get("symbol"))
+        ]
         # Same ordering the report script used: best composite first, unscored
         # symbols last, ties broken by 30-day momentum. Sorting server-side means
         # the first screenful is the interesting one before any column is clicked.
-        rows.sort(
-            key=lambda r: (
-                r["composite_score"] is not None,
-                r["composite_score"] if r["composite_score"] is not None else -999,
-                r["return_30d"] if r["return_30d"] is not None else -999,
-            ),
-            reverse=True,
-        )
+        rows.sort(key=_rank_key, reverse=True)
         return rows
+
+    def _fundamentals_by_type(self) -> Dict[str, Dict[str, Dict[str, Any]]]:
+        """Four cache sweeps, keyed by data_type then symbol.
+
+        Each returns every symbol the cache has ever scored, not just ours —
+        indexing is cheaper than filtering in SQL four times over.
+        """
+        return {
+            dt: {_symbol(row.get("symbol")): row for row in self._fundamentals.get_all_latest(dt)}
+            for dt in _FUNDAMENTALS_TYPES
+        }
 
     # ------------------------------------------------------------------
     # Writes

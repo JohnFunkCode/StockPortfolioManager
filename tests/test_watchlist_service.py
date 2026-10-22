@@ -766,6 +766,18 @@ class OwnerViewTest(WatchlistReturnsAndFundamentalsTest):
         self.assertEqual(result["held_count"], 1)
         self.assertIn("TSLA", "\n".join(logs.output))
 
+    def test_held_stays_true_when_no_lot_has_usable_figures(self):
+        """held = "has an OPEN lot record", not "has a usable roll-up"."""
+        lot = {"owner": "john", "symbol": "NVDA", "status": "OPEN",
+               "quantity": None, "purchase_price": Decimal("100")}
+        svc = self._build(["NVDA"], lots=[lot])
+        result = svc.owner_view(owner="john")
+        row = result["rows"][0]
+        self.assertTrue(row["held"])
+        self.assertIsNone(row["quantity"])
+        self.assertIsNone(row["avg_price"])
+        self.assertEqual(result["held_count"], 1)
+
     def test_another_owners_lots_are_invisible(self):
         svc = self._build(["NVDA"], lots=[self._lot("NVDA", 99, 1, owner="thomas")])
         result = svc.owner_view(owner="john")

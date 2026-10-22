@@ -152,3 +152,10 @@ _Append an entry as each step lands._
   `SentimentSummaryResponse` — the old page named it inline.
 - **Follow-up, not in this PR:** nothing yet *enforces* "portfolio ⊆ watchlist" on writes; a lot
   added for an unlisted symbol is only logged and hidden here.
+- **Review follow-up (PR #397).** Both reviews flagged complexity in `WatchlistService`:
+  `_build_rows` (radon D/24) and `owner_view` (C/11). Split them into module helpers
+  (`_row_for`, `_score_columns`, `_price_columns`, `_freshness`, `_rank_key`, `_lots_by_symbol`,
+  `_warn_unwatched`, `_mark_holdings`). Both are now B/6 and A, and no new function scores above
+  B/10. Query counts, row key order and behaviour are unchanged. `held` is documented as
+  "has an OPEN lot record": it stays true when no lot has usable figures, which leaves the
+  quantity and average price `None`. A test pins that.

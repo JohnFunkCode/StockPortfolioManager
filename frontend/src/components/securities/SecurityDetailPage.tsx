@@ -31,10 +31,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist } from '../../hooks/useSecurities';
+import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist, useStopLoss } from '../../hooks/useSecurities';
 import { useWatchlistMine } from '../../hooks/useWatchlist';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
+import StopLossCard from './StopLossCard';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
 import MACDChart from './charts/MACDChart';
@@ -452,6 +453,19 @@ const DAYS_OPTIONS = [30, 60, 90, 180, 365];
 
 function ChartSkeleton({ height = 200 }: { height?: number }) {
   return <Skeleton variant="rectangular" width="100%" height={height} sx={{ borderRadius: 1 }} />;
+}
+
+// One request feeds both cards: confluence=full embeds the support-confluence
+// result and seeds its query. The confluence card waits for that request to
+// settle and fetches on its own only if the embedded result never arrived.
+function TechnicalStopAndConfluence({ ticker }: { ticker: string }) {
+  const stopLoss = useStopLoss(ticker, 'full');
+  return (
+    <>
+      <StopLossCard ticker={ticker} confluence="full" />
+      <SupportConfluenceCard ticker={ticker} enabled={!stopLoss.isPending} />
+    </>
+  );
 }
 
 export default function SecurityDetailPage() {
@@ -905,8 +919,8 @@ export default function SecurityDetailPage() {
             </Paper>
           )}
 
-          {/* Support / resistance confluence zones */}
-          <SupportConfluenceCard ticker={ticker} />
+          {/* Stop-loss synthesis, then the confluence zones it embeds (#399) */}
+          <TechnicalStopAndConfluence ticker={ticker} />
         </Stack>
       )}
 

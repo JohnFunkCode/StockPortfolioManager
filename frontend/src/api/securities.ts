@@ -12,6 +12,8 @@ import type {
   OptionsFlowResponse,
   RiskSignalsResponse,
   SupportConfluenceResponse,
+  StopLossResponse,
+  StopLossConfluence,
   PortfolioDeltaResponse,
   ScreenerResponse,
   SnapshotRefreshResponse,
@@ -31,7 +33,7 @@ export interface OptionsPCHistoryResponse { ticker: string; history: OptionsPCHi
 export type {
   OptionsAnalyticsResponse, IVRankResponse, EarningsResponse,
   TechnicalSignalsResponse, OptionsFlowResponse, RiskSignalsResponse,
-  SupportConfluenceResponse,
+  SupportConfluenceResponse, StopLossResponse, StopLossConfluence,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
   AddSecurityPayload, AddSecurityResponse, NewsResponse, BulkSentimentResponse,
   SymbolLookupResponse,
@@ -126,6 +128,13 @@ export const securitiesApi = {
 
   getSupportConfluence: (ticker: string) =>
     apiRequest<SupportConfluenceResponse>(`/api/securities/${ticker}/support-confluence`),
+
+  // position=mine: the server reads the caller's own open lots — there is no
+  // way to name another owner from here.
+  getStopLoss: (ticker: string, confluence: StopLossConfluence = 'none') =>
+    apiRequest<StopLossResponse>(
+      `/api/securities/${ticker}/stop-loss?confluence=${confluence}&position=mine`,
+    ),
 
   getPortfolioDeltaExposure: () =>
     apiRequest<PortfolioDeltaResponse>('/api/portfolio/delta-exposure'),

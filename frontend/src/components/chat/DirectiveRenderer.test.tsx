@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
+import { mockApi, renderWithProviders } from '../../testUtils';
 
 vi.mock('../../hooks/useWatchlist', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -36,7 +37,10 @@ const stubRegistry: Record<string, RegistryEntry> = {
   },
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('DirectiveRenderer', () => {
   it('renders the registered component with the ticker prop', () => {
@@ -139,5 +143,15 @@ describe('DirectiveRenderer', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('renders the real stop_loss card from a ticker, titled, for the caller\u2019s own lots', async () => {
+    const api = mockApi([['/stop-loss', { __status: 500, error: 'down' }]]);
+    renderWithProviders(
+      <DirectiveRenderer directive={{ component: 'stop_loss', props: { ticker: 'intc' } }} />,
+    );
+    expect(screen.getByTestId('directive-title')).toHaveTextContent('INTC — Intel');
+    expect(await screen.findByTestId('stop-loss-card')).toBeInTheDocument();
+    expect(api.calls[0][0]).toBe('/api/securities/INTC/stop-loss?confluence=stop&position=mine');
   });
 });

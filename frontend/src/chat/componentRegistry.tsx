@@ -7,6 +7,7 @@ import type { ComponentType } from 'react';
 import SignalsTab from '../components/securities/SignalsTab';
 import LivePrice from '../components/symbols/LivePrice';
 import PriceChartCard from '../components/chat/PriceChartCard';
+import StopLossCard from '../components/securities/StopLossCard';
 import SpreadPayoffCard from '../components/chat/SpreadPayoffCard';
 import ArbitrageCard from '../components/chat/ArbitrageCard';
 import {
@@ -47,6 +48,9 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   signals: { component: SignalsTab, spec: TICKER_ONLY, titled: true },
   live_price: { component: LivePrice, spec: TICKER_ONLY },
   price_chart: { component: PriceChartCard, spec: TICKER_ONLY, titled: true },
+  // Defaults to confluence=stop: chat has no confluence table to feed. The
+  // position is always the caller's own lots (position=mine), never a prop.
+  stop_loss: { component: StopLossCard, spec: TICKER_ONLY, titled: true },
   spread_payoff: {
     component: SpreadPayoffCard,
     spec: {

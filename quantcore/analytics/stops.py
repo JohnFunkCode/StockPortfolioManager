@@ -105,16 +105,25 @@ def position_pnl(
     if cost_basis <= 0:
         return {}
     pnl_per_share = round(price - cost_basis, 2)
-    n = shares if shares > 0 else 1
+    n = _pnl_shares(shares)
     return {
         "cost_basis":               round(cost_basis, 2),
         "shares":                   shares,
         "unrealized_pnl_per_share": pnl_per_share,
         "unrealized_pnl_pct":       round((price - cost_basis) / cost_basis * 100, 2),
         "total_unrealized_pnl":     round(pnl_per_share * n, 2),
-        "pnl_at_technical_stop":    round((technical_stop_price - cost_basis) * n, 2),
-        "pnl_at_trailing_stop":     round((trailing_stop_price - cost_basis) * n, 2),
+        "pnl_at_technical_stop":    pnl_at_stop(technical_stop_price, cost_basis, shares),
+        "pnl_at_trailing_stop":     pnl_at_stop(trailing_stop_price, cost_basis, shares),
     }
+
+
+def _pnl_shares(shares: int) -> int:
+    return shares if shares > 0 else 1
+
+
+def pnl_at_stop(stop_price: float, cost_basis: float, shares: int) -> float:
+    """Position P&L if ``stop_price`` fills; per share with no share count."""
+    return round((stop_price - cost_basis) * _pnl_shares(shares), 2)
 
 
 def stop_flags(

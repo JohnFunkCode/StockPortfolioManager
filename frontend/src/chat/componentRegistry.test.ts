@@ -14,6 +14,7 @@ describe('COMPONENT_REGISTRY', () => {
       'signals',
       'live_price',
       'price_chart',
+      'stop_loss',
       'spread_payoff',
       'arbitrage_pair',
       'arbitrage_spread',
@@ -186,9 +187,21 @@ const SPREAD_PROPS = {
 
 describe('validateDirective', () => {
   it('accepts every ticker-only component with a ticker prop', () => {
-    for (const name of ['signals', 'live_price', 'price_chart']) {
+    for (const name of ['signals', 'live_price', 'price_chart', 'stop_loss']) {
       const verdict = validateDirective({ component: name, props: { ticker: 'INTC' } });
       expect(verdict.ok, name).toBe(true);
+    }
+  });
+
+  it('stop_loss takes only a ticker — never a position or an owner', () => {
+    // Mirrors test_chat_tools.py::TestStopLossDirective: the card reads the
+    // caller's own lots server-side (position=mine).
+    expect(COMPONENT_REGISTRY.stop_loss.spec).toEqual({ ticker: 'string' });
+    expect(COMPONENT_REGISTRY.stop_loss.titled).toBe(true);
+    for (const extra of [{ owner: 'someone_else' }, { cost_basis: 150 }, { shares: 10 }]) {
+      expect(
+        validateDirective({ component: 'stop_loss', props: { ticker: 'INTC', ...extra } }).ok,
+      ).toBe(false);
     }
   });
 

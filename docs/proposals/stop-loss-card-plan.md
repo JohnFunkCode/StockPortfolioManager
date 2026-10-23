@@ -1,6 +1,6 @@
 # Stop-loss card on Security Detail (#399)
 
-**Status:** PR 1 (#417) and PR 2 (#418) merged; PR 3 next. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
+**Status:** PR 1 (#417) and PR 2 (#418) merged; PR 3 (the UI) in review. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
 Related: #221 (store stops and alert on them, deferred), #416 (Support Confluence Sidekick-renderable),
 #69 / #219 (trade recommendation).
 
@@ -68,6 +68,7 @@ each fetch the gamma wall separately.
 4. The confluence table marks the stop's zone.
 5. Retire the Signals-tab Risk panel. Keep `useRiskSignals` for the summary line.
 6. Docs: the capabilities matrix (counts 56→57, 55→54, gaps 34→33), `docs/architecture/quantui.md` and the readme.
+7. Added while building it: `position.pnl_at_confluence_stop` (`stops.pnl_at_stop`), because the card shows P&L at each of the three stops and the maths belongs server-side. It is the PR's only backend change, and it appears only with a confluence stop and a position.
 
 ### Issue housekeeping
 
@@ -111,6 +112,8 @@ The script was a scratch `curl -w %{time_total}` loop with a one-hour test JWT. 
 - **The OpenAPI surface snapshot lists method, path and operation id only**, so the new query parameters don't change `docs/openapi-surface.txt`. (Regenerating it locally also needs a database: `api.main` runs `ensure_schema()` at import.)
 - **`get_historical_drawdown`'s fields are signed worst returns, not loss magnitudes.** Each is the *minimum* return over its window, so a window with only gains reports a positive number. The first replay took `abs()` of each field, copying the stop calibration above it, and turned a +2% worst day into a 2% loss that "hit" the technical stop (Guppy on #418, reproduced through the real producer). The replay now takes `max(0, −return)`, so a gain replays as 0% at today's price. The calibration's own `abs()` is older behaviour and is left alone here. Every fixture drawdown was negative, so 100% changed-line coverage never reached this case; the regression tests feed the replay from the real `get_historical_drawdown`.
 - **Only the gamma wall is shared between the two gathers.** `get_vwap` is still called once by the stop inputs and once by the rolling-VWAP source. Sharing more would mean threading a memo through `_LevelContext` for every input; the gamma wall is the one that pulls option chains from Yahoo.
+- **A disabled react-query query with no data reports `isLoading: false`.** In v5, `isLoading` is `isPending && isFetching`, and a disabled query isn't fetching, so the confluence card, held off while the stop-loss request runs, rendered nothing instead of a spinner. It now treats "disabled and no data" as loading.
+- **The vitest client's `gcTime: 0` drops a seeded entry nobody observes.** `setQueryData` on `['support-confluence', ticker]` with no mounted observer is collected at once under the test client, so the seeding test builds its own client with the default `gcTime`. On the page the confluence card observes the key (disabled), so the seeded entry survives.
 - **Not touched, still over the limits:** `get_trade_recommendation` (CC 145, cognitive 177), `get_relative_strength` and `get_relative_strength_history`.
 
 ## Checkpoint log

@@ -580,7 +580,8 @@ def get_stop_loss_analysis(
 
     The tool also flags when the technical stop falls inside the historical noise floor
     (meaning it would false-trigger on a single bad session) and computes position-level
-    P&L at each stop level when cost_basis and shares are provided.
+    P&L at each stop level (the confluence stop too, when one is computed) when
+    cost_basis and shares are provided.
 
     drawdown_replay applies the worst recent day, worst 1-day, worst intraday and worst
     5-day drops to today's price and says which stops each would have hit.

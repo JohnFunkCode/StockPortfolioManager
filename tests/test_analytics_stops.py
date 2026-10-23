@@ -74,6 +74,19 @@ class PositionPnlTests(unittest.TestCase):
         self.assertEqual(pnl["pnl_at_trailing_stop"], 4.0)
 
 
+class PnlAtStopTests(unittest.TestCase):
+    def test_scales_by_shares(self):
+        self.assertEqual(stops.pnl_at_stop(93.74, 91.25, 40), 99.6)
+
+    def test_no_shares_means_per_share(self):
+        self.assertEqual(stops.pnl_at_stop(95.0, 100.0, 0), -5.0)
+
+    def test_matches_the_position_pnl_columns(self):
+        pnl = stops.position_pnl(180.0, 142.5, 120, 171.12, 167.13)
+        self.assertEqual(pnl["pnl_at_technical_stop"], stops.pnl_at_stop(171.12, 142.5, 120))
+        self.assertEqual(pnl["pnl_at_trailing_stop"], stops.pnl_at_stop(167.13, 142.5, 120))
+
+
 class FlagsAndSummaryTests(unittest.TestCase):
     def _flags(self, **over):
         kw = dict(vwap_bars=3, above_vwap=True, macd_crossover="bullish", rsi=50.0,

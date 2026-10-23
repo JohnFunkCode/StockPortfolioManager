@@ -12,6 +12,7 @@ import {
   renderWithProviders,
   mineRow,
   securityRow,
+  stopLossResponse,
   watchlistMine,
 } from '../../testUtils';
 
@@ -49,9 +50,21 @@ function armAll(overrides: Record<string, unknown> = {}) {
     ['/signals/options-flow', { ticker: 'INTC', _errors: null }],
     ['/signals/risk', { ticker: 'INTC', drawdown: null }],
     ['/news', { symbol: 'INTC', article_count: 0, articles: [] }],
+    // Technical Analysis tab: one stop-loss request embeds the confluence result.
+    ['/stop-loss', overrides.stopLoss ?? stopLossResponse({ symbol: 'INTC', confluence: CONFLUENCE })],
+    ['/support-confluence', CONFLUENCE],
     [/\/api\//, {}],
   ]);
 }
+
+const CONFLUENCE = {
+  symbol: 'INTC', price: 180, tolerance_pct: 1, methods_available: ['gamma_wall'],
+  methods_failed: [], resistance_zones: [], strongest_support: null, interpretation: '',
+  support_zones: [{
+    zone_low: 170, zone_high: 171.5, center: 170.8, distance_pct: -5.1, score: 3.1,
+    method_count: 3, contributors: [], is_stop_zone: true,
+  }],
+};
 
 function renderPage() {
   return renderWithProviders(<SecurityDetailPage />, {
@@ -106,6 +119,27 @@ describe('SecurityDetailPage', () => {
         expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true'),
       );
     }
+  });
+
+  it('fills both Technical Analysis cards from one stop-loss request', async () => {
+    const api = armAll();
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    expect(await screen.findByTestId('stop-tile-confluence')).toBeInTheDocument();
+    expect(await screen.findByTestId('confluence-stop-zone')).toBeInTheDocument();
+    const urls = api.calls.map(([url]) => url);
+    expect(urls.filter((u) => u.includes('/stop-loss'))).toEqual([
+      '/api/securities/INTC/stop-loss?confluence=full&position=mine',
+    ]);
+    expect(urls.some((u) => u.includes('/support-confluence'))).toBe(false);
+  });
+
+  it('falls back to its own confluence request when the stop-loss request fails', async () => {
+    const api = armAll({ stopLoss: { __status: 500, error: 'down' } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    expect(await screen.findByTestId('confluence-stop-zone')).toBeInTheDocument();
+    expect(api.calls.some(([url]) => url.includes('/support-confluence'))).toBe(true);
   });
 
   it('opens the remove-from-portfolio confirmation', async () => {

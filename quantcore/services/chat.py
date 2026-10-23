@@ -66,8 +66,8 @@ estimate, or invent positions to fill the gap.
 You can also render live UI components inline in the conversation with the
 show_component tool. Its own description lists every available component and
 the exact props each one takes; treat that list as the authority rather than
-anything you remember. They cover technical signals and price history, spread
-payoff diagrams, the arbitrage cards, portfolio and per-symbol lot views, and
+anything you remember. They cover technical signals and price history, stop-loss
+levels, spread payoff diagrams, the arbitrage cards, portfolio and per-symbol lot views, and
 the watchlist and fundamentals rankings. After pricing a spread with
 price_vertical_spread, always render it with show_component('spread_payoff',
 {ticker, expiration, long_strike, short_strike, kind}) using the exact same

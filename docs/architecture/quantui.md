@@ -67,9 +67,28 @@ composes `FundamentalsService`, so injecting the services directly would close a
 At the route boundary it is a `Literal["all","tracked"]`, so a bad value is a 422 rather than a
 service `ValueError` escaping over HTTP.
 
-The security detail page's Technical Analysis tab includes the **Support Confluence card**
-(`frontend/src/components/securities/SupportConfluenceCard.tsx`, issue #93 Phase 7), rendering the
-`GET /api/securities/{ticker}/support-confluence` composite support/resistance zones.
+The security detail page's Technical Analysis tab ends with two cards that share **one request**
+(#399, [`stop-loss-card-plan.md`](../proposals/stop-loss-card-plan.md)):
+
+- The **Stop-Loss card** (`frontend/src/components/securities/StopLossCard.tsx`) shows the
+  technical, trailing and confluence stops side by side, a ladder replaying the worst 1-day,
+  intraday, 5-day and recent drops from today's price against them, the context (VWAP, RSI/MACD,
+  short interest), and — with a Held chip — the P&L at each stop. It asks for
+  `GET /api/securities/{ticker}/stop-loss?confluence=full&position=mine`: the server reads the
+  caller's own open lots, so the browser never sends a cost basis. Every number is server-side; the
+  ladder only maps the given prices onto a track.
+- The **Support Confluence card** (`SupportConfluenceCard.tsx`, issue #93 Phase 7) renders the
+  composite support/resistance zones. `useStopLoss` seeds its `['support-confluence', ticker]`
+  query from the confluence result the stop-loss response embeds, and the card's own query stays
+  disabled until that request settles, so the 14 level sources are gathered once. It fetches
+  `/support-confluence` itself only when the stop-loss request failed. The zone the confluence
+  stop sits under carries a "stop under this zone" chip; a stop zone outside the top 5 is appended
+  as a trailing row marked as such. Keep the two cards' confluence defaults (tolerance 1%, 5 zones)
+  equal to the embedded result's, or the seeded data stops matching what the card would fetch.
+
+The card is also the Sidekick component `stop_loss` (`{ticker}` only, `confluence=stop`) — never
+give it a cost-basis, shares or owner prop. The Signals tab's old *Risk & Stop-Loss Calibration*
+panel was retired into it; `/signals/risk` still feeds the Signals summary line.
 
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted

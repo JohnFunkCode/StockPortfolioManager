@@ -187,6 +187,20 @@ class OwnerPositionTests(unittest.TestCase):
         self.assertEqual(result["position"]["shares"], 40)
         self.assertEqual(result["position"]["total_unrealized_pnl"], 350.0)
 
+    def test_pnl_at_the_confluence_stop_for_a_held_position(self):
+        result = _service(portfolio=_Lots(self._LOTS)).get_stop_loss_analysis(
+            "xyz", confluence="stop", owner="alice")
+        # 40 shares from 91.25 to the 93.74 confluence stop.
+        self.assertEqual(result["position"]["pnl_at_confluence_stop"], 99.6)
+
+    def test_no_confluence_pnl_without_a_confluence_stop_or_a_position(self):
+        held = _service(portfolio=_Lots(self._LOTS)).get_stop_loss_analysis(
+            "xyz", owner="alice")
+        self.assertNotIn("pnl_at_confluence_stop", held["position"])
+        unheld = _service(portfolio=_Lots([])).get_stop_loss_analysis(
+            "xyz", confluence="stop", owner="alice")
+        self.assertEqual(unheld["position"], {})
+
     def test_explicit_position_wins_and_skips_the_lookup(self):
         lots = _Lots(self._LOTS)
         result = _service(portfolio=lots).get_stop_loss_analysis(

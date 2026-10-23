@@ -307,10 +307,10 @@ class RecommendationsService:
         result["drawdown_replay"] = stops.drawdown_replay(
             s.price,
             {
-                "recent_1day":  abs(dd["recent_max_1day_pct"]),
-                "max_1day":     abs(dd["max_1day_drawdown_pct"]),
-                "max_intraday": abs(dd["max_intraday_drop_pct"]),
-                "max_5day":     abs(dd["max_5day_drawdown_pct"]),
+                "recent_1day":  dd["recent_max_1day_pct"],
+                "max_1day":     dd["max_1day_drawdown_pct"],
+                "max_intraday": dd["max_intraday_drop_pct"],
+                "max_5day":     dd["max_5day_drawdown_pct"],
             },
             result["stops"]["technical_stop"],
             result["stops"]["trailing_stop_price"],

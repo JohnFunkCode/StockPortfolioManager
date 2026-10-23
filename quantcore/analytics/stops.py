@@ -268,25 +268,29 @@ REPLAY_DROPS: tuple[tuple[str, str], ...] = (
 
 def drawdown_replay(
     price: float,
-    drops_pct: dict[str, float],
+    worst_returns_pct: dict[str, float],
     technical_stop_price: float,
     trailing_stop_price: float,
     confluence_stop_price: Optional[float],
 ) -> list[dict]:
     """Replay each historical drop from today's price and say which stops it hits.
 
-    ``drops_pct`` maps each ``REPLAY_DROPS`` key to a positive drop size in
-    percent. A drop hits a stop when the price it reaches is at or below the
-    stop. ``hits_confluence`` is ``None`` when there is no confluence stop.
+    ``worst_returns_pct`` maps each ``REPLAY_DROPS`` key to the signed worst
+    return over that window, as ``get_historical_drawdown`` reports it. A
+    window whose worst return is a gain had no drop: it replays as 0%, at
+    today's price, and hits nothing. (Taking the magnitude instead would turn a
+    +2% day into a 2% loss and invent a stop hit, #418 review.) A drop hits a
+    stop when the price it reaches is at or below the stop.
+    ``hits_confluence`` is ``None`` when there is no confluence stop.
     """
     rows = []
     for key, label in REPLAY_DROPS:
-        pct = drops_pct[key]
-        at = round(price * (1 - pct / 100), 2)
+        loss = max(0.0, -worst_returns_pct[key])
+        at = round(price * (1 - loss / 100), 2)
         rows.append({
             "key":             key,
             "label":           label,
-            "drop_pct":        -round(pct, 2),
+            "drop_pct":        -round(loss, 2) if loss else 0.0,
             "price":           at,
             "hits_technical":  at <= technical_stop_price,
             "hits_trailing":   at <= trailing_stop_price,

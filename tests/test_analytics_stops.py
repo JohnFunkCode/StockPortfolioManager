@@ -149,7 +149,7 @@ class ConfluenceStopTests(unittest.TestCase):
 
 
 class DrawdownReplayTests(unittest.TestCase):
-    _DROPS = {"recent_1day": 2.0, "max_1day": 5.0, "max_intraday": 7.0, "max_5day": 12.0}
+    _DROPS = {"recent_1day": -2.0, "max_1day": -5.0, "max_intraday": -7.0, "max_5day": -12.0}
 
     def test_rows_in_order_with_hits(self):
         rows = stops.drawdown_replay(100.0, self._DROPS, 95.0, 92.0, 90.0)
@@ -161,6 +161,16 @@ class DrawdownReplayTests(unittest.TestCase):
         self.assertEqual([r["hits_technical"] for r in rows], [False, True, True, True])
         self.assertEqual([r["hits_trailing"] for r in rows], [False, False, False, True])
         self.assertEqual([r["hits_confluence"] for r in rows], [False, False, False, True])
+
+    def test_a_window_with_only_gains_replays_as_no_drop(self):
+        # A +2% worst day is not a 2% loss: today's price, no stop hit (#418 review).
+        rows = stops.drawdown_replay(
+            100.0, {**self._DROPS, "recent_1day": 2.0, "max_5day": 0.0}, 99.5, 99.0, 99.8)
+        by_key = {r["key"]: r for r in rows}
+        for key in ("recent_1day", "max_5day"):
+            self.assertEqual((by_key[key]["drop_pct"], by_key[key]["price"]), (0.0, 100.0))
+            self.assertEqual((by_key[key]["hits_technical"], by_key[key]["hits_trailing"],
+                              by_key[key]["hits_confluence"]), (False, False, False))
 
     def test_no_confluence_stop_means_no_verdict(self):
         rows = stops.drawdown_replay(100.0, self._DROPS, 95.0, 92.0, None)

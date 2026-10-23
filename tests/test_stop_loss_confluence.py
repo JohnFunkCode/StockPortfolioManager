@@ -9,10 +9,12 @@ fixture's price is 100 and its confluence zones sit at 99.4 (2 methods),
 
 import unittest
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from quantcore.services import recommendations as rec_module
+from quantcore.services.prices import PricesService
 from tests.test_stop_loss_golden import _DRAWDOWN, _Fake, _build, _si
+from tests.test_prices_service import bars
 from tests.test_support_confluence import _FULL_OPTIONS, _FULL_PRICES
 
 # Noise floors that make the nearest zone's stop (98.21, −1.79%) sit inside
@@ -212,6 +214,47 @@ class OwnerPositionTests(unittest.TestCase):
     def test_owner_without_a_repository_is_a_wiring_error(self):
         with self.assertRaises(RuntimeError):
             _service().get_stop_loss_analysis("xyz", owner="alice")
+
+
+class RealDrawdownReplayTests(unittest.TestCase):
+    """The replay fed by the real ``get_historical_drawdown`` (#418 review): its
+    fields are signed worst returns, so a window with only gains is positive."""
+
+    def _drawdown(self, closes):
+        prices = PricesService(ohlcv_repository=Mock(), yfinance_gateway=Mock(),
+                               options_repository=Mock(), sentiment_repository=Mock())
+        with patch.object(prices, "get_history", return_value=bars(closes)):
+            return prices.get_historical_drawdown("XYZ", lookback_days=len(closes))
+
+    def test_a_rising_recent_window_replays_as_no_drop(self):
+        # An 8% selloff, then 35 sessions each up 0.5%: the last 30 bars hold no loss.
+        closes = [100.0] * 20 + [92.0]
+        for _ in range(35):
+            closes.append(round(closes[-1] * 1.005, 4))
+        dd = self._drawdown(closes)
+        self.assertGreater(dd["recent_max_1day_pct"], 0)   # the producer's sign
+
+        result = _service(_prices(dd)).get_stop_loss_analysis("xyz")
+        rows = {r["key"]: r for r in result["drawdown_replay"]}
+        self.assertEqual((rows["recent_1day"]["drop_pct"], rows["recent_1day"]["price"]),
+                         (0.0, 100.0))
+        self.assertFalse(rows["recent_1day"]["hits_technical"])
+        self.assertFalse(rows["recent_1day"]["hits_trailing"])
+        # The selloff still replays as the worst 1-day drop.
+        self.assertEqual(rows["max_1day"]["drop_pct"], -8.0)
+        self.assertEqual(rows["max_1day"]["price"], 92.0)
+
+    def test_an_all_gain_history_hits_nothing(self):
+        closes = [round(100.0 * 1.004 ** i, 4) for i in range(40)]
+        dd = self._drawdown(closes)
+        result = _service(_prices(dd)).get_stop_loss_analysis("xyz", confluence="stop")
+        for row in result["drawdown_replay"]:
+            with self.subTest(row["key"]):
+                if row["key"] == "max_intraday":
+                    continue   # high-to-low inside a bar is a real loss even in a rally
+                self.assertEqual((row["drop_pct"], row["price"]), (0.0, 100.0))
+                self.assertFalse(row["hits_technical"] or row["hits_trailing"]
+                                 or row["hits_confluence"])
 
 
 if __name__ == "__main__":

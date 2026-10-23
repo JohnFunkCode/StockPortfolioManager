@@ -229,7 +229,7 @@ authoritative endpoint list.** There are 111 routes, so the table below only gro
 | `fundamentals.py` | `/api/securities/…` | scores (single and batch, at most 25 symbols), growth, acceleration, earnings calendar, history, sector breakdown, cache stats. Collection reads take `?scope=all\|tracked` |
 | `sentiment.py` | `/api/securities/…/news…`, `/api/sentiment/…` | news collection, per-symbol sentiment and trend, summaries |
 | `microstructure.py` | `/api/securities/{ticker}/…` | short interest, dark-pool proxy, bid/ask spread |
-| `recommendations.py` | `/api/securities/{ticker}/…` | trade recommendation, stop-loss analysis, relative strength, support confluence |
+| `recommendations.py` | `/api/securities/{ticker}/…` | trade recommendation, stop-loss analysis (opt-in `confluence=stop\|full` stop, `position=mine` from your own lots), relative strength, support confluence |
 | `arbitrage.py` | `/api/arbitrage/…` | universe, pair analysis, scan, discovery, spread history |
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |

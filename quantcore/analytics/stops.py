@@ -191,3 +191,106 @@ def stop_summary(
             f"P&L at trailing stop: ${position['pnl_at_trailing_stop']:+.2f}."
         )
     return " ".join(lines)
+
+
+# ── Confluence stop and drawdown replay (#399 PR 2) ──────────────────────────
+
+# A zone qualifies for a stop only when this many independent methods agree on it.
+MIN_CONFLUENCE_METHODS = 2
+# Same buffer as a gamma-wall stop: a confluence zone is a defined level, not a
+# statistical one that gets tested often.
+CONFLUENCE_STOP_BUFFER = 0.008
+
+
+def _confluence_stop_row(zone: dict, stop: float, price: float, stepped: bool) -> dict:
+    return {
+        "stop":               stop,
+        "distance_pct":       distance_pct(stop, price),
+        "zone_low":           zone["zone_low"],
+        "zone_high":          zone["zone_high"],
+        "center":             zone["center"],
+        "score":              zone["score"],
+        "method_count":       zone["method_count"],
+        "stepped_past_noise": stepped,
+    }
+
+
+def confluence_stop(
+    zones: list[dict], price: float, noise_floor_pct: float
+) -> tuple[Optional[dict], Optional[str]]:
+    """A stop under the nearest support zone that at least
+    ``MIN_CONFLUENCE_METHODS`` methods agree on, as ``(stop, reason)``.
+
+    ``zones`` must be every scored zone, not the ranked top N: the ranking is by
+    score, so the nearest qualifying zone can be cut from it. A stop closer to
+    price than ``noise_floor_pct`` (the worst 1-day drop) would trip on one
+    ordinary bad session, so the search steps down to the next qualifying zone;
+    ``reason`` then names the zones it stepped past. When no zone clears, the
+    stop is ``None`` and ``reason`` says why.
+    """
+    candidates = sorted(
+        (z for z in zones
+         if z["center"] <= price and z["method_count"] >= MIN_CONFLUENCE_METHODS),
+        key=lambda z: -z["center"],
+    )
+    if not candidates:
+        return None, (
+            f"No support zone below price where {MIN_CONFLUENCE_METHODS} or more "
+            "methods agree."
+        )
+    skipped: list[str] = []
+    for zone in candidates:
+        stop = round(zone["zone_low"] * (1 - CONFLUENCE_STOP_BUFFER), 2)
+        if abs(distance_pct(stop, price)) >= noise_floor_pct:
+            row = _confluence_stop_row(zone, stop, price, stepped=bool(skipped))
+            reason = None
+            if skipped:
+                reason = (
+                    f"Stepped past the zone(s) centered at {', '.join(skipped)}: a stop "
+                    f"under them sits inside the {noise_floor_pct:.1f}% one-day noise floor."
+                )
+            return row, reason
+        skipped.append(f"${zone['center']:.2f}")
+    return None, (
+        f"Every qualifying zone ({', '.join(skipped)}) puts the stop inside the "
+        f"{noise_floor_pct:.1f}% one-day noise floor."
+    )
+
+
+# (key, label) of each historical drop the replay applies to today's price.
+REPLAY_DROPS: tuple[tuple[str, str], ...] = (
+    ("recent_1day", "Worst day, last 30 bars"),
+    ("max_1day",    "Worst 1-day drop"),
+    ("max_intraday", "Worst intraday drop"),
+    ("max_5day",    "Worst 5-day drop"),
+)
+
+
+def drawdown_replay(
+    price: float,
+    drops_pct: dict[str, float],
+    technical_stop_price: float,
+    trailing_stop_price: float,
+    confluence_stop_price: Optional[float],
+) -> list[dict]:
+    """Replay each historical drop from today's price and say which stops it hits.
+
+    ``drops_pct`` maps each ``REPLAY_DROPS`` key to a positive drop size in
+    percent. A drop hits a stop when the price it reaches is at or below the
+    stop. ``hits_confluence`` is ``None`` when there is no confluence stop.
+    """
+    rows = []
+    for key, label in REPLAY_DROPS:
+        pct = drops_pct[key]
+        at = round(price * (1 - pct / 100), 2)
+        rows.append({
+            "key":             key,
+            "label":           label,
+            "drop_pct":        -round(pct, 2),
+            "price":           at,
+            "hits_technical":  at <= technical_stop_price,
+            "hits_trailing":   at <= trailing_stop_price,
+            "hits_confluence": None if confluence_stop_price is None
+                               else at <= confluence_stop_price,
+        })
+    return rows

@@ -6,6 +6,44 @@
     "max_intraday_pct": -7.8,
     "recent_max_1day_pct": -4.2
   },
+  "drawdown_replay": [
+    {
+      "drop_pct": -4.2,
+      "hits_confluence": null,
+      "hits_technical": true,
+      "hits_trailing": false,
+      "key": "recent_1day",
+      "label": "Worst day, last 30 bars",
+      "price": 172.44
+    },
+    {
+      "drop_pct": -6.1,
+      "hits_confluence": null,
+      "hits_technical": true,
+      "hits_trailing": false,
+      "key": "max_1day",
+      "label": "Worst 1-day drop",
+      "price": 169.02
+    },
+    {
+      "drop_pct": -7.8,
+      "hits_confluence": null,
+      "hits_technical": true,
+      "hits_trailing": true,
+      "key": "max_intraday",
+      "label": "Worst intraday drop",
+      "price": 165.96
+    },
+    {
+      "drop_pct": -11.4,
+      "hits_confluence": null,
+      "hits_technical": true,
+      "hits_trailing": true,
+      "key": "max_5day",
+      "label": "Worst 5-day drop",
+      "price": 159.48
+    }
+  ],
   "flags": [
     "8_bars_above_vwap",
     "bullish_macd_crossover",
@@ -14,6 +52,7 @@
     "squeeze_potential_high"
   ],
   "position": {},
+  "position_source": null,
   "price": 180.0,
   "short_interest": {
     "data_available": true,

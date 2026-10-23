@@ -142,3 +142,32 @@ def confluence_interpretation(
     if methods_failed:
         parts.append("Sources unavailable: " + ", ".join(methods_failed) + ".")
     return " ".join(parts)
+
+
+def _zone_key(zone: dict) -> tuple:
+    return (zone["zone_low"], zone["zone_high"], zone["center"])
+
+
+def mark_stop_zone(
+    support_zones: list[dict], zones: list[dict], stop: Optional[dict]
+) -> list[dict]:
+    """``support_zones`` with the zone a confluence stop sits under flagged
+    ``is_stop_zone``.
+
+    ``stop`` carries the zone's ``zone_low``/``zone_high``/``center``. If the
+    ranking cut that zone from ``support_zones``, it is found in ``zones`` (every
+    scored zone) and appended with ``outside_top`` as well, so the table can
+    still show where the stop sits. The input lists are not modified.
+    """
+    if stop is None:
+        return list(support_zones)
+    key = _zone_key(stop)
+    marked = [{**z, "is_stop_zone": True} if _zone_key(z) == key else z
+              for z in support_zones]
+    if any(z.get("is_stop_zone") for z in marked):
+        return marked
+    for zone in zones:
+        if _zone_key(zone) == key:
+            marked.append({**zone, "is_stop_zone": True, "outside_top": True})
+            break
+    return marked

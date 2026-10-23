@@ -560,11 +560,12 @@ def get_stop_loss_analysis(
     cost_basis: float = 0.0,
     shares: int = 0,
     max_expirations: int = 4,
+    confluence: str = "none",
 ) -> dict:
     """Synthesise a complete stop loss recommendation combining options/technical analysis
     and historical drawdown calibration.
 
-    Runs seven sub-analyses in sequence — price/BB, VWAP, MACD, RSI, delta-adjusted OI
+    Runs seven sub-analyses — price/BB, VWAP, MACD, RSI, delta-adjusted OI
     (gamma wall), historical drawdown, and short interest — then produces two stops:
 
       technical_stop  — the conceptual floor derived from the nearest meaningful support
@@ -581,17 +582,31 @@ def get_stop_loss_analysis(
     (meaning it would false-trigger on a single bad session) and computes position-level
     P&L at each stop level when cost_basis and shares are provided.
 
+    drawdown_replay applies the worst recent day, worst 1-day, worst intraday and worst
+    5-day drops to today's price and says which stops each would have hit.
+
+    confluence (opt-in, slower: it adds the 14 support-confluence sources):
+      'none'  — default; technical and trailing stops only.
+      'stop'  — adds stops.confluence_stop: a stop under the nearest support zone where
+                2+ independent methods agree, stepping down a zone when the stop would sit
+                inside the 1-day noise floor. Null, with confluence_stop_reason, when no
+                zone qualifies.
+      'full'  — as 'stop', and embeds the get_support_confluence result with the stop's
+                zone marked is_stop_zone (appended with outside_top if not in the top 5).
+
     Args:
         symbol:          Stock ticker symbol (e.g. 'AAPL')
         cost_basis:      Average cost per share (optional — enables P&L output)
         shares:          Number of shares held (optional — enables total P&L output)
         max_expirations: Options expirations to scan for gamma wall (default: 4)
+        confluence:      'none' (default), 'stop' or 'full' — see above
     """
     return rest_client.get(
         f"/api/securities/{symbol}/stop-loss",
         cost_basis=cost_basis,
         shares=shares,
         max_expirations=max_expirations,
+        confluence=confluence,
     )
 
 

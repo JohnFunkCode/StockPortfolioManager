@@ -49,7 +49,7 @@ def _build(prices=None, options=None, microstructure=None, sentiment=None,
         sentiment=_Fake(**(sentiment or {})),
         fundamentals=_Fake(**(fundamentals or {})),
         ohlcv_repository=_Fake(),
-        yfinance_gateway=_Fake(**(yf or {})),
+        yfinance_gateway=_Fake(close_thread_caches=None, **(yf or {})),
     )
 
 

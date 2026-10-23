@@ -23,25 +23,33 @@ fans out to every support-level technique across Prices and Options, clusters
 the resulting price levels into zones, and scores each zone by how many
 *independent* methods agree on it.
 
-For both of those, this module only *gathers* (``_gather_stop_inputs``,
-``_gather_confluence_levels``); the math is pure functions in
+For both of those, this module only *gathers* (``_stop_tasks``,
+``_level_tasks``); the math is pure functions in
 ``quantcore/analytics/stops.py`` and ``quantcore/analytics/levels.py`` (#399),
 so one gather can feed several computations.
+
+The gathers run in one thread pool. ``get_stop_loss_analysis(confluence=...)``
+puts the stop inputs and the 14 confluence sources in the same pool, and both
+read the gamma wall through one shared fetch, so the option chains behind it
+are pulled once per request.
 """
 
 from __future__ import annotations
 
 import math
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 import pandas as pd
 
-from quantcore.analytics import levels as confluence
-from quantcore.analytics import stops
+from quantcore.analytics import levels as zone_math
+from quantcore.analytics import portfolio_math, stops
 from quantcore.analytics.indicators import find_swings
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
+from quantcore.repositories.portfolio_repository import PortfolioRepository
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
@@ -91,6 +99,41 @@ class _LevelContext:
     price_data: dict
     max_expirations: int
     add: Callable[[str, object, str], None]
+    daoi: Callable[[], dict]   # the shared delta-adjusted-OI fetch (gamma wall)
+
+
+# Workers in the gather pool. The stop inputs plus the confluence sources are
+# ~20 calls; more workers would mostly add concurrent Yahoo requests (429s).
+_GATHER_WORKERS = 6
+CONFLUENCE_MODES = ("none", "stop", "full")
+# Inputs the stop cannot be computed without; the gamma wall and short
+# interest are best-effort. Checked in this order, as the sequential gather did.
+_REQUIRED_STOP_INPUTS = ("vwap", "macd", "rsi", "drawdown")
+# The embedded confluence result uses the /support-confluence defaults, so the
+# page can seed that panel's query with it.
+_EMBEDDED_TOLERANCE_PCT = 1.0
+_EMBEDDED_MAX_ZONES = 5
+
+
+def _fetch_once(fetch: Callable[[], dict]) -> Callable[[], dict]:
+    """``fetch`` behind a lock, so callers on several threads share one call
+    (and its exception, if it raised)."""
+    lock = threading.Lock()
+    box: list[tuple[Optional[dict], Optional[Exception]]] = []
+
+    def get() -> dict:
+        with lock:
+            if not box:
+                try:
+                    box.append((fetch(), None))
+                except Exception as exc:  # noqa: BLE001 — re-raised to every caller
+                    box.append((None, exc))
+        value, error = box[0]
+        if error is not None:
+            raise error
+        return value
+
+    return get
 
 
 class RecommendationsService:
@@ -103,6 +146,7 @@ class RecommendationsService:
         fundamentals: FundamentalsService,
         ohlcv_repository: OhlcvRepository,
         yfinance_gateway: YFinanceGateway,
+        portfolio_repository: Optional[PortfolioRepository] = None,
     ):
         self._prices = prices
         self._options = options
@@ -111,6 +155,29 @@ class RecommendationsService:
         self._fundamentals = fundamentals
         self._ohlcv = ohlcv_repository
         self._yf = yfinance_gateway
+        self._portfolio = portfolio_repository
+
+    # ------------------------------------------------------------------
+    def _run_pool(
+        self, tasks: dict[str, Callable[[], object]]
+    ) -> dict[str, tuple[object, Optional[Exception]]]:
+        """Run ``tasks`` in one pool, as ``{name: (result, error)}``."""
+        def _run(fn):
+            # yfinance's sqlite caches are per thread: close this worker's (#338).
+            try:
+                return fn()
+            finally:
+                self._yf.close_thread_caches()
+
+        out: dict[str, tuple[object, Optional[Exception]]] = {}
+        with ThreadPoolExecutor(max_workers=_GATHER_WORKERS) as executor:
+            futures = {executor.submit(_run, fn): name for name, fn in tasks.items()}
+            for future in as_completed(futures):
+                try:
+                    out[futures[future]] = (future.result(), None)
+                except Exception as exc:  # noqa: BLE001 — the caller decides
+                    out[futures[future]] = (None, exc)
+        return out
 
     # ------------------------------------------------------------------
     def _get_sector_etf(self, symbol: str) -> str:
@@ -139,31 +206,45 @@ class RecommendationsService:
         except Exception:
             return short_float_pct, short_ratio, False
 
-    def _gather_stop_inputs(self, sym: str, max_expirations: int) -> _StopInputs:
-        """Every input the stop synthesis needs. The gamma wall and short
-        interest are best-effort; the rest raise."""
-        price_data = self._prices.get_stock_price(sym)
-        bb = price_data["bollinger_bands"]
+    def _held_position(self, owner: str, sym: str) -> tuple[float, float]:
+        """``(avg_cost, shares)`` from ``owner``'s open lots of ``sym``; zeros
+        when nothing is held. The repository's SQL carries the owner predicate."""
+        if self._portfolio is None:
+            raise RuntimeError("position lookup needs a PortfolioRepository")
+        held = portfolio_math.position_rollup(
+            self._portfolio.list_lots_for_symbol(owner, sym, status="OPEN")
+        )
+        if held["avg_price"] is None:
+            return 0.0, 0
+        quantity = held["quantity"]
+        shares = int(quantity) if quantity == int(quantity) else float(quantity)
+        return float(held["avg_price"]), shares
 
-        vwap_data = self._prices.get_vwap(sym)
+    def _stop_tasks(self, sym: str, daoi: Callable[[], dict]) -> dict[str, Callable]:
+        return {
+            "vwap":           lambda: self._prices.get_vwap(sym),
+            "macd":           lambda: self._prices.get_macd(sym),
+            "rsi":            lambda: self._prices.get_rsi(sym),
+            "gamma_wall":     lambda: daoi().get("gamma_wall_strike"),
+            "drawdown":       lambda: self._prices.get_historical_drawdown(sym),
+            "short_interest": lambda: self._short_interest(sym),
+        }
+
+    @staticmethod
+    def _stop_inputs(price_data: dict, results: dict) -> _StopInputs:
+        """Build the stop inputs from a pool run; a missing required input
+        raises its original error. The gamma wall is ``None`` when its fetch failed."""
+        for key in _REQUIRED_STOP_INPUTS:
+            error = results[key][1]
+            if error is not None:
+                raise error
+        bb = price_data["bollinger_bands"]
+        vwap_data = results["vwap"][0]
         above_vwap = vwap_data["position"] == "above_vwap"
         vwap_bars = vwap_data.get(
             "consecutive_bars_above" if above_vwap else "consecutive_bars_below", 0
         )
-
-        macd_cross = self._prices.get_macd(sym)["crossover"]
-        rsi = self._prices.get_rsi(sym)["rsi"]
-
-        gamma_wall = None
-        try:
-            daoi_data = self._options.get_delta_adjusted_oi(sym, max_expirations=max_expirations)
-            gamma_wall = daoi_data.get("gamma_wall_strike")
-        except Exception:
-            pass
-
-        drawdown = self._prices.get_historical_drawdown(sym)
-        short_float_pct, short_ratio, short_available = self._short_interest(sym)
-
+        short_float_pct, short_ratio, short_available = results["short_interest"][0]
         return _StopInputs(
             price=price_data["price"],
             bb_upper=bb["upper"],
@@ -172,10 +253,10 @@ class RecommendationsService:
             vwap=vwap_data["vwap"],
             above_vwap=above_vwap,
             vwap_bars=vwap_bars,
-            macd_cross=macd_cross,
-            rsi=rsi,
-            gamma_wall=gamma_wall,
-            drawdown=drawdown,
+            macd_cross=results["macd"][0]["crossover"],
+            rsi=results["rsi"][0]["rsi"],
+            gamma_wall=results["gamma_wall"][0],
+            drawdown=results["drawdown"][0],
             short_float_pct=short_float_pct,
             short_ratio=short_ratio,
             short_available=short_available,
@@ -187,9 +268,76 @@ class RecommendationsService:
         cost_basis: float = 0.0,
         shares: int = 0,
         max_expirations: int = 4,
+        confluence: str = "none",
+        owner: Optional[str] = None,
     ) -> dict:
+        """Technical and trailing stops, plus a drawdown replay against them.
+
+        ``confluence`` is opt-in because it adds the 14 confluence sources to the
+        gather: ``"stop"`` adds ``stops.confluence_stop``, and ``"full"`` also
+        embeds the confluence result with the stop's zone marked. With ``owner``,
+        the position comes from that owner's open lots unless ``cost_basis`` or
+        ``shares`` is given explicitly.
+        """
+        if confluence not in CONFLUENCE_MODES:
+            raise ValueError(f"confluence must be one of {', '.join(CONFLUENCE_MODES)}")
         sym = symbol.upper()
-        s = self._gather_stop_inputs(sym, max_expirations)
+        position_source = "explicit" if cost_basis > 0 or shares > 0 else None
+        if owner is not None and position_source is None:
+            cost_basis, shares = self._held_position(owner, sym)
+            position_source = "lots" if cost_basis > 0 else None
+
+        price_data = self._prices.get_stock_price(sym)
+        daoi = _fetch_once(
+            lambda: self._options.get_delta_adjusted_oi(sym, max_expirations=max_expirations)
+        )
+        tasks = self._stop_tasks(sym, daoi)
+        if confluence != "none":
+            tasks.update(self._level_tasks(sym, price_data, max_expirations, daoi))
+        results = self._run_pool(tasks)
+
+        s = self._stop_inputs(price_data, results)
+        result = self._stop_result(sym, s, cost_basis, shares)
+        result["position_source"] = position_source
+
+        confluence_price = None
+        if confluence != "none":
+            confluence_price = self._attach_confluence(result, sym, s, results, confluence)
+        dd = s.drawdown
+        result["drawdown_replay"] = stops.drawdown_replay(
+            s.price,
+            {
+                "recent_1day":  abs(dd["recent_max_1day_pct"]),
+                "max_1day":     abs(dd["max_1day_drawdown_pct"]),
+                "max_intraday": abs(dd["max_intraday_drop_pct"]),
+                "max_5day":     abs(dd["max_5day_drawdown_pct"]),
+            },
+            result["stops"]["technical_stop"],
+            result["stops"]["trailing_stop_price"],
+            confluence_price,
+        )
+        return result
+
+    def _attach_confluence(
+        self, result: dict, sym: str, s: _StopInputs, results: dict, mode: str
+    ) -> Optional[float]:
+        """Add the confluence stop (and, for ``"full"``, the marked confluence
+        result) to ``result``; returns the stop price, or ``None``."""
+        levels, available, failed = self._assemble_levels(results)
+        conf, zones = self._confluence_result(
+            sym, s.price, levels, available, failed,
+            _EMBEDDED_TOLERANCE_PCT, _EMBEDDED_MAX_ZONES,
+        )
+        noise_floor = abs(s.drawdown["max_1day_drawdown_pct"])
+        stop, reason = stops.confluence_stop(zones, s.price, noise_floor)
+        result["stops"]["confluence_stop"] = stop
+        result["stops"]["confluence_stop_reason"] = reason
+        if mode == "full":
+            conf["support_zones"] = zone_math.mark_stop_zone(conf["support_zones"], zones, stop)
+            result["confluence"] = conf
+        return stop["stop"] if stop else None
+
+    def _stop_result(self, sym: str, s: _StopInputs, cost_basis: float, shares: float) -> dict:
         price = s.price
 
         dd = s.drawdown
@@ -1105,23 +1253,8 @@ class RecommendationsService:
     # ------------------------------------------------------------------
     # Support confluence
     # ------------------------------------------------------------------
-    def _gather_confluence_levels(
-        self, sym: str, price_data: dict, max_expirations: int
-    ) -> tuple[list[dict], list[str], list[str]]:
-        """Candidate levels from all 14 sources, as ``(levels, methods_available,
-        methods_failed)``. Each source is isolated: one failure never kills the
-        call, it lands in ``methods_failed`` (levels it added before failing stay)."""
-        levels: list[dict] = []
-        methods_available: list[str] = []
-        methods_failed: list[str] = []
-
-        def _add(method: str, level, detail: str) -> None:
-            lvl = confluence.make_level(method, level, detail)
-            if lvl is not None:
-                levels.append(lvl)
-
-        ctx = _LevelContext(sym, price_data, max_expirations, _add)
-        sources = [
+    def _level_sources(self) -> list[tuple[str, Callable[[_LevelContext], None]]]:
+        return [
             ("gamma_wall", self._src_gamma_wall),
             ("gex_profile", self._src_gex_profile),
             ("volume_profile", self._src_volume_profile),
@@ -1137,21 +1270,55 @@ class RecommendationsService:
             ("atr_bands", self._src_atr_bands),
             ("fibonacci", self._src_fibonacci),
         ]
-        for name, collect in sources:
-            try:
-                collect(ctx)
-                methods_available.append(name)
-            except Exception:
-                methods_failed.append(name)
 
+    @staticmethod
+    def _collect_levels(
+        collect: Callable[[_LevelContext], None],
+        sym: str,
+        price_data: dict,
+        max_expirations: int,
+        daoi: Callable[[], dict],
+    ) -> tuple[list[dict], bool]:
+        """One source's levels and whether it succeeded. A source that fails
+        part-way keeps the levels it added before failing."""
+        found: list[dict] = []
+
+        def _add(method: str, level, detail: str) -> None:
+            lvl = zone_math.make_level(method, level, detail)
+            if lvl is not None:
+                found.append(lvl)
+
+        try:
+            collect(_LevelContext(sym, price_data, max_expirations, _add, daoi))
+        except Exception:  # noqa: BLE001 — one source never kills the call
+            return found, False
+        return found, True
+
+    def _level_tasks(
+        self, sym: str, price_data: dict, max_expirations: int, daoi: Callable[[], dict]
+    ) -> dict[str, Callable]:
+        """A pool task per confluence source, keyed ``level:<source>``."""
+        def task(collect):
+            return lambda: self._collect_levels(collect, sym, price_data, max_expirations, daoi)
+
+        return {f"level:{name}": task(collect) for name, collect in self._level_sources()}
+
+    def _assemble_levels(self, results: dict) -> tuple[list[dict], list[str], list[str]]:
+        """``(levels, methods_available, methods_failed)`` from a pool run,
+        merged in source order so the output never depends on thread timing."""
+        levels: list[dict] = []
+        methods_available: list[str] = []
+        methods_failed: list[str] = []
+        for name, _ in self._level_sources():
+            outcome, error = results[f"level:{name}"]
+            found, ok = outcome if error is None else ([], False)
+            levels.extend(found)
+            (methods_available if ok else methods_failed).append(name)
         return levels, methods_available, methods_failed
 
     # ── Level sources: each adds its candidate levels through ``ctx.add`` ──
     def _src_gamma_wall(self, ctx: _LevelContext) -> None:
-        daoi = self._options.get_delta_adjusted_oi(
-            ctx.sym, max_expirations=ctx.max_expirations
-        )
-        ctx.add("gamma_wall", daoi.get("gamma_wall_strike"),
+        ctx.add("gamma_wall", ctx.daoi().get("gamma_wall_strike"),
                 "gamma wall (BS gamma × OI peak)")
 
     def _src_gex_profile(self, ctx: _LevelContext) -> None:
@@ -1283,15 +1450,33 @@ class RecommendationsService:
         except Exception as exc:
             return {"symbol": sym, "error": f"Could not fetch price: {exc}"}
 
-        levels, methods_available, methods_failed = self._gather_confluence_levels(
-            sym, price_data, max_expirations
+        daoi = _fetch_once(
+            lambda: self._options.get_delta_adjusted_oi(sym, max_expirations=max_expirations)
         )
+        results = self._run_pool(self._level_tasks(sym, price_data, max_expirations, daoi))
+        levels, methods_available, methods_failed = self._assemble_levels(results)
+        result, _ = self._confluence_result(
+            sym, price, levels, methods_available, methods_failed, tolerance_pct, max_zones
+        )
+        return result
 
+    @staticmethod
+    def _confluence_result(
+        sym: str,
+        price: float,
+        levels: list[dict],
+        methods_available: list[str],
+        methods_failed: list[str],
+        tolerance_pct: float,
+        max_zones: int,
+    ) -> tuple[dict, list[dict]]:
+        """The confluence response, plus every scored zone (the response keeps
+        only the top ``max_zones`` per side)."""
         zones = [
-            confluence.score_zone(c, price)
-            for c in confluence.cluster_levels(levels, price, tolerance_pct)
+            zone_math.score_zone(c, price)
+            for c in zone_math.cluster_levels(levels, price, tolerance_pct)
         ]
-        support_zones, resistance_zones = confluence.rank_zones(zones, price, max_zones)
+        support_zones, resistance_zones = zone_math.rank_zones(zones, price, max_zones)
         strongest_support = support_zones[0] if support_zones else None
 
         return {
@@ -1303,7 +1488,7 @@ class RecommendationsService:
             "support_zones":     support_zones,
             "resistance_zones":  resistance_zones,
             "strongest_support": strongest_support,
-            "interpretation":    confluence.confluence_interpretation(
+            "interpretation":    zone_math.confluence_interpretation(
                 strongest_support, resistance_zones, methods_failed
             ),
-        }
+        }, zones

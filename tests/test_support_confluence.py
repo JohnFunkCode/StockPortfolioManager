@@ -41,7 +41,7 @@ def _build(prices=None, options=None) -> RecommendationsService:
         sentiment=_Fake(),
         fundamentals=_Fake(),
         ohlcv_repository=_Fake(),
-        yfinance_gateway=_Fake(),
+        yfinance_gateway=_Fake(close_thread_caches=None),
     )
 
 

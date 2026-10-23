@@ -623,6 +623,8 @@ class ApiSmokeTest(unittest.TestCase):
             self.client.get("/api/portfolio"),
             self.client.get("/api/watchlist/mine"),
             self.client.get("/api/portfolio/delta-exposure"),
+            # Owner-scoped only with position=mine (#399); 403s before any fetch.
+            self.client.get("/api/securities/XYZ/stop-loss", params={"position": "mine"}),
         ):
             self.assertEqual(resp.status_code, 403)
             self.assertEqual(

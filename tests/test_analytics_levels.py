@@ -79,5 +79,30 @@ class InterpretationTests(unittest.TestCase):
         self.assertIn("Sources unavailable: gamma_wall.", text)
 
 
+class MarkStopZoneTests(unittest.TestCase):
+    def _z(self, center, score):
+        return {"zone_low": center - 0.5, "zone_high": center + 0.5, "center": center,
+                "score": score}
+
+    def test_marks_the_stop_zone_in_place(self):
+        top = [self._z(95.0, 3.0), self._z(98.0, 1.0)]
+        stop = {"zone_low": 97.5, "zone_high": 98.5, "center": 98.0, "stop": 96.72}
+        marked = levels.mark_stop_zone(top, top, stop)
+        self.assertEqual([z.get("is_stop_zone") for z in marked], [None, True])
+        self.assertNotIn("outside_top", marked[1])
+        self.assertNotIn("is_stop_zone", top[1])   # inputs untouched
+
+    def test_appends_a_zone_the_ranking_cut(self):
+        every = [self._z(95.0, 3.0), self._z(98.0, 1.0)]
+        stop = {"zone_low": 97.5, "zone_high": 98.5, "center": 98.0}
+        marked = levels.mark_stop_zone(every[:1], every, stop)
+        self.assertEqual([z["center"] for z in marked], [95.0, 98.0])
+        self.assertEqual((marked[1]["is_stop_zone"], marked[1]["outside_top"]), (True, True))
+
+    def test_no_stop_leaves_the_zones_alone(self):
+        top = [self._z(95.0, 3.0)]
+        self.assertEqual(levels.mark_stop_zone(top, top, None), top)
+
+
 if __name__ == "__main__":
     unittest.main()

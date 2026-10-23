@@ -79,8 +79,14 @@ CASES = {
         max_zones="5"))],
     (SP, "get_historical_drawdown"): [({"symbol": "BRK-B"}, G(
         f"{SEC}/drawdown", lookback_days="252"))],
-    (SP, "get_stop_loss_analysis"): [({"symbol": "BRK-B"}, G(
-        f"{SEC}/stop-loss", cost_basis="0.0", shares="0", max_expirations="4"))],
+    (SP, "get_stop_loss_analysis"): [
+        ({"symbol": "BRK-B"}, G(
+            f"{SEC}/stop-loss", cost_basis="0.0", shares="0", max_expirations="4",
+            confluence="none")),
+        ({"symbol": "BRK-B", "confluence": "full"}, G(
+            f"{SEC}/stop-loss", cost_basis="0.0", shares="0", max_expirations="4",
+            confluence="full")),
+    ],
     (SP, "get_vwap_history"): [({"symbol": "BRK-B"}, G(
         f"{SEC}/vwap/history", since_days="90", lookback="20", interval="1d"))],
     (SP, "get_relative_strength_history"): [({"symbol": "BRK-B"}, G(

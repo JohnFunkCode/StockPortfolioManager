@@ -286,6 +286,7 @@ def get_services() -> Services:
             fundamentals=fundamentals,
             ohlcv_repository=ohlcv_repository,
             yfinance_gateway=yfinance_gateway,
+            portfolio_repository=portfolio_repository,
         ),
         arbitrage=arbitrage,
         chat=chat,

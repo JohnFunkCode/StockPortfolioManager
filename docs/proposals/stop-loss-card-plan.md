@@ -1,6 +1,6 @@
 # Stop-loss card on Security Detail (#399)
 
-**Status:** PR 1 of 3 in progress. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
+**Status:** PR 1 (#417) merged; PR 2 in review. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
 Related: #221 (store stops and alert on them, deferred), #416 (Support Confluence Sidekick-renderable),
 #69 / #219 (trade recommendation).
 
@@ -77,6 +77,10 @@ each fetch the gamma wall separately.
   - Fix its claims that the analysis uses volume profile and an ATR trailing stop; it uses neither.
 - **#416:** linked.
 
+## Latency (PR 2 step 7, gate for PR 3)
+
+Pending: measured on test once PR 2 has deployed there. Time `/support-confluence`, `/stop-loss` and `/stop-loss?confluence=full` for a liquid name and a thin-options name. If `confluence=full` is much slower than `/support-confluence` alone, the PR 3 card loads on demand rather than with the page.
+
 ## Gotchas
 
 - **`support_zones` is cut to `max_zones` (default 5) by score, not by distance.** The nearest qualifying zone, which is the one a stop should sit under, can fall outside the list. The confluence stop must use every zone, and the table must still show the stop zone.
@@ -86,6 +90,12 @@ each fetch the gamma wall separately.
   - Lifting them to methods that take a `_LevelContext` brought it to 5.
   - The `add` callback is deliberate: a source that fails part-way keeps the levels it already added, as before. `test_source_failing_part_way_keeps_levels_it_already_added` passes on both the old and new code.
 - **`get_trade_recommendation` calls `get_stop_loss_analysis` internally** (`recommendations.py`, the stop block). Any change to the stop changes the trade recommendation's stop, and its latency, which is why confluence is opt-in.
+- **A parallel gather must merge in a fixed order.** Each confluence source collects into its own list and `_assemble_levels` concatenates them in source order. Appending to one shared list from the pool would make the level order, and with it tie-breaks in zone contributors, depend on thread timing. The golden files caught nothing only because the merge is ordered.
+- **The test fakes had no `close_thread_caches`.** The pool calls it in each worker's `finally`, so every stub `yfinance_gateway` needs `close_thread_caches=None`. Without it every pooled task failed with an `AttributeError` raised from the `finally`, which looked like every confluence source failing.
+- **`position=mine` resolves the owner only when asked.** The route depends on `require_principal` and calls `require_owner` only for `position=mine`. Depending on `require_owner` for the whole route would 403 an unprovisioned caller who never asked about a position.
+- **The OpenAPI surface snapshot lists method, path and operation id only**, so the new query parameters don't change `docs/openapi-surface.txt`. (Regenerating it locally also needs a database: `api.main` runs `ensure_schema()` at import.)
+- **`get_historical_drawdown`'s fields are signed worst returns, not loss magnitudes.** Each is the *minimum* return over its window, so a window with only gains reports a positive number. The first replay took `abs()` of each field, copying the stop calibration above it, and turned a +2% worst day into a 2% loss that "hit" the technical stop (Guppy on #418, reproduced through the real producer). The replay now takes `max(0, −return)`, so a gain replays as 0% at today's price. The calibration's own `abs()` is older behaviour and is left alone here. Every fixture drawdown was negative, so 100% changed-line coverage never reached this case; the regression tests feed the replay from the real `get_historical_drawdown`.
+- **Only the gamma wall is shared between the two gathers.** `get_vwap` is still called once by the stop inputs and once by the rolling-VWAP source. Sharing more would mean threading a memo through `_LevelContext` for every input; the gamma wall is the one that pulls option chains from Yahoo.
 - **Not touched, still over the limits:** `get_trade_recommendation` (CC 145, cognitive 177), `get_relative_strength` and `get_relative_strength_history`.
 
 ## Checkpoint log
@@ -93,5 +103,7 @@ each fetch the gamma wall separately.
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Golden characterization tests | `e546a73` | 4 tests, 9 frozen outputs | Every first-draft stop scenario tripped the noise-floor flag, so an outside-the-floor scenario was added |
-| Review follow-up (Guppy on #417) | *(this PR)* | 3 Fibonacci-source tests through the real `find_swings`: up leg, down leg, and no usable swing (`hi <= lo` and too few bars). They pass on main's code and the refactor | The all-sources golden fixture has no confirmed 5-bar swings, so it never reached the retracement path |
+| Review follow-up (Guppy on #417) | `7a09782` | 3 Fibonacci-source tests through the real `find_swings`: up leg, down leg, and no usable swing (`hi <= lo` and too few bars). They pass on main's code and the refactor | The all-sources golden fixture has no confirmed 5-bar swings, so it never reached the retracement path |
 | Analytics extraction + gather/compute split | `835addb` | Golden files unchanged. `get_stop_loss_analysis` went from CC 40 / cognitive 42 to 3 / 2, `get_support_confluence` from 20 / 66 to 4 / 3. Every touched unit is under 15 / 25 | Nested closures count toward the parent (above) |
+| PR 2: confluence stop, drawdown replay, `confluence` and `position=mine` | *(this PR)* | Stop and confluence gathers share one pool of 6 workers, with the gamma wall fetched once (a test counts the calls). The trade-rec and confluence golden files are unchanged; the six stop files gained `drawdown_replay` and `position_source` and nothing else. Every new unit is at CC ≤ 10 and cognitive ≤ 10 | Fakes needed `close_thread_caches` (above) |
+| Review follow-up (Guppy on #418) | *(this PR)* | The replay treats a positive worst return as no drop. Tests cover it through the real `get_historical_drawdown`, with a rally after a selloff and an all-gain history. Golden files unchanged | `abs()` of a signed minimum (above) |

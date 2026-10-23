@@ -108,5 +108,74 @@ class FlagsAndSummaryTests(unittest.TestCase):
         self.assertIn("P&L at trailing stop: $+120.00.", loaded)
 
 
+def _zone(center, low, methods, high=None, score=1.0):
+    return {"center": center, "zone_low": low, "zone_high": high or center,
+            "method_count": methods, "score": score}
+
+
+class ConfluenceStopTests(unittest.TestCase):
+    def test_nearest_qualifying_zone_below_price_with_buffer(self):
+        zones = [_zone(105.0, 104.0, 3), _zone(97.0, 96.5, 1), _zone(95.0, 94.5, 2),
+                 _zone(90.0, 89.5, 4)]
+        stop, reason = stops.confluence_stop(zones, 100.0, 4.0)
+        self.assertEqual((stop["center"], stop["stop"]), (95.0, 93.74))  # 94.5 × 0.992
+        self.assertEqual(stop["distance_pct"], -6.26)
+        self.assertFalse(stop["stepped_past_noise"])
+        self.assertIsNone(reason)
+
+    def test_steps_down_past_a_zone_inside_the_noise_floor(self):
+        zones = [_zone(98.0, 97.5, 2), _zone(90.0, 89.5, 2)]
+        stop, reason = stops.confluence_stop(zones, 100.0, 4.0)
+        self.assertEqual(stop["center"], 90.0)
+        self.assertTrue(stop["stepped_past_noise"])
+        self.assertIn("$98.00", reason)
+
+    def test_stop_exactly_on_the_noise_floor_clears_it(self):
+        # 97.5 x 0.992 = 96.72 -> -3.28%; a 3.28% floor is not "inside".
+        stop, _ = stops.confluence_stop([_zone(98.0, 97.5, 2)], 100.0, 3.28)
+        self.assertEqual(stop["stop"], 96.72)
+
+    def test_none_when_no_zone_qualifies(self):
+        stop, reason = stops.confluence_stop(
+            [_zone(95.0, 94.5, 1), _zone(105.0, 104.0, 5)], 100.0, 4.0)
+        self.assertIsNone(stop)
+        self.assertIn("2 or more methods", reason)
+        self.assertEqual(stops.confluence_stop([], 100.0, 4.0)[0], None)
+
+    def test_none_when_every_zone_is_inside_the_noise_floor(self):
+        stop, reason = stops.confluence_stop([_zone(98.0, 97.5, 2)], 100.0, 10.0)
+        self.assertIsNone(stop)
+        self.assertIn("Every qualifying zone ($98.00)", reason)
+
+
+class DrawdownReplayTests(unittest.TestCase):
+    _DROPS = {"recent_1day": -2.0, "max_1day": -5.0, "max_intraday": -7.0, "max_5day": -12.0}
+
+    def test_rows_in_order_with_hits(self):
+        rows = stops.drawdown_replay(100.0, self._DROPS, 95.0, 92.0, 90.0)
+        self.assertEqual([r["key"] for r in rows],
+                         ["recent_1day", "max_1day", "max_intraday", "max_5day"])
+        self.assertEqual([r["price"] for r in rows], [98.0, 95.0, 93.0, 88.0])
+        self.assertEqual([r["drop_pct"] for r in rows], [-2.0, -5.0, -7.0, -12.0])
+        # Reaching a stop exactly counts as a hit.
+        self.assertEqual([r["hits_technical"] for r in rows], [False, True, True, True])
+        self.assertEqual([r["hits_trailing"] for r in rows], [False, False, False, True])
+        self.assertEqual([r["hits_confluence"] for r in rows], [False, False, False, True])
+
+    def test_a_window_with_only_gains_replays_as_no_drop(self):
+        # A +2% worst day is not a 2% loss: today's price, no stop hit (#418 review).
+        rows = stops.drawdown_replay(
+            100.0, {**self._DROPS, "recent_1day": 2.0, "max_5day": 0.0}, 99.5, 99.0, 99.8)
+        by_key = {r["key"]: r for r in rows}
+        for key in ("recent_1day", "max_5day"):
+            self.assertEqual((by_key[key]["drop_pct"], by_key[key]["price"]), (0.0, 100.0))
+            self.assertEqual((by_key[key]["hits_technical"], by_key[key]["hits_trailing"],
+                              by_key[key]["hits_confluence"]), (False, False, False))
+
+    def test_no_confluence_stop_means_no_verdict(self):
+        rows = stops.drawdown_replay(100.0, self._DROPS, 95.0, 92.0, None)
+        self.assertTrue(all(r["hits_confluence"] is None for r in rows))
+
+
 if __name__ == "__main__":
     unittest.main()

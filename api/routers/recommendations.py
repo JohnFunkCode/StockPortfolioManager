@@ -3,20 +3,25 @@
 Step 7 surface-gap endpoints (previously MCP-only), each one call deep over
 RecommendationsService:
   GET /api/securities/{ticker}/recommendation?capital=5000
-  GET /api/securities/{ticker}/stop-loss?cost_basis=0&shares=0
+  GET /api/securities/{ticker}/stop-loss?cost_basis=0&shares=0&confluence=none&position=mine
   GET /api/securities/{ticker}/relative-strength
   GET /api/securities/{ticker}/relative-strength/history?since_days=90
   GET /api/securities/{ticker}/support-confluence?tolerance_pct=1.0
 
 Pass-through responses (analytics dicts ship verbatim via QuantCoreJSONResponse).
 Query-param names mirror the service method signatures exactly so each route
-stays a literal one-call-deep adapter.
+stays a literal one-call-deep adapter. The one exception is ``position=mine`` on
+``/stop-loss``: it resolves the caller's owner (auth, not a service call) and
+passes it as ``owner``, so a caller can only ever read their own lots.
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from typing import Literal, Optional
 
+from fastapi import APIRouter, Depends
+
+from ..auth import Principal, require_owner, require_principal
 from ..deps import services
 from ..json_response import QuantCoreJSONResponse
 
@@ -32,11 +37,25 @@ def get_trade_recommendation(ticker: str, capital: float = 5000.0) -> QuantCoreJ
 
 @router.get("/{ticker}/stop-loss")
 def get_stop_loss_analysis(
-    ticker: str, cost_basis: float = 0.0, shares: int = 0, max_expirations: int = 4
+    ticker: str,
+    cost_basis: float = 0.0,
+    shares: int = 0,
+    max_expirations: int = 4,
+    confluence: Literal["none", "stop", "full"] = "none",
+    position: Optional[Literal["mine"]] = None,
+    principal: Principal = Depends(require_principal),
 ) -> QuantCoreJSONResponse:
+    # Only position=mine needs an owner; resolving it unconditionally would 403
+    # an unprovisioned caller who never asked about a position.
+    owner = require_owner(principal) if position == "mine" else None
     return QuantCoreJSONResponse(
         services().recommendations.get_stop_loss_analysis(
-            ticker, cost_basis=cost_basis, shares=shares, max_expirations=max_expirations
+            ticker,
+            cost_basis=cost_basis,
+            shares=shares,
+            max_expirations=max_expirations,
+            confluence=confluence,
+            owner=owner,
         )
     )
 

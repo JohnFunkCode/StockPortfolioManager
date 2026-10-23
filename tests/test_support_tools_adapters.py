@@ -15,6 +15,8 @@ from pathlib import Path
 import unittest  # noqa: E402
 from unittest.mock import Mock, patch  # noqa: E402
 
+from fastapi import HTTPException  # noqa: E402
+
 from fastapi import FastAPI  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -203,6 +205,67 @@ class TestSupportConfluenceRoute(unittest.TestCase):
         )
 
 
+class TestStopLossRoute(unittest.TestCase):
+    """``confluence`` passes through; ``position=mine`` is the only path that
+    resolves an owner, and the owner is always the caller's own."""
+
+    def setUp(self):
+        self.services = Mock()
+        self.services.recommendations.get_stop_loss_analysis.return_value = {"symbol": "NVDA"}
+        self.require_owner = Mock(return_value="alice")
+        for target, value in (("services", Mock(return_value=self.services)),
+                              ("require_owner", self.require_owner)):
+            patcher = patch.object(recommendations_router, target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.client = make_client()
+
+    def _called_with(self):
+        return self.services.recommendations.get_stop_loss_analysis.call_args
+
+    def test_defaults_read_no_owner(self):
+        resp = self.client.get("/api/securities/NVDA/stop-loss")
+        self.assertEqual(resp.status_code, 200)
+        self.services.recommendations.get_stop_loss_analysis.assert_called_once_with(
+            "NVDA", cost_basis=0.0, shares=0, max_expirations=4, confluence="none",
+            owner=None,
+        )
+        self.require_owner.assert_not_called()
+
+    def test_confluence_and_position_mine_pass_the_callers_owner(self):
+        resp = self.client.get(
+            "/api/securities/NVDA/stop-loss",
+            params={"confluence": "full", "position": "mine", "cost_basis": 12.5},
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"symbol": "NVDA"})
+        self.require_owner.assert_called_once()
+        kwargs = self._called_with().kwargs
+        self.assertEqual((kwargs["confluence"], kwargs["owner"], kwargs["cost_basis"]),
+                         ("full", "alice", 12.5))
+
+    def test_owner_cannot_be_named_by_the_caller(self):
+        resp = self.client.get("/api/securities/NVDA/stop-loss",
+                               params={"position": "mine", "owner": "bob"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(self._called_with().kwargs["owner"], "alice")
+
+    def test_unknown_values_are_422(self):
+        for params in ({"confluence": "partial"}, {"position": "bob"}):
+            with self.subTest(params=params):
+                resp = self.client.get("/api/securities/NVDA/stop-loss", params=params)
+                self.assertEqual(resp.status_code, 422)
+        self.services.recommendations.get_stop_loss_analysis.assert_not_called()
+
+    def test_unprovisioned_caller_is_403_only_when_asking_for_a_position(self):
+        self.require_owner.side_effect = HTTPException(status_code=403,
+                                                       detail="not_provisioned")
+        mine = self.client.get("/api/securities/NVDA/stop-loss", params={"position": "mine"})
+        self.assertEqual(mine.status_code, 403)
+        plain = self.client.get("/api/securities/NVDA/stop-loss")
+        self.assertEqual(plain.status_code, 200)
+
+
 class TestSupportToolMcpWrappers(unittest.TestCase):
     def setUp(self):
         self.rest_get = Mock(return_value={"ok": True})
@@ -283,6 +346,14 @@ class TestSupportToolMcpWrappers(unittest.TestCase):
         self.rest_get.assert_called_once_with(
             "/api/securities/NVDA/support-confluence",
             tolerance_pct=2.0, max_expirations=6, max_zones=3,
+        )
+
+    def test_get_stop_loss_analysis_passes_confluence(self):
+        result = stock_price_server.get_stop_loss_analysis("NVDA", confluence="full")
+        self.assertEqual(result, {"ok": True})
+        self.rest_get.assert_called_once_with(
+            "/api/securities/NVDA/stop-loss",
+            cost_basis=0.0, shares=0, max_expirations=4, confluence="full",
         )
 
 

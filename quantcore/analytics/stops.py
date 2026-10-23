@@ -27,7 +27,9 @@ DEFAULT_SUPPORT_BUFFER = 0.014
 # With no support below price (price is under every candidate, the lower
 # Bollinger band included) the stop is anchored on price itself. It used to
 # anchor on the lower band, which then sits above price, so the stop could land
-# above price too.
+# above price too. The value reaches clients as technical.primary_support and
+# is mirrored as NO_SUPPORT_BELOW_PRICE in frontend/src/api/securitiesTypes.ts;
+# change both together (tests/test_analytics_stops.py checks they agree).
 NO_SUPPORT = "price"
 NO_SUPPORT_BUFFER = 0.020
 

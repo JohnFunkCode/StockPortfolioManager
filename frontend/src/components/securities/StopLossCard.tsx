@@ -11,6 +11,7 @@
 import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useStopLoss } from '../../hooks/useSecurities';
+import { NO_SUPPORT_BELOW_PRICE } from '../../api/securitiesTypes';
 import type {
   DrawdownReplayRow,
   StopLossConfluence,
@@ -91,10 +92,9 @@ function ConfluenceTile({ data }: { data: StopLossResponse }) {
   );
 }
 
-// 'price' means no support sits below price, so the stop is anchored on price itself.
 function technicalAnchor(data: StopLossResponse): string {
   const t = data.technical;
-  if (t.primary_support === 'price') return 'no support below price';
+  if (t.primary_support === NO_SUPPORT_BELOW_PRICE) return 'no support below price';
   return `under ${t.primary_support.replace(/_/g, ' ')} ${money(t.primary_support_price)}`;
 }
 

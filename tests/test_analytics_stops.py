@@ -1,6 +1,7 @@
 """Unit tests for quantcore.analytics.stops — technical and trailing stop math."""
 
 import unittest
+from pathlib import Path
 
 from quantcore.analytics import stops
 
@@ -46,6 +47,11 @@ class TechnicalStopTests(unittest.TestCase):
         name, level, stop = stops.technical_stop(supports, 815.0)
         self.assertEqual((name, level, stop), ("price", 815.0, 798.7))
         self.assertLess(stop, 815.0)
+
+    def test_sentinel_matches_the_frontend_mirror(self):
+        # The card keys its "no support below price" wording off this value.
+        ts = (Path(__file__).parents[1] / "frontend/src/api/securitiesTypes.ts").read_text()
+        self.assertIn(f"export const NO_SUPPORT_BELOW_PRICE = '{stops.NO_SUPPORT}';", ts)
 
     def test_stop_is_below_price_wherever_price_sits(self):
         levels = dict(gamma_wall=98.0, vwap=101.0, sma_20=99.0, bb_lower=96.0)

@@ -31,10 +31,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
-import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist } from '../../hooks/useSecurities';
+import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist, useStopLoss } from '../../hooks/useSecurities';
 import { useWatchlistMine } from '../../hooks/useWatchlist';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
+import StopLossCard from './StopLossCard';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
 import MACDChart from './charts/MACDChart';
@@ -452,6 +453,28 @@ const DAYS_OPTIONS = [30, 60, 90, 180, 365];
 
 function ChartSkeleton({ height = 200 }: { height?: number }) {
   return <Skeleton variant="rectangular" width="100%" height={height} sx={{ borderRadius: 1 }} />;
+}
+
+// One request feeds both cards: confluence=full embeds the support-confluence
+// result, with the stop's zone marked, and seeds its query. While that embedded
+// result exists the stop-loss query is its only owner: the confluence query
+// stays disabled (no focus refetch of its own) and its Retry refetches the
+// stop-loss request, because a standalone /support-confluence response carries
+// no is_stop_zone/outside_top and would drop the marker. The confluence card
+// fetches on its own only once the stop-loss request has settled without one.
+function TechnicalStopAndConfluence({ ticker }: { ticker: string }) {
+  const stopLoss = useStopLoss(ticker, 'full');
+  const embedded = stopLoss.data?.confluence != null;
+  return (
+    <>
+      <StopLossCard ticker={ticker} confluence="full" />
+      <SupportConfluenceCard
+        ticker={ticker}
+        enabled={!embedded && !stopLoss.isPending && !stopLoss.isFetching}
+        onRetry={embedded ? () => stopLoss.refetch() : undefined}
+      />
+    </>
+  );
 }
 
 export default function SecurityDetailPage() {
@@ -905,8 +928,8 @@ export default function SecurityDetailPage() {
             </Paper>
           )}
 
-          {/* Support / resistance confluence zones */}
-          <SupportConfluenceCard ticker={ticker} />
+          {/* Stop-loss synthesis, then the confluence zones it embeds (#399) */}
+          <TechnicalStopAndConfluence ticker={ticker} />
         </Stack>
       )}
 

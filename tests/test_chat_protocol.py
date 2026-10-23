@@ -109,7 +109,7 @@ class TestEventStream(unittest.TestCase):
 
 class TestValidateDirective(unittest.TestCase):
     def test_valid_components_accept_ticker(self):
-        for component in ("signals", "live_price", "price_chart", "arbitrage_pair",
+        for component in ("signals", "live_price", "price_chart", "stop_loss", "arbitrage_pair",
                           "arbitrage_spread", "arbitrage_premium"):
             ok, reason = validate_directive(component, {"ticker": "INTC"})
             self.assertTrue(ok, f"{component} should accept ticker prop: {reason}")

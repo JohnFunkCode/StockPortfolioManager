@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { focusManager, type QueryClient } from '@tanstack/react-query';
 import { Route, Routes } from 'react-router-dom';
 
 import SecurityDetailPage from './SecurityDetailPage';
 import {
   indicatorRows,
+  makeQueryClient,
   ivExpirations,
   mockApi,
   optionsSnapshot,
@@ -12,6 +14,7 @@ import {
   renderWithProviders,
   mineRow,
   securityRow,
+  stopLossResponse,
   watchlistMine,
 } from '../../testUtils';
 
@@ -49,16 +52,34 @@ function armAll(overrides: Record<string, unknown> = {}) {
     ['/signals/options-flow', { ticker: 'INTC', _errors: null }],
     ['/signals/risk', { ticker: 'INTC', drawdown: null }],
     ['/news', { symbol: 'INTC', article_count: 0, articles: [] }],
+    // Technical Analysis tab: one stop-loss request embeds the confluence result.
+    ['/stop-loss', overrides.stopLoss ?? stopLossResponse({ symbol: 'INTC', confluence: CONFLUENCE })],
+    ['/support-confluence', CONFLUENCE],
     [/\/api\//, {}],
   ]);
 }
 
-function renderPage() {
+const CONFLUENCE = {
+  symbol: 'INTC', price: 180, tolerance_pct: 1, methods_available: ['gamma_wall'],
+  methods_failed: [], resistance_zones: [], strongest_support: null, interpretation: '',
+  support_zones: [{
+    zone_low: 170, zone_high: 171.5, center: 170.8, distance_pct: -5.1, score: 3.1,
+    method_count: 3, contributors: [], is_stop_zone: true,
+  }],
+};
+
+function renderPage(queryClient?: QueryClient) {
   return renderWithProviders(<SecurityDetailPage />, {
     route: '/securities/INTC',
     path: '/securities/:symbol',
+    queryClient,
   });
 }
+
+const stopLossUrls = (api: { calls: Array<[string, unknown]> }) =>
+  api.calls.map(([url]) => url).filter((u) => u.includes('/stop-loss'));
+const confluenceCalls = (api: { calls: Array<[string, unknown]> }) =>
+  api.calls.filter(([url]) => url.includes('/support-confluence')).length;
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -106,6 +127,60 @@ describe('SecurityDetailPage', () => {
         expect(screen.getByRole('tab', { name: label })).toHaveAttribute('aria-selected', 'true'),
       );
     }
+  });
+
+  it('fills both Technical Analysis cards from one stop-loss request', async () => {
+    const api = armAll();
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    expect(await screen.findByTestId('stop-tile-confluence')).toBeInTheDocument();
+    expect(await screen.findByTestId('confluence-stop-zone')).toBeInTheDocument();
+    const urls = api.calls.map(([url]) => url);
+    expect(urls.filter((u) => u.includes('/stop-loss'))).toEqual([
+      '/api/securities/INTC/stop-loss?confluence=full&position=mine',
+    ]);
+    expect(urls.some((u) => u.includes('/support-confluence'))).toBe(false);
+  });
+
+  it('refreshes both cards on focus through the stop-loss request alone', async () => {
+    const api = armAll();
+    const client = makeQueryClient();
+    renderPage(client);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    await screen.findByTestId('confluence-stop-zone');
+
+    await act(async () => {
+      await client.invalidateQueries({ refetchType: 'none' });
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(stopLossUrls(api)).toHaveLength(2));
+    expect(confluenceCalls(api)).toBe(0);
+    expect(screen.getByTestId('confluence-stop-zone')).toBeInTheDocument();
+    focusManager.setFocused(undefined);
+  });
+
+  it('retries a partly failed embedded confluence through the stop-loss request, keeping the marker', async () => {
+    const api = armAll({
+      stopLoss: stopLossResponse({
+        symbol: 'INTC', confluence: { ...CONFLUENCE, methods_failed: ['gex_profile'] },
+      }),
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    const warning = await screen.findByTestId('confluence-methods-failed');
+    fireEvent.click(within(warning).getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect(stopLossUrls(api)).toHaveLength(2));
+    expect(confluenceCalls(api)).toBe(0);
+    expect(screen.getByTestId('confluence-stop-zone')).toBeInTheDocument();
+  });
+
+  it('falls back to its own confluence request when the stop-loss request fails', async () => {
+    const api = armAll({ stopLoss: { __status: 500, error: 'down' } });
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    expect(await screen.findByTestId('confluence-stop-zone')).toBeInTheDocument();
+    expect(api.calls.some(([url]) => url.includes('/support-confluence'))).toBe(true);
   });
 
   it('opens the remove-from-portfolio confirmation', async () => {

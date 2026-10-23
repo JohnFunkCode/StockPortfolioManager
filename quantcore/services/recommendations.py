@@ -302,7 +302,9 @@ class RecommendationsService:
 
         confluence_price = None
         if confluence != "none":
-            confluence_price = self._attach_confluence(result, sym, s, results, confluence)
+            confluence_price = self._attach_confluence(
+                result, sym, s, results, confluence, (cost_basis, shares)
+            )
         dd = s.drawdown
         result["drawdown_replay"] = stops.drawdown_replay(
             s.price,
@@ -319,10 +321,12 @@ class RecommendationsService:
         return result
 
     def _attach_confluence(
-        self, result: dict, sym: str, s: _StopInputs, results: dict, mode: str
+        self, result: dict, sym: str, s: _StopInputs, results: dict, mode: str,
+        held: tuple[float, float],
     ) -> Optional[float]:
-        """Add the confluence stop (and, for ``"full"``, the marked confluence
-        result) to ``result``; returns the stop price, or ``None``."""
+        """Add the confluence stop, the position's P&L at it, and (for ``"full"``)
+        the marked confluence result to ``result``; returns the stop price, or
+        ``None``. ``held`` is the ``(cost_basis, shares)`` the position used."""
         levels, available, failed = self._assemble_levels(results)
         conf, zones = self._confluence_result(
             sym, s.price, levels, available, failed,
@@ -332,6 +336,8 @@ class RecommendationsService:
         stop, reason = stops.confluence_stop(zones, s.price, noise_floor)
         result["stops"]["confluence_stop"] = stop
         result["stops"]["confluence_stop_reason"] = reason
+        if stop and result["position"]:
+            result["position"]["pnl_at_confluence_stop"] = stops.pnl_at_stop(stop["stop"], *held)
         if mode == "full":
             conf["support_zones"] = zone_math.mark_stop_zone(conf["support_zones"], zones, stop)
             result["confluence"] = conf

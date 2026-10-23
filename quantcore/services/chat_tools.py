@@ -18,6 +18,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     "signals": {"ticker": str},
     "live_price": {"ticker": str},
     "price_chart": {"ticker": str},
+    # The card reads the caller's own lots server-side (position=mine) — never
+    # add a cost-basis, shares or owner prop here.
+    "stop_loss": {"ticker": str},
     "spread_payoff": {
         "ticker": str,
         "expiration": str,
@@ -468,7 +471,11 @@ TOOL_SCHEMAS: list[dict] = [
         "description": (
             "Render a live, data-bound UI component inline in the conversation. "
             "Use this after discussing a ticker so the user can see the real data. "
-            "'signals' shows the full technical/options/risk signal panel, "
+            "'signals' shows the technical and options-flow signal panel, "
+            "'stop_loss' shows the stop-loss card for one ticker: technical, "
+            "trailing and confluence stops side by side, the worst historical "
+            "drops replayed against them, and the caller's own P&L at each stop "
+            "if they hold it (requires ticker), "
             "'live_price' shows a compact auto-refreshing price chip, "
             "'price_chart' shows the price history chart with moving averages, "
             "'spread_payoff' shows an interactive risk graph for a vertical "

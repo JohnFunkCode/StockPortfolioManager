@@ -17,6 +17,7 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, renderHook, type RenderOptions } from '@testing-library/react';
 import { vi } from 'vitest';
+import type { StopLossResponse } from './api/securitiesTypes';
 
 // ---------------------------------------------------------------------------
 // fetch mocking
@@ -25,7 +26,7 @@ import { vi } from 'vitest';
 type Matcher = string | RegExp;
 type Responder =
   | object
-  | ((url: string, init?: RequestInit) => object | { __status: number });
+  | ((url: string, init?: RequestInit) => object | Promise<object>);
 
 export interface MockedApi {
   /** Every fetch the code under test made: [url, init]. */
@@ -47,7 +48,9 @@ function jsonResponse(body: object, status = 200): Response {
  *     ['/api/securities/INTC/technicals', { ticker: 'INTC', indicators: [...] }],
  *     [/\/api\/portfolio$/, { securities: [] }],
  *   ])
- * A responder function may return `{ __status: 500, ...body }` to force a status.
+ * A responder function may return `{ __status: 500, ...body }` to force a status,
+ * or a promise of a body — awaited, so a never-settling promise is a request
+ * that stays pending.
  * Cleanup is automatic via vi.unstubAllGlobals() in afterEach (vitest config
  * `unstubGlobals` is not enabled globally — call it in the suite's afterEach).
  */
@@ -63,7 +66,7 @@ export function mockApi(routes: Array<[Matcher, Responder]>): MockedApi {
           typeof matcher === 'string' ? url.includes(matcher) : matcher.test(url);
         if (!hit) continue;
         const body =
-          typeof responder === 'function' ? responder(url, init) : responder;
+          typeof responder === 'function' ? await responder(url, init) : responder;
         const { __status = 200, ...rest } = body as { __status?: number };
         return jsonResponse(rest, __status);
       }
@@ -616,6 +619,50 @@ export function fundamentalsCacheStats(overrides: object = {}) {
         newest: '2026-08-09T06:00:00Z',
       },
     ],
+    ...overrides,
+  };
+}
+
+// /stop-loss?confluence=stop|full (#399): an unheld symbol with all three stops.
+export const CONFLUENCE_STOP = {
+  stop: 168.65, distance_pct: -6.31, zone_low: 170.0, zone_high: 171.5, center: 170.8,
+  score: 3.1, method_count: 3, stepped_past_noise: false,
+};
+
+export function stopLossResponse(overrides: Partial<StopLossResponse> = {}): StopLossResponse {
+  return {
+    symbol: 'XYZ',
+    price: 180.0,
+    position: {},
+    position_source: null,
+    technical: {
+      above_vwap: true, vwap: 175.8, consecutive_bars: 8, vwap_direction: 'above',
+      sma_20: 176.0, bb_upper: 190.0, bb_lower: 162.0, rsi: 61.0, macd_crossover: 'bullish',
+      gamma_wall: 172.5, primary_support: 'sma_20', primary_support_price: 176.0,
+      support_levels: { sma_20: 176.0 },
+    },
+    stops: {
+      technical_stop: 173.54, technical_stop_distance_pct: -3.59,
+      technical_stop_inside_noise_floor: false,
+      trailing_stop_pct: 6.5, trailing_stop_price: 168.3,
+      confluence_stop: CONFLUENCE_STOP, confluence_stop_reason: null,
+    },
+    drawdown: {
+      base_trailing_stop_pct: 6.5, max_1day_pct: -1.5, max_5day_pct: -11.4,
+      max_intraday_pct: -7.8, recent_max_1day_pct: -1.0,
+    },
+    short_interest: {
+      data_available: true, short_float_pct: 2.3, short_ratio_days: 1.4,
+      squeeze_potential: 'LOW', stop_impact: 'neutral',
+    },
+    drawdown_replay: [
+      { key: 'recent_1day', label: 'Worst day, last 30 bars', drop_pct: -1.0, price: 178.2,
+        hits_technical: false, hits_trailing: false, hits_confluence: false },
+      { key: 'max_5day', label: 'Worst 5-day drop', drop_pct: -11.4, price: 159.48,
+        hits_technical: true, hits_trailing: true, hits_confluence: true },
+    ],
+    flags: ['8_bars_above_vwap', 'bullish_macd'],
+    summary: 'XYZ at $180.00 — uptrend.',
     ...overrides,
   };
 }

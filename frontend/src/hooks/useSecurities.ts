@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { securitiesApi } from '../api/securities';
-import type { AddSecurityPayload } from '../api/securitiesTypes';
+import type { AddSecurityPayload, StopLossConfluence } from '../api/securitiesTypes';
 
 // `source` is required: the combined list (GET /api/securities) was retired
 // with the Securities page (#224) — the merged list is useWatchlistMine.
@@ -112,6 +112,24 @@ export function useSupportConfluence(ticker: string, enabled = true) {
     queryFn: () => securitiesApi.getSupportConfluence(ticker),
     enabled: !!ticker && enabled,
     // The endpoint fans out to ~14 sub-analyses server-side — cache generously.
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
+// With confluence='full' the response embeds the support-confluence result
+// (same tolerance and zone count as useSupportConfluence's defaults), so it
+// seeds that query: the Technical Analysis tab gets both panels from one
+// request instead of gathering the 14 level sources twice (#399).
+export function useStopLoss(ticker: string, confluence: StopLossConfluence = 'stop') {
+  const qc = useQueryClient();
+  return useQuery({
+    queryKey: ['stop-loss', ticker, confluence],
+    queryFn: async () => {
+      const result = await securitiesApi.getStopLoss(ticker, confluence);
+      if (result.confluence) qc.setQueryData(['support-confluence', ticker], result.confluence);
+      return result;
+    },
+    enabled: !!ticker,
     staleTime: 15 * 60 * 1000,
   });
 }

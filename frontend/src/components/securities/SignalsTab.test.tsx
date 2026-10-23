@@ -92,6 +92,16 @@ describe('SignalsTab', () => {
     expect(screen.getByText(/News sentiment across 3/i)).toBeInTheDocument();
   });
 
+  it('no longer renders the Risk panel, but the summary still uses the risk signals', async () => {
+    armAll();
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    // Stops moved to StopLossCard on the Technical Analysis tab (#399).
+    await waitFor(() =>
+      expect(screen.getByText(/minimum trailing stop of 8\.5%/)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText('Risk & Stop-Loss Calibration')).toBeNull();
+  });
+
   it('degrades a section when its endpoint errors while others render', async () => {
     armAll({ risk: { __status: 500, error: 'risk unavailable' } });
     renderWithProviders(<SignalsTab ticker="INTC" />);

@@ -1,6 +1,8 @@
 /**
  * SignalsTab — Signals tab content for SecurityDetailPage.
- * Shows technical momentum, structure, options flow, and risk signals.
+ * Shows technical momentum, structure and options flow. Stops and drawdown
+ * live in StopLossCard on the Technical Analysis tab (#399); the risk signals
+ * still feed the summary line.
  */
 import { Alert, Box, Button, Chip, CircularProgress, Divider, Link, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -179,7 +181,7 @@ function buildSignalsSummary(
 export default function SignalsTab({ ticker }: Props) {
   const { data: tech, isLoading: techLoading, error: techError, refetch: refetchTech } = useTechnicalSignals(ticker, true);
   const { data: flow, isLoading: flowLoading, error: flowError, refetch: refetchFlow } = useOptionsFlowSignals(ticker, true);
-  const { data: risk, isLoading: riskLoading, error: riskError, refetch: refetchRisk } = useRiskSignals(ticker, true);
+  const { data: risk, isLoading: riskLoading } = useRiskSignals(ticker, true);
   const { data: news, isLoading: newsLoading, refetch: refetchNews } = useNews(ticker);
 
   const summaryLines = buildSignalsSummary(tech, flow, risk, news);
@@ -598,52 +600,6 @@ export default function SignalsTab({ ticker }: Props) {
               </Box>
             ))}
           </Stack>
-        )}
-      </Paper>
-
-      {/* ── Section 5: Risk / Drawdown ──────────────────────────────── */}
-      <Paper sx={{ p: 2 }}>
-        <SectionHeader title="Risk & Stop-Loss Calibration" />
-        {riskLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
-        ) : riskError ? (
-          <SectionError message={(riskError as Error).message ?? 'Failed to load risk signals'} onRetry={refetchRisk} />
-        ) : risk?.drawdown ? (
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>Historical Drawdown</Typography>
-              <MetricRow label="Worst 1-day drop" value={`${risk.drawdown.max_1day_drawdown_pct.toFixed(2)}%`} color="#ef4444" />
-              <MetricRow label="Worst 5-day drop" value={`${risk.drawdown.max_5day_drawdown_pct.toFixed(2)}%`} color="#ef4444" />
-              <MetricRow label="Worst intraday" value={`${risk.drawdown.max_intraday_drop_pct.toFixed(2)}%`} color="#f97316" />
-              <MetricRow label="Recent 30-bar worst" value={`${risk.drawdown.recent_max_1day_pct.toFixed(2)}%`} color="#f59e0b" />
-            </Box>
-            <Box sx={{ flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>Stop-Loss Recommendation</Typography>
-              <Box sx={{ mt: 1, p: 1.5, bgcolor: '#111827', borderRadius: 1, border: '1px solid #374151' }}>
-                <Typography variant="body2" sx={{ color: '#10b981', fontWeight: 700, fontSize: 20 }}>
-                  {risk.drawdown.trailing_stop_pct.toFixed(1)}%
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#9ca3af' }}>
-                  Minimum trailing stop to avoid noise false-triggers
-                </Typography>
-              </Box>
-              {risk.vwap && (
-                <MetricRow label="VWAP" value={`$${risk.vwap.toFixed(2)}`} color="#6366f1" />
-              )}
-              {risk.vwap_position && (
-                <MetricRow label="vs VWAP" value={risk.vwap_position === 'above_vwap' ? 'Above' : 'Below'}
-                  color={risk.vwap_position === 'above_vwap' ? '#10b981' : '#ef4444'} />
-              )}
-            </Box>
-            <Box sx={{ flex: 2 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>Context</Typography>
-              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.5, fontStyle: 'italic', lineHeight: 1.5 }}>
-                {risk.drawdown.stop_width_note}
-              </Typography>
-            </Box>
-          </Stack>
-        ) : (
-          <Typography variant="body2" color="text.secondary">Risk data not available for this security.</Typography>
         )}
       </Paper>
     </Stack>

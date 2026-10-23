@@ -9,7 +9,16 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useSupportConfluence } from '../../hooks/useSecurities';
 import type { SupportZone } from '../../api/securitiesTypes';
 
-interface Props { ticker: string }
+interface Props {
+  ticker: string;
+  /** False while the Technical Analysis tab's stop-loss request is in flight:
+   *  it embeds this result and seeds the cache, so fetching too would gather
+   *  the same 14 sources twice. */
+  enabled?: boolean;
+  /** Retry through whoever owns the data: the stop-loss request, when the
+   *  result came embedded in it. Defaults to this card's own query. */
+  onRetry?: () => void;
+}
 
 function SectionHeader({ title }: { title: string }) {
   return (
@@ -61,9 +70,19 @@ function ZoneTable({ title, zones, color }: { title: string; zones: SupportZone[
             </TableHead>
             <TableBody>
               {zones.map((z, i) => (
-                <TableRow key={i}>
+                <TableRow key={i} data-testid={z.is_stop_zone ? 'confluence-stop-zone' : undefined}
+                  sx={z.outside_top ? { '& td': { borderTop: '1px dashed #374151' } } : undefined}>
                   <TableCell sx={{ color, fontWeight: 600, whiteSpace: 'nowrap' }}>
                     ${z.zone_low.toFixed(2)}–${z.zone_high.toFixed(2)}
+                    {z.is_stop_zone && (
+                      <Chip size="small" label="stop under this zone"
+                        sx={{ ml: 1, fontSize: 10, height: 18, color: '#f9fafb', bgcolor: '#374151' }} />
+                    )}
+                    {z.outside_top && (
+                      <Typography component="span" variant="caption" sx={{ ml: 1, color: '#6b7280', fontStyle: 'italic' }}>
+                        outside the top zones
+                      </Typography>
+                    )}
                   </TableCell>
                   <TableCell align="right" sx={{ color: '#9ca3af' }}>
                     {z.distance_pct > 0 ? '+' : ''}{z.distance_pct.toFixed(1)}%
@@ -84,8 +103,11 @@ function ZoneTable({ title, zones, color }: { title: string; zones: SupportZone[
   );
 }
 
-export default function SupportConfluenceCard({ ticker }: Props) {
-  const { data, isLoading, error, refetch } = useSupportConfluence(ticker);
+export default function SupportConfluenceCard({ ticker, enabled = true, onRetry }: Props) {
+  const { data, isLoading, error, refetch: ownRefetch } = useSupportConfluence(ticker, enabled);
+  const refetch = onRetry ?? (() => { ownRefetch(); });
+  // A disabled query with no data yet is still on its way (from the stop-loss request).
+  const loading = isLoading || (!enabled && !data);
 
   return (
     <Paper sx={{ p: 2 }} data-testid="support-confluence-card">
@@ -113,7 +135,7 @@ export default function SupportConfluenceCard({ ticker }: Props) {
         )}
       </Stack>
 
-      {isLoading ? (
+      {loading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
       ) : error ? (
         <SectionError

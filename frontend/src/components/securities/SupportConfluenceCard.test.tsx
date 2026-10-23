@@ -124,6 +124,30 @@ describe('SupportConfluenceCard', () => {
     expect(warning.textContent).toContain('gamma_wall, gex_profile');
   });
 
+  it('marks the zone the confluence stop sits under, and an appended outside-top zone', () => {
+    const outside = { ...ZONE_95, zone_low: 88.0, zone_high: 89.0, center: 88.5, score: 0.9,
+      method_count: 2, is_stop_zone: true, outside_top: true };
+    useSupportConfluenceMock.mockReturnValue({
+      data: { ...RESPONSE, support_zones: [ZONE_95, outside] },
+      isLoading: false, error: null, refetch: vi.fn(),
+    });
+    render(<SupportConfluenceCard ticker="NVDA" />);
+    const marked = screen.getByTestId('confluence-stop-zone');
+    expect(marked.textContent).toContain('$88.00–$89.00');
+    expect(marked.textContent).toContain('stop under this zone');
+    expect(marked.textContent).toContain('outside the top zones');
+    expect(screen.getAllByText('stop under this zone')).toHaveLength(1);
+  });
+
+  it('waits with a spinner while disabled and the stop-loss request is still running', () => {
+    useSupportConfluenceMock.mockReturnValue({
+      data: undefined, isLoading: false, error: null, refetch: vi.fn(),
+    });
+    render(<SupportConfluenceCard ticker="NVDA" enabled={false} />);
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(useSupportConfluenceMock).toHaveBeenCalledWith('NVDA', false);
+  });
+
   it('renders empty-state text when a side has no zones', () => {
     useSupportConfluenceMock.mockReturnValue({
       data: { ...RESPONSE, resistance_zones: [] },

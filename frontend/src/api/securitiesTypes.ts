@@ -198,6 +198,11 @@ export interface SupportZone {
   score: number;
   method_count: number;
   contributors: SupportContributor[];
+  /** Set only on a confluence embedded in /stop-loss?confluence=full: the
+   *  confluence stop sits under this zone. */
+  is_stop_zone?: boolean;
+  /** The stop zone fell outside the top-ranked zones and was appended. */
+  outside_top?: boolean;
 }
 export interface SupportConfluenceResponse {
   symbol: string;
@@ -210,6 +215,93 @@ export interface SupportConfluenceResponse {
   strongest_support: SupportZone | null;
   interpretation: string;
   error?: string; // set (with only symbol) when the price fetch fails server-side
+}
+
+// Stop-loss synthesis (#399). Every number here is computed server-side in
+// quantcore/analytics/stops.py; the card only lays them out.
+export interface ConfluenceStop {
+  stop: number;
+  distance_pct: number;
+  zone_low: number;
+  zone_high: number;
+  center: number;
+  score: number;
+  method_count: number;
+  stepped_past_noise: boolean;
+}
+export interface DrawdownReplayRow {
+  key: string;
+  label: string;
+  /** Signed: a drop is negative, and a period that gained replays as 0. */
+  drop_pct: number;
+  price: number;
+  hits_technical: boolean;
+  hits_trailing: boolean;
+  /** null when there is no confluence stop to test against. */
+  hits_confluence: boolean | null;
+}
+export interface StopLossPosition {
+  cost_basis: number;
+  shares: number;
+  unrealized_pnl_per_share: number;
+  unrealized_pnl_pct: number;
+  total_unrealized_pnl: number;
+  pnl_at_technical_stop: number;
+  pnl_at_trailing_stop: number;
+  pnl_at_confluence_stop?: number;
+}
+export type StopLossConfluence = 'none' | 'stop' | 'full';
+export interface StopLossResponse {
+  symbol: string;
+  price: number;
+  /** Empty object when there is no cost basis. */
+  position: StopLossPosition | Record<string, never>;
+  /** 'lots' = the caller's open lots (position=mine); null = not held. */
+  position_source: 'explicit' | 'lots' | null;
+  technical: {
+    above_vwap: boolean;
+    vwap: number;
+    consecutive_bars: number;
+    vwap_direction: 'above' | 'below';
+    sma_20: number;
+    bb_upper: number;
+    bb_lower: number;
+    rsi: number;
+    macd_crossover: string;
+    gamma_wall: number | null;
+    primary_support: string;
+    primary_support_price: number;
+    support_levels: Record<string, number>;
+  };
+  stops: {
+    technical_stop: number;
+    technical_stop_distance_pct: number;
+    technical_stop_inside_noise_floor: boolean;
+    trailing_stop_pct: number;
+    trailing_stop_price: number;
+    /** Present when confluence != 'none'; null with a reason when no zone qualifies. */
+    confluence_stop?: ConfluenceStop | null;
+    confluence_stop_reason?: string | null;
+  };
+  drawdown: {
+    base_trailing_stop_pct: number;
+    max_1day_pct: number;
+    max_5day_pct: number;
+    max_intraday_pct: number;
+    recent_max_1day_pct: number;
+  };
+  short_interest: {
+    data_available: boolean;
+    short_float_pct: number;
+    short_ratio_days: number;
+    squeeze_potential: string;
+    stop_impact: string;
+  };
+  drawdown_replay: DrawdownReplayRow[];
+  flags: string[];
+  summary: string;
+  /** Present only for confluence='full'. */
+  confluence?: SupportConfluenceResponse;
 }
 
 export interface OptionsFlowResponse {

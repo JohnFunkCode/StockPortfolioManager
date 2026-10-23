@@ -30,6 +30,9 @@ price positions, send alerts, capture options chains and score the news.
   - a **cache-first watchlist screen** that answers in seconds without calling the data provider
 - **Trade recommendations.** Thirteen signals are scored into one recommendation with entry,
   target, stop, size and risk/reward. It also flags when the signals contradict each other.
+- **Stop-loss levels.** Technical, trailing and confluence stops side by side, the worst historical
+  drops replayed against them, and your P&L at each stop when you hold the symbol. They are on the
+  security detail page's Technical Analysis tab and in the Sidekick.
 - **An arbitrage scanner** for securities stretched against a structurally linked underlying: NAV
   vehicles, commodity ETFs and producers. Candidates are ranked by how they would converge, not by
   how wide the spread is.
@@ -260,7 +263,8 @@ level. Pages are declared once, in `frontend/src/navigation.tsx`.
 | Settings | `/settings` | top level | your BYOK key vault and Sidekick model |
 
 The drill-down pages, `/plans/:id` and `/securities/:symbol` (opened from a Watchlist row), are reached from those pages and
-never from the nav bar. Every page carries the Sidekick chat rail.
+never from the nav bar. A security's Technical Analysis tab ends with the stop-loss and support
+confluence cards ([details](docs/architecture/quantui.md)). Every page carries the Sidekick chat rail.
 
 `./runUI-MAC.sh` starts the database proxy, the API and the Vite dev server together.
 

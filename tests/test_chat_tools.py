@@ -83,6 +83,24 @@ class TestSymbolLotsDirective(unittest.TestCase):
         self.assertIn("owner", reason)
 
 
+class TestStopLossDirective(unittest.TestCase):
+    """#399. The card reads the caller's own lots server-side (position=mine),
+    so a model-settable position or owner would be a way to misstate — or read —
+    someone's holdings. Mirrored in componentRegistry.test.ts."""
+
+    def test_registered_with_ticker_only(self):
+        self.assertEqual(BACKEND_COMPONENT_REGISTRY["stop_loss"], {"ticker": str})
+
+    def test_valid_ticker_accepted(self):
+        ok, reason = validate_directive("stop_loss", {"ticker": "INTC"})
+        self.assertTrue(ok, reason)
+
+    def test_position_and_owner_props_rejected(self):
+        for extra in ({"owner": "someone_else"}, {"cost_basis": 150.0}, {"shares": 10}):
+            ok, _ = validate_directive("stop_loss", {"ticker": "INTC", **extra})
+            self.assertFalse(ok, extra)
+
+
 class TestWatchlistFundamentalsDirective(unittest.TestCase):
     """Issue #147 Part C. The watchlist is one global list (#83), so the card
     takes no props at all — not a ticker, and not an owner."""

@@ -1,0 +1,59 @@
+{
+  "drawdown": {
+    "base_trailing_stop_pct": 6.5,
+    "max_1day_pct": -1.5,
+    "max_5day_pct": -11.4,
+    "max_intraday_pct": -7.8,
+    "recent_max_1day_pct": -1.0
+  },
+  "flags": [
+    "8_bars_above_vwap",
+    "bullish_macd"
+  ],
+  "position": {
+    "cost_basis": 150.0,
+    "pnl_at_technical_stop": 23.54,
+    "pnl_at_trailing_stop": 18.3,
+    "shares": 0,
+    "total_unrealized_pnl": 30.0,
+    "unrealized_pnl_pct": 20.0,
+    "unrealized_pnl_per_share": 30.0
+  },
+  "price": 180.0,
+  "short_interest": {
+    "data_available": true,
+    "short_float_pct": 0.0,
+    "short_ratio_days": 0.0,
+    "squeeze_potential": "LOW",
+    "stop_impact": "neutral"
+  },
+  "stops": {
+    "technical_stop": 173.54,
+    "technical_stop_distance_pct": -3.59,
+    "technical_stop_inside_noise_floor": false,
+    "trailing_stop_pct": 6.5,
+    "trailing_stop_price": 168.3
+  },
+  "summary": "XYZ at $180.00 \u2014 uptrend (8 bars above VWAP $175.80). Momentum: MACD bullish, RSI 61. Primary support: sma 20 at $176.00. Technical stop: $173.54 (-3.6% from price). Broker trailing stop: 6.5% \u2192 $168.30.",
+  "symbol": "XYZ",
+  "technical": {
+    "above_vwap": true,
+    "bb_lower": 162.0,
+    "bb_upper": 190.0,
+    "consecutive_bars": 8,
+    "gamma_wall": 172.5,
+    "macd_crossover": "bullish",
+    "primary_support": "sma_20",
+    "primary_support_price": 176.0,
+    "rsi": 61.0,
+    "sma_20": 176.0,
+    "support_levels": {
+      "bb_lower": 162.0,
+      "gamma_wall": 172.5,
+      "sma_20": 176.0,
+      "vwap": 175.8
+    },
+    "vwap": 175.8,
+    "vwap_direction": "above"
+  }
+}

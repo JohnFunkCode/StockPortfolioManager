@@ -1,0 +1,51 @@
+{
+  "action": "BUY",
+  "bear_score": 0,
+  "bull_score": 26,
+  "confidence": "HIGH",
+  "drivers": [
+    "RSI 25.0 \u2014 deeply oversold",
+    "MACD bullish crossover \u2014 momentum turning up",
+    "Stochastic %K 20.0 \u2014 oversold",
+    "Volume bottom signal: strong bottom",
+    "OBV bullish divergence \u2014 accumulation beneath the surface",
+    "Candlestick: hammer (strong bullish reversal)",
+    "Unusual call activity: strong sweep signal \u2014 aggressive institutional buying",
+    "Dark pool: accumulation \u2014 institutions absorbing sell pressure",
+    "Bid/ask spread narrowing \u2014 liquidity returning (bounce setup)",
+    "DAOI: strong MM buy-on-rally flow \u2014 mechanical support amplifies upside",
+    "Options positioning: 100,000 net call delta \u2014 institutions overwhelmingly long",
+    "Fundamentals: elite \u2014 strong compounder (score 9)",
+    "Revenue: accelerating \u2014 fundamental momentum building",
+    "EPS acceleration: accelerating \u2014 institutional accumulation signal",
+    "News sentiment: strongly positive (80% of articles bullish)"
+  ],
+  "entry": 100.0,
+  "estimated_cost": 200.0,
+  "net_score": 26,
+  "news_sentiment": {
+    "negative_count": 0,
+    "positive_count": 4,
+    "scored_count": 5
+  },
+  "options_context": {
+    "atm_call_ask": 2.0,
+    "atm_put_ask": 2.0,
+    "avg_iv_pct": 20.0,
+    "delta_flip": null,
+    "gamma_wall": 95.0,
+    "high_iv": false,
+    "mm_hedge_bias": "buy_on_dip",
+    "net_daoi_shares": 100000,
+    "put_call_ratio": 1.0
+  },
+  "position_size": 1,
+  "price": 100.0,
+  "risk_reward_ratio": 2.97,
+  "signals_collected": 19,
+  "stop_loss": 96.63,
+  "symbol": "XYZ",
+  "target": 110.0,
+  "trade_type": "LONG_CALL",
+  "warnings": []
+}

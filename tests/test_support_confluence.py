@@ -181,6 +181,23 @@ class SupportConfluenceTests(unittest.TestCase):
         self.assertTrue(result["support_zones"])
         self.assertIn("Sources unavailable", result["interpretation"])
 
+    def test_source_failing_part_way_keeps_levels_it_already_added(self):
+        class _HvnsBoom(dict):
+            def get(self, key, default=None):
+                if key == "hvns":
+                    raise RuntimeError("upstream broke mid-source")
+                return super().get(key, default)
+
+        prices = {
+            "get_stock_price": {"price": 100.0},
+            "get_volume_profile": _HvnsBoom(poc=95.0, value_area={}),
+        }
+
+        result = _build(prices=prices).get_support_confluence("XYZ")
+
+        self.assertIn("volume_profile", result["methods_failed"])
+        self.assertEqual(result["support_zones"][0]["center"], 95.0)
+
     def test_missing_price_returns_error_payload(self):
         result = _build().get_support_confluence("XYZ")
 

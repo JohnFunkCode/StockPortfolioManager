@@ -22,14 +22,23 @@ only consumer.
 fans out to every support-level technique across Prices and Options, clusters
 the resulting price levels into zones, and scores each zone by how many
 *independent* methods agree on it.
+
+For both of those, this module only *gathers* (``_gather_stop_inputs``,
+``_gather_confluence_levels``); the math is pure functions in
+``quantcore/analytics/stops.py`` and ``quantcore/analytics/levels.py`` (#399),
+so one gather can feed several computations.
 """
 
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
+from typing import Callable, Optional
 
 import pandas as pd
 
+from quantcore.analytics import levels as confluence
+from quantcore.analytics import stops
 from quantcore.analytics.indicators import find_swings
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.ohlcv_repository import OhlcvRepository
@@ -54,27 +63,34 @@ _SECTOR_ETF_MAP: dict[str, str] = {
     "Utilities":              "XLU",
 }
 
-# Confluence method weights (issue #93 Phase 6). Ordering follows the
-# professional support-level hierarchy: dealer positioning and volume
-# acceptance carry the most information, derived/geometric levels the least.
-_CONFLUENCE_WEIGHTS: dict[str, float] = {
-    "gamma_wall":      1.0,   # BS gamma × OI peak (delta-adjusted OI)
-    "gex_profile":     1.0,   # signed GEX walls + zero-gamma flip
-    "volume_profile":  0.9,   # POC / value area / HVNs
-    "anchored_vwap":   0.9,   # institutional cost-basis AVWAPs
-    "oi_change":       0.8,   # put-OI support / call-OI resistance builds
-    "expected_move":   0.7,   # spot ± options expected move
-    "rolling_vwap":    0.7,   # rolling 20-bar VWAP
-    "sma_200":         0.7,
-    "sma_100":         0.6,
-    "sma_50":          0.6,
-    "prev_week_hl":    0.6,   # prior completed week high/low
-    "prev_month_hl":   0.6,   # prior completed month high/low
-    "prev_day_hl":     0.5,   # prior session high/low
-    "bollinger_sma20": 0.5,   # 20-day SMA + Bollinger bands
-    "atr_bands":       0.5,   # ATR bands + chandelier stop
-    "fibonacci":       0.3,   # retracements of the last major swing
-}
+@dataclass(frozen=True)
+class _StopInputs:
+    """Everything ``get_stop_loss_analysis`` reads, gathered before any math."""
+
+    price: float
+    bb_upper: float
+    bb_middle: float   # 20-day SMA
+    bb_lower: float
+    vwap: float
+    above_vwap: bool
+    vwap_bars: int
+    macd_cross: str
+    rsi: float
+    gamma_wall: Optional[float]
+    drawdown: dict
+    short_float_pct: float
+    short_ratio: float
+    short_available: bool
+
+
+@dataclass(frozen=True)
+class _LevelContext:
+    """What every confluence level source reads, plus the sink it adds to."""
+
+    sym: str
+    price_data: dict
+    max_expirations: int
+    add: Callable[[str, object, str], None]
 
 
 class RecommendationsService:
@@ -109,6 +125,62 @@ class RecommendationsService:
     # ------------------------------------------------------------------
     # Stop-loss synthesis
     # ------------------------------------------------------------------
+    def _short_interest(self, sym: str) -> tuple[float, float, bool]:
+        """``(short_float_pct, short_ratio_days, data_available)``; zeros when
+        Yahoo has nothing."""
+        short_float_pct = 0.0
+        short_ratio = 0.0
+        try:
+            t_info = self._yf.info(sym)
+            raw_si = float(t_info.get("shortPercentOfFloat") or 0)
+            short_float_pct = round(raw_si * 100 if raw_si <= 1.0 else raw_si, 2)
+            short_ratio = round(float(t_info.get("shortRatio") or 0), 2)
+            return short_float_pct, short_ratio, True
+        except Exception:
+            return short_float_pct, short_ratio, False
+
+    def _gather_stop_inputs(self, sym: str, max_expirations: int) -> _StopInputs:
+        """Every input the stop synthesis needs. The gamma wall and short
+        interest are best-effort; the rest raise."""
+        price_data = self._prices.get_stock_price(sym)
+        bb = price_data["bollinger_bands"]
+
+        vwap_data = self._prices.get_vwap(sym)
+        above_vwap = vwap_data["position"] == "above_vwap"
+        vwap_bars = vwap_data.get(
+            "consecutive_bars_above" if above_vwap else "consecutive_bars_below", 0
+        )
+
+        macd_cross = self._prices.get_macd(sym)["crossover"]
+        rsi = self._prices.get_rsi(sym)["rsi"]
+
+        gamma_wall = None
+        try:
+            daoi_data = self._options.get_delta_adjusted_oi(sym, max_expirations=max_expirations)
+            gamma_wall = daoi_data.get("gamma_wall_strike")
+        except Exception:
+            pass
+
+        drawdown = self._prices.get_historical_drawdown(sym)
+        short_float_pct, short_ratio, short_available = self._short_interest(sym)
+
+        return _StopInputs(
+            price=price_data["price"],
+            bb_upper=bb["upper"],
+            bb_middle=bb["middle"],
+            bb_lower=bb["lower"],
+            vwap=vwap_data["vwap"],
+            above_vwap=above_vwap,
+            vwap_bars=vwap_bars,
+            macd_cross=macd_cross,
+            rsi=rsi,
+            gamma_wall=gamma_wall,
+            drawdown=drawdown,
+            short_float_pct=short_float_pct,
+            short_ratio=short_ratio,
+            short_available=short_available,
+        )
+
     def get_stop_loss_analysis(
         self,
         symbol: str,
@@ -117,197 +189,93 @@ class RecommendationsService:
         max_expirations: int = 4,
     ) -> dict:
         sym = symbol.upper()
+        s = self._gather_stop_inputs(sym, max_expirations)
+        price = s.price
 
-        # ── 1. Price + Bollinger Bands ────────────────────────────────────────
-        price_data = self._prices.get_stock_price(sym)
-        price      = price_data["price"]
-        bb         = price_data["bollinger_bands"]
-        bb_upper   = bb["upper"]
-        bb_middle  = bb["middle"]   # 20-day SMA
-        bb_lower   = bb["lower"]
-
-        # ── 2. VWAP ──────────────────────────────────────────────────────────
-        vwap_data  = self._prices.get_vwap(sym)
-        vwap       = vwap_data["vwap"]
-        above_vwap = vwap_data["position"] == "above_vwap"
-        vwap_bars  = vwap_data.get(
-            "consecutive_bars_above" if above_vwap else "consecutive_bars_below", 0
-        )
-
-        # ── 3. Momentum ───────────────────────────────────────────────────────
-        macd_data  = self._prices.get_macd(sym)
-        macd_cross = macd_data["crossover"]
-
-        rsi_data   = self._prices.get_rsi(sym)
-        rsi        = rsi_data["rsi"]
-
-        # ── 4. Options — gamma wall ───────────────────────────────────────────
-        gamma_wall = None
-        try:
-            daoi_data  = self._options.get_delta_adjusted_oi(sym, max_expirations=max_expirations)
-            gamma_wall = daoi_data.get("gamma_wall_strike")
-        except Exception:
-            pass
-
-        # ── 5. Historical drawdown ────────────────────────────────────────────
-        dd               = self._prices.get_historical_drawdown(sym)
-        base_trailing    = dd["trailing_stop_pct"]
-        max_1day_pct     = abs(dd["max_1day_drawdown_pct"])
-        max_5day_pct     = abs(dd["max_5day_drawdown_pct"])
+        dd = s.drawdown
+        base_trailing = dd["trailing_stop_pct"]
+        max_1day_pct = abs(dd["max_1day_drawdown_pct"])
+        max_5day_pct = abs(dd["max_5day_drawdown_pct"])
         max_intraday_pct = abs(dd["max_intraday_drop_pct"])
-        recent_1day_pct  = abs(dd["recent_max_1day_pct"])
+        recent_1day_pct = abs(dd["recent_max_1day_pct"])
 
-        # ── 6. Short interest ─────────────────────────────────────────────────
-        short_float_pct = 0.0
-        short_ratio     = 0.0
-        short_available = False
-        try:
-            t_info          = self._yf.info(sym)
-            raw_si          = float(t_info.get("shortPercentOfFloat") or 0)
-            short_float_pct = round(raw_si * 100 if raw_si <= 1.0 else raw_si, 2)
-            short_ratio     = round(float(t_info.get("shortRatio") or 0), 2)
-            short_available = True
-        except Exception:
-            pass
+        squeeze = stops.squeeze_potential(s.short_float_pct, s.short_ratio)
 
-        if short_float_pct >= 20 and short_ratio >= 5:
-            squeeze = "HIGH"
-        elif short_float_pct >= 10 or short_ratio >= 3:
-            squeeze = "MEDIUM"
-        else:
-            squeeze = "LOW"
-
-        # ── 7. Support levels below current price ─────────────────────────────
         # Gamma wall takes priority; VWAP only if price is above it (otherwise
         # VWAP is resistance); then 20-day SMA; then lower BB as last resort.
-        supports = {}
-        if gamma_wall and float(gamma_wall) < price:
-            supports["gamma_wall"] = float(gamma_wall)
-        if vwap < price:
-            supports["vwap"] = float(vwap)
-        if bb_middle < price:
-            supports["sma_20"] = float(bb_middle)
-        if bb_lower < price:
-            supports["bb_lower"] = float(bb_lower)
-
-        sorted_supports = sorted(supports.items(), key=lambda x: x[1], reverse=True)
-
-        # Buffer below primary support — tighter for options-defined levels,
-        # slightly wider for statistical levels that get tested more frequently.
-        _buf = {"gamma_wall": 0.008, "vwap": 0.014, "sma_20": 0.014, "bb_lower": 0.020}
-
-        if sorted_supports:
-            primary_name, primary_level = sorted_supports[0]
-            technical_stop = round(primary_level * (1 - _buf.get(primary_name, 0.014)), 2)
-        else:
-            primary_name   = "bb_lower"
-            primary_level  = bb_lower
-            technical_stop = round(bb_lower * 0.980, 2)
-
-        technical_dist_pct = round((technical_stop - price) / price * 100, 2)
-        stop_inside_noise  = abs(technical_dist_pct) < max_1day_pct
-
-        # ── 8. Trailing stop — calibrate and adjust for short interest ─────────
-        if short_float_pct >= 15 and not above_vwap:
-            # High SI in a downtrend: shorts add selling pressure on breakdown
-            adj_trailing = round(base_trailing * 0.90, 2)
-            si_impact    = "tightened — high short float in downtrend adds breakdown pressure"
-        elif short_float_pct >= 20 and above_vwap:
-            # High SI in an uptrend: squeeze cushions pullbacks
-            adj_trailing = round(base_trailing * 1.10, 2)
-            si_impact    = "widened — high short float with upward momentum adds squeeze cushion"
-        else:
-            adj_trailing = base_trailing
-            si_impact    = "neutral"
-
-        trailing_stop_price = round(price * (1 - adj_trailing / 100), 2)
-
-        # ── 9. Position P&L at each stop ──────────────────────────────────────
-        position = {}
-        if cost_basis > 0:
-            pnl_per_share = round(price - cost_basis, 2)
-            pnl_pct       = round((price - cost_basis) / cost_basis * 100, 2)
-            n             = shares if shares > 0 else 1
-            position = {
-                "cost_basis":               round(cost_basis, 2),
-                "shares":                   shares,
-                "unrealized_pnl_per_share": pnl_per_share,
-                "unrealized_pnl_pct":       pnl_pct,
-                "total_unrealized_pnl":     round(pnl_per_share * n, 2),
-                "pnl_at_technical_stop":    round((technical_stop - cost_basis) * n, 2),
-                "pnl_at_trailing_stop":     round((trailing_stop_price - cost_basis) * n, 2),
-            }
-
-        # ── 10. Flags ──────────────────────────────────────────────────────────
-        flags = []
-        flags.append(f"{vwap_bars}_bars_{'above' if above_vwap else 'below'}_vwap")
-        flags.append(
-            "bearish_macd"          if "bearish" in macd_cross else
-            "bullish_macd_crossover" if macd_cross == "bullish_crossover" else
-            "bullish_macd"
+        sorted_supports = stops.candidate_supports(
+            price, s.gamma_wall, s.vwap, s.bb_middle, s.bb_lower
         )
-        if rsi < 35:
-            flags.append(f"rsi_oversold_{rsi:.0f}")
-        elif rsi > 70:
-            flags.append(f"rsi_overbought_{rsi:.0f}")
-        if stop_inside_noise:
-            flags.append("technical_stop_inside_noise_floor")
-        if squeeze == "HIGH":
-            flags.append("squeeze_potential_high")
-        elif squeeze == "MEDIUM":
-            flags.append("squeeze_potential_medium")
-        if recent_1day_pct > max_1day_pct * 1.4:
-            flags.append("elevated_recent_volatility")
-
-        # ── 11. Human-readable summary ─────────────────────────────────────────
-        trend = "uptrend" if above_vwap else "downtrend"
-        mom   = "bullish" if "bullish" in macd_cross else "bearish"
-        lines = [
-            f"{sym} at ${price:.2f} — {trend} "
-            f"({vwap_bars} bars {'above' if above_vwap else 'below'} VWAP ${vwap:.2f}).",
-            f"Momentum: MACD {mom}, RSI {rsi:.0f}.",
-            f"Primary support: {primary_name.replace('_', ' ')} at ${primary_level:.2f}.",
-            f"Technical stop: ${technical_stop:.2f} ({technical_dist_pct:.1f}% from price).",
-        ]
-        if stop_inside_noise:
-            lines.append(
-                f"WARNING — technical stop is inside the {max_1day_pct:.1f}% "
-                "historical 1-day noise floor and will false-trigger on a bad session."
-            )
-        lines.append(
-            f"Broker trailing stop: {adj_trailing:.1f}% → ${trailing_stop_price:.2f}."
+        primary_name, primary_level, technical_stop = stops.technical_stop(
+            sorted_supports, s.bb_lower
         )
-        if cost_basis > 0 and shares > 0:
-            lines.append(
-                f"Position: {shares} shares @ ${cost_basis:.2f}. "
-                f"P&L at trailing stop: ${position['pnl_at_trailing_stop']:+.2f}."
-            )
+        technical_dist_pct = stops.distance_pct(technical_stop, price)
+        stop_inside_noise = abs(technical_dist_pct) < max_1day_pct
+
+        adj_trailing, si_impact = stops.calibrate_trailing(
+            base_trailing, s.short_float_pct, s.above_vwap
+        )
+        trailing_stop_price = stops.trailing_stop_price(price, adj_trailing)
+
+        position = stops.position_pnl(
+            price, cost_basis, shares, technical_stop, trailing_stop_price
+        )
+        flags = stops.stop_flags(
+            vwap_bars=s.vwap_bars,
+            above_vwap=s.above_vwap,
+            macd_crossover=s.macd_cross,
+            rsi=s.rsi,
+            stop_inside_noise=stop_inside_noise,
+            squeeze=squeeze,
+            recent_1day_pct=recent_1day_pct,
+            max_1day_pct=max_1day_pct,
+        )
+        summary = stops.stop_summary(
+            symbol=sym,
+            price=price,
+            above_vwap=s.above_vwap,
+            vwap_bars=s.vwap_bars,
+            vwap=s.vwap,
+            macd_crossover=s.macd_cross,
+            rsi=s.rsi,
+            primary_name=primary_name,
+            primary_level=primary_level,
+            technical_stop_price=technical_stop,
+            technical_dist_pct=technical_dist_pct,
+            stop_inside_noise=stop_inside_noise,
+            max_1day_pct=max_1day_pct,
+            trailing_pct=adj_trailing,
+            trailing_stop_price=trailing_stop_price,
+            cost_basis=cost_basis,
+            shares=shares,
+            position=position,
+        )
 
         return {
             "symbol":   sym,
             "price":    price,
             "position": position,
             "technical": {
-                "above_vwap":            above_vwap,
-                "vwap":                  round(float(vwap), 2),
-                "consecutive_bars":      vwap_bars,
-                "vwap_direction":        "above" if above_vwap else "below",
-                "sma_20":                round(bb_middle, 2),
-                "bb_upper":              round(bb_upper, 2),
-                "bb_lower":              round(bb_lower, 2),
-                "rsi":                   round(rsi, 1),
-                "macd_crossover":        macd_cross,
-                "gamma_wall":            gamma_wall,
+                "above_vwap":            s.above_vwap,
+                "vwap":                  round(float(s.vwap), 2),
+                "consecutive_bars":      s.vwap_bars,
+                "vwap_direction":        "above" if s.above_vwap else "below",
+                "sma_20":                round(s.bb_middle, 2),
+                "bb_upper":              round(s.bb_upper, 2),
+                "bb_lower":              round(s.bb_lower, 2),
+                "rsi":                   round(s.rsi, 1),
+                "macd_crossover":        s.macd_cross,
+                "gamma_wall":            s.gamma_wall,
                 "primary_support":       primary_name,
                 "primary_support_price": round(primary_level, 2),
                 "support_levels":        {k: round(v, 2) for k, v in sorted_supports},
             },
             "short_interest": {
-                "short_float_pct":   short_float_pct,
-                "short_ratio_days":  short_ratio,
+                "short_float_pct":   s.short_float_pct,
+                "short_ratio_days":  s.short_ratio,
                 "squeeze_potential": squeeze,
                 "stop_impact":       si_impact,
-                "data_available":    short_available,
+                "data_available":    s.short_available,
             },
             "drawdown": {
                 "max_1day_pct":           -round(max_1day_pct, 2),
@@ -324,7 +292,7 @@ class RecommendationsService:
                 "trailing_stop_price":               trailing_stop_price,
             },
             "flags":   flags,
-            "summary": " ".join(lines),
+            "summary": summary,
         }
 
     # ------------------------------------------------------------------
@@ -1137,6 +1105,159 @@ class RecommendationsService:
     # ------------------------------------------------------------------
     # Support confluence
     # ------------------------------------------------------------------
+    def _gather_confluence_levels(
+        self, sym: str, price_data: dict, max_expirations: int
+    ) -> tuple[list[dict], list[str], list[str]]:
+        """Candidate levels from all 14 sources, as ``(levels, methods_available,
+        methods_failed)``. Each source is isolated: one failure never kills the
+        call, it lands in ``methods_failed`` (levels it added before failing stay)."""
+        levels: list[dict] = []
+        methods_available: list[str] = []
+        methods_failed: list[str] = []
+
+        def _add(method: str, level, detail: str) -> None:
+            lvl = confluence.make_level(method, level, detail)
+            if lvl is not None:
+                levels.append(lvl)
+
+        ctx = _LevelContext(sym, price_data, max_expirations, _add)
+        sources = [
+            ("gamma_wall", self._src_gamma_wall),
+            ("gex_profile", self._src_gex_profile),
+            ("volume_profile", self._src_volume_profile),
+            ("anchored_vwap", self._src_anchored_vwap),
+            ("oi_change", self._src_oi_change),
+            ("expected_move", self._src_expected_move),
+            ("rolling_vwap", self._src_rolling_vwap),
+            ("moving_averages", self._src_moving_averages),
+            ("prev_day_hl", self._src_prev_day_hl),
+            ("prev_week_hl", self._src_prev_week_hl),
+            ("prev_month_hl", self._src_prev_month_hl),
+            ("bollinger_sma20", self._src_bollinger),
+            ("atr_bands", self._src_atr_bands),
+            ("fibonacci", self._src_fibonacci),
+        ]
+        for name, collect in sources:
+            try:
+                collect(ctx)
+                methods_available.append(name)
+            except Exception:
+                methods_failed.append(name)
+
+        return levels, methods_available, methods_failed
+
+    # ── Level sources: each adds its candidate levels through ``ctx.add`` ──
+    def _src_gamma_wall(self, ctx: _LevelContext) -> None:
+        daoi = self._options.get_delta_adjusted_oi(
+            ctx.sym, max_expirations=ctx.max_expirations
+        )
+        ctx.add("gamma_wall", daoi.get("gamma_wall_strike"),
+                "gamma wall (BS gamma × OI peak)")
+
+    def _src_gex_profile(self, ctx: _LevelContext) -> None:
+        gex = self._options.get_gex_profile(ctx.sym, max_expirations=ctx.max_expirations)
+        ctx.add("gex_profile", gex.get("top_positive_gex_strike"),
+                "call wall (top +GEX strike)")
+        ctx.add("gex_profile", gex.get("top_negative_gex_strike"),
+                "put support (top -GEX strike)")
+        ctx.add("gex_profile", gex.get("zero_gamma_level"), "zero-gamma flip")
+
+    def _src_volume_profile(self, ctx: _LevelContext) -> None:
+        vp = self._prices.get_volume_profile(ctx.sym)
+        ctx.add("volume_profile", vp.get("poc"), "point of control")
+        va = vp.get("value_area") or {}
+        ctx.add("volume_profile", va.get("low"), "value area low")
+        ctx.add("volume_profile", va.get("high"), "value area high")
+        for hvn in (vp.get("hvns") or [])[:4]:
+            ctx.add("volume_profile", hvn.get("price"), "high-volume node")
+
+    def _src_anchored_vwap(self, ctx: _LevelContext) -> None:
+        av = self._prices.get_anchored_vwap(ctx.sym)
+        for a in av.get("anchors") or []:
+            ctx.add("anchored_vwap", a.get("avwap"),
+                    f"AVWAP from {a.get('label') or a.get('type')}")
+
+    def _src_oi_change(self, ctx: _LevelContext) -> None:
+        oi = self._options.get_oi_change_analysis(ctx.sym)
+        for s in oi.get("put_oi_support_strikes") or []:
+            ctx.add("oi_change", s.get("strike"),
+                    f"put-OI build support (+{s.get('oi_build')} OI)")
+        for s in oi.get("call_oi_resistance_strikes") or []:
+            ctx.add("oi_change", s.get("strike"),
+                    f"call-OI build resistance (+{s.get('oi_build')} OI)")
+
+    def _src_expected_move(self, ctx: _LevelContext) -> None:
+        oa = self._options.get_options_analytics(ctx.sym)
+        analytics = oa.get("analytics") or []
+        if analytics:
+            first = analytics[0]
+            exp = first.get("expiration")
+            ctx.add("expected_move", first.get("lower_bound"),
+                    f"spot − expected move ({exp})")
+            ctx.add("expected_move", first.get("upper_bound"),
+                    f"spot + expected move ({exp})")
+
+    def _src_rolling_vwap(self, ctx: _LevelContext) -> None:
+        ctx.add("rolling_vwap", self._prices.get_vwap(ctx.sym).get("vwap"),
+                "rolling 20-bar VWAP")
+
+    def _src_moving_averages(self, ctx: _LevelContext) -> None:
+        rows = self._prices.get_technicals_table(ctx.sym).get("indicators") or []
+        if rows:
+            last = rows[-1]
+            ctx.add("sma_200", last.get("ma200"), "200-day SMA")
+            ctx.add("sma_100", last.get("ma100"), "100-day SMA")
+            ctx.add("sma_50", last.get("ma50"), "50-day SMA")
+
+    def _prev_bar_hl(
+        self, ctx: _LevelContext, method: str, interval: str, days: int, label: str
+    ) -> None:
+        df = self._prices.get_history(ctx.sym, interval=interval, days=days)
+        if len(df) >= 2:
+            bar = df.iloc[-2]
+            ctx.add(method, bar["High"], f"prior {label} high")
+            ctx.add(method, bar["Low"], f"prior {label} low")
+
+    def _src_prev_day_hl(self, ctx: _LevelContext) -> None:
+        self._prev_bar_hl(ctx, "prev_day_hl", "1d", 10, "day")
+
+    def _src_prev_week_hl(self, ctx: _LevelContext) -> None:
+        self._prev_bar_hl(ctx, "prev_week_hl", "1wk", 30, "week")
+
+    def _src_prev_month_hl(self, ctx: _LevelContext) -> None:
+        self._prev_bar_hl(ctx, "prev_month_hl", "1mo", 95, "month")
+
+    def _src_bollinger(self, ctx: _LevelContext) -> None:
+        bb = ctx.price_data.get("bollinger_bands") or {}
+        ctx.add("bollinger_sma20", bb.get("middle"), "20-day SMA (BB middle)")
+        ctx.add("bollinger_sma20", bb.get("lower"), "lower Bollinger band")
+        ctx.add("bollinger_sma20", bb.get("upper"), "upper Bollinger band")
+
+    def _src_atr_bands(self, ctx: _LevelContext) -> None:
+        atr = self._prices.get_atr_bands(ctx.sym)
+        ctx.add("atr_bands", atr.get("lower_band"), "ATR lower band")
+        ctx.add("atr_bands", atr.get("upper_band"), "ATR upper band")
+        ctx.add("atr_bands", atr.get("chandelier_stop"), "chandelier trailing stop")
+
+    def _src_fibonacci(self, ctx: _LevelContext) -> None:
+        df = self._prices.get_history(ctx.sym, interval="1d", days=365)
+        swings = find_swings(df["High"], df["Low"], swing_bars=5)
+        if not swings["highs"] or not swings["lows"]:
+            return
+        hi_idx, lo_idx = swings["highs"][-1], swings["lows"][-1]
+        hi = float(df["High"].iloc[hi_idx])
+        lo = float(df["Low"].iloc[lo_idx])
+        if hi <= lo:
+            return
+        span = hi - lo
+        leg = f"{round(lo, 2)}→{round(hi, 2)}"
+        for ratio in (0.382, 0.5, 0.618, 0.786):
+            if hi_idx >= lo_idx:
+                # Last major swing was up: retracements measure down from the high.
+                ctx.add("fibonacci", hi - ratio * span, f"fib {ratio} retrace of {leg}")
+            else:
+                ctx.add("fibonacci", lo + ratio * span, f"fib {ratio} retrace of {leg}")
+
     def get_support_confluence(
         self,
         symbol: str,
@@ -1162,227 +1283,16 @@ class RecommendationsService:
         except Exception as exc:
             return {"symbol": sym, "error": f"Could not fetch price: {exc}"}
 
-        levels: list[dict] = []
-        methods_available: list[str] = []
-        methods_failed: list[str] = []
-
-        def _add(method: str, level, detail: str) -> None:
-            try:
-                lvl = float(level)
-            except (TypeError, ValueError):
-                return
-            if lvl <= 0 or math.isnan(lvl):
-                return
-            levels.append({
-                "level":  round(lvl, 2),
-                "method": method,
-                "weight": _CONFLUENCE_WEIGHTS[method],
-                "detail": detail,
-            })
-
-        # ── Level sources (each isolated: one failure never kills the call) ──
-        def _src_gamma_wall():
-            daoi = self._options.get_delta_adjusted_oi(
-                sym, max_expirations=max_expirations
-            )
-            _add("gamma_wall", daoi.get("gamma_wall_strike"),
-                 "gamma wall (BS gamma × OI peak)")
-
-        def _src_gex_profile():
-            gex = self._options.get_gex_profile(sym, max_expirations=max_expirations)
-            _add("gex_profile", gex.get("top_positive_gex_strike"),
-                 "call wall (top +GEX strike)")
-            _add("gex_profile", gex.get("top_negative_gex_strike"),
-                 "put support (top -GEX strike)")
-            _add("gex_profile", gex.get("zero_gamma_level"), "zero-gamma flip")
-
-        def _src_volume_profile():
-            vp = self._prices.get_volume_profile(sym)
-            _add("volume_profile", vp.get("poc"), "point of control")
-            va = vp.get("value_area") or {}
-            _add("volume_profile", va.get("low"), "value area low")
-            _add("volume_profile", va.get("high"), "value area high")
-            for hvn in (vp.get("hvns") or [])[:4]:
-                _add("volume_profile", hvn.get("price"), "high-volume node")
-
-        def _src_anchored_vwap():
-            av = self._prices.get_anchored_vwap(sym)
-            for a in av.get("anchors") or []:
-                _add("anchored_vwap", a.get("avwap"),
-                     f"AVWAP from {a.get('label') or a.get('type')}")
-
-        def _src_oi_change():
-            oi = self._options.get_oi_change_analysis(sym)
-            for s in oi.get("put_oi_support_strikes") or []:
-                _add("oi_change", s.get("strike"),
-                     f"put-OI build support (+{s.get('oi_build')} OI)")
-            for s in oi.get("call_oi_resistance_strikes") or []:
-                _add("oi_change", s.get("strike"),
-                     f"call-OI build resistance (+{s.get('oi_build')} OI)")
-
-        def _src_expected_move():
-            oa = self._options.get_options_analytics(sym)
-            analytics = oa.get("analytics") or []
-            if analytics:
-                first = analytics[0]
-                exp = first.get("expiration")
-                _add("expected_move", first.get("lower_bound"),
-                     f"spot − expected move ({exp})")
-                _add("expected_move", first.get("upper_bound"),
-                     f"spot + expected move ({exp})")
-
-        def _src_rolling_vwap():
-            _add("rolling_vwap", self._prices.get_vwap(sym).get("vwap"),
-                 "rolling 20-bar VWAP")
-
-        def _src_moving_averages():
-            rows = self._prices.get_technicals_table(sym).get("indicators") or []
-            if rows:
-                last = rows[-1]
-                _add("sma_200", last.get("ma200"), "200-day SMA")
-                _add("sma_100", last.get("ma100"), "100-day SMA")
-                _add("sma_50", last.get("ma50"), "50-day SMA")
-
-        def _prev_bar_hl(method: str, interval: str, days: int, label: str):
-            df = self._prices.get_history(sym, interval=interval, days=days)
-            if len(df) >= 2:
-                bar = df.iloc[-2]
-                _add(method, bar["High"], f"prior {label} high")
-                _add(method, bar["Low"], f"prior {label} low")
-
-        def _src_prev_day_hl():
-            _prev_bar_hl("prev_day_hl", "1d", 10, "day")
-
-        def _src_prev_week_hl():
-            _prev_bar_hl("prev_week_hl", "1wk", 30, "week")
-
-        def _src_prev_month_hl():
-            _prev_bar_hl("prev_month_hl", "1mo", 95, "month")
-
-        def _src_bollinger():
-            bb = price_data.get("bollinger_bands") or {}
-            _add("bollinger_sma20", bb.get("middle"), "20-day SMA (BB middle)")
-            _add("bollinger_sma20", bb.get("lower"), "lower Bollinger band")
-            _add("bollinger_sma20", bb.get("upper"), "upper Bollinger band")
-
-        def _src_atr_bands():
-            atr = self._prices.get_atr_bands(sym)
-            _add("atr_bands", atr.get("lower_band"), "ATR lower band")
-            _add("atr_bands", atr.get("upper_band"), "ATR upper band")
-            _add("atr_bands", atr.get("chandelier_stop"), "chandelier trailing stop")
-
-        def _src_fibonacci():
-            df = self._prices.get_history(sym, interval="1d", days=365)
-            swings = find_swings(df["High"], df["Low"], swing_bars=5)
-            if not swings["highs"] or not swings["lows"]:
-                return
-            hi_idx, lo_idx = swings["highs"][-1], swings["lows"][-1]
-            hi = float(df["High"].iloc[hi_idx])
-            lo = float(df["Low"].iloc[lo_idx])
-            if hi <= lo:
-                return
-            span = hi - lo
-            leg = f"{round(lo, 2)}→{round(hi, 2)}"
-            for ratio in (0.382, 0.5, 0.618, 0.786):
-                if hi_idx >= lo_idx:
-                    # Last major swing was up: retracements measure down from the high.
-                    _add("fibonacci", hi - ratio * span, f"fib {ratio} retrace of {leg}")
-                else:
-                    _add("fibonacci", lo + ratio * span, f"fib {ratio} retrace of {leg}")
-
-        sources = [
-            ("gamma_wall", _src_gamma_wall),
-            ("gex_profile", _src_gex_profile),
-            ("volume_profile", _src_volume_profile),
-            ("anchored_vwap", _src_anchored_vwap),
-            ("oi_change", _src_oi_change),
-            ("expected_move", _src_expected_move),
-            ("rolling_vwap", _src_rolling_vwap),
-            ("moving_averages", _src_moving_averages),
-            ("prev_day_hl", _src_prev_day_hl),
-            ("prev_week_hl", _src_prev_week_hl),
-            ("prev_month_hl", _src_prev_month_hl),
-            ("bollinger_sma20", _src_bollinger),
-            ("atr_bands", _src_atr_bands),
-            ("fibonacci", _src_fibonacci),
-        ]
-        for name, collect in sources:
-            try:
-                collect()
-                methods_available.append(name)
-            except Exception:
-                methods_failed.append(name)
-
-        # ── Cluster levels within tolerance_pct into zones ────────────────────
-        candidates = sorted(
-            (l for l in levels if price * 0.75 <= l["level"] <= price * 1.25),
-            key=lambda l: l["level"],
+        levels, methods_available, methods_failed = self._gather_confluence_levels(
+            sym, price_data, max_expirations
         )
 
-        def _weighted_center(members: list[dict]) -> float:
-            total_w = sum(m["weight"] for m in members)
-            return sum(m["level"] * m["weight"] for m in members) / total_w
-
-        clusters: list[list[dict]] = []
-        current: list[dict] = []
-        center = 0.0
-        for lvl in candidates:
-            if current and lvl["level"] <= center * (1 + tolerance_pct / 100):
-                current.append(lvl)
-            else:
-                if current:
-                    clusters.append(current)
-                current = [lvl]
-            center = _weighted_center(current)
-        if current:
-            clusters.append(current)
-
-        # ── Score: Σ(max weight per distinct method) + 0.2·extra levels ──────
-        def _zone(members: list[dict]) -> dict:
-            c = _weighted_center(members)
-            best_by_method: dict[str, float] = {}
-            for m in members:
-                best_by_method[m["method"]] = max(
-                    best_by_method.get(m["method"], 0.0), m["weight"]
-                )
-            extras = len(members) - len(best_by_method)
-            return {
-                "zone_low":     min(m["level"] for m in members),
-                "zone_high":    max(m["level"] for m in members),
-                "center":       round(c, 2),
-                "distance_pct": round((c - price) / price * 100, 2),
-                "score":        round(sum(best_by_method.values()) + 0.2 * extras, 2),
-                "method_count": len(best_by_method),
-                "contributors": sorted(members, key=lambda m: -m["weight"]),
-            }
-
-        zones = [_zone(c) for c in clusters]
-        support_zones = sorted(
-            (z for z in zones if z["center"] <= price), key=lambda z: -z["score"]
-        )[:max_zones]
-        resistance_zones = sorted(
-            (z for z in zones if z["center"] > price), key=lambda z: -z["score"]
-        )[:max_zones]
+        zones = [
+            confluence.score_zone(c, price)
+            for c in confluence.cluster_levels(levels, price, tolerance_pct)
+        ]
+        support_zones, resistance_zones = confluence.rank_zones(zones, price, max_zones)
         strongest_support = support_zones[0] if support_zones else None
-
-        parts = []
-        if strongest_support:
-            s = strongest_support
-            parts.append(
-                f"Strongest support zone {s['zone_low']}–{s['zone_high']} "
-                f"(center {s['center']}, {s['distance_pct']}% from price): "
-                f"{s['method_count']} independent method(s), score {s['score']}."
-            )
-        else:
-            parts.append("No support zones found within 25% below the current price.")
-        if resistance_zones:
-            r = resistance_zones[0]
-            parts.append(
-                f"Strongest resistance zone {r['zone_low']}–{r['zone_high']} "
-                f"(center {r['center']}, +{r['distance_pct']}%), score {r['score']}."
-            )
-        if methods_failed:
-            parts.append("Sources unavailable: " + ", ".join(methods_failed) + ".")
 
         return {
             "symbol":            sym,
@@ -1393,5 +1303,7 @@ class RecommendationsService:
             "support_zones":     support_zones,
             "resistance_zones":  resistance_zones,
             "strongest_support": strongest_support,
-            "interpretation":    " ".join(parts),
+            "interpretation":    confluence.confluence_interpretation(
+                strongest_support, resistance_zones, methods_failed
+            ),
         }

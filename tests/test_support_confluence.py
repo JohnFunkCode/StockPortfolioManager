@@ -198,6 +198,53 @@ class SupportConfluenceTests(unittest.TestCase):
         self.assertIn("volume_profile", result["methods_failed"])
         self.assertEqual(result["support_zones"][0]["center"], 95.0)
 
+    def _fib_levels(self, df):
+        """Fibonacci contributors from a run where get_history returns ``df``
+        (through the real find_swings, swing_bars=5)."""
+        prices = {"get_stock_price": {"price": 100.0}, "get_history": lambda *a, **k: df}
+        result = _build(prices=prices).get_support_confluence("XYZ")
+        self.assertIn("fibonacci", result["methods_available"])
+        zones = result["support_zones"] + result["resistance_zones"]
+        return sorted(
+            (c["level"], c["detail"]) for z in zones for c in z["contributors"]
+            if c["method"] == "fibonacci"
+        )
+
+    def test_fibonacci_up_leg_retraces_down_from_the_high(self):
+        # Swing low at bar 5 (close 90 → Low 89), then swing high at bar 15
+        # (close 110 → High 111), confirmed by 6 falling bars.
+        closes = [100, 98, 96, 94, 92, 90] + [92 + 2 * i for i in range(10)] + \
+                 [108 - 2 * i for i in range(6)]
+        levels = self._fib_levels(_ohlcv_df(closes))
+        leg = "89.0→111.0"
+        self.assertEqual(levels, [
+            (93.71, f"fib 0.786 retrace of {leg}"),
+            (97.4, f"fib 0.618 retrace of {leg}"),
+            (100.0, f"fib 0.5 retrace of {leg}"),
+            (102.6, f"fib 0.382 retrace of {leg}"),
+        ])
+
+    def test_fibonacci_down_leg_retraces_up_from_the_low(self):
+        # Mirror image: swing high at bar 5 (High 111), swing low at bar 15 (Low 89).
+        closes = [100, 102, 104, 106, 108, 110] + [108 - 2 * i for i in range(10)] + \
+                 [92 + 2 * i for i in range(6)]
+        levels = self._fib_levels(_ohlcv_df(closes))
+        leg = "89.0→111.0"
+        self.assertEqual(levels, [
+            (97.4, f"fib 0.382 retrace of {leg}"),
+            (100.0, f"fib 0.5 retrace of {leg}"),
+            (102.6, f"fib 0.618 retrace of {leg}"),
+            (106.29, f"fib 0.786 retrace of {leg}"),
+        ])
+
+    def test_fibonacci_adds_nothing_without_a_usable_swing(self):
+        flat = _ohlcv_df([100.0] * 20)
+        flat["High"] = flat["Low"] = 100.0          # every bar is both pivots: hi <= lo
+        too_short = _ohlcv_df([100, 99, 98, 99, 100])  # no bar can be confirmed
+        for name, df in (("hi_not_above_lo", flat), ("no_swings", too_short)):
+            with self.subTest(name):
+                self.assertEqual(self._fib_levels(df), [])
+
     def test_missing_price_returns_error_payload(self):
         result = _build().get_support_confluence("XYZ")
 

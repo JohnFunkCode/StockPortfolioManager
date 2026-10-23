@@ -93,4 +93,5 @@ each fetch the gamma wall separately.
 | Step | Commit | Result | Gotcha |
 |---|---|---|---|
 | Golden characterization tests | `e546a73` | 4 tests, 9 frozen outputs | Every first-draft stop scenario tripped the noise-floor flag, so an outside-the-floor scenario was added |
-| Analytics extraction + gather/compute split | *(this PR)* | Golden files unchanged. `get_stop_loss_analysis` went from CC 40 / cognitive 42 to 3 / 2, `get_support_confluence` from 20 / 66 to 4 / 3. Every touched unit is under 15 / 25 | Nested closures count toward the parent (above) |
+| Review follow-up (Guppy on #417) | *(this PR)* | 3 Fibonacci-source tests through the real `find_swings`: up leg, down leg, and no usable swing (`hi <= lo` and too few bars). They pass on main's code and the refactor | The all-sources golden fixture has no confirmed 5-bar swings, so it never reached the retracement path |
+| Analytics extraction + gather/compute split | `835addb` | Golden files unchanged. `get_stop_loss_analysis` went from CC 40 / cognitive 42 to 3 / 2, `get_support_confluence` from 20 / 66 to 4 / 3. Every touched unit is under 15 / 25 | Nested closures count toward the parent (above) |

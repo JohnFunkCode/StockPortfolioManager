@@ -116,6 +116,18 @@ describe('StopLossCard', () => {
     expect(screen.queryByTestId('stop-position')).toBeNull();
   });
 
+  it('says when there is no support below price instead of naming one', async () => {
+    const base = response();
+    mockApi([['/stop-loss', response({
+      technical: { ...base.technical, primary_support: 'price', primary_support_price: 180.0 },
+      stops: { ...base.stops, technical_stop: 176.4, technical_stop_distance_pct: -2.0 },
+    })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    const tile = await screen.findByTestId('stop-tile-technical');
+    expect(tile.textContent).toContain('-2.0% · no support below price');
+    expect(tile.textContent).not.toContain('under price');
+  });
+
   it('warns when the technical stop sits inside the noise floor', async () => {
     const base = response();
     mockApi([['/stop-loss', response({

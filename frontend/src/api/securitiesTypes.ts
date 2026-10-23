@@ -269,6 +269,7 @@ export interface StopLossResponse {
     rsi: number;
     macd_crossover: string;
     gamma_wall: number | null;
+    /** 'price' when no support sits below price: the stop is then 2% under price. */
     primary_support: string;
     primary_support_price: number;
     support_levels: Record<string, number>;

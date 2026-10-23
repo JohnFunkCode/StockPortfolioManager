@@ -569,9 +569,11 @@ def get_stop_loss_analysis(
     (gamma wall), historical drawdown, and short interest — then produces two stops:
 
       technical_stop  — the conceptual floor derived from the nearest meaningful support
-                        level (gamma wall > VWAP > 20-day SMA > lower BB), with a small
-                        buffer below it.  Watch this level manually; it tells you when the
-                        thesis is breaking.
+                        level below price (gamma wall > VWAP > 20-day SMA > lower BB), with
+                        a small buffer below it.  With no support below price it is 2% under
+                        price (technical.primary_support "price"), so it is always below
+                        price.  Watch this level manually; it tells you when the thesis is
+                        breaking.
 
       trailing_stop   — a percentage-based stop calibrated to the stock's historical
                         noise floor (avg of max 1-day and max 5-day drawdowns), adjusted

@@ -356,12 +356,13 @@ class RecommendationsService:
         squeeze = stops.squeeze_potential(s.short_float_pct, s.short_ratio)
 
         # Gamma wall takes priority; VWAP only if price is above it (otherwise
-        # VWAP is resistance); then 20-day SMA; then lower BB as last resort.
+        # VWAP is resistance); then 20-day SMA; then lower BB. With none of them
+        # below price the stop anchors on price itself, so it never sits above it.
         sorted_supports = stops.candidate_supports(
             price, s.gamma_wall, s.vwap, s.bb_middle, s.bb_lower
         )
         primary_name, primary_level, technical_stop = stops.technical_stop(
-            sorted_supports, s.bb_lower
+            sorted_supports, price
         )
         technical_dist_pct = stops.distance_pct(technical_stop, price)
         stop_inside_noise = abs(technical_dist_pct) < max_1day_pct

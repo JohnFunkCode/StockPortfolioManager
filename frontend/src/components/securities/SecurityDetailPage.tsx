@@ -456,14 +456,23 @@ function ChartSkeleton({ height = 200 }: { height?: number }) {
 }
 
 // One request feeds both cards: confluence=full embeds the support-confluence
-// result and seeds its query. The confluence card waits for that request to
-// settle and fetches on its own only if the embedded result never arrived.
+// result, with the stop's zone marked, and seeds its query. While that embedded
+// result exists the stop-loss query is its only owner: the confluence query
+// stays disabled (no focus refetch of its own) and its Retry refetches the
+// stop-loss request, because a standalone /support-confluence response carries
+// no is_stop_zone/outside_top and would drop the marker. The confluence card
+// fetches on its own only once the stop-loss request has settled without one.
 function TechnicalStopAndConfluence({ ticker }: { ticker: string }) {
   const stopLoss = useStopLoss(ticker, 'full');
+  const embedded = stopLoss.data?.confluence != null;
   return (
     <>
       <StopLossCard ticker={ticker} confluence="full" />
-      <SupportConfluenceCard ticker={ticker} enabled={!stopLoss.isPending} />
+      <SupportConfluenceCard
+        ticker={ticker}
+        enabled={!embedded && !stopLoss.isPending && !stopLoss.isFetching}
+        onRetry={embedded ? () => stopLoss.refetch() : undefined}
+      />
     </>
   );
 }

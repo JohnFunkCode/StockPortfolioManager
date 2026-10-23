@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import StopLossCard from './StopLossCard';
 import { QueryClient } from '@tanstack/react-query';
@@ -15,17 +15,59 @@ const HELD = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('StopLossCard', () => {
-  it('shows a spinner while loading', () => {
-    mockApi([['/stop-loss', () => new Promise(() => {}) as never]]);
+  it('keeps the spinner while the request is pending, then renders the result', async () => {
+    let resolve!: (body: object) => void;
+    const pending = new Promise<object>((r) => { resolve = r; });
+    mockApi([['/stop-loss', () => pending]]);
     renderWithProviders(<StopLossCard ticker="XYZ" />);
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByTestId('stop-tile-technical')).toBeNull();
+
+    await act(async () => { resolve(response()); });
+    expect(await screen.findByTestId('stop-tile-technical')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
   });
 
-  it('shows an error with a retry', async () => {
-    mockApi([['/stop-loss', { __status: 500, error: 'boom' }]]);
+  it('shows an error whose Retry recovers', async () => {
+    let calls = 0;
+    mockApi([['/stop-loss', () => {
+      calls += 1;
+      return calls === 1 ? { __status: 500, error: 'boom' } : response();
+    }]]);
     renderWithProviders(<StopLossCard ticker="XYZ" />);
     await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    expect(await screen.findByTestId('stop-tile-technical')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(calls).toBe(2);
+  });
+
+  it('disables Retry while it runs when a refresh failed over loaded data', async () => {
+    // With no data yet a retry goes back to pending (the spinner); with data
+    // the error stays up during the retry, so the button has to say so.
+    let calls = 0;
+    let resolveRetry!: (body: object) => void;
+    mockApi([['/stop-loss', () => {
+      calls += 1;
+      if (calls === 1) return response();
+      if (calls === 2) return { __status: 500, error: 'boom' };
+      return new Promise<object>((r) => { resolveRetry = r; });
+    }]]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    renderWithProviders(<StopLossCard ticker="XYZ" />, { queryClient: client });
+    await screen.findByTestId('stop-tile-technical');
+
+    await act(async () => { await client.refetchQueries({ queryKey: ['stop-loss'] }); });
+    await waitFor(() => expect(screen.getByRole('alert')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect(screen.getByRole('button', { name: /retrying/i })).toBeDisabled());
+
+    await act(async () => { resolveRetry(response()); });
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByTestId('stop-tile-technical')).toBeInTheDocument();
   });
 
   it('asks for the caller’s own position with confluence=stop by default', async () => {

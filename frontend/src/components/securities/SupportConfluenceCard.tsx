@@ -15,6 +15,9 @@ interface Props {
    *  it embeds this result and seeds the cache, so fetching too would gather
    *  the same 14 sources twice. */
   enabled?: boolean;
+  /** Retry through whoever owns the data: the stop-loss request, when the
+   *  result came embedded in it. Defaults to this card's own query. */
+  onRetry?: () => void;
 }
 
 function SectionHeader({ title }: { title: string }) {
@@ -100,8 +103,9 @@ function ZoneTable({ title, zones, color }: { title: string; zones: SupportZone[
   );
 }
 
-export default function SupportConfluenceCard({ ticker, enabled = true }: Props) {
-  const { data, isLoading, error, refetch } = useSupportConfluence(ticker, enabled);
+export default function SupportConfluenceCard({ ticker, enabled = true, onRetry }: Props) {
+  const { data, isLoading, error, refetch: ownRefetch } = useSupportConfluence(ticker, enabled);
+  const refetch = onRetry ?? (() => { ownRefetch(); });
   // A disabled query with no data yet is still on its way (from the stop-loss request).
   const loading = isLoading || (!enabled && !data);
 

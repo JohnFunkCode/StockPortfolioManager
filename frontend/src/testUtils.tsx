@@ -26,7 +26,7 @@ import type { StopLossResponse } from './api/securitiesTypes';
 type Matcher = string | RegExp;
 type Responder =
   | object
-  | ((url: string, init?: RequestInit) => object | { __status: number });
+  | ((url: string, init?: RequestInit) => object | Promise<object>);
 
 export interface MockedApi {
   /** Every fetch the code under test made: [url, init]. */
@@ -48,7 +48,9 @@ function jsonResponse(body: object, status = 200): Response {
  *     ['/api/securities/INTC/technicals', { ticker: 'INTC', indicators: [...] }],
  *     [/\/api\/portfolio$/, { securities: [] }],
  *   ])
- * A responder function may return `{ __status: 500, ...body }` to force a status.
+ * A responder function may return `{ __status: 500, ...body }` to force a status,
+ * or a promise of a body — awaited, so a never-settling promise is a request
+ * that stays pending.
  * Cleanup is automatic via vi.unstubAllGlobals() in afterEach (vitest config
  * `unstubGlobals` is not enabled globally — call it in the suite's afterEach).
  */
@@ -64,7 +66,7 @@ export function mockApi(routes: Array<[Matcher, Responder]>): MockedApi {
           typeof matcher === 'string' ? url.includes(matcher) : matcher.test(url);
         if (!hit) continue;
         const body =
-          typeof responder === 'function' ? responder(url, init) : responder;
+          typeof responder === 'function' ? await responder(url, init) : responder;
         const { __status = 200, ...rest } = body as { __status?: number };
         return jsonResponse(rest, __status);
       }

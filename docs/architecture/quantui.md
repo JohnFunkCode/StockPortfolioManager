@@ -79,9 +79,13 @@ The security detail page's Technical Analysis tab ends with two cards that share
   ladder only maps the given prices onto a track.
 - The **Support Confluence card** (`SupportConfluenceCard.tsx`, issue #93 Phase 7) renders the
   composite support/resistance zones. `useStopLoss` seeds its `['support-confluence', ticker]`
-  query from the confluence result the stop-loss response embeds, and the card's own query stays
-  disabled until that request settles, so the 14 level sources are gathered once. It fetches
-  `/support-confluence` itself only when the stop-loss request failed. The zone the confluence
+  query from the confluence result the stop-loss response embeds, so the 14 level sources are
+  gathered once. While that embedded result exists, the stop-loss query is its only owner: the
+  card's own query stays disabled (so it never refetches on focus by itself) and its Retry refetches
+  the stop-loss request. A standalone `/support-confluence` response carries no stop-zone marker,
+  so letting the card refresh itself would drop the marker while the stop card still shows the
+  stop. The card fetches `/support-confluence` itself only once the stop-loss request has settled
+  without an embedded result: it failed, or came back without one. The zone the confluence
   stop sits under carries a "stop under this zone" chip; a stop zone outside the top 5 is appended
   as a trailing row marked as such. Keep the two cards' confluence defaults (tolerance 1%, 5 zones)
   equal to the embedded result's, or the seeded data stops matching what the card would fetch.

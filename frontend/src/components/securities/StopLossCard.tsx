@@ -270,7 +270,7 @@ function StopLossBody({ data }: { data: StopLossResponse }) {
 }
 
 export default function StopLossCard({ ticker, confluence = 'stop' }: Props) {
-  const { data, isLoading, error, refetch } = useStopLoss(ticker, confluence);
+  const { data, isLoading, isFetching, error, refetch } = useStopLoss(ticker, confluence);
 
   return (
     <Paper sx={{ p: 2 }} data-testid="stop-loss-card">
@@ -291,7 +291,13 @@ export default function StopLossCard({ ticker, confluence = 'stop' }: Props) {
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
       ) : error ? (
         <Alert severity="error" sx={{ fontSize: 12 }}
-          action={<Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={() => refetch()}>Retry</Button>}>
+          action={
+            <Button size="small" color="inherit" disabled={isFetching}
+              startIcon={isFetching ? <CircularProgress size={14} color="inherit" /> : <RefreshIcon />}
+              onClick={() => refetch()}>
+              {isFetching ? 'Retrying…' : 'Retry'}
+            </Button>
+          }>
           {(error as Error).message ?? 'Failed to load the stop-loss analysis'}
         </Alert>
       ) : data ? (

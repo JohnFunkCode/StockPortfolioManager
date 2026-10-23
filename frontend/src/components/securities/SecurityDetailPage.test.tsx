@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { focusManager, type QueryClient } from '@tanstack/react-query';
 import { Route, Routes } from 'react-router-dom';
 
 import SecurityDetailPage from './SecurityDetailPage';
 import {
   indicatorRows,
+  makeQueryClient,
   ivExpirations,
   mockApi,
   optionsSnapshot,
@@ -66,12 +68,18 @@ const CONFLUENCE = {
   }],
 };
 
-function renderPage() {
+function renderPage(queryClient?: QueryClient) {
   return renderWithProviders(<SecurityDetailPage />, {
     route: '/securities/INTC',
     path: '/securities/:symbol',
+    queryClient,
   });
 }
+
+const stopLossUrls = (api: { calls: Array<[string, unknown]> }) =>
+  api.calls.map(([url]) => url).filter((u) => u.includes('/stop-loss'));
+const confluenceCalls = (api: { calls: Array<[string, unknown]> }) =>
+  api.calls.filter(([url]) => url.includes('/support-confluence')).length;
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -132,6 +140,39 @@ describe('SecurityDetailPage', () => {
       '/api/securities/INTC/stop-loss?confluence=full&position=mine',
     ]);
     expect(urls.some((u) => u.includes('/support-confluence'))).toBe(false);
+  });
+
+  it('refreshes both cards on focus through the stop-loss request alone', async () => {
+    const api = armAll();
+    const client = makeQueryClient();
+    renderPage(client);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    await screen.findByTestId('confluence-stop-zone');
+
+    await act(async () => {
+      await client.invalidateQueries({ refetchType: 'none' });
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+    await waitFor(() => expect(stopLossUrls(api)).toHaveLength(2));
+    expect(confluenceCalls(api)).toBe(0);
+    expect(screen.getByTestId('confluence-stop-zone')).toBeInTheDocument();
+    focusManager.setFocused(undefined);
+  });
+
+  it('retries a partly failed embedded confluence through the stop-loss request, keeping the marker', async () => {
+    const api = armAll({
+      stopLoss: stopLossResponse({
+        symbol: 'INTC', confluence: { ...CONFLUENCE, methods_failed: ['gex_profile'] },
+      }),
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    const warning = await screen.findByTestId('confluence-methods-failed');
+    fireEvent.click(within(warning).getByRole('button', { name: /retry/i }));
+    await waitFor(() => expect(stopLossUrls(api)).toHaveLength(2));
+    expect(confluenceCalls(api)).toBe(0);
+    expect(screen.getByTestId('confluence-stop-zone')).toBeInTheDocument();
   });
 
   it('falls back to its own confluence request when the stop-loss request fails', async () => {

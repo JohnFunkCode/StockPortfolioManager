@@ -1,6 +1,6 @@
 # Stop-loss card on Security Detail (#399)
 
-**Status:** PR 1 (#417) merged; PR 2 in review. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
+**Status:** PR 1 (#417) and PR 2 (#418) merged; PR 3 next. Issue [#399](https://github.com/JohnFunkCode/StockPortfolioManager/issues/399).
 Related: #221 (store stops and alert on them, deferred), #416 (Support Confluence Sidekick-renderable),
 #69 / #219 (trade recommendation).
 
@@ -79,7 +79,22 @@ each fetch the gamma wall separately.
 
 ## Latency (PR 2 step 7, gate for PR 3)
 
-Pending: measured on test once PR 2 has deployed there. Time `/support-confluence`, `/stop-loss` and `/stop-loss?confluence=full` for a liquid name and a thin-options name. If `confluence=full` is much slower than `/support-confluence` alone, the PR 3 card loads on demand rather than with the page.
+Measured on test on 2026-10-23, after #418 deployed (`8061654`). Three sequential rounds per symbol followed one untimed warm-up call. Every call returned 200. NVDA has liquid options; CRVL's are very thin.
+
+| Symbol | `/support-confluence` | `/stop-loss` | `/stop-loss?confluence=full` |
+|---|---|---|---|
+| NVDA | 3.93 / 3.87 / 3.55 s (mean 3.78) | 2.60 / 2.28 / 2.47 s (mean 2.45) | 4.06 / 4.43 / 4.26 s (mean 4.25) |
+| CRVL | 3.76 / 3.54 / 2.99 s (mean 3.43) | 2.17 / 2.86 / 2.38 s (mean 2.47) | 4.28 / 4.19 / 3.67 s (mean 4.05) |
+
+**Decision: the card loads with the page.**
+
+- One `confluence=full` request costs about 0.5–0.6 s (13–18%) more than `/support-confluence` alone.
+- It replaces two requests, the separate confluence and stop calls, which take about 3.8 s even when run in parallel and about 6.2 s run back to back.
+- Thin options didn't make it slower: CRVL was slightly faster than NVDA.
+
+The 4 s is mostly the confluence gather itself, since `/support-confluence` alone takes 3.4–3.8 s. Both panels therefore keep loading states.
+
+The script was a scratch `curl -w %{time_total}` loop with a one-hour test JWT. These are timings from one client in one sequence, not a load test.
 
 ## Gotchas
 
@@ -105,5 +120,6 @@ Pending: measured on test once PR 2 has deployed there. Time `/support-confluenc
 | Golden characterization tests | `e546a73` | 4 tests, 9 frozen outputs | Every first-draft stop scenario tripped the noise-floor flag, so an outside-the-floor scenario was added |
 | Review follow-up (Guppy on #417) | `7a09782` | 3 Fibonacci-source tests through the real `find_swings`: up leg, down leg, and no usable swing (`hi <= lo` and too few bars). They pass on main's code and the refactor | The all-sources golden fixture has no confirmed 5-bar swings, so it never reached the retracement path |
 | Analytics extraction + gather/compute split | `835addb` | Golden files unchanged. `get_stop_loss_analysis` went from CC 40 / cognitive 42 to 3 / 2, `get_support_confluence` from 20 / 66 to 4 / 3. Every touched unit is under 15 / 25 | Nested closures count toward the parent (above) |
-| PR 2: confluence stop, drawdown replay, `confluence` and `position=mine` | *(this PR)* | Stop and confluence gathers share one pool of 6 workers, with the gamma wall fetched once (a test counts the calls). The trade-rec and confluence golden files are unchanged; the six stop files gained `drawdown_replay` and `position_source` and nothing else. Every new unit is at CC ≤ 10 and cognitive ≤ 10 | Fakes needed `close_thread_caches` (above) |
-| Review follow-up (Guppy on #418) | *(this PR)* | The replay treats a positive worst return as no drop. Tests cover it through the real `get_historical_drawdown`, with a rally after a selloff and an all-gain history. Golden files unchanged | `abs()` of a signed minimum (above) |
+| PR 2: confluence stop, drawdown replay, `confluence` and `position=mine` | `8bb8b05` | Stop and confluence gathers share one pool of 6 workers, with the gamma wall fetched once (a test counts the calls). The trade-rec and confluence golden files are unchanged; the six stop files gained `drawdown_replay` and `position_source` and nothing else. Every new unit is at CC ≤ 10 and cognitive ≤ 10 | Fakes needed `close_thread_caches` (above) |
+| Review follow-up (Guppy on #418) | `a44e93c` | The replay treats a positive worst return as no drop. Tests cover it through the real `get_historical_drawdown`, with a rally after a selloff and an all-gain history. Golden files unchanged | `abs()` of a signed minimum (above) |
+| Latency on test (PR 2 step 7) | *(PR 3)* | `confluence=full` takes 4.05–4.25 s on average, against 3.4–3.8 s for `/support-confluence` alone, so the card loads with the page (Latency, above) | None |

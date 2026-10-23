@@ -1,0 +1,48 @@
+{
+  "drawdown": {
+    "base_trailing_stop_pct": 6.5,
+    "max_1day_pct": -6.1,
+    "max_5day_pct": -11.4,
+    "max_intraday_pct": -7.8,
+    "recent_max_1day_pct": -4.2
+  },
+  "flags": [
+    "8_bars_below_vwap",
+    "bearish_macd",
+    "rsi_oversold_30",
+    "technical_stop_inside_noise_floor"
+  ],
+  "position": {},
+  "price": 180.0,
+  "short_interest": {
+    "data_available": true,
+    "short_float_pct": 2.0,
+    "short_ratio_days": 1.0,
+    "squeeze_potential": "LOW",
+    "stop_impact": "neutral"
+  },
+  "stops": {
+    "technical_stop": 177.38,
+    "technical_stop_distance_pct": -1.46,
+    "technical_stop_inside_noise_floor": true,
+    "trailing_stop_pct": 6.5,
+    "trailing_stop_price": 168.3
+  },
+  "summary": "XYZ at $180.00 \u2014 downtrend (8 bars below VWAP $185.00). Momentum: MACD bearish, RSI 30. Primary support: bb lower at $181.00. Technical stop: $177.38 (-1.5% from price). WARNING \u2014 technical stop is inside the 6.1% historical 1-day noise floor and will false-trigger on a bad session. Broker trailing stop: 6.5% \u2192 $168.30.",
+  "symbol": "XYZ",
+  "technical": {
+    "above_vwap": false,
+    "bb_lower": 181.0,
+    "bb_upper": 200.0,
+    "consecutive_bars": 8,
+    "gamma_wall": null,
+    "macd_crossover": "bearish",
+    "primary_support": "bb_lower",
+    "primary_support_price": 181.0,
+    "rsi": 30.0,
+    "sma_20": 190.0,
+    "support_levels": {},
+    "vwap": 185.0,
+    "vwap_direction": "below"
+  }
+}

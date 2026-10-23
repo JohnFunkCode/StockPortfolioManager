@@ -1,0 +1,61 @@
+{
+  "drawdown": {
+    "base_trailing_stop_pct": 6.5,
+    "max_1day_pct": -6.1,
+    "max_5day_pct": -11.4,
+    "max_intraday_pct": -7.8,
+    "recent_max_1day_pct": -4.2
+  },
+  "flags": [
+    "8_bars_above_vwap",
+    "bullish_macd",
+    "technical_stop_inside_noise_floor",
+    "squeeze_potential_medium"
+  ],
+  "position": {
+    "cost_basis": 142.5,
+    "pnl_at_technical_stop": 3724.8,
+    "pnl_at_trailing_stop": 3096.0,
+    "shares": 120,
+    "total_unrealized_pnl": 4500.0,
+    "unrealized_pnl_pct": 26.32,
+    "unrealized_pnl_per_share": 37.5
+  },
+  "price": 180.0,
+  "short_interest": {
+    "data_available": true,
+    "short_float_pct": 12.0,
+    "short_ratio_days": 3.0,
+    "squeeze_potential": "MEDIUM",
+    "stop_impact": "neutral"
+  },
+  "stops": {
+    "technical_stop": 173.54,
+    "technical_stop_distance_pct": -3.59,
+    "technical_stop_inside_noise_floor": true,
+    "trailing_stop_pct": 6.5,
+    "trailing_stop_price": 168.3
+  },
+  "summary": "XYZ at $180.00 \u2014 uptrend (8 bars above VWAP $175.80). Momentum: MACD bullish, RSI 61. Primary support: sma 20 at $176.00. Technical stop: $173.54 (-3.6% from price). WARNING \u2014 technical stop is inside the 6.1% historical 1-day noise floor and will false-trigger on a bad session. Broker trailing stop: 6.5% \u2192 $168.30. Position: 120 shares @ $142.50. P&L at trailing stop: $+3096.00.",
+  "symbol": "XYZ",
+  "technical": {
+    "above_vwap": true,
+    "bb_lower": 162.0,
+    "bb_upper": 190.0,
+    "consecutive_bars": 8,
+    "gamma_wall": 172.5,
+    "macd_crossover": "bullish",
+    "primary_support": "sma_20",
+    "primary_support_price": 176.0,
+    "rsi": 61.0,
+    "sma_20": 176.0,
+    "support_levels": {
+      "bb_lower": 162.0,
+      "gamma_wall": 172.5,
+      "sma_20": 176.0,
+      "vwap": 175.8
+    },
+    "vwap": 175.8,
+    "vwap_direction": "above"
+  }
+}

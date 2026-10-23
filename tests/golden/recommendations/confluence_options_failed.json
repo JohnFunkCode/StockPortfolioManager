@@ -1,0 +1,272 @@
+{
+  "interpretation": "Strongest support zone 94.5\u201395.5 (center 95.0, -5.0% from price): 3 independent method(s), score 2.7. Strongest resistance zone 103.0\u2013104.5 (center 103.87, +3.87%), score 2.6. Sources unavailable: gamma_wall, gex_profile, oi_change, expected_move.",
+  "methods_available": [
+    "volume_profile",
+    "anchored_vwap",
+    "rolling_vwap",
+    "moving_averages",
+    "prev_day_hl",
+    "prev_week_hl",
+    "prev_month_hl",
+    "bollinger_sma20",
+    "atr_bands",
+    "fibonacci"
+  ],
+  "methods_failed": [
+    "gamma_wall",
+    "gex_profile",
+    "oi_change",
+    "expected_move"
+  ],
+  "price": 100.0,
+  "resistance_zones": [
+    {
+      "center": 103.87,
+      "contributors": [
+        {
+          "detail": "value area high",
+          "level": 104.0,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "prior week high",
+          "level": 103.0,
+          "method": "prev_week_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "prior month low",
+          "level": 104.0,
+          "method": "prev_month_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "ATR upper band",
+          "level": 104.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 3.87,
+      "method_count": 4,
+      "score": 2.6,
+      "zone_high": 104.5,
+      "zone_low": 103.0
+    },
+    {
+      "center": 101.0,
+      "contributors": [
+        {
+          "detail": "prior week low",
+          "level": 101.0,
+          "method": "prev_week_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "prior day high",
+          "level": 101.0,
+          "method": "prev_day_hl",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 1.0,
+      "method_count": 2,
+      "score": 1.1,
+      "zone_high": 101.0,
+      "zone_low": 101.0
+    },
+    {
+      "center": 106.0,
+      "contributors": [
+        {
+          "detail": "prior month high",
+          "level": 106.0,
+          "method": "prev_month_hl",
+          "weight": 0.6
+        }
+      ],
+      "distance_pct": 6.0,
+      "method_count": 1,
+      "score": 0.6,
+      "zone_high": 106.0,
+      "zone_low": 106.0
+    },
+    {
+      "center": 110.0,
+      "contributors": [
+        {
+          "detail": "upper Bollinger band",
+          "level": 110.0,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 10.0,
+      "method_count": 1,
+      "score": 0.5,
+      "zone_high": 110.0,
+      "zone_low": 110.0
+    }
+  ],
+  "strongest_support": {
+    "center": 95.0,
+    "contributors": [
+      {
+        "detail": "AVWAP from earnings 2026-04-30",
+        "level": 94.8,
+        "method": "anchored_vwap",
+        "weight": 0.9
+      },
+      {
+        "detail": "point of control",
+        "level": 95.0,
+        "method": "volume_profile",
+        "weight": 0.9
+      },
+      {
+        "detail": "high-volume node",
+        "level": 95.2,
+        "method": "volume_profile",
+        "weight": 0.9
+      },
+      {
+        "detail": "chandelier trailing stop",
+        "level": 94.5,
+        "method": "atr_bands",
+        "weight": 0.5
+      },
+      {
+        "detail": "ATR lower band",
+        "level": 95.5,
+        "method": "atr_bands",
+        "weight": 0.5
+      }
+    ],
+    "distance_pct": -5.0,
+    "method_count": 3,
+    "score": 2.7,
+    "zone_high": 95.5,
+    "zone_low": 94.5
+  },
+  "support_zones": [
+    {
+      "center": 95.0,
+      "contributors": [
+        {
+          "detail": "AVWAP from earnings 2026-04-30",
+          "level": 94.8,
+          "method": "anchored_vwap",
+          "weight": 0.9
+        },
+        {
+          "detail": "point of control",
+          "level": 95.0,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "high-volume node",
+          "level": 95.2,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "chandelier trailing stop",
+          "level": 94.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        },
+        {
+          "detail": "ATR lower band",
+          "level": 95.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -5.0,
+      "method_count": 3,
+      "score": 2.7,
+      "zone_high": 95.5,
+      "zone_low": 94.5
+    },
+    {
+      "center": 90.32,
+      "contributors": [
+        {
+          "detail": "value area low",
+          "level": 90.5,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "lower Bollinger band",
+          "level": 90.0,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -9.68,
+      "method_count": 2,
+      "score": 1.4,
+      "zone_high": 90.5,
+      "zone_low": 90.0
+    },
+    {
+      "center": 99.4,
+      "contributors": [
+        {
+          "detail": "prior day low",
+          "level": 99.0,
+          "method": "prev_day_hl",
+          "weight": 0.5
+        },
+        {
+          "detail": "20-day SMA (BB middle)",
+          "level": 99.8,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -0.6,
+      "method_count": 2,
+      "score": 1.0,
+      "zone_high": 99.8,
+      "zone_low": 99.0
+    },
+    {
+      "center": 88.0,
+      "contributors": [
+        {
+          "detail": "200-day SMA",
+          "level": 88.0,
+          "method": "sma_200",
+          "weight": 0.7
+        }
+      ],
+      "distance_pct": -12.0,
+      "method_count": 1,
+      "score": 0.7,
+      "zone_high": 88.0,
+      "zone_low": 88.0
+    },
+    {
+      "center": 98.0,
+      "contributors": [
+        {
+          "detail": "rolling 20-bar VWAP",
+          "level": 98.0,
+          "method": "rolling_vwap",
+          "weight": 0.7
+        }
+      ],
+      "distance_pct": -2.0,
+      "method_count": 1,
+      "score": 0.7,
+      "zone_high": 98.0,
+      "zone_low": 98.0
+    }
+  ],
+  "symbol": "XYZ",
+  "tolerance_pct": 1.0
+}

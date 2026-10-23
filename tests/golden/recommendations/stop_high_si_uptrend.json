@@ -1,0 +1,54 @@
+{
+  "drawdown": {
+    "base_trailing_stop_pct": 6.5,
+    "max_1day_pct": -6.1,
+    "max_5day_pct": -11.4,
+    "max_intraday_pct": -7.8,
+    "recent_max_1day_pct": -4.2
+  },
+  "flags": [
+    "8_bars_above_vwap",
+    "bullish_macd_crossover",
+    "rsi_overbought_75",
+    "technical_stop_inside_noise_floor",
+    "squeeze_potential_high"
+  ],
+  "position": {},
+  "price": 180.0,
+  "short_interest": {
+    "data_available": true,
+    "short_float_pct": 22.0,
+    "short_ratio_days": 5.4,
+    "squeeze_potential": "HIGH",
+    "stop_impact": "widened \u2014 high short float with upward momentum adds squeeze cushion"
+  },
+  "stops": {
+    "technical_stop": 173.54,
+    "technical_stop_distance_pct": -3.59,
+    "technical_stop_inside_noise_floor": true,
+    "trailing_stop_pct": 7.15,
+    "trailing_stop_price": 167.13
+  },
+  "summary": "XYZ at $180.00 \u2014 uptrend (8 bars above VWAP $175.80). Momentum: MACD bullish, RSI 75. Primary support: sma 20 at $176.00. Technical stop: $173.54 (-3.6% from price). WARNING \u2014 technical stop is inside the 6.1% historical 1-day noise floor and will false-trigger on a bad session. Broker trailing stop: 7.2% \u2192 $167.13.",
+  "symbol": "XYZ",
+  "technical": {
+    "above_vwap": true,
+    "bb_lower": 162.0,
+    "bb_upper": 190.0,
+    "consecutive_bars": 8,
+    "gamma_wall": 172.5,
+    "macd_crossover": "bullish_crossover",
+    "primary_support": "sma_20",
+    "primary_support_price": 176.0,
+    "rsi": 75.0,
+    "sma_20": 176.0,
+    "support_levels": {
+      "bb_lower": 162.0,
+      "gamma_wall": 172.5,
+      "sma_20": 176.0,
+      "vwap": 175.8
+    },
+    "vwap": 175.8,
+    "vwap_direction": "above"
+  }
+}

@@ -1,0 +1,347 @@
+{
+  "interpretation": "Strongest support zone 94.5\u201395.5 (center 95.0, -5.0% from price): 6 independent method(s), score 5.5. Strongest resistance zone 103.0\u2013104.5 (center 103.87, +3.87%), score 2.6.",
+  "methods_available": [
+    "gamma_wall",
+    "gex_profile",
+    "volume_profile",
+    "anchored_vwap",
+    "oi_change",
+    "expected_move",
+    "rolling_vwap",
+    "moving_averages",
+    "prev_day_hl",
+    "prev_week_hl",
+    "prev_month_hl",
+    "bollinger_sma20",
+    "atr_bands",
+    "fibonacci"
+  ],
+  "methods_failed": [],
+  "price": 100.0,
+  "resistance_zones": [
+    {
+      "center": 103.87,
+      "contributors": [
+        {
+          "detail": "value area high",
+          "level": 104.0,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "prior week high",
+          "level": 103.0,
+          "method": "prev_week_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "prior month low",
+          "level": 104.0,
+          "method": "prev_month_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "ATR upper band",
+          "level": 104.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 3.87,
+      "method_count": 4,
+      "score": 2.6,
+      "zone_high": 104.5,
+      "zone_low": 103.0
+    },
+    {
+      "center": 105.25,
+      "contributors": [
+        {
+          "detail": "call wall (top +GEX strike)",
+          "level": 105.0,
+          "method": "gex_profile",
+          "weight": 1.0
+        },
+        {
+          "detail": "call-OI build resistance (+4000 OI)",
+          "level": 105.0,
+          "method": "oi_change",
+          "weight": 0.8
+        },
+        {
+          "detail": "prior month high",
+          "level": 106.0,
+          "method": "prev_month_hl",
+          "weight": 0.6
+        }
+      ],
+      "distance_pct": 5.25,
+      "method_count": 3,
+      "score": 2.4,
+      "zone_high": 106.0,
+      "zone_low": 105.0
+    },
+    {
+      "center": 101.0,
+      "contributors": [
+        {
+          "detail": "prior week low",
+          "level": 101.0,
+          "method": "prev_week_hl",
+          "weight": 0.6
+        },
+        {
+          "detail": "prior day high",
+          "level": 101.0,
+          "method": "prev_day_hl",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 1.0,
+      "method_count": 2,
+      "score": 1.1,
+      "zone_high": 101.0,
+      "zone_low": 101.0
+    },
+    {
+      "center": 107.0,
+      "contributors": [
+        {
+          "detail": "spot + expected move (2026-08-21)",
+          "level": 107.0,
+          "method": "expected_move",
+          "weight": 0.7
+        }
+      ],
+      "distance_pct": 7.0,
+      "method_count": 1,
+      "score": 0.7,
+      "zone_high": 107.0,
+      "zone_low": 107.0
+    },
+    {
+      "center": 110.0,
+      "contributors": [
+        {
+          "detail": "upper Bollinger band",
+          "level": 110.0,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": 10.0,
+      "method_count": 1,
+      "score": 0.5,
+      "zone_high": 110.0,
+      "zone_low": 110.0
+    }
+  ],
+  "strongest_support": {
+    "center": 95.0,
+    "contributors": [
+      {
+        "detail": "gamma wall (BS gamma \u00d7 OI peak)",
+        "level": 95.0,
+        "method": "gamma_wall",
+        "weight": 1.0
+      },
+      {
+        "detail": "put support (top -GEX strike)",
+        "level": 95.0,
+        "method": "gex_profile",
+        "weight": 1.0
+      },
+      {
+        "detail": "AVWAP from earnings 2026-04-30",
+        "level": 94.8,
+        "method": "anchored_vwap",
+        "weight": 0.9
+      },
+      {
+        "detail": "point of control",
+        "level": 95.0,
+        "method": "volume_profile",
+        "weight": 0.9
+      },
+      {
+        "detail": "high-volume node",
+        "level": 95.2,
+        "method": "volume_profile",
+        "weight": 0.9
+      },
+      {
+        "detail": "put-OI build support (+5000 OI)",
+        "level": 95.0,
+        "method": "oi_change",
+        "weight": 0.8
+      },
+      {
+        "detail": "chandelier trailing stop",
+        "level": 94.5,
+        "method": "atr_bands",
+        "weight": 0.5
+      },
+      {
+        "detail": "ATR lower band",
+        "level": 95.5,
+        "method": "atr_bands",
+        "weight": 0.5
+      }
+    ],
+    "distance_pct": -5.0,
+    "method_count": 6,
+    "score": 5.5,
+    "zone_high": 95.5,
+    "zone_low": 94.5
+  },
+  "support_zones": [
+    {
+      "center": 95.0,
+      "contributors": [
+        {
+          "detail": "gamma wall (BS gamma \u00d7 OI peak)",
+          "level": 95.0,
+          "method": "gamma_wall",
+          "weight": 1.0
+        },
+        {
+          "detail": "put support (top -GEX strike)",
+          "level": 95.0,
+          "method": "gex_profile",
+          "weight": 1.0
+        },
+        {
+          "detail": "AVWAP from earnings 2026-04-30",
+          "level": 94.8,
+          "method": "anchored_vwap",
+          "weight": 0.9
+        },
+        {
+          "detail": "point of control",
+          "level": 95.0,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "high-volume node",
+          "level": 95.2,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "put-OI build support (+5000 OI)",
+          "level": 95.0,
+          "method": "oi_change",
+          "weight": 0.8
+        },
+        {
+          "detail": "chandelier trailing stop",
+          "level": 94.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        },
+        {
+          "detail": "ATR lower band",
+          "level": 95.5,
+          "method": "atr_bands",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -5.0,
+      "method_count": 6,
+      "score": 5.5,
+      "zone_high": 95.5,
+      "zone_low": 94.5
+    },
+    {
+      "center": 97.71,
+      "contributors": [
+        {
+          "detail": "zero-gamma flip",
+          "level": 97.5,
+          "method": "gex_profile",
+          "weight": 1.0
+        },
+        {
+          "detail": "rolling 20-bar VWAP",
+          "level": 98.0,
+          "method": "rolling_vwap",
+          "weight": 0.7
+        }
+      ],
+      "distance_pct": -2.29,
+      "method_count": 2,
+      "score": 1.7,
+      "zone_high": 98.0,
+      "zone_low": 97.5
+    },
+    {
+      "center": 90.32,
+      "contributors": [
+        {
+          "detail": "value area low",
+          "level": 90.5,
+          "method": "volume_profile",
+          "weight": 0.9
+        },
+        {
+          "detail": "lower Bollinger band",
+          "level": 90.0,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -9.68,
+      "method_count": 2,
+      "score": 1.4,
+      "zone_high": 90.5,
+      "zone_low": 90.0
+    },
+    {
+      "center": 93.0,
+      "contributors": [
+        {
+          "detail": "spot \u2212 expected move (2026-08-21)",
+          "level": 93.0,
+          "method": "expected_move",
+          "weight": 0.7
+        },
+        {
+          "detail": "100-day SMA",
+          "level": 93.0,
+          "method": "sma_100",
+          "weight": 0.6
+        }
+      ],
+      "distance_pct": -7.0,
+      "method_count": 2,
+      "score": 1.3,
+      "zone_high": 93.0,
+      "zone_low": 93.0
+    },
+    {
+      "center": 99.4,
+      "contributors": [
+        {
+          "detail": "prior day low",
+          "level": 99.0,
+          "method": "prev_day_hl",
+          "weight": 0.5
+        },
+        {
+          "detail": "20-day SMA (BB middle)",
+          "level": 99.8,
+          "method": "bollinger_sma20",
+          "weight": 0.5
+        }
+      ],
+      "distance_pct": -0.6,
+      "method_count": 2,
+      "score": 1.0,
+      "zone_high": 99.8,
+      "zone_low": 99.0
+    }
+  ],
+  "symbol": "XYZ",
+  "tolerance_pct": 1.0
+}

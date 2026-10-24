@@ -234,10 +234,14 @@ def _live_chains():
     return {exp: SimpleNamespace(calls=frame(_CALLS), puts=frame(_PUTS)) for exp in _EXPS}
 
 
-def _snapshot(captured_at=None, chain_type="full", price=101.25):
+def _snapshot(captured_at=None, chain_type="full", price=101.25, iv_key="implied_vol"):
+    # Contracts are shaped like ``get_latest_snapshot`` really returns them:
+    # ``SELECT *`` from ``options_contracts``, so IV arrives as the
+    # ``implied_vol`` column (percent, one decimal). ``iv_key="iv"`` builds the
+    # older in-memory shape to pin the fallback.
     def contracts(kind, rows):
         return [{"kind": kind, "strike": k, "open_interest": oi,
-                 "iv": round(iv * 100, 1)} for k, oi, iv in rows]
+                 iv_key: round(iv * 100, 1)} for k, oi, iv in rows]
     return {
         "symbol": "NVDA", "chain_type": chain_type, "price": price,
         "captured_at": captured_at or _NOW.astimezone(pytz.utc).isoformat(),
@@ -284,6 +288,16 @@ class TestRecordGexFromSnapshot(unittest.TestCase):
         self.assertEqual(result["symbol"], "NVDA")
         self.assertTrue(result["gamma_wall_saved"] and result["gex_saved"])
         _assert_close(self, live_daoi, store.save_gamma_wall.call_args.args[1], "daoi")
+        _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
+
+    def test_legacy_iv_key_still_matches_the_live_path(self):
+        live_store = Mock()
+        live = _service(_StubGateway(price=101.25, expirations=_EXPS, chains=_live_chains()),
+                        live_store)
+        live_gex = live.get_gex_profile("NVDA", max_expirations=4, now=_NOW)
+
+        svc, store = self._snap_service(_snapshot(iv_key="iv"))
+        svc.record_gex_from_snapshot("NVDA", now=_NOW)
         _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
 
     def test_never_touches_the_gateway(self):

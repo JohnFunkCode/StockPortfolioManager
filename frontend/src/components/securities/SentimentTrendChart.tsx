@@ -38,10 +38,12 @@ const DEFAULT_WEEKS = 13;
 const CHART_HEIGHT = 120;
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/** "2026-10-05" -> "Oct 05", without a Date (so no timezone can shift it). */
+/** "2026-10-05" -> "Oct 05", without a Date (so no timezone can shift it).
+ *  Anything that isn't YYYY-MM-DD comes back as given, never "undefined". */
 function shortDate(iso: string): string {
   const [, m, d] = iso.split('-');
-  return `${MONTHS[Number(m) - 1]} ${d}`;
+  const month = MONTHS[Number(m) - 1];
+  return month && d ? `${month} ${d}` : iso;
 }
 
 /** Signed to two places with a real minus sign. */
@@ -87,80 +89,98 @@ function coverageLine(data: SentimentTrendResponse): string {
   );
 }
 
-function WeekColumn({ week, showDate }: { week: SentimentTrendWeek; showDate: boolean }) {
+/** The line under a week's bar: blank before history, else net and count. */
+function weekCaption(week: SentimentTrendWeek): string {
+  if (week.before_history) return '';
+  if (week.article_count === 0) return '0 articles';
+  return `${signed(week.net_score ?? 0)} · ${week.article_count}`;
+}
+
+function FlipMarker({ flip }: { flip: string }) {
+  const down = flip === 'deteriorating';
+  return (
+    <Typography
+      data-testid="trend-flip"
+      aria-label={`sentiment flip: ${flip}`}
+      sx={{
+        position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center',
+        fontSize: 11, fontWeight: 700, lineHeight: 1,
+        color: down ? 'var(--qc-ink-red)' : 'var(--qc-ink-green)',
+      }}
+    >
+      {down ? '▼' : '▲'}
+    </Typography>
+  );
+}
+
+/** Rises from the zero line for a non-negative net, hangs below it otherwise. */
+function NetBar({ week }: { week: SentimentTrendWeek }) {
   const half = CHART_HEIGHT / 2;
   const net = week.net_score ?? 0;
   // A zero-net week still gets a hairline so it reads as "measured, flat".
-  const barHeight = Math.max(2, Math.abs(net) * half);
-  const measured = week.article_count > 0;
-  const caption = week.before_history
-    ? ''
-    : measured
-      ? `${signed(net)} · ${week.article_count}`
-      : '0 articles';
+  const height = Math.max(2, Math.abs(net) * half);
+  return (
+    <Box
+      data-testid="trend-bar"
+      sx={{
+        position: 'absolute',
+        left: '15%',
+        right: '15%',
+        height,
+        ...(net >= 0 ? { bottom: half } : { top: half }),
+        bgcolor: barColor(week),
+        opacity: week.thin ? 0.45 : 1,
+        borderRadius: 0.5,
+      }}
+    />
+  );
+}
 
+function WeekPlot({ week }: { week: SentimentTrendWeek }) {
+  const half = CHART_HEIGHT / 2;
+  const measured = week.article_count > 0;
+  return (
+    <Box
+      sx={{
+        position: 'relative',
+        width: '100%',
+        height: CHART_HEIGHT,
+        // The card itself is surface-sunk, so the shade must be a step up from it.
+        bgcolor: week.before_history ? 'var(--qc-surface)' : 'transparent',
+      }}
+    >
+      {week.flip && <FlipMarker flip={week.flip} />}
+      {measured && <NetBar week={week} />}
+      {!measured && !week.before_history && (
+        <Box
+          data-testid="trend-empty"
+          sx={{
+            position: 'absolute', left: '15%', right: '15%', top: half - 10, height: 20,
+            border: '1px dashed var(--qc-faint)', borderRadius: 0.5,
+          }}
+        />
+      )}
+      {week.in_progress && (
+        <Box
+          data-testid="trend-in-progress"
+          sx={{
+            position: 'absolute', left: '8%', right: '8%', top: 14, bottom: 14,
+            border: '1px dashed var(--qc-ink-amber)', borderRadius: 0.5, pointerEvents: 'none',
+          }}
+        />
+      )}
+    </Box>
+  );
+}
+
+function WeekColumn({ week, showDate }: { week: SentimentTrendWeek; showDate: boolean }) {
   return (
     <Tooltip title={weekSummary(week)} placement="top">
       <Box
         data-testid={`trend-week-${week.week_start}`}
         sx={{ flex: '1 1 0', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
       >
-        <Box
-          sx={{
-            position: 'relative',
-            width: '100%',
-            height: CHART_HEIGHT,
-            // The card itself is surface-sunk, so the shade must be a step up from it.
-            bgcolor: week.before_history ? 'var(--qc-surface)' : 'transparent',
-          }}
-        >
-          {week.flip && (
-            <Typography
-              data-testid="trend-flip"
-              aria-label={`sentiment flip: ${week.flip}`}
-              sx={{
-                position: 'absolute', top: 0, left: 0, right: 0, textAlign: 'center',
-                fontSize: 11, fontWeight: 700, lineHeight: 1,
-                color: week.flip === 'deteriorating' ? 'var(--qc-ink-red)' : 'var(--qc-ink-green)',
-              }}
-            >
-              {week.flip === 'deteriorating' ? '▼' : '▲'}
-            </Typography>
-          )}
-          {measured && (
-            <Box
-              data-testid="trend-bar"
-              sx={{
-                position: 'absolute',
-                left: '15%',
-                right: '15%',
-                height: barHeight,
-                ...(net >= 0 ? { bottom: half } : { top: half }),
-                bgcolor: barColor(week),
-                opacity: week.thin ? 0.45 : 1,
-                borderRadius: 0.5,
-              }}
-            />
-          )}
-          {!measured && !week.before_history && (
-            <Box
-              data-testid="trend-empty"
-              sx={{
-                position: 'absolute', left: '15%', right: '15%', top: half - 10, height: 20,
-                border: '1px dashed var(--qc-faint)', borderRadius: 0.5,
-              }}
-            />
-          )}
-          {week.in_progress && (
-            <Box
-              data-testid="trend-in-progress"
-              sx={{
-                position: 'absolute', left: '8%', right: '8%', top: 14, bottom: 14,
-                border: '1px dashed var(--qc-ink-amber)', borderRadius: 0.5, pointerEvents: 'none',
-              }}
-            />
-          )}
-        </Box>
+        <WeekPlot week={week} />
         <Typography
           variant="caption"
           sx={{
@@ -169,7 +189,7 @@ function WeekColumn({ week, showDate }: { week: SentimentTrendWeek; showDate: bo
             color: week.in_progress ? 'var(--qc-ink-amber)' : 'var(--qc-muted)',
           }}
         >
-          {caption || ' '}
+          {weekCaption(week) || ' '}
         </Typography>
         <Typography
           variant="caption"
@@ -210,6 +230,8 @@ function TrendBody({ ticker, data }: { ticker: string; data: SentimentTrendRespo
             bgcolor: 'var(--qc-line)', pointerEvents: 'none',
           }}
         />
+        {/* A lone shaded column is too narrow for the label to fit; the
+            coverage line above already gives the history start. */}
         {shaded >= 2 && (
           <Typography
             variant="caption"

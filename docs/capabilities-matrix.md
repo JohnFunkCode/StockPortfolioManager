@@ -2,7 +2,7 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-10-22
+**Last Updated:** 2026-10-24
 **MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 111 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 17 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.

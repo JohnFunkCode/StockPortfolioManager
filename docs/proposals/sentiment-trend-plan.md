@@ -203,3 +203,12 @@ This shaped every decision below, so it is recorded first.
   - Gotcha: existing tests mocked `'/news'` by substring, which also caught `/news/trend` and
     handed the chart an articles payload. The trend route is mocked first, and the chart treats a
     response without `buckets` as an error rather than crashing.
+- 2026-10-24 — #436 review addressed:
+  - `WeekColumn` (CC 17, over the 15 limit) is split into `weekCaption`, `FlipMarker`, `NetBar`
+    and `WeekPlot`, each a few branches;
+  - `shortDate` returns a string it can't parse unchanged rather than "undefined";
+  - a lone before-history column stays unlabelled on purpose (the label can't fit one column, and
+    the coverage line gives the history start), now said in a comment;
+  - new tests pin positive, negative and zero bar geometry and the improving flip's ▲.
+  - Gotcha: jsdom reports an unset `top`/`bottom` as `auto`, not `''`, so the geometry tests
+    assert the anchored side only.

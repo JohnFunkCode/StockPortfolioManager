@@ -127,6 +127,52 @@ describe('SentimentTrendChart', () => {
       .toBe(flips[0]);
   });
 
+  it('marks an improving flip with an up arrow', async () => {
+    const data = wdc();
+    data.buckets[4] = { ...data.buckets[4], label: 'positive', flip: 'improving' };
+    mockApi([['/news/trend', data]]);
+    renderWithProviders(<SentimentTrendChart ticker="WDC" />);
+    await screen.findByTestId('sentiment-trend-chart');
+
+    const flip = within(screen.getByTestId('trend-week-2026-10-19')).getByTestId('trend-flip');
+    expect(flip).toHaveAccessibleName('sentiment flip: improving');
+    expect(flip).toHaveTextContent('▲');
+  });
+
+  it('draws positive bars up from the zero line, negative bars down, and zero as a hairline', async () => {
+    const data = wdc();
+    data.buckets[1] = { ...data.buckets[1], net_score: 0.5, positive_count: 9, negative_count: 1 };
+    data.buckets[4] = { ...data.buckets[4], net_score: 0 };
+    mockApi([['/news/trend', data]]);
+    renderWithProviders(<SentimentTrendChart ticker="WDC" />);
+    await screen.findByTestId('sentiment-trend-chart');
+
+    const bar = (start: string) =>
+      getComputedStyle(within(screen.getByTestId(`trend-week-${start}`)).getByTestId('trend-bar'));
+
+    const up = bar('2026-09-28');
+    expect(up.bottom).toBe('60px');
+    expect(up.height).toBe('30px');
+    expect(up.top).not.toBe('60px');
+
+    const down = bar('2026-10-12');
+    expect(down.top).toBe('60px');
+    expect(parseFloat(down.height)).toBeCloseTo(0.382 * 60, 1);
+    expect(down.bottom).not.toBe('60px');
+
+    const flat = bar('2026-10-19');
+    expect(flat.bottom).toBe('60px');
+    expect(flat.height).toBe('2px');
+  });
+
+  it('shows a date it cannot parse as given rather than "undefined"', async () => {
+    mockApi([['/news/trend', { ...wdc(), history_start: 'unknown' }]]);
+    renderWithProviders(<SentimentTrendChart ticker="WDC" />);
+    await screen.findByTestId('sentiment-trend-chart');
+    expect(screen.getByText(/history since unknown/)).toBeInTheDocument();
+    expect(screen.queryByText(/undefined/)).toBeNull();
+  });
+
   it('describes the series in words for screen readers', async () => {
     mockApi([['/news/trend', wdc()]]);
     renderWithProviders(<SentimentTrendChart ticker="WDC" />);

@@ -22,10 +22,12 @@ import os
 import ssl
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from urllib.request import urlopen
 
+from quantcore.analytics import sentiment as sentiment_math
+from quantcore.analytics.market_time import market_date
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.news_repository import NewsStore
 from quantcore.repositories.sentiment_repository import SentimentStore
@@ -442,6 +444,10 @@ class NewsCollector:
 # Service
 # ---------------------------------------------------------------------------
 
+# The widest weekly trend window served (two years); larger requests are clamped.
+MAX_TREND_WEEKS = 104
+
+
 class SentimentService:
     def __init__(self, news_repository: NewsStore,
                  sentiment_repository: SentimentStore,
@@ -545,11 +551,43 @@ class SentimentService:
 
         return {**summary, "articles": slim_articles}
 
-    def get_sentiment_trend(self, symbol: str, days: int = 30) -> dict:
-        """Per-day sentiment breakdown for a symbol over the past N days."""
+    def get_sentiment_trend(
+        self, symbol: str, days: int = 30, bucket: str = "day",
+        today: Optional[date] = None,
+    ) -> dict:
+        """Sentiment over the past ``days``, per day (default) or per week (#411).
+
+        ``bucket="day"`` keeps the endpoint's original shape (``trend``: days
+        with articles only). ``bucket="week"`` returns every Monday-start week
+        covering ``days``, empty ones included, plus where the symbol's news
+        history starts — the Signals-tab chart's input. Dates are Eastern.
+        """
+        if bucket not in ("day", "week"):
+            raise ValueError(f"bucket must be 'day' or 'week', not {bucket!r}")
         sym   = symbol.upper()
-        trend = self._news.get_sentiment_trend(sym, days=days)
-        return {"symbol": sym, "days": days, "trend": trend}
+        today = today or market_date()
+        days  = max(1, int(days))
+
+        if bucket == "day":
+            start = today - timedelta(days=days)
+        else:
+            # Two years of weeks is the most the chart can use; the bound keeps
+            # a stray days=100000 from building 14,000 empty buckets (#435 review).
+            weeks = min(-(-days // 7), MAX_TREND_WEEKS)
+            start = sentiment_math.week_start(today) - timedelta(weeks=weeks - 1)
+        # One day of slack: the SQL compares UTC text, the buckets are Eastern.
+        rows = self._news.get_scored_articles_since(
+            sym, (start - timedelta(days=1)).isoformat())
+
+        if bucket == "day":
+            trend = sentiment_math.daily_counts(rows, start=start, end=today)
+            return {"symbol": sym, "days": days, "trend": trend}
+
+        first = self._news.first_article_fetched_at(sym)
+        history_start = sentiment_math.article_date(None, first) if first else None
+        weekly = sentiment_math.weekly_buckets(
+            rows, today=today, weeks=weeks, history_start=history_start)
+        return {"symbol": sym, "days": days, "bucket": "week", **weekly}
 
     def list_news_symbols(self) -> dict:
         """Every symbol that has at least one stored article."""

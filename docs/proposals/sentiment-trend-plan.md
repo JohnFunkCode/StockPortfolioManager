@@ -1,6 +1,6 @@
 # News sentiment trend on the Signals tab (#411)
 
-**Status:** planned 2026-10-24; nothing built yet. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
+**Status:** PR 1 (backend) in review; PR 2 (UI) not started. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
 Related: #282 (relevance filtering), #372 / #375 (the October collection and scoring outages),
 #258 (article text).
 
@@ -51,7 +51,9 @@ This shaped every decision below, so it is recorded first.
   `notifier.check_sentiment_flips` into `quantcore/analytics/sentiment.py`. The notifier calls it on
   consecutive snapshots, and the trend calls it on consecutive weekly majority labels. The unit
   differs (snapshot vs week), but the rule is the same function, so they can't drift apart. A week
-  whose label flips carries `flip: "to_negative" | "to_positive"`, and the chart marks it.
+  whose label flips carries `flip: "deteriorating" | "improving"`, and the chart marks it. (The plan
+  first said `to_negative`/`to_positive`, but negative → neutral is a flip the alert colours green,
+  and calling that "to positive" would be wrong. The words match Score Changes' `direction`.)
 - **The daily contract stays.** `bucket=day` remains the default on the route, and the MCP tool
   `get_sentiment_trend` is untouched (tool count stays 63, contract case unchanged). Weekly is
   `bucket=week`.
@@ -72,19 +74,26 @@ This shaped every decision below, so it is recorded first.
    - `net_score(pos, neg, total)` — the single home for that formula; the repository's inline
      copy goes.
    - `majority_label(pos, neg, neu)` — the same tie-breaking as `get_news`'s `overall`.
-   - `classify_flip(prev_label, new_label) -> "to_negative" | "to_positive" | None` — the
+   - `classify_flip(prev_label, new_label) -> "deteriorating" | "improving" | None` — the
      notifier's rule, verbatim: an unchanged label is no flip, and a flip involving neutral counts
      only when negative is on one side.
-   - `weekly_buckets(daily_rows, *, today, weeks, history_start)` — fills every Monday-start week
+   - `article_date(published_at, fetched_at)` — the Eastern calendar date an article belongs to,
+     from its publish time, falling back to its fetch time.
+   - `daily_counts(articles, *, start, end)` — the daily shape the route has always returned.
+   - `weekly_buckets(articles, *, today, weeks, history_start)` — fills every Monday-start week
      in the window and sums the counts. It sets `net_score`, `label`, `thin`, `in_progress`,
      `before_history` and `flip`. It also returns the coverage figures: `weeks_with_articles`,
      `total_articles` and `history_start`.
-2. **`NewsStore`:**
-   - Filter and group on the same date expression. Today it filters on `fetched_at` but groups
-     on `COALESCE(published_at, fetched_at)`, so an old article fetched recently lands in a bucket
-     outside the window.
-   - Bucket the date in America/New_York, not the session's UTC.
-   - Add `first_article_date(symbol)`.
+2. **`NewsStore`:** the trend SQL is replaced by a plain read, and the bucketing moves to
+   analytics. That fixes two bugs: the old query filtered on `fetched_at` but grouped on
+   `COALESCE(published_at, fetched_at)`, so an old article fetched recently landed in a bucket
+   outside the window; and it bucketed by UTC date, not Eastern.
+   - `get_scored_articles_since(symbol, since)` returns `published_at`, `fetched_at` and
+     `sentiment` for scored articles **fetched** since `since`. That set always contains the
+     window, because an article is published before it is fetched. The service passes a day of
+     slack, and analytics trims the window exactly.
+   - `first_article_fetched_at(symbol)` gives where the symbol's history starts.
+   - `get_sentiment_trend` on the repository is gone (its only caller was the service).
 3. **`SentimentService.get_sentiment_trend(symbol, days=30, bucket="day")`:**
    - With `bucket="week"`, `days` is read as `weeks * 7`, and the response adds `buckets` plus the
      coverage figures.
@@ -153,8 +162,30 @@ This shaped every decision below, so it is recorded first.
   the articles were never fetched.
 - **`article_count` is capped by the collector**, so it's not a measure of news volume. Use it for
   thinness only.
+- **`published_at` is free-form text.** Yahoo's `pubDate` comes through as given (`…Z` or
+  `…+00:00`), and the column is `TEXT`. That's why the date is parsed in Python, with a fallback
+  to `fetched_at`, rather than cast in SQL: one malformed value would fail a SQL cast for the whole
+  query. **Don't prefilter on `published_at` either**, not even as text. PR 1 first filtered on
+  `COALESCE(published_at, fetched_at) >= since`, and review (#435) showed that `10/23/2026` or a
+  leading space sorts before an ISO cutoff, which silently dropped articles the parser would have
+  dated from `fetched_at`. The prefilter is now `fetched_at` alone, which is always our own ISO
+  UTC stamp.
+- **The local unit database is Postgres.app, which refuses a sandboxed Claude process** ("You
+  did not allow Claude to connect without a password"). Unless Claude is added under Postgres.app's
+  App Permissions, the DB-backed suites (`test_repositories_db`, `test_api_smoke`) run only in CI's
+  `gate` job.
 
 ## Checkpoint log
 
 - 2026-10-24 — Placement chosen (Signals, option B) from two mock-ups; plan written (#432).
 - 2026-10-24 — Score Changes sentiment cue filed as #433; it depends on PR 1's analytics module.
+- 2026-10-24 — PR 1 (backend) opened. `quantcore/analytics/sentiment.py`, `bucket=week` on the
+  route, `NewsStore.get_scored_articles_since` + `first_article_fetched_at`, and the notifier on
+  `classify_flip`. Flip words are `improving`/`deteriorating` (see Decisions). The daily response
+  shape is unchanged; its dates are now Eastern and windowed on the article date.
+- 2026-10-24 — #435 review addressed:
+  - the prefilter moved to `fetched_at` (see Gotchas);
+  - `weekly_buckets` split into `_week_bucket` plus a flip pass, taking it from CC 12 / CogC 16 to
+    7 / 6 (radon 6.0.1, complexipy 8.1.0);
+  - the weekly window is capped at `MAX_TREND_WEEKS = 104`;
+  - new tests pin 9 vs 10 articles, a one-week window, and history starting on a week edge.

@@ -15,7 +15,7 @@ Usage:
     store.save_articles("AAPL", articles)          # list of article dicts
     articles = store.get_articles("AAPL", days=7)  # returns with sentiment if scored
     summary  = store.get_sentiment_summary("AAPL") # aggregate counts + signal
-    trend    = store.get_sentiment_trend("AAPL", days=30)  # per-day breakdown
+    rows     = store.get_scored_articles_since("AAPL", "2026-10-01")  # trend input
 """
 
 from contextlib import closing
@@ -245,43 +245,40 @@ class NewsStore:
             grouped[r["symbol"]].append(r)
         return {sym: _summarize(sym, days, rs) for sym, rs in grouped.items()}
 
-    def get_sentiment_trend(self, symbol: str, days: int = 30) -> list[dict]:
-        """
-        Return per-day sentiment counts for trending analysis.
+    def get_scored_articles_since(self, symbol: str, since: str) -> list[dict]:
+        """Scored articles fetched on or after ``since`` — a superset of the trend window.
 
-        Each row: date, positive_count, negative_count, neutral_count,
-                  net_score (positive% - negative%), article_count
+        Rows: ``published_at``, ``fetched_at``, ``sentiment``. The trend is
+        bucketed from these by ``quantcore.analytics.sentiment`` (issue #411),
+        which dates each article and trims the window exactly.
+
+        The prefilter is on ``fetched_at`` alone, deliberately. ``published_at``
+        is free text from the feed (``10/23/2026``, a leading space), and
+        comparing it as text would drop rows the parser rescues by falling back
+        to ``fetched_at``. ``fetched_at`` is always our own ISO UTC stamp, and an
+        article is published before it is fetched, so every article dated inside
+        the window was fetched inside it too. ``since`` is an ISO date; pass a
+        day of slack for the UTC/Eastern offset.
         """
-        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
-                SELECT DATE(COALESCE(published_at, fetched_at)) AS day,
-                       COUNT(*)                                 AS total,
-                       SUM(CASE WHEN sentiment = 'positive' THEN 1 ELSE 0 END) AS pos,
-                       SUM(CASE WHEN sentiment = 'negative' THEN 1 ELSE 0 END) AS neg,
-                       SUM(CASE WHEN sentiment = 'neutral'  THEN 1 ELSE 0 END) AS neu
+                SELECT published_at, fetched_at, sentiment
                 FROM news_articles
-                WHERE symbol = ? AND fetched_at >= ? AND sentiment IS NOT NULL
-                GROUP BY day
-                ORDER BY day ASC
+                WHERE symbol = ? AND sentiment IS NOT NULL AND fetched_at >= ?
                 """,
                 (symbol.upper(), since),
             ).fetchall()
+        return [dict(r) for r in rows]
 
-        trend = []
-        for r in rows:
-            total = r["total"] or 1
-            net   = round((r["pos"] - r["neg"]) / total, 3)
-            trend.append({
-                "date":           r["day"],
-                "article_count":  r["total"],
-                "positive_count": r["pos"],
-                "negative_count": r["neg"],
-                "neutral_count":  r["neu"],
-                "net_score":      net,   # +1.0 = all positive, -1.0 = all negative
-            })
-        return trend
+    def first_article_fetched_at(self, symbol: str) -> Optional[str]:
+        """When the first article for ``symbol`` was stored — where its news history starts."""
+        with closing(get_connection()) as conn:
+            row = conn.execute(
+                "SELECT MIN(fetched_at) AS first FROM news_articles WHERE symbol = ?",
+                (symbol.upper(),),
+            ).fetchone()
+        return row["first"] if row else None
 
     # ------------------------------------------------------------------
     # Inventory helpers

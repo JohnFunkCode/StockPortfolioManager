@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import unittest
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
@@ -245,14 +246,51 @@ class TestServiceSurfaces(SentimentServiceTestBase):
         )
 
     def test_trend_and_symbol_listing(self):
-        self.news.get_sentiment_trend.return_value = [{"date": "2026-07-10"}]
-        out = self.service.get_sentiment_trend("intc", days=14)
+        self.news.get_scored_articles_since.return_value = [
+            {"published_at": "2026-07-10T15:00:00+00:00", "fetched_at": "x",
+             "sentiment": "positive"},
+        ]
+        out = self.service.get_sentiment_trend("intc", days=14, today=date(2026, 7, 20))
         self.assertEqual(out["days"], 14)
-        self.assertEqual(len(out["trend"]), 1)
+        self.assertEqual(out["trend"], [{
+            "date": "2026-07-10", "article_count": 1, "positive_count": 1,
+            "negative_count": 0, "neutral_count": 0, "net_score": 1.0,
+        }])
+        # A day of slack before the window for the UTC/Eastern offset.
+        self.news.get_scored_articles_since.assert_called_once_with("INTC", "2026-07-05")
+        self.news.first_article_fetched_at.assert_not_called()
 
         self.news.get_symbols.return_value = ["INTC", "WMT"]
         listing = self.service.list_news_symbols()
         self.assertEqual(listing["total_symbols"], 2)
+
+    def test_weekly_trend_fills_weeks_and_reports_history(self):
+        self.news.get_scored_articles_since.return_value = [
+            {"published_at": "2026-10-14T15:00:00+00:00", "fetched_at": "x",
+             "sentiment": "negative"},
+        ]
+        self.news.first_article_fetched_at.return_value = "2026-09-30T21:40:00+00:00"
+        out = self.service.get_sentiment_trend(
+            "wdc", days=28, bucket="week", today=date(2026, 10, 23))
+        self.assertEqual(out["bucket"], "week")
+        self.assertEqual(out["weeks"], 4)
+        self.assertEqual(out["history_start"], "2026-09-30")
+        self.assertEqual([b["week_start"] for b in out["buckets"]],
+                         ["2026-09-28", "2026-10-05", "2026-10-12", "2026-10-19"])
+        self.assertEqual(out["weeks_with_articles"], 1)
+        self.news.get_scored_articles_since.assert_called_once_with("WDC", "2026-09-27")
+
+    def test_weekly_window_is_clamped(self):
+        self.news.get_scored_articles_since.return_value = []
+        self.news.first_article_fetched_at.return_value = None
+        out = self.service.get_sentiment_trend(
+            "wdc", days=100_000, bucket="week", today=date(2026, 10, 23))
+        self.assertEqual(out["weeks"], sentiment_mod.MAX_TREND_WEEKS)
+        self.assertEqual(len(out["buckets"]), sentiment_mod.MAX_TREND_WEEKS)
+
+    def test_unknown_bucket_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.service.get_sentiment_trend("wdc", bucket="month")
 
     def test_backfill_surfaces_delegate(self):
         with patch.object(self.service._collector, "score_unscored", return_value=7) as score:

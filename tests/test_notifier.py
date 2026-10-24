@@ -131,3 +131,43 @@ class NotifierMultiLotLossAlertTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class NotifierSentimentFlipTest(unittest.TestCase):
+    """The flip alert now goes through analytics.sentiment.classify_flip (#411);
+    which pairs alert, and their colours, must not change."""
+
+    def _alerts(self, prev, new):
+        portfolio = Portfolio()
+        portfolio.add_stock(_lot("ZZFLIP", "ZZ Flip", 10.0, 1, date(2026, 1, 2), 11.0))
+        store = MagicMock()
+        store.get_latest.return_value = {"overall_sentiment": new, "captured_at": "2026-10-23T22:00"}
+        store.get_prior.return_value = {"overall_sentiment": prev}
+        with patch("notifier.get_services", return_value=MagicMock()), \
+             patch("quantcore.repositories.sentiment_repository.SentimentStore",
+                   return_value=store):
+            notifier = Notifier(portfolio)
+            sent: list = []
+            notifier.send_notifications = MagicMock(side_effect=sent.append)
+            notifier.check_sentiment_flips()
+        return sent
+
+    def test_which_changes_alert(self):
+        cases = [
+            ("positive", "negative", 0xFF4444),
+            ("neutral", "negative", 0xFF4444),
+            ("negative", "positive", 0x00CC66),
+            ("negative", "neutral", 0x00CC66),
+            ("positive", "neutral", None),
+            ("neutral", "positive", None),
+            ("negative", "negative", None),
+            (None, "negative", None),
+        ]
+        for prev, new, colour in cases:
+            with self.subTest(prev=prev, new=new):
+                sent = self._alerts(prev, new)
+                if colour is None:
+                    self.assertEqual(sent, [])
+                else:
+                    self.assertEqual(len(sent), 1)
+                    self.assertEqual(sent[0]["embeds"][0]["color"], colour)

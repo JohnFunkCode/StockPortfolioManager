@@ -16,6 +16,7 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
+from quantcore.analytics.sentiment import classify_flip
 from quantcore.services.registry import get_services
 from quantcore.repositories.options_position_repository import (
     OptionsPositionStore,
@@ -292,14 +293,9 @@ class Notifier:
             new_sentiment  = latest.get("overall_sentiment")
             prev_sentiment = prior.get("overall_sentiment")
 
-            if not new_sentiment or not prev_sentiment:
-                continue
-            if new_sentiment == prev_sentiment:
-                continue
-
-            # Only alert on meaningful flips involving negative or positive
-            if "neutral" in (new_sentiment, prev_sentiment) and \
-               not (new_sentiment == "negative" or prev_sentiment == "negative"):
+            # The one flip rule, shared with the Signals-tab trend (#411):
+            # a change counts only when negative is on one side of it.
+            if classify_flip(prev_sentiment, new_sentiment) is None:
                 continue
 
             direction_emoji = "🔴" if new_sentiment == "negative" else "🟢"

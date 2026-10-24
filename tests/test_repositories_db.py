@@ -17,6 +17,7 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 
 assert_not_production()
 
+from quantcore.analytics import sentiment as sentiment_math  # noqa: E402
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository  # noqa: E402
 from quantcore.repositories.news_repository import NewsStore  # noqa: E402
@@ -248,8 +249,45 @@ class TestNewsStore(RepoTestBase):
         self.store.save_articles(SYM, [article(1)])
         summary = self.store.get_sentiment_summary(SYM, days=7)
         self.assertEqual(summary.get("symbol"), SYM)
-        trend = self.store.get_sentiment_trend(SYM, days=30)
-        self.assertIsInstance(trend, list)
+
+    def _score_all_but(self, skip_suffix):
+        for a in self.store.get_unscored_articles(limit=500):
+            if a.get("symbol", SYM) == SYM and not a["url"].endswith(skip_suffix):
+                self.store.update_sentiment(
+                    article_id=a["article_id"], sentiment="negative",
+                    sentiment_score=0.9, positive_score=0.05,
+                    negative_score=0.9, neutral_score=0.05,
+                )
+
+    def test_trend_rows_reach_the_buckets_whatever_the_publish_text(self):
+        # Repository -> analytics, as the service runs them (#435 review).
+        # Fetched now, so all pass the fetched_at prefilter; analytics then
+        # dates each one. Article 2 was published 40 days ago: outside a
+        # 30-day window. Articles 4 and 5 have publish text a text comparison
+        # would have dropped (it sorts before an ISO cutoff); the parser falls
+        # back to fetched_at for 4 and strips the space from 5, so both count.
+        now = datetime.now(timezone.utc)
+        odd = [dict(article(4), published_at=now.strftime("%m/%d/%Y")),
+               dict(article(5), published_at=" " + now.isoformat())]
+        self.store.save_articles(SYM, [article(1), article(2, published_days_ago=40),
+                                       article(3)] + odd)
+        self._score_all_but("/3")                # article 3 stays unscored
+
+        start = (now - timedelta(days=30)).date()
+        rows = self.store.get_scored_articles_since(
+            SYM, (start - timedelta(days=1)).isoformat())
+        self.assertEqual(len(rows), 4)           # 1, 2, 4, 5
+        self.assertEqual(set(rows[0]), {"published_at", "fetched_at", "sentiment"})
+
+        today = sentiment_math.article_date(None, now.isoformat())
+        counted = sum(r["article_count"] for r in sentiment_math.daily_counts(
+            rows, start=start, end=today))
+        self.assertEqual(counted, 3)             # 1, 4, 5 -- not the 40-day-old 2
+
+    def test_first_article_fetched_at(self):
+        self.assertIsNone(self.store.first_article_fetched_at(SYM))
+        self.store.save_articles(SYM, [article(1)])
+        self.assertIsNotNone(self.store.first_article_fetched_at(SYM))
 
     def test_batch_summaries_match_the_single_symbol_read(self):
         # The options screen reads every symbol's summary in one query; each

@@ -15,6 +15,7 @@ describe('COMPONENT_REGISTRY', () => {
       'live_price',
       'price_chart',
       'stop_loss',
+      'sentiment_trend',
       'spread_payoff',
       'arbitrage_pair',
       'arbitrage_spread',
@@ -187,7 +188,7 @@ const SPREAD_PROPS = {
 
 describe('validateDirective', () => {
   it('accepts every ticker-only component with a ticker prop', () => {
-    for (const name of ['signals', 'live_price', 'price_chart', 'stop_loss']) {
+    for (const name of ['signals', 'live_price', 'price_chart', 'stop_loss', 'sentiment_trend']) {
       const verdict = validateDirective({ component: name, props: { ticker: 'INTC' } });
       expect(verdict.ok, name).toBe(true);
     }
@@ -201,6 +202,17 @@ describe('validateDirective', () => {
     for (const extra of [{ owner: 'someone_else' }, { cost_basis: 150 }, { shares: 10 }]) {
       expect(
         validateDirective({ component: 'stop_loss', props: { ticker: 'INTC', ...extra } }).ok,
+      ).toBe(false);
+    }
+  });
+
+  it('sentiment_trend takes only a ticker — the window is view state', () => {
+    // Mirrors test_chat_tools.py::TestSentimentTrendDirective (#411).
+    expect(COMPONENT_REGISTRY.sentiment_trend.spec).toEqual({ ticker: 'string' });
+    expect(COMPONENT_REGISTRY.sentiment_trend.titled).toBe(true);
+    for (const extra of [{ weeks: 26 }, { days: 91 }, { bucket: 'week' }]) {
+      expect(
+        validateDirective({ component: 'sentiment_trend', props: { ticker: 'WDC', ...extra } }).ok,
       ).toBe(false);
     }
   });

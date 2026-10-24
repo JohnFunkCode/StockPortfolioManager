@@ -38,7 +38,8 @@ price positions, send alerts, capture options chains and score the news.
   how wide the spread is.
 - **The Harvester.** A volatility-based "harvest ladder" of price targets for selling into
   strength, with alerts when a rung is hit.
-- **News sentiment.** Headlines are collected daily and scored with FinBERT.
+- **News sentiment.** Headlines are collected daily and scored with FinBERT. The Signals tab and
+  the Sidekick show a weekly net-sentiment trend over 4, 13 or 26 weeks.
 - **Discord alerts** for moving-average breaks, price below cost, and Harvester rung hits.
 - **Sidekick chat.** Bring your own Anthropic key, which is never usable by the backend at rest.
   Each user picks their chat model.

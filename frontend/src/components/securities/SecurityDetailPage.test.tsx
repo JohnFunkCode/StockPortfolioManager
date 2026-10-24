@@ -51,6 +51,11 @@ function armAll(overrides: Record<string, unknown> = {}) {
     ['/signals/technical', { ticker: 'INTC', _errors: null }],
     ['/signals/options-flow', { ticker: 'INTC', _errors: null }],
     ['/signals/risk', { ticker: 'INTC', drawdown: null }],
+    // Before '/news', which would otherwise match the trend URL too (#411).
+    ['/news/trend', {
+      symbol: 'INTC', days: 91, bucket: 'week', weeks: 0, history_start: null,
+      weeks_with_articles: 0, total_articles: 0, thin_threshold: 10, buckets: [],
+    }],
     ['/news', { symbol: 'INTC', article_count: 0, articles: [] }],
     // Technical Analysis tab: one stop-loss request embeds the confluence result.
     ['/stop-loss', overrides.stopLoss ?? stopLossResponse({ symbol: 'INTC', confluence: CONFLUENCE })],

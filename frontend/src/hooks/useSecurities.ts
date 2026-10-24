@@ -143,6 +143,15 @@ export function useNews(ticker: string, maxArticles = 10) {
   });
 }
 
+export function useSentimentTrend(ticker: string, weeks: number) {
+  return useQuery({
+    queryKey: ['sentiment-trend', ticker, weeks],
+    queryFn: () => securitiesApi.getSentimentTrend(ticker, weeks),
+    enabled: !!ticker,
+    staleTime: 15 * 60 * 1000,
+  });
+}
+
 export function useSentimentSummary(source: 'portfolio' | 'watchlist' | 'all' = 'all') {
   return useQuery({
     queryKey: ['sentiment-summary', source],

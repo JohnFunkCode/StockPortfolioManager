@@ -465,14 +465,16 @@ function ChartSkeleton({ height = 200 }: { height?: number }) {
 function TechnicalStopAndConfluence({ ticker }: { ticker: string }) {
   const stopLoss = useStopLoss(ticker, 'full');
   const embedded = stopLoss.data?.confluence != null;
+  // Support Confluence first, then the stop placed under one of its zones. The
+  // order is display only: the stop-loss request above feeds both either way.
   return (
     <>
-      <StopLossCard ticker={ticker} confluence="full" />
       <SupportConfluenceCard
         ticker={ticker}
         enabled={!embedded && !stopLoss.isPending && !stopLoss.isFetching}
         onRetry={embedded ? () => stopLoss.refetch() : undefined}
       />
+      <StopLossCard ticker={ticker} confluence="full" />
     </>
   );
 }

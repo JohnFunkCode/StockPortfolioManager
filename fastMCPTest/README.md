@@ -273,9 +273,10 @@ scored = collector.score_unscored()
 summary = store.get_sentiment_summary("AAPL", days=7)
 # → {signal: "BULLISH", signal_strength: 0.72, positive_count: 13, top_positive: [...], ...}
 
-# Per-day trend
-trend = store.get_sentiment_trend("AAPL", days=30)
-# → [{date: "2026-04-09", net_score: 0.4, positive_count: 6, ...}, ...]
+# Trend input: scored articles since a date (bucketing lives in
+# quantcore.analytics.sentiment; the service's get_sentiment_trend does it)
+rows = store.get_scored_articles_since("AAPL", "2026-10-01")
+# → [{published_at: "2026-10-09T14:02:00+00:00", fetched_at: ..., sentiment: "positive"}, ...]
 
 store.article_count()           # total articles across all symbols
 store.article_count("AAPL")     # articles for one symbol
@@ -340,6 +341,10 @@ Returns a per-day sentiment breakdown for trend analysis.
 **Returns:**
 - `trend` — list of `{date, article_count, positive_count, negative_count, neutral_count, net_score}`
 - `net_score` is `(positive − negative) / total`: +1.0 = all positive, −1.0 = all negative
+- Each article is dated by its publish time (falling back to fetch time) in **Eastern** time, and
+  the window is measured on that same date. The REST route also takes `bucket=week` for Monday-start
+  weekly buckets with empty weeks filled in (the Signals-tab chart's input, #411); this tool keeps
+  the daily shape.
 
 **Application notes:**
 - Use to detect sentiment momentum shifts — a stock transitioning from BEARISH to NEUTRAL over 3–5 days may be bottoming on the news cycle.

@@ -632,6 +632,24 @@ class ApiSmokeTest(unittest.TestCase):
                 {"error": "not_provisioned", "message": "not_provisioned", "status": 403},
             )
 
+    def test_news_trend_bucket_param(self):
+        # Daily stays the default shape; weekly fills every week; anything
+        # else is a 422 from the Literal, never a 500 (#411).
+        daily = self.client.get(f"/api/securities/{TEST_SYMBOL}/news/trend")
+        self.assertEqual(daily.status_code, 200)
+        self.assertEqual(set(daily.json()), {"symbol", "days", "trend"})
+
+        weekly = self.client.get(
+            f"/api/securities/{TEST_SYMBOL}/news/trend?bucket=week&days=91")
+        self.assertEqual(weekly.status_code, 200)
+        body = weekly.json()
+        self.assertEqual(body["weeks"], 13)
+        self.assertEqual(len(body["buckets"]), 13)
+        self.assertIsNone(body["history_start"])
+
+        bad = self.client.get(f"/api/securities/{TEST_SYMBOL}/news/trend?bucket=month")
+        self.assertEqual(bad.status_code, 422)
+
 
 class LotRoutesTest(unittest.TestCase):
     """Issue #126 Step 4.5 — REST routes for lots, including the mandatory

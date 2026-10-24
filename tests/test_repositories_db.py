@@ -248,8 +248,27 @@ class TestNewsStore(RepoTestBase):
         self.store.save_articles(SYM, [article(1)])
         summary = self.store.get_sentiment_summary(SYM, days=7)
         self.assertEqual(summary.get("symbol"), SYM)
-        trend = self.store.get_sentiment_trend(SYM, days=30)
-        self.assertIsInstance(trend, list)
+
+    def test_trend_rows_are_scored_and_windowed_on_the_article_date(self):
+        # article(2) was published 40 days ago: fetched now, but outside a
+        # 30-day window -- the old query let it in by filtering on fetched_at.
+        self.store.save_articles(SYM, [article(1), article(2, published_days_ago=40),
+                                       article(3)])
+        for a in self.store.get_unscored_articles(limit=500):
+            if a.get("symbol", SYM) == SYM and not a["url"].endswith("/3"):
+                self.store.update_sentiment(
+                    article_id=a["article_id"], sentiment="negative",
+                    sentiment_score=0.9, positive_score=0.05,
+                    negative_score=0.9, neutral_score=0.05,
+                )
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).date().isoformat()
+        rows = self.store.get_scored_articles_since(SYM, since)
+        self.assertEqual(len(rows), 1)           # article 3 is unscored
+        self.assertEqual(set(rows[0]), {"published_at", "fetched_at", "sentiment"})
+        self.assertEqual(rows[0]["sentiment"], "negative")
+        first = self.store.first_article_fetched_at(SYM)
+        self.assertIsNotNone(first)
+        self.assertIsNone(self.store.first_article_fetched_at("ZZREPOSNONE"))
 
     def test_batch_summaries_match_the_single_symbol_read(self):
         # The options screen reads every symbol's summary in one query; each

@@ -104,10 +104,18 @@ fundamentals warming. The three steps that carry the weight:
    rate-limit that only cost some expirations would never reach `failed` and would stay silent
    (#378 review).
 
-   *Gotcha:* the snapshot stores `iv` as a **percent rounded to 1 decimal** (`31.4`, not
+   *Gotcha:* the snapshot stores IV as a **percent rounded to 1 decimal** (`31.4`, not
    `0.314`); `_snapshot_rows` divides by 100. The rounding moves the Greeks in the 4th
    significant figure, accepted, and `tests/test_gex_profile.py`'s parity test pins the tolerance
    against the live path.
+
+   *Gotcha:* the capture's in-memory contract key is `iv`, but it is saved to the
+   `implied_vol` column, and `get_latest_snapshot` (`SELECT *`) returns rows keyed
+   `implied_vol`. `_snapshot_rows` reads `implied_vol` first. Until that fix it read `iv`
+   alone, found nothing on every real row, and every contract silently took the 30% fallback
+   in `_usable_rows`; the parity test missed it because its fixture was keyed `iv` too. It is
+   now keyed `implied_vol`, the real shape. Gamma-wall and GEX history written between #373
+   (2026-10-14) and the fix used a flat 30% IV.
 
    **429 backoff (#373).** `YFinanceGateway.expirations` and `.option_chain` retry a rate-limit
    error (HTTP 429 / "Too Many Requests" / `YFRateLimitError`) at most twice, sleeping 2 s then

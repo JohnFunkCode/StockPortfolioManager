@@ -49,18 +49,27 @@ describe('theme neutrals', () => {
 // A half-converted pair (a tint-* background beside a literal status colour, or a
 // literal dark background beside a var(--qc-text) foreground) reads in one theme
 // only. Scan every component for the shape the #421 review caught.
-const SOURCES = import.meta.glob('./components/**/*.tsx', {
+const SOURCES = import.meta.glob('./components/**/*.{ts,tsx}', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
 
 const STATUS_HEX = '#(?:10b981|ef4444|f59e0b|60a5fa|92400e)\\b';
+const BINDING = new RegExp(`^(?:export )?const (\\w+) = '${STATUS_HEX}'`, 'gim');
 
-// A literal status colour, or a module constant bound to one (`const GREEN = '#10b981'`
-// slipped past the first version of this scan on the Watchlist Held chips).
+const bindings = (src: string) => [...src.matchAll(BINDING)].map((m) => m[1]);
+
+// Status constants another module exports (`export const GREEN` in scoreLabels.ts).
+const EXPORTED = new Set(Object.values(SOURCES).flatMap((src) =>
+  bindings(src).filter((n) => new RegExp(`^export const ${n}\\b`, 'm').test(src))));
+
+// A literal status colour, or a constant bound to one: defined in the file
+// (`const GREEN = '#10b981'` slipped past the first version of this scan on the
+// Watchlist Held chips) or imported from a module that exports one (Clippy on #422).
 // Names match case-sensitively: `GREEN` must not match the `green` in var(--qc-ink-green).
 function literalStatus(src: string): { test: (s: string) => boolean } {
   const hex = new RegExp(STATUS_HEX, 'i');
-  const names = [...src.matchAll(new RegExp(`^const (\\w+) = '${STATUS_HEX}'`, 'gim'))].map((m) => m[1]);
+  const imports = [...src.matchAll(/^import\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(',').map((n) => n.trim()));
+  const names = [...bindings(src), ...imports.filter((n) => EXPORTED.has(n))];
   const name = names.length ? new RegExp(names.map((n) => `\\b${n}\\b`).join('|')) : null;
   return { test: (s) => hex.test(s) || (name?.test(s) ?? false) };
 }

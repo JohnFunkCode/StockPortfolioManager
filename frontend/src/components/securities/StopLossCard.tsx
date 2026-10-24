@@ -161,24 +161,33 @@ function ReplayVerdict({ row, stops }: { row: DrawdownReplayRow; stops: LadderSt
 const LABEL_COL = { flex: '0 0 150px' } as const;
 const TRACK_COL = { flex: '1 1 160px' } as const;
 
-/** Round-dollar ticks under the tracks, with today's price at the right end. */
+// Ticks are centred on their value, so keep them this far (% of the track) from
+// either end, or a label clips past the edge in the ~290px Sidekick rail.
+const TICK_EDGE_PCT = 8;
+
+/**
+ * Round-dollar ticks under the tracks. Today's price, where every bar starts, is
+ * marked at the right end and labelled on a line of its own, so no tick label can
+ * run into it however narrow the card (Guppy on #423).
+ */
 function LadderAxis({ ticks, hi, at }: { ticks: number[]; hi: number; at: (v: number) => number }) {
+  const label = { fontSize: 10, lineHeight: 1, whiteSpace: 'nowrap' } as const;
   return (
     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
       <Box sx={LABEL_COL} />
-      <Box data-testid="stop-ladder-axis" sx={{ ...TRACK_COL, position: 'relative', height: 18, borderTop: '1px solid var(--qc-line)' }}>
+      <Box data-testid="stop-ladder-axis" sx={{ ...TRACK_COL, position: 'relative', height: 28, borderTop: '1px solid var(--qc-line)' }}>
         {ticks.map((v) => (
-          <Box key={v} sx={{ position: 'absolute', left: `${at(v)}%`, top: 0, transform: 'translateX(-50%)', textAlign: 'center' }}>
+          <Box key={v} data-testid="stop-ladder-tick"
+            sx={{ position: 'absolute', left: `${at(v)}%`, top: 0, transform: 'translateX(-50%)', textAlign: 'center' }}>
             <Box sx={{ width: '1px', height: 4, bgcolor: 'var(--qc-faint)', mx: 'auto' }} />
-            <Typography variant="caption" sx={{ color: 'var(--qc-faint)', fontSize: 10, lineHeight: 1 }}>${v}</Typography>
+            <Typography variant="caption" sx={{ ...label, color: 'var(--qc-faint)' }}>${v.toLocaleString('en-US')}</Typography>
           </Box>
         ))}
-        <Box sx={{ position: 'absolute', right: 0, top: 0, textAlign: 'right' }}>
-          <Box sx={{ width: '1px', height: 4, bgcolor: 'var(--qc-text-soft)', ml: 'auto' }} />
-          <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', fontSize: 10, lineHeight: 1, fontWeight: 600 }}>
-            {money(hi)} now
-          </Typography>
-        </Box>
+        <Box sx={{ position: 'absolute', right: 0, top: 0, width: '1px', height: 4, bgcolor: 'var(--qc-text-soft)' }} />
+        <Typography data-testid="stop-ladder-now" variant="caption"
+          sx={{ ...label, position: 'absolute', right: 0, top: 16, color: 'var(--qc-text-soft)', fontWeight: 600 }}>
+          now {money(hi)}
+        </Typography>
       </Box>
     </Stack>
   );
@@ -195,8 +204,8 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
   const low = Math.min(hi, ...prices);
   const lo = low - (hi - low) * 0.05;
   const at = (v: number) => (hi === lo ? 100 : ((v - lo) / (hi - lo)) * 100);
-  // Round-dollar ticks; the right end is left for the price label.
-  const ticks = scaleLinear().domain([lo, hi]).ticks(4).filter((v) => at(v) >= 0 && at(v) <= 85);
+  const ticks = scaleLinear().domain([lo, hi]).ticks(4)
+    .filter((v) => at(v) >= TICK_EDGE_PCT && at(v) <= 100 - TICK_EDGE_PCT);
 
   return (
     <Box data-testid="stop-ladder">

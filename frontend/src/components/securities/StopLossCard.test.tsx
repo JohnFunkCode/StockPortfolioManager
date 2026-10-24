@@ -109,10 +109,14 @@ describe('StopLossCard', () => {
     expect(screen.getByTestId('replay-verdict-recent_1day').textContent).toBe('Clears every stop');
     expect(screen.queryByText('Tr')).toBeNull();
 
-    // A price scale under the bars: round-dollar ticks, today's price at the right end.
-    const axis = screen.getByTestId('stop-ladder-axis');
-    for (const tick of ['$160', '$165', '$170', '$175']) expect(axis.textContent).toContain(tick);
-    expect(axis.textContent).toContain('$180.00 now');
+    // A price scale under the bars. The scale runs $158.45–$180: $160 (7% in) and
+    // $180 (the right end) sit too near an edge to centre a label, so they're left out.
+    expect(screen.getAllByTestId('stop-ladder-tick').map((t) => t.textContent))
+      .toEqual(['$165', '$170', '$175']);
+    // Today's price is on its own line, not among the ticks it could collide with.
+    const now = screen.getByTestId('stop-ladder-now');
+    expect(now.textContent).toBe('now $180.00');
+    expect(now.closest('[data-testid="stop-ladder-tick"]')).toBeNull();
 
     expect(screen.getByTestId('stop-context').textContent).toContain('2.3% float');
     expect(screen.getByTestId('stop-flags').textContent).toContain('bullish macd');
@@ -121,6 +125,24 @@ describe('StopLossCard', () => {
     // Not held: no chip and no P&L block.
     expect(screen.queryByTestId('stop-held-chip')).toBeNull();
     expect(screen.queryByTestId('stop-position')).toBeNull();
+  });
+
+  it('names only the stops a drop triggers, and formats a large price scale', async () => {
+    const base = response();
+    mockApi([['/stop-loss', response({
+      price: 2345.0,
+      stops: { ...base.stops, technical_stop: 2300.0, trailing_stop_price: 2150.0, confluence_stop: null },
+      drawdown_replay: [
+        { key: 'max_1day', label: 'Worst 1-day drop', drop_pct: -4.0, price: 2251.2,
+          hits_technical: true, hits_trailing: false, hits_confluence: null },
+      ],
+    })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    expect((await screen.findByTestId('replay-verdict-max_1day')).textContent).toBe('TriggersTechnical');
+    const ticks = screen.getAllByTestId('stop-ladder-tick').map((t) => t.textContent);
+    expect(ticks.length).toBeGreaterThan(1);
+    for (const t of ticks) expect(t).toMatch(/^\$2,\d{3}$/);
+    expect(screen.getByTestId('stop-ladder-now').textContent).toBe('now $2345.00');
   });
 
   it('says when there is no support below price instead of naming one', async () => {

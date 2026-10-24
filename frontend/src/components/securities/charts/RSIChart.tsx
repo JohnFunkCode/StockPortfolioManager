@@ -56,7 +56,7 @@ export default function RSIChart({ data, height = 140 }: Props) {
       g.append('line')
         .attr('x1', 0).attr('x2', W)
         .attr('y1', yScale(lvl)).attr('y2', yScale(lvl))
-        .attr('stroke', lvl === 50 ? '#6b7280' : lvl === 70 ? '#ef4444' : '#10b981')
+        .style('stroke', lvl === 50 ? 'var(--qc-faint)' : lvl === 70 ? '#ef4444' : '#10b981')
         .attr('stroke-width', 1)
         .attr('stroke-dasharray', '3,3')
         .attr('opacity', 0.6);
@@ -65,7 +65,7 @@ export default function RSIChart({ data, height = 140 }: Props) {
         .attr('x', -4).attr('y', yScale(lvl))
         .attr('dy', '0.35em')
         .attr('text-anchor', 'end')
-        .attr('fill', '#6b7280')
+        .style('fill', 'var(--qc-faint)')
         .attr('font-size', 9)
         .text(lvl);
     });
@@ -89,11 +89,11 @@ export default function RSIChart({ data, height = 140 }: Props) {
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.timeFormat('%b %d') as never))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
 
     // Tooltip
     const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');

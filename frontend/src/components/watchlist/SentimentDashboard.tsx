@@ -52,7 +52,7 @@ export default function SentimentDashboard({ open, data, isLoading, onRefresh }:
                     sx={{ fontSize: 11, bgcolor: c.bg, color: c.text, border: `1px solid ${c.border}` }} />
                 );
               })}
-              <Typography variant="caption" sx={{ color: '#6b7280', alignSelf: 'center' }}>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)', alignSelf: 'center' }}>
                 {data.count} scored securities
               </Typography>
             </Stack>
@@ -60,7 +60,7 @@ export default function SentimentDashboard({ open, data, isLoading, onRefresh }:
             <Box sx={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                 <thead>
-                  <tr style={{ color: '#6b7280', textAlign: 'left', borderBottom: '1px solid #1f2937' }}>
+                  <tr style={{ color: 'var(--qc-faint)', textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
                     <th style={{ padding: '4px 8px' }}>Symbol</th>
                     <th style={{ padding: '4px 8px' }}>Name</th>
                     <th style={{ padding: '4px 8px' }}>Sentiment</th>
@@ -76,11 +76,11 @@ export default function SentimentDashboard({ open, data, isLoading, onRefresh }:
                     const c = SENTIMENT_COLORS[item.overall_sentiment ?? 'neutral'];
                     return (
                       <tr key={item.symbol}
-                        style={{ borderBottom: '1px solid #111827', cursor: 'pointer' }}
+                        style={{ borderBottom: '1px solid var(--qc-surface-sunk)', cursor: 'pointer' }}
                         onClick={() => navigate(`/securities/${item.symbol}`)}
                       >
                         <td style={{ padding: '4px 8px', color: '#818cf8', fontWeight: 600 }}>{item.symbol}</td>
-                        <td style={{ padding: '4px 8px', color: '#d1d5db', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</td>
+                        <td style={{ padding: '4px 8px', color: 'var(--qc-text-soft)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.name}</td>
                         <td style={{ padding: '4px 8px' }}>
                           <span style={{ background: c.bg, color: c.text, border: `1px solid ${c.border}`, borderRadius: 4, padding: '1px 6px', fontSize: 11 }}>
                             {item.overall_sentiment ?? '—'}
@@ -88,9 +88,9 @@ export default function SentimentDashboard({ open, data, isLoading, onRefresh }:
                         </td>
                         <td style={{ padding: '4px 8px', textAlign: 'center', color: '#10b981' }}>{item.positive_count}</td>
                         <td style={{ padding: '4px 8px', textAlign: 'center', color: '#ef4444' }}>{item.negative_count}</td>
-                        <td style={{ padding: '4px 8px', textAlign: 'center', color: '#6b7280' }}>{item.neutral_count}</td>
-                        <td style={{ padding: '4px 8px', color: '#9ca3af' }}>{item.scored_count}</td>
-                        <td style={{ padding: '4px 8px', color: '#4b5563' }}>{item.captured_at?.slice(0, 10) ?? '—'}</td>
+                        <td style={{ padding: '4px 8px', textAlign: 'center', color: 'var(--qc-faint)' }}>{item.neutral_count}</td>
+                        <td style={{ padding: '4px 8px', color: 'var(--qc-muted)' }}>{item.scored_count}</td>
+                        <td style={{ padding: '4px 8px', color: 'var(--qc-dim)' }}>{item.captured_at?.slice(0, 10) ?? '—'}</td>
                       </tr>
                     );
                   })}

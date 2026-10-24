@@ -65,7 +65,7 @@ export default function ScreenerPanel({ open }: { open: boolean }) {
 
         {data && !isLoading && (
           <Box sx={{ mt: 2 }}>
-            <Typography variant="body2" sx={{ mb: 1, color: '#9ca3af' }}>
+            <Typography variant="body2" sx={{ mb: 1, color: 'var(--qc-muted)' }}>
               {data.count} match{data.count !== 1 ? 'es' : ''} — click to navigate
             </Typography>
             <Stack direction="row" flexWrap="wrap" spacing={1} useFlexGap>
@@ -74,9 +74,9 @@ export default function ScreenerPanel({ open }: { open: boolean }) {
                   ? SENTIMENT_COLORS[r.news_sentiment]?.bg
                   : undefined;
                 const bg = sentColor
-                  ?? (r.rsi != null && r.rsi <= 30 ? '#1e3a2f'
-                    : r.rsi != null && r.rsi >= 70 ? '#3a1e1e'
-                    : '#1f2937');
+                  ?? (r.rsi != null && r.rsi <= 30 ? 'var(--qc-tint-green)'
+                    : r.rsi != null && r.rsi >= 70 ? 'var(--qc-tint-red)'
+                    : 'var(--qc-surface)');
                 return (
                   <Chip
                     key={r.symbol}
@@ -88,7 +88,7 @@ export default function ScreenerPanel({ open }: { open: boolean }) {
                     }
                     clickable
                     onClick={() => navigate(`/securities/${r.symbol}`)}
-                    sx={{ fontSize: 12, bgcolor: bg, color: '#f9fafb' }}
+                    sx={{ fontSize: 12, bgcolor: bg, color: 'var(--qc-text)' }}
                   />
                 );
               })}

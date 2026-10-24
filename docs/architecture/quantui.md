@@ -94,6 +94,8 @@ The card is also the Sidekick component `stop_loss` (`{ticker}` only, `confluenc
 give it a cost-basis, shares or owner prop. The Signals tab's old *Risk & Stop-Loss Calibration*
 panel was retired into it; `/signals/risk` still feeds the Signals summary line.
 
+**Light and dark themes.** Components were written against the dark theme with literal Tailwind greys (`#f9fafb`, `#9ca3af`, `#374151`, `#1f2937`, …) and dark tints (`#1e3a2f`, …), so in the light theme text went white-on-white and panels became dark slabs. Those values are now CSS custom properties, `--qc-text`, `--qc-text-soft`, `--qc-muted`, `--qc-faint`, `--qc-dim`, `--qc-line`, `--qc-surface`, `--qc-surface-sunk`, `--qc-tint-{green,red,amber,blue}[-strong]` and `--qc-on-tint-*`, set on `:root` by each theme's `MuiCssBaseline` override in `frontend/src/themes.ts`. The dark values are the original hex colours, so the dark theme is unchanged. A CSS variable works anywhere CSS does — `sx`, inline `style`, a helper's return value — but **not** in an SVG presentation attribute, so D3 code sets these colours with `.style('fill' | 'stroke' | 'color', …)`. The hex-alpha idiom `color + '22'` doesn't work on a variable, so it is `tint(color)` (a `color-mix`). Semantic colours (green, red, amber, blue) stay literal.
+
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
 Types headers) and **reverse-proxies `/api/*` to `quantcore-api`, attaching a per-user token

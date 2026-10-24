@@ -804,7 +804,7 @@ export default function SecurityDetailPage() {
                 { label: 'BB Lower', val: latest.bb_lower, color: '#6366f1' },
               ].map(({ label, val, color }) => (
                 <Box key={label}>
-                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>{label}</Typography>
+                  <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>{label}</Typography>
                   <Typography variant="body2" sx={{ color, fontWeight: 600 }}>
                     {val != null ? `$${val.toFixed(2)}` : '—'}
                     {val != null && latest.close != null && (
@@ -994,22 +994,22 @@ export default function SecurityDetailPage() {
                 </Stack>
                 <Stack direction="row" spacing={3} flexWrap="wrap" sx={{ mt: 1 }}>
                   {[
-                    { label: 'Expirations', value: expirations.length, color: '#f9fafb' },
+                    { label: 'Expirations', value: expirations.length, color: 'var(--qc-text)' },
                     { label: 'Total Call OI', value: totalCallOI.toLocaleString(), color: '#3b82f6' },
                     { label: 'Total Put OI',  value: totalPutOI.toLocaleString(),  color: '#f59e0b' },
                     { label: 'Agg P/C Ratio', value: aggPC != null ? aggPC.toFixed(2) : '—',
-                      color: aggPC == null ? '#6b7280' : aggPC > 1 ? '#f59e0b' : aggPC < 0.7 ? '#3b82f6' : '#f9fafb' },
+                      color: aggPC == null ? 'var(--qc-faint)' : aggPC > 1 ? '#f59e0b' : aggPC < 0.7 ? '#3b82f6' : 'var(--qc-text)' },
                     { label: 'Avg Call IV',   value: avgCallIV != null ? `${avgCallIV.toFixed(1)}%` : '—', color: '#3b82f6' },
                     { label: 'Avg Put IV',    value: avgPutIV  != null ? `${avgPutIV.toFixed(1)}%`  : '—', color: '#f59e0b' },
                   ].map(({ label, value, color }) => (
                     <Box key={label}>
-                      <Typography variant="caption" sx={{ color: '#6b7280' }}>{label}</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>{label}</Typography>
                       <Typography variant="body1" sx={{ color, fontWeight: 700 }}>{value}</Typography>
                     </Box>
                   ))}
                   {totalOI > 0 && (
                     <Box sx={{ flex: 1, minWidth: 180, alignSelf: 'center' }}>
-                      <Typography variant="caption" sx={{ color: '#6b7280' }}>Call / Put OI Split</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Call / Put OI Split</Typography>
                       <Box sx={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', mt: 0.5 }}>
                         <Box sx={{ width: `${(totalCallOI / totalOI) * 100}%`, bgcolor: '#3b82f6', opacity: 0.8 }} />
                         <Box sx={{ flex: 1, bgcolor: '#f59e0b', opacity: 0.8 }} />
@@ -1100,7 +1100,7 @@ export default function SecurityDetailPage() {
                           <TableRow key={e.expiration}>
                             <TableCell>{e.expiration}</TableCell>
                             <TableCell align="right"
-                              sx={{ color: dte <= 7 ? '#ef4444' : dte <= 21 ? '#f59e0b' : '#9ca3af' }}>
+                              sx={{ color: dte <= 7 ? '#ef4444' : dte <= 21 ? '#f59e0b' : 'var(--qc-muted)' }}>
                               {dte}d
                             </TableCell>
                             <TableCell align="right" sx={{ color: '#3b82f6' }}>
@@ -1113,7 +1113,7 @@ export default function SecurityDetailPage() {
                               {e.put_call_ratio != null
                                 ? <Chip size="small" label={e.put_call_ratio.toFixed(2)}
                                     sx={{ fontSize: 10, height: 18,
-                                      bgcolor: e.put_call_ratio > 1 ? '#1e3a2f' : '#1e2a3a',
+                                      bgcolor: e.put_call_ratio > 1 ? 'var(--qc-tint-green)' : 'var(--qc-tint-blue)',
                                       color:   e.put_call_ratio > 1 ? '#10b981' : '#60a5fa' }} />
                                 : '—'}
                             </TableCell>
@@ -1123,10 +1123,10 @@ export default function SecurityDetailPage() {
                             <TableCell align="right" sx={{ color: '#f59e0b' }}>
                               {e.avg_put_iv != null ? `${e.avg_put_iv.toFixed(1)}%` : '—'}
                             </TableCell>
-                            <TableCell align="right" sx={{ color: '#9ca3af' }}>
+                            <TableCell align="right" sx={{ color: 'var(--qc-muted)' }}>
                               {e.total_call_vol?.toLocaleString() ?? '—'}
                             </TableCell>
-                            <TableCell align="right" sx={{ color: '#9ca3af' }}>
+                            <TableCell align="right" sx={{ color: 'var(--qc-muted)' }}>
                               {e.total_put_vol?.toLocaleString() ?? '—'}
                             </TableCell>
                           </TableRow>
@@ -1150,7 +1150,7 @@ export default function SecurityDetailPage() {
             {/* Polygon.io historical backfill */}
             <Paper sx={{ p: 2 }}>
               <Typography variant="subtitle1" gutterBottom>Historical P/C Backfill via Polygon.io</Typography>
-              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 1.5 }}>
+              <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', mb: 1.5 }}>
                 Polygon.io (Starter plan, ~$29/mo) provides 2+ years of historical options snapshots.
                 Requires <code>POLYGON_API_KEY</code> in your <code>.env</code> file.
                 Each backfill stores end-of-day P/C ratio and IV for all expirations.
@@ -1182,21 +1182,21 @@ export default function SecurityDetailPage() {
                 {backfillResult && !backfilling && (
                   <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
                     <Chip size="small" label={`${backfillResult.stored} days stored`}
-                      sx={{ bgcolor: '#14532d', color: '#86efac', fontSize: 11 }} />
+                      sx={{ bgcolor: 'var(--qc-tint-green-strong)', color: 'var(--qc-on-tint-green)', fontSize: 11 }} />
                     {backfillResult.skipped > 0 && (
                       <Chip size="small" label={`${backfillResult.skipped} already existed`}
-                        sx={{ bgcolor: '#1f2937', color: '#9ca3af', fontSize: 11 }} />
+                        sx={{ bgcolor: 'var(--qc-surface)', color: 'var(--qc-muted)', fontSize: 11 }} />
                     )}
                     {backfillResult.no_data > 0 && (
                       <Chip size="small" label={`${backfillResult.no_data} no data (holidays/pre-listing)`}
-                        sx={{ bgcolor: '#1f2937', color: '#9ca3af', fontSize: 11 }} />
+                        sx={{ bgcolor: 'var(--qc-surface)', color: 'var(--qc-muted)', fontSize: 11 }} />
                     )}
                     {backfillResult.failed > 0 && (
                       <Chip size="small" label={`${backfillResult.failed} errors`}
-                        sx={{ bgcolor: '#7f1d1d', color: '#fca5a5', fontSize: 11 }} />
+                        sx={{ bgcolor: 'var(--qc-tint-red-strong)', color: 'var(--qc-on-tint-red)', fontSize: 11 }} />
                     )}
                     {backfillResult.stored > 0 && (
-                      <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                         Refresh the page to see updated P/C trend below.
                       </Typography>
                     )}
@@ -1245,32 +1245,32 @@ export default function SecurityDetailPage() {
                 const pt = histPoints[0];
                 const pc = pt.put_call_ratio!;
                 const sentiment = pc > 1.2 ? 'Bearish' : pc > 1.0 ? 'Mildly Bearish' : pc < 0.6 ? 'Bullish' : pc < 0.8 ? 'Mildly Bullish' : 'Neutral';
-                const sentColor = pc > 1.0 ? '#f59e0b' : pc < 0.8 ? '#10b981' : '#9ca3af';
+                const sentColor = pc > 1.0 ? '#f59e0b' : pc < 0.8 ? '#10b981' : 'var(--qc-muted)';
                 return (
                   <Stack spacing={2}>
                     <Stack direction="row" spacing={4} alignItems="center" flexWrap="wrap">
                       <Box>
-                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Current P/C Ratio</Typography>
+                        <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Current P/C Ratio</Typography>
                         <Typography variant="h3" sx={{ color: sentColor, fontWeight: 700 }}>{pc.toFixed(2)}</Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Sentiment</Typography>
+                        <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Sentiment</Typography>
                         <Typography variant="h5" sx={{ color: sentColor, fontWeight: 700 }}>{sentiment}</Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Captured</Typography>
-                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>
+                        <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Captured</Typography>
+                        <Typography variant="body2" sx={{ color: 'var(--qc-muted)' }}>
                           {pt.captured_at.slice(0, 10)}
                         </Typography>
                       </Box>
                       <Box>
-                        <Typography variant="caption" sx={{ color: '#6b7280' }}>Price at Capture</Typography>
-                        <Typography variant="body2" sx={{ color: '#f9fafb' }}>${pt.price.toFixed(2)}</Typography>
+                        <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Price at Capture</Typography>
+                        <Typography variant="body2" sx={{ color: 'var(--qc-text)' }}>${pt.price.toFixed(2)}</Typography>
                       </Box>
                     </Stack>
                     <Box sx={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', maxWidth: 400 }}>
                       <Box sx={{ width: `${Math.min(100, (pc / 2) * 100)}%`, bgcolor: sentColor, transition: 'width 0.4s' }} />
-                      <Box sx={{ flex: 1, bgcolor: '#1f2937' }} />
+                      <Box sx={{ flex: 1, bgcolor: 'var(--qc-surface)' }} />
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
                       {[
@@ -1287,14 +1287,14 @@ export default function SecurityDetailPage() {
                           variant={active ? 'filled' : 'outlined'}
                           sx={{
                             fontSize: 11,
-                            bgcolor: active ? (pc > 1.0 ? '#78350f' : pc < 0.8 ? '#14532d' : '#1f2937') : 'transparent',
-                            color: active ? '#f9fafb' : '#6b7280',
-                            borderColor: '#374151',
+                            bgcolor: active ? (pc > 1.0 ? 'var(--qc-tint-amber-strong)' : pc < 0.8 ? 'var(--qc-tint-green-strong)' : 'var(--qc-surface)') : 'transparent',
+                            color: active ? 'var(--qc-text)' : 'var(--qc-faint)',
+                            borderColor: 'var(--qc-line)',
                           }}
                         />
                       ))}
                     </Stack>
-                    <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                    <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                       Only 1 snapshot collected. Use the "Refresh All" button on the Securities page daily to build a trend.
                     </Typography>
                   </Stack>
@@ -1325,7 +1325,7 @@ export default function SecurityDetailPage() {
                 <Stack direction="row" spacing={3} alignItems="center" flexWrap="wrap">
                   {/* Metric boxes */}
                   {[
-                    { label: 'Current IV', value: `${ivRankData.current_iv.toFixed(1)}%`, color: '#f9fafb' },
+                    { label: 'Current IV', value: `${ivRankData.current_iv.toFixed(1)}%`, color: 'var(--qc-text)' },
                     {
                       label: 'IV Rank',
                       value: ivRankData.iv_rank != null ? `${ivRankData.iv_rank.toFixed(0)}` : '—',
@@ -1333,7 +1333,7 @@ export default function SecurityDetailPage() {
                         ? ivRankData.iv_rank >= 80 ? '#ef4444'
                         : ivRankData.iv_rank >= 50 ? '#f59e0b'
                         : '#10b981'
-                        : '#9ca3af',
+                        : 'var(--qc-muted)',
                       suffix: ivRankData.iv_rank != null ? '' : '',
                     },
                     {
@@ -1343,22 +1343,22 @@ export default function SecurityDetailPage() {
                         ? ivRankData.iv_percentile >= 80 ? '#ef4444'
                         : ivRankData.iv_percentile >= 50 ? '#f59e0b'
                         : '#10b981'
-                        : '#9ca3af',
+                        : 'var(--qc-muted)',
                     },
                     { label: '52w High IV', value: ivRankData.iv_52w_high != null ? `${ivRankData.iv_52w_high.toFixed(1)}%` : '—', color: '#ef4444' },
                     { label: '52w Low IV',  value: ivRankData.iv_52w_low  != null ? `${ivRankData.iv_52w_low.toFixed(1)}%`  : '—', color: '#10b981' },
-                    { label: 'Data Points', value: `${ivRankData.data_points}`, color: '#9ca3af' },
+                    { label: 'Data Points', value: `${ivRankData.data_points}`, color: 'var(--qc-muted)' },
                   ].map(({ label, value, color }) => (
                     <Box key={label}>
-                      <Typography variant="caption" sx={{ color: '#6b7280' }}>{label}</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>{label}</Typography>
                       <Typography variant="body1" sx={{ color, fontWeight: 700, fontSize: 18 }}>{value}</Typography>
                     </Box>
                   ))}
                   {/* Range bar */}
                   {ivRankData.iv_rank != null && ivRankData.iv_52w_high != null && ivRankData.iv_52w_low != null && (
                     <Box sx={{ flex: 1, minWidth: 180 }}>
-                      <Typography variant="caption" sx={{ color: '#6b7280' }}>52-Week IV Range</Typography>
-                      <Box sx={{ position: 'relative', height: 8, bgcolor: '#1f2937', borderRadius: 4, mt: 0.5 }}>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>52-Week IV Range</Typography>
+                      <Box sx={{ position: 'relative', height: 8, bgcolor: 'var(--qc-surface)', borderRadius: 4, mt: 0.5 }}>
                         {/* gradient fill from low to current */}
                         <Box sx={{
                           position: 'absolute', left: 0, top: 0, bottom: 0,
@@ -1371,7 +1371,7 @@ export default function SecurityDetailPage() {
                         <Box sx={{
                           position: 'absolute', top: -2, bottom: -2,
                           left: `calc(${ivRankData.iv_rank}% - 2px)`,
-                          width: 4, bgcolor: '#f9fafb', borderRadius: 2,
+                          width: 4, bgcolor: 'var(--qc-text)', borderRadius: 2,
                         }} />
                       </Box>
                       <Stack direction="row" justifyContent="space-between">
@@ -1451,7 +1451,7 @@ export default function SecurityDetailPage() {
                             <TableCell sx={{ fontWeight: isSelected ? 700 : 400 }}>
                               {row.expiration}
                             </TableCell>
-                            <TableCell align="right" sx={{ color: dte <= 7 ? '#ef4444' : dte <= 21 ? '#f59e0b' : '#9ca3af' }}>
+                            <TableCell align="right" sx={{ color: dte <= 7 ? '#ef4444' : dte <= 21 ? '#f59e0b' : 'var(--qc-muted)' }}>
                               {dte}d
                             </TableCell>
                             <TableCell align="right">${row.atm_strike?.toFixed(2) ?? '—'}</TableCell>
@@ -1464,10 +1464,10 @@ export default function SecurityDetailPage() {
                                 label={`${row.expected_move_pct.toFixed(1)}%`}
                                 sx={{
                                   fontSize: 10, height: 18,
-                                  bgcolor: row.expected_move_pct > 10 ? '#7f1d1d'
+                                  bgcolor: row.expected_move_pct > 10 ? 'var(--qc-tint-red-strong)'
                                     : row.expected_move_pct > 5 ? '#92400e'
-                                    : '#1f2937',
-                                  color: '#f9fafb',
+                                    : 'var(--qc-surface)',
+                                  color: 'var(--qc-text)',
                                 }}
                               />
                             </TableCell>
@@ -1487,7 +1487,7 @@ export default function SecurityDetailPage() {
                                     label={row.put_call_ratio.toFixed(2)}
                                     sx={{
                                       fontSize: 10, height: 18,
-                                      bgcolor: row.put_call_ratio > 1 ? '#1e3a2f' : '#1e2a3a',
+                                      bgcolor: row.put_call_ratio > 1 ? 'var(--qc-tint-green)' : 'var(--qc-tint-blue)',
                                       color: row.put_call_ratio > 1 ? '#10b981' : '#60a5fa',
                                     }}
                                   />
@@ -1515,22 +1515,22 @@ export default function SecurityDetailPage() {
                   </Typography>
                   <Stack direction="row" spacing={2}>
                     <Box>
-                      <Typography variant="caption" sx={{ color: '#9ca3af' }}>Max Pain</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>Max Pain</Typography>
                       <Typography variant="body2" sx={{ color: '#f59e0b', fontWeight: 700 }}>
                         ${selectedRow.max_pain ?? '—'}
                       </Typography>
                     </Box>
                     <Box>
-                      <Typography variant="caption" sx={{ color: '#9ca3af' }}>Current Price</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>Current Price</Typography>
                       <Typography variant="body2" sx={{ color: '#10b981', fontWeight: 700 }}>
                         ${price.toFixed(2)}
                       </Typography>
                     </Box>
                     <Box>
-                      <Typography variant="caption" sx={{ color: '#9ca3af' }}>Distance</Typography>
+                      <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>Distance</Typography>
                       <Typography variant="body2" sx={{ fontWeight: 700,
                         color: selectedRow.max_pain != null && Math.abs(price - selectedRow.max_pain) / price < 0.02
-                          ? '#f59e0b' : '#9ca3af' }}>
+                          ? '#f59e0b' : 'var(--qc-muted)' }}>
                         {selectedRow.max_pain != null
                           ? `${((selectedRow.max_pain - price) / price * 100).toFixed(1)}%`
                           : '—'}

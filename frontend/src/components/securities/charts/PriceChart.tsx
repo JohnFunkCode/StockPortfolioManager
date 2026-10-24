@@ -120,7 +120,7 @@ export default function PriceChart({
         d3.axisLeft(yScale).tickSize(-W).tickFormat(() => ''),
       )
       .selectAll('line')
-      .attr('stroke', '#374151')
+      .style('stroke', 'var(--qc-line)')
       .attr('stroke-dasharray', '2,4');
     g.select('.grid .domain').remove();
 
@@ -181,7 +181,7 @@ export default function PriceChart({
           .datum(valid)
           .attr('d', line)
           .attr('fill', 'none')
-          .attr('stroke', MA_COLORS[key as keyof typeof MA_COLORS] ?? '#9ca3af')
+          .style('stroke', MA_COLORS[key as keyof typeof MA_COLORS] ?? 'var(--qc-muted)')
           .attr('stroke-width', 1.5)
           .attr('opacity', 0.85);
       });
@@ -205,15 +205,15 @@ export default function PriceChart({
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat('%b %d') as never))
       .selectAll('text')
-      .attr('fill', '#9ca3af');
+      .style('fill', 'var(--qc-muted)');
 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(5).tickFormat((v) => `$${v}`))
       .selectAll('text')
-      .attr('fill', '#9ca3af');
+      .style('fill', 'var(--qc-muted)');
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
 
     // Earnings date markers — vertical dashed lines with "E" label
     if (earningsDates.length > 0) {
@@ -243,7 +243,7 @@ export default function PriceChart({
     focus.append('line')
       .attr('class', 'x-line')
       .attr('y1', 0).attr('y2', H)
-      .attr('stroke', '#6b7280')
+      .style('stroke', 'var(--qc-faint)')
       .attr('stroke-dasharray', '3,3');
     focus.append('circle').attr('r', 4).attr('fill', '#10b981');
 

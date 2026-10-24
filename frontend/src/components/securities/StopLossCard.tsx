@@ -18,6 +18,7 @@ import type {
   StopLossPosition,
   StopLossResponse,
 } from '../../api/securitiesTypes';
+import { tint } from '../../themes';
 
 interface Props {
   ticker: string;
@@ -35,14 +36,14 @@ const signedMoney = (v: number) => `${v < 0 ? '-' : '+'}$${Math.abs(v).toFixed(2
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <Typography variant="subtitle2" sx={{ color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
+    <Typography variant="subtitle2" sx={{ color: 'var(--qc-muted)', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
       {title}
     </Typography>
   );
 }
 
 function Caption({ children }: { children: React.ReactNode }) {
-  return <Typography variant="caption" sx={{ color: '#6b7280', display: 'block' }}>{children}</Typography>;
+  return <Typography variant="caption" sx={{ color: 'var(--qc-faint)', display: 'block' }}>{children}</Typography>;
 }
 
 function StopTile({ testId, title, tag, color, price, detail, warning, children }: {
@@ -57,10 +58,10 @@ function StopTile({ testId, title, tag, color, price, detail, warning, children 
 }) {
   return (
     <Box data-testid={testId}
-      sx={{ flex: 1, minWidth: 180, p: 1.5, borderRadius: 1, border: '1px solid #374151', borderTop: `3px solid ${color}`, bgcolor: '#111827' }}>
+      sx={{ flex: 1, minWidth: 180, p: 1.5, borderRadius: 1, border: '1px solid var(--qc-line)', borderTop: `3px solid ${color}`, bgcolor: 'var(--qc-surface-sunk)' }}>
       <Stack direction="row" spacing={1} alignItems="center">
-        <Typography variant="caption" sx={{ color: '#9ca3af', fontWeight: 600 }}>{title}</Typography>
-        {tag && <Typography variant="caption" sx={{ color: '#6b7280', fontStyle: 'italic' }}>{tag}</Typography>}
+        <Typography variant="caption" sx={{ color: 'var(--qc-muted)', fontWeight: 600 }}>{title}</Typography>
+        {tag && <Typography variant="caption" sx={{ color: 'var(--qc-faint)', fontStyle: 'italic' }}>{tag}</Typography>}
       </Stack>
       <Typography sx={{ color, fontWeight: 700, fontSize: 20 }}>{price}</Typography>
       <Caption>{detail}</Caption>
@@ -86,7 +87,7 @@ function ConfluenceTile({ data }: { data: StopLossResponse }) {
       price={money(stop.stop)} detail={`${signedPct(stop.distance_pct)} · under ${money(stop.zone_low)}–${money(stop.zone_high)}`}>
       <Caption>{stop.method_count} methods agree · score {stop.score.toFixed(2)}</Caption>
       {stop.stepped_past_noise && reason && (
-        <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.5 }}>{reason}</Typography>
+        <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', mt: 0.5 }}>{reason}</Typography>
       )}
     </StopTile>
   );
@@ -142,9 +143,9 @@ function HitChips({ row }: { row: DrawdownReplayRow }) {
           title={hit ? 'This drop reaches the stop' : 'This drop stays above the stop'}
           sx={{
             fontSize: 10, height: 18, minWidth: 26, border: '1px solid',
-            borderColor: hit ? color : '#374151',
-            color: hit ? color : '#4b5563',
-            bgcolor: hit ? color + '22' : 'transparent',
+            borderColor: hit ? color : 'var(--qc-line)',
+            color: hit ? color : 'var(--qc-dim)',
+            bgcolor: hit ? tint(color) : 'transparent',
           }} />
       ))}
     </Stack>
@@ -167,12 +168,12 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
         {data.drawdown_replay.map((row) => (
           <Stack key={row.key} direction="row" spacing={1} alignItems="center" data-testid={`replay-${row.key}`}>
             <Box sx={{ width: 150, flexShrink: 0 }}>
-              <Typography variant="caption" sx={{ color: '#d1d5db', display: 'block', lineHeight: 1.2 }}>{row.label}</Typography>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>
+              <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', display: 'block', lineHeight: 1.2 }}>{row.label}</Typography>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                 {row.drop_pct.toFixed(1)}% → {money(row.price)}
               </Typography>
             </Box>
-            <Box sx={{ position: 'relative', flex: 1, height: 16, bgcolor: '#1f2937', borderRadius: 0.5 }}>
+            <Box sx={{ position: 'relative', flex: 1, height: 16, bgcolor: 'var(--qc-surface)', borderRadius: 0.5 }}>
               <Box sx={{
                 position: 'absolute', top: 3, bottom: 3, left: `${at(row.price)}%`, right: 0,
                 bgcolor: '#ef444455', borderLeft: '2px solid #ef4444',
@@ -199,10 +200,10 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
   );
 }
 
-function ContextRow({ label, value, color = '#d1d5db' }: { label: string; value: string; color?: string }) {
+function ContextRow({ label, value, color = 'var(--qc-text-soft)' }: { label: string; value: string; color?: string }) {
   return (
     <Stack direction="row" justifyContent="space-between" spacing={2}>
-      <Typography variant="caption" sx={{ color: '#6b7280' }}>{label}</Typography>
+      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>{label}</Typography>
       <Typography variant="caption" sx={{ color, fontWeight: 600 }}>{value}</Typography>
     </Stack>
   );
@@ -269,7 +270,7 @@ function StopLossBody({ data }: { data: StopLossResponse }) {
           ))}
         </Stack>
       )}
-      <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', fontStyle: 'italic', lineHeight: 1.5 }}>
+      <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', fontStyle: 'italic', lineHeight: 1.5 }}>
         {data.summary}
       </Typography>
     </Stack>
@@ -285,10 +286,10 @@ export default function StopLossCard({ ticker, confluence = 'stop' }: Props) {
         <SectionHeader title="Stop-Loss" />
         {data && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-            <Typography variant="caption" sx={{ color: '#6b7280' }}>Price {money(data.price)}</Typography>
+            <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Price {money(data.price)}</Typography>
             {isHeld(data) && (
               <Chip size="small" label="Held" data-testid="stop-held-chip"
-                sx={{ fontSize: 11, height: 20, fontWeight: 600, bgcolor: '#1e3a2f', color: '#10b981', border: '1px solid #10b981' }} />
+                sx={{ fontSize: 11, height: 20, fontWeight: 600, bgcolor: 'var(--qc-tint-green)', color: '#10b981', border: '1px solid #10b981' }} />
             )}
           </Stack>
         )}

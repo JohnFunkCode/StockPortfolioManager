@@ -120,13 +120,13 @@ export default function SpreadPayoffCard({
       .append('g')
       .attr('transform', `translate(0,${HEIGHT - MARGIN.bottom})`)
       .call(d3.axisBottom(x).ticks(6).tickFormat((v) => `$${v}`))
-      .attr('color', '#6b7280')
+      .style('color', 'var(--qc-faint)')
       .style('font-size', '10px');
     svg
       .append('g')
       .attr('transform', `translate(${MARGIN.left},0)`)
       .call(d3.axisLeft(y).ticks(5).tickFormat((v) => `$${v}`))
-      .attr('color', '#6b7280')
+      .style('color', 'var(--qc-faint)')
       .style('font-size', '10px');
 
     // Zero P/L line.
@@ -136,7 +136,7 @@ export default function SpreadPayoffCard({
       .attr('x2', width - MARGIN.right)
       .attr('y1', y(0))
       .attr('y2', y(0))
-      .attr('stroke', '#6b7280')
+      .style('stroke', 'var(--qc-faint)')
       .attr('stroke-width', 1)
       .attr('opacity', 0.6);
 
@@ -159,7 +159,7 @@ export default function SpreadPayoffCard({
       .append('path')
       .attr('d', lineFor(expiry))
       .attr('fill', 'none')
-      .attr('stroke', '#f9fafb')
+      .style('stroke', 'var(--qc-text)')
       .attr('stroke-width', 2);
 
     // Vertical markers: strikes, breakeven, spot.

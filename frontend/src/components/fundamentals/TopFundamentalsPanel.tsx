@@ -89,7 +89,7 @@ export default function TopFundamentalsPanel({ variant = 'page' }: TopFundamenta
     <Box sx={{ overflowX: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: rail ? 12 : 13 }}>
         <thead>
-          <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid #1f2937' }}>
+          <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
             <th style={{ padding: '4px 6px', width: 32 }}>#</th>
             <th style={{ padding: '4px 6px' }}>Symbol</th>
             <th style={{ padding: '4px 6px', textAlign: 'right' }}>Score</th>
@@ -99,7 +99,7 @@ export default function TopFundamentalsPanel({ variant = 'page' }: TopFundamenta
         </thead>
         <tbody>
           {rankings.map((row) => (
-            <tr key={row.symbol} style={{ borderBottom: '1px solid #111827' }}>
+            <tr key={row.symbol} style={{ borderBottom: '1px solid var(--qc-surface-sunk)' }}>
               <td style={{ padding: '4px 6px', color: DIM }}>{row.rank}</td>
               <td style={{ padding: '4px 6px', fontWeight: 600 }}>
                 <RouterLink

@@ -58,9 +58,9 @@ export default function VolumeChart({ data, height = 100 }: Props) {
       .attr('y', (d) => yScale(d.volume))
       .attr('width', barWidth)
       .attr('height', (d) => H - yScale(d.volume))
-      .attr('fill', (d, i) => {
+      .style('fill', (d, i) => {
         const prev = data[i - 1];
-        if (!prev || d.close == null || prev.close == null) return '#6b7280';
+        if (!prev || d.close == null || prev.close == null) return 'var(--qc-faint)';
         return d.close >= prev.close ? '#10b981' : '#ef4444';
       })
       .attr('opacity', 0.7);
@@ -79,17 +79,17 @@ export default function VolumeChart({ data, height = 100 }: Props) {
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.timeFormat('%b %d') as never))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(3).tickFormat((v) => formatVolume(v as number)))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
 
     // Tooltip
     const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');
@@ -115,7 +115,7 @@ export default function VolumeChart({ data, height = 100 }: Props) {
 
   return (
     <Box>
-      <Typography variant="caption" sx={{ px: 1, color: '#9ca3af' }}>
+      <Typography variant="caption" sx={{ px: 1, color: 'var(--qc-muted)' }}>
         Volume
         <span style={{ color: '#f59e0b', marginLeft: 8 }}>╌ Avg</span>
       </Typography>

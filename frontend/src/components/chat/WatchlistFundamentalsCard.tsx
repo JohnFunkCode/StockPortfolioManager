@@ -21,7 +21,7 @@ const RED = '#ef4444';
 const LABEL_COLORS: Record<string, string> = {
   strong: GREEN,
   improving: '#34d399',
-  mixed: '#9ca3af',
+  mixed: 'var(--qc-muted)',
   weak: RED,
 };
 
@@ -78,7 +78,7 @@ export default function WatchlistFundamentalsCard() {
       <Box sx={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
-            <tr style={{ color: '#6b7280', textAlign: 'left', borderBottom: '1px solid #1f2937' }}>
+            <tr style={{ color: 'var(--qc-faint)', textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
               <th style={{ padding: '3px 6px' }}>Symbol</th>
               <th style={{ padding: '3px 6px' }}>Score</th>
               <th style={{ padding: '3px 6px', textAlign: 'right' }}>30d</th>
@@ -87,14 +87,14 @@ export default function WatchlistFundamentalsCard() {
           </thead>
           <tbody>
             {shown.map((row) => (
-              <tr key={row.symbol} style={{ borderBottom: '1px solid #111827' }}>
+              <tr key={row.symbol} style={{ borderBottom: '1px solid var(--qc-surface-sunk)' }}>
                 <td style={{ padding: '3px 6px', color: '#818cf8', fontWeight: 600 }}>
                   {row.symbol}
                 </td>
                 <td
                   style={{
                     padding: '3px 6px',
-                    color: LABEL_COLORS[row.fundamental_label ?? 'mixed'] ?? '#9ca3af',
+                    color: LABEL_COLORS[row.fundamental_label ?? 'mixed'] ?? 'var(--qc-muted)',
                     fontWeight: 600,
                   }}
                 >
@@ -104,7 +104,7 @@ export default function WatchlistFundamentalsCard() {
                   style={{
                     padding: '3px 6px',
                     textAlign: 'right',
-                    color: row.return_30d == null ? '#4b5563' : row.return_30d >= 0 ? GREEN : RED,
+                    color: row.return_30d == null ? 'var(--qc-dim)' : row.return_30d >= 0 ? GREEN : RED,
                   }}
                 >
                   {row.return_30d == null ? '—' : formatPercentRaw(row.return_30d, 1)}
@@ -113,7 +113,7 @@ export default function WatchlistFundamentalsCard() {
                   style={{
                     padding: '3px 6px',
                     textAlign: 'right',
-                    color: row.return_ytd == null ? '#4b5563' : row.return_ytd >= 0 ? GREEN : RED,
+                    color: row.return_ytd == null ? 'var(--qc-dim)' : row.return_ytd >= 0 ? GREEN : RED,
                   }}
                 >
                   {row.return_ytd == null ? '—' : formatPercentRaw(row.return_ytd, 1)}

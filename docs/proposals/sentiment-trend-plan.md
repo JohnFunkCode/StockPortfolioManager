@@ -89,8 +89,9 @@ This shaped every decision below, so it is recorded first.
    `COALESCE(published_at, fetched_at)`, so an old article fetched recently landed in a bucket
    outside the window; and it bucketed by UTC date, not Eastern.
    - `get_scored_articles_since(symbol, since)` returns `published_at`, `fetched_at` and
-     `sentiment` for scored articles. The service passes a day of slack, and analytics trims the
-     window exactly.
+     `sentiment` for scored articles **fetched** since `since`. That set always contains the
+     window, because an article is published before it is fetched. The service passes a day of
+     slack, and analytics trims the window exactly.
    - `first_article_fetched_at(symbol)` gives where the symbol's history starts.
    - `get_sentiment_trend` on the repository is gone (its only caller was the service).
 3. **`SentimentService.get_sentiment_trend(symbol, days=30, bucket="day")`:**
@@ -164,7 +165,11 @@ This shaped every decision below, so it is recorded first.
 - **`published_at` is free-form text.** Yahoo's `pubDate` comes through as given (`…Z` or
   `…+00:00`), and the column is `TEXT`. That's why the date is parsed in Python, with a fallback
   to `fetched_at`, rather than cast in SQL: one malformed value would fail a SQL cast for the whole
-  query. The SQL prefilter only compares text, with a day of slack.
+  query. **Don't prefilter on `published_at` either**, not even as text. PR 1 first filtered on
+  `COALESCE(published_at, fetched_at) >= since`, and review (#435) showed that `10/23/2026` or a
+  leading space sorts before an ISO cutoff, which silently dropped articles the parser would have
+  dated from `fetched_at`. The prefilter is now `fetched_at` alone, which is always our own ISO
+  UTC stamp.
 - **The local unit database is Postgres.app, which refuses a sandboxed Claude process** ("You
   did not allow Claude to connect without a password"). Unless Claude is added under Postgres.app's
   App Permissions, the DB-backed suites (`test_repositories_db`, `test_api_smoke`) run only in CI's
@@ -178,3 +183,9 @@ This shaped every decision below, so it is recorded first.
   route, `NewsStore.get_scored_articles_since` + `first_article_fetched_at`, and the notifier on
   `classify_flip`. Flip words are `improving`/`deteriorating` (see Decisions). The daily response
   shape is unchanged; its dates are now Eastern and windowed on the article date.
+- 2026-10-24 — #435 review addressed:
+  - the prefilter moved to `fetched_at` (see Gotchas);
+  - `weekly_buckets` split into `_week_bucket` plus a flip pass, taking it from CC 12 / CogC 16 to
+    7 / 6 (radon 6.0.1, complexipy 8.1.0);
+  - the weekly window is capped at `MAX_TREND_WEEKS = 104`;
+  - new tests pin 9 vs 10 articles, a one-week window, and history starting on a week edge.

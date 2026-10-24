@@ -444,6 +444,10 @@ class NewsCollector:
 # Service
 # ---------------------------------------------------------------------------
 
+# The widest weekly trend window served (two years); larger requests are clamped.
+MAX_TREND_WEEKS = 104
+
+
 class SentimentService:
     def __init__(self, news_repository: NewsStore,
                  sentiment_repository: SentimentStore,
@@ -567,7 +571,9 @@ class SentimentService:
         if bucket == "day":
             start = today - timedelta(days=days)
         else:
-            weeks = -(-days // 7)
+            # Two years of weeks is the most the chart can use; the bound keeps
+            # a stray days=100000 from building 14,000 empty buckets (#435 review).
+            weeks = min(-(-days // 7), MAX_TREND_WEEKS)
             start = sentiment_math.week_start(today) - timedelta(weeks=weeks - 1)
         # One day of slack: the SQL compares UTC text, the buckets are Eastern.
         rows = self._news.get_scored_articles_since(

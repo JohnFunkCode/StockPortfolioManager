@@ -128,6 +128,34 @@ def week_start(day: datetime.date) -> datetime.date:
     return day - datetime.timedelta(days=day.weekday())
 
 
+def _week_bucket(
+    start: datetime.date,
+    days: dict,
+    *,
+    today: datetime.date,
+    history_start: Optional[datetime.date],
+) -> dict:
+    """One Monday-start week summed from the per-day tally, with its flags (no flip)."""
+    end = start + datetime.timedelta(days=6)
+    week = [days.get(start + datetime.timedelta(days=i), (0, 0, 0)) for i in range(7)]
+    pos, neg, neu = (sum(day[k] for day in week) for k in range(3))
+    total = pos + neg + neu
+    return {
+        "week_start":     start.isoformat(),
+        "week_end":       end.isoformat(),
+        "article_count":  total,
+        "positive_count": pos,
+        "negative_count": neg,
+        "neutral_count":  neu,
+        "net_score":      net_score(pos, neg, total),
+        "label":          majority_label(pos, neg, neu),
+        "thin":           0 < total < THIN_WEEK_ARTICLES,
+        "in_progress":    start <= today <= end,
+        "before_history": total == 0 and (history_start is None or end < history_start),
+        "flip":           None,
+    }
+
+
 def weekly_buckets(
     articles: Iterable[dict],
     *,
@@ -144,44 +172,22 @@ def weekly_buckets(
     previous week with articles, by ``classify_flip``.
     """
     weeks = max(1, int(weeks))
-    last = week_start(today)
-    first = last - datetime.timedelta(weeks=weeks - 1)
+    first = week_start(today) - datetime.timedelta(weeks=weeks - 1)
     days = _tally(articles, first, today)
+    buckets = [
+        _week_bucket(first + datetime.timedelta(weeks=i), days,
+                     today=today, history_start=history_start)
+        for i in range(weeks)
+    ]
 
-    buckets = []
-    prev_label: Optional[str] = None
-    for i in range(weeks):
-        start = first + datetime.timedelta(weeks=i)
-        end = start + datetime.timedelta(days=6)
-        pos = neg = neu = 0
-        for offset in range(7):
-            counts = days.get(start + datetime.timedelta(days=offset))
-            if counts:
-                pos, neg, neu = pos + counts[0], neg + counts[1], neu + counts[2]
-        total = pos + neg + neu
-        label = majority_label(pos, neg, neu)
-        flip = classify_flip(prev_label, label) if label else None
-        if label:
-            prev_label = label
-        buckets.append({
-            "week_start":     start.isoformat(),
-            "week_end":       end.isoformat(),
-            "article_count":  total,
-            "positive_count": pos,
-            "negative_count": neg,
-            "neutral_count":  neu,
-            "net_score":      net_score(pos, neg, total),
-            "label":          label,
-            "thin":           0 < total < THIN_WEEK_ARTICLES,
-            "in_progress":    start <= today <= end,
-            "before_history": total == 0 and (history_start is None or end < history_start),
-            "flip":           flip,
-        })
+    labelled = [b for b in buckets if b["label"]]
+    for prev, cur in zip(labelled, labelled[1:]):
+        cur["flip"] = classify_flip(prev["label"], cur["label"])
 
     return {
         "weeks":               weeks,
         "history_start":       history_start.isoformat() if history_start else None,
-        "weeks_with_articles": sum(1 for b in buckets if b["article_count"]),
+        "weeks_with_articles": len(labelled),
         "total_articles":      sum(b["article_count"] for b in buckets),
         "thin_threshold":      THIN_WEEK_ARTICLES,
         "buckets":             buckets,

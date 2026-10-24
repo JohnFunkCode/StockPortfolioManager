@@ -280,6 +280,14 @@ class TestServiceSurfaces(SentimentServiceTestBase):
         self.assertEqual(out["weeks_with_articles"], 1)
         self.news.get_scored_articles_since.assert_called_once_with("WDC", "2026-09-27")
 
+    def test_weekly_window_is_clamped(self):
+        self.news.get_scored_articles_since.return_value = []
+        self.news.first_article_fetched_at.return_value = None
+        out = self.service.get_sentiment_trend(
+            "wdc", days=100_000, bucket="week", today=date(2026, 10, 23))
+        self.assertEqual(out["weeks"], sentiment_mod.MAX_TREND_WEEKS)
+        self.assertEqual(len(out["buckets"]), sentiment_mod.MAX_TREND_WEEKS)
+
     def test_unknown_bucket_is_refused(self):
         with self.assertRaises(ValueError):
             self.service.get_sentiment_trend("wdc", bucket="month")

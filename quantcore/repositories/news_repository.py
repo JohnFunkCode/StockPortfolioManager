@@ -246,21 +246,26 @@ class NewsStore:
         return {sym: _summarize(sym, days, rs) for sym, rs in grouped.items()}
 
     def get_scored_articles_since(self, symbol: str, since: str) -> list[dict]:
-        """Scored articles whose ``COALESCE(published_at, fetched_at)`` is on or after ``since``.
+        """Scored articles fetched on or after ``since`` — a superset of the trend window.
 
         Rows: ``published_at``, ``fetched_at``, ``sentiment``. The trend is
-        bucketed from these by ``quantcore.analytics.sentiment`` (issue #411):
-        filtering and grouping on the same date, in Eastern time, is analytics,
-        not SQL. ``since`` is an ISO date or timestamp; the comparison is on the
-        text, so pass a day of slack for the UTC/Eastern offset.
+        bucketed from these by ``quantcore.analytics.sentiment`` (issue #411),
+        which dates each article and trims the window exactly.
+
+        The prefilter is on ``fetched_at`` alone, deliberately. ``published_at``
+        is free text from the feed (``10/23/2026``, a leading space), and
+        comparing it as text would drop rows the parser rescues by falling back
+        to ``fetched_at``. ``fetched_at`` is always our own ISO UTC stamp, and an
+        article is published before it is fetched, so every article dated inside
+        the window was fetched inside it too. ``since`` is an ISO date; pass a
+        day of slack for the UTC/Eastern offset.
         """
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT published_at, fetched_at, sentiment
                 FROM news_articles
-                WHERE symbol = ? AND sentiment IS NOT NULL
-                  AND COALESCE(published_at, fetched_at) >= ?
+                WHERE symbol = ? AND sentiment IS NOT NULL AND fetched_at >= ?
                 """,
                 (symbol.upper(), since),
             ).fetchall()

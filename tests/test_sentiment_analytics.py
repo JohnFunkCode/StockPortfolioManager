@@ -154,6 +154,32 @@ class TestWeeklyBuckets(unittest.TestCase):
         out = self.build([art("2026-10-25T15:00:00+00:00", "negative")])
         self.assertEqual(out["total_articles"], 0)
 
+    def test_thin_threshold_is_exactly_ten(self):
+        def week_of(n):
+            return [art(f"2026-10-20T{10 + i % 10:02d}:00:00+00:00", "neutral")
+                    for i in range(n)]
+        nine = self.build(week_of(9), weeks=1)["buckets"][0]
+        ten = self.build(week_of(10), weeks=1)["buckets"][0]
+        self.assertEqual((nine["article_count"], nine["thin"]), (9, True))
+        self.assertEqual((ten["article_count"], ten["thin"]), (10, False))
+
+    def test_single_week_window(self):
+        out = self.build([art("2026-10-21T15:00:00+00:00", "negative")], weeks=1)
+        self.assertEqual(len(out["buckets"]), 1)
+        only = out["buckets"][0]
+        self.assertEqual(only["week_start"], "2026-10-19")
+        self.assertTrue(only["in_progress"])
+        self.assertIsNone(only["flip"])          # nothing earlier to flip from
+        self.assertEqual(out["weeks_with_articles"], 1)
+
+    def test_history_starting_on_a_week_edge(self):
+        # History starts Monday Oct 12: the week ending Sunday Oct 11 is before
+        # it, the week starting Oct 12 is measured even though it is empty.
+        out = self.build([], weeks=3, history_start=date(2026, 10, 12))
+        by_week = {b["week_start"]: b["before_history"] for b in out["buckets"]}
+        self.assertEqual(by_week, {"2026-10-05": True, "2026-10-12": False,
+                                   "2026-10-19": False})
+
     def test_weeks_floor_is_one(self):
         self.assertEqual(len(self.build([], weeks=0)["buckets"]), 1)
 

@@ -117,6 +117,11 @@ describe('StopLossCard', () => {
     const now = screen.getByTestId('stop-ladder-now');
     expect(now.textContent).toBe('now $180.00');
     expect(now.closest('[data-testid="stop-ladder-tick"]')).toBeNull();
+    // Tick labels are blocks: an inline one drops onto the parent's line box and
+    // overlapped "now" in the Sidekick rail (measured on test; jsdom can't see it).
+    for (const tick of screen.getAllByTestId('stop-ladder-tick')) {
+      expect(getComputedStyle(tick.lastElementChild as Element).display).toBe('block');
+    }
 
     expect(screen.getByTestId('stop-context').textContent).toContain('2.3% float');
     expect(screen.getByTestId('stop-flags').textContent).toContain('bullish macd');

@@ -180,7 +180,9 @@ function LadderAxis({ ticks, hi, at }: { ticks: number[]; hi: number; at: (v: nu
           <Box key={v} data-testid="stop-ladder-tick"
             sx={{ position: 'absolute', left: `${at(v)}%`, top: 0, transform: 'translateX(-50%)', textAlign: 'center' }}>
             <Box sx={{ width: '1px', height: 4, bgcolor: 'var(--qc-faint)', mx: 'auto' }} />
-            <Typography variant="caption" sx={{ ...label, color: 'var(--qc-faint)' }}>${v.toLocaleString('en-US')}</Typography>
+            {/* Block, not the caption's inline default: an inline label sits on the
+                parent's taller line box, 8px lower, and ran into "now" (#423 on test). */}
+            <Typography variant="caption" sx={{ ...label, display: 'block', color: 'var(--qc-faint)' }}>${v.toLocaleString('en-US')}</Typography>
           </Box>
         ))}
         <Box sx={{ position: 'absolute', right: 0, top: 0, width: '1px', height: 4, bgcolor: 'var(--qc-text-soft)' }} />

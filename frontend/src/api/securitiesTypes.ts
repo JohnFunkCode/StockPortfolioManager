@@ -217,6 +217,10 @@ export interface SupportConfluenceResponse {
   error?: string; // set (with only symbol) when the price fetch fails server-side
 }
 
+/** technical.primary_support when no support sits below price, so the stop is
+ *  anchored on price itself. Mirrors NO_SUPPORT in quantcore/analytics/stops.py. */
+export const NO_SUPPORT_BELOW_PRICE = 'price';
+
 // Stop-loss synthesis (#399). Every number here is computed server-side in
 // quantcore/analytics/stops.py; the card only lays them out.
 export interface ConfluenceStop {
@@ -269,6 +273,7 @@ export interface StopLossResponse {
     rsi: number;
     macd_crossover: string;
     gamma_wall: number | null;
+    /** NO_SUPPORT_BELOW_PRICE when no support sits below price: the stop is then 2% under price. */
     primary_support: string;
     primary_support_price: number;
     support_levels: Record<string, number>;

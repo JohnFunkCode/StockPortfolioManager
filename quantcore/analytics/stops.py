@@ -24,6 +24,14 @@ SUPPORT_BUFFERS: dict[str, float] = {
     "bb_lower":   0.020,
 }
 DEFAULT_SUPPORT_BUFFER = 0.014
+# With no support below price (price is under every candidate, the lower
+# Bollinger band included) the stop is anchored on price itself. It used to
+# anchor on the lower band, which then sits above price, so the stop could land
+# above price too. The value reaches clients as technical.primary_support and
+# is mirrored as NO_SUPPORT_BELOW_PRICE in frontend/src/api/securitiesTypes.ts;
+# change both together (tests/test_analytics_stops.py checks they agree).
+NO_SUPPORT = "price"
+NO_SUPPORT_BUFFER = 0.020
 
 
 def squeeze_potential(short_float_pct: float, short_ratio: float) -> str:
@@ -59,14 +67,15 @@ def candidate_supports(
 
 
 def technical_stop(
-    sorted_supports: list[tuple[str, float]], bb_lower: float
+    sorted_supports: list[tuple[str, float]], price: float
 ) -> tuple[str, float, float]:
     """``(primary_name, primary_level, stop)``: a buffer under the highest
-    support, or 2% under the lower Bollinger band when there is none."""
+    support below price, or, with none, ``NO_SUPPORT_BUFFER`` under price
+    itself. Either way the stop is below price."""
     if sorted_supports:
         name, level = sorted_supports[0]
         return name, level, round(level * (1 - SUPPORT_BUFFERS.get(name, DEFAULT_SUPPORT_BUFFER)), 2)
-    return "bb_lower", bb_lower, round(bb_lower * 0.980, 2)
+    return NO_SUPPORT, price, round(price * (1 - NO_SUPPORT_BUFFER), 2)
 
 
 def distance_pct(level: float, price: float) -> float:
@@ -158,6 +167,13 @@ def stop_flags(
     return flags
 
 
+def _support_line(primary_name: str, primary_level: float) -> str:
+    if primary_name == NO_SUPPORT:
+        return (f"No support below price — the technical stop is "
+                f"{NO_SUPPORT_BUFFER * 100:.0f}% under price.")
+    return f"Primary support: {primary_name.replace('_', ' ')} at ${primary_level:.2f}."
+
+
 def stop_summary(
     *,
     symbol: str,
@@ -185,7 +201,7 @@ def stop_summary(
         f"{symbol} at ${price:.2f} — {trend} "
         f"({vwap_bars} bars {'above' if above_vwap else 'below'} VWAP ${vwap:.2f}).",
         f"Momentum: MACD {mom}, RSI {rsi:.0f}.",
-        f"Primary support: {primary_name.replace('_', ' ')} at ${primary_level:.2f}.",
+        _support_line(primary_name, primary_level),
         f"Technical stop: ${technical_stop_price:.2f} ({technical_dist_pct:.1f}% from price).",
     ]
     if stop_inside_noise:

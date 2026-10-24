@@ -11,6 +11,7 @@
 import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useStopLoss } from '../../hooks/useSecurities';
+import { NO_SUPPORT_BELOW_PRICE } from '../../api/securitiesTypes';
 import type {
   DrawdownReplayRow,
   StopLossConfluence,
@@ -91,13 +92,19 @@ function ConfluenceTile({ data }: { data: StopLossResponse }) {
   );
 }
 
+function technicalAnchor(data: StopLossResponse): string {
+  const t = data.technical;
+  if (t.primary_support === NO_SUPPORT_BELOW_PRICE) return 'no support below price';
+  return `under ${t.primary_support.replace(/_/g, ' ')} ${money(t.primary_support_price)}`;
+}
+
 function StopTiles({ data }: { data: StopLossResponse }) {
   const s = data.stops;
   return (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
       <StopTile testId="stop-tile-technical" title="Technical" color={TECHNICAL}
         price={money(s.technical_stop)}
-        detail={`${signedPct(s.technical_stop_distance_pct)} · under ${data.technical.primary_support.replace(/_/g, ' ')} ${money(data.technical.primary_support_price)}`}
+        detail={`${signedPct(s.technical_stop_distance_pct)} · ${technicalAnchor(data)}`}
         warning={s.technical_stop_inside_noise_floor
           ? `Inside the noise floor: closer than the worst 1-day drop (${data.drawdown.max_1day_pct.toFixed(1)}%).`
           : undefined} />

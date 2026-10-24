@@ -1,6 +1,7 @@
 """Unit tests for quantcore.analytics.stops — technical and trailing stop math."""
 
 import unittest
+from pathlib import Path
 
 from quantcore.analytics import stops
 
@@ -35,8 +36,29 @@ class TechnicalStopTests(unittest.TestCase):
         self.assertEqual(stops.technical_stop([("bb_lower", 100.0)], 90.0),
                          ("bb_lower", 100.0, 98.0))
 
-    def test_falls_back_to_two_pct_under_lower_band(self):
-        self.assertEqual(stops.technical_stop([], 90.0), ("bb_lower", 90.0, 88.2))
+    def test_no_support_below_price_anchors_on_price(self):
+        self.assertEqual(stops.technical_stop([], 90.0), ("price", 90.0, 88.2))
+
+    def test_below_the_lower_band_the_stop_stays_under_price(self):
+        # GEV on test, 2026-10-23: price $815 under a $834.53 lower band. The old
+        # fallback put the stop 2% under the band, at $817.84 — above price.
+        supports = stops.candidate_supports(815.0, 820.0, 934.61, 900.0, 834.53)
+        self.assertEqual(supports, [])
+        name, level, stop = stops.technical_stop(supports, 815.0)
+        self.assertEqual((name, level, stop), ("price", 815.0, 798.7))
+        self.assertLess(stop, 815.0)
+
+    def test_sentinel_matches_the_frontend_mirror(self):
+        # The card keys its "no support below price" wording off this value.
+        ts = (Path(__file__).parents[1] / "frontend/src/api/securitiesTypes.ts").read_text()
+        self.assertIn(f"export const NO_SUPPORT_BELOW_PRICE = '{stops.NO_SUPPORT}';", ts)
+
+    def test_stop_is_below_price_wherever_price_sits(self):
+        levels = dict(gamma_wall=98.0, vwap=101.0, sma_20=99.0, bb_lower=96.0)
+        for price in (90.0, 95.0, 96.5, 97.9, 98.5, 100.0, 105.0):
+            supports = stops.candidate_supports(price, **levels)
+            _, _, stop = stops.technical_stop(supports, price)
+            self.assertLess(stop, price, price)
 
 
 class TrailingTests(unittest.TestCase):
@@ -105,12 +127,22 @@ class FlagsAndSummaryTests(unittest.TestCase):
                                  "technical_stop_inside_noise_floor", "squeeze_potential_high",
                                  "elevated_recent_volatility"])
 
-    def test_summary_mentions_warning_and_position_only_when_relevant(self):
-        base = dict(symbol="XYZ", price=100.0, above_vwap=True, vwap_bars=3, vwap=98.0,
+    def test_summary_says_when_there_is_no_support_below_price(self):
+        text = stops.stop_summary(**{**self._summary_kwargs(), "primary_name": "price",
+                                     "primary_level": 815.0})
+        self.assertIn("No support below price — the technical stop is 2% under price.", text)
+        self.assertNotIn("Primary support", text)
+
+    @staticmethod
+    def _summary_kwargs():
+        return dict(symbol="XYZ", price=100.0, above_vwap=True, vwap_bars=3, vwap=98.0,
                     macd_crossover="bullish", rsi=50.0, primary_name="sma_20",
                     primary_level=96.0, technical_stop_price=94.66, technical_dist_pct=-5.34,
                     stop_inside_noise=False, max_1day_pct=4.0, trailing_pct=8.0,
                     trailing_stop_price=92.0, cost_basis=0.0, shares=0, position={})
+
+    def test_summary_mentions_warning_and_position_only_when_relevant(self):
+        base = self._summary_kwargs()
         plain = stops.stop_summary(**base)
         self.assertNotIn("WARNING", plain)
         self.assertNotIn("Position:", plain)

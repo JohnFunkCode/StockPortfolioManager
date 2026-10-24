@@ -15,7 +15,7 @@ from quantcore.services import recommendations as rec_module
 from quantcore.services.prices import PricesService
 from tests.test_stop_loss_golden import _DRAWDOWN, _Fake, _build, _si
 from tests.test_prices_service import bars
-from tests.test_support_confluence import _FULL_OPTIONS, _FULL_PRICES
+from tests.test_support_confluence import _FULL_OPTIONS, _FULL_PRICES, _price
 
 # Noise floors that make the nearest zone's stop (98.21, −1.79%) sit inside
 # it (6.1%) or clear it (1.5%).
@@ -170,6 +170,27 @@ class SharedGatherTests(unittest.TestCase):
         svc._yf = _Fake(close_thread_caches=closes, **_si(0.05, 2.0))
         svc.get_stop_loss_analysis("xyz", confluence="full")
         self.assertEqual(closes.calls, 6 + 14)   # stop inputs + confluence sources
+
+
+class BreakdownStopTests(unittest.TestCase):
+    """Price under every candidate support, the lower Bollinger band included
+    (GEV on test, 2026-10-23: $815 against a $834.53 band, stop $817.84)."""
+
+    def test_technical_stop_stays_below_price(self):
+        prices = _prices(
+            get_stock_price=_price(bollinger_bands={"upper": 130.0, "middle": 120.0,
+                                                    "lower": 105.0}),
+            get_vwap={"vwap": 112.0, "position": "below_vwap", "consecutive_bars_below": 8},
+        )
+        options = {**_FULL_OPTIONS, "get_delta_adjusted_oi": {"gamma_wall_strike": 102.0}}
+        result = _service(prices, options).get_stop_loss_analysis("xyz", confluence="stop")
+        s, t = result["stops"], result["technical"]
+        self.assertEqual((t["primary_support"], t["primary_support_price"]), ("price", 100.0))
+        self.assertEqual((s["technical_stop"], s["technical_stop_distance_pct"]), (98.0, -2.0))
+        self.assertIn("No support below price", result["summary"])
+        # A drop now has to reach the stop to count as hitting it.
+        self.assertTrue(all(r["hits_technical"] == (r["price"] <= 98.0)
+                            for r in result["drawdown_replay"]))
 
 
 class OwnerPositionTests(unittest.TestCase):

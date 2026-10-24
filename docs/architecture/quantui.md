@@ -72,7 +72,8 @@ The security detail page's Technical Analysis tab ends with two cards that share
 
 - The **Stop-Loss card** (`frontend/src/components/securities/StopLossCard.tsx`) shows the
   technical, trailing and confluence stops side by side, a ladder replaying the worst 1-day,
-  intraday, 5-day and recent drops from today's price against them, the context (VWAP, RSI/MACD,
+  intraday, 5-day and recent drops from today's price against them (bars on a shared price scale,
+  each stop a line, and under each drop the stops it would trigger, in words), the context (VWAP, RSI/MACD,
   short interest), and — with a Held chip — the P&L at each stop. It asks for
   `GET /api/securities/{ticker}/stop-loss?confluence=full&position=mine`: the server reads the
   caller's own open lots, so the browser never sends a cost basis. Every number is server-side; the

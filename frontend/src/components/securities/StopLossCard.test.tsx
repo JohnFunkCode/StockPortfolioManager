@@ -103,9 +103,20 @@ describe('StopLossCard', () => {
     const fiveDay = screen.getByTestId('replay-max_5day');
     expect(fiveDay.textContent).toContain('Worst 5-day drop');
     expect(fiveDay.textContent).toContain('-11.4% → $159.48');
-    expect(within(fiveDay).getAllByTitle('This drop reaches the stop')).toHaveLength(3);
-    expect(within(screen.getByTestId('replay-recent_1day'))
-      .getAllByTitle('This drop stays above the stop')).toHaveLength(3);
+    // The verdict is in words, from the server's hits_* flags.
+    expect(screen.getByTestId('replay-verdict-max_5day').textContent)
+      .toBe('TriggersTechnicalTrailingConfluence');
+    expect(screen.getByTestId('replay-verdict-recent_1day').textContent).toBe('Clears every stop');
+    expect(screen.queryByText('Tr')).toBeNull();
+
+    // A price scale under the bars. The scale runs $158.45–$180: $160 (7% in) and
+    // $180 (the right end) sit too near an edge to centre a label, so they're left out.
+    expect(screen.getAllByTestId('stop-ladder-tick').map((t) => t.textContent))
+      .toEqual(['$165', '$170', '$175']);
+    // Today's price is on its own line, not among the ticks it could collide with.
+    const now = screen.getByTestId('stop-ladder-now');
+    expect(now.textContent).toBe('now $180.00');
+    expect(now.closest('[data-testid="stop-ladder-tick"]')).toBeNull();
 
     expect(screen.getByTestId('stop-context').textContent).toContain('2.3% float');
     expect(screen.getByTestId('stop-flags').textContent).toContain('bullish macd');
@@ -114,6 +125,24 @@ describe('StopLossCard', () => {
     // Not held: no chip and no P&L block.
     expect(screen.queryByTestId('stop-held-chip')).toBeNull();
     expect(screen.queryByTestId('stop-position')).toBeNull();
+  });
+
+  it('names only the stops a drop triggers, and formats a large price scale', async () => {
+    const base = response();
+    mockApi([['/stop-loss', response({
+      price: 2345.0,
+      stops: { ...base.stops, technical_stop: 2300.0, trailing_stop_price: 2150.0, confluence_stop: null },
+      drawdown_replay: [
+        { key: 'max_1day', label: 'Worst 1-day drop', drop_pct: -4.0, price: 2251.2,
+          hits_technical: true, hits_trailing: false, hits_confluence: null },
+      ],
+    })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    expect((await screen.findByTestId('replay-verdict-max_1day')).textContent).toBe('TriggersTechnical');
+    const ticks = screen.getAllByTestId('stop-ladder-tick').map((t) => t.textContent);
+    expect(ticks.length).toBeGreaterThan(1);
+    for (const t of ticks) expect(t).toMatch(/^\$2,\d{3}$/);
+    expect(screen.getByTestId('stop-ladder-now').textContent).toBe('now $2345.00');
   });
 
   it('says when there is no support below price instead of naming one', async () => {
@@ -138,7 +167,7 @@ describe('StopLossCard', () => {
       .toContain('Inside the noise floor: closer than the worst 1-day drop (-1.5%)');
   });
 
-  it('shows the reason when no confluence stop qualifies, and drops its hit chip', async () => {
+  it('shows the reason when no confluence stop qualifies, and leaves it out of the verdicts', async () => {
     const base = response();
     mockApi([['/stop-loss', response({
       stops: {
@@ -151,7 +180,7 @@ describe('StopLossCard', () => {
     const tile = await screen.findByTestId('stop-tile-confluence');
     expect(tile.textContent).toContain('—');
     expect(tile.textContent).toContain('No support zone where 2 or more methods agree.');
-    expect(within(screen.getByTestId('replay-max_5day')).getAllByTitle(/This drop/)).toHaveLength(2);
+    expect(screen.getByTestId('replay-verdict-max_5day').textContent).toBe('TriggersTechnicalTrailing');
   });
 
   it('names the skipped zone when the stop stepped past the noise floor', async () => {
@@ -166,6 +195,19 @@ describe('StopLossCard', () => {
     renderWithProviders(<StopLossCard ticker="XYZ" />);
     expect((await screen.findByTestId('stop-tile-confluence')).textContent)
       .toContain('Stepped past $178.00');
+  });
+
+  it('wraps its sections on its own width, not the viewport breakpoint', async () => {
+    // In the Sidekick rail the viewport is wide but the card is ~325px: a
+    // viewport breakpoint kept the tiles in one row and ran the third off-screen.
+    mockApi([['/stop-loss', response({ position: HELD, position_source: 'lots' })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    await screen.findByTestId('stop-tiles');
+    const wraps = (id: string) => getComputedStyle(screen.getByTestId(id));
+    for (const id of ['stop-tiles', 'stop-details', 'replay-max_5day']) {
+      expect(wraps(id).flexDirection, id).toBe('row');
+      expect(wraps(id).flexWrap, id).toBe('wrap');
+    }
   });
 
   it('shows the Held chip and P&L at each stop for a held symbol', async () => {

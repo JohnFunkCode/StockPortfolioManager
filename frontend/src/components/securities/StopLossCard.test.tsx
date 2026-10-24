@@ -103,9 +103,16 @@ describe('StopLossCard', () => {
     const fiveDay = screen.getByTestId('replay-max_5day');
     expect(fiveDay.textContent).toContain('Worst 5-day drop');
     expect(fiveDay.textContent).toContain('-11.4% → $159.48');
-    expect(within(fiveDay).getAllByTitle('This drop reaches the stop')).toHaveLength(3);
-    expect(within(screen.getByTestId('replay-recent_1day'))
-      .getAllByTitle('This drop stays above the stop')).toHaveLength(3);
+    // The verdict is in words, from the server's hits_* flags.
+    expect(screen.getByTestId('replay-verdict-max_5day').textContent)
+      .toBe('TriggersTechnicalTrailingConfluence');
+    expect(screen.getByTestId('replay-verdict-recent_1day').textContent).toBe('Clears every stop');
+    expect(screen.queryByText('Tr')).toBeNull();
+
+    // A price scale under the bars: round-dollar ticks, today's price at the right end.
+    const axis = screen.getByTestId('stop-ladder-axis');
+    for (const tick of ['$160', '$165', '$170', '$175']) expect(axis.textContent).toContain(tick);
+    expect(axis.textContent).toContain('$180.00 now');
 
     expect(screen.getByTestId('stop-context').textContent).toContain('2.3% float');
     expect(screen.getByTestId('stop-flags').textContent).toContain('bullish macd');
@@ -138,7 +145,7 @@ describe('StopLossCard', () => {
       .toContain('Inside the noise floor: closer than the worst 1-day drop (-1.5%)');
   });
 
-  it('shows the reason when no confluence stop qualifies, and drops its hit chip', async () => {
+  it('shows the reason when no confluence stop qualifies, and leaves it out of the verdicts', async () => {
     const base = response();
     mockApi([['/stop-loss', response({
       stops: {
@@ -151,7 +158,7 @@ describe('StopLossCard', () => {
     const tile = await screen.findByTestId('stop-tile-confluence');
     expect(tile.textContent).toContain('—');
     expect(tile.textContent).toContain('No support zone where 2 or more methods agree.');
-    expect(within(screen.getByTestId('replay-max_5day')).getAllByTitle(/This drop/)).toHaveLength(2);
+    expect(screen.getByTestId('replay-verdict-max_5day').textContent).toBe('TriggersTechnicalTrailing');
   });
 
   it('names the skipped zone when the stop stepped past the noise floor', async () => {

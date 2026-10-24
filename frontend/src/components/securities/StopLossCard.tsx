@@ -10,6 +10,7 @@
  */
 import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Tooltip, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import { scaleLinear } from 'd3';
 import { useStopLoss } from '../../hooks/useSecurities';
 import { NO_SUPPORT_BELOW_PRICE } from '../../api/securitiesTypes';
 import type {
@@ -18,7 +19,6 @@ import type {
   StopLossPosition,
   StopLossResponse,
 } from '../../api/securitiesTypes';
-import { tint } from '../../themes';
 
 interface Props {
   ticker: string;
@@ -117,42 +117,77 @@ function StopTiles({ data }: { data: StopLossResponse }) {
   );
 }
 
-interface LadderStop { label: string; color: string; price: number }
+interface LadderStop {
+  label: string; color: string; price: number;
+  hitKey: 'hits_technical' | 'hits_trailing' | 'hits_confluence';
+}
 
 function ladderStops(data: StopLossResponse): LadderStop[] {
   const out: LadderStop[] = [
-    { label: 'Technical', color: TECHNICAL, price: data.stops.technical_stop },
-    { label: 'Trailing', color: TRAILING, price: data.stops.trailing_stop_price },
+    { label: 'Technical', color: TECHNICAL, price: data.stops.technical_stop, hitKey: 'hits_technical' },
+    { label: 'Trailing', color: TRAILING, price: data.stops.trailing_stop_price, hitKey: 'hits_trailing' },
   ];
   if (data.stops.confluence_stop) {
-    out.push({ label: 'Confluence', color: CONFLUENCE, price: data.stops.confluence_stop.stop });
+    out.push({ label: 'Confluence', color: CONFLUENCE, price: data.stops.confluence_stop.stop, hitKey: 'hits_confluence' });
   }
   return out;
 }
 
-function HitChips({ row }: { row: DrawdownReplayRow }) {
-  const hits: [string, string, boolean | null][] = [
-    ['T', TECHNICAL, row.hits_technical],
-    ['Tr', TRAILING, row.hits_trailing],
-    ['C', CONFLUENCE, row.hits_confluence],
-  ];
+/** Which stops a replayed drop would trigger, in words (the server's hits_* verdicts). */
+function ReplayVerdict({ row, stops }: { row: DrawdownReplayRow; stops: LadderStop[] }) {
+  const hit = stops.filter((s) => row[s.hitKey] === true);
   return (
-    <Stack direction="row" spacing={0.5} sx={{ minWidth: 96, justifyContent: 'flex-end' }}>
-      {hits.filter(([, , hit]) => hit !== null).map(([label, color, hit]) => (
-        <Chip key={label} size="small" label={label}
-          title={hit ? 'This drop reaches the stop' : 'This drop stays above the stop'}
-          sx={{
-            fontSize: 10, height: 18, minWidth: 26, border: '1px solid',
-            borderColor: hit ? color : 'var(--qc-line)',
-            color: hit ? color : 'var(--qc-dim)',
-            bgcolor: hit ? tint(color) : 'transparent',
-          }} />
-      ))}
+    <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap
+      data-testid={`replay-verdict-${row.key}`}>
+      {hit.length === 0 ? (
+        <Caption>Clears every stop</Caption>
+      ) : (
+        <>
+          <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)' }}>Triggers</Typography>
+          {hit.map((s) => (
+            <Stack key={s.label} direction="row" spacing={0.4} alignItems="center">
+              <Box sx={{ width: 8, height: 8, borderRadius: 0.25, bgcolor: s.color }} />
+              <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', fontWeight: 600 }}>{s.label}</Typography>
+            </Stack>
+          ))}
+        </>
+      )}
     </Stack>
   );
 }
 
-/** Replay rows as bars falling from today's price, with each stop as a line. */
+// The label column and the track share these bases, so the axis row wraps exactly
+// as the replay rows do: side by side on the page, stacked in the Sidekick rail.
+const LABEL_COL = { flex: '0 0 150px' } as const;
+const TRACK_COL = { flex: '1 1 160px' } as const;
+
+/** Round-dollar ticks under the tracks, with today's price at the right end. */
+function LadderAxis({ ticks, hi, at }: { ticks: number[]; hi: number; at: (v: number) => number }) {
+  return (
+    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+      <Box sx={LABEL_COL} />
+      <Box data-testid="stop-ladder-axis" sx={{ ...TRACK_COL, position: 'relative', height: 18, borderTop: '1px solid var(--qc-line)' }}>
+        {ticks.map((v) => (
+          <Box key={v} sx={{ position: 'absolute', left: `${at(v)}%`, top: 0, transform: 'translateX(-50%)', textAlign: 'center' }}>
+            <Box sx={{ width: '1px', height: 4, bgcolor: 'var(--qc-faint)', mx: 'auto' }} />
+            <Typography variant="caption" sx={{ color: 'var(--qc-faint)', fontSize: 10, lineHeight: 1 }}>${v}</Typography>
+          </Box>
+        ))}
+        <Box sx={{ position: 'absolute', right: 0, top: 0, textAlign: 'right' }}>
+          <Box sx={{ width: '1px', height: 4, bgcolor: 'var(--qc-text-soft)', ml: 'auto' }} />
+          <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', fontSize: 10, lineHeight: 1, fontWeight: 600 }}>
+            {money(hi)} now
+          </Typography>
+        </Box>
+      </Box>
+    </Stack>
+  );
+}
+
+/**
+ * Replay rows as bars falling from today's price, with each stop as a line, on a
+ * shared price scale. A bar that reaches a stop line would have triggered that stop.
+ */
 function PriceLadder({ data }: { data: StopLossResponse }) {
   const stopsOnLadder = ladderStops(data);
   const prices = [...data.drawdown_replay.map((r) => r.price), ...stopsOnLadder.map((s) => s.price)];
@@ -160,21 +195,27 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
   const low = Math.min(hi, ...prices);
   const lo = low - (hi - low) * 0.05;
   const at = (v: number) => (hi === lo ? 100 : ((v - lo) / (hi - lo)) * 100);
+  // Round-dollar ticks; the right end is left for the price label.
+  const ticks = scaleLinear().domain([lo, hi]).ticks(4).filter((v) => at(v) >= 0 && at(v) <= 85);
 
   return (
     <Box data-testid="stop-ladder">
-      <Caption>Worst historical drops replayed from {money(data.price)}</Caption>
-      <Stack spacing={0.75} sx={{ mt: 1 }}>
+      <Caption>Worst historical drops replayed from today’s {money(data.price)}. A bar that reaches a stop line would have triggered that stop.</Caption>
+      <Stack spacing={1} sx={{ mt: 1 }}>
         {data.drawdown_replay.map((row) => (
           <Stack key={row.key} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap
             data-testid={`replay-${row.key}`}>
-            <Box sx={{ flex: '0 0 150px' }}>
+            <Box sx={LABEL_COL}>
               <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', display: 'block', lineHeight: 1.2 }}>{row.label}</Typography>
-              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)', display: 'block' }}>
                 {row.drop_pct.toFixed(1)}% → {money(row.price)}
               </Typography>
+              <ReplayVerdict row={row} stops={stopsOnLadder} />
             </Box>
-            <Box sx={{ position: 'relative', flex: '1 1 160px', height: 16, bgcolor: 'var(--qc-surface)', borderRadius: 0.5 }}>
+            <Box sx={{ ...TRACK_COL, position: 'relative', height: 16, bgcolor: 'var(--qc-surface)', borderRadius: 0.5 }}>
+              {ticks.map((v) => (
+                <Box key={v} sx={{ position: 'absolute', top: 0, bottom: 0, width: '1px', left: `${at(v)}%`, bgcolor: 'var(--qc-line)' }} />
+              ))}
               <Box sx={{
                 position: 'absolute', top: 3, bottom: 3, left: `${at(row.price)}%`, right: 0,
                 bgcolor: '#ef444455', borderLeft: '2px solid #ef4444',
@@ -185,15 +226,15 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
                 </Tooltip>
               ))}
             </Box>
-            <HitChips row={row} />
           </Stack>
         ))}
+        <LadderAxis ticks={ticks} hi={hi} at={at} />
       </Stack>
       <Stack direction="row" spacing={2} sx={{ mt: 1 }} flexWrap="wrap" useFlexGap>
         {stopsOnLadder.map((s) => (
           <Stack key={s.label} direction="row" spacing={0.5} alignItems="center">
             <Box sx={{ width: 10, height: 2, bgcolor: s.color }} />
-            <Caption>{s.label} {money(s.price)}</Caption>
+            <Caption>{s.label} stop {money(s.price)}</Caption>
           </Stack>
         ))}
       </Stack>

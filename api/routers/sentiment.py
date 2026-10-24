@@ -14,6 +14,8 @@ by the /{ticker}/news template.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from fastapi import APIRouter, Depends
 
 from ..auth import require_owner
@@ -75,5 +77,9 @@ def get_news_sentiment(
 
 
 @router.get("/{ticker}/news/trend")
-def get_sentiment_trend(ticker: str, days: int = 30) -> QuantCoreJSONResponse:
-    return QuantCoreJSONResponse(services().sentiment.get_sentiment_trend(ticker, days))
+def get_sentiment_trend(
+    ticker: str, days: int = 30, bucket: Literal["day", "week"] = "day"
+) -> QuantCoreJSONResponse:
+    return QuantCoreJSONResponse(
+        services().sentiment.get_sentiment_trend(ticker, days, bucket)
+    )

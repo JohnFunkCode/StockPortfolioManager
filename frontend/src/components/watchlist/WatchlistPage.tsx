@@ -80,12 +80,12 @@ import {
 
 const GREEN = '#10b981';
 const RED = '#ef4444';
-const MUTED = '#6b7280';
+const MUTED = 'var(--qc-faint)';
 
 /** Colour a return, leaving "not known" grey rather than calling it flat. */
 function ReturnCell({ value }: { value: number | null | undefined }) {
   if (value == null) {
-    return <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>;
+    return <Typography variant="body2" sx={{ color: 'var(--qc-dim)' }}>—</Typography>;
   }
   return (
     <Typography variant="body2" sx={{ color: value >= 0 ? GREEN : RED, fontWeight: 500 }}>
@@ -106,7 +106,7 @@ const DEFAULT_SORT_MODEL: GridSortModel = [{ field: 'composite_score', sort: 'de
 const LABEL_COLORS: Record<string, string> = {
   strong: GREEN,
   improving: '#34d399',
-  mixed: '#9ca3af',
+  mixed: 'var(--qc-muted)',
   weak: RED,
 };
 
@@ -292,7 +292,7 @@ export default function WatchlistPage() {
               <Chip
                 size="small"
                 label="Held"
-                sx={{ fontSize: 10, height: 18, bgcolor: '#1e3a2f', color: GREEN, border: `1px solid ${GREEN}` }}
+                sx={{ fontSize: 10, height: 18, bgcolor: 'var(--qc-tint-green)', color: GREEN, border: `1px solid ${GREEN}` }}
               />
             </Tooltip>
           )}
@@ -318,7 +318,7 @@ export default function WatchlistPage() {
       type: 'number',
       getSortComparator: nullsLast,
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
-        <Typography variant="body2" sx={{ color: p.value == null ? '#4b5563' : undefined }}>
+        <Typography variant="body2" sx={{ color: p.value == null ? 'var(--qc-dim)' : undefined }}>
           {p.value == null ? '—' : p.value.toLocaleString()}
         </Typography>
       ),
@@ -331,7 +331,7 @@ export default function WatchlistPage() {
       getSortComparator: nullsLast,
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) =>
         p.value == null ? (
-          <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>
+          <Typography variant="body2" sx={{ color: 'var(--qc-dim)' }}>—</Typography>
         ) : (
           <Tooltip title="Average over your open lots, weighted by quantity">
             <Typography variant="body2">{formatCurrency(p.value, p.row.currency)}</Typography>
@@ -393,11 +393,11 @@ export default function WatchlistPage() {
         if (p.value == null) {
           return (
             <Tooltip title="No cached fundamentals for this symbol yet">
-              <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>
+              <Typography variant="body2" sx={{ color: 'var(--qc-dim)' }}>—</Typography>
             </Tooltip>
           );
         }
-        const color = LABEL_COLORS[p.row.fundamental_label ?? 'mixed'] ?? '#9ca3af';
+        const color = LABEL_COLORS[p.row.fundamental_label ?? 'mixed'] ?? 'var(--qc-muted)';
         return (
           <Tooltip title={p.row.fundamental_label ?? ''}>
             <Typography variant="body2" sx={{ color, fontWeight: 600 }}>
@@ -426,7 +426,7 @@ export default function WatchlistPage() {
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) =>
         p.value == null ? (
           <Tooltip title="No USD conversion for a non-dollar listing yet (issue #185)">
-            <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>
+            <Typography variant="body2" sx={{ color: 'var(--qc-dim)' }}>—</Typography>
           </Tooltip>
         ) : (
           <Typography variant="body2">{formatMarketCap(p.value, 'USD')}</Typography>
@@ -440,7 +440,7 @@ export default function WatchlistPage() {
       // ordering them ranks exchange rates rather than companies.
       sortable: false,
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
-        <Typography variant="body2" sx={{ color: '#d1d5db' }}>
+        <Typography variant="body2" sx={{ color: 'var(--qc-text-soft)' }}>
           {formatMarketCap(p.value, p.row.market_cap_currency ?? p.row.currency)}
         </Typography>
       ),
@@ -453,7 +453,7 @@ export default function WatchlistPage() {
       getSortComparator: nullsLast,
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => {
         if (p.value == null) {
-          return <Typography variant="body2" sx={{ color: '#4b5563' }}>—</Typography>;
+          return <Typography variant="body2" sx={{ color: 'var(--qc-dim)' }}>—</Typography>;
         }
         const stale = p.row.fundamentals_stale === true;
         return (
@@ -464,9 +464,9 @@ export default function WatchlistPage() {
               sx={{
                 fontSize: 11,
                 height: 20,
-                bgcolor: stale ? '#3a2e1e' : '#1f2937',
-                color: stale ? '#f59e0b' : '#9ca3af',
-                border: `1px solid ${stale ? '#f59e0b' : '#4b5563'}`,
+                bgcolor: stale ? 'var(--qc-tint-amber)' : 'var(--qc-surface)',
+                color: stale ? 'var(--qc-ink-amber)' : 'var(--qc-muted)',
+                border: `1px solid ${stale ? 'var(--qc-ink-amber)' : 'var(--qc-dim)'}`,
               }}
             />
           </Tooltip>
@@ -556,14 +556,14 @@ export default function WatchlistPage() {
             <Chip
               size="small"
               label={`${data?.held_count} held`}
-              sx={{ fontSize: 11, bgcolor: '#1e3a2f', color: GREEN, border: `1px solid ${GREEN}` }}
+              sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-green)', color: GREEN, border: `1px solid ${GREEN}` }}
             />
           )}
           {data?.as_of && (
             <Chip
               size="small"
               label={`prices ${formatDate(data.as_of)}`}
-              sx={{ fontSize: 11, color: '#9ca3af' }}
+              sx={{ fontSize: 11, color: 'var(--qc-muted)' }}
               variant="outlined"
             />
           )}
@@ -572,7 +572,7 @@ export default function WatchlistPage() {
               <Chip
                 size="small"
                 label={`${data?.stale_count} stale`}
-                sx={{ fontSize: 11, bgcolor: '#3a2e1e', color: '#f59e0b', border: '1px solid #f59e0b' }}
+                sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-amber)', color: 'var(--qc-ink-amber)', border: '1px solid var(--qc-ink-amber)' }}
               />
             </Tooltip>
           )}

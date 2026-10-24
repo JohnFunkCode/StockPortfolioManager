@@ -50,7 +50,7 @@ export default function PCRatioChart({ data, height = 200 }: Props) {
     g.append('g')
       .call(d3.axisLeft(yLeft).tickSize(-W).tickFormat(() => ''))
       .selectAll('line')
-      .attr('stroke', '#374151')
+      .style('stroke', 'var(--qc-line)')
       .attr('stroke-dasharray', '2,4');
     g.select('.domain').remove();
 
@@ -58,12 +58,12 @@ export default function PCRatioChart({ data, height = 200 }: Props) {
     g.append('line')
       .attr('x1', 0).attr('x2', W)
       .attr('y1', yLeft(1)).attr('y2', yLeft(1))
-      .attr('stroke', '#6b7280')
+      .style('stroke', 'var(--qc-faint)')
       .attr('stroke-dasharray', '4,4');
     g.append('text')
       .attr('x', W + 4).attr('y', yLeft(1))
       .attr('dy', '0.35em')
-      .attr('fill', '#6b7280')
+      .style('fill', 'var(--qc-faint)')
       .attr('font-size', 9)
       .text('1.0');
 
@@ -113,7 +113,7 @@ export default function PCRatioChart({ data, height = 200 }: Props) {
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).ticks(6).tickFormat(d3.timeFormat('%b %d') as never))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
     g.append('g')
@@ -129,8 +129,8 @@ export default function PCRatioChart({ data, height = 200 }: Props) {
       .attr('fill', '#10b981')
       .attr('font-size', 10);
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
 
     // Tooltip
     const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');

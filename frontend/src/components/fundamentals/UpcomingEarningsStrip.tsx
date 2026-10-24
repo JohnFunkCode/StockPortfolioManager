@@ -28,7 +28,7 @@ import { MUTED } from './scoreLabels';
 const RISK_COLORS: Record<string, string> = {
   high: '#ef4444',
   elevated: '#f59e0b',
-  moderate: '#9ca3af',
+  moderate: 'var(--qc-muted)',
   low: '#10b981',
 };
 
@@ -69,9 +69,9 @@ export default function UpcomingEarningsStrip() {
               sx={{
                 fontSize: 11,
                 height: 20,
-                bgcolor: '#3a2e1e',
-                color: '#f59e0b',
-                border: '1px solid #f59e0b',
+                bgcolor: 'var(--qc-tint-amber)',
+                color: 'var(--qc-ink-amber)',
+                border: '1px solid var(--qc-ink-amber)',
               }}
             />
           </Tooltip>
@@ -89,7 +89,7 @@ export default function UpcomingEarningsStrip() {
               key={`${row.symbol}-${row.earnings_date}`}
               data-testid={`earnings-${row.symbol}`}
               sx={{
-                border: '1px solid #1f2937',
+                border: '1px solid var(--qc-surface)',
                 borderRadius: 1,
                 px: 1.25,
                 py: 0.75,
@@ -102,7 +102,7 @@ export default function UpcomingEarningsStrip() {
               >
                 {row.symbol}
               </RouterLink>
-              <Typography variant="caption" sx={{ display: 'block', color: '#d1d5db' }}>
+              <Typography variant="caption" sx={{ display: 'block', color: 'var(--qc-text-soft)' }}>
                 {formatDate(row.earnings_date)}
               </Typography>
               <Stack direction="row" spacing={0.5} alignItems="center" sx={{ mt: 0.25 }}>

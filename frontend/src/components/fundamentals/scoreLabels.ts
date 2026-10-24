@@ -11,20 +11,20 @@ import { formatPercent } from '../../utils/formatting';
 
 export const GREEN = '#10b981';
 export const RED = '#ef4444';
-export const MUTED = '#6b7280';
-export const DIM = '#4b5563';
+export const MUTED = 'var(--qc-faint)';
+export const DIM = 'var(--qc-dim)';
 
 /** Matches the watchlist table's palette so one symbol reads the same on both
  * pages. Unknown labels fall through to the neutral grey. */
 export const LABEL_COLORS: Record<string, string> = {
   strong: GREEN,
   improving: '#34d399',
-  mixed: '#9ca3af',
+  mixed: 'var(--qc-muted)',
   weak: RED,
 };
 
 export function labelColor(label: string | null | undefined): string {
-  return LABEL_COLORS[label ?? 'mixed'] ?? '#9ca3af';
+  return LABEL_COLORS[label ?? 'mixed'] ?? 'var(--qc-muted)';
 }
 
 /** Coverage arrives as a fraction (0–1) — the share of the scoring inputs the

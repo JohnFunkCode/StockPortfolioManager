@@ -56,7 +56,7 @@ export default function CacheFreshnessBanner() {
                 {entry.data_type.replace(/_/g, ' ')} · {entry.symbol_count}
               </Box>
             }
-            sx={{ height: 22, color: '#9ca3af' }}
+            sx={{ height: 22, color: 'var(--qc-muted)' }}
           />
         </Tooltip>
       ))}

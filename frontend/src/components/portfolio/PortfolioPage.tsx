@@ -62,7 +62,7 @@ function gainColor(value: number | null): string | undefined {
 }
 
 const HEDGE_COLORS: Record<string, { bg: string; color: string }> = {
-  buy_on_rally: { bg: '#1e3a2f', color: '#10b981' },
+  buy_on_rally: { bg: 'var(--qc-tint-green)', color: 'var(--qc-ink-green)' },
 };
 
 export default function PortfolioPage() {
@@ -180,7 +180,7 @@ export default function PortfolioPage() {
                 {sorted.map((row) => {
                   const isOpen = expanded.has(row.symbol);
                   const hedge = row.mm_hedge_bias
-                    ? (HEDGE_COLORS[row.mm_hedge_bias] ?? { bg: '#3a1e1e', color: '#ef4444' })
+                    ? (HEDGE_COLORS[row.mm_hedge_bias] ?? { bg: 'var(--qc-tint-red)', color: 'var(--qc-ink-red)' })
                     : null;
                   return (
                     <Fragment key={row.symbol}>
@@ -235,7 +235,7 @@ export default function PortfolioPage() {
                               label="Plan"
                               clickable
                               onClick={() => navigate(`/plans/${row.active_plan_id}`)}
-                              sx={{ bgcolor: '#1e2a3a', color: '#60a5fa' }}
+                              sx={{ bgcolor: 'var(--qc-tint-blue)', color: 'var(--qc-ink-blue)' }}
                             />
                           ) : (
                             <Button

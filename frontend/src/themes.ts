@@ -43,6 +43,78 @@ const LIGHT = {
 };
 
 // ---------------------------------------------------------------------------
+// Neutral greys and tinted backgrounds for the analysis cards, as CSS custom
+// properties (--qc-<name>). The cards were written against the dark theme with
+// literal Tailwind greys, which went white-on-white in light mode. They now use
+// var(--qc-<name>) — usable in sx, inline style, helper return values and D3
+// .style() — and each theme sets the values. The dark values are the original
+// hex colours, so the dark theme renders exactly as before.
+// ---------------------------------------------------------------------------
+
+export const DARK_NEUTRALS: Record<string, string> = {
+  'text': '#f9fafb',
+  'text-soft': '#d1d5db',
+  'muted': '#9ca3af',
+  'faint': '#6b7280',
+  'dim': '#4b5563',
+  'line': '#374151',
+  'surface': '#1f2937',
+  'surface-sunk': '#111827',
+  'tint-green': '#1e3a2f',
+  'tint-green-strong': '#14532d',
+  'tint-red': '#3a1e1e',
+  'tint-red-strong': '#7f1d1d',
+  'tint-amber': '#3a2e1e',
+  'tint-amber-strong': '#78350f',
+  'tint-amber-deep': '#92400e',
+  'tint-blue': '#1e2a3a',
+  'on-tint-green': '#86efac',
+  'on-tint-red': '#fca5a5',
+  'on-tint-green-soft': '#d1fae5',
+  // Status colours drawn on a tint-* background: the bright hue in dark mode,
+  // a darker shade of it in light mode so the pair stays readable on the pale tint.
+  'ink-green': '#10b981',
+  'ink-red': '#ef4444',
+  'ink-amber': '#f59e0b',
+  'ink-blue': '#60a5fa',
+};
+
+export const LIGHT_NEUTRALS: Record<string, string> = {
+  'text': '#1a0030',
+  'text-soft': '#2e2440',
+  'muted': '#5c566b',
+  'faint': '#6b6680',
+  'dim': '#a49cb3',
+  'line': '#e4d8ef',
+  'surface': '#f4eefa',
+  'surface-sunk': '#faf6fd',
+  'tint-green': '#e0f4ea',
+  'tint-green-strong': '#c9ecd7',
+  'tint-red': '#fbe5e8',
+  'tint-red-strong': '#f6cdd3',
+  'tint-amber': '#fbefdc',
+  'tint-amber-strong': '#f6dfb8',
+  'tint-amber-deep': '#f3d29c',
+  'tint-blue': '#e2ebf8',
+  'on-tint-green': '#14532d',
+  'on-tint-red': '#7f1d1d',
+  'on-tint-green-soft': '#14532d',
+  'ink-green': '#047857',
+  'ink-red': '#b91c1c',
+  'ink-amber': '#92400e',
+  'ink-blue': '#1d4ed8',
+};
+
+function neutralVars(N: Record<string, string>): string {
+  return Object.entries(N).map(([k, v]) => `--qc-${k}: ${v};`).join(' ');
+}
+
+/** A ~13% wash of ``color`` (the old ``color + '22'``), valid for var() colours too. */
+export function tint(color: string): string {
+  return `color-mix(in srgb, ${color} 13%, transparent)`;
+}
+
+// ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
 
@@ -378,6 +450,7 @@ function buildTheme(P: typeof DARK, mode: 'dark' | 'light') {
 
       MuiCssBaseline: {
         styleOverrides: `
+          :root { ${neutralVars(mode === 'dark' ? DARK_NEUTRALS : LIGHT_NEUTRALS)} }
           body {
             background-color: ${P.bg};
             background-image:

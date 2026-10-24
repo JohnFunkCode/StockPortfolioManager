@@ -93,7 +93,7 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
       <Box sx={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: rail ? 12 : 13 }}>
           <thead>
-            <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid #1f2937' }}>
+            <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
               <th style={{ padding: '4px 6px' }}>Symbol</th>
               <th style={{ padding: '4px 6px', textAlign: 'right' }}>Δ</th>
               <th style={{ padding: '4px 6px', textAlign: 'right' }}>Then → now</th>
@@ -106,7 +106,7 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
               const up = change.direction === 'improving';
               const color = up ? GREEN : RED;
               return (
-                <tr key={change.symbol} style={{ borderBottom: '1px solid #111827' }}>
+                <tr key={change.symbol} style={{ borderBottom: '1px solid var(--qc-surface-sunk)' }}>
                   <td style={{ padding: '4px 6px', fontWeight: 600 }}>
                     <RouterLink
                       to={`/securities/${change.symbol}`}
@@ -125,7 +125,7 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
                       <span>{Math.abs(change.delta).toFixed(0)}</span>
                     </Stack>
                   </td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right', color: '#d1d5db' }}>
+                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--qc-text-soft)' }}>
                     {change.score_then.toFixed(0)} → {change.score_now.toFixed(0)}
                   </td>
                   {!rail && (

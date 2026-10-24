@@ -12,7 +12,7 @@ export default function OptionsRefreshPanel() {
       <Stack direction="row" alignItems="center" spacing={2} flexWrap="wrap" useFlexGap>
         <Box sx={{ flex: 1, minWidth: 200 }}>
           <Typography variant="subtitle2">Options Snapshot Collection</Typography>
-          <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+          <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>
             Captures today's P/C ratio &amp; IV for all securities. Run once per trading day to build trend data.
             yfinance only provides the current chain — past snapshots cannot be backfilled.
           </Typography>

@@ -8,6 +8,7 @@ import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableB
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useSupportConfluence } from '../../hooks/useSecurities';
 import type { SupportZone } from '../../api/securitiesTypes';
+import { tint } from '../../themes';
 
 interface Props {
   ticker: string;
@@ -22,7 +23,7 @@ interface Props {
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <Typography variant="subtitle2" sx={{ color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
+    <Typography variant="subtitle2" sx={{ color: 'var(--qc-muted)', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
       {title}
     </Typography>
   );
@@ -53,7 +54,7 @@ function contributorsLine(zone: SupportZone): string {
 function ZoneTable({ title, zones, color }: { title: string; zones: SupportZone[]; color: string }) {
   return (
     <Box data-testid={`confluence-zones-${title.toLowerCase()}`}>
-      <Typography variant="caption" sx={{ color: '#6b7280' }}>{title}</Typography>
+      <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>{title}</Typography>
       {zones.length === 0 ? (
         <Typography variant="body2" color="text.secondary">No {title.toLowerCase()} zones within ±25% of price.</Typography>
       ) : (
@@ -71,28 +72,28 @@ function ZoneTable({ title, zones, color }: { title: string; zones: SupportZone[
             <TableBody>
               {zones.map((z, i) => (
                 <TableRow key={i} data-testid={z.is_stop_zone ? 'confluence-stop-zone' : undefined}
-                  sx={z.outside_top ? { '& td': { borderTop: '1px dashed #374151' } } : undefined}>
+                  sx={z.outside_top ? { '& td': { borderTop: '1px dashed var(--qc-line)' } } : undefined}>
                   <TableCell sx={{ color, fontWeight: 600, whiteSpace: 'nowrap' }}>
                     ${z.zone_low.toFixed(2)}–${z.zone_high.toFixed(2)}
                     {z.is_stop_zone && (
                       <Chip size="small" label="stop under this zone"
-                        sx={{ ml: 1, fontSize: 10, height: 18, color: '#f9fafb', bgcolor: '#374151' }} />
+                        sx={{ ml: 1, fontSize: 10, height: 18, color: 'var(--qc-text)', bgcolor: 'var(--qc-line)' }} />
                     )}
                     {z.outside_top && (
-                      <Typography component="span" variant="caption" sx={{ ml: 1, color: '#6b7280', fontStyle: 'italic' }}>
+                      <Typography component="span" variant="caption" sx={{ ml: 1, color: 'var(--qc-faint)', fontStyle: 'italic' }}>
                         outside the top zones
                       </Typography>
                     )}
                   </TableCell>
-                  <TableCell align="right" sx={{ color: '#9ca3af' }}>
+                  <TableCell align="right" sx={{ color: 'var(--qc-muted)' }}>
                     {z.distance_pct > 0 ? '+' : ''}{z.distance_pct.toFixed(1)}%
                   </TableCell>
                   <TableCell align="right" sx={{ fontWeight: 600 }}>{z.score.toFixed(2)}</TableCell>
                   <TableCell align="center">
                     <Chip size="small" label={z.method_count}
-                      sx={{ fontSize: 10, height: 18, bgcolor: color + '22', color, border: '1px solid', borderColor: color }} />
+                      sx={{ fontSize: 10, height: 18, bgcolor: tint(color), color, border: '1px solid', borderColor: color }} />
                   </TableCell>
-                  <TableCell sx={{ color: '#6b7280', maxWidth: 320 }}>{contributorsLine(z)}</TableCell>
+                  <TableCell sx={{ color: 'var(--qc-faint)', maxWidth: 320 }}>{contributorsLine(z)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -115,7 +116,7 @@ export default function SupportConfluenceCard({ ticker, enabled = true, onRetry 
         <SectionHeader title="Support Confluence" />
         {data && !data.error && (
           <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-            <Typography variant="caption" sx={{ color: '#6b7280' }}>
+            <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
               Price ${data.price.toFixed(2)}
             </Typography>
             {data.strongest_support && (
@@ -125,9 +126,9 @@ export default function SupportConfluenceCard({ ticker, enabled = true, onRetry 
                 label={`Strongest support $${data.strongest_support.center.toFixed(2)} (${data.strongest_support.distance_pct.toFixed(1)}%)`}
                 sx={{
                   fontSize: 11, height: 20, fontWeight: 600, border: '1px solid',
-                  bgcolor: '#1e3a2f',
-                  color: Math.abs(data.strongest_support.distance_pct) <= 3 ? '#10b981' : '#9ca3af',
-                  borderColor: Math.abs(data.strongest_support.distance_pct) <= 3 ? '#10b981' : '#4b5563',
+                  bgcolor: 'var(--qc-tint-green)',
+                  color: Math.abs(data.strongest_support.distance_pct) <= 3 ? 'var(--qc-ink-green)' : 'var(--qc-muted)',
+                  borderColor: Math.abs(data.strongest_support.distance_pct) <= 3 ? 'var(--qc-ink-green)' : 'var(--qc-dim)',
                 }}
               />
             )}
@@ -159,7 +160,7 @@ export default function SupportConfluenceCard({ ticker, enabled = true, onRetry 
           )}
 
           {data.interpretation && (
-            <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', fontStyle: 'italic', lineHeight: 1.5 }}>
+            <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', fontStyle: 'italic', lineHeight: 1.5 }}>
               {data.interpretation}
             </Typography>
           )}

@@ -67,7 +67,7 @@ export default function SectorBreakdownPanel() {
             <Box
               key={sector}
               data-testid={`sector-card-${sector}`}
-              sx={{ border: '1px solid #1f2937', borderRadius: 1, p: 1.25 }}
+              sx={{ border: '1px solid var(--qc-surface)', borderRadius: 1, p: 1.25 }}
             >
               <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
                 {sector}

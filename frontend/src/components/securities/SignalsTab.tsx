@@ -8,28 +8,29 @@ import { Alert, Box, Button, Chip, CircularProgress, Divider, Link, Paper, Stack
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals, useNews } from '../../hooks/useSecurities';
 import type { NewsResponse } from '../../api/securitiesTypes';
+import { tint } from '../../themes';
 
 interface Props { ticker: string }
 
 function SignalBadge({ label, color }: { label: string; color: string }) {
   return (
     <Chip size="small" label={label}
-      sx={{ fontSize: 11, height: 20, bgcolor: color + '22', color, borderColor: color, border: '1px solid' }} />
+      sx={{ fontSize: 11, height: 20, bgcolor: tint(color), color, borderColor: color, border: '1px solid' }} />
   );
 }
 
 function SectionHeader({ title }: { title: string }) {
   return (
-    <Typography variant="subtitle2" sx={{ color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
+    <Typography variant="subtitle2" sx={{ color: 'var(--qc-muted)', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
       {title}
     </Typography>
   );
 }
 
-function MetricRow({ label, value, color = '#f9fafb' }: { label: string; value: React.ReactNode; color?: string }) {
+function MetricRow({ label, value, color = 'var(--qc-text)' }: { label: string; value: React.ReactNode; color?: string }) {
   return (
     <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ py: 0.4 }}>
-      <Typography variant="body2" sx={{ color: '#6b7280', fontSize: 12 }}>{label}</Typography>
+      <Typography variant="body2" sx={{ color: 'var(--qc-faint)', fontSize: 12 }}>{label}</Typography>
       <Typography variant="body2" sx={{ color, fontWeight: 600, fontSize: 12 }}>{value}</Typography>
     </Stack>
   );
@@ -52,20 +53,20 @@ function SectionError({ message, onRetry }: { message: string; onRetry: () => vo
 }
 
 function strengthColor(s: string | undefined): string {
-  if (!s) return '#6b7280';
+  if (!s) return 'var(--qc-faint)';
   if (s === 'strong')   return '#10b981';
   if (s === 'moderate') return '#f59e0b';
   if (s === 'weak')     return '#f97316';
-  if (s === 'none')     return '#6b7280';
-  return '#9ca3af';
+  if (s === 'none')     return 'var(--qc-faint)';
+  return 'var(--qc-muted)';
 }
 
 function signalColor(s: string | undefined): string {
-  if (!s) return '#6b7280';
+  if (!s) return 'var(--qc-faint)';
   const sl = s.toLowerCase();
   if (sl.includes('bull') || sl.includes('strong') || sl.includes('above') || sl.includes('rising') || sl.includes('buy')) return '#10b981';
   if (sl.includes('bear') || sl.includes('below') || sl.includes('sell') || sl.includes('falling') || sl.includes('overbought')) return '#ef4444';
-  if (sl.includes('neutral') || sl.includes('none') || sl.includes('flat')) return '#6b7280';
+  if (sl.includes('neutral') || sl.includes('none') || sl.includes('flat')) return 'var(--qc-faint)';
   return '#f59e0b';
 }
 
@@ -218,11 +219,11 @@ export default function SignalsTab({ ticker }: Props) {
 
             {/* Stochastic */}
             <Box sx={{ minWidth: 170, flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>Stochastic Oscillator</Typography>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Stochastic Oscillator</Typography>
               {tech?.stochastic ? (
                 <>
-                  <MetricRow label="%K" value={tech.stochastic.k.toFixed(1)} color={tech.stochastic.k >= 80 ? '#ef4444' : tech.stochastic.k <= 20 ? '#10b981' : '#f9fafb'} />
-                  <MetricRow label="%D" value={tech.stochastic.d.toFixed(1)} color="#9ca3af" />
+                  <MetricRow label="%K" value={tech.stochastic.k.toFixed(1)} color={tech.stochastic.k >= 80 ? '#ef4444' : tech.stochastic.k <= 20 ? '#10b981' : 'var(--qc-text)'} />
+                  <MetricRow label="%D" value={tech.stochastic.d.toFixed(1)} color="var(--qc-muted)" />
                   <SignalBadge label={tech.stochastic.signal} color={signalColor(tech.stochastic.signal)} />
                 </>
               ) : <Typography variant="body2" color="text.secondary">—</Typography>}
@@ -230,14 +231,14 @@ export default function SignalsTab({ ticker }: Props) {
 
             {/* VWAP */}
             <Box sx={{ minWidth: 170, flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>VWAP (20-day)</Typography>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>VWAP (20-day)</Typography>
               {tech?.vwap ? (
                 <>
                   <MetricRow label="VWAP" value={`$${tech.vwap.vwap.toFixed(2)}`} />
                   <MetricRow label="Position" value={tech.vwap.position === 'above_vwap' ? 'Above' : 'Below'}
                     color={tech.vwap.position === 'above_vwap' ? '#10b981' : '#ef4444'} />
                   <MetricRow label="Distance" value={`${tech.vwap.distance_pct > 0 ? '+' : ''}${tech.vwap.distance_pct.toFixed(1)}%`}
-                    color={Math.abs(tech.vwap.distance_pct) > 5 ? '#f59e0b' : '#9ca3af'} />
+                    color={Math.abs(tech.vwap.distance_pct) > 5 ? '#f59e0b' : 'var(--qc-muted)'} />
                   {tech.vwap.reclaim_signal && (
                     <SignalBadge label={`Reclaim: ${tech.vwap.reclaim_strength}`} color={strengthColor(tech.vwap.reclaim_strength)} />
                   )}
@@ -247,7 +248,7 @@ export default function SignalsTab({ ticker }: Props) {
 
             {/* OBV */}
             <Box sx={{ minWidth: 170, flex: 1 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>On-Balance Volume</Typography>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>On-Balance Volume</Typography>
               {tech?.obv ? (
                 <>
                   <MetricRow label="OBV Trend" value={tech.obv.obv_trend} color={signalColor(tech.obv.obv_trend)} />
@@ -262,15 +263,15 @@ export default function SignalsTab({ ticker }: Props) {
 
             {/* Volume Analysis */}
             <Box sx={{ minWidth: 200, flex: 1.5 }}>
-              <Typography variant="caption" sx={{ color: '#6b7280' }}>Volume Analysis</Typography>
+              <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Volume Analysis</Typography>
               {tech?.volume_analysis ? (
                 <>
                   <MetricRow label="Vol/Avg Ratio" value={`${tech.volume_analysis.last_volume_ratio.toFixed(2)}×`}
-                    color={tech.volume_analysis.last_volume_ratio >= 2 ? '#ef4444' : '#f9fafb'} />
+                    color={tech.volume_analysis.last_volume_ratio >= 2 ? '#ef4444' : 'var(--qc-text)'} />
                   <MetricRow label="OBV Divergence" value={tech.volume_analysis.obv_divergence ? 'Yes' : 'No'}
-                    color={tech.volume_analysis.obv_divergence ? '#10b981' : '#6b7280'} />
+                    color={tech.volume_analysis.obv_divergence ? '#10b981' : 'var(--qc-faint)'} />
                   <Box sx={{ mt: 0.5 }}>
-                    <Typography variant="caption" sx={{ color: '#9ca3af', fontSize: 11 }}>
+                    <Typography variant="caption" sx={{ color: 'var(--qc-muted)', fontSize: 11 }}>
                       {tech.volume_analysis.bottom_signal}
                     </Typography>
                   </Box>
@@ -278,7 +279,7 @@ export default function SignalsTab({ ticker }: Props) {
                     <Box key={i} sx={{ mt: 0.5 }}>
                       <Chip size="small" label={`${e.date} ${e.direction} vol ${e.volume_ratio}×`}
                         sx={{ fontSize: 10, height: 18,
-                          bgcolor: e.direction === 'down' ? '#1e3a2f' : '#1e2a4a', color: '#d1fae5' }} />
+                          bgcolor: e.direction === 'down' ? 'var(--qc-tint-green)' : 'var(--qc-tint-blue)', color: 'var(--qc-on-tint-green-soft)' }} />
                     </Box>
                   ))}
                 </>
@@ -295,12 +296,12 @@ export default function SignalsTab({ ticker }: Props) {
           </Alert>
         )}
         {tech?.vwap?.interpretation && (
-          <Typography variant="caption" sx={{ color: '#9ca3af', mt: 1, display: 'block', fontStyle: 'italic' }}>
+          <Typography variant="caption" sx={{ color: 'var(--qc-muted)', mt: 1, display: 'block', fontStyle: 'italic' }}>
             {tech.vwap.interpretation}
           </Typography>
         )}
         {tech?.obv?.interpretation && (
-          <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', fontStyle: 'italic' }}>
+          <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', fontStyle: 'italic' }}>
             {tech.obv.interpretation}
           </Typography>
         )}
@@ -319,7 +320,7 @@ export default function SignalsTab({ ticker }: Props) {
 
               {/* Higher Lows */}
               <Box sx={{ flex: 1 }}>
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>Higher Lows (Daily)</Typography>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Higher Lows (Daily)</Typography>
                 {tech?.higher_lows ? (
                   <>
                     <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
@@ -329,9 +330,9 @@ export default function SignalsTab({ ticker }: Props) {
                           : 'No pattern'}
                         color={tech.higher_lows.higher_low_pattern
                           ? strengthColor(tech.higher_lows.pattern_strength)
-                          : '#6b7280'} />
+                          : 'var(--qc-faint)'} />
                     </Stack>
-                    <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+                    <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
                       {tech.higher_lows.interpretation}
                     </Typography>
                   </>
@@ -340,7 +341,7 @@ export default function SignalsTab({ ticker }: Props) {
 
               {/* Gap Analysis */}
               <Box sx={{ flex: 1 }}>
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>Gap Analysis (60d)</Typography>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Gap Analysis (60d)</Typography>
                 {tech?.gap_analysis ? (
                   <>
                     <MetricRow label="Unfilled gaps" value={tech.gap_analysis.unfilled_count} />
@@ -355,7 +356,7 @@ export default function SignalsTab({ ticker }: Props) {
                         ))}
                       </Box>
                     )}
-                    <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+                    <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
                       {tech.gap_analysis.interpretation}
                     </Typography>
                   </>
@@ -366,7 +367,7 @@ export default function SignalsTab({ ticker }: Props) {
             {/* Candlestick Patterns */}
             {tech?.candlestick_patterns && tech.candlestick_patterns.pattern_count > 0 && (
               <Box>
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                   Candlestick Patterns (last 10 bars) — {tech.candlestick_patterns.bounce_signal}
                 </Typography>
                 <Box sx={{ overflowX: 'auto', mt: 0.5 }}>
@@ -388,13 +389,13 @@ export default function SignalsTab({ ticker }: Props) {
                           <TableCell>
                             <Chip size="small" label={p.bias}
                               sx={{ fontSize: 10, height: 18,
-                                bgcolor: p.bias === 'bullish' ? '#1e3a2f' : p.bias === 'bearish' ? '#3a1e1e' : '#1e2937',
-                                color: p.bias === 'bullish' ? '#10b981' : p.bias === 'bearish' ? '#ef4444' : '#9ca3af' }} />
+                                bgcolor: p.bias === 'bullish' ? 'var(--qc-tint-green)' : p.bias === 'bearish' ? 'var(--qc-tint-red)' : 'var(--qc-surface)',
+                                color: p.bias === 'bullish' ? 'var(--qc-ink-green)' : p.bias === 'bearish' ? 'var(--qc-ink-red)' : 'var(--qc-muted)' }} />
                           </TableCell>
                           <TableCell>
                             <SignalBadge label={p.strength} color={strengthColor(p.strength)} />
                           </TableCell>
-                          <TableCell sx={{ color: '#9ca3af', maxWidth: 200 }}>{p.notes.join('; ')}</TableCell>
+                          <TableCell sx={{ color: 'var(--qc-muted)', maxWidth: 200 }}>{p.notes.join('; ')}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -419,7 +420,7 @@ export default function SignalsTab({ ticker }: Props) {
             {flow?.delta_adjusted_oi?.net_daoi_shares != null ? (
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
                 <Box sx={{ flex: 1 }}>
-                  <Typography variant="caption" sx={{ color: '#6b7280' }}>Delta-Adjusted OI (Market Maker)</Typography>
+                  <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Delta-Adjusted OI (Market Maker)</Typography>
                   <MetricRow label="Net DAOI (shares)" value={flow.delta_adjusted_oi.net_daoi_shares.toLocaleString()}
                     color={flow.delta_adjusted_oi.net_daoi_shares > 0 ? '#10b981' : '#ef4444'} />
                   <MetricRow label="MM Hedge Bias" value={flow.delta_adjusted_oi.mm_hedge_bias === 'buy_on_rally' ? 'Buy on rally' : 'Sell on rally'}
@@ -431,10 +432,10 @@ export default function SignalsTab({ ticker }: Props) {
                     <MetricRow label="Delta Flip" value={`$${flow.delta_adjusted_oi.delta_flip_strike}`} color="#6366f1" />
                   )}
                   {flow.delta_adjusted_oi.dist_to_flip_pct != null && (
-                    <MetricRow label="Dist to Flip" value={`${flow.delta_adjusted_oi.dist_to_flip_pct > 0 ? '+' : ''}${flow.delta_adjusted_oi.dist_to_flip_pct.toFixed(1)}%`} color="#9ca3af" />
+                    <MetricRow label="Dist to Flip" value={`${flow.delta_adjusted_oi.dist_to_flip_pct > 0 ? '+' : ''}${flow.delta_adjusted_oi.dist_to_flip_pct.toFixed(1)}%`} color="var(--qc-muted)" />
                   )}
                   <SignalBadge label={`Signal: ${flow.delta_adjusted_oi.signal}`} color={strengthColor(flow.delta_adjusted_oi.signal)} />
-                  <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
+                  <Typography variant="caption" sx={{ color: 'var(--qc-muted)', display: 'block', mt: 0.5, fontStyle: 'italic' }}>
                     {flow.delta_adjusted_oi.mm_note}
                   </Typography>
                 </Box>
@@ -456,7 +457,7 @@ export default function SignalsTab({ ticker }: Props) {
             {flow?.unusual_calls ? (
               <Box>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
-                  <Typography variant="caption" sx={{ color: '#6b7280' }}>Unusual Call Sweeps</Typography>
+                  <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Unusual Call Sweeps</Typography>
                   <SignalBadge
                     label={`${flow.unusual_calls.sweep_signal} sweep signal`}
                     color={signalColor(flow.unusual_calls.sweep_signal)} />
@@ -484,19 +485,19 @@ export default function SignalsTab({ ticker }: Props) {
                             <TableCell align="right">${c.last.toFixed(2)}</TableCell>
                             <TableCell align="right">{c.iv.toFixed(1)}%</TableCell>
                             <TableCell align="right">{c.volume.toLocaleString()}</TableCell>
-                            <TableCell align="right" sx={{ color: c.vol_oi_ratio >= 1 ? '#10b981' : '#f9fafb' }}>
+                            <TableCell align="right" sx={{ color: c.vol_oi_ratio >= 1 ? '#10b981' : 'var(--qc-text)' }}>
                               {c.vol_oi_ratio.toFixed(2)}×
                             </TableCell>
-                            <TableCell align="right" sx={{ color: c.otm_pct > 0 ? '#9ca3af' : '#10b981' }}>
+                            <TableCell align="right" sx={{ color: c.otm_pct > 0 ? 'var(--qc-muted)' : '#10b981' }}>
                               {c.otm_pct > 0 ? '+' : ''}{c.otm_pct.toFixed(1)}%
                             </TableCell>
                             <TableCell>
                               <Chip size="small" label={c.conviction}
                                 sx={{ fontSize: 10, height: 18,
-                                  bgcolor: c.conviction === 'very high' ? '#7f1d1d'
-                                    : c.conviction === 'high' ? '#78350f'
-                                    : '#1f2937',
-                                  color: '#f9fafb' }} />
+                                  bgcolor: c.conviction === 'very high' ? 'var(--qc-tint-red-strong)'
+                                    : c.conviction === 'high' ? 'var(--qc-tint-amber-strong)'
+                                    : 'var(--qc-surface)',
+                                  color: 'var(--qc-text)' }} />
                             </TableCell>
                           </TableRow>
                         ))}
@@ -504,7 +505,7 @@ export default function SignalsTab({ ticker }: Props) {
                     </Table>
                   </Box>
                 ) : (
-                  <Typography variant="body2" sx={{ color: '#6b7280', fontStyle: 'italic' }}>
+                  <Typography variant="body2" sx={{ color: 'var(--qc-faint)', fontStyle: 'italic' }}>
                     {flow.unusual_calls.interpretation}
                   </Typography>
                 )}
@@ -532,25 +533,25 @@ export default function SignalsTab({ ticker }: Props) {
           <Stack spacing={0}>
             {news.sentiment_summary?.overall && (
               <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>Overall:</Typography>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Overall:</Typography>
                 <Chip
                   size="small"
                   label={news.sentiment_summary.overall.toUpperCase()}
                   sx={{
                     fontSize: 11, height: 20, fontWeight: 700,
-                    bgcolor: news.sentiment_summary.overall === 'positive' ? '#1e3a2f'
-                      : news.sentiment_summary.overall === 'negative' ? '#3a1e1e'
-                      : '#1f2937',
-                    color: news.sentiment_summary.overall === 'positive' ? '#10b981'
-                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
-                      : '#9ca3af',
+                    bgcolor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-tint-green)'
+                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-tint-red)'
+                      : 'var(--qc-surface)',
+                    color: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
+                      : 'var(--qc-muted)',
                     border: '1px solid',
-                    borderColor: news.sentiment_summary.overall === 'positive' ? '#10b981'
-                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
-                      : '#4b5563',
+                    borderColor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
+                      : 'var(--qc-dim)',
                   }}
                 />
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                   {news.sentiment_summary.positive_count}↑ &nbsp;
                   {news.sentiment_summary.negative_count}↓ &nbsp;
                   {news.sentiment_summary.neutral_count}–
@@ -559,7 +560,7 @@ export default function SignalsTab({ ticker }: Props) {
             )}
             {news.articles.map((article, i) => (
               <Box key={i}>
-                {i > 0 && <Divider sx={{ my: 1, borderColor: '#1f2937' }} />}
+                {i > 0 && <Divider sx={{ my: 1, borderColor: 'var(--qc-surface)' }} />}
                 <Stack direction="row" spacing={1} alignItems="flex-start">
                   {article.sentiment && (
                     <Chip
@@ -568,29 +569,29 @@ export default function SignalsTab({ ticker }: Props) {
                       title={`${article.sentiment} (${((article.sentiment_score ?? 0) * 100).toFixed(0)}%)`}
                       sx={{
                         fontSize: 12, height: 20, minWidth: 24, mt: 0.2, flexShrink: 0,
-                        bgcolor: article.sentiment === 'positive' ? '#1e3a2f'
-                          : article.sentiment === 'negative' ? '#3a1e1e'
-                          : '#1f2937',
-                        color: article.sentiment === 'positive' ? '#10b981'
-                          : article.sentiment === 'negative' ? '#ef4444'
-                          : '#6b7280',
+                        bgcolor: article.sentiment === 'positive' ? 'var(--qc-tint-green)'
+                          : article.sentiment === 'negative' ? 'var(--qc-tint-red)'
+                          : 'var(--qc-surface)',
+                        color: article.sentiment === 'positive' ? 'var(--qc-ink-green)'
+                          : article.sentiment === 'negative' ? 'var(--qc-ink-red)'
+                          : 'var(--qc-faint)',
                       }}
                     />
                   )}
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     {article.url ? (
                       <Link href={article.url} target="_blank" rel="noopener noreferrer"
-                        sx={{ color: '#f9fafb', fontSize: 12, fontWeight: 500, textDecoration: 'none',
+                        sx={{ color: 'var(--qc-text)', fontSize: 12, fontWeight: 500, textDecoration: 'none',
                           '&:hover': { textDecoration: 'underline' } }}>
                         {article.title}
                       </Link>
                     ) : (
                       <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{article.title}</Typography>
                     )}
-                    <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mt: 0.25 }}>
+                    <Typography variant="caption" sx={{ color: 'var(--qc-faint)', display: 'block', mt: 0.25 }}>
                       {article.publisher}{article.published ? ` · ${new Date(article.published).toLocaleDateString()}` : ''}
                       {article.sentiment_score != null && (
-                        <span style={{ marginLeft: 6, color: '#4b5563' }}>
+                        <span style={{ marginLeft: 6, color: 'var(--qc-dim)' }}>
                           ({((article.sentiment_score) * 100).toFixed(0)}% confidence)
                         </span>
                       )}

@@ -92,7 +92,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
       .attr('class', 'grid')
       .call(d3.axisLeft(yScale).tickSize(-W).tickFormat(() => ''))
       .selectAll('line')
-      .attr('stroke', '#374151')
+      .style('stroke', 'var(--qc-line)')
       .attr('stroke-dasharray', '2,4');
     g.select('.grid .domain').remove();
 
@@ -105,7 +105,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
         .attr('y', (top + bottom) / 2)
         .attr('text-anchor', 'middle')
         .attr('dominant-baseline', 'middle')
-        .attr('fill', '#f9fafb')
+        .style('fill', 'var(--qc-text)')
         .attr('font-size', 10)
         .text(text);
     };
@@ -154,7 +154,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('transform', 'rotate(-40)')
       .attr('text-anchor', 'end')
       .attr('dx', '-0.4em')
@@ -163,10 +163,10 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(5).tickFormat((v) => d3.format('$,')(v as number)))
       .selectAll('text')
-      .attr('fill', '#9ca3af');
+      .style('fill', 'var(--qc-muted)');
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
   }, [drawable, height]);
 
   if (drawable.length === 0) return null;

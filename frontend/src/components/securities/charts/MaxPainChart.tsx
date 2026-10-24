@@ -56,7 +56,7 @@ export default function MaxPainChart({
     g.append('g')
       .call(d3.axisLeft(yScale).tickSize(-innerW).tickFormat(() => '').ticks(5))
       .selectAll('line')
-      .attr('stroke', '#1f2937')
+      .style('stroke', 'var(--qc-surface)')
       .attr('stroke-dasharray', '3,3');
     g.select('.domain').remove();
 
@@ -117,18 +117,18 @@ export default function MaxPainChart({
           .tickFormat((d) => `$${d}`)
       )
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10)
       .attr('transform', 'rotate(-40)')
       .style('text-anchor', 'end');
 
-    g.select('.domain').attr('stroke', '#374151');
+    g.select('.domain').style('stroke', 'var(--qc-line)');
 
     // Y axis
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(5).tickFormat((d) => formatPain(d as number)))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
     // Tooltip

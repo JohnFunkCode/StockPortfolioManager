@@ -46,7 +46,7 @@ export default function MACDChart({ data, height = 150 }: Props) {
     g.append('line')
       .attr('x1', 0).attr('x2', W)
       .attr('y1', yScale(0)).attr('y2', yScale(0))
-      .attr('stroke', '#4b5563')
+      .style('stroke', 'var(--qc-dim)')
       .attr('stroke-dasharray', '2,3');
 
     // Histogram bars
@@ -95,17 +95,17 @@ export default function MACDChart({ data, height = 150 }: Props) {
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).ticks(5).tickFormat(d3.timeFormat('%b %d') as never))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
     g.append('g')
       .call(d3.axisLeft(yScale).ticks(4).tickFormat((v) => `${v}`))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
 
     // Tooltip
     const tooltip = d3.select('body').select<HTMLDivElement>('#price-tooltip');
@@ -136,7 +136,7 @@ export default function MACDChart({ data, height = 150 }: Props) {
 
   return (
     <Box>
-      <Typography variant="caption" sx={{ px: 1, color: '#9ca3af' }}>
+      <Typography variant="caption" sx={{ px: 1, color: 'var(--qc-muted)' }}>
         MACD (12·26·9)
         <span style={{ color: '#3b82f6', marginLeft: 8 }}>━ MACD</span>
         <span style={{ color: '#f59e0b', marginLeft: 8 }}>╌ Signal</span>

@@ -181,17 +181,17 @@ function OIHeatmap({ expiration }: { expiration: OptionsExpiration }) {
       .attr('transform', `translate(0,${H})`)
       .call(d3.axisBottom(xScale).tickFormat((d) => d.toUpperCase()))
       .selectAll('text')
-      .attr('fill', '#9ca3af');
+      .style('fill', 'var(--qc-muted)');
 
     // Y axis (strikes)
     g.append('g')
       .call(d3.axisLeft(yScale).tickFormat((d) => `$${d}`))
       .selectAll('text')
-      .attr('fill', '#9ca3af')
+      .style('fill', 'var(--qc-muted)')
       .attr('font-size', 10);
 
-    g.selectAll('.domain').attr('stroke', '#374151');
-    g.selectAll('.tick line').attr('stroke', '#374151');
+    g.selectAll('.domain').style('stroke', 'var(--qc-line)');
+    g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
   }, [expiration]);
 
   return <svg ref={ref} style={{ width: '100%', display: 'block' }} />;

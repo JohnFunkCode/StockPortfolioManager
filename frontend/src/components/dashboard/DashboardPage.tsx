@@ -48,14 +48,14 @@ export default function DashboardPage() {
           <Paper sx={{ p: 2, mb: 3 }}>
             <Stack direction="row" spacing={2} sx={{ mb: 2 }}>
               <Box>
-                <Typography variant="caption" sx={{ color: '#6b7280' }}>Aggregate Net DAOI</Typography>
+                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Aggregate Net DAOI</Typography>
                 <Typography variant="h5" sx={{
                   color: deltaData.portfolio_net_daoi > 0 ? '#10b981' : '#ef4444',
                   fontWeight: 700,
                 }}>
                   {deltaData.portfolio_net_daoi > 0 ? '+' : ''}{deltaData.portfolio_net_daoi.toLocaleString()} shares
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                <Typography variant="caption" sx={{ color: 'var(--qc-muted)' }}>
                   {deltaData.portfolio_net_daoi > 0
                     ? 'Net positive: MMs net short delta — mechanical buy support on rallies'
                     : 'Net negative: MMs net long delta — selling pressure on rallies'}
@@ -72,7 +72,7 @@ export default function DashboardPage() {
                   <TableCell align="right">Call DAOI</TableCell>
                   <TableCell align="right">Put DAOI</TableCell>
                   <TableCell>MM Hedge Bias</TableCell>
-                  <TableCell sx={{ color: '#6b7280', fontSize: 11 }}>Captured</TableCell>
+                  <TableCell sx={{ color: 'var(--qc-faint)', fontSize: 11 }}>Captured</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -92,11 +92,11 @@ export default function DashboardPage() {
                         label={pos.mm_hedge_bias === 'buy_on_rally' ? 'Buy on rally ↑' : 'Sell on rally ↓'}
                         sx={{
                           fontSize: 10, height: 18,
-                          bgcolor: pos.mm_hedge_bias === 'buy_on_rally' ? '#1e3a2f' : '#3a1e1e',
-                          color: pos.mm_hedge_bias === 'buy_on_rally' ? '#10b981' : '#ef4444',
+                          bgcolor: pos.mm_hedge_bias === 'buy_on_rally' ? 'var(--qc-tint-green)' : 'var(--qc-tint-red)',
+                          color: pos.mm_hedge_bias === 'buy_on_rally' ? 'var(--qc-ink-green)' : 'var(--qc-ink-red)',
                         }} />
                     </TableCell>
-                    <TableCell sx={{ color: '#6b7280', fontSize: 11 }}>
+                    <TableCell sx={{ color: 'var(--qc-faint)', fontSize: 11 }}>
                       {pos.captured_at ? pos.captured_at.slice(0, 10) : '—'}
                     </TableCell>
                   </TableRow>

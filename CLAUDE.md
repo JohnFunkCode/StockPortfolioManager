@@ -264,7 +264,7 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
 - **Pages are declared once, in `frontend/src/navigation.tsx`** — `<Routes>` and the nav bar both
   map over it; a drill-down (`nav: false`, e.g. `/plans/:id`) must never get a button. The active page is marked with `aria-current`; don't replace it with a CSS-only
   highlight.
-- **Never hard-code a neutral grey or a dark tint in a component.** Use `var(--qc-<name>)`, which `frontend/src/themes.ts` sets per theme (the dark values are the original hex colours), and `tint(color)` instead of `color + '22'`. In D3, set colours with `.style()`, not `.attr()`, because SVG attributes don't resolve `var()`. Literal greys were white-on-white in light mode.
+- **Never hard-code a neutral grey or a dark tint in a component.** Use `var(--qc-<name>)`, which `frontend/src/themes.ts` sets per theme (the dark values are the original hex colours), and `tint(color)` instead of `color + '22'`. In D3, set colours with `.style()`, not `.attr()`, because SVG attributes don't resolve `var()`. On a `tint-*` background, a status colour is `var(--qc-ink-<hue>)`, never the literal hex (`themes.test.ts` fails on the pair). Literal greys were white-on-white in light mode.
 - The Watchlist page leaves the native `market_cap` column **unsortable** (sort on
   `market_cap_usd`). The Fundamentals page has **no page-level loading gate**, its `scope` filter
   runs **before** the ranking, and the roster reaches `FundamentalsService` as a late-bound

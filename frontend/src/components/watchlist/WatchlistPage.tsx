@@ -465,8 +465,8 @@ export default function WatchlistPage() {
                 fontSize: 11,
                 height: 20,
                 bgcolor: stale ? 'var(--qc-tint-amber)' : 'var(--qc-surface)',
-                color: stale ? '#f59e0b' : 'var(--qc-muted)',
-                border: `1px solid ${stale ? '#f59e0b' : 'var(--qc-dim)'}`,
+                color: stale ? 'var(--qc-ink-amber)' : 'var(--qc-muted)',
+                border: `1px solid ${stale ? 'var(--qc-ink-amber)' : 'var(--qc-dim)'}`,
               }}
             />
           </Tooltip>
@@ -572,7 +572,7 @@ export default function WatchlistPage() {
               <Chip
                 size="small"
                 label={`${data?.stale_count} stale`}
-                sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-amber)', color: '#f59e0b', border: '1px solid #f59e0b' }}
+                sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-amber)', color: 'var(--qc-ink-amber)', border: '1px solid var(--qc-ink-amber)' }}
               />
             </Tooltip>
           )}

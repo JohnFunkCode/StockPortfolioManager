@@ -289,7 +289,7 @@ export default function StopLossCard({ ticker, confluence = 'stop' }: Props) {
             <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Price {money(data.price)}</Typography>
             {isHeld(data) && (
               <Chip size="small" label="Held" data-testid="stop-held-chip"
-                sx={{ fontSize: 11, height: 20, fontWeight: 600, bgcolor: 'var(--qc-tint-green)', color: '#10b981', border: '1px solid #10b981' }} />
+                sx={{ fontSize: 11, height: 20, fontWeight: 600, bgcolor: 'var(--qc-tint-green)', color: 'var(--qc-ink-green)', border: '1px solid var(--qc-ink-green)' }} />
             )}
           </Stack>
         )}

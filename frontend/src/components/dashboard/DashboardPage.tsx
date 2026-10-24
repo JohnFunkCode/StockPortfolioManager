@@ -93,7 +93,7 @@ export default function DashboardPage() {
                         sx={{
                           fontSize: 10, height: 18,
                           bgcolor: pos.mm_hedge_bias === 'buy_on_rally' ? 'var(--qc-tint-green)' : 'var(--qc-tint-red)',
-                          color: pos.mm_hedge_bias === 'buy_on_rally' ? '#10b981' : '#ef4444',
+                          color: pos.mm_hedge_bias === 'buy_on_rally' ? 'var(--qc-ink-green)' : 'var(--qc-ink-red)',
                         }} />
                     </TableCell>
                     <TableCell sx={{ color: 'var(--qc-faint)', fontSize: 11 }}>

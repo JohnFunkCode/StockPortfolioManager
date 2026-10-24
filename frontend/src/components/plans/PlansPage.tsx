@@ -42,7 +42,7 @@ export default function PlansPage() {
                 <Chip
                   size="small"
                   label="No position"
-                  sx={{ bgcolor: 'var(--qc-tint-amber)', color: '#f59e0b' }}
+                  sx={{ bgcolor: 'var(--qc-tint-amber)', color: 'var(--qc-ink-amber)' }}
                 />
               </Tooltip>
             )}

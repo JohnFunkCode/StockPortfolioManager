@@ -51,7 +51,7 @@ const LIGHT = {
 // hex colours, so the dark theme renders exactly as before.
 // ---------------------------------------------------------------------------
 
-const DARK_NEUTRALS: Record<string, string> = {
+export const DARK_NEUTRALS: Record<string, string> = {
   'text': '#f9fafb',
   'text-soft': '#d1d5db',
   'muted': '#9ca3af',
@@ -66,13 +66,20 @@ const DARK_NEUTRALS: Record<string, string> = {
   'tint-red-strong': '#7f1d1d',
   'tint-amber': '#3a2e1e',
   'tint-amber-strong': '#78350f',
+  'tint-amber-deep': '#92400e',
   'tint-blue': '#1e2a3a',
   'on-tint-green': '#86efac',
   'on-tint-red': '#fca5a5',
   'on-tint-green-soft': '#d1fae5',
+  // Status colours drawn on a tint-* background: the bright hue in dark mode,
+  // a darker shade of it in light mode so the pair stays readable on the pale tint.
+  'ink-green': '#10b981',
+  'ink-red': '#ef4444',
+  'ink-amber': '#f59e0b',
+  'ink-blue': '#60a5fa',
 };
 
-const LIGHT_NEUTRALS: Record<string, string> = {
+export const LIGHT_NEUTRALS: Record<string, string> = {
   'text': '#1a0030',
   'text-soft': '#2e2440',
   'muted': '#5c566b',
@@ -87,10 +94,15 @@ const LIGHT_NEUTRALS: Record<string, string> = {
   'tint-red-strong': '#f6cdd3',
   'tint-amber': '#fbefdc',
   'tint-amber-strong': '#f6dfb8',
+  'tint-amber-deep': '#f3d29c',
   'tint-blue': '#e2ebf8',
   'on-tint-green': '#14532d',
   'on-tint-red': '#7f1d1d',
   'on-tint-green-soft': '#14532d',
+  'ink-green': '#047857',
+  'ink-red': '#b91c1c',
+  'ink-amber': '#92400e',
+  'ink-blue': '#1d4ed8',
 };
 
 function neutralVars(N: Record<string, string>): string {

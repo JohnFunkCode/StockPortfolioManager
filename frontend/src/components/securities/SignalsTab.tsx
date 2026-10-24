@@ -390,7 +390,7 @@ export default function SignalsTab({ ticker }: Props) {
                             <Chip size="small" label={p.bias}
                               sx={{ fontSize: 10, height: 18,
                                 bgcolor: p.bias === 'bullish' ? 'var(--qc-tint-green)' : p.bias === 'bearish' ? 'var(--qc-tint-red)' : 'var(--qc-surface)',
-                                color: p.bias === 'bullish' ? '#10b981' : p.bias === 'bearish' ? '#ef4444' : 'var(--qc-muted)' }} />
+                                color: p.bias === 'bullish' ? 'var(--qc-ink-green)' : p.bias === 'bearish' ? 'var(--qc-ink-red)' : 'var(--qc-muted)' }} />
                           </TableCell>
                           <TableCell>
                             <SignalBadge label={p.strength} color={strengthColor(p.strength)} />
@@ -542,12 +542,12 @@ export default function SignalsTab({ ticker }: Props) {
                     bgcolor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-tint-green)'
                       : news.sentiment_summary.overall === 'negative' ? 'var(--qc-tint-red)'
                       : 'var(--qc-surface)',
-                    color: news.sentiment_summary.overall === 'positive' ? '#10b981'
-                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
+                    color: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
                       : 'var(--qc-muted)',
                     border: '1px solid',
-                    borderColor: news.sentiment_summary.overall === 'positive' ? '#10b981'
-                      : news.sentiment_summary.overall === 'negative' ? '#ef4444'
+                    borderColor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
                       : 'var(--qc-dim)',
                   }}
                 />
@@ -572,8 +572,8 @@ export default function SignalsTab({ ticker }: Props) {
                         bgcolor: article.sentiment === 'positive' ? 'var(--qc-tint-green)'
                           : article.sentiment === 'negative' ? 'var(--qc-tint-red)'
                           : 'var(--qc-surface)',
-                        color: article.sentiment === 'positive' ? '#10b981'
-                          : article.sentiment === 'negative' ? '#ef4444'
+                        color: article.sentiment === 'positive' ? 'var(--qc-ink-green)'
+                          : article.sentiment === 'negative' ? 'var(--qc-ink-red)'
                           : 'var(--qc-faint)',
                       }}
                     />

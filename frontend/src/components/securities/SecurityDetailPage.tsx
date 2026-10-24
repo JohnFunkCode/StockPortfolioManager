@@ -1114,7 +1114,7 @@ export default function SecurityDetailPage() {
                                 ? <Chip size="small" label={e.put_call_ratio.toFixed(2)}
                                     sx={{ fontSize: 10, height: 18,
                                       bgcolor: e.put_call_ratio > 1 ? 'var(--qc-tint-green)' : 'var(--qc-tint-blue)',
-                                      color:   e.put_call_ratio > 1 ? '#10b981' : '#60a5fa' }} />
+                                      color:   e.put_call_ratio > 1 ? 'var(--qc-ink-green)' : 'var(--qc-ink-blue)' }} />
                                 : '—'}
                             </TableCell>
                             <TableCell align="right" sx={{ color: '#3b82f6' }}>
@@ -1465,7 +1465,7 @@ export default function SecurityDetailPage() {
                                 sx={{
                                   fontSize: 10, height: 18,
                                   bgcolor: row.expected_move_pct > 10 ? 'var(--qc-tint-red-strong)'
-                                    : row.expected_move_pct > 5 ? '#92400e'
+                                    : row.expected_move_pct > 5 ? 'var(--qc-tint-amber-deep)'
                                     : 'var(--qc-surface)',
                                   color: 'var(--qc-text)',
                                 }}
@@ -1488,7 +1488,7 @@ export default function SecurityDetailPage() {
                                     sx={{
                                       fontSize: 10, height: 18,
                                       bgcolor: row.put_call_ratio > 1 ? 'var(--qc-tint-green)' : 'var(--qc-tint-blue)',
-                                      color: row.put_call_ratio > 1 ? '#10b981' : '#60a5fa',
+                                      color: row.put_call_ratio > 1 ? 'var(--qc-ink-green)' : 'var(--qc-ink-blue)',
                                     }}
                                   />
                                 : '—'}

@@ -70,8 +70,8 @@ export default function UpcomingEarningsStrip() {
                 fontSize: 11,
                 height: 20,
                 bgcolor: 'var(--qc-tint-amber)',
-                color: '#f59e0b',
-                border: '1px solid #f59e0b',
+                color: 'var(--qc-ink-amber)',
+                border: '1px solid var(--qc-ink-amber)',
               }}
             />
           </Tooltip>

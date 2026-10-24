@@ -127,8 +127,8 @@ export default function SupportConfluenceCard({ ticker, enabled = true, onRetry 
                 sx={{
                   fontSize: 11, height: 20, fontWeight: 600, border: '1px solid',
                   bgcolor: 'var(--qc-tint-green)',
-                  color: Math.abs(data.strongest_support.distance_pct) <= 3 ? '#10b981' : 'var(--qc-muted)',
-                  borderColor: Math.abs(data.strongest_support.distance_pct) <= 3 ? '#10b981' : 'var(--qc-dim)',
+                  color: Math.abs(data.strongest_support.distance_pct) <= 3 ? 'var(--qc-ink-green)' : 'var(--qc-muted)',
+                  borderColor: Math.abs(data.strongest_support.distance_pct) <= 3 ? 'var(--qc-ink-green)' : 'var(--qc-dim)',
                 }}
               />
             )}

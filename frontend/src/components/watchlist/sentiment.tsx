@@ -3,8 +3,8 @@ import { Chip, Typography } from '@mui/material';
 // FinBERT sentiment palette, shared by the News column, the screener chips and
 // the sentiment dashboard (moved from the retired Securities page, #224).
 export const SENTIMENT_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  positive: { bg: 'var(--qc-tint-green)', text: '#10b981', border: '#10b981' },
-  negative: { bg: 'var(--qc-tint-red)', text: '#ef4444', border: '#ef4444' },
+  positive: { bg: 'var(--qc-tint-green)', text: 'var(--qc-ink-green)', border: 'var(--qc-ink-green)' },
+  negative: { bg: 'var(--qc-tint-red)', text: 'var(--qc-ink-red)', border: 'var(--qc-ink-red)' },
   neutral:  { bg: 'var(--qc-surface)', text: 'var(--qc-muted)', border: 'var(--qc-dim)' },
 };
 

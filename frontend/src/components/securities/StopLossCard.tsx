@@ -102,7 +102,7 @@ function technicalAnchor(data: StopLossResponse): string {
 function StopTiles({ data }: { data: StopLossResponse }) {
   const s = data.stops;
   return (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
+    <Stack direction="row" spacing={1.5} flexWrap="wrap" useFlexGap data-testid="stop-tiles">
       <StopTile testId="stop-tile-technical" title="Technical" color={TECHNICAL}
         price={money(s.technical_stop)}
         detail={`${signedPct(s.technical_stop_distance_pct)} · ${technicalAnchor(data)}`}
@@ -166,14 +166,15 @@ function PriceLadder({ data }: { data: StopLossResponse }) {
       <Caption>Worst historical drops replayed from {money(data.price)}</Caption>
       <Stack spacing={0.75} sx={{ mt: 1 }}>
         {data.drawdown_replay.map((row) => (
-          <Stack key={row.key} direction="row" spacing={1} alignItems="center" data-testid={`replay-${row.key}`}>
-            <Box sx={{ width: 150, flexShrink: 0 }}>
+          <Stack key={row.key} direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap
+            data-testid={`replay-${row.key}`}>
+            <Box sx={{ flex: '0 0 150px' }}>
               <Typography variant="caption" sx={{ color: 'var(--qc-text-soft)', display: 'block', lineHeight: 1.2 }}>{row.label}</Typography>
               <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
                 {row.drop_pct.toFixed(1)}% → {money(row.price)}
               </Typography>
             </Box>
-            <Box sx={{ position: 'relative', flex: 1, height: 16, bgcolor: 'var(--qc-surface)', borderRadius: 0.5 }}>
+            <Box sx={{ position: 'relative', flex: '1 1 160px', height: 16, bgcolor: 'var(--qc-surface)', borderRadius: 0.5 }}>
               <Box sx={{
                 position: 'absolute', top: 3, bottom: 3, left: `${at(row.price)}%`, right: 0,
                 bgcolor: '#ef444455', borderLeft: '2px solid #ef4444',
@@ -259,7 +260,7 @@ function StopLossBody({ data }: { data: StopLossResponse }) {
     <Stack spacing={2}>
       <StopTiles data={data} />
       <PriceLadder data={data} />
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={3}>
+      <Stack direction="row" spacing={3} flexWrap="wrap" useFlexGap data-testid="stop-details">
         <StopContext data={data} />
         {isHeld(data) && <PositionPnl position={data.position as StopLossPosition} />}
       </Stack>

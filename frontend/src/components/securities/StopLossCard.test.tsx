@@ -168,6 +168,19 @@ describe('StopLossCard', () => {
       .toContain('Stepped past $178.00');
   });
 
+  it('wraps its sections on its own width, not the viewport breakpoint', async () => {
+    // In the Sidekick rail the viewport is wide but the card is ~325px: a
+    // viewport breakpoint kept the tiles in one row and ran the third off-screen.
+    mockApi([['/stop-loss', response({ position: HELD, position_source: 'lots' })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    await screen.findByTestId('stop-tiles');
+    const wraps = (id: string) => getComputedStyle(screen.getByTestId(id));
+    for (const id of ['stop-tiles', 'stop-details', 'replay-max_5day']) {
+      expect(wraps(id).flexDirection, id).toBe('row');
+      expect(wraps(id).flexWrap, id).toBe('wrap');
+    }
+  });
+
   it('shows the Held chip and P&L at each stop for a held symbol', async () => {
     mockApi([['/stop-loss', response({ position: HELD, position_source: 'lots' })]]);
     renderWithProviders(<StopLossCard ticker="XYZ" />);

@@ -53,18 +53,29 @@ const SOURCES = import.meta.glob('./components/**/*.tsx', {
   query: '?raw', import: 'default', eager: true,
 }) as Record<string, string>;
 
-const LITERAL_STATUS = /#(10b981|ef4444|f59e0b|60a5fa|92400e)\b/i;
+const STATUS_HEX = '#(?:10b981|ef4444|f59e0b|60a5fa|92400e)\\b';
+
+// A literal status colour, or a module constant bound to one (`const GREEN = '#10b981'`
+// slipped past the first version of this scan on the Watchlist Held chips).
+// Names match case-sensitively: `GREEN` must not match the `green` in var(--qc-ink-green).
+function literalStatus(src: string): { test: (s: string) => boolean } {
+  const hex = new RegExp(STATUS_HEX, 'i');
+  const names = [...src.matchAll(new RegExp(`^const (\\w+) = '${STATUS_HEX}'`, 'gim'))].map((m) => m[1]);
+  const name = names.length ? new RegExp(names.map((n) => `\\b${n}\\b`).join('|')) : null;
+  return { test: (s) => hex.test(s) || (name?.test(s) ?? false) };
+}
 
 describe('component colour pairs', () => {
   it('never pairs a tint-* background with a literal status colour', () => {
     const offenders: string[] = [];
     for (const [path, src] of Object.entries(SOURCES)) {
       if (path.includes('.test.')) continue;
+      const literal = literalStatus(src);
       const lines = src.split('\n');
       lines.forEach((line, i) => {
         if (!line.includes('var(--qc-tint-')) return;
         const window = lines.slice(Math.max(0, i - 3), i + 4).join('\n');
-        if (LITERAL_STATUS.test(window)) offenders.push(`${path}:${i + 1}`);
+        if (literal.test(window)) offenders.push(`${path}:${i + 1}`);
       });
     }
     expect(offenders).toEqual([]);

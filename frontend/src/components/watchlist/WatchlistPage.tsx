@@ -292,7 +292,7 @@ export default function WatchlistPage() {
               <Chip
                 size="small"
                 label="Held"
-                sx={{ fontSize: 10, height: 18, bgcolor: 'var(--qc-tint-green)', color: GREEN, border: `1px solid ${GREEN}` }}
+                sx={{ fontSize: 10, height: 18, bgcolor: 'var(--qc-tint-green)', color: 'var(--qc-ink-green)', border: '1px solid var(--qc-ink-green)' }}
               />
             </Tooltip>
           )}
@@ -556,7 +556,7 @@ export default function WatchlistPage() {
             <Chip
               size="small"
               label={`${data?.held_count} held`}
-              sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-green)', color: GREEN, border: `1px solid ${GREEN}` }}
+              sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-green)', color: 'var(--qc-ink-green)', border: '1px solid var(--qc-ink-green)' }}
             />
           )}
           {data?.as_of && (

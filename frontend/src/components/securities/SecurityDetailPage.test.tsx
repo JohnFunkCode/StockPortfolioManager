@@ -142,6 +142,15 @@ describe('SecurityDetailPage', () => {
     expect(urls.some((u) => u.includes('/support-confluence'))).toBe(false);
   });
 
+  it('shows Support Confluence before the Stop-Loss card', async () => {
+    armAll();
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    const confluence = await screen.findByTestId('support-confluence-card');
+    const stopLoss = await screen.findByTestId('stop-loss-card');
+    expect(confluence.compareDocumentPosition(stopLoss) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('refreshes both cards on focus through the stop-loss request alone', async () => {
     const api = armAll();
     const client = makeQueryClient();

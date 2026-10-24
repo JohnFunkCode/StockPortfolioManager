@@ -68,7 +68,9 @@ At the route boundary it is a `Literal["all","tracked"]`, so a bad value is a 42
 service `ValueError` escaping over HTTP.
 
 The security detail page's Technical Analysis tab ends with two cards that share **one request**
-(#399, [`stop-loss-card-plan.md`](../proposals/stop-loss-card-plan.md)):
+(#399, [`stop-loss-card-plan.md`](../proposals/stop-loss-card-plan.md)): Support Confluence, then the
+Stop-Loss card, which proposes a stop under one of its zones. The order is display only; the
+request is owned by the page, not by either card:
 
 - The **Stop-Loss card** (`frontend/src/components/securities/StopLossCard.tsx`) shows the
   technical, trailing and confluence stops side by side, a ladder replaying the worst 1-day,

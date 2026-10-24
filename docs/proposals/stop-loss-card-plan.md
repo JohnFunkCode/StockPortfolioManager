@@ -19,7 +19,7 @@ each fetch the gamma wall separately.
 
 ## Decisions (2026-10-22)
 
-- **One new Sidekick-renderable stop-loss card** on the Technical Analysis tab, above Support Confluence.
+- **One new Sidekick-renderable stop-loss card** on the Technical Analysis tab, above Support Confluence (moved below it at John's request on 2026-10-24).
   - The Signals tab's *Risk & Stop-Loss Calibration* panel is **retired**, not moved; its data folds into the card.
   - The card shows three stops side by side: **technical** (exists), **trailing** (exists) and a new **confluence stop**.
   - A **price ladder** replays the worst 1-day, worst intraday and worst 5-day drops, plus the recent 30-bar drop, from today's price. It shows which stop each drop would have hit.
@@ -62,7 +62,7 @@ each fetch the gamma wall separately.
 
 1. `StopLossCard`, following the agreed mock-up.
 2. Sidekick `stop_loss: {ticker}` registered on both sides, with parity tests.
-3. On the Technical Analysis tab, the card sits above Support Confluence.
+3. On the Technical Analysis tab, the card sits above Support Confluence. (Since 2026-10-24 it sits below it.)
    - One `confluence=full&position=mine` request seeds the confluence panel's query.
    - The confluence panel fetches on its own only if that request fails.
 4. The confluence table marks the stop's zone.
@@ -139,3 +139,4 @@ The script was a scratch `curl -w %{time_total}` loop with a one-hour test JWT. 
 | Ladder rework (John's review of the Sidekick card, 2026-10-24) | (this PR) | The bars have no scale and the T/Tr/C chips are unclear. Added a round-dollar price axis (d3 `ticks`, today's price marked "now" at the right end) with gridlines through each track. The chips are replaced by "Triggers ■ Technical ■ Trailing" or "Clears every stop" under each drop, still from the server's `hits_*`. vitest 668 passing | The axis row reuses the replay rows' flex bases, so it wraps with them in the rail |
 | Review follow-up (Guppy and Clippy on #423) | (this commit) | The "now" label is on its own line and ticks keep `TICK_EDGE_PCT` (8%) from each end, with thousands separators. Browser-measured with no overlap or clipping at 291px and 160px. Added a mixed-hit, large-price test. vitest 669 passing | A percentage guard doesn't reserve pixels (above) |
 | Post-deploy check on test (#422, #423) | (this PR) | Page card: one row of tiles, 703px tracks, $700/$750/$800 ticks, "now $815.00", verdicts in words, no chips, no overlaps. Rail card (NVDA): tiles stacked, no overflow, 291px tracks, but `$205` overlapped "now". Fixed with block tick labels, measured on the live cards: ticks at 5–15px, "now" at 17–27px, no overlaps on either. vitest 669 passing | Inline captions sit on the parent's line box (above) |
+| Card order (John's request, 2026-10-24) | (this PR) | Support Confluence now comes before the Stop-Loss card. Only the JSX order in `TechnicalStopAndConfluence` changed: the stop-loss request is owned by the page, so it still fills both cards. A page test pins the order. vitest 670 passing | None |

@@ -57,7 +57,9 @@ This shaped every decision below, so it is recorded first.
   `bucket=week`.
 - **Out of scope:**
   - The sentiment cue on the Fundamentals page's Score Changes panel (window-matched
-    agree/diverge marker). It is a separate issue, built on the same analytics function.
+    agree/diverge marker). It is tracked in
+    [#433](https://github.com/JohnFunkCode/StockPortfolioManager/issues/433), built on the same
+    analytics function.
   - Telling "not collected" apart from "collected, nothing found". The news heartbeat in
     `fetch_log` is one upserted row per symbol, so it keeps no history. Doing this needs a per-run
     collection log, which is a separate change.
@@ -154,4 +156,5 @@ This shaped every decision below, so it is recorded first.
 
 ## Checkpoint log
 
-- 2026-10-24 — Placement chosen (Signals, option B) from two mock-ups; plan written.
+- 2026-10-24 — Placement chosen (Signals, option B) from two mock-ups; plan written (#432).
+- 2026-10-24 — Score Changes sentiment cue filed as #433; it depends on PR 1's analytics module.

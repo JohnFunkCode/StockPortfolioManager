@@ -22,6 +22,7 @@ import type {
   AddSecurityResponse,
   NewsResponse,
   BulkSentimentResponse,
+  SentimentTrendResponse,
   SymbolLookupResponse,
 } from './securitiesTypes';
 
@@ -36,6 +37,7 @@ export type {
   SupportConfluenceResponse, StopLossResponse, StopLossConfluence,
   PortfolioDeltaResponse, ScreenerResponse, SnapshotRefreshResponse, BackfillResponse,
   AddSecurityPayload, AddSecurityResponse, NewsResponse, BulkSentimentResponse,
+  SentimentTrendResponse,
   SymbolLookupResponse,
 };
 
@@ -187,6 +189,11 @@ export const securitiesApi = {
 
   getNews: (ticker: string, maxArticles = 10) =>
     apiRequest<NewsResponse>(`/api/securities/${ticker}/news?max_articles=${maxArticles}`),
+
+  getSentimentTrend: (ticker: string, weeks: number) =>
+    apiRequest<SentimentTrendResponse>(
+      `/api/securities/${ticker}/news/trend?bucket=week&days=${weeks * 7}`,
+    ),
 
   getSentimentSummary: (source: 'portfolio' | 'watchlist' | 'all' = 'all') =>
     apiRequest<BulkSentimentResponse>(`/api/securities/news/sentiment-summary?source=${source}`),

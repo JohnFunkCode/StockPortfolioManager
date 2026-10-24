@@ -97,6 +97,13 @@ The card is also the Sidekick component `stop_loss` (`{ticker}` only, `confluenc
 give it a cost-basis, shares or owner prop. The Signals tab's old *Risk & Stop-Loss Calibration*
 panel was retired into it; `/signals/risk` still feeds the Signals summary line.
 
+The Signals tab's *Recent News & Sentiment* panel carries `SentimentTrendChart` (#411): weekly net
+sentiment from `/news/trend?bucket=week`, with a 4w / 13w / 26w window (13w by default). The server
+computes every bucket and flag, including weeks before the news history began, weeks with no
+articles, thin weeks, the in-progress week, and flips by the shared `classify_flip` rule. The chart
+only draws them, keeping the three empty states visibly apart. It is also the Sidekick component
+`sentiment_trend` (`{ticker}` only). Plan: [`sentiment-trend-plan.md`](../proposals/sentiment-trend-plan.md).
+
 **Light and dark themes.** Components were written against the dark theme with literal Tailwind greys (`#f9fafb`, `#9ca3af`, `#374151`, `#1f2937`, …) and dark tints (`#1e3a2f`, …), so in the light theme text went white-on-white and panels became dark slabs. Those values are now CSS custom properties, `--qc-text`, `--qc-text-soft`, `--qc-muted`, `--qc-faint`, `--qc-dim`, `--qc-line`, `--qc-surface`, `--qc-surface-sunk`, `--qc-tint-{green,red,amber,blue}[-strong]`, `--qc-tint-amber-deep`, `--qc-on-tint-*` and `--qc-ink-{green,red,amber,blue}`, set on `:root` by each theme's `MuiCssBaseline` override in `frontend/src/themes.ts`. The dark values are the original hex colours (two near-identical amber and blue tint shades were merged), so the dark theme looks unchanged. A CSS variable works anywhere CSS does — `sx`, inline `style`, a helper's return value — but **not** in an SVG presentation attribute, so D3 code sets these colours with `.style('fill' | 'stroke' | 'color', …)`. The hex-alpha idiom `color + '22'` doesn't work on a variable, so it is `tint(color)` (a `color-mix`). Semantic colours (green, red, amber, blue) stay literal, **except on a `tint-*` background**: there the bright hue that read on a dark tint is ~2:1 on the pale light-mode tint, so a status chip's text and border use `--qc-ink-*` (the bright hue in dark mode, a darker shade in light). `frontend/src/themes.test.ts` checks every such pair reaches 4.5:1 in light mode and scans the components for a `tint-*` background beside a literal status colour, or a constant bound to one (defined in the file or imported) — the half-converted pair the #421 review caught.
 
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server

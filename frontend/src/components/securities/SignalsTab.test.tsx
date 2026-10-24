@@ -38,11 +38,23 @@ const RISK = {
 
 const NEWS = { symbol: 'INTC', article_count: 0, articles: [] };
 
+const TREND = {
+  symbol: 'INTC', days: 91, bucket: 'week', weeks: 1, history_start: '2026-09-30',
+  weeks_with_articles: 1, total_articles: 12, thin_threshold: 10,
+  buckets: [{
+    week_start: '2026-10-19', week_end: '2026-10-25', article_count: 12, positive_count: 2,
+    negative_count: 6, neutral_count: 4, net_score: -0.333, label: 'negative', thin: false,
+    in_progress: true, before_history: false, flip: null,
+  }],
+};
+
 function armAll(overrides: Record<string, unknown> = {}) {
   return mockApi([
     ['/signals/technical', overrides.tech ?? TECH],
     ['/signals/options-flow', overrides.flow ?? FLOW],
     ['/signals/risk', overrides.risk ?? RISK],
+    // Before '/news', which would otherwise match the trend URL too.
+    ['/news/trend', overrides.trend ?? TREND],
     ['/news', overrides.news ?? NEWS],
   ]);
 }
@@ -90,6 +102,31 @@ describe('SignalsTab', () => {
       expect(screen.getByText(/broadly bearish/i)).toBeInTheDocument(),
     );
     expect(screen.getByText(/News sentiment across 3/i)).toBeInTheDocument();
+  });
+
+  it('puts the weekly trend between the Overall row and the articles (#411)', async () => {
+    armAll({
+      news: {
+        symbol: 'INTC',
+        article_count: 1,
+        articles: [{ title: 'Guidance cut', sentiment: 'negative', sentiment_score: 0.9, publisher: 'Wire', published: '2026-07-20', url: 'u' }],
+        sentiment_summary: { overall: 'negative', positive_count: 0, negative_count: 1, neutral_count: 0, scored_count: 1 },
+      },
+    });
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    const trend = await screen.findByTestId('sentiment-trend-chart');
+    const overall = screen.getByText('Overall:');
+    const article = screen.getByText('Guidance cut');
+    // DOCUMENT_POSITION_FOLLOWING: the second node comes after the first.
+    expect(overall.compareDocumentPosition(trend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(trend.compareDocumentPosition(article) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('still shows the trend when there is no current news', async () => {
+    armAll();
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    expect(await screen.findByText('No recent news available.')).toBeInTheDocument();
+    expect(await screen.findByTestId('sentiment-trend-chart')).toBeInTheDocument();
   });
 
   it('no longer renders the Risk panel, but the summary still uses the risk signals', async () => {

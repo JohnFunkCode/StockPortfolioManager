@@ -1,6 +1,6 @@
 # News sentiment trend on the Signals tab (#411)
 
-**Status:** PR 1 (backend) in review; PR 2 (UI) not started. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
+**Status:** PR 1 (backend) merged as #435; PR 2 (UI) in review. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
 Related: #282 (relevance filtering), #372 / #375 (the October collection and scoring outages),
 #258 (article text).
 
@@ -189,3 +189,26 @@ This shaped every decision below, so it is recorded first.
     7 / 6 (radon 6.0.1, complexipy 8.1.0);
   - the weekly window is capped at `MAX_TREND_WEEKS = 104`;
   - new tests pin 9 vs 10 articles, a one-week window, and history starting on a week edge.
+- 2026-10-24 — #435 merged and deployed to test. PR 2 (UI) opened:
+  - `SentimentTrendChart` sits in the Signals tab's news panel between the Overall row and the
+    articles. It also renders when there is no current news, since an empty week is information.
+  - It is the Sidekick `sentiment_trend` card (`{ticker}` only; the window is view state).
+  - The chart is MUI `Box` columns, not D3: a dozen fixed-width bars need no scales, and plain
+    elements resolve `var(--qc-*)` without the `.style()` rule D3 needs.
+  - Verified against the test DB in both themes. WDC shows 4 of 13 weeks with articles and a real
+    `improving` flip in the Oct 5 week, which prod didn't collect.
+  - Gotcha: the before-history shading first used `--qc-surface-sunk`, which is the card's own
+    background, so it was invisible. A flex `gap` then tiled the shaded run into stripes. The
+    shade is `--qc-surface` and the columns have no gap.
+  - Gotcha: existing tests mocked `'/news'` by substring, which also caught `/news/trend` and
+    handed the chart an articles payload. The trend route is mocked first, and the chart treats a
+    response without `buckets` as an error rather than crashing.
+- 2026-10-24 — #436 review addressed:
+  - `WeekColumn` (CC 17, over the 15 limit) is split into `weekCaption`, `FlipMarker`, `NetBar`
+    and `WeekPlot`, each a few branches;
+  - `shortDate` returns a string it can't parse unchanged rather than "undefined";
+  - a lone before-history column stays unlabelled on purpose (the label can't fit one column, and
+    the coverage line gives the history start), now said in a comment;
+  - new tests pin positive, negative and zero bar geometry and the improving flip's ▲.
+  - Gotcha: jsdom reports an unset `top`/`bottom` as `auto`, not `''`, so the geometry tests
+    assert the anchored side only.

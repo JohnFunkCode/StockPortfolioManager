@@ -444,6 +444,34 @@ export interface NewsResponse {
   sentiment_note?: string;
 }
 
+// Weekly news sentiment trend (issue #411): GET .../news/trend?bucket=week.
+// Every week in the window is present; the server computes every number and flag.
+export interface SentimentTrendWeek {
+  week_start: string;
+  week_end: string;
+  article_count: number;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  net_score: number | null;
+  label: 'positive' | 'negative' | 'neutral' | null;
+  thin: boolean;
+  in_progress: boolean;
+  before_history: boolean;
+  flip: 'improving' | 'deteriorating' | null;
+}
+export interface SentimentTrendResponse {
+  symbol: string;
+  days: number;
+  bucket: 'week';
+  weeks: number;
+  history_start: string | null;
+  weeks_with_articles: number;
+  total_articles: number;
+  thin_threshold: number;
+  buckets: SentimentTrendWeek[];
+}
+
 // #7 Bulk sentiment dashboard
 export interface SentimentSummaryItem {
   symbol: string;

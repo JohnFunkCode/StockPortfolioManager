@@ -21,6 +21,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # The card reads the caller's own lots server-side (position=mine) — never
     # add a cost-basis, shares or owner prop here.
     "stop_loss": {"ticker": str},
+    # Weekly news sentiment (#411); the 4w/13w/26w window is the card's own
+    # view state, never a prop.
+    "sentiment_trend": {"ticker": str},
     "spread_payoff": {
         "ticker": str,
         "expiration": str,
@@ -476,6 +479,10 @@ TOOL_SCHEMAS: list[dict] = [
             "trailing and confluence stops side by side, the worst historical "
             "drops replayed against them, and the caller's own P&L at each stop "
             "if they hold it (requires ticker), "
+            "'sentiment_trend' charts one ticker's weekly net news sentiment "
+            "(FinBERT-scored headlines), marking weeks with no articles, thin "
+            "weeks, weeks before news history began, and sentiment flips "
+            "(requires ticker), "
             "'live_price' shows a compact auto-refreshing price chip, "
             "'price_chart' shows the price history chart with moving averages, "
             "'spread_payoff' shows an interactive risk graph for a vertical "

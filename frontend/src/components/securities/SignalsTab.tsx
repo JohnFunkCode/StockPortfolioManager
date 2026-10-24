@@ -9,6 +9,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals, useNews } from '../../hooks/useSecurities';
 import type { NewsResponse } from '../../api/securitiesTypes';
 import { tint } from '../../themes';
+import SentimentTrendChart from './SentimentTrendChart';
 
 interface Props { ticker: string }
 
@@ -528,7 +529,11 @@ export default function SignalsTab({ ticker }: Props) {
         {newsLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
         ) : !news?.articles?.length ? (
-          <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
+          // History can exist with nothing current, so the trend still shows.
+          <Stack spacing={1.5}>
+            <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
+            <SentimentTrendChart ticker={ticker} />
+          </Stack>
         ) : (
           <Stack spacing={0}>
             {news.sentiment_summary?.overall && (
@@ -558,6 +563,9 @@ export default function SignalsTab({ ticker }: Props) {
                 </Typography>
               </Stack>
             )}
+            <Box sx={{ mb: 1.5 }}>
+              <SentimentTrendChart ticker={ticker} />
+            </Box>
             {news.articles.map((article, i) => (
               <Box key={i}>
                 {i > 0 && <Divider sx={{ my: 1, borderColor: 'var(--qc-surface)' }} />}

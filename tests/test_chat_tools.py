@@ -101,6 +101,23 @@ class TestStopLossDirective(unittest.TestCase):
             self.assertFalse(ok, extra)
 
 
+class TestSentimentTrendDirective(unittest.TestCase):
+    """#411. The 4w/13w/26w window is the card's own view state, so nothing
+    but the ticker is a prop. Mirrored in componentRegistry.test.ts."""
+
+    def test_registered_with_ticker_only(self):
+        self.assertEqual(BACKEND_COMPONENT_REGISTRY["sentiment_trend"], {"ticker": str})
+
+    def test_valid_ticker_accepted(self):
+        ok, reason = validate_directive("sentiment_trend", {"ticker": "WDC"})
+        self.assertTrue(ok, reason)
+
+    def test_window_props_rejected(self):
+        for extra in ({"weeks": 26}, {"days": 91}, {"bucket": "week"}):
+            ok, _ = validate_directive("sentiment_trend", {"ticker": "WDC", **extra})
+            self.assertFalse(ok, extra)
+
+
 class TestWatchlistFundamentalsDirective(unittest.TestCase):
     """Issue #147 Part C. The watchlist is one global list (#83), so the card
     takes no props at all — not a ticker, and not an owner."""

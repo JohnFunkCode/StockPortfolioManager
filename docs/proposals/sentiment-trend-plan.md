@@ -1,6 +1,6 @@
 # News sentiment trend on the Signals tab (#411)
 
-**Status:** PR 1 (backend) merged as #435; PR 2 (UI) in review. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
+**Status:** #411 shipped to prod (#435, #436, #438); #433 (Score Changes cue) in review. Issue [#411](https://github.com/JohnFunkCode/StockPortfolioManager/issues/411).
 Related: #282 (relevance filtering), #372 / #375 (the October collection and scoring outages),
 #258 (article text).
 
@@ -260,6 +260,24 @@ This shaped every decision below, so it is recorded first.
   sections. That is recorded as a pre-existing exception, with the rest of the split proposed as
   separate work. Clippy noticed the lift had started showing the Overall row with no articles;
   it is back to showing only alongside articles, with a test.
+- 2026-10-25 — #433 PR opened: the Score Changes News column.
+  - The verdict is `window_sentiment`: net score with a ±0.10 dead band (`agrees` / `diverges` /
+    `mixed`), `thin` under 10 articles or under 25% coverage, and `none` with no articles.
+  - Gotcha: the coverage cutoff was going to be a half. Prod's score windows all start Aug 10 and
+    run about 75 days, while news history starts Oct 1, so every window is about 30% covered and
+    a half would read `thin` for every mover until mid-November. A quarter gives a verdict now,
+    and the tooltip always states the coverage.
+  - Two set-based news queries per request: one over `symbol IN (...)` with the `fetched_at`
+    prefilter, and one `MIN(fetched_at) ... GROUP BY symbol`. Against the test DB through the
+    proxy, 30 movers took about 1 s for both. The 116 s the panel took locally is the existing
+    per-symbol history loop (235 × ~0.47 s through the proxy), not this change.
+  - Test DB: 30 movers came out as 6 agrees, 12 diverges, 9 mixed and 3 none. The none rows are
+    foreign tickers (112610.KS, NIB.F) the collector doesn't cover.
+- 2026-10-25 — #440 review addressed. Guppy measured `ScoreChangesPanel` at CC 25 and
+  `get_fundamental_score_changes` at CC 13 / cognitive 20. The panel is split into header,
+  delta cell, row, table and body components. The service's per-symbol work moved into
+  `_score_move` and `_is_reported_move`, which keep insufficient history, an unusable score
+  and a below-threshold move as three distinct outcomes. Tests were added for each.
 - 2026-10-25 — Rest of the SignalsTab split (follow-up to #439's exception). `SignalsTab` is
   now composition only. Each section is a component that takes `ticker` and calls its own hooks,
   and react-query dedupes the shared requests:

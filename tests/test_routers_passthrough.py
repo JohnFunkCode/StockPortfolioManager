@@ -193,5 +193,27 @@ class RouterPassthroughTest(unittest.TestCase):
         self.assertEqual(seen, ["cache", "live"])   # never reached the service
 
 
+class PriceSummaryFailureLogTest(unittest.TestCase):
+    """price-summary's 500s left nothing in the logs; now they name the failure."""
+
+    def test_failure_is_logged_by_class_without_its_text(self):
+        secret = "postgresql://user:hunter2@db/quantcore"
+
+        class Prices:
+            def get_stock_price(self, ticker):
+                raise ConnectionError(f"could not connect {secret}")
+
+        class Bag:
+            prices = Prices()
+
+        client = TestClient(create_app(), raise_server_exceptions=False)
+        with patch.object(prices_router, "services", lambda: Bag()):
+            with self.assertLogs("api.routers.prices", level="WARNING") as logs:
+                resp = client.get("/api/securities/brk-b/price-summary")
+        self.assertEqual(resp.status_code, 500)
+        line = "\n".join(logs.output)
+        self.assertIn("price-summary failed ticker=BRK-B (builtins.ConnectionError)", line)
+        self.assertNotIn("hunter2", line)
+
 if __name__ == "__main__":
     unittest.main()

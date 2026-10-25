@@ -7,10 +7,13 @@ same ``{"error", "message", "status"}`` JSON body and status codes:
   * ``DuplicateSymbolError``  -> 409 DuplicateSymbol
   * ``RuntimeError``          -> 422 (plan-build failures in the Flask source)
   * ``HTTPException``         -> its own status / detail
-  * anything else             -> 500 InternalServerError
+  * anything else             -> 500 InternalServerError, with a generic
+    message: the exception's text can carry a DSN, so only its class is logged
 """
 
 from __future__ import annotations
+
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -18,7 +21,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from quantcore.services.portfolio import DuplicateSymbolError
 
+from .deps import INTERNAL_ERROR, log_route_failure
 from .json_response import QuantCoreJSONResponse
+
+logger = logging.getLogger(__name__)
 
 
 def _body(error: str, message: str, status: int) -> QuantCoreJSONResponse:
@@ -60,4 +66,5 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _handle_unexpected(request: Request, exc: Exception):  # noqa: ANN202
-        return _body("InternalServerError", str(exc), 500)
+        log_route_failure(logger, f"{request.method} {request.url.path}", exc)
+        return _body("InternalServerError", INTERNAL_ERROR, 500)

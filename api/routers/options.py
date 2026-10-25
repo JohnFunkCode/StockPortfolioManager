@@ -8,22 +8,32 @@ dicts ship byte-for-byte via QuantCoreJSONResponse):
   POST /api/securities/{ticker}/options/history/backfill   (preserves 202)
   POST /api/securities/refresh-options-snapshots
 
-Error parity: the GET analytics routes wrap exceptions as the plain
-``{"error": str}`` 500; options-flow and refresh-options-snapshots have no
+Error parity: the GET analytics routes answer an exception with the plain
+``{"error"}`` 500 (a generic message; the class is logged, never the text); options-flow and refresh-options-snapshots have no
 try/except (framework handler), matching Flask. ``backfill`` returns the
 service's ``(payload, status)`` so long-running 202 semantics are preserved.
 """
 
 from __future__ import annotations
 
+import logging
+
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
 from ..auth import require_owner
-from ..deps import load_portfolio, load_watchlist, route_error_plain, services
+from ..deps import (
+    load_portfolio,
+    load_watchlist,
+    route_error_plain,
+    route_internal_error,
+    services,
+)
 from ..json_response import QuantCoreJSONResponse
 from ..schemas.options import VerticalSpreadRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["options"])
 
@@ -36,7 +46,7 @@ def get_options_latest(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_options_latest(ticker))
     except Exception as exc:  # noqa: BLE001 — parity with Flask
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_options_latest", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/history")
@@ -44,7 +54,7 @@ def get_options_history(ticker: str, days: int = 30) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_options_history(ticker, days=days))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_options_history", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/analytics")
@@ -52,7 +62,7 @@ def get_options_analytics(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_options_analytics(ticker))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_options_analytics", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/chain")
@@ -62,7 +72,7 @@ def get_options_chain(ticker: str, expiration: Optional[str] = None) -> QuantCor
             services().options.get_options_chain(ticker, expiration=expiration)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_options_chain", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/iv-rank")
@@ -70,7 +80,7 @@ def get_iv_rank(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_iv_rank(ticker))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_iv_rank", exc, ticker=ticker.upper())
 
 
 # --------------------------------------------------------------------------- #
@@ -90,7 +100,7 @@ def get_option_contracts(
             )
         )
     except Exception as exc:  # noqa: BLE001 — plain-error parity with the other GETs
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_option_contracts", exc, ticker=ticker.upper())
 
 
 @router.post("/securities/{ticker}/options/vertical-spread")
@@ -109,7 +119,7 @@ def price_vertical_spread(ticker: str, body: VerticalSpreadRequest) -> QuantCore
             )
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "price_vertical_spread", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/signals/options-flow")
@@ -128,7 +138,7 @@ def get_portfolio_delta_exposure(owner: str = Depends(require_owner)) -> QuantCo
             services().options.get_portfolio_delta_exposure(load_portfolio(owner))
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_portfolio_delta_exposure", exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -142,7 +152,7 @@ def get_full_options_chain(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_full_options_chain(ticker))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_full_options_chain", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/unusual-calls")
@@ -159,7 +169,7 @@ def get_unusual_calls(
             )
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_unusual_calls", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/delta-adjusted-oi")
@@ -171,7 +181,7 @@ def get_delta_adjusted_oi(
             services().options.get_delta_adjusted_oi(ticker, max_expirations, risk_free_rate)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_delta_adjusted_oi", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/gamma-wall-history")
@@ -181,7 +191,7 @@ def get_gamma_wall_history(ticker: str, since_days: int = 90) -> QuantCoreJSONRe
             services().options.get_gamma_wall_history(ticker, since_days)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_gamma_wall_history", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/oi-change")
@@ -199,7 +209,7 @@ def get_oi_change_analysis(
             )
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_oi_change_analysis", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/gex-profile")
@@ -211,7 +221,7 @@ def get_gex_profile(
             services().options.get_gex_profile(ticker, max_expirations, risk_free_rate)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_gex_profile", exc, ticker=ticker.upper())
 
 
 @router.get("/securities/{ticker}/options/screen")
@@ -226,7 +236,7 @@ def screen_options_symbol(
             )
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "screen_options_symbol", exc, ticker=ticker.upper())
 
 
 @router.get("/options/screen-watchlist")
@@ -258,7 +268,7 @@ def screen_options_watchlist(
             )
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "screen_options_watchlist", exc)
 
 
 # --------------------------------------------------------------------------- #
@@ -276,7 +286,7 @@ def backfill_options_history(
             ticker, days=days, skip_existing=skip
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "backfill_options_history", exc, ticker=ticker.upper())
     return QuantCoreJSONResponse(payload, status_code=status)
 
 

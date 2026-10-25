@@ -3,7 +3,7 @@
 Every route here is exactly one service call deep (arch-v2 Rule 6). These
 tests pin that contract mechanically: with the service layer mocked, each
 route must return the service payload verbatim on success and the plain
-{"error": ...} 500 shape on failure — proving no route grows hidden logic.
+{"error": "internal error"} 500 shape on failure — proving no route grows hidden logic.
 """
 import os
 import unittest
@@ -109,7 +109,8 @@ class RouterPassthroughTest(unittest.TestCase):
                      "/api/securities/TST/options/latest"):
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 500, path)
-            self.assertIn("service exploded", resp.json()["error"])
+            # The text stays server-side (tests/test_error_redaction.py).
+            self.assertEqual(resp.json(), {"error": "internal error"}, path)
 
     def test_contracts_route_forwards_query_lists(self):
         captured = {}

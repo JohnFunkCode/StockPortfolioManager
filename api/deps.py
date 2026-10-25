@@ -8,6 +8,8 @@ loaders) so routers stay exactly one service call deep.
 
 from __future__ import annotations
 
+import logging
+
 from quantcore.services.registry import Services, get_services
 
 from .json_response import QuantCoreJSONResponse
@@ -37,6 +39,31 @@ def route_error_plain(message: str, status: int) -> QuantCoreJSONResponse:
     ``route_error`` with the extra ``status`` key). Preserved verbatim.
     """
     return QuantCoreJSONResponse({"error": message}, status_code=status)
+
+
+# What a caller sees for an unexpected failure. The exception's own text stays
+# server-side: it can carry a DSN, an internal URL or a driver message, and
+# quantcore-api is public (JWT-gated, allUsers).
+INTERNAL_ERROR = "internal error"
+
+
+def exception_kind(exc: BaseException) -> str:
+    """``module.QualName`` of an exception — loggable, unlike its text."""
+    return f"{type(exc).__module__}.{type(exc).__qualname__}"
+
+
+def log_route_failure(log: logging.Logger, what: str, exc: BaseException, **context: str) -> None:
+    """One WARNING naming the route, its context and the exception class only."""
+    ctx = "".join(f" {k}={v}" for k, v in context.items())
+    log.warning("%s failed%s (%s)", what, ctx, exception_kind(exc))
+
+
+def route_internal_error(
+    log: logging.Logger, what: str, exc: BaseException, **context: str
+) -> QuantCoreJSONResponse:
+    """The plain ``{"error"}`` 500 for a caught unexpected exception."""
+    log_route_failure(log, what, exc, **context)
+    return route_error_plain(INTERNAL_ERROR, 500)
 
 
 def load_portfolio(owner: str) -> list[dict]:

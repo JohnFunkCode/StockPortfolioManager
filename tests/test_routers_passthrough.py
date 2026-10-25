@@ -120,9 +120,13 @@ class RouterPassthroughTest(unittest.TestCase):
         with self.assertLogs("api.routers.options", level="WARNING") as logs:
             resp = self.client.get("/api/securities/wdc/options/iv-rank")
         self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            logs.output,
+            ["WARNING:api.routers.options:iv-rank failed ticker=WDC (RuntimeError)"],
+        )
         line = "\n".join(logs.output)
-        self.assertIn("iv-rank failed ticker=WDC (RuntimeError)", line)
-        self.assertNotIn("hunter2", line)
+        self.assertNotIn(secret, line)
+        self.assertNotIn("could not connect", line)
 
     def test_guarded_routes_degrade_to_plain_500(self):
         class ExplodingService:

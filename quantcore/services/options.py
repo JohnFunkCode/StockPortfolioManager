@@ -123,6 +123,18 @@ def _snapshot_rows(contracts: list[dict], kind: str) -> list[dict]:
     ]
 
 
+def _finite_ivs(history: list[dict]) -> list[float]:
+    """The finite composite IVs, oldest first.
+
+    A stored NaN (see OptionsStore._finite) would make max/min order around
+    it silently, so only finite values count.
+    """
+    return [
+        row["composite_iv"] for row in history
+        if row["composite_iv"] is not None and math.isfinite(row["composite_iv"])
+    ]
+
+
 class OptionsService:
     """Options chains, unusual-call detection, delta-adjusted OI, and options REST."""
 
@@ -1187,12 +1199,7 @@ class OptionsService:
         ticker = ticker.upper()
         history = self._options.get_iv_history(ticker, days=365)
 
-        # A stored NaN (see OptionsStore._finite) would make max/min order
-        # around it silently, so only finite values count.
-        iv_values = [
-            row["composite_iv"] for row in history
-            if row["composite_iv"] is not None and math.isfinite(row["composite_iv"])
-        ]
+        iv_values = _finite_ivs(history)
 
         if len(iv_values) < 2:
             return {

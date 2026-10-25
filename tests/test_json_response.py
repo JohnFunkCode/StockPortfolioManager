@@ -6,6 +6,7 @@ compliant: nan": the encoder's `default()` nulls NaN, but json never calls
 """
 import json
 import unittest
+from decimal import Decimal
 
 import numpy as np
 
@@ -30,6 +31,14 @@ class NonFiniteFloatsTest(unittest.TestCase):
             "nested": {"rows": [{"iv": None}, {"iv": 41.5}], "pair": [None, 2]},
             "ok": 1.25,
         })
+
+    def test_decimal_and_ndarray_non_finite_values_become_null(self):
+        out = body({
+            "dec": Decimal("NaN"),
+            "dec_ok": Decimal("2.5"),
+            "arr": np.array([1.5, np.nan, np.inf]),
+        })
+        self.assertEqual(out, {"dec": None, "dec_ok": 2.5, "arr": [1.5, None, None]})
 
     def test_clean_payload_is_unchanged(self):
         content = {"a": [1, 2.5, "x", None], "b": {"c": True}}

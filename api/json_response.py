@@ -83,8 +83,10 @@ def _dumps(content: Any) -> bytes:  # noqa: ANN401
 
 def _null_non_finite(value: Any) -> Any:  # noqa: ANN401
     """The payload with every NaN/±inf float replaced by None, recursively."""
-    if isinstance(value, float):
+    if isinstance(value, (float, Decimal)):
         return value if math.isfinite(value) else None
+    if isinstance(value, np.ndarray):
+        return _null_non_finite(value.tolist())
     if isinstance(value, dict):
         return {k: _null_non_finite(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):

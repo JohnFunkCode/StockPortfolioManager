@@ -53,6 +53,69 @@ def _finite_row(values: tuple) -> tuple:
     return tuple(_finite(v) for v in values)
 
 
+def _write_expiration(
+    conn, snapshot_id: int, expiration: str, put_call_ratio,
+    calls: dict, puts: dict, *, contracts_key: str,
+) -> None:
+    """Insert one expiration row and its call/put contracts (both writers)."""
+    expiration_id = conn.execute(
+        """
+        INSERT INTO options_expirations
+            (snapshot_id, expiration, put_call_ratio,
+             total_call_oi, total_put_oi,
+             total_call_vol, total_put_vol,
+             avg_call_iv, avg_put_iv)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (snapshot_id, expiration) DO UPDATE SET
+            put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
+        RETURNING expiration_id
+        """,
+        _finite_row((
+            snapshot_id,
+            expiration,
+            put_call_ratio,
+            calls.get("total_open_interest"),
+            puts.get("total_open_interest"),
+            calls.get("total_volume"),
+            puts.get("total_volume"),
+            calls.get("avg_iv_pct"),
+            puts.get("avg_iv_pct"),
+        )),
+    ).fetchone()[0]
+
+    rows = [
+        _contract_row(expiration_id, kind, c)
+        for kind, side in (("call", calls), ("put", puts))
+        for c in side.get(contracts_key, [])
+    ]
+    if rows:
+        conn.executemany(
+            """
+            INSERT INTO options_contracts
+                (expiration_id, kind, strike, last_price, bid, ask,
+                 implied_vol, volume, open_interest, in_the_money)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (expiration_id, kind, strike) DO NOTHING
+            """,
+            rows,
+        )
+
+
+def _contract_row(expiration_id: int, kind: str, c: dict) -> tuple:
+    return (
+        expiration_id,
+        kind,
+        c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
+        _finite(c.get("last")),
+        _finite(c.get("bid")),
+        _finite(c.get("ask")),
+        _finite(c.get("iv")),
+        c.get("volume"),
+        c.get("open_interest"),
+        int(bool(c.get("in_the_money", False))),
+    )
+
+
 # ---------------------------------------------------------------------------
 # OptionsStore
 # ---------------------------------------------------------------------------
@@ -166,58 +229,9 @@ class OptionsStore:
             calls = options.get("calls") or {}
             puts  = options.get("puts")  or {}
 
-            cur = conn.execute(
-                """
-                INSERT INTO options_expirations
-                    (snapshot_id, expiration, put_call_ratio,
-                     total_call_oi, total_put_oi,
-                     total_call_vol, total_put_vol,
-                     avg_call_iv, avg_put_iv)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (snapshot_id, expiration) DO UPDATE SET
-                    put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
-                RETURNING expiration_id
-                """,
-                _finite_row((
-                    snapshot_id,
-                    expiration,
-                    options.get("put_call_ratio"),
-                    calls.get("total_open_interest"),
-                    puts.get("total_open_interest"),
-                    calls.get("total_volume"),
-                    puts.get("total_volume"),
-                    calls.get("avg_iv_pct"),
-                    puts.get("avg_iv_pct"),
-                )),
-            )
-            expiration_id = cur.fetchone()[0]
-
-            # --- options_contracts (ATM calls + puts) ---
-            rows = []
-            for kind, side in (("call", calls), ("put", puts)):
-                for c in side.get("atm_contracts", []):
-                    rows.append((
-                        expiration_id,
-                        kind,
-                        c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
-                        _finite(c.get("last")),
-                        _finite(c.get("bid")),
-                        _finite(c.get("ask")),
-                        _finite(c.get("iv")),
-                        c.get("volume"),
-                        c.get("open_interest"),
-                        int(bool(c.get("in_the_money", False))),
-                    ))
-
-            conn.executemany(
-                """
-                INSERT INTO options_contracts
-                    (expiration_id, kind, strike, last_price, bid, ask,
-                     implied_vol, volume, open_interest, in_the_money)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (expiration_id, kind, strike) DO NOTHING
-                """,
-                rows,
+            _write_expiration(
+                conn, snapshot_id, expiration, options.get("put_call_ratio"),
+                calls, puts, contracts_key="atm_contracts",
             )
 
             conn.commit()
@@ -313,59 +327,10 @@ class OptionsStore:
                 calls = exp_entry.get("calls") or {}
                 puts = exp_entry.get("puts") or {}
 
-                cur = conn.execute(
-                    """
-                    INSERT INTO options_expirations
-                        (snapshot_id, expiration, put_call_ratio,
-                         total_call_oi, total_put_oi,
-                         total_call_vol, total_put_vol,
-                         avg_call_iv, avg_put_iv)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (snapshot_id, expiration) DO UPDATE SET
-                        put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
-                    RETURNING expiration_id
-                    """,
-                    _finite_row((
-                        snapshot_id,
-                        expiration,
-                        exp_entry.get("put_call_ratio"),
-                        calls.get("total_open_interest"),
-                        puts.get("total_open_interest"),
-                        calls.get("total_volume"),
-                        puts.get("total_volume"),
-                        calls.get("avg_iv_pct"),
-                        puts.get("avg_iv_pct"),
-                    )),
+                _write_expiration(
+                    conn, snapshot_id, expiration, exp_entry.get("put_call_ratio"),
+                    calls, puts, contracts_key="contracts",
                 )
-                expiration_id = cur.fetchone()[0]
-
-                rows = []
-                for kind, side in (("call", calls), ("put", puts)):
-                    for c in side.get("contracts", []):
-                        rows.append((
-                            expiration_id,
-                            kind,
-                            c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
-                            _finite(c.get("last")),
-                            _finite(c.get("bid")),
-                            _finite(c.get("ask")),
-                            _finite(c.get("iv")),
-                            c.get("volume"),
-                            c.get("open_interest"),
-                            int(bool(c.get("in_the_money", False))),
-                        ))
-
-                if rows:
-                    conn.executemany(
-                        """
-                        INSERT INTO options_contracts
-                            (expiration_id, kind, strike, last_price, bid, ask,
-                             implied_vol, volume, open_interest, in_the_money)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (expiration_id, kind, strike) DO NOTHING
-                        """,
-                        rows,
-                    )
 
             conn.commit()
 

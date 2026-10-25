@@ -10,6 +10,7 @@ exception handler.
 
 from __future__ import annotations
 
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends
@@ -17,6 +18,8 @@ from fastapi import APIRouter, Depends
 from ..auth import require_owner
 from ..deps import load_portfolio, load_watchlist, route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/securities", tags=["prices"])
 
@@ -60,6 +63,10 @@ def get_price_summary(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().prices.get_stock_price(ticker))
     except Exception as exc:  # noqa: BLE001 — parity with the other analytics GETs
+        # The class path, never the text: it may carry a DSN (system.py does
+        # the same). Without this line, prod's 500s here left nothing to read.
+        kind = f"{type(exc).__module__}.{type(exc).__qualname__}"
+        logger.warning("price-summary failed ticker=%s (%s)", ticker.upper(), kind)
         return route_error_plain(str(exc), 500)
 
 

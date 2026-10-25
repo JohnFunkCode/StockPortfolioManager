@@ -32,7 +32,7 @@ from quantcore.services.chat import (
     ToolStatus,
 )
 
-from .deps import public_message
+from .deps import log_route_failure, public_message
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,8 @@ def event_stream(events: Iterator[ChatEvent]) -> Iterator[str]:
             for event in events:
                 out.put(sse_encode(_EVENT_NAMES[type(event)], asdict(event)))
         except Exception as exc:  # noqa: BLE001 — stream must end with a frame
-            logger.exception("chat event stream failed")
+            # Class only: a traceback would carry the text (a DSN, say).
+            log_route_failure(logger, "chat event stream", exc)
             out.put(sse_encode("error", {"message": public_message(exc)}))
         finally:
             out.put(None)

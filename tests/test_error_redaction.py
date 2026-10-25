@@ -6,7 +6,9 @@ log line names the exception class only (CLAUDE.md never-log policy, which
 covers responses as well as logs). A ValueError's text is a user-facing
 validation message and still reaches the caller.
 """
-import logging
+import ast
+import inspect
+import re
 import unittest
 from unittest.mock import patch
 
@@ -28,6 +30,32 @@ from quantcore.services.chat import TextDelta  # noqa: E402
 from tests.test_routers_passthrough import OPTIONS_GETS, PRICES_GETS  # noqa: E402
 
 SECRET = "postgresql://quantcore:s3cr3t-pw@10.0.0.5:5432/quantcore"
+
+# Guarded prices/options routes the shared GET lists leave out: required query
+# params, request bodies, POSTs and owner-gated routes. (method, path, body)
+EXTRA_GUARDED = [
+    ("GET", "/api/securities/TST/atr-bands", None),
+    ("GET", "/api/securities/TST/volume-profile", None),
+    ("GET", "/api/securities/TST/anchored-vwap", None),
+    ("GET", "/api/securities/screen", None),
+    ("GET", "/api/securities/TST/options/contracts?expirations=2026-11-20&strikes=100", None),
+    ("GET", "/api/securities/TST/options/oi-change", None),
+    ("GET", "/api/securities/TST/options/gex-profile", None),
+    ("GET", "/api/portfolio/delta-exposure", None),
+    ("POST", "/api/securities/TST/options/vertical-spread",
+     {"expiration": "2026-11-20", "long_strike": 100, "short_strike": 105}),
+    ("POST", "/api/securities/TST/options/history/backfill", None),
+]
+
+
+def guarded_route_names(*modules):
+    """Every ``route_internal_error(logger, "<name>", ...)`` name in ``modules``."""
+    names = set()
+    for module in modules:
+        for node in ast.walk(ast.parse(inspect.getsource(module))):
+            if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "route_internal_error"):
+                names.add(node.args[1].value)
+    return names
 
 
 class LeakyError(Exception):
@@ -72,10 +100,24 @@ class RouteRedactionTest(unittest.TestCase):
     def test_prices_and_options_routes(self):
         self.patch_services(LeakyError(f"could not connect {SECRET}"),
                             prices_router, options_router)
-        for path in PRICES_GETS + OPTIONS_GETS:
+        self.app.dependency_overrides[require_owner] = lambda: "tester"
+        self.addCleanup(self.app.dependency_overrides.pop, require_owner, None)
+        for router in (prices_router, options_router):
+            for name in ("load_portfolio", "load_watchlist"):
+                p = patch.object(router, name, lambda *a: [])
+                p.start()
+                self.addCleanup(p.stop)
+
+        requests = [("GET", path, None) for path in PRICES_GETS + OPTIONS_GETS]
+        seen = set()
+        for method, path, body in requests + EXTRA_GUARDED:
             with self.assertLogs("api", level="WARNING") as logs:
-                resp = self.client.get(path)
+                resp = self.client.request(method, path, json=body)
             self.assert_redacted(resp, logs, path)
+            seen.update(re.findall(r":(\w+) failed", "\n".join(logs.output)))
+
+        # A guarded route added without a request above fails here.
+        self.assertEqual(guarded_route_names(prices_router, options_router) - seen, set())
 
     def test_guarded_route_logs_route_ticker_and_class(self):
         self.patch_services(LeakyError(SECRET), options_router)
@@ -141,18 +183,23 @@ class ChatStreamRedactionTest(unittest.TestCase):
             yield TextDelta(delta="partial")
             raise exc
 
-        logging.disable(logging.CRITICAL)  # the stream's own logger.exception
-        self.addCleanup(logging.disable, logging.NOTSET)
-        return list(event_stream(events()))
+        with self.assertLogs("api.sse", level="WARNING") as logs:
+            frames = list(event_stream(events()))
+        return frames, logs.output
 
     def test_unexpected_failure_frame_is_generic(self):
-        frames = self.frames(LeakyError(SECRET))
+        frames, logs = self.frames(LeakyError(SECRET))
         self.assertTrue(frames[-1].startswith("event: error\n"))
         self.assertIn(INTERNAL_ERROR, frames[-1])
         self.assertNotIn("s3cr3t", "".join(frames))
+        # Class only, no traceback: the traceback would carry the DSN.
+        self.assertEqual(logs, [
+            "WARNING:api.sse:chat event stream failed "
+            "(tests.test_error_redaction.LeakyError)"
+        ])
 
     def test_validation_message_still_reaches_the_user(self):
-        frames = self.frames(ValueError("unknown action 'explode'"))
+        frames, _ = self.frames(ValueError("unknown action 'explode'"))
         self.assertIn("unknown action 'explode'", frames[-1])
 
 

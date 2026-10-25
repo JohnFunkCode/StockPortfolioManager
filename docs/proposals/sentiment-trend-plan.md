@@ -260,3 +260,31 @@ This shaped every decision below, so it is recorded first.
   sections. That is recorded as a pre-existing exception, with the rest of the split proposed as
   separate work. Clippy noticed the lift had started showing the Overall row with no articles;
   it is back to showing only alongside articles, with a test.
+- 2026-10-25 — Rest of the SignalsTab split (follow-up to #439's exception). `SignalsTab` is
+  now composition only. Each section is a component that takes `ticker` and calls its own hooks,
+  and react-query dedupes the shared requests:
+  - `InterpretationSummary`
+  - `MomentumPanel`
+  - `StructurePanel`
+  - `OptionsFlowPanel`
+  - `NewsSentimentPanel`
+
+  Shared pieces live in `signalsShared.tsx`:
+  - colour lookups, replacing the `strengthColor`/`signalColor` if-chains;
+  - the bias-chip table;
+  - `SectionBody` for spinner, error and content.
+
+  `buildSignalsSummary` moved to `signalsSummary.ts` as one builder per sentence. Every unit is
+  hand-estimated under CC 15.
+
+  Proof that nothing changed:
+  - **Text:** a throwaway randomized test ran the old and new builders on 5,000 payloads and
+    found them identical.
+  - **DOM:** a throwaway test rendered the old and new tab on five payload shapes (full, partial
+    errors, empty blocks, no flow, endpoint errors) and diffed the `innerHTML`. The only
+    differences are emotion class hashes on three captions and one alert. The shared `Note` and
+    `PartialErrors` merge `sx` in a different key order, so the hash changes but the
+    declarations, and the computed style, do not.
+
+  Neither test is committed. They compare against code that no longer exists, so they would be
+  pinned to the old file forever.

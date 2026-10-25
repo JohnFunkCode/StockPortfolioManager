@@ -1,6 +1,6 @@
 """Pure news-sentiment aggregation (issue #411) — no I/O.
 
-The single home for three things that used to live inline in their callers:
+The single home for the news-sentiment rules every caller shares:
 
 - ``net_score`` — (positive − negative) ÷ articles, the number every trend shows.
 - ``classify_flip`` — what counts as a sentiment flip. The Discord alert
@@ -11,6 +11,8 @@ The single home for three things that used to live inline in their callers:
   ``COALESCE(published_at, fetched_at)`` but windowed on ``fetched_at``, so an
   old article fetched recently landed in a bucket outside the window. Here the
   same date decides both.
+- ``window_sentiment`` — whether the news over a fundamental score move's own
+  window agreed with the move (issue #433), on the window's net score.
 
 ``article_count`` is capped by the collector (~10 per symbol per run), so it
 measures collection, not news volume: use it to flag a bucket as thin, never as
@@ -191,4 +193,104 @@ def weekly_buckets(
         "total_articles":      sum(b["article_count"] for b in buckets),
         "thin_threshold":      THIN_WEEK_ARTICLES,
         "buckets":             buckets,
+    }
+
+
+# --- Score-change agreement (issue #433) -----------------------------------
+#
+# Whether the news over a fundamental score move's own window agreed with it.
+# Decided on the window's net score, not its majority label: a busy window is
+# usually majority neutral (WDC's week of Oct 12 on prod: 19 neutral, 14
+# negative, net −0.38), so the label would rarely say anything. The net is
+# read through a dead band so a handful of headlines either way is "mixed".
+
+AGREES = "agrees"
+DIVERGES = "diverges"
+MIXED = "mixed"
+THIN = "thin"
+NO_NEWS = "none"
+
+# |net| at or below this is mixed news, neither for nor against the move.
+MIXED_NET_BAND = 0.10
+# Fewer articles than this in the window can't carry a verdict.
+MIN_WINDOW_ARTICLES = THIN_WEEK_ARTICLES
+# Nor can a window less than this share of which news history covers. A
+# quarter, not a half: prod's history starts 2026-09-30 while score windows
+# start in August, so at a half every mover would read thin until mid-November.
+MIN_WINDOW_COVERAGE = 0.25
+
+
+def news_tone(net: Optional[float]) -> Optional[str]:
+    """``positive`` / ``negative`` outside the dead band, ``mixed`` inside it."""
+    if net is None:
+        return None
+    if net > MIXED_NET_BAND:
+        return "positive"
+    if net < -MIXED_NET_BAND:
+        return "negative"
+    return MIXED
+
+
+def _coverage_days(
+    start: datetime.date, end: datetime.date, history_start: Optional[datetime.date]
+) -> int:
+    """Days of start..end on or after the symbol's first stored article."""
+    if history_start is None or history_start > end:
+        return 0
+    return (end - max(start, history_start)).days + 1
+
+
+def _verdict(tone: Optional[str], total: int, coverage: float, score_direction: str) -> str:
+    if total == 0:
+        return NO_NEWS
+    if total < MIN_WINDOW_ARTICLES or coverage < MIN_WINDOW_COVERAGE:
+        return THIN
+    if tone == MIXED:
+        return MIXED
+    wanted = "positive" if score_direction == IMPROVING else "negative"
+    return AGREES if tone == wanted else DIVERGES
+
+
+def window_sentiment(
+    articles: Iterable[dict],
+    *,
+    start: datetime.date,
+    end: datetime.date,
+    score_direction: str,
+    history_start: Optional[datetime.date],
+) -> dict:
+    """The news over one score move's window (start..end, Eastern dates) and its verdict.
+
+    ``verdict`` is ``agrees`` / ``diverges`` / ``mixed`` / ``thin`` / ``none``.
+    Coverage counts every day since news history began, quiet or uncollected:
+    without a per-run collection log the two can't be told apart (#372).
+    """
+    days = _tally(articles, start, end).values()
+    pos = sum(d[0] for d in days)
+    neg = sum(d[1] for d in days)
+    neu = sum(d[2] for d in days)
+    total = pos + neg + neu
+    net = net_score(pos, neg, total)
+    tone = news_tone(net)
+    window_days = (end - start).days + 1
+    covered = _coverage_days(start, end, history_start)
+    return {
+        "verdict":        _verdict(tone, total, covered / window_days, score_direction),
+        "tone":           tone,
+        "net_score":      net,
+        "article_count":  total,
+        "positive_count": pos,
+        "negative_count": neg,
+        "neutral_count":  neu,
+        "days_covered":   covered,
+        "window_days":    window_days,
+    }
+
+
+def window_rule() -> dict:
+    """The thresholds behind ``window_sentiment``'s verdict, for a reader's legend."""
+    return {
+        "mixed_net_band": MIXED_NET_BAND,
+        "min_articles":   MIN_WINDOW_ARTICLES,
+        "min_coverage":   MIN_WINDOW_COVERAGE,
     }

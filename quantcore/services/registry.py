@@ -156,6 +156,7 @@ def get_services() -> Services:
         fundamentals_repository=fundamentals_repository,
         yfinance_gateway=yfinance_gateway,
         tracked_symbols=tracked_symbols,
+        news_store=news_repository,
     )
     # Hoisted so the tracked_symbols closure above resolves to the live
     # instances the REST tier serves from. Both are constructed after

@@ -105,18 +105,31 @@ def _frame_rows(df) -> list[dict]:
     ]
 
 
+def _first_present(row: dict, *keys: str):
+    """The first of ``keys`` whose value in ``row`` is not ``None``."""
+    for key in keys:
+        if row.get(key) is not None:
+            return row[key]
+    return None
+
+
 def _snapshot_rows(contracts: list[dict], kind: str) -> list[dict]:
     """Persisted ``options_contracts`` rows as ``_usable_rows`` input.
 
     The capture stores IV as a **percent rounded to one decimal** (``42.3``),
     so it is divided by 100 here; the rounding moves the Greeks only in the
     fourth significant figure (pinned by the snapshot-parity test).
+
+    Persisted rows come back from ``SELECT *`` keyed by the column name,
+    ``implied_vol``; ``iv`` is the capture's in-memory key and is kept only as
+    a fallback. Reading ``iv`` alone found nothing on real rows, so every
+    contract silently took the 30% fallback in ``_usable_rows``.
     """
     return [
         {
             "strike": float(c.get("strike") or 0),
             "open_interest": _safe_int(c.get("open_interest")),
-            "iv": float(c.get("iv") or 0) / 100.0,
+            "iv": float(_first_present(c, "implied_vol", "iv") or 0) / 100.0,
         }
         for c in contracts
         if c.get("kind") == kind

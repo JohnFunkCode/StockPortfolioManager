@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytz
 
-from quantcore.services.options import OptionsService
+from quantcore.services.options import OptionsService, _snapshot_rows
 
 EXP_NEAR = (date.today() + timedelta(days=30)).isoformat()
 EXP_FAR = (date.today() + timedelta(days=60)).isoformat()
@@ -234,10 +234,14 @@ def _live_chains():
     return {exp: SimpleNamespace(calls=frame(_CALLS), puts=frame(_PUTS)) for exp in _EXPS}
 
 
-def _snapshot(captured_at=None, chain_type="full", price=101.25):
+def _snapshot(captured_at=None, chain_type="full", price=101.25, iv_key="implied_vol"):
+    # Contracts are shaped like ``get_latest_snapshot`` really returns them:
+    # ``SELECT *`` from ``options_contracts``, so IV arrives as the
+    # ``implied_vol`` column (percent, one decimal). ``iv_key="iv"`` builds the
+    # older in-memory shape to pin the fallback.
     def contracts(kind, rows):
         return [{"kind": kind, "strike": k, "open_interest": oi,
-                 "iv": round(iv * 100, 1)} for k, oi, iv in rows]
+                 iv_key: round(iv * 100, 1)} for k, oi, iv in rows]
     return {
         "symbol": "NVDA", "chain_type": chain_type, "price": price,
         "captured_at": captured_at or _NOW.astimezone(pytz.utc).isoformat(),
@@ -263,6 +267,29 @@ def _assert_close(case, live, snap, path="", rel=2e-3):
         case.assertEqual(live, snap, path)
 
 
+class TestSnapshotRowsIvKey(unittest.TestCase):
+    """#424: which stored key ``_snapshot_rows`` reads IV from."""
+
+    def _iv(self, **keys):
+        contract = {"kind": "call", "strike": 100.0, "open_interest": 10, **keys}
+        return _snapshot_rows([contract], "call")[0]["iv"]
+
+    def test_implied_vol_wins_when_both_keys_exist(self):
+        self.assertAlmostEqual(self._iv(implied_vol=42.0, iv=99.0), 0.42)
+
+    def test_null_implied_vol_falls_back_to_iv(self):
+        self.assertAlmostEqual(self._iv(implied_vol=None, iv=35.0), 0.35)
+
+    def test_explicit_zero_implied_vol_is_kept_not_replaced_by_iv(self):
+        # 0 is a stored value, not a missing one; _usable_rows applies the
+        # 30% fallback to it downstream.
+        self.assertEqual(self._iv(implied_vol=0.0, iv=35.0), 0.0)
+
+    def test_missing_or_null_iv_reads_as_zero(self):
+        self.assertEqual(self._iv(), 0.0)
+        self.assertEqual(self._iv(implied_vol=None, iv=None), 0.0)
+
+
 class TestRecordGexFromSnapshot(unittest.TestCase):
     """#373: the daily job records gamma/GEX from the persisted capture."""
 
@@ -285,6 +312,46 @@ class TestRecordGexFromSnapshot(unittest.TestCase):
         self.assertTrue(result["gamma_wall_saved"] and result["gex_saved"])
         _assert_close(self, live_daoi, store.save_gamma_wall.call_args.args[1], "daoi")
         _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
+
+    def test_legacy_iv_key_still_matches_the_live_path(self):
+        live_store = Mock()
+        live = _service(_StubGateway(price=101.25, expirations=_EXPS, chains=_live_chains()),
+                        live_store)
+        live_gex = live.get_gex_profile("NVDA", max_expirations=4, now=_NOW)
+
+        svc, store = self._snap_service(_snapshot(iv_key="iv"))
+        svc.record_gex_from_snapshot("NVDA", now=_NOW)
+        _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
+
+    def test_contracts_without_iv_take_the_30pct_fallback(self):
+        # A contract with no IV under either key (absent or NULL) must still
+        # reach the deliberate 30% fallback, exactly as the live path does for
+        # a chain whose impliedVolatility is 0.
+        def zero_iv_chains():
+            chains = _live_chains()
+            for chain in chains.values():
+                chain.calls["impliedVolatility"] = 0.0
+                chain.puts["impliedVolatility"] = 0.0
+            return chains
+
+        live = _service(_StubGateway(price=101.25, expirations=_EXPS, chains=zero_iv_chains()),
+                        Mock())
+        live_daoi = live.get_delta_adjusted_oi("NVDA", now=_NOW)
+        live_gex = live.get_gex_profile("NVDA", max_expirations=4, now=_NOW)
+
+        for name, strip in {
+            "both keys absent": lambda c: c.pop("implied_vol"),
+            "both keys null": lambda c: c.update(implied_vol=None, iv=None),
+        }.items():
+            with self.subTest(name):
+                snapshot = _snapshot()
+                for exp in snapshot["expirations"]:
+                    for contract in exp["contracts"]:
+                        strip(contract)
+                svc, store = self._snap_service(snapshot)
+                svc.record_gex_from_snapshot("NVDA", now=_NOW)
+                _assert_close(self, live_daoi, store.save_gamma_wall.call_args.args[1], "daoi")
+                _assert_close(self, live_gex, store.save_gex_summary.call_args.args[1], "gex")
 
     def test_never_touches_the_gateway(self):
         svc, store = self._snap_service(_snapshot())

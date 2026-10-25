@@ -1187,7 +1187,12 @@ class OptionsService:
         ticker = ticker.upper()
         history = self._options.get_iv_history(ticker, days=365)
 
-        iv_values = [row["composite_iv"] for row in history if row["composite_iv"] is not None]
+        # A stored NaN (see OptionsStore._finite) would make max/min order
+        # around it silently, so only finite values count.
+        iv_values = [
+            row["composite_iv"] for row in history
+            if row["composite_iv"] is not None and math.isfinite(row["composite_iv"])
+        ]
 
         if len(iv_values) < 2:
             return {

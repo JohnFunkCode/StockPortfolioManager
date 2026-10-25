@@ -16,6 +16,7 @@ service's ``(payload, status)`` so long-running 202 semantics are preserved.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -24,6 +25,8 @@ from ..auth import require_owner
 from ..deps import load_portfolio, load_watchlist, route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
 from ..schemas.options import VerticalSpreadRequest
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["options"])
 
@@ -70,6 +73,9 @@ def get_iv_rank(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().options.get_iv_rank(ticker))
     except Exception as exc:  # noqa: BLE001
+        # Type name only, as in system.py: exception text may carry a DSN.
+        # These 500s were invisible in Cloud Run logs for weeks.
+        logger.warning("iv-rank failed ticker=%s (%s)", ticker.upper(), type(exc).__name__)
         return route_error_plain(str(exc), 500)
 
 

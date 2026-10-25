@@ -39,6 +39,26 @@ symbol and the count. If every bar is dropped, nothing is written, not even `fet
 relax the CHECK to let these through: the data is wrong, not the constraint. The harvester's
 writer (`SQL_UPSERT_DAILY_BAR`) does not filter yet.
 
+**The options tables store NULL, never NaN; the API answers null, never a 500.** Postgres `REAL`
+accepts NaN, and the options capture wrote it: a chain side with no contracts averages to NaN
+(pandas mean of nothing), and Yahoo's NaN bid/ask is truthy, so it slips past the usual `or 0`. Read
+back, one NaN failed JSON encoding (`Out of range float values are not JSON compliant: nan`).
+`/options/iv-rank` and `/options/latest` 500'd: 230 of prod's 500s over 30 days, and 123 of its 190
+iv-rank calls. A NaN also orders wrongly in `max`/`min`. There are three layers:
+
+- `OptionsStore` writes NULL for a non-finite float (`_finite`), in all four writers. `strike` is
+  the exception: it is NOT NULL and part of the contracts' key, and the capture already drops
+  strike <= 0, which includes NaN.
+- `V11__null_nan_option_floats.sql` cleared the rows already stored. It is a data migration, so it
+  is not mirrored into `_SCHEMA` (same rule as V8).
+- `QuantCoreJSONResponse` turns any NaN/±inf float into `null`.
+
+The encoder's `default()` always meant to null NaN, but `json` never calls `default()` for a plain
+float, and `np.float64` is one. So the response retries once with non-finite floats replaced, only
+when encoding fails for that reason. `get_iv_rank` also ignores non-finite IVs, so a NaN can't skew
+the rank. The iv-rank route logs its failures as `iv-rank failed ticker=… (<ExceptionType>)`: type
+only, because the text may carry a DSN. Before this, those 500s left an empty log entry.
+
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 
 ## Positions and the watchlist

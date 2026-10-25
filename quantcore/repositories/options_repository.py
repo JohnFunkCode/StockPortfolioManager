@@ -24,6 +24,8 @@ Usage:
     snaps   = store.get_snapshots("NVDA", since="2026-01-01")
 """
 
+import math
+
 import psycopg2
 import psycopg2.errors
 from contextlib import closing
@@ -32,6 +34,23 @@ from zoneinfo import ZoneInfo
 from typing import Optional
 
 from quantcore.db import get_connection, ensure_schema
+
+
+def _finite(value):
+    """None for NaN/±inf, anything else unchanged.
+
+    Postgres REAL stores NaN happily, and it then poisons every reader: JSON
+    encoding refuses it and max/min order around it silently. A chain side
+    with no contracts averages to NaN (pandas mean of nothing), and a NaN
+    bid/ask is truthy, so it survives the usual ``or 0`` guard.
+    """
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
+
+
+def _finite_row(values: tuple) -> tuple:
+    return tuple(_finite(v) for v in values)
 
 
 # ---------------------------------------------------------------------------
@@ -159,7 +178,7 @@ class OptionsStore:
                     put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
                 RETURNING expiration_id
                 """,
-                (
+                _finite_row((
                     snapshot_id,
                     expiration,
                     options.get("put_call_ratio"),
@@ -169,7 +188,7 @@ class OptionsStore:
                     puts.get("total_volume"),
                     calls.get("avg_iv_pct"),
                     puts.get("avg_iv_pct"),
-                ),
+                )),
             )
             expiration_id = cur.fetchone()[0]
 
@@ -180,11 +199,11 @@ class OptionsStore:
                     rows.append((
                         expiration_id,
                         kind,
-                        c.get("strike"),
-                        c.get("last"),
-                        c.get("bid"),
-                        c.get("ask"),
-                        c.get("iv"),
+                        c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
+                        _finite(c.get("last")),
+                        _finite(c.get("bid")),
+                        _finite(c.get("ask")),
+                        _finite(c.get("iv")),
                         c.get("volume"),
                         c.get("open_interest"),
                         int(bool(c.get("in_the_money", False))),
@@ -306,7 +325,7 @@ class OptionsStore:
                         put_call_ratio = COALESCE(EXCLUDED.put_call_ratio, options_expirations.put_call_ratio)
                     RETURNING expiration_id
                     """,
-                    (
+                    _finite_row((
                         snapshot_id,
                         expiration,
                         exp_entry.get("put_call_ratio"),
@@ -316,7 +335,7 @@ class OptionsStore:
                         puts.get("total_volume"),
                         calls.get("avg_iv_pct"),
                         puts.get("avg_iv_pct"),
-                    ),
+                    )),
                 )
                 expiration_id = cur.fetchone()[0]
 
@@ -326,11 +345,11 @@ class OptionsStore:
                         rows.append((
                             expiration_id,
                             kind,
-                            c.get("strike"),
-                            c.get("last"),
-                            c.get("bid"),
-                            c.get("ask"),
-                            c.get("iv"),
+                            c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
+                            _finite(c.get("last")),
+                            _finite(c.get("bid")),
+                            _finite(c.get("ask")),
+                            _finite(c.get("iv")),
                             c.get("volume"),
                             c.get("open_interest"),
                             int(bool(c.get("in_the_money", False))),

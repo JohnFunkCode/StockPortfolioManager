@@ -59,10 +59,34 @@ class QuantCoreJSONResponse(JSONResponse):
     media_type = "application/json"
 
     def render(self, content: Any) -> bytes:  # noqa: ANN401
-        return json.dumps(
-            content,
-            ensure_ascii=False,
-            allow_nan=False,
-            cls=_QuantCoreJSONEncoder,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        try:
+            return _dumps(content)
+        except ValueError as exc:
+            # ``default()`` never sees a plain float (np.float64 is one too),
+            # so a NaN/inf float reaches ``allow_nan=False`` and raises. Null
+            # it and retry; the walk costs nothing on the usual clean payload.
+            # Anything else (a circular reference) is not ours to rescue.
+            if "Out of range float values" not in str(exc):
+                raise
+            return _dumps(_null_non_finite(content))
+
+
+def _dumps(content: Any) -> bytes:  # noqa: ANN401
+    return json.dumps(
+        content,
+        ensure_ascii=False,
+        allow_nan=False,
+        cls=_QuantCoreJSONEncoder,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _null_non_finite(value: Any) -> Any:  # noqa: ANN401
+    """The payload with every NaN/±inf float replaced by None, recursively."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: _null_non_finite(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_null_non_finite(v) for v in value]
+    return value

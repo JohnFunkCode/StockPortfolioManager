@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 
 import SignalsTab from './SignalsTab';
 import { mockApi, renderWithProviders } from '../../testUtils';
@@ -122,11 +122,31 @@ describe('SignalsTab', () => {
     expect(trend.compareDocumentPosition(article) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('keeps the Overall row with its articles: none without them (#439 review)', async () => {
+    armAll({ news: { ...NEWS, sentiment_summary: {
+      overall: 'negative', positive_count: 0, negative_count: 2, neutral_count: 1, scored_count: 3,
+    } } });
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    expect(await screen.findByText('No recent news available.')).toBeInTheDocument();
+    expect(screen.queryByText('Overall:')).toBeNull();
+  });
+
   it('still shows the trend when there is no current news', async () => {
     armAll();
     renderWithProviders(<SignalsTab ticker="INTC" />);
     expect(await screen.findByText('No recent news available.')).toBeInTheDocument();
     expect(await screen.findByTestId('sentiment-trend-chart')).toBeInTheDocument();
+  });
+
+  it('shows the trend while the live article list is still loading', async () => {
+    // Prod's /news scores headlines live and took 64 s for WDC; /news/trend
+    // reads stored history, so it must not wait behind it.
+    armAll({ news: () => new Promise(() => {}) });
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    expect(await screen.findByTestId('sentiment-trend-chart')).toBeInTheDocument();
+    const panel = screen.getByTestId('sentiment-trend').parentElement!.parentElement!;
+    expect(within(panel).getByRole('progressbar')).toBeInTheDocument();
+    expect(screen.queryByText('Overall:')).toBeNull();
   });
 
   it('no longer renders the Risk panel, but the summary still uses the risk signals', async () => {

@@ -241,6 +241,25 @@ This shaped every decision below, so it is recorded first.
     DB). Locally, `npx playwright test` failed because this Playwright version's Chromium wasn't
     downloaded. A throwaway config spreading `playwright.config` with `use.channel: 'chrome'` ran
     it on the installed Chrome instead.
+- 2026-10-25 — Promoted to prod (e1f00ad) and checked there. WDC shows 3 of 13 weeks and a dashed
+  Oct 5 week (the #372 gap), as expected. Two findings:
+  - **The trend waited on the article list.** Prod's live `/news` took 64 s for WDC while
+    `/news/trend` answered in under 1 s, and the chart only rendered once `/news` finished.
+    Fixed in its own PR: the chart now renders from its own query, and the spinner covers only
+    the article list.
+  - **A label flip can point against the net.** WDC's Oct 12 week is marked `improving` while its
+    net fell from −0.20 to −0.38. Sep 28 tied 6 negative to 6 neutral (ties go negative); Oct 12
+    was majority neutral (19 vs 14). That is `classify_flip` as specified, and the Discord alert
+    shares it, but busy weeks tend to be majority neutral. So #433's verdict uses the net with a
+    dead band rather than the majority label (decided 2026-10-25). Whether the trend's flip
+    marker should follow is an open question, not changed here.
+- 2026-10-25 — #439 review addressed. Guppy measured `SignalsTab`'s single render unit at CC 83
+  (81 before #439). The news panel is now its own `NewsSentimentPanel.tsx`, with `OverallRow`,
+  `ArticleRow` and `ArticleList`, and one tone table in place of three ternary chains per chip.
+  `SectionHeader` moved to its own module. `SignalsTab` keeps about 60 CC from its other three
+  sections. That is recorded as a pre-existing exception, with the rest of the split proposed as
+  separate work. Clippy noticed the lift had started showing the Overall row with no articles;
+  it is back to showing only alongside articles, with a test.
 - 2026-10-25 — #433 PR opened: the Score Changes News column.
   - The verdict is `window_sentiment`: net score with a ±0.10 dead band (`agrees` / `diverges` /
     `mixed`), `thin` under 10 articles or under 25% coverage, and `none` with no articles.
@@ -254,3 +273,8 @@ This shaped every decision below, so it is recorded first.
     per-symbol history loop (235 × ~0.47 s through the proxy), not this change.
   - Test DB: 30 movers came out as 6 agrees, 12 diverges, 9 mixed and 3 none. The none rows are
     foreign tickers (112610.KS, NIB.F) the collector doesn't cover.
+- 2026-10-25 — #440 review addressed. Guppy measured `ScoreChangesPanel` at CC 25 and
+  `get_fundamental_score_changes` at CC 13 / cognitive 20. The panel is split into header,
+  delta cell, row, table and body components. The service's per-symbol work moved into
+  `_score_move` and `_is_reported_move`, which keep insufficient history, an unusable score
+  and a below-threshold move as three distinct outcomes. Tests were added for each.

@@ -4,12 +4,13 @@
  * live in StopLossCard on the Technical Analysis tab (#399); the risk signals
  * still feed the summary line.
  */
-import { Alert, Box, Button, Chip, CircularProgress, Divider, Link, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
+import { Alert, Box, Button, Chip, CircularProgress, Paper, Stack, Table, TableBody, TableCell, TableHead, TableRow, Typography } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import { useTechnicalSignals, useOptionsFlowSignals, useRiskSignals, useNews } from '../../hooks/useSecurities';
 import type { NewsResponse } from '../../api/securitiesTypes';
 import { tint } from '../../themes';
-import SentimentTrendChart from './SentimentTrendChart';
+import NewsSentimentPanel from './NewsSentimentPanel';
+import SectionHeader from './SectionHeader';
 
 interface Props { ticker: string }
 
@@ -17,14 +18,6 @@ function SignalBadge({ label, color }: { label: string; color: string }) {
   return (
     <Chip size="small" label={label}
       sx={{ fontSize: 11, height: 20, bgcolor: tint(color), color, borderColor: color, border: '1px solid' }} />
-  );
-}
-
-function SectionHeader({ title }: { title: string }) {
-  return (
-    <Typography variant="subtitle2" sx={{ color: 'var(--qc-muted)', textTransform: 'uppercase', letterSpacing: 1, mb: 1 }}>
-      {title}
-    </Typography>
   );
 }
 
@@ -184,7 +177,7 @@ export default function SignalsTab({ ticker }: Props) {
   const { data: tech, isLoading: techLoading, error: techError, refetch: refetchTech } = useTechnicalSignals(ticker, true);
   const { data: flow, isLoading: flowLoading, error: flowError, refetch: refetchFlow } = useOptionsFlowSignals(ticker, true);
   const { data: risk, isLoading: riskLoading } = useRiskSignals(ticker, true);
-  const { data: news, isLoading: newsLoading, refetch: refetchNews } = useNews(ticker);
+  const { data: news } = useNews(ticker);
 
   const summaryLines = buildSignalsSummary(tech, flow, risk, news);
   const allLoading = techLoading || flowLoading || riskLoading;
@@ -519,98 +512,7 @@ export default function SignalsTab({ ticker }: Props) {
       </Paper>
 
       {/* ── Section 4: News & Sentiment ─────────────────────────────── */}
-      <Paper sx={{ p: 2 }}>
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
-          <SectionHeader title="Recent News & Sentiment" />
-          <Button size="small" color="inherit" startIcon={<RefreshIcon />} onClick={() => refetchNews()} sx={{ fontSize: 11 }}>
-            Refresh
-          </Button>
-        </Stack>
-        {newsLoading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
-        ) : !news?.articles?.length ? (
-          // History can exist with nothing current, so the trend still shows.
-          <Stack spacing={1.5}>
-            <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
-            <SentimentTrendChart ticker={ticker} />
-          </Stack>
-        ) : (
-          <Stack spacing={0}>
-            {news.sentiment_summary?.overall && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Overall:</Typography>
-                <Chip
-                  size="small"
-                  label={news.sentiment_summary.overall.toUpperCase()}
-                  sx={{
-                    fontSize: 11, height: 20, fontWeight: 700,
-                    bgcolor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-tint-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-tint-red)'
-                      : 'var(--qc-surface)',
-                    color: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
-                      : 'var(--qc-muted)',
-                    border: '1px solid',
-                    borderColor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
-                      : 'var(--qc-dim)',
-                  }}
-                />
-                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
-                  {news.sentiment_summary.positive_count}↑ &nbsp;
-                  {news.sentiment_summary.negative_count}↓ &nbsp;
-                  {news.sentiment_summary.neutral_count}–
-                </Typography>
-              </Stack>
-            )}
-            <Box sx={{ mb: 1.5 }}>
-              <SentimentTrendChart ticker={ticker} />
-            </Box>
-            {news.articles.map((article, i) => (
-              <Box key={i}>
-                {i > 0 && <Divider sx={{ my: 1, borderColor: 'var(--qc-surface)' }} />}
-                <Stack direction="row" spacing={1} alignItems="flex-start">
-                  {article.sentiment && (
-                    <Chip
-                      size="small"
-                      label={article.sentiment === 'positive' ? '↑' : article.sentiment === 'negative' ? '↓' : '–'}
-                      title={`${article.sentiment} (${((article.sentiment_score ?? 0) * 100).toFixed(0)}%)`}
-                      sx={{
-                        fontSize: 12, height: 20, minWidth: 24, mt: 0.2, flexShrink: 0,
-                        bgcolor: article.sentiment === 'positive' ? 'var(--qc-tint-green)'
-                          : article.sentiment === 'negative' ? 'var(--qc-tint-red)'
-                          : 'var(--qc-surface)',
-                        color: article.sentiment === 'positive' ? 'var(--qc-ink-green)'
-                          : article.sentiment === 'negative' ? 'var(--qc-ink-red)'
-                          : 'var(--qc-faint)',
-                      }}
-                    />
-                  )}
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    {article.url ? (
-                      <Link href={article.url} target="_blank" rel="noopener noreferrer"
-                        sx={{ color: 'var(--qc-text)', fontSize: 12, fontWeight: 500, textDecoration: 'none',
-                          '&:hover': { textDecoration: 'underline' } }}>
-                        {article.title}
-                      </Link>
-                    ) : (
-                      <Typography variant="body2" sx={{ fontSize: 12, fontWeight: 500 }}>{article.title}</Typography>
-                    )}
-                    <Typography variant="caption" sx={{ color: 'var(--qc-faint)', display: 'block', mt: 0.25 }}>
-                      {article.publisher}{article.published ? ` · ${new Date(article.published).toLocaleDateString()}` : ''}
-                      {article.sentiment_score != null && (
-                        <span style={{ marginLeft: 6, color: 'var(--qc-dim)' }}>
-                          ({((article.sentiment_score) * 100).toFixed(0)}% confidence)
-                        </span>
-                      )}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Box>
-            ))}
-          </Stack>
-        )}
-      </Paper>
+      <NewsSentimentPanel ticker={ticker} />
     </Stack>
   );
 }

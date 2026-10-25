@@ -211,6 +211,104 @@ class OptionsRepositoryTest(unittest.TestCase):
         self.assertGreaterEqual(float(composite), 40.0)
         self.assertLessEqual(float(composite), 50.0)
 
+    # -- NaN never reaches the tables ---------------------------------------
+
+    def expiration_floats(self):
+        with closing(get_connection()) as conn:
+            return conn.execute(
+                """
+                SELECT e.avg_call_iv, e.avg_put_iv, c.kind, c.bid, c.ask
+                FROM options_snapshots s
+                JOIN options_expirations e ON e.snapshot_id = s.snapshot_id
+                JOIN options_contracts c ON c.expiration_id = e.expiration_id
+                WHERE s.symbol = %s ORDER BY c.kind, c.strike
+                """,
+                (TEST_SYMBOL,),
+            ).fetchall()
+
+    def test_atm_snapshot_writes_null_for_nan(self):
+        payload = options_payload(call_iv=float("nan"), put_iv=50.0)
+        payload["calls"]["atm_contracts"][0]["bid"] = float("nan")
+        self.store.save_snapshot(symbol=TEST_SYMBOL, price=100.0, bollinger_bands=None,
+                                 options=payload, captured_at=iso(1.0))
+        rows = self.expiration_floats()
+        self.assertIsNone(rows[0]["avg_call_iv"])
+        self.assertEqual(rows[0]["avg_put_iv"], 50.0)
+        self.assertIsNone(rows[0]["bid"])          # first call contract
+        self.assertEqual(rows[0]["ask"], 2.1)
+        # The composite falls back to the put side instead of turning NaN.
+        self.assertEqual(self.store.get_iv_history(TEST_SYMBOL)[0]["composite_iv"], 50.0)
+
+    def test_full_chain_writes_null_for_nan(self):
+        side = lambda iv, bid: {"total_open_interest": 1, "total_volume": 1, "avg_iv_pct": iv,
+                                "contracts": [{"strike": 100.0, "last": 1.0, "bid": bid, "ask": 1.1,
+                                               "iv": iv, "volume": 1, "open_interest": 1}]}
+        self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=100.0, bollinger_bands=None, captured_at=iso(1.0),
+            expirations_data=[{"expiration": "2026-11-20", "put_call_ratio": float("nan"),
+                               "calls": side(float("nan"), float("nan")), "puts": side(30.0, 0.9)}],
+        )
+        call, put = self.expiration_floats()
+        self.assertIsNone(call["avg_call_iv"])
+        self.assertIsNone(call["bid"])
+        self.assertEqual(put["bid"], 0.9)
+
+    def test_contract_without_a_finite_strike_is_skipped(self):
+        contract = lambda strike: {"strike": strike, "last": 1.0, "bid": 0.9, "ask": 1.1,
+                                   "iv": 30.0, "volume": 1, "open_interest": 1}
+        side = {"total_open_interest": 1, "total_volume": 1, "avg_iv_pct": 30.0,
+                "contracts": [contract(float("nan")), contract(None), contract(100.0)]}
+        self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=100.0, bollinger_bands=None, captured_at=iso(1.0),
+            expirations_data=[{"expiration": "2026-11-20", "put_call_ratio": 1.0,
+                               "calls": side, "puts": {}}],
+        )
+        with closing(get_connection()) as conn:
+            strikes = [r[0] for r in conn.execute(
+                """
+                SELECT c.strike FROM options_contracts c
+                  JOIN options_expirations e USING (expiration_id)
+                  JOIN options_snapshots s USING (snapshot_id)
+                 WHERE s.symbol = %s
+                """, (TEST_SYMBOL,)).fetchall()]
+        self.assertEqual(strikes, [100.0])
+
+    def test_v11_migration_nulls_stored_nan(self):
+        self.seed(days_ago=1.0)
+        migration = (Path(__file__).resolve().parent.parent
+                     / "db/migrations/V11__null_nan_option_floats.sql").read_text()
+        with closing(get_connection()) as conn:
+            # Plant NaN the way the old writers did, run V11, look, roll it all back:
+            # the migration touches every row, and only the synthetic ones are ours.
+            conn.execute(
+                """
+                UPDATE options_expirations SET avg_call_iv = 'NaN'
+                 WHERE snapshot_id IN (SELECT snapshot_id FROM options_snapshots WHERE symbol = %s)
+                """, (TEST_SYMBOL,))
+            conn.execute(
+                """
+                UPDATE options_contracts SET bid = 'NaN', implied_vol = 'NaN'
+                 WHERE expiration_id IN (SELECT e.expiration_id FROM options_expirations e
+                   JOIN options_snapshots s USING (snapshot_id) WHERE s.symbol = %s)
+                """, (TEST_SYMBOL,))
+            conn.execute(migration)
+            left = conn.execute(
+                """
+                SELECT count(*) FILTER (WHERE e.avg_call_iv = 'NaN' OR c.bid = 'NaN'
+                                          OR c.implied_vol = 'NaN') AS nan,
+                       count(*) FILTER (WHERE e.avg_call_iv IS NULL AND c.bid IS NULL
+                                          AND c.implied_vol IS NULL) AS nulled,
+                       count(*) AS total
+                FROM options_snapshots s
+                JOIN options_expirations e ON e.snapshot_id = s.snapshot_id
+                JOIN options_contracts c ON c.expiration_id = e.expiration_id
+                WHERE s.symbol = %s
+                """, (TEST_SYMBOL,)).fetchone()
+            conn.rollback()
+        self.assertEqual(left["nan"], 0)
+        self.assertEqual(left["nulled"], left["total"])
+        self.assertGreater(left["total"], 0)
+
     # -- Gamma wall history --------------------------------------------------
 
     def daoi_result(self, price=100.0, wall=105.0):

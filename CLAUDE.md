@@ -212,6 +212,9 @@ follow:
 - **A window measured in bars must be fetched in trading days** (`HarvesterService.build_plan`
   scales by `365/252`); when a gap survives anyway, raise — never substitute `close`.
 
+The options tables never store NaN (`OptionsStore` writes NULL), and `QuantCoreJSONResponse` answers `null` for a
+non-finite float rather than a 500. A NaN once 500'd `/options/iv-rank` for 65% of prod calls.
+
 Table list, why the writers disagree, and the SQLite migration script:
 [`docs/architecture/data.md`](docs/architecture/data.md).
 

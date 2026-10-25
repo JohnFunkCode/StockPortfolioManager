@@ -92,6 +92,42 @@ class RouterPassthroughTest(unittest.TestCase):
             self.assertEqual(resp.status_code, 200, path)
             self.assertEqual(resp.json().get("marker"), "passthrough", path)
 
+    def test_iv_rank_with_a_nan_in_history_is_200_with_null(self):
+        class Options:
+            def get_iv_rank(self, ticker):
+                return {"ticker": ticker, "iv_rank": 50.0,
+                        "history": [{"captured_at": "t", "composite_iv": float("nan")}]}
+
+        class Bag:
+            options = Options()
+
+        self.with_services(lambda: Bag())
+        resp = self.client.get("/api/securities/WDC/options/iv-rank")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["history"][0]["composite_iv"])
+
+    def test_iv_rank_failure_is_logged_without_its_text(self):
+        secret = "postgresql://user:hunter2@db/quantcore"
+
+        class Options:
+            def get_iv_rank(self, ticker):
+                raise RuntimeError(f"could not connect {secret}")
+
+        class Bag:
+            options = Options()
+
+        self.with_services(lambda: Bag())
+        with self.assertLogs("api.routers.options", level="WARNING") as logs:
+            resp = self.client.get("/api/securities/wdc/options/iv-rank")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            logs.output,
+            ["WARNING:api.routers.options:get_iv_rank failed ticker=WDC (builtins.RuntimeError)"],
+        )
+        line = "\n".join(logs.output)
+        self.assertNotIn(secret, line)
+        self.assertNotIn("could not connect", line)
+
     def test_guarded_routes_degrade_to_plain_500(self):
         class ExplodingService:
             def __getattr__(self, name):
@@ -157,6 +193,28 @@ class RouterPassthroughTest(unittest.TestCase):
         self.assertEqual(bad.status_code, 422)
         self.assertEqual(seen, ["cache", "live"])   # never reached the service
 
+
+class PriceSummaryFailureLogTest(unittest.TestCase):
+    """price-summary's 500s left nothing in the logs; now they name the failure."""
+
+    def test_failure_is_logged_by_class_without_its_text(self):
+        secret = "postgresql://user:hunter2@db/quantcore"
+
+        class Prices:
+            def get_stock_price(self, ticker):
+                raise ConnectionError(f"could not connect {secret}")
+
+        class Bag:
+            prices = Prices()
+
+        client = TestClient(create_app(), raise_server_exceptions=False)
+        with patch.object(prices_router, "services", lambda: Bag()):
+            with self.assertLogs("api.routers.prices", level="WARNING") as logs:
+                resp = client.get("/api/securities/brk-b/price-summary")
+        self.assertEqual(resp.status_code, 500)
+        line = "\n".join(logs.output)
+        self.assertIn("get_price_summary failed ticker=BRK-B (builtins.ConnectionError)", line)
+        self.assertNotIn("hunter2", line)
 
 if __name__ == "__main__":
     unittest.main()

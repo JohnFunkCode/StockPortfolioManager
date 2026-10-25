@@ -526,46 +526,44 @@ export default function SignalsTab({ ticker }: Props) {
             Refresh
           </Button>
         </Stack>
+        {!newsLoading && news?.sentiment_summary?.overall && (
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
+            <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Overall:</Typography>
+            <Chip
+              size="small"
+              label={news.sentiment_summary.overall.toUpperCase()}
+              sx={{
+                fontSize: 11, height: 20, fontWeight: 700,
+                bgcolor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-tint-green)'
+                  : news.sentiment_summary.overall === 'negative' ? 'var(--qc-tint-red)'
+                  : 'var(--qc-surface)',
+                color: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                  : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
+                  : 'var(--qc-muted)',
+                border: '1px solid',
+                borderColor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
+                  : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
+                  : 'var(--qc-dim)',
+              }}
+            />
+            <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
+              {news.sentiment_summary.positive_count}↑ &nbsp;
+              {news.sentiment_summary.negative_count}↓ &nbsp;
+              {news.sentiment_summary.neutral_count}–
+            </Typography>
+          </Stack>
+        )}
+        {/* The trend reads stored history (<1 s); the article list scores live
+            headlines and can take a minute, so the trend never waits on it. */}
+        <Box sx={{ mb: 1.5 }}>
+          <SentimentTrendChart ticker={ticker} />
+        </Box>
         {newsLoading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={28} /></Box>
         ) : !news?.articles?.length ? (
-          // History can exist with nothing current, so the trend still shows.
-          <Stack spacing={1.5}>
-            <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
-            <SentimentTrendChart ticker={ticker} />
-          </Stack>
+          <Typography variant="body2" color="text.secondary">No recent news available.</Typography>
         ) : (
           <Stack spacing={0}>
-            {news.sentiment_summary?.overall && (
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>Overall:</Typography>
-                <Chip
-                  size="small"
-                  label={news.sentiment_summary.overall.toUpperCase()}
-                  sx={{
-                    fontSize: 11, height: 20, fontWeight: 700,
-                    bgcolor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-tint-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-tint-red)'
-                      : 'var(--qc-surface)',
-                    color: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
-                      : 'var(--qc-muted)',
-                    border: '1px solid',
-                    borderColor: news.sentiment_summary.overall === 'positive' ? 'var(--qc-ink-green)'
-                      : news.sentiment_summary.overall === 'negative' ? 'var(--qc-ink-red)'
-                      : 'var(--qc-dim)',
-                  }}
-                />
-                <Typography variant="caption" sx={{ color: 'var(--qc-faint)' }}>
-                  {news.sentiment_summary.positive_count}↑ &nbsp;
-                  {news.sentiment_summary.negative_count}↓ &nbsp;
-                  {news.sentiment_summary.neutral_count}–
-                </Typography>
-              </Stack>
-            )}
-            <Box sx={{ mb: 1.5 }}>
-              <SentimentTrendChart ticker={ticker} />
-            </Box>
             {news.articles.map((article, i) => (
               <Box key={i}>
                 {i > 0 && <Divider sx={{ my: 1, borderColor: 'var(--qc-surface)' }} />}

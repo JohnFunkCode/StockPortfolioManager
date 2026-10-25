@@ -241,3 +241,15 @@ This shaped every decision below, so it is recorded first.
     DB). Locally, `npx playwright test` failed because this Playwright version's Chromium wasn't
     downloaded. A throwaway config spreading `playwright.config` with `use.channel: 'chrome'` ran
     it on the installed Chrome instead.
+- 2026-10-25 — Promoted to prod (e1f00ad) and checked there. WDC shows 3 of 13 weeks and a dashed
+  Oct 5 week (the #372 gap), as expected. Two findings:
+  - **The trend waited on the article list.** Prod's live `/news` took 64 s for WDC while
+    `/news/trend` answered in under 1 s, and the chart only rendered once `/news` finished.
+    Fixed in its own PR: the chart now renders from its own query, and the spinner covers only
+    the article list.
+  - **A label flip can point against the net.** WDC's Oct 12 week is marked `improving` while its
+    net fell from −0.20 to −0.38. Sep 28 tied 6 negative to 6 neutral (ties go negative); Oct 12
+    was majority neutral (19 vs 14). That is `classify_flip` as specified, and the Discord alert
+    shares it, but busy weeks tend to be majority neutral. So #433's verdict uses the net with a
+    dead band rather than the majority label (decided 2026-10-25). Whether the trend's flip
+    marker should follow is an open question, not changed here.

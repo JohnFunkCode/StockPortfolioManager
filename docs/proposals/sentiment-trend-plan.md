@@ -212,3 +212,15 @@ This shaped every decision below, so it is recorded first.
   - new tests pin positive, negative and zero bar geometry and the improving flip's ▲.
   - Gotcha: jsdom reports an unset `top`/`bottom` as `auto`, not `''`, so the geometry tests
     assert the anchored side only.
+- 2026-10-24 — #436 deployed to test and checked there: the API, the Signals-tab chart and the
+  Sidekick `sentiment_trend` card all show WDC's 4 of 13 weeks and the Oct 5 flip. Follow-up PR
+  for cut-off captions:
+  - Gotcha: the window (4w/13w/26w) doesn't decide whether a caption fits; the container's width
+    does. The same 13w chart has ~67px columns in a wide page panel, ~38px in a narrow one, and
+    ~23px in the ~325px Sidekick card, where every caption read "−0.2…".
+  - Each week column is now a CSS container (`container-type: inline-size`). Its caption is a
+    net span plus a detail span: the count drops below 56px and the net below 30px, so a number
+    is either whole or absent. Measured in Inter 10px: "−1.00 · 100" is 51px and "−0.25" is 28px.
+  - An empty week's "0 articles" is detail only, because a bare "0" would read as a net score.
+  - jsdom can't evaluate container queries, so the tests pin the span structure, and the cutoffs
+    were checked in a browser at 325, 520 and 900px for each window.

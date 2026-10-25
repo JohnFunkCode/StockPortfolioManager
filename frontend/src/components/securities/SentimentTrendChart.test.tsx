@@ -92,7 +92,28 @@ describe('SentimentTrendChart', () => {
 
     const measured = screen.getByTestId('trend-week-2026-10-12');
     expect(within(measured).getByTestId('trend-bar')).toBeInTheDocument();
-    expect(within(measured).getByText('−0.38 · 34')).toBeInTheDocument();
+    expect(within(measured).getByTestId('trend-caption')).toHaveTextContent('−0.38 · 34');
+  });
+
+  it('splits each caption so a narrow column can drop the count, then the net', async () => {
+    mockApi([['/news/trend', wdc()]]);
+    renderWithProviders(<SentimentTrendChart ticker="WDC" />);
+    await screen.findByTestId('sentiment-trend-chart');
+
+    // The container queries hide .trend-detail, then .trend-net; jsdom can't
+    // evaluate them, so pin the structure they select on.
+    const measured = within(screen.getByTestId('trend-week-2026-10-12')).getByTestId('trend-caption');
+    expect(measured.querySelector('.trend-net')).toHaveTextContent('−0.38');
+    expect(measured.querySelector('.trend-detail')).toHaveTextContent('· 34');
+
+    // An empty week's "0 articles" is detail only: the dashed outline says it
+    // where there is no room, and a bare "0" would read as a net score.
+    const gap = within(screen.getByTestId('trend-week-2026-10-05')).getByTestId('trend-caption');
+    expect(gap.querySelector('.trend-net')).toBeNull();
+    expect(gap.querySelector('.trend-detail')).toHaveTextContent('0 articles');
+
+    const before = within(screen.getByTestId('trend-week-2026-09-21')).getByTestId('trend-caption');
+    expect(before).toBeEmptyDOMElement();
   });
 
   it('marks the in-progress week and draws thin weeks paler', async () => {

@@ -670,6 +670,70 @@ class TestScoreChangesNews(FundamentalsServiceTestBase):
         self.assertTrue(all("news" not in c for c in out["changes"]))
 
 
+    def test_each_mover_is_judged_on_its_own_window(self):
+        # One article set dated Oct 15 ET for both; only the later window holds it.
+        windows = {"EARLY": ("2026-08-10T03:40:00Z", "2026-08-31T21:00:00Z"),
+                   "LATE": ("2026-10-01T21:00:00Z", "2026-10-23T21:15:00Z")}
+        self.repo.get_all_latest.return_value = [score_entry(s, 8) for s in windows]
+        self.repo.history.side_effect = lambda sym, *_a, **_k: [
+            {"composite_score": 2, "fetched_at": windows[sym][0]},
+            {"composite_score": 8, "fetched_at": windows[sym][1]},
+        ]
+        bad = {"published_at": "2026-10-15T15:00:00Z", "fetched_at": "2026-10-15T16:00:00Z",
+               "sentiment": "negative"}
+        self.news.get_scored_articles_for_symbols.return_value = (
+            [{**bad, "symbol": "EARLY"}] * 12 + [{**bad, "symbol": "LATE"}] * 12)
+        self.news.first_article_fetched_at_by_symbol.return_value = {
+            "EARLY": "2026-07-01T22:00:00Z", "LATE": "2026-07-01T22:00:00Z"}
+
+        news = {c["symbol"]: c["news"]
+                for c in self.service.get_fundamental_score_changes(min_delta=2)["changes"]}
+        self.assertEqual(news["EARLY"]["article_count"], 0)
+        self.assertEqual(news["LATE"]["article_count"], 12)
+        self.assertEqual(news["LATE"]["verdict"], "diverges")
+
+    def test_an_unparseable_snapshot_stamp_leaves_the_cue_unmeasured(self):
+        self.repo.history.side_effect = lambda sym, *_a, **_k: [
+            {"composite_score": 2, "fetched_at": "not a date" if sym == "UP" else "2026-08-10T03:40:00Z"},
+            {"composite_score": 8, "fetched_at": "2026-10-23T21:15:00Z"},
+        ]
+        news = {c["symbol"]: c["news"]
+                for c in self.service.get_fundamental_score_changes(min_delta=2)["changes"]}
+        self.assertIsNone(news["UP"])
+        self.assertEqual(news["QUIET"]["verdict"], "none")
+
+
+class TestScoreMoveContract(FundamentalsServiceTestBase):
+    """Insufficient history, an unusable score and a non-mover stay distinct (#440 review)."""
+
+    def run_changes(self, histories, **kw):
+        self.repo.get_all_latest.return_value = [score_entry(s, 5) for s in histories]
+        self.repo.history.side_effect = lambda sym, *_a, **_k: histories[sym]
+        return self.service.get_fundamental_score_changes(**kw)
+
+    def test_three_ways_not_to_be_a_mover(self):
+        snap = lambda score: {"composite_score": score, "fetched_at": "2026-10-01T00:00:00Z"}
+        out = self.run_changes({
+            "ONE": [snap(5)],                      # insufficient history
+            "NOSCORE": [snap(None), snap(9)],      # evaluated, unusable
+            "STILL": [snap(5), snap(6)],           # evaluated, below min_delta
+            "MOVER": [snap(2), snap(9)],
+        }, min_delta=2)
+        self.assertEqual(out["symbols_with_insufficient_history"], 1)
+        self.assertEqual(out["symbols_evaluated"], 3)
+        self.assertEqual([c["symbol"] for c in out["changes"]], ["MOVER"])
+
+    def test_direction_filter_and_order(self):
+        snap = lambda score: {"composite_score": score, "fetched_at": "2026-10-01T00:00:00Z"}
+        histories = {"UP3": [snap(2), snap(5)], "UP6": [snap(2), snap(8)],
+                     "DN4": [snap(8), snap(4)], "DN7": [snap(9), snap(2)]}
+        both = self.run_changes(histories, min_delta=2)
+        self.assertEqual([c["symbol"] for c in both["changes"]], ["UP6", "UP3", "DN4", "DN7"])
+        down = self.run_changes(histories, min_delta=2, direction="deteriorating")
+        self.assertEqual([c["symbol"] for c in down["changes"]], ["DN7", "DN4"])
+        up = self.run_changes(histories, min_delta=2, direction="improving")
+        self.assertEqual([c["symbol"] for c in up["changes"]], ["UP6", "UP3"])
+
 class TestScope(FundamentalsServiceTestBase):
     """?scope=tracked narrows the cache to the watchlist + every owner's
     positions before anything ranks (issue #147 Part B4)."""

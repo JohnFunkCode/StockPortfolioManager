@@ -261,6 +261,41 @@ def _compute_earnings_acceleration(
     return accel_count, len(accel_deltas), avg_accel_delta, [r for r in qoq_rates if r is not None], net_incomes
 
 
+def _score_move(symbol: str, first: dict, last: dict) -> Optional[dict]:
+    """The move between two snapshots, or None when either end has no score.
+
+    A None here is an *evaluated* symbol with an unusable score: the caller has
+    already counted it, and must not count it as insufficient history.
+    """
+    score_then = first.get("composite_score")
+    score_now = last.get("composite_score")
+    if score_then is None or score_now is None:
+        return None
+    delta = score_now - score_then
+    return {
+        "symbol": symbol,
+        "delta": delta,
+        "direction": "improving" if delta > 0 else "deteriorating",
+        "score_then": score_then,
+        "score_now": score_now,
+        "label_then": first.get("fundamental_label"),
+        "label_now": last.get("fundamental_label"),
+        "first_snapshot": first.get("fetched_at"),
+        "last_snapshot": last.get("fetched_at"),
+    }
+
+
+def _is_reported_move(delta: float, min_delta: int, direction: str) -> bool:
+    """Whether a delta is big enough, and in the asked-for direction, to report."""
+    if abs(delta) < min_delta:
+        return False
+    if direction == "improving":
+        return delta > 0
+    if direction == "deteriorating":
+        return delta < 0
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Service
 # ---------------------------------------------------------------------------
@@ -1002,46 +1037,18 @@ class FundamentalsService:
             sym = entry.get("symbol")
             if not sym:
                 continue
-
             history = self._repo.history(sym, "fundamental_score", since_days=since_days)
+            # Fewer than two snapshots is unmeasured, not unchanged: counted apart.
             if len(history) < 2:
                 symbols_insufficient += 1
                 continue
-
             symbols_evaluated += 1
-            first = history[0]
-            last = history[-1]
+            change = _score_move(sym, history[0], history[-1])
+            if change is not None and _is_reported_move(change["delta"], min_delta, direction):
+                changes.append(change)
 
-            score_then = first.get("composite_score")
-            score_now = last.get("composite_score")
-            if score_then is None or score_now is None:
-                continue
-
-            delta = score_now - score_then
-            if abs(delta) < min_delta:
-                continue
-
-            if direction == "improving" and delta <= 0:
-                continue
-            if direction == "deteriorating" and delta >= 0:
-                continue
-
-            changes.append({
-                "symbol": sym,
-                "delta": delta,
-                "direction": "improving" if delta > 0 else "deteriorating",
-                "score_then": score_then,
-                "score_now": score_now,
-                "label_then": first.get("fundamental_label"),
-                "label_now": last.get("fundamental_label"),
-                "first_snapshot": first.get("fetched_at"),
-                "last_snapshot": last.get("fetched_at"),
-            })
-
-        if direction == "deteriorating":
-            changes.sort(key=lambda x: x["delta"])
-        else:
-            changes.sort(key=lambda x: x["delta"], reverse=True)
+        # Biggest move first in the asked-for direction; "both" leads with improvers.
+        changes.sort(key=lambda x: x["delta"], reverse=direction != "deteriorating")
 
         news_rule = self._attach_news(changes)
 

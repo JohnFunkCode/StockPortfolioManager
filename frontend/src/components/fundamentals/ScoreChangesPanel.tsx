@@ -107,6 +107,147 @@ function NewsCue({
   );
 }
 
+type ScoreChanges = NonNullable<ReturnType<typeof useScoreChanges>['data']>;
+type ScoreChange = ScoreChanges['changes'][number];
+
+const CELL = { padding: '4px 6px' } as const;
+const COUNT_CHIP_SX = { fontSize: 11, height: 20, color: MUTED } as const;
+
+function ScoreChangesHeader({
+  rail, sinceDays, minDelta, movers, unmeasured,
+}: {
+  rail: boolean;
+  sinceDays: number;
+  minDelta: number;
+  movers: number;
+  unmeasured: number;
+}) {
+  return (
+    <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
+      <Typography variant={rail ? 'subtitle2' : 'h6'}>
+        Score changes · {sinceDays}d
+      </Typography>
+      <Tooltip title={`Moves of at least ${minDelta} points`}>
+        <Chip size="small" variant="outlined" label={`${movers} movers`} sx={COUNT_CHIP_SX} />
+      </Tooltip>
+      {unmeasured > 0 && (
+        <Tooltip title="Fewer than two cached snapshots in the window — unmeasured, not unchanged">
+          <Chip size="small" variant="outlined" label={`${unmeasured} unmeasured`} sx={COUNT_CHIP_SX} />
+        </Tooltip>
+      )}
+    </Stack>
+  );
+}
+
+function DeltaCell({ change }: { change: ScoreChange }) {
+  const up = change.direction === 'improving';
+  return (
+    <td style={{ ...CELL, textAlign: 'right', color: up ? GREEN : RED, fontWeight: 600 }}>
+      <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center">
+        {up ? (
+          <ArrowUpwardIcon sx={{ fontSize: 12 }} aria-label="improving" />
+        ) : (
+          <ArrowDownwardIcon sx={{ fontSize: 12 }} aria-label="deteriorating" />
+        )}
+        <span>{Math.abs(change.delta).toFixed(0)}</span>
+      </Stack>
+    </td>
+  );
+}
+
+function ScoreChangeRow({
+  change, rule, rail,
+}: {
+  change: ScoreChange;
+  rule: ScoreChangeNewsRule | null | undefined;
+  rail: boolean;
+}) {
+  return (
+    <tr style={{ borderBottom: '1px solid var(--qc-surface-sunk)' }}>
+      <td style={{ ...CELL, fontWeight: 600 }}>
+        <RouterLink to={`/securities/${change.symbol}`} style={{ color: '#818cf8', textDecoration: 'none' }}>
+          {change.symbol}
+        </RouterLink>
+      </td>
+      <DeltaCell change={change} />
+      <td style={{ ...CELL, textAlign: 'right', color: 'var(--qc-text-soft)' }}>
+        {change.score_then.toFixed(0)} → {change.score_now.toFixed(0)}
+      </td>
+      <td style={CELL}>
+        <NewsCue symbol={change.symbol} news={change.news} rule={rule} />
+      </td>
+      {!rail && (
+        <td style={{ ...CELL, color: MUTED }}>
+          {change.label_then ?? '—'} → {change.label_now ?? '—'}
+        </td>
+      )}
+      {!rail && (
+        <td style={{ ...CELL, color: DIM }}>
+          {formatDate(change.first_snapshot)} – {formatDate(change.last_snapshot)}
+        </td>
+      )}
+    </tr>
+  );
+}
+
+function ScoreChangesTable({
+  changes, rule, rail,
+}: {
+  changes: ScoreChange[];
+  rule: ScoreChangeNewsRule | null | undefined;
+  rail: boolean;
+}) {
+  return (
+    <Box sx={{ overflowX: 'auto' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: rail ? 12 : 13 }}>
+        <thead>
+          <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
+            <th style={CELL}>Symbol</th>
+            <th style={{ ...CELL, textAlign: 'right' }}>Δ</th>
+            <th style={{ ...CELL, textAlign: 'right' }}>Then → now</th>
+            <th style={CELL}>News</th>
+            {!rail && <th style={CELL}>Label</th>}
+            {!rail && <th style={CELL}>Window</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {changes.map((change) => (
+            <ScoreChangeRow key={change.symbol} change={change} rule={rule} rail={rail} />
+          ))}
+        </tbody>
+      </table>
+    </Box>
+  );
+}
+
+function ScoreChangesBody({ data, rail }: { data: ScoreChanges | undefined; rail: boolean }) {
+  const changes = data?.changes ?? [];
+  const sinceDays = data?.since_days ?? 90;
+  const minDelta = data?.min_delta ?? 2;
+  // The response is already sorted by delta, improvers first — so the rail's
+  // slice is the biggest upgrades, and taking the tail would be the downgrades.
+  const shown = rail ? changes.slice(0, RAIL_LIMIT) : changes;
+  return (
+    <>
+      <ScoreChangesHeader
+        rail={rail}
+        sinceDays={sinceDays}
+        minDelta={minDelta}
+        movers={changes.length}
+        unmeasured={data?.symbols_with_insufficient_history ?? 0}
+      />
+      {shown.length === 0 ? (
+        <Alert severity="info">
+          No symbol moved {minDelta} points or more in the last {sinceDays}{' '}
+          days.
+        </Alert>
+      ) : (
+        <ScoreChangesTable changes={shown} rule={data?.news_rule} rail={rail} />
+      )}
+    </>
+  );
+}
+
 export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPanelProps) {
   const rail = variant === 'rail';
   const { data, isLoading, error } = useScoreChanges();
@@ -124,118 +265,16 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
   if (error) {
     return <Alert severity="error">Couldn&apos;t load fundamental score changes.</Alert>;
   }
-
-  const changes = data?.changes ?? [];
-  // The response is already sorted by delta, improvers first — so the rail's
-  // slice is the biggest upgrades, and taking the tail would be the downgrades.
-  const shown = rail ? changes.slice(0, RAIL_LIMIT) : changes;
-
-  const header = (
-    <Stack direction="row" spacing={1} alignItems="baseline" flexWrap="wrap" useFlexGap sx={{ mb: 1 }}>
-      <Typography variant={rail ? 'subtitle2' : 'h6'}>
-        Score changes · {data?.since_days ?? 90}d
-      </Typography>
-      <Tooltip title={`Moves of at least ${data?.min_delta ?? 2} points`}>
-        <Chip
-          size="small"
-          variant="outlined"
-          label={`${changes.length} movers`}
-          sx={{ fontSize: 11, height: 20, color: MUTED }}
-        />
-      </Tooltip>
-      {(data?.symbols_with_insufficient_history ?? 0) > 0 && (
-        <Tooltip title="Fewer than two cached snapshots in the window — unmeasured, not unchanged">
-          <Chip
-            size="small"
-            variant="outlined"
-            label={`${data?.symbols_with_insufficient_history} unmeasured`}
-            sx={{ fontSize: 11, height: 20, color: MUTED }}
-          />
-        </Tooltip>
-      )}
-    </Stack>
-  );
-
-  const body =
-    shown.length === 0 ? (
-      <Alert severity="info">
-        No symbol moved {data?.min_delta ?? 2} points or more in the last {data?.since_days ?? 90}{' '}
-        days.
-      </Alert>
-    ) : (
-      <Box sx={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: rail ? 12 : 13 }}>
-          <thead>
-            <tr style={{ color: MUTED, textAlign: 'left', borderBottom: '1px solid var(--qc-surface)' }}>
-              <th style={{ padding: '4px 6px' }}>Symbol</th>
-              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Δ</th>
-              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Then → now</th>
-              <th style={{ padding: '4px 6px' }}>News</th>
-              {!rail && <th style={{ padding: '4px 6px' }}>Label</th>}
-              {!rail && <th style={{ padding: '4px 6px' }}>Window</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {shown.map((change) => {
-              const up = change.direction === 'improving';
-              const color = up ? GREEN : RED;
-              return (
-                <tr key={change.symbol} style={{ borderBottom: '1px solid var(--qc-surface-sunk)' }}>
-                  <td style={{ padding: '4px 6px', fontWeight: 600 }}>
-                    <RouterLink
-                      to={`/securities/${change.symbol}`}
-                      style={{ color: '#818cf8', textDecoration: 'none' }}
-                    >
-                      {change.symbol}
-                    </RouterLink>
-                  </td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right', color, fontWeight: 600 }}>
-                    <Stack direction="row" spacing={0.25} justifyContent="flex-end" alignItems="center">
-                      {up ? (
-                        <ArrowUpwardIcon sx={{ fontSize: 12 }} aria-label="improving" />
-                      ) : (
-                        <ArrowDownwardIcon sx={{ fontSize: 12 }} aria-label="deteriorating" />
-                      )}
-                      <span>{Math.abs(change.delta).toFixed(0)}</span>
-                    </Stack>
-                  </td>
-                  <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--qc-text-soft)' }}>
-                    {change.score_then.toFixed(0)} → {change.score_now.toFixed(0)}
-                  </td>
-                  <td style={{ padding: '4px 6px' }}>
-                    <NewsCue symbol={change.symbol} news={change.news} rule={data?.news_rule} />
-                  </td>
-                  {!rail && (
-                    <td style={{ padding: '4px 6px', color: MUTED }}>
-                      {change.label_then ?? '—'} → {change.label_now ?? '—'}
-                    </td>
-                  )}
-                  {!rail && (
-                    <td style={{ padding: '4px 6px', color: DIM }}>
-                      {formatDate(change.first_snapshot)} – {formatDate(change.last_snapshot)}
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </Box>
-    );
-
   if (rail) {
     return (
       <Box data-testid="score-changes-panel">
-        {header}
-        {body}
+        <ScoreChangesBody data={data} rail />
       </Box>
     );
   }
-
   return (
     <Paper sx={{ p: 2 }} data-testid="score-changes-panel">
-      {header}
-      {body}
+      <ScoreChangesBody data={data} rail={false} />
     </Paper>
   );
 }

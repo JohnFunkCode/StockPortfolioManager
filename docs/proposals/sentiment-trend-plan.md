@@ -253,3 +253,10 @@ This shaped every decision below, so it is recorded first.
     shares it, but busy weeks tend to be majority neutral. So #433's verdict uses the net with a
     dead band rather than the majority label (decided 2026-10-25). Whether the trend's flip
     marker should follow is an open question, not changed here.
+- 2026-10-25 — #439 review addressed. Guppy measured `SignalsTab`'s single render unit at CC 83
+  (81 before #439). The news panel is now its own `NewsSentimentPanel.tsx`, with `OverallRow`,
+  `ArticleRow` and `ArticleList`, and one tone table in place of three ternary chains per chip.
+  `SectionHeader` moved to its own module. `SignalsTab` keeps about 60 CC from its other three
+  sections. That is recorded as a pre-existing exception, with the rest of the split proposed as
+  separate work. Clippy noticed the lift had started showing the Overall row with no articles;
+  it is back to showing only alongside articles, with a test.

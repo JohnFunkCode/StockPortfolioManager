@@ -122,6 +122,15 @@ describe('SignalsTab', () => {
     expect(trend.compareDocumentPosition(article) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('keeps the Overall row with its articles: none without them (#439 review)', async () => {
+    armAll({ news: { ...NEWS, sentiment_summary: {
+      overall: 'negative', positive_count: 0, negative_count: 2, neutral_count: 1, scored_count: 3,
+    } } });
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    expect(await screen.findByText('No recent news available.')).toBeInTheDocument();
+    expect(screen.queryByText('Overall:')).toBeNull();
+  });
+
   it('still shows the trend when there is no current news', async () => {
     armAll();
     renderWithProviders(<SignalsTab ticker="INTC" />);

@@ -87,6 +87,14 @@ class RouteRedactionTest(unittest.TestCase):
             "(tests.test_error_redaction.LeakyError)"
         ])
 
+    def test_guarded_route_keeps_a_value_errors_text(self):
+        # A ValueError is the services' "bad input"; MCP clients act on it.
+        self.patch_services(ValueError("bad interval"), prices_router)
+        with self.assertLogs("api.routers.prices", level="WARNING"):
+            resp = self.client.get("/api/securities/TST/ohlcv")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(resp.json(), {"error": "bad interval"})
+
     def test_unguarded_route_uses_the_framework_body(self):
         # signals/technical has no try/except: api/errors.py answers it.
         self.patch_services(LeakyError(SECRET), prices_router)

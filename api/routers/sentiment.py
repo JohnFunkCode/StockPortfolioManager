@@ -7,7 +7,7 @@ Ports the Flask handlers:
 These two have bespoke 500 error bodies (extra keys), not the shared helper:
   news             -> {"ticker", "error", "articles": []}
   sentiment-summary -> {"error", "items": []}
-Their "error" is the generic INTERNAL_ERROR; the class is logged, never the text.
+Their "error" is ``public_message(exc)``; the class is logged, never the text.
 
 The literal sentiment-summary route is declared first so it is never shadowed
 by the /{ticker}/news template.
@@ -22,10 +22,10 @@ from fastapi import APIRouter, Depends
 
 from ..auth import require_owner
 from ..deps import (
-    INTERNAL_ERROR,
     load_portfolio,
     load_watchlist,
     log_route_failure,
+    public_message,
     services,
 )
 from ..json_response import QuantCoreJSONResponse
@@ -45,7 +45,7 @@ def get_sentiment_summary(
         )
     except Exception as exc:  # noqa: BLE001 — parity with Flask
         log_route_failure(logger, "get_sentiment_summary", exc)
-        return QuantCoreJSONResponse({"error": INTERNAL_ERROR, "items": []}, status_code=500)
+        return QuantCoreJSONResponse({"error": public_message(exc), "items": []}, status_code=500)
     return QuantCoreJSONResponse(result)
 
 
@@ -64,7 +64,7 @@ def get_security_news(ticker: str, max_articles: int = 10) -> QuantCoreJSONRespo
     except Exception as exc:  # noqa: BLE001
         log_route_failure(logger, "get_security_news", exc, ticker=ticker)
         return QuantCoreJSONResponse(
-            {"ticker": ticker, "error": INTERNAL_ERROR, "articles": []}, status_code=500
+            {"ticker": ticker, "error": public_message(exc), "articles": []}, status_code=500
         )
     return QuantCoreJSONResponse(result)
 

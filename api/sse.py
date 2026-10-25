@@ -32,7 +32,7 @@ from quantcore.services.chat import (
     ToolStatus,
 )
 
-from .deps import INTERNAL_ERROR
+from .deps import public_message
 
 logger = logging.getLogger(__name__)
 
@@ -66,11 +66,7 @@ def event_stream(events: Iterator[ChatEvent]) -> Iterator[str]:
                 out.put(sse_encode(_EVENT_NAMES[type(event)], asdict(event)))
         except Exception as exc:  # noqa: BLE001 — stream must end with a frame
             logger.exception("chat event stream failed")
-            # A ValueError is a user-facing validation message (as in
-            # api/errors.py); anything else may carry a DSN, so the frame
-            # says only that the stream failed.
-            message = str(exc) if isinstance(exc, ValueError) else INTERNAL_ERROR
-            out.put(sse_encode("error", {"message": message}))
+            out.put(sse_encode("error", {"message": public_message(exc)}))
         finally:
             out.put(None)
 

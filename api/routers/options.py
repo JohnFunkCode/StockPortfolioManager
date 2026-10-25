@@ -9,8 +9,8 @@ dicts ship byte-for-byte via QuantCoreJSONResponse):
   POST /api/securities/refresh-options-snapshots
 
 Error parity: the GET analytics routes answer an exception with the plain
-``{"error"}`` 500 (a generic message; the class is logged, never the text); options-flow and refresh-options-snapshots have no
-try/except (framework handler), matching Flask. ``backfill`` returns the
+``{"error"}`` 500 (a ValueError's text, else a generic message; the class
+is logged); options-flow and refresh-options-snapshots have no try/except (framework handler), matching Flask. ``backfill`` returns the
 service's ``(payload, status)`` so long-running 202 semantics are preserved.
 """
 

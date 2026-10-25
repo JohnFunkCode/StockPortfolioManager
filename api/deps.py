@@ -47,6 +47,16 @@ def route_error_plain(message: str, status: int) -> QuantCoreJSONResponse:
 INTERNAL_ERROR = "internal error"
 
 
+def public_message(exc: BaseException) -> str:
+    """What a caller may read of ``exc``: a ValueError's text, else INTERNAL_ERROR.
+
+    A ValueError is how the services say "bad input" ("bad interval", "out of
+    range"), and api/errors.py already answers it with its text. Anything else
+    may be a driver error carrying a DSN.
+    """
+    return str(exc) if isinstance(exc, ValueError) else INTERNAL_ERROR
+
+
 def exception_kind(exc: BaseException) -> str:
     """``module.QualName`` of an exception — loggable, unlike its text."""
     return f"{type(exc).__module__}.{type(exc).__qualname__}"
@@ -61,9 +71,9 @@ def log_route_failure(log: logging.Logger, what: str, exc: BaseException, **cont
 def route_internal_error(
     log: logging.Logger, what: str, exc: BaseException, **context: str
 ) -> QuantCoreJSONResponse:
-    """The plain ``{"error"}`` 500 for a caught unexpected exception."""
+    """The plain ``{"error"}`` 500 for a caught exception (see public_message)."""
     log_route_failure(log, what, exc, **context)
-    return route_error_plain(INTERNAL_ERROR, 500)
+    return route_error_plain(public_message(exc), 500)
 
 
 def load_portfolio(owner: str) -> list[dict]:

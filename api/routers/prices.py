@@ -4,7 +4,7 @@ Heavy analytics surface — Option A pass-through: handlers return the service
 dict verbatim via ``QuantCoreJSONResponse`` with no response_model, so the
 volatile shapes ship byte-for-byte. Error handling mirrors Flask exactly:
 ohlcv/technicals/screen answer an exception with the plain ``{"error"}`` 500
-(a generic message; the class is logged, never the text);
+(a ValueError's text, else a generic message; the class is logged);
 the two signals routes have no try/except and fall through to the framework
 exception handler.
 """

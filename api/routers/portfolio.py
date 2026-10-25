@@ -29,6 +29,7 @@ harvester routes' ``route_error``.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,7 @@ from ..deps import (
     load_portfolio,
     load_watchlist,
     route_error_plain,
+    route_internal_error,
     services,
 )
 from ..json_response import QuantCoreJSONResponse
@@ -73,6 +75,8 @@ from ..schemas.portfolio import (
     WatchlistMineResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["securities"])
 
@@ -428,4 +432,4 @@ def lookup_security(symbol: str = "") -> QuantCoreJSONResponse:
             {"symbol": symbol, "name": name, "suggested_tags": suggested_tags}
         )
     except Exception as exc:
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "lookup_security", exc, symbol=symbol)

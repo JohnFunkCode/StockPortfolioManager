@@ -56,8 +56,9 @@ iv-rank calls. A NaN also orders wrongly in `max`/`min`. There are three layers:
 The encoder's `default()` always meant to null NaN, but `json` never calls `default()` for a plain
 float, and `np.float64` is one. So the response retries once with non-finite floats replaced, only
 when encoding fails for that reason. `get_iv_rank` also ignores non-finite IVs, so a NaN can't skew
-the rank. The iv-rank route logs its failures as `iv-rank failed ticker=… (<ExceptionType>)`: type
-only, because the text may carry a DSN. Before this, those 500s left an empty log entry.
+the rank. The iv-rank route logs its failures as `get_iv_rank failed ticker=… (<module.Class>)`:
+class only, because the text may carry a DSN (`route_internal_error` in `api/deps.py`, as every
+guarded route does). Before this, those 500s left an empty log entry.
 
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 

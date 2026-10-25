@@ -3,7 +3,8 @@
 Heavy analytics surface — Option A pass-through: handlers return the service
 dict verbatim via ``QuantCoreJSONResponse`` with no response_model, so the
 volatile shapes ship byte-for-byte. Error handling mirrors Flask exactly:
-ohlcv/technicals/screen wrap exceptions as the plain ``{"error": str}`` 500;
+ohlcv/technicals/screen answer an exception with the plain ``{"error"}`` 500
+(a ValueError's text, else a generic message; the class is logged);
 the two signals routes have no try/except and fall through to the framework
 exception handler.
 """
@@ -11,12 +12,18 @@ exception handler.
 from __future__ import annotations
 
 import logging
+
 from typing import Optional
 
 from fastapi import APIRouter, Depends
 
 from ..auth import require_owner
-from ..deps import load_portfolio, load_watchlist, route_error_plain, services
+from ..deps import (
+    load_portfolio,
+    load_watchlist,
+    route_internal_error,
+    services,
+)
 from ..json_response import QuantCoreJSONResponse
 
 logger = logging.getLogger(__name__)
@@ -29,7 +36,7 @@ def get_ohlcv(ticker: str, days: int = 180) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().prices.get_ohlcv_bars(ticker, days))
     except Exception as exc:  # noqa: BLE001 — parity with Flask
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_ohlcv", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/technicals")
@@ -37,7 +44,7 @@ def get_technicals(ticker: str, days: int = 365) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().prices.get_technicals_table(ticker, days))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_technicals", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/signals/technical")
@@ -63,11 +70,7 @@ def get_price_summary(ticker: str) -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().prices.get_stock_price(ticker))
     except Exception as exc:  # noqa: BLE001 — parity with the other analytics GETs
-        # The class path, never the text: it may carry a DSN (system.py does
-        # the same). Without this line, prod's 500s here left nothing to read.
-        kind = f"{type(exc).__module__}.{type(exc).__qualname__}"
-        logger.warning("price-summary failed ticker=%s (%s)", ticker.upper(), kind)
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_price_summary", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/rsi")
@@ -75,7 +78,7 @@ def get_rsi(ticker: str, period: int = 14, interval: str = "1d") -> QuantCoreJSO
     try:
         return QuantCoreJSONResponse(services().prices.get_rsi(ticker, period, interval))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_rsi", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/macd")
@@ -83,7 +86,7 @@ def get_macd(ticker: str, interval: str = "1d") -> QuantCoreJSONResponse:
     try:
         return QuantCoreJSONResponse(services().prices.get_macd(ticker, interval))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_macd", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/stochastic")
@@ -95,7 +98,7 @@ def get_stochastic(
             services().prices.get_stochastic(ticker, k_period, d_period, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_stochastic", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/volume")
@@ -107,7 +110,7 @@ def get_volume_analysis(
             services().prices.get_volume_analysis(ticker, lookback, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_volume_analysis", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/obv")
@@ -115,7 +118,7 @@ def get_obv(ticker: str, lookback: int = 20, interval: str = "1d") -> QuantCoreJ
     try:
         return QuantCoreJSONResponse(services().prices.get_obv(ticker, lookback, interval))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_obv", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/atr-bands")
@@ -132,7 +135,7 @@ def get_atr_bands(
             services().prices.get_atr_bands(ticker, period, band_mult, stop_mult, interval, lookback)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_atr_bands", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/volume-profile")
@@ -148,7 +151,7 @@ def get_volume_profile(
             services().prices.get_volume_profile(ticker, days, interval, bins, value_area_pct)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_volume_profile", exc, ticker=ticker.upper())
 
 
 # /anchored-vwap is declared before /vwap so the literal sub-path is never shadowed.
@@ -164,7 +167,7 @@ def get_anchored_vwap(
             services().prices.get_anchored_vwap(ticker, anchor_date, lookback_days, swing_bars)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_anchored_vwap", exc, ticker=ticker.upper())
 
 
 # /vwap/history is declared before /vwap so the literal sub-path is never shadowed.
@@ -177,7 +180,7 @@ def get_vwap_history(
             services().prices.get_vwap_history(ticker, since_days, lookback, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_vwap_history", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/vwap")
@@ -185,7 +188,7 @@ def get_vwap(ticker: str, lookback: int = 20, interval: str = "1d") -> QuantCore
     try:
         return QuantCoreJSONResponse(services().prices.get_vwap(ticker, lookback, interval))
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_vwap", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/candlestick")
@@ -197,7 +200,7 @@ def get_candlestick_patterns(
             services().prices.get_candlestick_patterns(ticker, lookback, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_candlestick_patterns", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/higher-lows")
@@ -209,7 +212,7 @@ def get_higher_lows(
             services().prices.get_higher_lows(ticker, swing_bars, lookback_swings, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_higher_lows", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/gaps")
@@ -221,7 +224,7 @@ def get_gap_analysis(
             services().prices.get_gap_analysis(ticker, min_gap_pct, lookback, interval)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_gap_analysis", exc, ticker=ticker.upper())
 
 
 @router.get("/{ticker}/drawdown")
@@ -231,7 +234,7 @@ def get_historical_drawdown(ticker: str, lookback_days: int = 252) -> QuantCoreJ
             services().prices.get_historical_drawdown(ticker, lookback_days)
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "get_historical_drawdown", exc, ticker=ticker.upper())
 
 
 @router.get("/screen")
@@ -269,4 +272,4 @@ def screen_securities(
             services().prices.screen_securities(filters, load_portfolio(owner), load_watchlist())
         )
     except Exception as exc:  # noqa: BLE001
-        return route_error_plain(str(exc), 500)
+        return route_internal_error(logger, "screen_securities", exc)

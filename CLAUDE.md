@@ -319,7 +319,14 @@ Anthropic API key; the backend never holds a usable key at rest.
   not just logs: name a database with `quantcore.db.describe_dsn()` (`host:port/name`), never with
   the DSN. `tests/test_dsn_redaction.py` guards the case that got through
   (`cache_stats()` returned the DSN as `db_path` all the way out to the `get_cache_stats` MCP
-  tool).
+  tool). **A caught unexpected exception never reaches the caller as text**: a route answers
+  `route_internal_error(logger, "<route>", exc, ticker=...)` from `api/deps.py` (body is
+  `public_message(exc)`, log line names the exception class only), and `api/errors.py`'s
+  catch-all and the chat SSE error frame do the same. Only a `ValueError` (the services' "bad
+  input"), `DuplicateSymbolError` and `KeyProxyError` carry their text to a caller;
+  `tests/test_error_redaction.py` drives every guarded prices/options route (and fails on a
+  `route_internal_error` call site it doesn't exercise) plus the chat stream, whose log line is
+  class-only too — never `logger.exception`, whose traceback carries the text.
 - **Gotchas learned on the prod rollout (details in the plan doc):** on existing Cloud Run
   services always `--update-secrets`/`--update-env-vars` (`--set-*` replaces the whole set);
   "inert" env-var claims must be checked against the image actually running (the pre-BYOK

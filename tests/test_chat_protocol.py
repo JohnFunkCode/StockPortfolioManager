@@ -91,7 +91,9 @@ class TestEventStream(unittest.TestCase):
         self.assertEqual(len(frames), 2)
         self.assertTrue(frames[0].startswith("event: text\n"))
         self.assertTrue(frames[1].startswith("event: error\n"))
-        self.assertIn("upstream died", frames[1])
+        # Only a ValueError's text reaches the user (tests/test_error_redaction.py).
+        self.assertIn("internal error", frames[1])
+        self.assertNotIn("upstream died", frames[1])
         # No done frame after an error.
         self.assertFalse(any(f.startswith("event: done") for f in frames))
 

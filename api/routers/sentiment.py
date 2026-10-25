@@ -7,6 +7,7 @@ Ports the Flask handlers:
 These two have bespoke 500 error bodies (extra keys), not the shared helper:
   news             -> {"ticker", "error", "articles": []}
   sentiment-summary -> {"error", "items": []}
+Their "error" is ``public_message(exc)``; the class is logged, never the text.
 
 The literal sentiment-summary route is declared first so it is never shadowed
 by the /{ticker}/news template.
@@ -14,13 +15,22 @@ by the /{ticker}/news template.
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends
 
 from ..auth import require_owner
-from ..deps import load_portfolio, load_watchlist, services
+from ..deps import (
+    load_portfolio,
+    load_watchlist,
+    log_route_failure,
+    public_message,
+    services,
+)
 from ..json_response import QuantCoreJSONResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/securities", tags=["sentiment"])
 
@@ -34,7 +44,8 @@ def get_sentiment_summary(
             load_portfolio(owner), load_watchlist(), source_filter=source
         )
     except Exception as exc:  # noqa: BLE001 — parity with Flask
-        return QuantCoreJSONResponse({"error": str(exc), "items": []}, status_code=500)
+        log_route_failure(logger, "get_sentiment_summary", exc)
+        return QuantCoreJSONResponse({"error": public_message(exc), "items": []}, status_code=500)
     return QuantCoreJSONResponse(result)
 
 
@@ -51,8 +62,9 @@ def get_security_news(ticker: str, max_articles: int = 10) -> QuantCoreJSONRespo
     try:
         result = services().sentiment.get_security_news(ticker, max_articles=max_articles)
     except Exception as exc:  # noqa: BLE001
+        log_route_failure(logger, "get_security_news", exc, ticker=ticker)
         return QuantCoreJSONResponse(
-            {"ticker": ticker, "error": str(exc), "articles": []}, status_code=500
+            {"ticker": ticker, "error": public_message(exc), "articles": []}, status_code=500
         )
     return QuantCoreJSONResponse(result)
 

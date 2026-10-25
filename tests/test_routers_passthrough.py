@@ -3,7 +3,7 @@
 Every route here is exactly one service call deep (arch-v2 Rule 6). These
 tests pin that contract mechanically: with the service layer mocked, each
 route must return the service payload verbatim on success and the plain
-{"error": ...} 500 shape on failure — proving no route grows hidden logic.
+{"error": "internal error"} 500 shape on failure — proving no route grows hidden logic.
 """
 import os
 import unittest
@@ -122,7 +122,7 @@ class RouterPassthroughTest(unittest.TestCase):
         self.assertEqual(resp.status_code, 500)
         self.assertEqual(
             logs.output,
-            ["WARNING:api.routers.options:iv-rank failed ticker=WDC (RuntimeError)"],
+            ["WARNING:api.routers.options:get_iv_rank failed ticker=WDC (builtins.RuntimeError)"],
         )
         line = "\n".join(logs.output)
         self.assertNotIn(secret, line)
@@ -145,7 +145,8 @@ class RouterPassthroughTest(unittest.TestCase):
                      "/api/securities/TST/options/latest"):
             resp = self.client.get(path)
             self.assertEqual(resp.status_code, 500, path)
-            self.assertIn("service exploded", resp.json()["error"])
+            # The text stays server-side (tests/test_error_redaction.py).
+            self.assertEqual(resp.json(), {"error": "internal error"}, path)
 
     def test_contracts_route_forwards_query_lists(self):
         captured = {}
@@ -212,7 +213,7 @@ class PriceSummaryFailureLogTest(unittest.TestCase):
                 resp = client.get("/api/securities/brk-b/price-summary")
         self.assertEqual(resp.status_code, 500)
         line = "\n".join(logs.output)
-        self.assertIn("price-summary failed ticker=BRK-B (builtins.ConnectionError)", line)
+        self.assertIn("get_price_summary failed ticker=BRK-B (builtins.ConnectionError)", line)
         self.assertNotIn("hunter2", line)
 
 if __name__ == "__main__":

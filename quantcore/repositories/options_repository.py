@@ -87,6 +87,9 @@ def _write_expiration(
         _contract_row(expiration_id, kind, c)
         for kind, side in (("call", calls), ("put", puts))
         for c in side.get(contracts_key, [])
+        # strike is NOT NULL and part of the key, so a contract without a
+        # finite strike can't be nulled like the prices: it is skipped.
+        if _finite(c.get("strike")) is not None
     ]
     if rows:
         conn.executemany(
@@ -105,7 +108,7 @@ def _contract_row(expiration_id: int, kind: str, c: dict) -> tuple:
     return (
         expiration_id,
         kind,
-        c.get("strike"),  # NOT NULL; the capture drops strike <= 0, NaN included
+        c["strike"],  # finite: _write_expiration skips the rest
         _finite(c.get("last")),
         _finite(c.get("bid")),
         _finite(c.get("ask")),

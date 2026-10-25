@@ -253,6 +253,26 @@ class OptionsRepositoryTest(unittest.TestCase):
         self.assertIsNone(call["bid"])
         self.assertEqual(put["bid"], 0.9)
 
+    def test_contract_without_a_finite_strike_is_skipped(self):
+        contract = lambda strike: {"strike": strike, "last": 1.0, "bid": 0.9, "ask": 1.1,
+                                   "iv": 30.0, "volume": 1, "open_interest": 1}
+        side = {"total_open_interest": 1, "total_volume": 1, "avg_iv_pct": 30.0,
+                "contracts": [contract(float("nan")), contract(None), contract(100.0)]}
+        self.store.save_full_chain(
+            symbol=TEST_SYMBOL, price=100.0, bollinger_bands=None, captured_at=iso(1.0),
+            expirations_data=[{"expiration": "2026-11-20", "put_call_ratio": 1.0,
+                               "calls": side, "puts": {}}],
+        )
+        with closing(get_connection()) as conn:
+            strikes = [r[0] for r in conn.execute(
+                """
+                SELECT c.strike FROM options_contracts c
+                  JOIN options_expirations e USING (expiration_id)
+                  JOIN options_snapshots s USING (snapshot_id)
+                 WHERE s.symbol = %s
+                """, (TEST_SYMBOL,)).fetchall()]
+        self.assertEqual(strikes, [100.0])
+
     def test_v11_migration_nulls_stored_nan(self):
         self.seed(days_ago=1.0)
         migration = (Path(__file__).resolve().parent.parent

@@ -186,3 +186,69 @@ class TestWeeklyBuckets(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestWindowSentiment(unittest.TestCase):
+    """Did the news over a score move's window agree with it (issue #433)."""
+
+    START, END = date(2026, 8, 10), date(2026, 10, 23)   # 75 days, prod's shape
+    HISTORY = date(2026, 10, 1)                           # 23 of them covered
+
+    def verdict(self, pos, neg, neu, direction=s.IMPROVING, history=HISTORY, day="2026-10-15"):
+        arts = ([art(f"{day}T15:00:00Z", "positive")] * pos
+                + [art(f"{day}T15:00:00Z", "negative")] * neg
+                + [art(f"{day}T15:00:00Z", "neutral")] * neu)
+        return s.window_sentiment(arts, start=self.START, end=self.END,
+                                  score_direction=direction, history_start=history)
+
+    def test_prod_wdc_shape_is_negative_news_not_a_neutral_majority(self):
+        # 19 neutral outvote 14 negative, but the net is −0.38: the news was bad.
+        out = self.verdict(1, 14, 19)
+        self.assertEqual(out["tone"], "negative")
+        self.assertEqual(out["verdict"], s.DIVERGES)
+        self.assertEqual(out["net_score"], -0.382)
+        self.assertEqual((out["days_covered"], out["window_days"]), (23, 75))
+
+    def test_agrees_both_ways(self):
+        self.assertEqual(self.verdict(8, 2, 5)["verdict"], s.AGREES)
+        self.assertEqual(self.verdict(2, 8, 5, direction=s.DETERIORATING)["verdict"], s.AGREES)
+        self.assertEqual(self.verdict(8, 2, 5, direction=s.DETERIORATING)["verdict"], s.DIVERGES)
+
+    def test_dead_band_is_mixed_and_its_edge_is_inside(self):
+        self.assertEqual(self.verdict(6, 5, 9)["verdict"], s.MIXED)    # net +0.05
+        self.assertEqual(self.verdict(3, 1, 16)["verdict"], s.MIXED)   # net +0.10 exactly
+        self.assertEqual(self.verdict(4, 1, 15)["verdict"], s.AGREES)  # net +0.15
+
+    def test_too_few_articles_is_thin(self):
+        self.assertEqual(self.verdict(9, 0, 0)["verdict"], s.THIN)
+        self.assertEqual(self.verdict(10, 0, 0)["verdict"], s.AGREES)
+
+    def test_too_little_history_is_thin_however_many_articles(self):
+        # History from Oct 10: 14 of 75 days, under a quarter.
+        out = self.verdict(30, 0, 0, history=date(2026, 10, 10))
+        self.assertEqual(out["days_covered"], 14)
+        self.assertEqual(out["verdict"], s.THIN)
+        # From Oct 5: 19 of 75 days, just over a quarter.
+        self.assertEqual(self.verdict(30, 0, 0, history=date(2026, 10, 5))["verdict"], s.AGREES)
+
+    def test_history_before_the_window_covers_all_of_it(self):
+        out = self.verdict(8, 2, 5, history=date(2026, 1, 1))
+        self.assertEqual(out["days_covered"], 75)
+
+    def test_no_articles_in_window_is_none(self):
+        out = self.verdict(0, 0, 0)
+        self.assertEqual(out["verdict"], s.NO_NEWS)
+        self.assertIsNone(out["net_score"])
+        self.assertIsNone(out["tone"])
+
+    def test_articles_outside_the_window_do_not_count(self):
+        out = self.verdict(20, 0, 0, day="2026-10-24")
+        self.assertEqual(out["verdict"], s.NO_NEWS)
+
+    def test_no_history_covers_nothing(self):
+        out = self.verdict(0, 0, 0, history=None)
+        self.assertEqual(out["days_covered"], 0)
+
+    def test_rule_reports_the_thresholds(self):
+        self.assertEqual(s.window_rule(),
+                         {"mixed_net_band": 0.10, "min_articles": 10, "min_coverage": 0.25})

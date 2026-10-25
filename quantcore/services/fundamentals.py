@@ -18,16 +18,18 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Iterable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 from quantcore.error_text import safe_error_text
+from quantcore.analytics import sentiment as sentiment_math
 from quantcore.analytics.market_time import market_date
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
+from quantcore.repositories.news_repository import NewsStore
 from quantcore.services.batch_limits import normalize_symbol_batch
 
 logger = logging.getLogger(__name__)
@@ -272,9 +274,14 @@ class FundamentalsService:
         fundamentals_repository: FundamentalsRepository,
         yfinance_gateway: YFinanceGateway,
         tracked_symbols: Callable[[], Iterable[str]] | None = None,
+        news_store: NewsStore | None = None,
     ):
         self._repo = fundamentals_repository
         self._yf = yfinance_gateway
+        # The repository, not SentimentService: services never import each
+        # other. Optional like the roster; without it score changes carry no
+        # news cue (issue #433).
+        self._news = news_store
         # A *callable*, not the watchlist and portfolio services themselves:
         # WatchlistService composes this service (issue #147 Part B3), so naming
         # it here would be a construction cycle in the registry. Late binding
@@ -1036,6 +1043,8 @@ class FundamentalsService:
         else:
             changes.sort(key=lambda x: x["delta"], reverse=True)
 
+        news_rule = self._attach_news(changes)
+
         return {
             "queried_at": queried_at,
             "since_days": since_days,
@@ -1044,8 +1053,57 @@ class FundamentalsService:
             "scope": scope,
             "symbols_evaluated": symbols_evaluated,
             "symbols_with_insufficient_history": symbols_insufficient,
+            "news_rule": news_rule,
             "changes": changes,
         }
+
+    def _attach_news(self, changes: list[dict]) -> dict | None:
+        """Give each mover a ``news`` entry: did the news over its own window agree?
+
+        Two queries for every mover together, never one per symbol (issue #433):
+        the panel already runs a history query per symbol, and it also renders
+        in the Sidekick rail. Each window is the move's own first → last
+        snapshot, as Eastern dates. Returns the verdict thresholds, or None when
+        no news store is wired (the changes then carry no ``news``).
+        """
+        if self._news is None:
+            return None
+        windows = {
+            c["symbol"]: (
+                sentiment_math.article_date(None, c["first_snapshot"]),
+                sentiment_math.article_date(None, c["last_snapshot"]),
+            )
+            for c in changes
+        }
+        by_symbol, firsts = self._news_for_windows(windows)
+        for change in changes:
+            start, end = windows[change["symbol"]]
+            if start is None or end is None:
+                change["news"] = None
+                continue
+            first = firsts.get(change["symbol"])
+            change["news"] = sentiment_math.window_sentiment(
+                by_symbol.get(change["symbol"], []),
+                start=start, end=end,
+                score_direction=change["direction"],
+                history_start=sentiment_math.article_date(None, first) if first else None,
+            )
+        return sentiment_math.window_rule()
+
+    def _news_for_windows(
+        self, windows: dict[str, tuple[Optional[date], Optional[date]]]
+    ) -> tuple[dict[str, list[dict]], dict[str, str]]:
+        """Every mover's scored articles, grouped by symbol, and each one's first ``fetched_at``."""
+        starts = [s for s, _ in windows.values() if s]
+        if not starts:
+            return {}, {}
+        symbols = list(windows)
+        # A day of slack for the UTC/Eastern offset, as the trend does.
+        since = (min(starts) - timedelta(days=1)).isoformat()
+        by_symbol: dict[str, list[dict]] = {}
+        for row in self._news.get_scored_articles_for_symbols(symbols, since):
+            by_symbol.setdefault(row["symbol"], []).append(row)
+        return by_symbol, self._news.first_article_fetched_at_by_symbol(symbols)
 
     def get_fundamental_history(self, symbol: str, data_type: str, since_days: int = 365) -> dict:
         sym = symbol.upper()

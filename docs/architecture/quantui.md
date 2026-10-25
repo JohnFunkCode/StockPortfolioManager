@@ -67,6 +67,16 @@ composes `FundamentalsService`, so injecting the services directly would close a
 At the route boundary it is a `Literal["all","tracked"]`, so a bad value is a 422 rather than a
 service `ValueError` escaping over HTTP.
 
+The Score Changes panel's **News** column (#433) shows whether the news over each move's own
+window (first → last snapshot) agreed with it: `agrees`, `diverges`, `mixed`, `thin` or `—` for no
+articles. `FundamentalsService` gets every mover's articles in **two** queries, the articles and
+each symbol's first-article date, through an injected `NewsStore`, never a per-symbol loop. The
+verdict is `window_sentiment` in `quantcore/analytics/sentiment.py`. It is decided on the window's
+**net score** with a ±0.10 dead band, not on the majority label, because a busy window is usually
+majority neutral. A window needs 10+ articles and a quarter of its days inside news history, or it
+reads `thin`. The response's `news_rule` carries those thresholds for the tooltip, which states the
+counts and the coverage ("covers 23 of 75 days").
+
 The security detail page's Technical Analysis tab ends with two cards that share **one request**
 (#399, [`stop-loss-card-plan.md`](../proposals/stop-loss-card-plan.md)): Support Confluence, then the
 Stop-Loss card, which proposes a stop under one of its zones. The order is display only; the

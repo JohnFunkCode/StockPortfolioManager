@@ -104,3 +104,62 @@ describe('ScoreChangesPanel', () => {
     expect(api.calls[0][0]).toContain('scope=tracked');
   });
 });
+
+describe('ScoreChangesPanel news cue (#433)', () => {
+  const RULE = { mixed_net_band: 0.1, min_articles: 10, min_coverage: 0.25 };
+  const news = (verdict: string, over: Record<string, unknown> = {}) => ({
+    verdict, tone: 'negative', net_score: -0.382, article_count: 34,
+    positive_count: 1, negative_count: 14, neutral_count: 19,
+    days_covered: 23, window_days: 75, ...over,
+  });
+
+  function arm() {
+    mockApi([[CHANGES, scoreChanges([
+      scoreChange('WDC', { news: news('diverges') }),
+      scoreChange('IREN', { delta: -7, direction: 'deteriorating', news: news('agrees') }),
+      scoreChange('META', { news: news('mixed', { tone: 'mixed', net_score: 0.05 }) }),
+      scoreChange('LTRX', { news: news('thin', { article_count: 6, net_score: 0.5 }) }),
+      scoreChange('NIB.F', { news: news('none', {
+        tone: null, net_score: null, article_count: 0, positive_count: 0,
+        negative_count: 0, neutral_count: 0 }) }),
+      scoreChange('OLD'),
+    ], { news_rule: RULE })]]);
+  }
+
+  it('shows each verdict the server sent, worded and coloured, never recomputed', async () => {
+    arm();
+    renderWithProviders(<ScoreChangesPanel />);
+    await waitFor(() => expect(screen.getByText('News')).toBeInTheDocument());
+
+    expect(screen.getByTestId('news-cue-WDC')).toHaveTextContent('diverges');
+    expect(screen.getByTestId('news-cue-IREN')).toHaveTextContent('agrees');
+    expect(screen.getByTestId('news-cue-META')).toHaveTextContent('mixed');
+    expect(screen.getByTestId('news-cue-LTRX')).toHaveTextContent('thin');
+    expect(screen.getByTestId('news-cue-NIB.F')).toHaveTextContent('—');
+    // Diverges is amber (look closer), agrees green — both the ink shades.
+    expect(screen.getByTestId('news-cue-WDC')).toHaveStyle({ color: 'var(--qc-ink-amber)' });
+    expect(screen.getByTestId('news-cue-IREN')).toHaveStyle({ color: 'var(--qc-ink-green)' });
+  });
+
+  it('states the counts, the coverage and the rule behind a verdict', async () => {
+    arm();
+    renderWithProviders(<ScoreChangesPanel />);
+    const cue = await screen.findByTestId('news-cue-WDC');
+    const label = cue.getAttribute('aria-label') ?? '';
+    expect(label).toContain('News net −0.38 over 34 articles (1↑ 14↓ 19–)');
+    expect(label).toContain("news history covers 23 of this move's 75 days");
+    expect(label).toContain('A verdict needs 10+ articles and 25% of the window covered');
+    expect(label).toContain('±0.10 is mixed');
+    expect(screen.getByTestId('news-cue-NIB.F').getAttribute('aria-label'))
+      .toContain("No scored articles in the move's window");
+  });
+
+  it('keeps the cue in the rail, and a server without news shows a dash', async () => {
+    arm();
+    renderWithProviders(<ScoreChangesPanel variant="rail" />);
+    expect(await screen.findByTestId('news-cue-WDC')).toHaveTextContent('diverges');
+    expect(screen.queryByTestId('news-cue-OLD')).toBeNull();
+    const oldRow = screen.getByText('OLD').closest('tr')!;
+    expect(oldRow).toHaveTextContent('—');
+  });
+});

@@ -82,6 +82,30 @@ export interface SectorBreakdownResponse {
 
 export type ScoreChangeDirection = 'improving' | 'deteriorating';
 
+/** Did the news over the move's own window agree with it (issue #433)?
+ * Decided server-side (`quantcore/analytics/sentiment.window_sentiment`). */
+export type NewsVerdict = 'agrees' | 'diverges' | 'mixed' | 'thin' | 'none';
+
+export interface ScoreChangeNews {
+  verdict: NewsVerdict;
+  /** `positive` / `negative` outside the dead band, `mixed` inside; null with no articles. */
+  tone: 'positive' | 'negative' | 'mixed' | null;
+  net_score: number | null;
+  article_count: number;
+  positive_count: number;
+  negative_count: number;
+  neutral_count: number;
+  /** Days of the window on or after the symbol's news history began. */
+  days_covered: number;
+  window_days: number;
+}
+
+export interface ScoreChangeNewsRule {
+  mixed_net_band: number;
+  min_articles: number;
+  min_coverage: number;
+}
+
 export interface FundamentalScoreChange {
   symbol: string;
   /** Signed: positive is improving. */
@@ -93,6 +117,8 @@ export interface FundamentalScoreChange {
   label_now: string | null;
   first_snapshot: string | null;
   last_snapshot: string | null;
+  /** Absent when the server has no news store wired; null when the window has no dates. */
+  news?: ScoreChangeNews | null;
 }
 
 export interface ScoreChangesResponse {
@@ -105,6 +131,8 @@ export interface ScoreChangesResponse {
   /** Fewer than two snapshots in the window — a symbol the warmer only reached
    * once. Not a mover, and not evidence of stability either. */
   symbols_with_insufficient_history: number;
+  /** The verdict thresholds; null when the server has no news store wired. */
+  news_rule?: ScoreChangeNewsRule | null;
   changes: FundamentalScoreChange[];
 }
 

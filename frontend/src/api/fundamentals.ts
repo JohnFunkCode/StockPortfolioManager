@@ -42,6 +42,9 @@ export type {
   FundamentalRanking,
   SectorRanking,
   FundamentalScoreChange,
+  ScoreChangeNews,
+  ScoreChangeNewsRule,
+  NewsVerdict,
   UpcomingEarning,
   CacheDataTypeStats,
 } from './fundamentalsTypes';

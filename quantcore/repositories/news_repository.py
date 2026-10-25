@@ -280,6 +280,45 @@ class NewsStore:
             ).fetchone()
         return row["first"] if row else None
 
+    def get_scored_articles_for_symbols(self, symbols: list[str], since: str) -> list[dict]:
+        """``get_scored_articles_since`` for many symbols in one query (issue #433).
+
+        Rows: ``symbol``, ``published_at``, ``fetched_at``, ``sentiment``. The
+        Score Changes panel needs every mover's news at once and also renders in
+        the Sidekick rail, so this is one statement, never a per-symbol loop.
+        Same ``fetched_at``-only prefilter, for the same reason.
+        """
+        if not symbols:
+            return []
+        marks = ", ".join("?" for _ in symbols)
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT symbol, published_at, fetched_at, sentiment
+                FROM news_articles
+                WHERE symbol IN ({marks}) AND sentiment IS NOT NULL AND fetched_at >= ?
+                """,
+                (*[s.upper() for s in symbols], since),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def first_article_fetched_at_by_symbol(self, symbols: list[str]) -> dict[str, str]:
+        """{symbol: first ``fetched_at``} in one query; symbols with no articles are absent."""
+        if not symbols:
+            return {}
+        marks = ", ".join("?" for _ in symbols)
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT symbol, MIN(fetched_at) AS first
+                FROM news_articles
+                WHERE symbol IN ({marks})
+                GROUP BY symbol
+                """,
+                tuple(s.upper() for s in symbols),
+            ).fetchall()
+        return {r["symbol"]: r["first"] for r in rows}
+
     # ------------------------------------------------------------------
     # Inventory helpers
     # ------------------------------------------------------------------

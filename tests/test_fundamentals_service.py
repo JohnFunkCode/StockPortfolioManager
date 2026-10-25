@@ -620,6 +620,56 @@ class TestScoreChanges(FundamentalsServiceTestBase):
         self.assertEqual(out["changes"], [])
 
 
+class TestScoreChangesNews(FundamentalsServiceTestBase):
+    """Each mover's news verdict over its own window (issue #433)."""
+
+    def setUp(self):
+        super().setUp()
+        self.news = Mock()
+        self.service = FundamentalsService(
+            fundamentals_repository=self.repo, yfinance_gateway=Mock(), news_store=self.news,
+        )
+        movers = {"UP": (2, 8), "DOWN": (8, 2), "QUIET": (2, 8)}
+        self.repo.get_all_latest.return_value = [score_entry(s, now) for s, (_, now) in movers.items()]
+        self.repo.history.side_effect = lambda sym, *_a, **_k: [
+            {"composite_score": movers[sym][0], "fetched_at": "2026-08-10T03:40:00Z"},
+            {"composite_score": movers[sym][1], "fetched_at": "2026-10-23T21:15:00Z"},
+        ]
+        bad = {"published_at": "2026-10-15T15:00:00Z", "fetched_at": "2026-10-15T16:00:00Z",
+               "sentiment": "negative"}
+        self.news.get_scored_articles_for_symbols.return_value = (
+            [{**bad, "symbol": "UP"}] * 12 + [{**bad, "symbol": "DOWN"}] * 12)
+        self.news.first_article_fetched_at_by_symbol.return_value = {
+            "UP": "2026-09-30T22:00:00Z", "DOWN": "2026-09-30T22:00:00Z"}
+
+    def test_every_mover_from_two_queries(self):
+        out = self.service.get_fundamental_score_changes(min_delta=2)
+        news = {c["symbol"]: c["news"] for c in out["changes"]}
+        self.assertEqual(news["UP"]["verdict"], "diverges")
+        self.assertEqual(news["DOWN"]["verdict"], "agrees")
+        self.assertEqual(news["QUIET"]["verdict"], "none")
+        self.assertEqual(news["UP"]["window_days"], 76)   # Aug 9 ET .. Oct 23 ET, inclusive
+        self.assertEqual(out["news_rule"]["min_coverage"], 0.25)
+
+        # One call each, for all three movers, prefiltered a day before the earliest window.
+        self.news.get_scored_articles_for_symbols.assert_called_once()
+        symbols, since = self.news.get_scored_articles_for_symbols.call_args.args
+        self.assertEqual(sorted(symbols), ["DOWN", "QUIET", "UP"])
+        self.assertEqual(since, "2026-08-08")
+        self.news.first_article_fetched_at_by_symbol.assert_called_once()
+
+    def test_no_movers_no_news_queries(self):
+        self.service.get_fundamental_score_changes(min_delta=50)
+        self.news.get_scored_articles_for_symbols.assert_not_called()
+        self.news.first_article_fetched_at_by_symbol.assert_not_called()
+
+    def test_without_a_news_store_there_is_no_cue(self):
+        plain = FundamentalsService(fundamentals_repository=self.repo, yfinance_gateway=Mock())
+        out = plain.get_fundamental_score_changes(min_delta=2)
+        self.assertIsNone(out["news_rule"])
+        self.assertTrue(all("news" not in c for c in out["changes"]))
+
+
 class TestScope(FundamentalsServiceTestBase):
     """?scope=tracked narrows the cache to the watchlist + every owner's
     positions before anything ranks (issue #147 Part B4)."""

@@ -10,6 +10,11 @@
  * warmer has only reached once is not a non-mover — it is unmeasured, and an
  * empty list with a large count means "the cache is young", not "nothing
  * changed".
+ *
+ * The News column (issue #433) says whether the news over each move's own
+ * window agreed with it. The verdict, its thresholds and the coverage all come
+ * from the server (`quantcore/analytics/sentiment.window_sentiment`); this file
+ * only words and colours them.
  */
 import {
   Alert,
@@ -25,7 +30,8 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import { Link as RouterLink } from 'react-router-dom';
 import { useScoreChanges } from '../../hooks/useFundamentals';
-import { formatDate } from '../../utils/formatting';
+import type { NewsVerdict, ScoreChangeNews, ScoreChangeNewsRule } from '../../api/fundamentals';
+import { formatDate, formatPercent } from '../../utils/formatting';
 import { DIM, GREEN, MUTED, RED } from './scoreLabels';
 
 export interface ScoreChangesPanelProps {
@@ -33,6 +39,73 @@ export interface ScoreChangesPanelProps {
 }
 
 const RAIL_LIMIT = 8;
+
+// On a tint background the status colour is the --qc-ink-* shade (themes.ts).
+// Diverges is amber, not red: it asks for a look, it doesn't say the news is bad.
+const VERDICT_STYLE: Record<Exclude<NewsVerdict, 'none'>, { bg: string; fg: string; border: string }> = {
+  agrees: { bg: 'var(--qc-tint-green)', fg: 'var(--qc-ink-green)', border: 'var(--qc-ink-green)' },
+  diverges: { bg: 'var(--qc-tint-amber)', fg: 'var(--qc-ink-amber)', border: 'var(--qc-ink-amber)' },
+  mixed: { bg: 'var(--qc-surface)', fg: 'var(--qc-muted)', border: 'var(--qc-dim)' },
+  thin: { bg: 'transparent', fg: 'var(--qc-faint)', border: 'var(--qc-dim)' },
+};
+
+function signed(n: number): string {
+  const s = Math.abs(n).toFixed(2);
+  return n > 0 ? `+${s}` : n < 0 ? `−${s}` : s;
+}
+
+function newsSummary(news: ScoreChangeNews, rule: ScoreChangeNewsRule | null | undefined): string {
+  const coverage = `news history covers ${news.days_covered} of this move's ${news.window_days} days`;
+  const head =
+    news.article_count === 0
+      ? `No scored articles in the move's window · ${coverage}`
+      : `News net ${signed(news.net_score ?? 0)} over ${news.article_count} articles ` +
+        `(${news.positive_count}↑ ${news.negative_count}↓ ${news.neutral_count}–) · ${coverage}`;
+  if (!rule) return head;
+  return (
+    `${head}. A verdict needs ${rule.min_articles}+ articles and ` +
+    `${formatPercent(rule.min_coverage, 0)} of the window covered; a net within ` +
+    `±${rule.mixed_net_band.toFixed(2)} is mixed.`
+  );
+}
+
+function NewsCue({
+  symbol,
+  news,
+  rule,
+}: {
+  symbol: string;
+  news: ScoreChangeNews | null | undefined;
+  rule: ScoreChangeNewsRule | null | undefined;
+}) {
+  if (!news) return <span style={{ color: DIM }}>—</span>;
+  const summary = newsSummary(news, rule);
+  if (news.verdict === 'none') {
+    return (
+      <Tooltip title={summary}>
+        <span data-testid={`news-cue-${symbol}`} style={{ color: DIM }} aria-label={`news: none. ${summary}`}>
+          —
+        </span>
+      </Tooltip>
+    );
+  }
+  const style = VERDICT_STYLE[news.verdict];
+  return (
+    <Tooltip title={summary}>
+      <Chip
+        data-testid={`news-cue-${symbol}`}
+        size="small"
+        variant="outlined"
+        label={news.verdict}
+        aria-label={`news ${news.verdict}. ${summary}`}
+        sx={{
+          fontSize: 11, height: 20, fontWeight: 600,
+          bgcolor: style.bg, color: style.fg, borderColor: style.border,
+        }}
+      />
+    </Tooltip>
+  );
+}
 
 export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPanelProps) {
   const rail = variant === 'rail';
@@ -97,6 +170,7 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
               <th style={{ padding: '4px 6px' }}>Symbol</th>
               <th style={{ padding: '4px 6px', textAlign: 'right' }}>Δ</th>
               <th style={{ padding: '4px 6px', textAlign: 'right' }}>Then → now</th>
+              <th style={{ padding: '4px 6px' }}>News</th>
               {!rail && <th style={{ padding: '4px 6px' }}>Label</th>}
               {!rail && <th style={{ padding: '4px 6px' }}>Window</th>}
             </tr>
@@ -127,6 +201,9 @@ export default function ScoreChangesPanel({ variant = 'page' }: ScoreChangesPane
                   </td>
                   <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--qc-text-soft)' }}>
                     {change.score_then.toFixed(0)} → {change.score_now.toFixed(0)}
+                  </td>
+                  <td style={{ padding: '4px 6px' }}>
+                    <NewsCue symbol={change.symbol} news={change.news} rule={data?.news_rule} />
                   </td>
                   {!rail && (
                     <td style={{ padding: '4px 6px', color: MUTED }}>

@@ -240,6 +240,11 @@ def get_fundamental_score_changes(
     Compares the earliest and latest cached snapshots within since_days.
     Only stocks with ≥ 2 snapshots in the window are evaluated.
 
+    Each change carries ``news``: whether the news over that move's own window
+    agreed with it. ``verdict`` is agrees / diverges / mixed / thin / none, from
+    the window's net score (``news_rule`` gives the thresholds), plus the
+    article counts and how many of the window's days news history covers.
+
     Args:
         min_delta:   Minimum absolute score change to report (default 2,
                      on the -14 to +14 composite_score scale)

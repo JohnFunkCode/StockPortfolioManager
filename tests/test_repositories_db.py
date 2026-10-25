@@ -289,6 +289,29 @@ class TestNewsStore(RepoTestBase):
         self.store.save_articles(SYM, [article(1)])
         self.assertIsNotNone(self.store.first_article_fetched_at(SYM))
 
+    def test_many_symbol_reads_match_the_single_symbol_ones(self):
+        # Score Changes reads every mover's news in one statement (#433); per
+        # symbol it must return what the single-symbol reads do, and a symbol
+        # with no articles is simply absent.
+        now = datetime.now(timezone.utc)
+        self.store.save_articles(SYM, [article(1), article(2), article(3)])
+        self._score_all_but("/3")
+        since = (now - timedelta(days=31)).date().isoformat()
+        missing = "ZZREPOSNONE"
+
+        rows = self.store.get_scored_articles_for_symbols([SYM.lower(), missing], since)
+        self.assertEqual({r["symbol"] for r in rows}, {SYM})
+        self.assertEqual(set(rows[0]), {"symbol", "published_at", "fetched_at", "sentiment"})
+        single = self.store.get_scored_articles_since(SYM, since)
+        self.assertEqual(sorted(r["fetched_at"] for r in rows),
+                         sorted(r["fetched_at"] for r in single))
+
+        firsts = self.store.first_article_fetched_at_by_symbol([SYM.lower(), missing])
+        self.assertEqual(firsts, {SYM: self.store.first_article_fetched_at(SYM)})
+
+        self.assertEqual(self.store.get_scored_articles_for_symbols([], since), [])
+        self.assertEqual(self.store.first_article_fetched_at_by_symbol([]), {})
+
     def test_batch_summaries_match_the_single_symbol_read(self):
         # The options screen reads every symbol's summary in one query; each
         # must equal what get_sentiment_summary says for that symbol, and a

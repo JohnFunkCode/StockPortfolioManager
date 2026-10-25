@@ -2,7 +2,7 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-10-24
+**Last Updated:** 2026-10-25
 **MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 111 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 17 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.
@@ -203,7 +203,7 @@ earnings date) does not.
 | Top-N stocks by score (per sector, from cache) | `get_top_fundamental_stocks` | `GET /api/securities/fundamentals/top` | **Fundamentals page** (`TopFundamentalsPanel`) | `fundamentals_top` card (the panel's own `variant="rail"`) |
 | Upcoming earnings within N days | `get_upcoming_earnings` | `GET /api/securities/fundamentals/upcoming-earnings` | **Fundamentals page** (`UpcomingEarningsStrip`) | — |
 | Sector fundamental breakdown | `get_sector_fundamental_breakdown` | `GET /api/securities/fundamentals/sector-breakdown` | **Fundamentals page** (`SectorBreakdownPanel`) | — |
-| Score change tracking (90-day movers) | `get_fundamental_score_changes` | `GET /api/securities/fundamentals/score-changes` | **Fundamentals page** (`ScoreChangesPanel`) | `fundamentals_score_changes` card (same hook + react-query key as the panel) |
+| Score change tracking (90-day movers), each with a news verdict over its own window (#433) | `get_fundamental_score_changes` | `GET /api/securities/fundamentals/score-changes` | **Fundamentals page** (`ScoreChangesPanel`, News column) | `fundamentals_score_changes` card (same hook + react-query key as the panel) |
 | Cache statistics | `get_cache_stats` | `GET /api/securities/fundamentals/cache-stats` | Fundamentals page (`CacheFreshnessBanner`) | — |
 | Cache warming + staleness alarm | — | — | — | `main.py` daily Job (warming pass, Discord alarm on stale cache) |
 
@@ -439,7 +439,8 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 ---
 
 **Document Version:** 2.4
-**Last Updated:** 2026-10-24 (#411: the weekly news sentiment trend on the Signals tab and as the Sidekick `sentiment_trend` card — 58 of 111 operations reached, 53 left, 32 gaps; Sidekick component count corrected to 17, which had missed `stop_loss`)
+**Last Updated:** 2026-10-25 (#433: Score Changes rows carry a news verdict — `agrees` / `diverges` / `mixed` / `thin` / none — over each move's own window; no new route, counts unchanged)
+**Earlier:** 2026-10-24 (#411: the weekly news sentiment trend on the Signals tab and as the Sidekick `sentiment_trend` card — 58 of 111 operations reached, 53 left, 32 gaps; Sidekick component count corrected to 17, which had missed `stop_loss`)
 **Earlier:** 2026-10-23 (#399: stop-loss synthesis surfaced on the Technical Analysis tab and as the Sidekick `stop_loss` card — 57 of 111 operations reached, 54 left, 33 gaps)
 **Prior version:** 2.3, 2026-10-22 (full re-audit of WebUI coverage against `frontend/src/api` → hooks → components: 56 of 111 operations reached, the other 55 inventoried in an appendix. Reflects the Securities → Watchlist merge (#224: `GET /api/securities` retired, `GET /api/watchlist/mine` added, `/securities` redirects), the My Positions / Research nav menus, `get_symbol_sales` (#266), the 23-table schema under Flyway, the news Job, and the full notification list. Corrected stale WebUI claims: the arbitrage universe, `GET /api/symbols`, and the sales endpoints have no UI consumer; `LivePrice` lives on Plan Detail; delta exposure and dashboard stats are on the Harvester page)
 **Prior version:** 2.2, 2026-08-14 (issue #208 — the Sidekick tool audit: added `arbitrage-server` and `portfolio-server`, corrected the tool count to 62 across 7, deleted the dual-registration claim)

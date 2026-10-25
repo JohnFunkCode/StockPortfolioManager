@@ -89,20 +89,33 @@ function coverageLine(data: SentimentTrendResponse): string {
   );
 }
 
+const COMPACT = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 0 });
+
+/** At most four characters ("999", "12K", "999K", "1M"), so the caption has a
+ *  widest case the cut-off below can be measured against. The tooltip keeps
+ *  the exact count. */
+function compactCount(n: number): string {
+  return n < 1000 ? String(n) : COMPACT.format(n);
+}
+
 /** The line under a week's bar, in two parts so a narrow column can drop the
  *  detail and keep the net: blank before history, "0 articles" for an empty
  *  week (detail only — the dashed outline already says it), else net + count. */
 function weekCaption(week: SentimentTrendWeek): { net: string; detail: string } {
   if (week.before_history) return { net: '', detail: '' };
   if (week.article_count === 0) return { net: '', detail: '0 articles' };
-  return { net: signed(week.net_score ?? 0), detail: ` · ${week.article_count}` };
+  return { net: signed(week.net_score ?? 0), detail: ` · ${compactCount(week.article_count)}` };
 }
 
-// Column widths (px) below which a caption part no longer fits at 10px type.
+// Column widths (px) below which a caption part no longer fits at 10px type,
+// set from the widest case each can be (tabular digits, so every number of a
+// given length is the same width) plus a margin for a wider fallback font.
 // The chart appears in a wide page panel and a ~325px Sidekick card, so the
 // cut-off follows the column's own width, not the 4w/13w/26w window.
-const DETAIL_MIN_WIDTH = 56;
-const NET_MIN_WIDTH = 30;
+// Measured in Chromium (10px, tabular): "−1.00 · 999K" is 63.1px in Inter and
+// 63.7px in system-ui; "−1.00" is 28.6px and 28.8px.
+const DETAIL_MIN_WIDTH = 68;
+const NET_MIN_WIDTH = 32;
 
 function FlipMarker({ flip }: { flip: string }) {
   const down = flip === 'deteriorating';
@@ -190,6 +203,7 @@ function WeekCaption({ week }: { week: SentimentTrendWeek }) {
       sx={{
         display: 'block', minHeight: 14, textAlign: 'center',
         fontSize: 10, lineHeight: 1.4, whiteSpace: 'nowrap', overflow: 'hidden', maxWidth: '100%',
+        fontVariantNumeric: 'tabular-nums',
         color: week.in_progress ? 'var(--qc-ink-amber)' : 'var(--qc-muted)',
         // Queries the column (the nearest container), so a cramped column
         // drops the count first and the net next instead of eliding mid-number.

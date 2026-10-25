@@ -105,6 +105,7 @@ describe('SentimentTrendChart', () => {
     const measured = within(screen.getByTestId('trend-week-2026-10-12')).getByTestId('trend-caption');
     expect(measured.querySelector('.trend-net')).toHaveTextContent('−0.38');
     expect(measured.querySelector('.trend-detail')).toHaveTextContent('· 34');
+    expect(measured).toHaveStyle({ fontVariantNumeric: 'tabular-nums' });
 
     // An empty week's "0 articles" is detail only: the dashed outline says it
     // where there is no room, and a bare "0" would read as a net score.
@@ -114,6 +115,24 @@ describe('SentimentTrendChart', () => {
 
     const before = within(screen.getByTestId('trend-week-2026-09-21')).getByTestId('trend-caption');
     expect(before).toBeEmptyDOMElement();
+  });
+
+  it('caps the caption count at four characters and keeps the exact count in the tooltip text', async () => {
+    const data = wdc();
+    data.buckets[1] = { ...data.buckets[1], article_count: 999 };
+    data.buckets[3] = { ...data.buckets[3], article_count: 12_345 };
+    data.buckets[4] = { ...data.buckets[4], article_count: 999_999 };
+    mockApi([['/news/trend', data]]);
+    renderWithProviders(<SentimentTrendChart ticker="WDC" />);
+    const chart = await screen.findByTestId('sentiment-trend-chart');
+
+    const detail = (start: string) =>
+      within(screen.getByTestId(`trend-week-${start}`)).getByTestId('trend-caption')
+        .querySelector('.trend-detail');
+    expect(detail('2026-09-28')).toHaveTextContent('· 999');
+    expect(detail('2026-10-12')).toHaveTextContent('· 12K');
+    expect(detail('2026-10-19')).toHaveTextContent('· 1M');
+    expect(chart.getAttribute('aria-label')).toContain('12345 articles');
   });
 
   it('marks the in-progress week and draws thin weeks paler', async () => {

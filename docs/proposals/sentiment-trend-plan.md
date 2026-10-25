@@ -224,3 +224,20 @@ This shaped every decision below, so it is recorded first.
   - An empty week's "0 articles" is detail only, because a bare "0" would read as a net score.
   - jsdom can't evaluate container queries, so the tests pin the span structure, and the cutoffs
     were checked in a browser at 325, 520 and 900px for each window.
+- 2026-10-24 — #438 review addressed:
+  - Guppy found a four-digit count still clipped: the article count is unbounded, so a fixed
+    cutoff can't bound the caption. Counts now use compact notation (at most 4 characters:
+    `999`, `12K`, `999K`, `1M`; the tooltip keeps the exact number), and captions use tabular
+    digits.
+  - The cutoffs come from that worst case plus a fallback-font margin, which also answers
+    Clippy's thin-margin note. Measured in Chromium at 10px: "−1.00 · 999K" is 63.1px in Inter
+    and 63.7px in system-ui, and "−1.00" is 28.6px. The cutoffs are now 68px and 32px.
+  - Cost: a 13w chart on a ~900px card now shows net only (67px columns), since it reserves
+    room for a count that real data (≤ ~70 a week under the collector cap) never reaches.
+  - New `frontend/e2e/sentiment-trend-captions.spec.ts` sweeps card widths from 200 to 2000px
+    in 13px steps for each window, against boundary fixtures. It fails if any visible caption
+    overruns its column. Reverting either the 56px cutoff or `container-type` turns it red.
+  - Gotcha: the e2e suite isn't in CI and needs the test proxy (uvicorn boots against the test
+    DB). Locally, `npx playwright test` failed because this Playwright version's Chromium wasn't
+    downloaded. A throwaway config spreading `playwright.config` with `use.channel: 'chrome'` ran
+    it on the installed Chrome instead.

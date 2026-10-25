@@ -159,6 +159,17 @@ describe('SignalsTab', () => {
     expect(screen.queryByText('Risk & Stop-Loss Calibration')).toBeNull();
   });
 
+  it('composes the five sections in their original order (#441 review)', async () => {
+    armAll();
+    renderWithProviders(<SignalsTab ticker="INTC" />);
+    const titles = ['Interpretation', 'Momentum & Volume', 'Price Structure',
+      'Options Flow (Smart Money)', 'Recent News & Sentiment'];
+    const nodes = await Promise.all(titles.map((t) => screen.findByText(t)));
+    for (let i = 1; i < nodes.length; i++) {
+      expect(nodes[i - 1].compareDocumentPosition(nodes[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+
   it('degrades a section when its endpoint errors while others render', async () => {
     armAll({ risk: { __status: 500, error: 'risk unavailable' } });
     renderWithProviders(<SignalsTab ticker="INTC" />);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 
 import StructurePanel from './StructurePanel';
 import { TECH, pending } from './signalsFixtures';
@@ -15,10 +15,13 @@ describe('StructurePanel', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('shows an error with Retry', async () => {
-    mockApi([['/signals/technical', { __status: 500, error: 'boom' }]]);
+  it('shows an error, and Retry recovers the panel', async () => {
+    let failures = 1;
+    mockApi([['/signals/technical', () => (failures-- > 0 ? { __status: 500, error: 'boom' } : TECH)]]);
     renderWithProviders(<StructurePanel ticker="INTC" />);
-    expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }));
+    expect(await screen.findByText('strong — 3 consecutive')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 
   it('renders higher lows, gap targets and the first five candlestick patterns', async () => {

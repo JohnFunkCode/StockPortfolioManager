@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
 
 import OptionsFlowPanel from './OptionsFlowPanel';
 import { FLOW, pending } from './signalsFixtures';
@@ -15,10 +15,13 @@ describe('OptionsFlowPanel', () => {
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
 
-  it('shows an error with Retry', async () => {
-    mockApi([['/signals/options-flow', { __status: 500, error: 'boom' }]]);
+  it('shows an error, and Retry recovers the panel', async () => {
+    let failures = 1;
+    mockApi([['/signals/options-flow', () => (failures-- > 0 ? { __status: 500, error: 'boom' } : FLOW)]]);
     renderWithProviders(<OptionsFlowPanel ticker="INTC" />);
-    expect(await screen.findByRole('button', { name: /retry/i })).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole('button', { name: /retry/i }));
+    expect(await screen.findByText('MM net long')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
   });
 
   it('renders the DAOI block and the first eight unusual calls', async () => {

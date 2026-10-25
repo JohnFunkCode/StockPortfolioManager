@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react';
 
 import InterpretationSummary from './InterpretationSummary';
 import { FLOW, RISK, TECH, pending } from './signalsFixtures';
-import { mockApi, renderWithProviders } from '../../testUtils';
+import { makeQueryClient, mockApi, renderWithProviders } from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -51,9 +51,13 @@ describe('InterpretationSummary', () => {
       tech: { __status: 500, error: 'x' }, flow: { __status: 500, error: 'x' },
       risk: { __status: 500, error: 'x' }, news: { symbol: 'INTC', article_count: 0, articles: [] },
     });
-    const { container } = renderWithProviders(<InterpretationSummary ticker="INTC" />);
-    await waitFor(() => expect(api.calls.length).toBeGreaterThanOrEqual(4));
-    await new Promise((r) => setTimeout(r, 50));
+    const queryClient = makeQueryClient();
+    const { container } = renderWithProviders(<InterpretationSummary ticker="INTC" />, { queryClient });
+    // Settled: all four requests made and none still in flight.
+    await waitFor(() => {
+      expect(api.calls.length).toBeGreaterThanOrEqual(4);
+      expect(queryClient.isFetching()).toBe(0);
+    });
     expect(container).toBeEmptyDOMElement();
   });
 });

@@ -99,22 +99,40 @@ function VolumeBlock({ volume }: { volume: Tech['volume_analysis'] | undefined }
   );
 }
 
+// The four blocks and the two notes are split out so the panel itself only
+// orders them: their optional reads put one unit at CC 12 (#441 review).
+function MomentumBlocks({ tech }: { tech: Tech | undefined }) {
+  return (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
+      <StochasticBlock stoch={tech?.stochastic} />
+      <VwapBlock vwap={tech?.vwap} />
+      <ObvBlock obv={tech?.obv} />
+      <VolumeBlock volume={tech?.volume_analysis} />
+    </Stack>
+  );
+}
+
+function TechnicalNotes({ tech }: { tech: Tech | undefined }) {
+  const vwapNote = tech?.vwap?.interpretation;
+  const obvNote = tech?.obv?.interpretation;
+  return (
+    <>
+      {vwapNote && <Note sx={{ mt: 1 }}>{vwapNote}</Note>}
+      {obvNote && <Note>{obvNote}</Note>}
+    </>
+  );
+}
+
 export default function MomentumPanel({ ticker }: { ticker: string }) {
   const { data: tech, isLoading, error, refetch } = useTechnicalSignals(ticker, true);
   return (
     <Paper sx={{ p: 2 }}>
       <SectionHeader title="Momentum & Volume" />
       <SectionBody loading={isLoading} error={error} fallback="Failed to load technical signals" onRetry={refetch}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap">
-          <StochasticBlock stoch={tech?.stochastic} />
-          <VwapBlock vwap={tech?.vwap} />
-          <ObvBlock obv={tech?.obv} />
-          <VolumeBlock volume={tech?.volume_analysis} />
-        </Stack>
+        <MomentumBlocks tech={tech} />
       </SectionBody>
       <PartialErrors errors={tech?._errors} prefix="Some signals failed to load" onRetry={() => refetch()} sx={{ mt: 1 }} />
-      {tech?.vwap?.interpretation && <Note sx={{ mt: 1 }}>{tech.vwap.interpretation}</Note>}
-      {tech?.obv?.interpretation && <Note>{tech.obv.interpretation}</Note>}
+      <TechnicalNotes tech={tech} />
     </Paper>
   );
 }

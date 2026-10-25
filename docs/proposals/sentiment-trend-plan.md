@@ -278,3 +278,31 @@ This shaped every decision below, so it is recorded first.
   delta cell, row, table and body components. The service's per-symbol work moved into
   `_score_move` and `_is_reported_move`, which keep insufficient history, an unusable score
   and a below-threshold move as three distinct outcomes. Tests were added for each.
+- 2026-10-25 — Rest of the SignalsTab split (follow-up to #439's exception). `SignalsTab` is
+  now composition only. Each section is a component that takes `ticker` and calls its own hooks,
+  and react-query dedupes the shared requests:
+  - `InterpretationSummary`
+  - `MomentumPanel`
+  - `StructurePanel`
+  - `OptionsFlowPanel`
+  - `NewsSentimentPanel`
+
+  Shared pieces live in `signalsShared.tsx`:
+  - colour lookups, replacing the `strengthColor`/`signalColor` if-chains;
+  - the bias-chip table;
+  - `SectionBody` for spinner, error and content.
+
+  `buildSignalsSummary` moved to `signalsSummary.ts` as one builder per sentence. Every unit is
+  hand-estimated under CC 15.
+
+  Proof that nothing changed:
+  - **Text:** a throwaway randomized test ran the old and new builders on 5,000 payloads and
+    found them identical.
+  - **DOM:** a throwaway test rendered the old and new tab on five payload shapes (full, partial
+    errors, empty blocks, no flow, endpoint errors) and diffed the `innerHTML`. The only
+    differences are emotion class hashes on three captions and one alert. The shared `Note` and
+    `PartialErrors` merge `sx` in a different key order, so the hash changes but the
+    declarations, and the computed style, do not.
+
+  Neither test is committed. They compare against code that no longer exists, so they would be
+  pinned to the old file forever.

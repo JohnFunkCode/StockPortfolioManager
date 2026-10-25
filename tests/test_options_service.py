@@ -225,6 +225,18 @@ class TestRepoBackedSurfaces(OptionsServiceTestBase):
         self.assertEqual(out["iv_52w_high"], 60.0)
         self.assertEqual(out["iv_52w_low"], 20.0)
 
+    def test_iv_rank_ignores_a_stored_nan(self):
+        # A NaN composite (empty chain side) used to sit in max/min and 500 the route.
+        self.options.get_iv_history.return_value = [
+            {"composite_iv": 20.0}, {"composite_iv": float("nan")},
+            {"composite_iv": 60.0}, {"composite_iv": 40.0},
+        ]
+        out = self.service.get_iv_rank("INTC")
+        self.assertEqual(out["data_points"], 3)
+        self.assertEqual(out["iv_52w_high"], 60.0)
+        self.assertEqual(out["iv_52w_low"], 20.0)
+        self.assertEqual(out["iv_rank"], 50.0)
+
     def test_iv_rank_insufficient_history(self):
         self.options.get_iv_history.return_value = [{"composite_iv": 33.0}]
         out = self.service.get_iv_rank("INTC")

@@ -92,6 +92,42 @@ class RouterPassthroughTest(unittest.TestCase):
             self.assertEqual(resp.status_code, 200, path)
             self.assertEqual(resp.json().get("marker"), "passthrough", path)
 
+    def test_iv_rank_with_a_nan_in_history_is_200_with_null(self):
+        class Options:
+            def get_iv_rank(self, ticker):
+                return {"ticker": ticker, "iv_rank": 50.0,
+                        "history": [{"captured_at": "t", "composite_iv": float("nan")}]}
+
+        class Bag:
+            options = Options()
+
+        self.with_services(lambda: Bag())
+        resp = self.client.get("/api/securities/WDC/options/iv-rank")
+        self.assertEqual(resp.status_code, 200)
+        self.assertIsNone(resp.json()["history"][0]["composite_iv"])
+
+    def test_iv_rank_failure_is_logged_without_its_text(self):
+        secret = "postgresql://user:hunter2@db/quantcore"
+
+        class Options:
+            def get_iv_rank(self, ticker):
+                raise RuntimeError(f"could not connect {secret}")
+
+        class Bag:
+            options = Options()
+
+        self.with_services(lambda: Bag())
+        with self.assertLogs("api.routers.options", level="WARNING") as logs:
+            resp = self.client.get("/api/securities/wdc/options/iv-rank")
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(
+            logs.output,
+            ["WARNING:api.routers.options:iv-rank failed ticker=WDC (RuntimeError)"],
+        )
+        line = "\n".join(logs.output)
+        self.assertNotIn(secret, line)
+        self.assertNotIn("could not connect", line)
+
     def test_guarded_routes_degrade_to_plain_500(self):
         class ExplodingService:
             def __getattr__(self, name):

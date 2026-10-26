@@ -116,6 +116,25 @@ only draws them, keeping the three empty states visibly apart. It is also the Si
 
 **Light and dark themes.** Components were written against the dark theme with literal Tailwind greys (`#f9fafb`, `#9ca3af`, `#374151`, `#1f2937`, …) and dark tints (`#1e3a2f`, …), so in the light theme text went white-on-white and panels became dark slabs. Those values are now CSS custom properties, `--qc-text`, `--qc-text-soft`, `--qc-muted`, `--qc-faint`, `--qc-dim`, `--qc-line`, `--qc-surface`, `--qc-surface-sunk`, `--qc-tint-{green,red,amber,blue}[-strong]`, `--qc-tint-amber-deep`, `--qc-on-tint-*` and `--qc-ink-{green,red,amber,blue}`, set on `:root` by each theme's `MuiCssBaseline` override in `frontend/src/themes.ts`. The dark values are the original hex colours (two near-identical amber and blue tint shades were merged), so the dark theme looks unchanged. A CSS variable works anywhere CSS does — `sx`, inline `style`, a helper's return value — but **not** in an SVG presentation attribute, so D3 code sets these colours with `.style('fill' | 'stroke' | 'color', …)`. The hex-alpha idiom `color + '22'` doesn't work on a variable, so it is `tint(color)` (a `color-mix`). Semantic colours (green, red, amber, blue) stay literal, **except on a `tint-*` background**: there the bright hue that read on a dark tint is ~2:1 on the pale light-mode tint, so a status chip's text and border use `--qc-ink-*` (the bright hue in dark mode, a darker shade in light). `frontend/src/themes.test.ts` checks every such pair reaches 4.5:1 in light mode and scans the components for a `tint-*` background beside a literal status colour, or a constant bound to one (defined in the file or imported) — the half-converted pair the #421 review caught.
 
+**Environment badge (#437).** On test, the top bar shows an amber **TEST** chip beside the
+`QuantUI` wordmark; prod shows nothing. The value has to be read at runtime: `prod-rollout.yml`
+promotes the image built for test without rebuilding it, so a Vite `import.meta.env` flag would say
+"test" in prod too. It is `QUANTUI_ENVIRONMENT` in quantui's `[services.env]`
+(`deploy/cloudrun-services.toml`), which `frontend/server/indexHtml.mjs` turns into
+`<meta name="quantui-environment" content="test">` in `index.html`; `frontend/src/environment.ts`
+reads it and `NavBar.tsx` shows the chip only for exactly `test`. It **fails closed**: an unset or
+unknown value injects no tag, and no tag (Vite dev, compose) shows no badge. Three gotchas:
+
+- **A `<meta>`, not an inline `<script>`.** The CSP has no `script-src` beyond `'self'`, so an
+  injected `window.__QUANTUI_ENV__` script would silently never run. Don't loosen the CSP for it.
+- **Every route to `index.html` must go through the handler.** `express.static` would serve the
+  untouched `dist/index.html` for `/` (hence `{ index: false }`) and for `/index.html` (hence a
+  route for it ahead of the static), and either page would then have no badge. `mountSpa` in
+  `frontend/server/indexHtml.mjs` does all three mounts; `server.mjs` and
+  `indexHtml.test.mjs` both use it, and the test requests `/`, `/index.html` and a deep link.
+- **`Cache-Control: no-cache` on the HTML** so a browser never shows a stale copy; the hashed
+  `/assets/*` keep their normal caching.
+
 **Serving model:** `Dockerfile.ui` builds `frontend/dist/` and runs a tiny Express server
 (`frontend/server/server.mjs`) that serves the static bundle (SPA fallback, plus CSP + Trusted
 Types headers) and **reverse-proxies `/api/*` to `quantcore-api`, attaching a per-user token

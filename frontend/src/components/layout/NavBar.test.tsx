@@ -135,3 +135,36 @@ describe('NavBar', () => {
     expect(await screen.findByTestId('DarkModeIcon')).toBeInTheDocument();
   });
 });
+
+describe('NavBar environment badge (#437)', () => {
+  /** The tag frontend/server/indexHtml.mjs injects; null leaves the page without one. */
+  function setEnvironmentTag(content: string | null) {
+    document.head.querySelector('meta[name="quantui-environment"]')?.remove();
+    if (content === null) return;
+    const meta = document.createElement('meta');
+    meta.name = 'quantui-environment';
+    meta.content = content;
+    document.head.appendChild(meta);
+  }
+
+  afterEach(() => setEnvironmentTag(null));
+
+  it('shows TEST next to the wordmark on the test deployment', () => {
+    setEnvironmentTag('test');
+    renderNav('/');
+    const badge = screen.getByTestId('environment-badge');
+    expect(badge).toHaveTextContent('TEST');
+    expect(screen.getByLabelText('Test environment, not prod')).toBe(badge);
+  });
+
+  it.each([
+    ['prod', 'prod'],
+    ['no tag (local dev)', null],
+    ['an unknown value', 'staging'],
+  ])('shows nothing for %s', (_label, content) => {
+    setEnvironmentTag(content);
+    renderNav('/');
+    expect(screen.queryByTestId('environment-badge')).not.toBeInTheDocument();
+    expect(screen.queryByText('TEST')).not.toBeInTheDocument();
+  });
+});

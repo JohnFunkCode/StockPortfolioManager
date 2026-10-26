@@ -20,6 +20,9 @@
 //                         "/projects/<num>/locations/<region>/services/quantui").
 //                         Required whenever QUANTUI_SIGNING_KEY is set.
 //   QUANTCORE_API_TOKEN   legacy static bearer; used only when no signing key is set.
+//   QUANTUI_ENVIRONMENT   "test" or "prod" (per project, from the inventory); injected into
+//                         index.html for the TEST badge (#437, see indexHtml.mjs). Anything
+//                         else, or unset, injects nothing and shows no badge.
 //   DIST_DIR              override the static root (default ../dist relative to this file).
 
 import express from 'express';
@@ -27,6 +30,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApiProxy } from './proxy.mjs';
 import { createAuthProvider, IapAuthError } from './auth.mjs';
+import { mountSpa } from './indexHtml.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = process.env.DIST_DIR || path.resolve(__dirname, '..', 'dist');
@@ -98,9 +102,9 @@ app.use('/api', async (req, res, next) => {
 // A node:http streaming proxy, no dependency (#357): see proxy.mjs.
 app.use('/api', createApiProxy(API_TARGET));
 
-// Static assets, then SPA fallback so client-side routes (react-router) resolve.
-app.use(express.static(DIST_DIR));
-app.get('*', (_req, res) => res.sendFile(path.join(DIST_DIR, 'index.html')));
+// Static assets, then SPA fallback so client-side routes (react-router) resolve. Every
+// route to index.html carries the environment tag (#437) — see mountSpa in indexHtml.mjs.
+const environment = mountSpa(app, DIST_DIR, process.env.QUANTUI_ENVIRONMENT);
 
 app.listen(PORT, () => {
   const auth = {
@@ -108,5 +112,6 @@ app.listen(PORT, () => {
     'static-token': 'static token injected',
     open: 'no token (AUTH_DISABLED parity)',
   }[authProvider.mode];
-  console.log(`QuantUI serving ${DIST_DIR} on :${PORT} -> ${API_TARGET} (${auth})`);
+  const env = environment || 'unset';
+  console.log(`QuantUI serving ${DIST_DIR} on :${PORT} -> ${API_TARGET} (${auth}, env ${env})`);
 });

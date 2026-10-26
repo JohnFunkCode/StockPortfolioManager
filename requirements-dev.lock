@@ -120,12 +120,14 @@ caio==0.12.9 \
     # via
     #   -c requirements-base.lock
     #   aiofile
-certifi==2026.10.18 \
-    --hash=sha256:73191c47aaa79da394e8fee2dbc2ec827432cab56311122c9e47abf79e390f62 \
-    --hash=sha256:b9995d97b64d0431a5af837d8ca8cd6238104d1f319f04bd93ea43124d6c861e
+certifi==2026.10.23 \
+    --hash=sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd \
+    --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1
     # via
     #   -c requirements-base.lock
+    #   -r requirements-base.txt
     #   curl-cffi
+    #   fastmcp-slim
     #   httpcore
     #   httpx
     #   requests
@@ -797,15 +799,15 @@ fastapi==0.146.0 \
     # via
     #   -c requirements-base.lock
     #   -r requirements-base.txt
-fastmcp==4.1.1 \
-    --hash=sha256:23b8fa7cfc30779fdedbcb78c62f8c621d5d5708f3f29188b7a05e71f7c4a34a \
-    --hash=sha256:a82721d40e2a2e49637f4e30ec5b6892d2ccc02d3684ca74429fef995d6d29b2
+fastmcp==4.1.3 \
+    --hash=sha256:a1f79e9db929a1603c75331df603f74530fc236aa711e0ee2e185821c6d9888d \
+    --hash=sha256:b983d8acc44ab1143e0c86fd6da843f25043ee0aeb64ab983b36c527bd1d33e9
     # via
     #   -c requirements-base.lock
     #   -r requirements-base.txt
-fastmcp-slim==4.1.1 \
-    --hash=sha256:5d23d2fb7df131097fe87b642f9ad27dde72ebbbd73369c512d96cbaf505e836 \
-    --hash=sha256:64bd63e8222305ab1408d11d3498bcc94dc14629f4d55fe5399ccdb496509122
+fastmcp-slim==4.1.3 \
+    --hash=sha256:81af8699331c33d438caf85b6947f36df6e2f04118e6f318ca00374fd9afea9a \
+    --hash=sha256:d95277db0979e4cbfa84528cf9016ae079494b41ed8e88cc909fee8233db6035
     # via
     #   -c requirements-base.lock
     #   fastmcp

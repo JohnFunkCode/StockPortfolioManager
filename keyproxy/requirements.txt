@@ -8,6 +8,8 @@ uvicorn[standard]>=0.29.0
 pydantic>=2.0.0
 httpx>=0.27.0
 requests>=2.25.0
+# Transitive; floored for PYSEC-2026-4320 (compromised emSign roots in 2026.10.18).
+certifi>=2026.10.19
 PyJWT>=2.8.0
 cryptography>=42.0.0
 anthropic>=0.40.0

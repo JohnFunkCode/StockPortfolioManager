@@ -12,6 +12,7 @@
 
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import express from 'express';
 
 export const ENVIRONMENTS = new Set(['test', 'prod']);
 
@@ -47,4 +48,21 @@ export function createIndexHandler(distDir, rawEnvironment) {
     res.type('html').send(html);
   };
   return { environment, handler };
+}
+
+/**
+ * Serves the SPA on `app`: the static bundle, then index.html for every other GET. Every way
+ * to reach index.html goes through the handler, or the page arrives with no environment tag
+ * and the default caching:
+ *   - `/index.html` is routed to the handler *before* express.static, which would serve the file;
+ *   - `index: false` stops express.static answering `/` with the file;
+ *   - `*` covers the client-side routes.
+ * server.mjs and indexHtml.test.mjs both mount through here, so the tests run this wiring.
+ */
+export function mountSpa(app, distDir, rawEnvironment) {
+  const index = createIndexHandler(distDir, rawEnvironment);
+  app.get('/index.html', index.handler);
+  app.use(express.static(distDir, { index: false }));
+  app.get('*', index.handler);
+  return index.environment;
 }

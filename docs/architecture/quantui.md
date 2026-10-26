@@ -127,9 +127,11 @@ unknown value injects no tag, and no tag (Vite dev, compose) shows no badge. Thr
 
 - **A `<meta>`, not an inline `<script>`.** The CSP has no `script-src` beyond `'self'`, so an
   injected `window.__QUANTUI_ENV__` script would silently never run. Don't loosen the CSP for it.
-- **`express.static(DIST_DIR, { index: false })`.** Without it, `express.static` answers `/` with
-  the untouched `dist/index.html` before the SPA fallback runs, and the home page has no badge.
-  `frontend/server/indexHtml.test.mjs` requests `/` for exactly this.
+- **Every route to `index.html` must go through the handler.** `express.static` would serve the
+  untouched `dist/index.html` for `/` (hence `{ index: false }`) and for `/index.html` (hence a
+  route for it ahead of the static), and either page would then have no badge. `mountSpa` in
+  `frontend/server/indexHtml.mjs` does all three mounts; `server.mjs` and
+  `indexHtml.test.mjs` both use it, and the test requests `/`, `/index.html` and a deep link.
 - **`Cache-Control: no-cache` on the HTML** so a browser never shows a stale copy; the hashed
   `/assets/*` keep their normal caching.
 

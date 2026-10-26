@@ -1,4 +1,5 @@
-// The environment tag in index.html and its caching (#437), wired as server.mjs wires it.
+// The environment tag in index.html and its caching (#437), through mountSpa — the same
+// wiring server.mjs uses, so a route that bypasses the handler shows up here.
 // Run with `npm test` (node --test) in frontend/server/.
 
 import test from 'node:test';
@@ -9,28 +10,26 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
-import { createIndexHandler, injectEnvironment, resolveEnvironment } from './indexHtml.mjs';
+import { injectEnvironment, mountSpa, resolveEnvironment } from './indexHtml.mjs';
 
 const INDEX = '<!doctype html>\n<html>\n  <head>\n    <title>QuantUI</title>\n  </head>\n  <body></body>\n</html>\n';
 const TAG = /<meta name="quantui-environment" content="([^"]*)"/;
 
-// A dist/ with index.html and one hashed asset, served by the same middleware order as
-// server.mjs. Returns a GET helper and a cleanup.
+// A dist/ with index.html and one hashed asset, mounted with mountSpa as server.mjs does.
+// Returns a GET helper and a cleanup.
 async function serve(rawEnvironment) {
   const dist = mkdtempSync(path.join(os.tmpdir(), 'quantui-dist-'));
   writeFileSync(path.join(dist, 'index.html'), INDEX);
   mkdirSync(path.join(dist, 'assets'));
   writeFileSync(path.join(dist, 'assets', 'index-abc123.js'), 'console.log(1)');
-  const index = createIndexHandler(dist, rawEnvironment);
   const app = express();
-  app.use(express.static(dist, { index: false }));
-  app.get('*', index.handler);
+  const environment = mountSpa(app, dist, rawEnvironment);
   const server = http.createServer(app);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const base = `http://127.0.0.1:${server.address().port}`;
   return {
-    environment: index.environment,
+    environment,
     get: async (p) => {
       const res = await fetch(base + p);
       return { status: res.status, headers: res.headers, body: await res.text() };
@@ -55,12 +54,13 @@ test('injectEnvironment refuses a page with no </head>', () => {
   assert.throws(() => injectEnvironment('<html><body></body></html>', 'test'), /no <\/head>/);
 });
 
-test('test: the home page and a deep link carry the tag, uncached', async (t) => {
+test('test: every route to index.html carries the tag, uncached', async (t) => {
   const s = await serve('test');
   t.after(s.close);
   assert.equal(s.environment, 'test');
-  // `/` matters most: without { index: false } express.static would answer it untouched.
-  for (const p of ['/', '/plans/1']) {
+  // `/` and `/index.html` matter most: express.static would answer either with the raw file
+  // (`/` without { index: false }, `/index.html` without its route ahead of the static).
+  for (const p of ['/', '/index.html', '/plans/1']) {
     const res = await s.get(p);
     assert.equal(res.status, 200, p);
     assert.equal(res.body.match(TAG)?.[1], 'test', p);
@@ -80,7 +80,7 @@ test('unset or unknown: no tag at all', async (t) => {
   for (const raw of [undefined, 'staging']) {
     const s = await serve(raw);
     t.after(s.close);
-    const res = await s.get('/');
+    const res = await s.get('/index.html');
     assert.equal(s.environment, null);
     assert.doesNotMatch(res.body, /quantui-environment/);
     assert.equal(res.headers.get('cache-control'), 'no-cache');

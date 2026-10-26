@@ -15,6 +15,8 @@
 -r requirements-base.txt
 transformers>=4.30.0
 torch>=2.0.0
+# Pulled in by torch; floored for GHSA-xmj3-9gf7-h52w.
+setuptools>=84.1.0
 
 # Chat sidekick: Anthropic SDK for the /api/chat conversational endpoint
 # (API image only — wrappers/report stay on requirements-base.txt)

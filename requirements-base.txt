@@ -20,6 +20,9 @@ pandas>=1.3.0
 numpy>=1.24
 yfinance>=0.2.0
 requests>=2.25.0
+# Transitive (requests/httpx), floored for PYSEC-2026-4320: 2026.10.18 bundles
+# emSign roots whose intermediate CA keys were compromised.
+certifi>=2026.10.19
 python-dotenv>=1.1.1
 PyYAML>=6.0.3
 fastapi>=0.110.0
@@ -27,7 +30,8 @@ uvicorn[standard]>=0.29.0
 pydantic>=2.0.0
 # The wrappers rely on the FastMCP 3.x API (FASTMCP_STATELESS_HTTP, #367); keep
 # the shared wrapper image from resolving a 2.x release.
-fastmcp>=3.2.3
+# 4.1.2 fixes GHSA-7xgj-8392-5q4r and GHSA-vqqp-x5qm-5qp4.
+fastmcp>=4.1.2
 httpx>=0.27.0
 feedparser>=6.0.0
 psycopg2-binary>=2.9

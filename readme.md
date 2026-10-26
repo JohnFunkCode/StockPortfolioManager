@@ -252,6 +252,8 @@ npm run build    # production bundle in frontend/dist/
 
 The nav bar groups the pages into **My Positions** and **Research**, with **Settings** at the top
 level. Pages are declared once, in `frontend/src/navigation.tsx`.
+On the test deployment an amber **TEST** chip sits beside the wordmark; prod and local dev show
+none ([why it's read at runtime](docs/architecture/quantui.md)).
 
 | Page | Route | Menu | What it shows |
 |------|-------|------|---------------|

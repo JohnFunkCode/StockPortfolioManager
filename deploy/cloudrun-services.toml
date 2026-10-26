@@ -262,6 +262,8 @@ service_account = "{runtime_sa}"
 # The api's legacy-format URL, from quantui's first deploy; both forms reach the same service.
 QUANTCORE_REST_URL = { test = "https://quantcore-api-uikpdb55ea-uc.a.run.app", prod = "https://quantcore-api-swgixldxzq-uc.a.run.app" }
 QUANTUI_IAP_AUDIENCE = "/projects/{project_number}/locations/{region}/services/quantui"
+# Read at runtime, never baked into the bundle: prod runs the image built for test (#437).
+QUANTUI_ENVIRONMENT = { test = "test", prod = "prod" }
 [services.secrets]
 QUANTUI_SIGNING_KEY = "quantui-signing-key:latest"
 QUANTCORE_API_TOKEN = "quantui-api-token:latest"

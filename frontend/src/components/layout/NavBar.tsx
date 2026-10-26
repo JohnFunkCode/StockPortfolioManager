@@ -1,5 +1,6 @@
 /**
- * The QuantUI top bar: wordmark, navigation, and the Sidekick/theme toggles.
+ * The QuantUI top bar: wordmark (with a TEST badge on the test deployment),
+ * navigation, and the Sidekick/theme toggles.
  *
  * Lives here rather than inside `App.tsx` because the grouped nav (issue #147
  * Part G2) needs one menu-anchor element per group, and `App.tsx` should not
@@ -21,6 +22,7 @@ import useMediaQuery from '@mui/material/useMediaQuery';
 import { useChat } from '../../chat/ChatContext';
 import { isPathActive, navSections, type NavRoute, type NavSection } from '../../navigation';
 import { useAppTheme } from '../../ThemeContext';
+import { getQuantuiEnvironment } from '../../environment';
 
 /** The neon treatment the flat bar has always given the current page. */
 function navButtonSx(active: boolean, isLight: boolean) {
@@ -172,26 +174,51 @@ export default function NavBar() {
   const { themeName, setThemeName } = useAppTheme();
   const { railOpen, setRailOpen } = useChat();
   const isLight = themeName === 'light';
+  // Exactly 'test' shows the badge; prod, no tag, or anything else shows none.
+  const isTest = getQuantuiEnvironment() === 'test';
 
   return (
     <AppBar position="static">
       <Toolbar>
-        <Typography
-          variant="h6"
-          sx={{
-            mr: { xs: 1, sm: 4 },
-            fontSize: { xs: '1rem', sm: '1.25rem' },
-            fontFamily: '"Orbitron", sans-serif',
-            fontWeight: 700,
-            background: 'linear-gradient(90deg, #ff2d78 0%, #00e5ff 100%)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent',
-            backgroundClip: 'text',
-            letterSpacing: '0.05em',
-          }}
-        >
-          QuantUI
-        </Typography>
+        <Box sx={{ mr: { xs: 1, sm: 4 }, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography
+            variant="h6"
+            sx={{
+              fontSize: { xs: '1rem', sm: '1.25rem' },
+              fontFamily: '"Orbitron", sans-serif',
+              fontWeight: 700,
+              background: 'linear-gradient(90deg, #ff2d78 0%, #00e5ff 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              backgroundClip: 'text',
+              letterSpacing: '0.05em',
+            }}
+          >
+            QuantUI
+          </Typography>
+          {isTest && (
+            <Tooltip title="Test environment, not prod">
+              <Box
+                component="span"
+                data-testid="environment-badge"
+                sx={{
+                  px: 0.75,
+                  py: 0.25,
+                  borderRadius: 1,
+                  border: '1px solid var(--qc-ink-amber)',
+                  backgroundColor: 'var(--qc-tint-amber)',
+                  color: 'var(--qc-ink-amber)',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  letterSpacing: '0.08em',
+                  lineHeight: 1.4,
+                }}
+              >
+                TEST
+              </Box>
+            </Tooltip>
+          )}
+        </Box>
 
         {isMobile ? (
           <MobileNavMenu sections={navSections} pathname={location.pathname} />

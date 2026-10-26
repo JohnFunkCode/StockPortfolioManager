@@ -274,6 +274,10 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   callable (injecting the services would close a construction cycle).
 - The browser never sees a bearer: `frontend/server/` verifies the IAP assertion and mints a
   per-user ES256 JWT server-side.
+- **The environment (the TEST badge, #437) is read at runtime, never at build time**: prod runs
+  the image built for test. It travels as a `<meta>` the server injects (an inline script would be
+  blocked by the CSP), `express.static` keeps `{ index: false }` so `/` gets it too, and the badge
+  shows only for exactly `test`.
 - Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
   `prod-rollout.yml`. Prod is never auto-deployed. It asks for **one** approval (#346), right
   after a `preflight` job with test credentials and no prod access binds the tag's digests and

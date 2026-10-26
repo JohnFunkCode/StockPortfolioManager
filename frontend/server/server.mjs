@@ -20,6 +20,9 @@
 //                         "/projects/<num>/locations/<region>/services/quantui").
 //                         Required whenever QUANTUI_SIGNING_KEY is set.
 //   QUANTCORE_API_TOKEN   legacy static bearer; used only when no signing key is set.
+//   QUANTUI_ENVIRONMENT   "test" or "prod" (per project, from the inventory); injected into
+//                         index.html for the TEST badge (#437, see indexHtml.mjs). Anything
+//                         else, or unset, injects nothing and shows no badge.
 //   DIST_DIR              override the static root (default ../dist relative to this file).
 
 import express from 'express';
@@ -27,6 +30,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApiProxy } from './proxy.mjs';
 import { createAuthProvider, IapAuthError } from './auth.mjs';
+import { createIndexHandler } from './indexHtml.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = process.env.DIST_DIR || path.resolve(__dirname, '..', 'dist');
@@ -40,6 +44,7 @@ const API_TOKEN = (process.env.QUANTCORE_API_TOKEN || '').trim();
 // \n unescaping lets the PEM be supplied single-line in compose/env files.
 const SIGNING_KEY = (process.env.QUANTUI_SIGNING_KEY || '').trim().replace(/\\n/g, '\n');
 const IAP_AUDIENCE = (process.env.QUANTUI_IAP_AUDIENCE || '').trim();
+const index = createIndexHandler(DIST_DIR, process.env.QUANTUI_ENVIRONMENT);
 
 // Throws at startup (bilge-pump: loud, immediate) if the signing key is set
 // without the IAP audience — that combination could mint unverified identities.
@@ -99,8 +104,10 @@ app.use('/api', async (req, res, next) => {
 app.use('/api', createApiProxy(API_TARGET));
 
 // Static assets, then SPA fallback so client-side routes (react-router) resolve.
-app.use(express.static(DIST_DIR));
-app.get('*', (_req, res) => res.sendFile(path.join(DIST_DIR, 'index.html')));
+// index: false — otherwise express.static answers `/` with the raw dist/index.html,
+// and the home page would never carry the environment tag.
+app.use(express.static(DIST_DIR, { index: false }));
+app.get('*', index.handler);
 
 app.listen(PORT, () => {
   const auth = {
@@ -108,5 +115,6 @@ app.listen(PORT, () => {
     'static-token': 'static token injected',
     open: 'no token (AUTH_DISABLED parity)',
   }[authProvider.mode];
-  console.log(`QuantUI serving ${DIST_DIR} on :${PORT} -> ${API_TARGET} (${auth})`);
+  const env = index.environment || 'unset';
+  console.log(`QuantUI serving ${DIST_DIR} on :${PORT} -> ${API_TARGET} (${auth}, env ${env})`);
 });

@@ -24,7 +24,7 @@ def judge(report, lock, exceptions, today, lock_packages=None):
     """(lines to print, exit code) for one lock's report.
 
     lock_packages is the lock's "packages" map; a package is dev-only when every node npm reports
-    for it carries "dev" or "devOptional" there. Without it, every finding counts as runtime."""
+    for it carries "dev": true there. Without it, every finding counts as runtime."""
     error = _report_error(report, lock)
     if error:
         return [error], 1
@@ -81,9 +81,12 @@ def _advisories(report, lock_packages):
 
 def _dev_only(nodes, lock_packages):
     """True when every install of the package is dev-only in the lock; an unknown node is runtime,
-    so a lock the filter can't read fails closed."""
-    return all(lock_packages.get(n, {}).get("dev") or lock_packages.get(n, {}).get("devOptional")
-               for n in nodes)
+    so a lock the filter can't read fails closed.
+
+    Only "dev": true proves a node never ships. "devOptional" means a dev dependency that is also
+    an optional dependency of a production one, and `npm ci --omit=dev` still installs it, so it
+    counts as runtime (PR #454 review)."""
+    return all(lock_packages.get(n, {}).get("dev") is True for n in nodes)
 
 
 def _judge_advisory(name, via, lock, excepted, dev):

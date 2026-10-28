@@ -102,10 +102,26 @@ class DevTreeTest(unittest.TestCase):
         self.assertTrue(any("GHSA-x" in l and "dev" in l for l in lines))
         self.assertFalse(any(l.startswith("::") for l in lines))
 
-    def test_dev_optional_counts_as_dev(self):
-        packages = {"node_modules/fsevents": {"devOptional": True}}
-        self.assertEqual(judge(advisory("fsevents", "high", "GHSA-x"), LOCK, [], TODAY,
-                               packages)[1], 0)
+    def test_dev_optional_counts_as_runtime(self):
+        # npm marks a package devOptional when a dev dependency needs it and a production
+        # dependency optionally does too; `npm ci --omit=dev` still installs it. Reproduced with
+        # optional express 4.22.3 + dev qs 6.16.2: qs gets {"devOptional": true} and ships.
+        packages = {"node_modules/qs": {"devOptional": True}}
+        for sev in ("moderate", "high", "critical"):
+            with self.subTest(sev=sev):
+                lines, rc = judge(advisory("qs", sev, "GHSA-x"), LOCK, [], TODAY, packages)
+                self.assertEqual(rc, 1)
+                self.assertTrue(any(l.startswith("::error") and "GHSA-x" in l for l in lines))
+                self.assertFalse(any(l.startswith("::warning") for l in lines))
+                self.assertTrue(any("runtime" in l and "qs" in l for l in lines))
+
+    def test_only_dev_true_demotes(self):
+        # Truthy-but-not-True values (a corrupted or hand-edited lock) must not demote a finding.
+        for flag in ({"dev": "true"}, {"dev": 1}, {"optional": True}, {"peer": True}):
+            with self.subTest(flag=flag):
+                packages = {"node_modules/qs": flag}
+                self.assertEqual(judge(advisory("qs", "moderate", "GHSA-x"), LOCK, [], TODAY,
+                                       packages)[1], 1)
 
     def test_one_runtime_install_makes_it_runtime(self):
         report = advisory("undici", "moderate", "GHSA-x")

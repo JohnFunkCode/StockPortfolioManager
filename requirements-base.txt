@@ -18,6 +18,11 @@ pandas>=1.3.0
 # numpy constraint breaks imports here, and any environment installing this
 # file without the full stack has no numpy at all.
 numpy>=1.24
+# Transitive (pandas), capped because every botocore (boto3, in the report layer)
+# requires python-dateutil<3.0.0. The dev and universal locks are compiled against
+# this lock, so letting 3.0.0 in here makes them unsolvable and fails the weekly
+# --upgrade (2026-10-26). Remove once botocore allows 3.x. pin-deps-plan.md gotcha 16.
+python-dateutil<3
 yfinance>=0.2.0
 requests>=2.25.0
 # Transitive (requests/httpx), floored for PYSEC-2026-4320: 2026.10.18 bundles

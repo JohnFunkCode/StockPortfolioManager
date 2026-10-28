@@ -24,6 +24,15 @@ Docs ship **with** the change, not after it. Tick what applies:
 - [ ] Schema changes ship **twice** — a Flyway file under `db/migrations/` *and* `init_schema()`
 - [ ] No credentials, keys, `Authorization` headers, envelopes, or request bodies reach any log
 
+## Security (only if this PR touches a route, owner-scoped data, SQL, auth, a lock, model loading, error handling, Cloud Run config, or Sidekick/MCP tools)
+
+<!-- Delete this section if none apply. Otherwise name the OWASP categories from
+     docs/architecture/security.md ("Reviewing a PR with this map") and say how each holds. -->
+
+- Categories touched: <!-- e.g. A01, A05, LLM06 -->
+- [ ] Each touched category's rule holds, and a new rule ships with its test or CI guard
+- [ ] `docs/architecture/security.md` updated if a control or gap changed
+
 ## Verification
 
 <!-- How did you prove this works? Commands run, output, screenshots, the test/prod URL you hit. -->

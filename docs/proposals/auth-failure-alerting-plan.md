@@ -1,6 +1,7 @@
 # Auth-failure alerting (Security gap G6, issue #464)
 
-**Status:** steps 0–3 and 5 done (#468, and the PR adding `scripts/monitoring/`); step 4, applying the config and proving it, is next. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
+**Status:** steps 0–3 and 5 done (#468, #469); step 4 done on **test** (2026-10-28). Applying to
+**prod** (`apply --env prod`, John) is what's left; then G6 flips to Enforced. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
 A09), found by the security map in #458.
 
 ## Problem
@@ -139,7 +140,7 @@ scripts/monitoring/security_events.metric.yaml     # log-based metric
 scripts/monitoring/auth_burst.policy.yaml          # alert policy
 scripts/monitoring/unmapped_identity.policy.yaml   # alert policy
 scripts/monitoring/expired_token.policy.yaml       # alert policy
-scripts/auth_alerting.py                           # apply|check --env test|prod [--email ADDR]
+scripts/auth_alerting.py                           # apply|check --env test|prod [--email ADDR]...
 ```
 
 **Metrics.** Labels stay low-cardinality. Identity is **never** a label, for privacy and because
@@ -183,8 +184,9 @@ drift and the next `apply` turns it back on. As of SDK 588,
 - no project id, email address or `notificationChannels` is committed
 - the `security_events` regexes, run over the exact lines `api/auth.py` emits, produce the right
   `event`/`reason`
-- `apply` attaches the channel on both create and update, refuses without `--email` when no
-  channel exists, and asks before prod
+- `apply` attaches every channel on both create and update, creates one channel per new
+  `--email` and reuses existing ones, refuses without `--email` when no channel exists, and
+  asks before prod
 
 All of this runs against a fake `gcloud`.
 
@@ -269,3 +271,32 @@ Append a checkpoint line to this doc for each, with what actually happened.
   (13/18, 13/20, 14/20). They were split into per-object helpers and a handler table, now 6/6,
   7/8 and 6/5 (Radon 6.0.1 cyclomatic / complexipy 8.3.0 cognitive), with tests for the gcloud
   failure paths and the just-created-metric warning.
+- **2026-10-28, step 4 on test.** `apply --env test` with two addresses created both metrics,
+  two email channels and all three policies on the first run. Google accepted both regex
+  extractors and every policy filter as written, and the policies that use a just-created
+  metric were created in the same run without the feared lag. Proof:
+  - A burst of 15 garbage-bearer requests at `quantcore-api` (22:56:53–22:57:17Z) logged 15
+    request-log 401s and 15 `auth_rejected reason=invalid` lines. The burst incident opened at
+    23:01:43Z (about 4.5 minutes after the burst) and closed itself at 23:07:13Z.
+  - One expired token (`mint_prod_jwt.py --project quantcore-test-20260606 --expires-hours -1
+    --sub g6-synthetic-expired`, never printed) logged `reason=expired
+    identity=g6-synthetic-expired`, so #468's re-verification names the holder in a deployed
+    environment too. Its incident opened at 23:02:16Z.
+  - Both alert emails reached both addresses, with subjects of the form `[ALERT - Warning]
+    <condition displayName> on <project> ...`.
+  - `check --env test` afterwards: 0 objects differ.
+  - Not exercised: the unmapped-identity policy, which needs a valid token for an identity
+    with no `owner_identities` row. Its metric label and filter are the same machinery as the
+    expired one, which did fire.
+  Gotchas:
+  - **proto3 JSON omits a number at its default.** The API returns no `thresholdValue` for a
+    policy whose file says `0`, so the first live `check` reported both "any" policies as
+    drift. `_shape` now reads an absent value as matching a file `0`, and only `0`. The fake had
+    echoed the file back and could never have shown this. `enabled` is a wrapper type and comes
+    back explicitly, so the disabled-policy check isn't affected.
+  - **An email channel holds one address.** Alerting two addresses means two channels, both
+    named `QuantCore security alerts (email)`, so `--email` is repeatable. A re-apply attaches
+    every channel with that name, and an address is matched by the channel's
+    `email_address` label, so a re-run never duplicates one.
+  - Incident timing on test: about 4.5 minutes to open after a burst, and about 5.5 minutes to
+    close once the window drops back under the threshold.

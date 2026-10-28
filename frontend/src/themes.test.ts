@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { DARK_NEUTRALS, LIGHT_NEUTRALS } from './themes';
+import { DARK_NEUTRALS, LIGHT_NEUTRALS, themes } from './themes';
 
 // WCAG 2 relative luminance / contrast ratio, for #rrggbb colours.
 function luminance(hex: string): number {
@@ -43,6 +43,15 @@ describe('theme neutrals', () => {
     expect(DARK_NEUTRALS['ink-amber']).toBe('#f59e0b');
     expect(DARK_NEUTRALS['ink-blue']).toBe('#60a5fa');
     expect(DARK_NEUTRALS['tint-amber-deep']).toBe('#92400e');
+  });
+});
+
+// The native date inputs' calendar icon follows color-scheme, not the palette;
+// without it the icon stayed dark on the dark dialogs (#263).
+describe('color-scheme', () => {
+  it.each(['dark', 'light'] as const)('the %s theme declares color-scheme: %s', (name) => {
+    const css = themes[name].components?.MuiCssBaseline?.styleOverrides;
+    expect(css).toMatch(new RegExp(`:root\\s*\\{[^}]*color-scheme:\\s*${name};`));
   });
 });
 

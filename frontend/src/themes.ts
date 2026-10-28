@@ -450,7 +450,12 @@ function buildTheme(P: typeof DARK, mode: 'dark' | 'light') {
 
       MuiCssBaseline: {
         styleOverrides: `
-          :root { ${neutralVars(mode === 'dark' ? DARK_NEUTRALS : LIGHT_NEUTRALS)} }
+          :root {
+            /* Native controls (the date inputs' calendar icon, #263) take their
+               light/dark rendering from color-scheme, not from our palette. */
+            color-scheme: ${mode};
+            ${neutralVars(mode === 'dark' ? DARK_NEUTRALS : LIGHT_NEUTRALS)}
+          }
           body {
             background-color: ${P.bg};
             background-image:

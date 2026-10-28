@@ -130,29 +130,29 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 
 ## Gaps
 
-Each gap is a candidate issue. Close it by changing the row above and deleting it here.
+Each gap has a backlog issue (label `security`). Close it by changing the row above and deleting it here.
 
-- **G1 — Owner isolation isn't a general rule.** The SQL-predicate rule and its wrong-owner tests
+- **G1 ([#460](https://github.com/JohnFunkCode/StockPortfolioManager/issues/460)) — Owner isolation isn't a general rule.** The SQL-predicate rule and its wrong-owner tests
   exist for Harvester and positions. `options_positions` has no `owner` column; today only the
   registry constructs `OptionsPositionStore`, and no route or service reads it, so nothing leaks.
   Promote the rule to "every per-owner table", and give `options_positions` an owner before
   anything exposes it.
-- **G2 — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
+- **G2 ([#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461)) — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
   limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic (429s hurt every
   user) and unbounded Sidekick turns on the user's own key.
-- **G3 — Bound parameters aren't enforced.** The dynamic SQL interpolates only code-built
+- **G3 ([#462](https://github.com/JohnFunkCode/StockPortfolioManager/issues/462)) — Bound parameters aren't enforced.** The dynamic SQL interpolates only code-built
   fragments today, but nothing would catch a value interpolated tomorrow. An AST test like the
   pickle ban could flag f-string/`%`/`.format` SQL whose fields aren't on an allow-list.
-- **G4 — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
+- **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
   data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
   read-only (LLM06) — that is the containment that makes this a low-impact gap.
-- **G5 — Auth fails open on a deployed service.** `_auth_active()` turns enforcement off when
+- **G5 ([#459](https://github.com/JohnFunkCode/StockPortfolioManager/issues/459)) — Auth fails open on a deployed service.** `_auth_active()` turns enforcement off when
   `AUTH_DISABLED` is set *or* when neither `QUANTCORE_JWT_SECRET` nor `QUANTCORE_JWT_PUBLIC_KEY`
   is present. That is right for local runs and compose, but `quantcore-api` is `allUsers` (#297),
   so a revision that lost its secret binding would serve every route as `john` to anyone. Fix: at
   startup, when `K_SERVICE` is set (Cloud Run), refuse to start without a key or with
   `AUTH_DISABLED`. Highest-priority gap on this page.
-- **G6 — No alert on auth-failure spikes.** Public services log 401/403s, but nothing turns a burst
+- **G6 ([#464](https://github.com/JohnFunkCode/StockPortfolioManager/issues/464)) — No alert on auth-failure spikes.** Public services log 401/403s, but nothing turns a burst
   into a Discord alarm the way the daily job does for data failures.
 
 ## Reviewing a PR with this map

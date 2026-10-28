@@ -179,6 +179,20 @@ class DiffTests(unittest.TestCase):
         live = self._live(filter="  ".join(f.split()))
         self.assertEqual(aa.diff(self.want, live, aa.POLICY_FIELDS), [])
 
+    def test_an_omitted_zero_threshold_is_not_drift(self):
+        # proto3 JSON drops a number at its default; the real API returns no
+        # thresholdValue for a policy whose file says 0.
+        want = next(p for p in POLICIES
+                    if p["conditions"][0]["conditionThreshold"]["thresholdValue"] == 0)
+        live = json.loads(json.dumps(want))
+        del live["conditions"][0]["conditionThreshold"]["thresholdValue"]
+        self.assertEqual(aa.diff(want, live, aa.POLICY_FIELDS), [])
+
+    def test_an_omitted_nonzero_threshold_is_drift(self):
+        live = self._live()
+        del live["conditions"][0]["conditionThreshold"]["thresholdValue"]
+        self.assertEqual(len(aa.diff(self.want, live, aa.POLICY_FIELDS)), 1)
+
     def test_a_changed_threshold_is_drift(self):
         lines = aa.diff(self.want, self._live(thresholdValue=99), aa.POLICY_FIELDS)
         self.assertEqual(len(lines), 1)
@@ -197,11 +211,11 @@ class FakeGcloud:
     exits non-zero, for the failure paths.
     """
 
-    def __init__(self, *, metrics=(), policies=(), channel=None, fail=None):
+    def __init__(self, *, metrics=(), policies=(), channels=None, fail=None):
         self.metrics = set(metrics)
         self.policies = {name: f"projects/p/alertPolicies/{i}"
                          for i, name in enumerate(policies)}
-        self.channel = channel
+        self.channels = dict(channels or {})  # {email: channel name}
         self.fail = fail
         self.calls: list[tuple[str, ...]] = []
         self.sent: list[tuple[str, dict]] = []
@@ -236,16 +250,19 @@ class FakeGcloud:
         by_name = {p["displayName"]: p for p in POLICIES}
         return json.dumps([
             {**by_name.get(d, {}), "name": n, "displayName": d,
-             "notificationChannels": [self.channel] if self.channel else []}
+             "notificationChannels": sorted(self.channels.values())}
             for d, n in self.policies.items()
         ]), 0, ""
 
     def _list_channels(self, args):
-        return json.dumps([{"name": self.channel}] if self.channel else []), 0, ""
+        return json.dumps([{"name": n, "labels": {"email_address": e}}
+                           for e, n in self.channels.items()]), 0, ""
 
     def _create_channel(self, args):
-        self.channel = "projects/p/notificationChannels/9"
-        return json.dumps({"name": self.channel}), 0, ""
+        email = next(a for a in args if a.startswith("--channel-labels=")).split("=", 2)[2]
+        name = f"projects/p/notificationChannels/{90 + len(self.channels)}"
+        self.channels[email] = name
+        return json.dumps({"name": name}), 0, ""
 
 
 def _rewrite_policies(fake, change):
@@ -259,8 +276,8 @@ def _rewrite_policies(fake, change):
 
 
 def _complete_fake(**kw):
-    return FakeGcloud(metrics=METRICS, channel="projects/p/notificationChannels/1",
-                      policies=[p["displayName"] for p in POLICIES], **kw)
+    kw.setdefault("channels", {"ops@example.com": "projects/p/notificationChannels/1"})
+    return FakeGcloud(metrics=METRICS, policies=[p["displayName"] for p in POLICIES], **kw)
 
 
 class CheckTests(unittest.TestCase):
@@ -286,6 +303,16 @@ class CheckTests(unittest.TestCase):
         rc, out = self._check(fake)
         self.assertEqual(rc, 1)
         self.assertEqual(out.count("not attached"), len(POLICIES))
+
+    def test_one_of_two_channels_detached_is_drift(self):
+        both = {"a@example.com": "projects/p/notificationChannels/1",
+                "b@example.com": "projects/p/notificationChannels/2"}
+        fake = _rewrite_policies(_complete_fake(channels=both), lambda p: {
+            **p, "notificationChannels": ["projects/p/notificationChannels/1"]})
+        rc, out = self._check(fake)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out.count("1 'QuantCore security alerts (email)' not attached"),
+                         len(POLICIES))
 
     def test_a_disabled_policy_is_drift(self):
         # A disabled policy can't alert: the worst drift there is, so check must see it.
@@ -316,15 +343,17 @@ class ApplyTests(unittest.TestCase):
                 redirect_stdout(StringIO()):
             return aa.main(["apply", "--env", "test", *args])
 
-    def test_first_apply_creates_everything_with_the_channel(self):
+    def test_first_apply_creates_everything_with_every_channel(self):
         fake = FakeGcloud()
-        self.assertEqual(self._apply(fake, "--email", "ops@example.com"), 0)
+        rc = self._apply(fake, "--email", "ops@example.com", "--email", "oncall@example.com")
+        self.assertEqual(rc, 0)
+        self.assertEqual(set(fake.channels), {"ops@example.com", "oncall@example.com"})
         verbs = [v for v, _ in fake.sent]
         self.assertEqual(verbs.count("logging metrics create"), len(METRICS))
         self.assertEqual(verbs.count("monitoring policies create"), len(POLICIES))
         for verb, body in fake.sent:
             if verb.startswith("monitoring policies"):
-                self.assertEqual(body["notificationChannels"], [fake.channel])
+                self.assertEqual(body["notificationChannels"], sorted(fake.channels.values()))
         self.assertTrue(all("--project" in c and "quantcore-test-20260606" in c
                             for c in fake.calls))
 
@@ -362,21 +391,31 @@ class ApplyTests(unittest.TestCase):
         self.assertNotIn("::warning::", err.getvalue())
 
     def test_a_failure_after_creating_a_metric_says_to_rerun(self):
-        fake = FakeGcloud(channel="projects/p/notificationChannels/1",
+        fake = FakeGcloud(channels={"ops@example.com": "projects/p/notificationChannels/1"},
                           fail=("monitoring", "policies", "create"))
         with mock.patch("sys.stderr", StringIO()) as err:
             self.assertEqual(self._apply(fake), 1)
         self.assertIn("wait a minute and re-run apply", err.getvalue())
 
-    def test_existing_channel_ignores_email(self):
+    def test_an_existing_address_is_reused_and_a_new_one_added(self):
         fake = _complete_fake()
-        out = StringIO()
-        with mock.patch.object(aa, "gcloud", fake), \
-                mock.patch.object(aa, "cmd_check", return_value=0), redirect_stdout(out):
-            self.assertEqual(aa.main(["apply", "--env", "test", "--email", "x@example.com"]), 0)
-        self.assertIn("--email ignored", out.getvalue())
-        self.assertFalse(any(c[:4] == ("beta", "monitoring", "channels", "create")
-                             for c in fake.calls))
+        rc = self._apply(fake, "--email", "ops@example.com", "--email", "new@example.com")
+        self.assertEqual(rc, 0)
+        creates = [c for c in fake.calls if c[:4] == ("beta", "monitoring", "channels", "create")]
+        self.assertEqual(len(creates), 1)
+        self.assertIn("--channel-labels=email_address=new@example.com", creates[0])
+        for verb, body in fake.sent:
+            if verb.startswith("monitoring policies"):
+                self.assertEqual(len(body["notificationChannels"]), 2)
+
+    def test_reapply_without_email_keeps_every_channel(self):
+        both = {"a@example.com": "projects/p/notificationChannels/1",
+                "b@example.com": "projects/p/notificationChannels/2"}
+        fake = _complete_fake(channels=both)
+        self.assertEqual(self._apply(fake), 0)
+        for verb, body in fake.sent:
+            if verb.startswith("monitoring policies"):
+                self.assertEqual(body["notificationChannels"], sorted(both.values()))
 
     def test_prod_asks_first(self):
         fake = FakeGcloud()

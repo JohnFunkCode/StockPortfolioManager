@@ -438,8 +438,9 @@ Rules to keep:
 
 - **Edit the files and re-run the script; never make a one-off `gcloud` change.** The next
   apply reverts the live config to the files.
-- **No `notificationChannels` in a policy file.** The script merges the email channel in,
-  because `policies update --policy-from-file` replaces the whole policy.
+- **No `notificationChannels` in a policy file.** The script merges the email channels in (one
+  per address, `--email` is repeatable), because `policies update --policy-from-file` replaces
+  the whole policy.
 - **Never an identity as a metric label.** It is unbounded, and it would copy *who* into a
   metric.
 - **The `SECURITY <event>` wording in `api/auth.py` is a contract.** Changing it zeroes a metric

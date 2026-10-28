@@ -190,6 +190,74 @@ class Principal:
         )
 
 
+def _verify(token: str, *, verify_exp: bool = True) -> dict[str, Any]:
+    """Verify ``token`` and return its claims; raises ``jwt.PyJWTError`` on any failure.
+
+    ``verify_exp=False`` exists only so :func:`_decode` can name the holder of an
+    expired token: the signature, ``aud`` and ``iss`` are still checked, so the
+    identity it reads back is one we issued.
+    """
+    issuer = os.environ.get("QUANTCORE_JWT_ISSUER") or None
+    alg = str(jwt.get_unverified_header(token).get("alg", ""))
+
+    if alg == "ES256":
+        # User-token branch: public key only, own name required in aud.
+        public_key = os.environ.get("QUANTCORE_JWT_PUBLIC_KEY")
+        if not public_key:
+            raise jwt.InvalidKeyError("ES256 verification is not configured")
+        return jwt.decode(
+            token,
+            public_key,
+            algorithms=["ES256"],
+            audience=_ES256_AUDIENCE,
+            issuer=issuer,
+            leeway=_leeway(),
+            options={"verify_exp": verify_exp},
+        )
+
+    # Service-token branch: shared secret only, HS-family algorithms only.
+    # The public key must never reach HMAC verification (confusion attack).
+    secret = os.environ.get("QUANTCORE_JWT_SECRET")
+    if not secret:
+        raise jwt.InvalidKeyError("shared-secret verification is not configured")
+    options: dict[str, Any] = {"verify_exp": verify_exp}
+    audience = os.environ.get("QUANTCORE_JWT_AUDIENCE") or None
+    if audience is None:
+        options["verify_aud"] = False
+    return jwt.decode(
+        token,
+        secret,
+        algorithms=_algorithms(),
+        audience=audience,
+        issuer=issuer,
+        leeway=_leeway(),
+        options=options,
+    )
+
+
+def _expired_identity(token: str) -> str:
+    """The verified identity behind an expired token, or ``"unknown"``."""
+    try:
+        return Principal.from_claims(_verify(token, verify_exp=False), None).owner
+    except jwt.PyJWTError:
+        return "unknown"
+
+
+def _log_rejection(reason: str, identity: Optional[str] = None) -> None:
+    """One ``SECURITY auth_rejected`` line per 401, for the G6 alert (issue #464).
+
+    ``reason`` is a fixed word chosen from the exception class, never ``str(exc)``;
+    ``identity`` is logged only for an expired token, whose signature verified. An
+    invalid token's claims are attacker-controlled and stay out of the log.
+    """
+    if identity is None:
+        _security_logger.warning("SECURITY auth_rejected reason=%s", reason)
+    else:
+        _security_logger.warning(
+            "SECURITY auth_rejected reason=%s identity=%s", reason, identity
+        )
+
+
 def _decode(token: str) -> dict[str, Any]:
     key = _verification_key()
     if not key:
@@ -199,44 +267,13 @@ def _decode(token: str) -> dict[str, Any]:
             detail="authentication is enabled but no JWT verification key is configured",
         )
 
-    issuer = os.environ.get("QUANTCORE_JWT_ISSUER") or None
-
     try:
-        alg = str(jwt.get_unverified_header(token).get("alg", ""))
-
-        if alg == "ES256":
-            # User-token branch: public key only, own name required in aud.
-            public_key = os.environ.get("QUANTCORE_JWT_PUBLIC_KEY")
-            if not public_key:
-                raise jwt.InvalidKeyError("ES256 verification is not configured")
-            return jwt.decode(
-                token,
-                public_key,
-                algorithms=["ES256"],
-                audience=_ES256_AUDIENCE,
-                issuer=issuer,
-                leeway=_leeway(),
-            )
-
-        # Service-token branch: shared secret only, HS-family algorithms only.
-        # The public key must never reach HMAC verification (confusion attack).
-        secret = os.environ.get("QUANTCORE_JWT_SECRET")
-        if not secret:
-            raise jwt.InvalidKeyError("shared-secret verification is not configured")
-        options: dict[str, Any] = {}
-        audience = os.environ.get("QUANTCORE_JWT_AUDIENCE") or None
-        if audience is None:
-            options["verify_aud"] = False
-        return jwt.decode(
-            token,
-            secret,
-            algorithms=_algorithms(),
-            audience=audience,
-            issuer=issuer,
-            leeway=_leeway(),
-            options=options,
-        )
+        return _verify(token)
     except jwt.PyJWTError as exc:
+        if isinstance(exc, jwt.ExpiredSignatureError):
+            _log_rejection("expired", _expired_identity(token))
+        else:
+            _log_rejection("invalid")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"invalid or expired token: {exc}",
@@ -257,6 +294,7 @@ def require_principal(
         return Principal.local()
 
     if credentials is None or not credentials.credentials:
+        _log_rejection("missing")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="missing bearer token",

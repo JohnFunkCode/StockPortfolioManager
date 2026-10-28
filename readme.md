@@ -585,6 +585,24 @@ database waits instead of deleting the first run's rows
 ([details](docs/local-unit-test-db.md#running-two-suites-at-once)). Coverage floors on both sides
 only move upward.
 
+## Feature research skill for the team
+
+The repository skill in [`.agents/skills/feature-research/`](.agents/skills/feature-research/SKILL.md)
+helps investigate a proposed GitHub feature before implementation. In a Codex chat opened on this
+repository, invoke it with an issue number or URL:
+
+```text
+$feature-research Research issue #123 in this repository.
+```
+
+For an issue in another repository, include its GitHub URL or `owner/repo` with the issue number.
+The skill asks for an issue if none is supplied. It reads the issue and relevant live sources,
+investigates borderline proposals, and skips clearly low-value or already answered ones. It adds
+one issue comment only when new evidence would help a product decision; otherwise it reports its
+findings in chat. It does not change issue details or repository code. GitHub read access is needed
+to research an issue, and comment permission is needed to post findings. The research method is
+in [the skill's reference](.agents/skills/feature-research/references/research-methodology.md).
+
 ## Documentation map
 
 | Where | What |

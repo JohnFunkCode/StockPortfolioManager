@@ -342,12 +342,10 @@ Anthropic API key; the backend never holds a usable key at rest.
 
 [`docs/architecture/security.md`](docs/architecture/security.md) maps every OWASP Top 10:2025 and
 LLM Top 10 category to the rule here that covers it, the test or CI step that enforces it, and the
-open gaps (G1–G6). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
+open gaps (G1–G4, G6; G5 closed by #459). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
 model loading, error handling, Cloud Run config or Sidekick/MCP tools is reviewed against the
 categories it touches, findings name their category, and a changed control or gap updates its row
 in the same PR. The rules themselves stay where they are in this file; the map links to them.
-Highest-priority open gap: **G5** — `api/auth.py` turns auth off when no verification key is
-configured, which is the local contract but would fail open on a public Cloud Run service.
 
 ### Cloud Run service inventory (single home for service config)
 

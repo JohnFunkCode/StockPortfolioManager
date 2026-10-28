@@ -85,7 +85,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 |---|---|---|
 | `api/auth.py`'s JWT check is the **single** enforcement point for the public services (#297). | `tests/test_auth.py` | Enforced |
 | UI identity: `frontend/server/` verifies the IAP assertion before minting a token. | `frontend/server/auth.test.mjs`, `proxy.test.mjs` | Enforced |
-| Auth is **inert until configured**: it is off when `AUTH_DISABLED` is set **or no verification key is present** (`_auth_active` in `api/auth.py`), and every call then resolves to the owner `john`. That is the local contract. On a public Cloud Run service it would fail open. | inventory declares both JWT secrets for `quantcore-api`; no test or startup check | **Gap G5** |
+| Auth is **inert until configured** locally (no verification key, or `AUTH_DISABLED`, resolves every call to `john`), but **fails closed on Cloud Run** (#459): when `K_SERVICE` is set, `create_app()` in `api/main.py` and `keyproxy/main.py` raises `AuthConfigurationError` without a key or with the disable flag, so the revision never takes traffic. | `tests/test_auth.py` (`CloudRunFailClosedTests`), `tests/test_keyproxy_auth.py` (`TestCloudRunFailClosed`) | Enforced |
 
 ### A08 Software or Data Integrity Failures
 
@@ -154,12 +154,6 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
 - **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
   data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
   read-only (LLM06) — that is the containment that makes this a low-impact gap.
-- **G5 ([#459](https://github.com/JohnFunkCode/StockPortfolioManager/issues/459)) — Auth fails open on a deployed service.** `_auth_active()` turns enforcement off when
-  `AUTH_DISABLED` is set *or* when neither `QUANTCORE_JWT_SECRET` nor `QUANTCORE_JWT_PUBLIC_KEY`
-  is present. That is right for local runs and compose, but `quantcore-api` is `allUsers` (#297),
-  so a revision that lost its secret binding would serve every route as `john` to anyone. Fix: at
-  startup, when `K_SERVICE` is set (Cloud Run), refuse to start without a key or with
-  `AUTH_DISABLED`. Highest-priority gap on this page.
 - **G6 ([#464](https://github.com/JohnFunkCode/StockPortfolioManager/issues/464)) — No alert on auth-failure spikes.** Public services log 401/403s, but nothing turns a burst
   into a Discord alarm the way the daily job does for data failures.
 

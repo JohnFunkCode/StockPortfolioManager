@@ -14,6 +14,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
 import jwt
 from cryptography.hazmat.primitives import serialization
@@ -21,7 +22,12 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 
-from api.auth import Principal, require_principal
+from api.auth import (
+    AuthConfigurationError,
+    Principal,
+    assert_auth_enforced_on_cloud_run,
+    require_principal,
+)
 
 SECRET = "test-secret-key-at-least-32-bytes-long-000"
 
@@ -281,6 +287,82 @@ class DualModeES256Tests(unittest.TestCase):
         self.assertEqual(self._get(_token({"sub": "svc"})).status_code, 200)
         probe = _forge_hs256({"sub": "mallory", "aud": "quantcore-api"}, EC_PUBLIC_PEM)
         self.assertEqual(self._get(probe).status_code, 401)
+
+
+class CloudRunFailClosedTests(unittest.TestCase):
+    """Issue #459: a Cloud Run service must never start with auth inert.
+
+    ``K_SERVICE`` is what Cloud Run sets on a service; without it the open local
+    contract above is unchanged.
+    """
+
+    def setUp(self):
+        keys = _AUTH_ENV_KEYS + ("K_SERVICE",)
+        self._saved = {k: os.environ.get(k) for k in keys}
+        for k in keys:
+            os.environ.pop(k, None)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_local_without_key_is_allowed(self):
+        assert_auth_enforced_on_cloud_run()  # no K_SERVICE: compose/dev stays open
+
+    def test_local_with_auth_disabled_is_allowed(self):
+        os.environ["AUTH_DISABLED"] = "1"
+        assert_auth_enforced_on_cloud_run()
+
+    def test_cloud_run_without_any_key_refuses(self):
+        os.environ["K_SERVICE"] = "quantcore-api"
+        with self.assertLogs("quantcore.security", level="ERROR") as logs, \
+                self.assertRaises(AuthConfigurationError) as ctx:
+            assert_auth_enforced_on_cloud_run()
+        self.assertIn("QUANTCORE_JWT_PUBLIC_KEY", str(ctx.exception))
+        self.assertIn("quantcore-api", logs.output[0])
+
+    def test_cloud_run_with_auth_disabled_refuses_even_with_a_key(self):
+        os.environ["K_SERVICE"] = "quantcore-api"
+        os.environ["QUANTCORE_JWT_SECRET"] = SECRET
+        os.environ["AUTH_DISABLED"] = "true"
+        with self.assertLogs("quantcore.security", level="ERROR"), \
+                self.assertRaises(AuthConfigurationError) as ctx:
+            assert_auth_enforced_on_cloud_run()
+        self.assertIn("AUTH_DISABLED", str(ctx.exception))
+
+    def test_cloud_run_with_either_key_starts(self):
+        os.environ["K_SERVICE"] = "quantcore-api"
+        for name, value in (("QUANTCORE_JWT_SECRET", SECRET),
+                            ("QUANTCORE_JWT_PUBLIC_KEY", EC_PUBLIC_PEM)):
+            with self.subTest(name):
+                os.environ[name] = value
+                assert_auth_enforced_on_cloud_run()
+                os.environ.pop(name)
+
+    def test_refusal_never_carries_the_key(self):
+        os.environ["K_SERVICE"] = "quantcore-api"
+        os.environ["QUANTCORE_JWT_SECRET"] = SECRET
+        os.environ["AUTH_DISABLED"] = "1"
+        with self.assertLogs("quantcore.security", level="ERROR") as logs, \
+                self.assertRaises(AuthConfigurationError) as ctx:
+            assert_auth_enforced_on_cloud_run()
+        self.assertNotIn(SECRET, str(ctx.exception))
+        self.assertNotIn(SECRET, "\n".join(logs.output))
+
+    def test_create_app_refuses_before_touching_the_database(self):
+        with patch("quantcore.db.ensure_schema") as ensure_schema:
+            # Imported under the patch: api.main builds its app at module level.
+            from api.main import create_app
+
+            ensure_schema.reset_mock()
+            os.environ["K_SERVICE"] = "quantcore-api"
+            with self.assertLogs("quantcore.security", level="ERROR"), \
+                    self.assertRaises(AuthConfigurationError):
+                create_app()
+            ensure_schema.assert_not_called()
 
 
 if __name__ == "__main__":

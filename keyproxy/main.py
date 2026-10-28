@@ -40,7 +40,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from keyproxy import crypto
-from keyproxy.auth import Caller, require_caller
+from keyproxy.auth import Caller, assert_auth_enforced_on_cloud_run, require_caller
 from keyproxy.providers import get_provider
 from keyproxy.replay import JtiReplaySet, ReplayCapacityError, SubRateLimiter
 from keyproxy.scopes import (
@@ -319,6 +319,7 @@ def _create_session(
 
 def create_app() -> FastAPI:
     """Application factory — mirrors ``api/main.py``'s conventions at micro scale."""
+    assert_auth_enforced_on_cloud_run()  # fail closed before serving (#459)
     app = FastAPI(title="QuantCore Key Proxy", version="1.0.0")
     state = KeyProxyState()
     app.state.keyproxy = state

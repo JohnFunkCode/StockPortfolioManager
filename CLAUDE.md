@@ -380,7 +380,12 @@ Rules to keep:
   send a JWT Google can't verify. Because they're public: health checks return identity and status
   only (no OS, interpreter, internal URL or driver error), `rest_client._path` rejects
   request-reshaping segments, and `docker-compose.yml` publishes ports on `127.0.0.1` only (the
-  local api runs `AUTH_DISABLED=1`).
+  local api runs `AUTH_DISABLED=1`). Auth is inert until a key is configured — the local
+  contract — so **on Cloud Run it fails closed instead** (#459): `create_app()` in `api/main.py`
+  and `keyproxy/main.py` raises `AuthConfigurationError` when `K_SERVICE` is set and there is no
+  verification key or `AUTH_DISABLED`/`KEYPROXY_AUTH_DISABLED` is set, so the revision never takes
+  traffic. Never use `AUTH_DISABLED` as an escape hatch on a deployed service; roll back by
+  revision instead.
 
 Onboarding flow and the IAM model: [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md).
 Jobs (`quantcore-report`, `-news`, `-migrate`) are not in the inventory; they are `jobs update`

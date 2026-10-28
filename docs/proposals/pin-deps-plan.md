@@ -196,6 +196,17 @@ base-only test run.
     botocore allows 3.x. When uv says a package "depends on X==…", check whether the `==` is
     really the base lock's pin.
 
+17. **(2026-10-28) A green npm audit didn't mean a clean tree.** `audit_npm.sh` audited
+    `--omit=dev` and failed only on high or critical. That hid two things: a **runtime** moderate
+    (qs 6.16.0, shipping in quantui) and **eight** undici advisories in the dev tree, four of them
+    high, including a TLS validation bypass in what vitest and jsdom run in CI. The audit now runs
+    on the whole tree. `npm_audit_filter.py` classes each finding as runtime or dev from the
+    lock's own `dev`/`devOptional` flags: a package counts as dev only if every install of it is.
+    A package missing from the lock counts as runtime, so an unreadable lock fails closed. Runtime
+    findings fail at moderate and above. Dev-only findings at high and above only `::warning`,
+    which a green scheduled run doesn't surface on its own. Gap 2 (Dependabot alerts) is the
+    second signal for those.
+
 ## Checkpoint log
 
 | Step | Result |
@@ -215,4 +226,6 @@ base-only test run.
 | Weekly audit failure (2026-10-25) | Run 40186011995 on `bf1b59f` flagged certifi 2026.10.18 (PYSEC-2026-4320), fastmcp/fastmcp-slim 4.1.1 (GHSA-7xgj-8392-5q4r, GHSA-vqqp-x5qm-5qp4), setuptools 84.0.0 (GHSA-xmj3-9gf7-h52w, Windows-only) and body-parser 1.20.8 in `frontend/server` (GHSA-27r3-jxmh-p828, high). Raised the floors (`certifi>=2026.10.19` in base and keyproxy, `fastmcp>=4.1.2`, `setuptools>=84.1.0` in ml) and re-locked **without** `--upgrade`, so only those pins moved: certifi 2026.10.23, fastmcp 4.1.3, setuptools 84.2.1. `npm audit fix --package-lock-only --omit=dev` moved body-parser to 1.20.9. Both audits clean, `--check` OK, contract/lock/npm-filter tests 34/34, server `node --test` 28/28. The rest of the refresh is left to the next weekly `--upgrade` PR. Gotcha 15. |
 | Weekly lock update failed (2026-10-26) | Run 40301867838 couldn't solve the dev lock: base moved to python-dateutil 3.0.0, which botocore forbids (gotcha 16). Capped `python-dateutil<3` in base. On a scratch copy of main's locks, `lock_deps.sh --upgrade` reproduced the failure without the cap and wrote all 5 locks with it (pandas 3.1.0, boto3 1.43.120, dateutil 2.9.0.post0). The re-lock without `--upgrade` changed only "via" comments. |
 | npm security sweep (2026-10-28) | Fixes `audit_npm.sh` doesn't fail on, because it covers only high and critical runtime advisories: qs 6.16.0 → 6.16.2 in `frontend/server` (GHSA-6pq8-jhm2-2vcw, moderate, runtime; `qs.stringify` with `arrayFormat:'comma'`, which the proxy never calls); undici 7.30.0 → 7.30.1 via jsdom in `frontend` (4 high and 4 moderate, dev only, including GHSA-2m5v-pch6-74hx, a TLS validation bypass); vitest and `@vitest/*` 4.1.11 → 4.1.12 (GHSA-qxg6-89mg-rqv8, GHSA-xp26-3454-mjgp, moderate, dev only). As in gotcha 14, `npm audit fix` didn't move vitest, so the `package.json` ranges went to `^4.1.12`. Both locks audit to 0 at every severity, dev included. Server `node --test` 35/35, `tsc` clean, vitest 736/736 with coverage. Python locks are clean in both OSV and PyPI, now and after an `--upgrade`. |
+| Audit gap 1: thresholds (2026-10-28) | `audit_npm.sh` audits the whole tree. `npm_audit_filter.py` fails runtime findings at moderate+ and warns on dev-only ones at high+, classed by the lock's flags (gotcha 17). End to end: on main's pre-#454 locks it fails on qs (`::error`, runtime moderate) and warns on the 4 dev-only undici highs; on #454's locks it exits 0. `tests/test_audit_npm.py` 17/17, adding runtime-moderate-fails, the dev warn/list/`devOptional` cases, one runtime install making a package runtime, a missing lock entry counting as runtime, and the script no longer passing `--omit`. |
+| Audit gap 2: Dependabot alerts (planned, John's call) | Alerts are **off** (`GET /repos/…/dependabot/alerts` returns 403 "disabled"). Turning them on (Settings → Code security → Dependabot alerts, which also needs the dependency graph) is a repo setting, so it's an owner's action. Expected coverage, not yet verified: GitHub's dependency graph reads `package-lock.json`, so both npm locks get an independent signal, including dev-only findings that only `::warning` here. Our Python pins are in `*.lock` files the graph probably doesn't parse; it would read the `requirements*.txt` inputs, whose floors may raise false positives for old advisories. This doesn't reverse the decision above to rule out Dependabot **version updates** (dependabot-core#10478); alerts and updates are separate switches. Check the first alert list against `audit_deps.sh` before relying on it. |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

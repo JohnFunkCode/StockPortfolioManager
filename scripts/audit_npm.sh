@@ -7,9 +7,12 @@
 #
 # The judging is scripts/npm_audit_filter.py (tested in tests/test_audit_npm.py).
 #
-# Runtime dependencies only (--omit=dev): the dev tree never ships in an image. Exit 1, with one
-# ::error line per advisory, if a lock reaches a high or critical advisory that is not excepted
-# below.
+# The whole tree is audited, dev included, and the filter classes each finding by the lock's own
+# "dev" flags. Exit 1, with one ::error line per advisory, if a runtime dependency (what ships in
+# an image) has a moderate, high or critical advisory that is not excepted below. A dev-only
+# dependency at high or critical gets a ::warning and never fails the run: it doesn't ship, but it
+# runs in CI and locally. Until 2026-10-28 this audited --omit=dev at high+ only, which hid a
+# runtime qs moderate and eight undici advisories in the dev tree (pin-deps-plan.md gotcha 17).
 #
 # EXCEPTIONS are for advisories with NO fixed version anywhere -- never for "not upgraded yet".
 # Each one names the lock, an expiry date and why it can't be reached. An expired exception fails
@@ -29,7 +32,7 @@ EXCEPTIONS=(
 rc=0
 for lock in "${LOCKS[@]}"; do
   echo "--- npm audit $lock"
-  json=$(cd "$(dirname "$lock")" && npm audit --package-lock-only --omit=dev --json 2>/dev/null)
+  json=$(cd "$(dirname "$lock")" && npm audit --package-lock-only --json 2>/dev/null)
   if ! printf '%s' "$json" | python3 scripts/npm_audit_filter.py "$lock" ${EXCEPTIONS[@]+"${EXCEPTIONS[@]}"}; then
     rc=1
   fi

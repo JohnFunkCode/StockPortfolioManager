@@ -77,6 +77,36 @@ def _auth_active() -> bool:
     return _verification_key() is not None
 
 
+class AuthConfigurationError(RuntimeError):
+    """Raised at startup when a Cloud Run service would serve with auth inactive."""
+
+
+def assert_auth_enforced_on_cloud_run() -> None:
+    """Refuse to start a Cloud Run service whose auth would be inert (issue #459).
+
+    "Inert until configured" is the local/compose contract, but ``quantcore-api`` is
+    ``allUsers`` (#297) and this module is its single enforcement point: a revision
+    that lost its secret binding, or picked up ``AUTH_DISABLED``, would answer every
+    route as ``Principal.local()`` — and still pass its health check. Cloud Run sets
+    ``K_SERVICE`` on every service (never on a Job, a CI runner or compose), so raising
+    here keeps such a revision from ever taking traffic, as ``SchemaDriftError`` does.
+    The message names env vars only, never their values.
+    """
+    service = os.environ.get("K_SERVICE")
+    if not service:
+        return
+    if os.environ.get("AUTH_DISABLED", "").strip().lower() in _TRUTHY:
+        reason = "AUTH_DISABLED is set"
+    elif _verification_key() is None:
+        reason = "neither QUANTCORE_JWT_PUBLIC_KEY nor QUANTCORE_JWT_SECRET is configured"
+    else:
+        return
+    _security_logger.error("refusing to start Cloud Run service %s: %s", service, reason)
+    raise AuthConfigurationError(
+        f"auth would be inactive on Cloud Run service {service}: {reason}"
+    )
+
+
 # The audience this service requires in ES256 user tokens. Hardcoded, not
 # env-driven: a token minted for another service must not authenticate here.
 _ES256_AUDIENCE = "quantcore-api"

@@ -49,6 +49,32 @@ def _auth_active() -> bool:
     return bool(os.environ.get("QUANTCORE_JWT_PUBLIC_KEY"))
 
 
+class AuthConfigurationError(RuntimeError):
+    """Raised at startup when the deployed keyproxy would serve with auth inactive."""
+
+
+def assert_auth_enforced_on_cloud_run() -> None:
+    """Refuse to start on Cloud Run with auth inert (issue #459).
+
+    Mirrors ``api.auth.assert_auth_enforced_on_cloud_run`` (this package can't import
+    ``api``). IAM gates the keyproxy too, but the bearer is what binds an envelope to
+    its ``sub``; a revision without the key would redeem envelopes as the local caller.
+    ``K_SERVICE`` is set on Cloud Run services only, never in compose or tests.
+    """
+    service = os.environ.get("K_SERVICE")
+    if not service:
+        return
+    if os.environ.get("KEYPROXY_AUTH_DISABLED", "").strip().lower() in _TRUTHY:
+        reason = "KEYPROXY_AUTH_DISABLED is set"
+    elif not os.environ.get("QUANTCORE_JWT_PUBLIC_KEY"):
+        reason = "QUANTCORE_JWT_PUBLIC_KEY is not configured"
+    else:
+        return
+    raise AuthConfigurationError(
+        f"auth would be inactive on Cloud Run service {service}: {reason}"
+    )
+
+
 @dataclass(frozen=True)
 class Caller:
     """The verified caller identity — ``sub`` is what envelope AAD binds to."""

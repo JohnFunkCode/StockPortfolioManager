@@ -166,5 +166,43 @@ class TestAuthActive(unittest.TestCase):
         self.assertTrue(ctx.exception.__suppress_context__)
 
 
+class TestCloudRunFailClosed(unittest.TestCase):
+    """Issue #459: the deployed keyproxy never starts with auth inert."""
+
+    def test_local_without_key_is_allowed(self):
+        with patch.dict("os.environ", {}, clear=True):
+            auth.assert_auth_enforced_on_cloud_run()
+
+    def test_cloud_run_without_key_refuses(self):
+        with patch.dict("os.environ", {"K_SERVICE": "quantcore-keyproxy"}, clear=True):
+            with self.assertRaises(auth.AuthConfigurationError) as ctx:
+                auth.assert_auth_enforced_on_cloud_run()
+        self.assertIn("QUANTCORE_JWT_PUBLIC_KEY", str(ctx.exception))
+
+    def test_cloud_run_with_auth_disabled_refuses_even_with_a_key(self):
+        env = {
+            "K_SERVICE": "quantcore-keyproxy",
+            "QUANTCORE_JWT_PUBLIC_KEY": PUBLIC_PEM,
+            "KEYPROXY_AUTH_DISABLED": "1",
+        }
+        with patch.dict("os.environ", env, clear=True):
+            with self.assertRaises(auth.AuthConfigurationError) as ctx:
+                auth.assert_auth_enforced_on_cloud_run()
+        self.assertIn("KEYPROXY_AUTH_DISABLED", str(ctx.exception))
+        self.assertNotIn(PUBLIC_PEM.strip(), str(ctx.exception))
+
+    def test_cloud_run_with_key_starts(self):
+        env = {"K_SERVICE": "quantcore-keyproxy", "QUANTCORE_JWT_PUBLIC_KEY": PUBLIC_PEM}
+        with patch.dict("os.environ", env, clear=True):
+            auth.assert_auth_enforced_on_cloud_run()
+
+    def test_create_app_refuses_on_cloud_run_without_key(self):
+        from keyproxy.main import create_app
+
+        with patch.dict("os.environ", {"K_SERVICE": "quantcore-keyproxy"}, clear=True):
+            with self.assertRaises(auth.AuthConfigurationError):
+                create_app()
+
+
 if __name__ == "__main__":
     unittest.main()

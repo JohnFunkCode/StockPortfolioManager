@@ -37,7 +37,7 @@ FAST_MCP_DIR = PROJECT_ROOT / "fastMCPTest"
 if str(FAST_MCP_DIR) not in sys.path:
     sys.path.insert(0, str(FAST_MCP_DIR))
 
-from .auth import require_principal  # noqa: E402
+from .auth import assert_auth_enforced_on_cloud_run, require_principal  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .json_response import QuantCoreJSONResponse  # noqa: E402
 
@@ -46,6 +46,7 @@ def create_app() -> FastAPI:
     """Application factory mirroring the Flask ``create_app`` contract."""
     from quantcore.db import ensure_schema
 
+    assert_auth_enforced_on_cloud_run()  # fail closed before anything else starts (#459)
     ensure_schema()
 
     app = FastAPI(

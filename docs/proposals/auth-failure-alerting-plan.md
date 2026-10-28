@@ -196,3 +196,8 @@ Append a checkpoint line to this doc for each, with what actually happened.
 ## Checkpoints
 
 *(append as each step lands)*
+
+- **2026-10-28, steps 1–2 opened as #468** (not merged yet): the `auth_rejected` line plus the
+  unmapped-identity log tests. Gotcha: the DB-backed test modules can't run from a Claude Code
+  session on this Mac, because Postgres.app refuses the session's "trust" connection; CI's gate
+  is their first run.

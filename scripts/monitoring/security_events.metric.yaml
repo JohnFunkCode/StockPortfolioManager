@@ -1,0 +1,34 @@
+# Log-based metric: the `SECURITY <event>` lines api/auth.py writes on the
+# quantcore.security logger (#464, security gap G6). Applied by scripts/auth_alerting.py;
+# the metric's name is this file's stem.
+#
+# The app logs plain text to stderr in basicConfig's "%(asctime)s %(levelname)s
+# %(name)s: %(message)s" format (api/main.py), so Cloud Logging sees it as a textPayload
+# on run.googleapis.com/stderr with no severity — hence matching on the logger-name prefix.
+# The events and reasons are pinned by tests/test_auth_alerting.py, which runs these
+# regexes over the lines auth.py actually emits:
+#   event:  auth_rejected | unmapped_principal | unmapped_principal_soft
+#   reason: missing | expired | invalid   (auth_rejected only; empty otherwise)
+# No identity label, ever: the lines carry identity= for diagnosis in the log itself.
+description: >-
+  SECURITY events on the quantcore.security logger (G6, #464), by event and reason.
+filter: >-
+  resource.type="cloud_run_revision"
+  AND log_id("run.googleapis.com/stderr")
+  AND textPayload:"quantcore.security: SECURITY "
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: event
+      valueType: STRING
+      description: auth_rejected, unmapped_principal or unmapped_principal_soft.
+    - key: reason
+      valueType: STRING
+      description: For auth_rejected, missing, expired or invalid.
+# No backslashes in the regexes ([.] not \., [a-z_] not \w), so there is no question how
+# YAML, the extractor-expression string and RE2 each read an escape.
+labelExtractors:
+  event: 'REGEXP_EXTRACT(textPayload, "quantcore[.]security: SECURITY ([a-z_]+)")'
+  reason: 'REGEXP_EXTRACT(textPayload, "SECURITY auth_rejected reason=([a-z_]+)")'

@@ -1,0 +1,43 @@
+# Alert policy: an expired token still in use (#464, security gap G6).
+# Applied by scripts/auth_alerting.py, which adds notificationChannels — never put them here.
+#
+# Not an attack signal on its own — the burst policy covers volume. This one is the
+# rotation reminder: MCP tokens last 90 days (CLAUDE.md), and a lapsed one otherwise shows
+# up only as "401: invalid or expired token" inside some user's AI client. The log line
+# names the holder (identity=, verified with only exp skipped). Severity is WARNING
+# because the API's lowest is WARNING (CRITICAL/ERROR/WARNING; there is no INFO).
+displayName: "G6: expired token in use"
+combiner: OR
+severity: WARNING
+userLabels:
+  managed-by: scripts-auth-alerting
+conditions:
+  - displayName: "any auth_rejected reason=expired in 1 h"
+    conditionThreshold:
+      filter: >-
+        metric.type="logging.googleapis.com/user/security_events"
+        AND resource.type="cloud_run_revision"
+        AND metric.label.event="auth_rejected"
+        AND metric.label.reason="expired"
+      aggregations:
+        - alignmentPeriod: 3600s
+          perSeriesAligner: ALIGN_SUM
+          crossSeriesReducer: REDUCE_SUM
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      trigger:
+        count: 1
+alertStrategy:
+  autoClose: 86400s
+documentation:
+  mimeType: text/markdown
+  content: |-
+    Someone is still calling with an expired token.
+
+    **First look:** `textPayload:"SECURITY auth_rejected reason=expired"` — `identity=`
+    names the holder (`unknown` if the token was for another audience or issuer). Ask them
+    to mint a new one: `scripts/mint_prod_jwt.py --output export --expires-hours 2160
+    --sub <them>` (readme, "Connecting AI clients to prod").
+
+    Design: `docs/proposals/auth-failure-alerting-plan.md`.

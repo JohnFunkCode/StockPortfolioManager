@@ -104,7 +104,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | A missing `owner_identities` mapping logs a security event on the `quantcore.security` logger: `SECURITY unmapped_principal` (403) or `unmapped_principal_soft` (Sidekick), identity only. | `tests/test_auth.py` `UnmappedIdentityLogTests` | Enforced |
 | Every 401 logs `SECURITY auth_rejected reason=missing\|expired\|invalid`, with the reason taken from the exception class. Only an expired token adds `identity=`, and only after a second verification with just `exp` skipped (PyJWT checks `exp` before `iss`/`aud`, so expiry proves only the signature); otherwise `identity=unknown`. The token never appears. | `tests/test_auth.py` `SecurityEventLogTests` | Enforced |
 | Discord alarms re-read what actually landed in the database (bilge-pump pattern, [daily-jobs.md](daily-jobs.md)). | `tests/test_daily_job_capture.py`, `tests/test_empty_watchlist_alarm.py` | Enforced |
-| No alert on repeated 401/403s against the public services. | — | **Gap G6** |
+| A burst of 401/403s, an unmapped identity, or an expired token in use raises an email alert. Log-based metrics and alert policies are kept as code in `scripts/monitoring/` and applied by an operator with `scripts/auth_alerting.py`. | `tests/test_auth_alerting.py` (config, and the metric regexes run over the real log lines); `auth_alerting.py check` (live drift) | **Gap G6**: written, not yet applied to either project |
 
 ### A10 Mishandling of Exceptional Conditions
 
@@ -157,8 +157,11 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   read-only (LLM06) — that is the containment that makes this a low-impact gap.
 - **G6 ([#464](https://github.com/JohnFunkCode/StockPortfolioManager/issues/464)) — No alert on auth-failure spikes.** Public services log 401/403s, but nothing turns a burst
   into an alarm the way the daily job's Discord alarms do for data failures. The log lines the alert
-  will count are in place (the two `Enforced` A09 rows above); the metrics and alert policy are
-  the remaining work, planned in `docs/proposals/auth-failure-alerting-plan.md`.
+  will count are in place (the two `Enforced` A09 rows above), and so are the metrics and
+  policies as code (`scripts/monitoring/`). What remains is applying them and proving that an
+  alert fires on test, then applying on prod (step 4 of
+  [`auth-failure-alerting-plan.md`](../proposals/auth-failure-alerting-plan.md)). The row
+  becomes Enforced after that.
 
 ## Reviewing a PR with this map
 

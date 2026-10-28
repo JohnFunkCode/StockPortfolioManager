@@ -415,6 +415,12 @@ configuration and onboarding a new service:
 [`docs/architecture/cloudrun-services.md`](docs/architecture/cloudrun-services.md). Promotion
 runbook: [`docs/operations/prod-promotion.md`](docs/operations/prod-promotion.md).
 
+**Auth alerting:** email alerts on 401/403 bursts, unmapped identities and expired tokens are
+kept as code in `scripts/monitoring/` and applied by an operator with
+`python scripts/auth_alerting.py apply --env test|prod`. Running `check` reports drift without
+changing anything. Design:
+[`auth-failure-alerting-plan.md`](docs/proposals/auth-failure-alerting-plan.md).
+
 **Access** to QuantUI, to the prod MCP servers, and to the database is granted by a project owner.
 See [`docs/operations/team-access.md`](docs/operations/team-access.md).
 

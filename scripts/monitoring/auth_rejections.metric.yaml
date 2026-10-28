@@ -1,0 +1,29 @@
+# Log-based metric: every 401/403 the public tier answers (#464, security gap G6).
+# Applied by scripts/auth_alerting.py; the metric's name is this file's stem.
+#
+# Counted from Cloud Run's own request log, not from app logs: it sees every rejection,
+# including the IAM 403s keyproxy's front end answers before the container runs. Only
+# quantcore-api and quantcore-keyproxy are counted because they are the only services
+# that decide auth — the MCP wrappers forward the bearer and turn the api's 401 into a
+# tool error (a 200 on their side), so counting them too would only double-count.
+#
+# The resource label service_name comes with cloud_run_revision; only status is extracted.
+# No identity label, ever: unbounded cardinality, and it would copy who into a metric.
+description: >-
+  401/403 responses from quantcore-api and quantcore-keyproxy (G6, #464).
+  Source: Cloud Run request log.
+filter: >-
+  resource.type="cloud_run_revision"
+  AND log_id("run.googleapis.com/requests")
+  AND resource.labels.service_name=("quantcore-api" OR "quantcore-keyproxy")
+  AND httpRequest.status=(401 OR 403)
+metricDescriptor:
+  metricKind: DELTA
+  valueType: INT64
+  unit: "1"
+  labels:
+    - key: status
+      valueType: STRING
+      description: HTTP status, 401 or 403.
+labelExtractors:
+  status: EXTRACT(httpRequest.status)

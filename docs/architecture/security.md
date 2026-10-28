@@ -102,7 +102,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 |---|---|---|
 | Never-log policy: no keys, `Authorization` headers, envelopes, decrypted payloads, request bodies or DSNs in any log **or response** ([byok.md](byok.md)). | `tests/test_dsn_redaction.py`, keyproxy log assertions | Enforced |
 | A missing `owner_identities` mapping logs a security event on the `quantcore.security` logger: `SECURITY unmapped_principal` (403) or `unmapped_principal_soft` (Sidekick), identity only. | `tests/test_auth.py` `UnmappedIdentityLogTests` | Enforced |
-| Every 401 logs `SECURITY auth_rejected reason=missing\|expired\|invalid`, with the reason taken from the exception class. Only an expired token, whose signature verified, adds `identity=`; the token never appears. | `tests/test_auth.py` `SecurityEventLogTests` | Enforced |
+| Every 401 logs `SECURITY auth_rejected reason=missing\|expired\|invalid`, with the reason taken from the exception class. Only an expired token adds `identity=`, and only after a second verification with just `exp` skipped (PyJWT checks `exp` before `iss`/`aud`, so expiry proves only the signature); otherwise `identity=unknown`. The token never appears. | `tests/test_auth.py` `SecurityEventLogTests` | Enforced |
 | Discord alarms re-read what actually landed in the database (bilge-pump pattern, [daily-jobs.md](daily-jobs.md)). | `tests/test_daily_job_capture.py`, `tests/test_empty_watchlist_alarm.py` | Enforced |
 | No alert on repeated 401/403s against the public services. | — | **Gap G6** |
 

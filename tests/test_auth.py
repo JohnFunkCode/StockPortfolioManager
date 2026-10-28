@@ -438,6 +438,37 @@ class SecurityEventLogTests(unittest.TestCase):
         )
         self.assertEqual(self._rejected(tok), "SECURITY auth_rejected reason=invalid")
 
+    def test_expired_token_for_another_audience_names_no_one(self):
+        # PyJWT raises ExpiredSignatureError before checking aud, so expiry alone
+        # doesn't make the sub ours; the exp-skipping re-verification rejects it.
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _user_token({"sub": "thomas@example.com", "exp": exp}, aud="other-service")
+        out = self._rejected(tok)
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_from_another_issuer_names_no_one(self):
+        os.environ["QUANTCORE_JWT_ISSUER"] = "https://expected-issuer"
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _token({"sub": "sager", "exp": exp, "iss": "https://other-issuer"})
+        out = self._rejected(tok)
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_with_non_string_subject_names_no_one(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        out = self._rejected(_token({"sub": ["a", "b"], "exp": exp}))
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_with_malformed_optional_claims_is_still_401(self):
+        # roles/scope aren't PyJWT-validated; reading them must not turn the 401
+        # into a 500 (review of #468).
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        for claim in ({"roles": 42}, {"scope": 42}):
+            with self.subTest(claim):
+                out = self._rejected(_token({"sub": "holder", "exp": exp, **claim}))
+                self.assertEqual(
+                    out, "SECURITY auth_rejected reason=expired identity=holder"
+                )
+
     def test_accepted_token_logs_nothing(self):
         with self.assertNoLogs("quantcore.security", level="WARNING"):
             r = self.client.get(

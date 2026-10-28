@@ -236,19 +236,34 @@ def _verify(token: str, *, verify_exp: bool = True) -> dict[str, Any]:
 
 
 def _expired_identity(token: str) -> str:
-    """The verified identity behind an expired token, or ``"unknown"``."""
+    """The verified identity behind an expired token, or ``"unknown"``.
+
+    PyJWT checks ``exp`` before ``iss``/``aud``/``sub``, so an expired token proves
+    only its signature; re-verifying with just ``exp`` skipped is what keeps a token
+    minted for another service from being attributed here. Only ``sub``/``email``
+    is read, and only as a string — not a full ``Principal``, whose roles/scopes
+    parsing would raise on a malformed optional claim. This is diagnostics on a
+    request already being rejected: nothing in it may change the 401, so any
+    failure falls back to ``"unknown"``.
+    """
     try:
-        return Principal.from_claims(_verify(token, verify_exp=False), None).owner
-    except jwt.PyJWTError:
+        claims = _verify(token, verify_exp=False)
+    except Exception:  # noqa: BLE001 — diagnostics only, the 401 stands either way
         return "unknown"
+    for key in ("sub", "email"):
+        value = claims.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return "unknown"
 
 
 def _log_rejection(reason: str, identity: Optional[str] = None) -> None:
     """One ``SECURITY auth_rejected`` line per 401, for the G6 alert (issue #464).
 
     ``reason`` is a fixed word chosen from the exception class, never ``str(exc)``;
-    ``identity`` is logged only for an expired token, whose signature verified. An
-    invalid token's claims are attacker-controlled and stay out of the log.
+    ``identity`` is logged only for an expired token, and only as
+    :func:`_expired_identity` re-verified it. An invalid token's claims are
+    attacker-controlled and stay out of the log.
     """
     if identity is None:
         _security_logger.warning("SECURITY auth_rejected reason=%s", reason)

@@ -432,7 +432,8 @@ and re-running the script, not with a one-off `gcloud` call, so the file stays t
 
 The log-based metrics and alert policies that watch the public tier's 401/403s and
 `quantcore.security` events live in `scripts/monitoring/` and are applied by
-`python scripts/auth_alerting.py apply --env test|prod` (`check` is the read-only drift report).
+`python scripts/auth_alerting.py apply --env test|prod` (`check` is the read-only drift report;
+it compares `enabled`, so a policy disabled in the console is drift, not `ok`).
 Rules to keep:
 
 - **Edit the files and re-run the script; never make a one-off `gcloud` change.** The next

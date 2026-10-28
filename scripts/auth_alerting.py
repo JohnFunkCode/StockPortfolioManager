@@ -44,10 +44,12 @@ INVENTORY = ROOT / "deploy" / "cloudrun-services.toml"
 CHANNEL_NAME = "QuantCore security alerts (email)"
 NOT_FOUND = ("NOT_FOUND", "not found", "does not exist")
 
-# What `check` compares. Anything else the API adds (name, creationRecord, enabled...)
-# is the API's, not drift.
+# What `check` compares. Anything else the API adds (name, creationRecord, mutationRecord...)
+# is the API's, not drift. `enabled` is compared: a disabled policy can't alert, and every
+# policy file sets it explicitly so `apply` re-enables one.
 METRIC_FIELDS = ("filter", "labelExtractors")
-POLICY_FIELDS = ("combiner", "severity", "conditions", "alertStrategy", "documentation")
+POLICY_FIELDS = ("enabled", "combiner", "severity", "conditions", "alertStrategy",
+                 "documentation")
 
 
 class ConfigError(Exception):
@@ -193,34 +195,68 @@ def _status(lines: list[str] | None) -> str:
     return "MISSING" if lines is None else ("DRIFT" if lines else "ok")
 
 
+def _report(label: str, lines: list[str] | None) -> int:
+    """Print one object's status; 1 if it differs from the file."""
+    print(f"{label}: {_status(lines)}")
+    for line in lines or []:
+        print(f"  {line}")
+    return int(lines != [])
+
+
+def _policy_drift(want: dict, got: dict | None, channel: str | None) -> list[str] | None:
+    if got is None:
+        return None
+    lines = diff(want, got, POLICY_FIELDS)
+    if channel and channel not in got.get("notificationChannels", []):
+        lines.append(f"notificationChannels: {CHANNEL_NAME!r} not attached")
+    return lines
+
+
 def cmd_check(a) -> int:
     proj = project(a.env)
     drift = 0
     for name, want in metrics().items():
         live = live_metric(proj, name)
-        lines = None if live is None else diff(want, live, METRIC_FIELDS)
-        drift += lines != []
-        print(f"metric {name}: {_status(lines)}")
-        for line in lines or []:
-            print(f"  {line}")
+        drift += _report(f"metric {name}",
+                         None if live is None else diff(want, live, METRIC_FIELDS))
     channel = find_channel(proj)
-    print(f"channel {CHANNEL_NAME!r}: {'ok' if channel else 'MISSING'}")
-    drift += channel is None
+    drift += _report(f"channel {CHANNEL_NAME!r}", [] if channel else None)
     live = live_policies(proj)
     for want in policies():
-        got = live.get(want["displayName"])
-        if got is None:
-            lines = None
-        else:
-            lines = diff(want, got, POLICY_FIELDS)
-            if channel and channel not in got.get("notificationChannels", []):
-                lines.append(f"notificationChannels: {CHANNEL_NAME!r} not attached")
-        drift += lines != []
-        print(f"policy {want['displayName']!r}: {_status(lines)}")
-        for line in lines or []:
-            print(f"  {line}")
+        drift += _report(f"policy {want['displayName']!r}",
+                         _policy_drift(want, live.get(want["displayName"]), channel))
     print(f"{a.env} ({proj}): {drift} object(s) differ from {MONITORING.relative_to(ROOT)}")
     return 1 if drift else 0
+
+
+def _apply_metrics(proj: str) -> bool:
+    """Create or update every metric; True if any was created this run."""
+    created = False
+    for name, want in metrics().items():
+        verb = "update" if live_metric(proj, name) else "create"
+        created |= verb == "create"
+        _with_file(want, lambda path: _run(
+            "logging", "metrics", verb, name, "--project", proj, f"--config-from-file={path}"))
+    return created
+
+
+def _resolve_channel(proj: str, email: str | None) -> str:
+    channel = find_channel(proj)
+    if channel is not None:
+        if email:
+            print(f"channel {CHANNEL_NAME!r} exists; --email ignored (change it in the console)")
+        return channel
+    if not email:
+        raise ConfigError(f"no {CHANNEL_NAME!r} channel in {proj} yet: pass --email once")
+    channel = create_channel(proj, email)
+    print(f"created channel {CHANNEL_NAME!r}")
+    return channel
+
+
+def _apply_policy(proj: str, want: dict, got: dict | None, channel: str) -> None:
+    args = ("create",) if got is None else ("update", got["name"])
+    _with_file(with_channel(want, channel), lambda path: _run(
+        "monitoring", "policies", *args, "--project", proj, f"--policy-from-file={path}"))
 
 
 def cmd_apply(a) -> int:
@@ -229,43 +265,19 @@ def cmd_apply(a) -> int:
     if a.env == "prod" and not a.yes:
         if input("Apply the auth alerting to PROD? [y/N] ").strip() != "y":
             return 1
-
-    created_metric = False
-    for name, want in metrics().items():
-        verb = "update" if live_metric(proj, name) else "create"
-        created_metric |= verb == "create"
-        _with_file(want, lambda path: _run(
-            "logging", "metrics", verb, name, "--project", proj, f"--config-from-file={path}"))
-
-    channel = find_channel(proj)
-    if channel is None:
-        if not a.email:
-            raise ConfigError(f"no {CHANNEL_NAME!r} channel in {proj} yet: pass --email once")
-        channel = create_channel(proj, a.email)
-        print(f"created channel {CHANNEL_NAME!r}")
-    elif a.email:
-        print(f"channel {CHANNEL_NAME!r} exists; --email ignored (change it in the console)")
-
+    created_metric = _apply_metrics(proj)
+    channel = _resolve_channel(proj, a.email)
     live = live_policies(proj)
-    for want in policies():
-        body = with_channel(want, channel)
-        got = live.get(want["displayName"])
-        if got is None:
-            fn = lambda path: _run("monitoring", "policies", "create", "--project", proj,
-                                   f"--policy-from-file={path}")
-        else:
-            fn = lambda path, n=got["name"]: _run(
-                "monitoring", "policies", "update", n, "--project", proj,
-                f"--policy-from-file={path}")
-        try:
-            _with_file(body, fn)
-        except RuntimeError:
-            if created_metric:
-                # A just-created log metric's descriptor can lag; everything here is
-                # idempotent, so re-running is the fix.
-                print("::warning::a metric was created this run; if the policy refers to "
-                      "it, wait a minute and re-run apply", file=sys.stderr)
-            raise
+    try:
+        for want in policies():
+            _apply_policy(proj, want, live.get(want["displayName"]), channel)
+    except RuntimeError:
+        if created_metric:
+            # A just-created log metric's descriptor can lag; everything here is
+            # idempotent, so re-running is the fix.
+            print("::warning::a metric was created this run; if the policy refers to "
+                  "it, wait a minute and re-run apply", file=sys.stderr)
+        raise
     return cmd_check(a)
 
 

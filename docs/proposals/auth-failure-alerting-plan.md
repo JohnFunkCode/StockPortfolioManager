@@ -170,7 +170,9 @@ The project comes from `deploy/cloudrun-services.toml`'s `environments`. The tar
 before anything runs, and `--env prod` prompts. It is idempotent: it creates a metric or policy
 that's missing, updates one that exists (looking policies up by `displayName`), and creates the
 email channel once and reuses it after that. `check` is a read-only drift report. It compares
-only the fields a file sets, so fields the API adds don't count as drift. As of SDK 588,
+only the fields a file sets, so fields the API adds don't count as drift. `enabled` is one
+of them: every policy file sets `enabled: true`, so a policy disabled in the console shows as
+drift and the next `apply` turns it back on. As of SDK 588,
 `gcloud monitoring policies` is GA, but `channels` exists only under `gcloud beta`.
 
 **Test:** `tests/test_auth_alerting.py` parses every file and checks:
@@ -259,3 +261,11 @@ Append a checkpoint line to this doc for each, with what actually happened.
   - A log metric created moments before a policy that uses it may not exist yet when the policy
     is created. If the policy create fails in the same run, the script says to re-run.
     **Unverified** until step 4.
+- **2026-10-28, #469 review.** `check` reported a **disabled** policy as `ok`, because
+  `enabled` had been left out of the compared fields as API-owned. It isn't: a disabled policy
+  can't alert, which is the worst drift there is. Each policy file now sets `enabled: true`, and
+  `check` compares it; a test drives a disabled live policy and expects drift. The review also
+  flagged `cmd_check`, `cmd_apply` and the test fake's `__call__` as over the complexity bands
+  (13/18, 13/20, 14/20). They were split into per-object helpers and a handler table, now 6/6,
+  7/8 and 6/5 (Radon 6.0.1 cyclomatic / complexipy 8.3.0 cognitive), with tests for the gcloud
+  failure paths and the just-created-metric warning.

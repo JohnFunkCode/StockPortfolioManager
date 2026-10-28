@@ -5,6 +5,7 @@
 # an onboarding on 2026-10-05. A valid token we never granted, or a grant that missed its
 # owner_identities row, is worth knowing about every time.
 displayName: "G6: unmapped identity"
+enabled: true
 combiner: OR
 severity: WARNING
 userLabels:

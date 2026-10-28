@@ -6,6 +6,7 @@
 # held more than 3. Ten is >3x the worst quiet-day window and still trips within one
 # window of a guessing or replay loop. Re-measure before raising it.
 displayName: "G6: auth-failure burst (401/403)"
+enabled: true
 combiner: OR
 severity: WARNING
 userLabels:

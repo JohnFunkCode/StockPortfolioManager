@@ -7,6 +7,7 @@
 # names the holder (identity=, verified with only exp skipped). Severity is WARNING
 # because the API's lowest is WARNING (CRITICAL/ERROR/WARNING; there is no INFO).
 displayName: "G6: expired token in use"
+enabled: true
 combiner: OR
 severity: WARNING
 userLabels:

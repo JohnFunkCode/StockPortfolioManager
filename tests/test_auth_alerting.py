@@ -98,6 +98,7 @@ class MonitoringFilesTests(unittest.TestCase):
         for p in POLICIES:
             with self.subTest(p["displayName"]):
                 self.assertIn(p["severity"], ("CRITICAL", "ERROR", "WARNING"))
+                self.assertIs(p.get("enabled"), True)
                 self.assertIn("First look", p["documentation"]["content"])
                 self.assertTrue(p["displayName"].startswith("G6: "))
 
@@ -190,41 +191,76 @@ class DiffTests(unittest.TestCase):
 
 
 class FakeGcloud:
-    """Answers the script's gcloud calls from dicts; records what was sent."""
+    """Answers the script's gcloud calls from dicts; records what was sent.
 
-    def __init__(self, *, metrics=(), policies=(), channel=None):
+    ``fail`` names a command prefix (e.g. ``("monitoring", "policies", "create")``) that
+    exits non-zero, for the failure paths.
+    """
+
+    def __init__(self, *, metrics=(), policies=(), channel=None, fail=None):
         self.metrics = set(metrics)
         self.policies = {name: f"projects/p/alertPolicies/{i}"
                          for i, name in enumerate(policies)}
         self.channel = channel
+        self.fail = fail
         self.calls: list[tuple[str, ...]] = []
         self.sent: list[tuple[str, dict]] = []
+        self.handlers = {
+            ("logging", "metrics", "describe"): self._describe_metric,
+            ("monitoring", "policies", "list"): self._list_policies,
+            ("beta", "monitoring", "channels", "list"): self._list_channels,
+            ("beta", "monitoring", "channels", "create"): self._create_channel,
+        }
 
     def __call__(self, *args, capture=True):
         self.calls.append(args)
-        out, rc, err = "", 0, ""
-        a = list(args)
-        for flag in [x for x in a if x.startswith("--config-from-file=")
-                     or x.startswith("--policy-from-file=")]:
-            self.sent.append((" ".join(a[:3]), json.loads(Path(flag.split("=", 1)[1]).read_text())))
-        if a[:3] == ["logging", "metrics", "describe"]:
-            if a[3] in self.metrics:
-                out = json.dumps({"name": a[3], **METRICS[a[3]]})
-            else:
-                rc, err = 1, "ERROR: NOT_FOUND: metric does not exist"
-        elif a[:3] == ["monitoring", "policies", "list"]:
-            by_name = {p["displayName"]: p for p in POLICIES}
-            out = json.dumps([
-                {**by_name.get(d, {}), "name": n, "displayName": d,
-                 "notificationChannels": [self.channel] if self.channel else []}
-                for d, n in self.policies.items()
-            ])
-        elif a[:4] == ["beta", "monitoring", "channels", "list"]:
-            out = json.dumps([{"name": self.channel}] if self.channel else [])
-        elif a[:4] == ["beta", "monitoring", "channels", "create"]:
-            self.channel = "projects/p/notificationChannels/9"
-            out = json.dumps({"name": self.channel})
+        self._record_sent(args)
+        if self.fail and args[:len(self.fail)] == self.fail:
+            return mock.Mock(returncode=1, stdout="", stderr="ERROR: PERMISSION_DENIED")
+        handler = next((h for k, h in self.handlers.items() if args[:len(k)] == k), None)
+        out, rc, err = handler(args) if handler else ("", 0, "")
         return mock.Mock(returncode=rc, stdout=out, stderr=err)
+
+    def _record_sent(self, args):
+        for flag in args:
+            if flag.startswith(("--config-from-file=", "--policy-from-file=")):
+                body = json.loads(Path(flag.split("=", 1)[1]).read_text())
+                self.sent.append((" ".join(args[:3]), body))
+
+    def _describe_metric(self, args):
+        if args[3] in self.metrics:
+            return json.dumps({"name": args[3], **METRICS[args[3]]}), 0, ""
+        return "", 1, "ERROR: NOT_FOUND: metric does not exist"
+
+    def _list_policies(self, args):
+        by_name = {p["displayName"]: p for p in POLICIES}
+        return json.dumps([
+            {**by_name.get(d, {}), "name": n, "displayName": d,
+             "notificationChannels": [self.channel] if self.channel else []}
+            for d, n in self.policies.items()
+        ]), 0, ""
+
+    def _list_channels(self, args):
+        return json.dumps([{"name": self.channel}] if self.channel else []), 0, ""
+
+    def _create_channel(self, args):
+        self.channel = "projects/p/notificationChannels/9"
+        return json.dumps({"name": self.channel}), 0, ""
+
+
+def _rewrite_policies(fake, change):
+    """``fake`` with each listed policy passed through ``change``."""
+    def wrapped(*args, capture=True):
+        r = fake(*args, capture=capture)
+        if args[:3] == ("monitoring", "policies", "list"):
+            r.stdout = json.dumps([change(p) for p in json.loads(r.stdout)])
+        return r
+    return wrapped
+
+
+def _complete_fake(**kw):
+    return FakeGcloud(metrics=METRICS, channel="projects/p/notificationChannels/1",
+                      policies=[p["displayName"] for p in POLICIES], **kw)
 
 
 class CheckTests(unittest.TestCase):
@@ -235,9 +271,7 @@ class CheckTests(unittest.TestCase):
         return rc, out.getvalue()
 
     def test_matching_project_is_clean(self):
-        fake = FakeGcloud(metrics=METRICS, channel="projects/p/notificationChannels/1",
-                          policies=[p["displayName"] for p in POLICIES])
-        rc, out = self._check(fake)
+        rc, out = self._check(_complete_fake())
         self.assertEqual(rc, 0, out)
         self.assertIn("0 object(s) differ", out)
 
@@ -247,20 +281,26 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(out.count(": MISSING"), len(METRICS) + 1 + len(POLICIES))
 
     def test_a_detached_channel_is_drift(self):
-        fake = FakeGcloud(metrics=METRICS, channel="projects/p/notificationChannels/1",
-                          policies=[p["displayName"] for p in POLICIES])
-        real = fake.__call__
-
-        def detached(*args, capture=True):
-            r = real(*args, capture=capture)
-            if args[:3] == ("monitoring", "policies", "list"):
-                r.stdout = json.dumps([{**p, "notificationChannels": []}
-                                       for p in json.loads(r.stdout)])
-            return r
-
-        rc, out = self._check(detached)
+        fake = _rewrite_policies(_complete_fake(),
+                                 lambda p: {**p, "notificationChannels": []})
+        rc, out = self._check(fake)
         self.assertEqual(rc, 1)
         self.assertEqual(out.count("not attached"), len(POLICIES))
+
+    def test_a_disabled_policy_is_drift(self):
+        # A disabled policy can't alert: the worst drift there is, so check must see it.
+        fake = _rewrite_policies(_complete_fake(), lambda p: {**p, "enabled": False})
+        rc, out = self._check(fake)
+        self.assertEqual(rc, 1)
+        self.assertEqual(out.count("enabled: live false"), len(POLICIES))
+
+    def test_a_describe_error_that_isnt_not_found_fails(self):
+        # Only NOT_FOUND means MISSING; anything else (permissions) must not read as absent.
+        fake = FakeGcloud(fail=("logging", "metrics", "describe"))
+        with mock.patch("sys.stderr", StringIO()) as err:
+            rc, _ = self._check(fake)
+        self.assertEqual(rc, 1)
+        self.assertIn("::error title=gcloud failed::", err.getvalue())
 
     def test_check_never_writes(self):
         fake = FakeGcloud()
@@ -291,8 +331,7 @@ class ApplyTests(unittest.TestCase):
     def test_update_keeps_the_channel(self):
         # --policy-from-file replaces the whole policy: without the merge, every
         # re-apply would detach the email channel.
-        fake = FakeGcloud(metrics=METRICS, channel="projects/p/notificationChannels/1",
-                          policies=[p["displayName"] for p in POLICIES])
+        fake = _complete_fake()
         self.assertEqual(self._apply(fake), 0)
         updates = [b for v, b in fake.sent if v == "monitoring policies update"]
         self.assertEqual(len(updates), len(POLICIES))
@@ -306,6 +345,38 @@ class ApplyTests(unittest.TestCase):
         with redirect_stdout(StringIO()), mock.patch("sys.stderr", StringIO()):
             self.assertEqual(self._apply(fake), 2)
         self.assertFalse(any(v.startswith("monitoring policies") for v, _ in fake.sent))
+
+    def test_every_policy_is_sent_enabled(self):
+        # So a re-apply turns back on a policy someone disabled in the console.
+        fake = _complete_fake()
+        self._apply(fake)
+        for verb, body in fake.sent:
+            if verb.startswith("monitoring policies"):
+                self.assertIs(body["enabled"], True)
+
+    def test_a_failed_policy_write_exits_nonzero(self):
+        fake = _complete_fake(fail=("monitoring", "policies", "update"))
+        with mock.patch("sys.stderr", StringIO()) as err:
+            self.assertEqual(self._apply(fake), 1)
+        self.assertIn("::error title=gcloud failed::", err.getvalue())
+        self.assertNotIn("::warning::", err.getvalue())
+
+    def test_a_failure_after_creating_a_metric_says_to_rerun(self):
+        fake = FakeGcloud(channel="projects/p/notificationChannels/1",
+                          fail=("monitoring", "policies", "create"))
+        with mock.patch("sys.stderr", StringIO()) as err:
+            self.assertEqual(self._apply(fake), 1)
+        self.assertIn("wait a minute and re-run apply", err.getvalue())
+
+    def test_existing_channel_ignores_email(self):
+        fake = _complete_fake()
+        out = StringIO()
+        with mock.patch.object(aa, "gcloud", fake), \
+                mock.patch.object(aa, "cmd_check", return_value=0), redirect_stdout(out):
+            self.assertEqual(aa.main(["apply", "--env", "test", "--email", "x@example.com"]), 0)
+        self.assertIn("--email ignored", out.getvalue())
+        self.assertFalse(any(c[:4] == ("beta", "monitoring", "channels", "create")
+                             for c in fake.calls))
 
     def test_prod_asks_first(self):
         fake = FakeGcloud()

@@ -595,6 +595,17 @@ repository, invoke it with an issue number or URL:
 $feature-research Research issue #123 in this repository.
 ```
 
+In Claude Code, the same skill is
+[`.claude/skills/feature-research/`](.claude/skills/feature-research/SKILL.md):
+
+```text
+/feature-research 123
+```
+
+The Claude Code skill is a thin entry point that reads the Codex skill and its reference, so the
+procedure has one home. Change the behaviour in `.agents/skills/feature-research/`, and touch the
+Claude file only for Claude-specific tool notes.
+
 For an issue in another repository, include its GitHub URL or `owner/repo` with the issue number.
 The skill asks for an issue if none is supplied. It reads the issue and relevant live sources,
 investigates borderline proposals, and skips clearly low-value or already answered ones. It adds

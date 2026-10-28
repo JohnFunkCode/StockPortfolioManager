@@ -30,6 +30,12 @@ These cover only how to carry out the shared procedure with Claude Code's tools;
 - **Live sources:** use `WebSearch` to find primary sources and `WebFetch` to open each one and
   confirm the cited section says what you claim. If neither is available, say so and post nothing
   that depends on live sources.
+- **Product presentation** (when the shared skill asks you to inspect a product and a peer): open
+  each in the built-in browser (`mcp__Claude_Browser__*`) and use `read_page`/`get_page_text` for
+  placement and attribution text, and a screenshot only for layout, preview, or expansion behavior
+  that text can't show. Describe what you saw in the comment, with the page URL and the date you
+  looked; don't paste screenshots or copied content into the issue. Don't sign in, accept terms, or
+  change anything on a site to reach a page. If a page needs any of that, say it wasn't checked.
 - **Repository context:** use the project's docs map (`readme.md` → "Documentation map",
   `CLAUDE.md`, `docs/architecture/`, `docs/proposals/`) to check whether the feature, or a
   constraint on it, is already documented. The MCP data tools may help check a premise against

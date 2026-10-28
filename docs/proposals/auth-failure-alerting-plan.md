@@ -99,9 +99,18 @@ WARNING quantcore.security: SECURITY auth_rejected reason=<missing|expired|inval
 
 - `reason` comes from the exception **class**: `ExpiredSignatureError` → `expired`, any other
   `PyJWTError` → `invalid`, no credentials → `missing`. Never the token, the claims or `str(exc)`.
-  The line includes `sub` only for `expired`, because only that case has verified claims. For
-  `invalid` the claims are attacker-controlled, so they stay out.
+  Only `expired` adds `identity=`, and **expiry alone does not make the claims ours**. PyJWT
+  checks `exp` *before* `iss`, `aud` and `sub`, so `ExpiredSignatureError` proves only the
+  signature. A token minted for another service, or carrying a malformed `sub`, raises it too.
+  The identity therefore comes from a **second verification** with the same pinned key,
+  algorithm, issuer, audience and leeway, and with only `exp` disabled. Only a string
+  `sub`/`email` is read from it, never a full `Principal`, whose roles/scopes parsing can raise.
+  If any part of that fails, the line says `identity=unknown`, and the request is still a 401.
+  For `invalid` the claims are attacker-controlled, so they stay out.
 - Add tests in the same style as step 1, including a negative assertion that the token is absent.
+  The tests must also cover the attribution negatives: expired with the wrong audience, expired
+  with the wrong issuer, and expired with a non-string `sub` all log `identity=unknown`. An
+  expired token with malformed `roles`/`scope` still gets a 401 and exactly one log line.
 - Volume: each rejected request already produces a request-log entry, so this at most doubles the
   log lines for rejected traffic. That's acceptable.
 - Noticed in passing, not fixed here: the 401 `detail` echoes `str(exc)` from PyJWT to the caller
@@ -201,3 +210,8 @@ Append a checkpoint line to this doc for each, with what actually happened.
   unmapped-identity log tests. Gotcha: the DB-backed test modules can't run from a Claude Code
   session on this Mac, because Postgres.app refuses the session's "trust" connection; CI's gate
   is their first run.
+- **2026-10-28, #468 review** found a regression. `_expired_identity` built a full `Principal`,
+  so an expired, correctly signed token with `roles=42` answered **500** with no log line. The
+  fix reads only the string `sub`/`email` and falls back to `unknown` on any failure. **Gotcha:**
+  the plan had said that expired tokens have verified claims. They don't, because PyJWT checks
+  `exp` before `iss`/`aud`/`sub` (see step 2).

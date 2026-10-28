@@ -235,6 +235,19 @@ report warning-band units for reviewer disposition. Until that gate exists, the 
 and the reviewer's disposition are required evidence in the PR. This is a ratchet: an approved
 exception must not become the new default for unrelated code.
 
+### Rule 11 — Security is reviewed against the OWASP map
+
+A PR that touches a route, an owner-scoped table or method, SQL, auth or tokens, a dependency lock
+or model loading, error handling or logging, Cloud Run config, or Sidekick/MCP tools is reviewed
+against the matching categories of [`docs/architecture/security.md`](../architecture/security.md)
+(OWASP Top 10:2025 for the web tier, the LLM Top 10 for Sidekick and MCP). Only the categories
+the PR touches apply; the map's "Reviewing a PR" table says which.
+
+1. A finding names its category (e.g. "A01: no owner predicate") so the vocabulary stays shared.
+2. Prefer enforcement to convention: where a rule can be a test or CI step (the pickle ban and DSN
+   redaction are the precedents), the PR that adds the rule adds the guard.
+3. A PR that adds a control, or closes or opens a gap, updates its row in the map in the same PR.
+
 ---
 
 ## 7. Capability Surface Policy
@@ -253,13 +266,16 @@ The matrix's current gap lists (fundamentals, microstructure, trade recommendati
 
 ## 8. Security Model
 
-(Adopted from the RFC.)
+(Adopted from the RFC. The control-by-control map, with what enforces each one and the open gaps,
+is [`docs/architecture/security.md`](../architecture/security.md); Rule 11 makes it part of
+review. Checked against the deployment on 2026-10-27: two of the RFC's controls below were never
+built, and one was reversed. They are marked rather than deleted so the intent survives.)
 
 - **Threats:** prompt/argument injection through LLM-controlled tool arguments; "confused deputy" privilege escalation if a high-privilege MCP process acts on a low-privilege user's behalf.
-- **Containment:** the LLM never forms queries against the database or providers. It is restricted to the strict input schemas of curated tools; the REST tier performs type validation, permission checks, and rate limiting on every call — identically for human UIs and AI agents.
+- **Containment:** the LLM never forms queries against the database or providers. It is restricted to the strict input schemas of curated tools; the REST tier performs type validation and permission checks on every call — identically for human UIs and AI agents. *Rate limiting was part of the RFC and is **not implemented** (security map gap G2).*
 - **Identity passthrough:** the orchestrator extracts the client's JWT and passes it in MCP metadata; the wrapper forwards it as `Authorization: Bearer <token>` to the REST tier, preserving per-user audit trails.
-- **Transport isolation:** MCP wrappers and their internal HTTP hop live inside the private network (VPC / Cloud Run internal ingress). Public clients reach only the authenticated REST front door.
-- **Write gating:** any state-mutating tool (plans today, orders someday) requires explicit confirmation, an idempotency key, and an audit record — enforced in the services layer (Rule 5), not in the wrapper.
+- **Transport isolation (reversed):** the RFC put the wrappers and their HTTP hop on internal ingress. They and `quantcore-api` are public (`allUsers`) by design (#297), because AI clients send a JWT Google can't verify; `api/auth.py`'s JWT check is the single enforcement point. See [`cloudrun-services.md`](../architecture/cloudrun-services.md).
+- **Write gating (not implemented):** the target is that any state-mutating tool (plans today, orders someday) requires explicit confirmation, an idempotency key, and an audit record — enforced in the services layer (Rule 5), not in the wrapper. Today the write tools (`add_to_watchlist`, `collect_news`) have an audit field at most, and Sidekick has no write tools.
 
 ---
 

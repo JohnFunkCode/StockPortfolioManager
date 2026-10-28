@@ -14,20 +14,23 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.auth import (
     AuthConfigurationError,
     Principal,
     assert_auth_enforced_on_cloud_run,
+    require_owner,
     require_principal,
+    resolve_owner_or_none,
 )
+from quantcore.services.identity import UnknownIdentityError
 
 SECRET = "test-secret-key-at-least-32-bytes-long-000"
 
@@ -363,6 +366,164 @@ class CloudRunFailClosedTests(unittest.TestCase):
                     self.assertRaises(AuthConfigurationError):
                 create_app()
             ensure_schema.assert_not_called()
+
+
+class SecurityEventLogTests(unittest.TestCase):
+    """Every rejection logs one ``SECURITY`` line on ``quantcore.security`` (#464, G6).
+
+    The log-based metrics in the G6 alert match these exact words, so the format is
+    part of the contract. No line may carry the token: it is a live credential (or,
+    expired, a replayable one), and the never-log policy covers it either way.
+    """
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in _AUTH_ENV_KEYS}
+        for k in _AUTH_ENV_KEYS:
+            os.environ.pop(k, None)
+        os.environ["QUANTCORE_JWT_SECRET"] = SECRET
+        os.environ["QUANTCORE_JWT_PUBLIC_KEY"] = EC_PUBLIC_PEM
+        self.client = TestClient(_make_app(), raise_server_exceptions=False)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _rejected(self, token=None):
+        headers = {"Authorization": f"Bearer {token}"} if token else {}
+        with self.assertLogs("quantcore.security", level="WARNING") as logs:
+            r = self.client.get("/protected", headers=headers)
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(len(logs.records), 1)
+        out = logs.records[0].getMessage()
+        if token:
+            self.assertNotIn(token, out)
+        return out
+
+    def test_missing_token(self):
+        self.assertEqual(self._rejected(), "SECURITY auth_rejected reason=missing")
+
+    def test_bad_signature_is_invalid_and_names_no_one(self):
+        tok = _token({"sub": "mallory"}, secret="a-different-secret-also-32-bytes-long-0000")
+        out = self._rejected(tok)
+        self.assertEqual(out, "SECURITY auth_rejected reason=invalid")
+        self.assertNotIn("mallory", out)
+
+    def test_garbage_token_is_invalid(self):
+        self.assertEqual(
+            self._rejected("not-a-jwt"), "SECURITY auth_rejected reason=invalid"
+        )
+
+    def test_expired_service_token_names_its_holder(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        out = self._rejected(_token({"sub": "sager", "exp": exp}))
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=sager")
+
+    def test_expired_user_token_names_its_holder(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        out = self._rejected(_user_token({"sub": "thomas@example.com", "exp": exp}))
+        self.assertEqual(
+            out, "SECURITY auth_rejected reason=expired identity=thomas@example.com"
+        )
+
+    def test_expired_token_with_bad_signature_is_invalid(self):
+        # PyJWT checks the signature before exp, so a forged expired token is
+        # "invalid", and its sub never reaches the log.
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _token(
+            {"sub": "mallory", "exp": exp},
+            secret="a-different-secret-also-32-bytes-long-0000",
+        )
+        self.assertEqual(self._rejected(tok), "SECURITY auth_rejected reason=invalid")
+
+    def test_expired_token_for_another_audience_names_no_one(self):
+        # PyJWT raises ExpiredSignatureError before checking aud, so expiry alone
+        # doesn't make the sub ours; the exp-skipping re-verification rejects it.
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _user_token({"sub": "thomas@example.com", "exp": exp}, aud="other-service")
+        out = self._rejected(tok)
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_from_another_issuer_names_no_one(self):
+        os.environ["QUANTCORE_JWT_ISSUER"] = "https://expected-issuer"
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _token({"sub": "sager", "exp": exp, "iss": "https://other-issuer"})
+        out = self._rejected(tok)
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_with_non_string_subject_names_no_one(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        out = self._rejected(_token({"sub": ["a", "b"], "exp": exp}))
+        self.assertEqual(out, "SECURITY auth_rejected reason=expired identity=unknown")
+
+    def test_expired_token_with_malformed_optional_claims_is_still_401(self):
+        # roles/scope aren't PyJWT-validated; reading them must not turn the 401
+        # into a 500 (review of #468).
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        for claim in ({"roles": 42}, {"scope": 42}):
+            with self.subTest(claim):
+                out = self._rejected(_token({"sub": "holder", "exp": exp, **claim}))
+                self.assertEqual(
+                    out, "SECURITY auth_rejected reason=expired identity=holder"
+                )
+
+    def test_accepted_token_logs_nothing(self):
+        with self.assertNoLogs("quantcore.security", level="WARNING"):
+            r = self.client.get(
+                "/protected", headers={"Authorization": f"Bearer {_token({'sub': 'john'})}"}
+            )
+        self.assertEqual(r.status_code, 200)
+
+
+class UnmappedIdentityLogTests(unittest.TestCase):
+    """An identity with no ``owner_identities`` row logs a security event (#464).
+
+    Hard (``require_owner``, 403) and soft (``resolve_owner_or_none``, Sidekick)
+    paths log under distinct names so monitoring can tell them apart.
+    """
+
+    def setUp(self):
+        self.token = _token({"sub": "stranger@example.com"})
+        self.principal = Principal.from_claims(
+            {"sub": "stranger@example.com"}, self.token
+        )
+        services = MagicMock()
+        services.identity.resolve_owner.side_effect = UnknownIdentityError("unmapped")
+        patcher = patch("api.auth.get_services", return_value=services)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_require_owner_logs_and_403s(self):
+        with self.assertLogs("quantcore.security", level="WARNING") as logs, \
+                self.assertRaises(HTTPException) as ctx:
+            require_owner(self.principal)
+        self.assertEqual(ctx.exception.status_code, 403)
+        self.assertEqual(ctx.exception.detail, "not_provisioned")
+        out = logs.records[0].getMessage()
+        self.assertTrue(
+            out.startswith("SECURITY unmapped_principal identity=stranger@example.com at="),
+            out,
+        )
+        self.assertNotIn(self.token, "\n".join(logs.output))
+
+    def test_soft_path_logs_distinct_event_and_returns_none(self):
+        with self.assertLogs("quantcore.security", level="WARNING") as logs:
+            self.assertIsNone(resolve_owner_or_none(self.principal))
+        out = logs.records[0].getMessage()
+        self.assertTrue(
+            out.startswith(
+                "SECURITY unmapped_principal_soft identity=stranger@example.com at="
+            ),
+            out,
+        )
+        self.assertNotIn(self.token, "\n".join(logs.output))
+
+    def test_local_principal_never_logs(self):
+        with self.assertNoLogs("quantcore.security", level="WARNING"):
+            self.assertEqual(require_owner(Principal.local()), "john")
+            self.assertEqual(resolve_owner_or_none(Principal.local()), "john")
 
 
 if __name__ == "__main__":

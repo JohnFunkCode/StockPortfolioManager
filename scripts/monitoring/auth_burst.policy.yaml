@@ -1,0 +1,49 @@
+# Alert policy: a burst of 401/403s at one public service (#464, security gap G6).
+# Applied by scripts/auth_alerting.py, which adds notificationChannels — never put them here.
+#
+# Threshold: more than 10 in 5 minutes per service. Baseline (2026-10-28, 30 days of
+# request logs): prod saw 3 rejections in total and test 9; no 5-minute window in either
+# held more than 3. Ten is >3x the worst quiet-day window and still trips within one
+# window of a guessing or replay loop. Re-measure before raising it.
+displayName: "G6: auth-failure burst (401/403)"
+enabled: true
+combiner: OR
+severity: WARNING
+userLabels:
+  managed-by: scripts-auth-alerting
+conditions:
+  - displayName: ">10 401/403 in 5 min at one service"
+    conditionThreshold:
+      filter: >-
+        metric.type="logging.googleapis.com/user/auth_rejections"
+        AND resource.type="cloud_run_revision"
+      aggregations:
+        - alignmentPeriod: 300s
+          perSeriesAligner: ALIGN_SUM
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - resource.label.service_name
+      comparison: COMPARISON_GT
+      thresholdValue: 10
+      duration: 0s
+      trigger:
+        count: 1
+alertStrategy:
+  autoClose: 1800s
+documentation:
+  mimeType: text/markdown
+  content: |-
+    More than 10 requests in 5 minutes were refused with 401/403 by one public service
+    (`${resource.label.service_name}`). quantcore-api and the MCP wrappers are `allUsers`
+    by design, so `api/auth.py` is the only gate and this is the alarm that someone is
+    hammering it.
+
+    **First look** (Logs Explorer, same project):
+    `resource.type="cloud_run_revision" AND textPayload:"SECURITY auth_rejected"`
+    - mostly `reason=expired identity=<x>`: a client's token lapsed and it is retrying —
+      have that user mint a new one (`scripts/mint_prod_jwt.py`, 90-day rotation).
+    - mostly `reason=invalid` or `reason=missing` from one source: token guessing or a
+      misconfigured client. Check `httpRequest.remoteIp` / `userAgent` in the request log.
+    - keyproxy 403s: a caller other than quantcore-api's SA reached its IAM front end.
+
+    Design and thresholds: `docs/proposals/auth-failure-alerting-plan.md`.

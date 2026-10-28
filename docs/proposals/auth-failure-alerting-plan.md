@@ -1,6 +1,6 @@
 # Auth-failure alerting (Security gap G6, issue #464)
 
-**Status:** plan, not started. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
+**Status:** steps 0–3 and 5 done (#468, and the PR adding `scripts/monitoring/`); step 4, applying the config and proving it, is next. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
 A09), found by the security map in #458.
 
 ## Problem
@@ -77,6 +77,18 @@ from MCP clients after a token expires, and from scanners probing the public URL
 and the maximum 5-minute count per service in this doc. **Done when** each threshold in step 3 is
 written down along with the number it came from.
 
+**Result (2026-10-28, 30 days, the full `_Default` retention):** traffic is very quiet, too quiet
+for a p99 to mean anything, so the maximum 5-minute count sets the thresholds.
+
+| Project | 401/403 in 30 d | Services | Max in one 5 min | `unmapped_principal` |
+|---|---|---|---|---|
+| prod | 3 (all 401) | quantcore-api | 2 | 0 |
+| test | 9 (6×401, 3×403) | quantcore-api, quantcore-keyproxy (one 403) | 3 | 3, from one onboarding on 2026-10-05 |
+
+There was no scanner noise, and no wrapper ever returned 401/403, which confirms that only the
+api and keyproxy decide auth. Thresholds: burst **> 10 per 5 min per service** (more than three
+times the worst window seen); unmapped identity **> 0 in 15 min**; expired token **> 0 in 1 h**.
+
 ### Step 1: Close the Convention row (small PR, can land first)
 
 - Add `tests/test_auth.py` cases using `assertLogs("quantcore.security", level="WARNING")`:
@@ -124,9 +136,10 @@ New files next to the AR policy:
 ```
 scripts/monitoring/auth_rejections.metric.yaml     # log-based metric
 scripts/monitoring/security_events.metric.yaml     # log-based metric
-scripts/monitoring/auth_burst.policy.json          # alert policy
-scripts/monitoring/unmapped_identity.policy.json   # alert policy
-scripts/apply_auth_alerting.sh                     # [--prod] [--check] [--channel-email ADDR]
+scripts/monitoring/auth_burst.policy.yaml          # alert policy
+scripts/monitoring/unmapped_identity.policy.yaml   # alert policy
+scripts/monitoring/expired_token.policy.yaml       # alert policy
+scripts/auth_alerting.py                           # apply|check --env test|prod [--email ADDR]
 ```
 
 **Metrics.** Labels stay low-cardinality. Identity is **never** a label, for privacy and because
@@ -134,51 +147,64 @@ it would make cardinality unbounded.
 
 | Metric | Filter | Labels |
 |---|---|---|
-| `auth_rejections` | `resource.type="cloud_run_revision" AND log_id("run.googleapis.com/requests") AND resource.labels.service_name=("quantcore-api" OR "quantcore-keyproxy") AND httpRequest.status=(401 OR 403)` | `service_name`, `status` |
+| `auth_rejections` | `resource.type="cloud_run_revision" AND log_id("run.googleapis.com/requests") AND resource.labels.service_name=("quantcore-api" OR "quantcore-keyproxy") AND httpRequest.status=(401 OR 403)` | `status`; `service_name` comes with the resource |
 | `security_events` | `resource.type="cloud_run_revision" AND textPayload:"quantcore.security: SECURITY "` | `event` (regex extract: `unmapped_principal`, `unmapped_principal_soft`, `auth_rejected`), `reason` |
 
 Use `log_id()` rather than a `logName` that contains the project id, so one file serves both
 projects.
 
-**Policies** (the thresholds are placeholders until step 0 fills them in):
+**Policies** (thresholds from step 0):
 
 | Policy | Condition | Why |
 |---|---|---|
-| Auth-failure burst | `auth_rejections` summed per `service_name` over 5 min > *N* | Guessing, replay, or a broken client |
-| Unmapped identity | `security_events{event=unmapped_principal*}` ≥ *M* in 15 min | Either someone with a valid token we never granted, or an onboarding that missed the `owner_identities` row. Both are worth knowing about. |
-| *(optional)* Expired token in use | `security_events{reason=expired}` > 0 in 1 h | Tells you a client's 90-day token lapsed, which ties in with the rotation reminder |
+| Auth-failure burst | `auth_rejections` summed per `service_name` over 5 min > 10 | Guessing, replay, or a broken client |
+| Unmapped identity | `security_events{event=unmapped_principal*}` > 0 in 15 min | Either someone with a valid token we never granted, or an onboarding that missed the `owner_identities` row. Both are worth knowing about. |
+| Expired token in use | `security_events{reason=expired}` > 0 in 1 h | Tells you a client's 90-day token lapsed, which ties in with the rotation reminder |
 
 Each policy carries `documentation.content` that says what the alert means and what to check
 first, so the email can be acted on without opening this doc.
 
-**Script behaviour.** It follows the conventions of `apply_ar_cleanup_policy.sh`. Default is
-test, `--prod` prompts, and the target is echoed before anything runs. It is idempotent: it
-creates a metric or policy that's missing, updates one that exists (looking policies up by
-`displayName`), and creates the email channel once and reuses it after that. `--check` is a
-read-only drift report, like `cloudrun_services.py check`. Confirm at implementation time whether
-`gcloud monitoring policies` is GA or still `alpha`/`beta`, and record which it was here.
+**Script behaviour.** It is written in Python rather than shell, like `cloudrun_services.py`:
+merging the channel into each policy and comparing nested policy fields is awkward in shell.
+The project comes from `deploy/cloudrun-services.toml`'s `environments`. The target is echoed
+before anything runs, and `--env prod` prompts. It is idempotent: it creates a metric or policy
+that's missing, updates one that exists (looking policies up by `displayName`), and creates the
+email channel once and reuses it after that. `check` is a read-only drift report. It compares
+only the fields a file sets, so fields the API adds don't count as drift. `enabled` is one
+of them: every policy file sets `enabled: true`, so a policy disabled in the console shows as
+drift and the next `apply` turns it back on. As of SDK 588,
+`gcloud monitoring policies` is GA, but `channels` exists only under `gcloud beta`.
 
-**Test:** `tests/test_monitoring_config.py` parses every file and checks:
-- each policy references a metric defined in `scripts/monitoring/`
+**Test:** `tests/test_auth_alerting.py` parses every file and checks:
+- each policy references a metric defined in `scripts/monitoring/`, and every label it filters
+  on exists
 - the filters cover 401 and 403 and both services
 - no metric has an identity-like label
-- no project id or email address is hard-coded
+- no project id, email address or `notificationChannels` is committed
+- the `security_events` regexes, run over the exact lines `api/auth.py` emits, produce the right
+  `event`/`reason`
+- `apply` attaches the channel on both create and update, refuses without `--email` when no
+  channel exists, and asks before prod
+
+All of this runs against a fake `gcloud`.
 
 ### Step 4: Prove it on test, then prod
 
 1. Apply on test. Send a synthetic burst at **test's** `quantcore-api`: more than *N* requests
    with a garbage bearer, plus one expired token. Confirm both metrics move, the burst policy
    opens an incident, the email arrives, and the incident closes on its own.
-2. Run the script's `--check` and confirm it reports no drift.
-3. Prod: John runs `./scripts/apply_auth_alerting.sh --prod`. Don't run a burst against prod;
-   check `--check` and the metric's first data points instead.
+2. Run `python scripts/auth_alerting.py check --env test` and confirm it reports no drift.
+   This is also the first test of `check`'s comparison against real API output; until now it has
+   only seen the fake.
+3. Prod: John runs `python scripts/auth_alerting.py apply --env prod`. Don't run a burst against
+   prod; look at `check --env prod` and the metric's first data points instead.
 
 Append a checkpoint line to this doc for each, with what actually happened.
 
 ### Step 5: Docs, in the same PR as step 3
 
 - `security.md` A09: the G6 row becomes **Enforced** (guard: the metrics and policies, plus
-  `test_monitoring_config.py`). Remove G6 from the open-gaps list. Add an `auth_rejected` row if
+  `test_auth_alerting.py`). Remove G6 from the open-gaps list. Add an `auth_rejected` row if
   step 2 landed.
 - `CLAUDE.md`, Security review map paragraph: change "open gaps (G1–G4, G6)" to drop G6. Add a
   one-line rule next to the AR policy: monitoring config lives in `scripts/monitoring/` and is
@@ -215,3 +241,31 @@ Append a checkpoint line to this doc for each, with what actually happened.
   fix reads only the string `sub`/`email` and falls back to `unknown` on any failure. **Gotcha:**
   the plan had said that expired tokens have verified claims. They don't, because PyJWT checks
   `exp` before `iss`/`aud`/`sub` (see step 2).
+- **2026-10-28, step 0 done.** The numbers and thresholds are under step 0. **Gotcha:** a
+  `quantcore.security` line arrives as a plain `textPayload` on `run.googleapis.com/stderr`
+  with **no severity**, so the metric matches on the `quantcore.security: SECURITY ` text, not
+  on a severity.
+- **2026-10-28, steps 3 and 5 written (not yet applied).** Before anything was applied, both
+  projects had **no** log metrics, alert policies or channels. Both metric filters were checked
+  read-only with `gcloud logging read` and matched real test logs. Gotchas:
+  - `gcloud monitoring channels` doesn't exist; channels are beta-only (`gcloud beta monitoring
+    channels`), while policies are GA. `gcloud <group> --help` exits non-zero for some groups,
+    so probing for a command that way gives false negatives; read the help text instead.
+  - `policies update --policy-from-file` replaces the whole policy, so a file without
+    `notificationChannels` would detach the email channel on every re-apply. The script merges
+    the channel in, and a test guards it.
+  - Alert-policy `severity` has no `INFO`; WARNING is the lowest.
+  - The extractor regexes contain `: `, which breaks unquoted YAML. They are single-quoted and
+    written without backslashes (`[.]`, `[a-z_]+`), so nobody has to work out how YAML, the
+    extractor string and RE2 each read an escape.
+  - A log metric created moments before a policy that uses it may not exist yet when the policy
+    is created. If the policy create fails in the same run, the script says to re-run.
+    **Unverified** until step 4.
+- **2026-10-28, #469 review.** `check` reported a **disabled** policy as `ok`, because
+  `enabled` had been left out of the compared fields as API-owned. It isn't: a disabled policy
+  can't alert, which is the worst drift there is. Each policy file now sets `enabled: true`, and
+  `check` compares it; a test drives a disabled live policy and expects drift. The review also
+  flagged `cmd_check`, `cmd_apply` and the test fake's `__call__` as over the complexity bands
+  (13/18, 13/20, 14/20). They were split into per-object helpers and a handler table, now 6/6,
+  7/8 and 6/5 (Radon 6.0.1 cyclomatic / complexipy 8.3.0 cognitive), with tests for the gcloud
+  failure paths and the just-created-metric warning.

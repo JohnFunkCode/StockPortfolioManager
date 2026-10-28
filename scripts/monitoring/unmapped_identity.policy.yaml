@@ -1,0 +1,47 @@
+# Alert policy: a verified identity with no owner_identities row (#464, security gap G6).
+# Applied by scripts/auth_alerting.py, which adds notificationChannels — never put them here.
+#
+# Threshold: any. Baseline (2026-10-28, 30 days): prod logged none; test's only ones were
+# an onboarding on 2026-10-05. A valid token we never granted, or a grant that missed its
+# owner_identities row, is worth knowing about every time.
+displayName: "G6: unmapped identity"
+enabled: true
+combiner: OR
+severity: WARNING
+userLabels:
+  managed-by: scripts-auth-alerting
+conditions:
+  - displayName: "any unmapped_principal(_soft) in 15 min"
+    conditionThreshold:
+      filter: >-
+        metric.type="logging.googleapis.com/user/security_events"
+        AND resource.type="cloud_run_revision"
+        AND metric.label.event=one_of("unmapped_principal", "unmapped_principal_soft")
+      aggregations:
+        - alignmentPeriod: 900s
+          perSeriesAligner: ALIGN_SUM
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - metric.label.event
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: 0s
+      trigger:
+        count: 1
+alertStrategy:
+  autoClose: 3600s
+documentation:
+  mimeType: text/markdown
+  content: |-
+    A caller with a **valid** token reached an owner-scoped route, but its identity has no
+    `owner_identities` row (`${metric.label.event}`: `unmapped_principal` is the hard 403,
+    `unmapped_principal_soft` the Sidekick path that degrades instead).
+
+    **First look:** `textPayload:"SECURITY unmapped_principal"` shows `identity=`.
+    - a user you meant to onboard: the grant missed its row — re-run
+      `scripts/grant_quantui_iap_access.sh` (it writes the row; a hand-run gcloud IAP grant
+      doesn't).
+    - an identity you don't recognise: someone holds a token we signed. Find how
+      (`scripts/mint_prod_jwt.py` sub, or IAP) and rotate the key that signed it.
+
+    Design: `docs/proposals/auth-failure-alerting-plan.md`.

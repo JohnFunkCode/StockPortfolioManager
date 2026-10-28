@@ -428,6 +428,27 @@ untagged, and a tag-state rule would delete it once it aged out, breaking new in
 rollbacks. The policy is version-count based for exactly that reason. Change it by editing the JSON
 and re-running the script, not with a one-off `gcloud` call, so the file stays the single home.
 
+### Auth-failure alerting (G6)
+
+The log-based metrics and alert policies that watch the public tier's 401/403s and
+`quantcore.security` events live in `scripts/monitoring/` and are applied by
+`python scripts/auth_alerting.py apply --env test|prod` (`check` is the read-only drift report;
+it compares `enabled`, so a policy disabled in the console is drift, not `ok`).
+Rules to keep:
+
+- **Edit the files and re-run the script; never make a one-off `gcloud` change.** The next
+  apply reverts the live config to the files.
+- **No `notificationChannels` in a policy file.** The script merges the email channel in,
+  because `policies update --policy-from-file` replaces the whole policy.
+- **Never an identity as a metric label.** It is unbounded, and it would copy *who* into a
+  metric.
+- **The `SECURITY <event>` wording in `api/auth.py` is a contract.** Changing it zeroes a metric
+  without any error; `tests/test_auth_alerting.py` runs the metric regexes over the real lines.
+- **An operator applies it, never CI** (`run.developer` can't write monitoring config).
+
+Thresholds and their baseline:
+[`auth-failure-alerting-plan.md`](docs/proposals/auth-failure-alerting-plan.md).
+
 
 ### Environments (prod is the system of record)
 

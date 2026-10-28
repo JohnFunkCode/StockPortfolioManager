@@ -76,7 +76,8 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Thin adapters, exactly one service call deep; business rules live in one service layer ([architectural-standard-v2.md](../proposals/architectural-standard-v2.md) Rules 1–6). | `tests/test_mcp_tool_contracts.py`; review | Partly enforced |
 | A plan exists only while the owner holds the shares. | `tests/test_harvester_service.py` | Enforced |
 | Watchlist removal is UI-only: the MCP seam has no `delete` verb. | `mcp_gateway/rest_client.py` | Convention |
-| No inbound rate limiting anywhere. The only bounds are Cloud Run `max_instances` and concurrency. Sidekick turns spend the user's own Anthropic key. | — | **Gap G2** |
+| The keyproxy rate-limits envelope redemption per `sub` (`SubRateLimiter` in `keyproxy/replay.py`, token bucket, `KEYPROXY_RATE_LIMIT_PER_MIN`, default 30), answering 429; a full bucket map refuses new subs (fail closed). | `tests/test_keyproxy_replay.py` (`TestSubRateLimiter`), `tests/test_keyproxy_service.py` (`test_third_redemption_in_a_minute_is_429`) | Enforced |
+| The public REST tier (`quantcore-api`) and the MCP wrappers have no inbound rate limit; the only bounds are Cloud Run `max_instances` and concurrency. Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. | — | **Gap G2** |
 
 ### A07 Authentication Failures
 
@@ -133,13 +134,20 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 Each gap has a backlog issue (label `security`). Close it by changing the row above and deleting it here.
 
 - **G1 ([#460](https://github.com/JohnFunkCode/StockPortfolioManager/issues/460)) — Owner isolation isn't a general rule.** The SQL-predicate rule and its wrong-owner tests
-  exist for Harvester and positions. `options_positions` has no `owner` column; today only the
-  registry constructs `OptionsPositionStore`, and no route or service reads it, so nothing leaks.
-  Promote the rule to "every per-owner table", and give `options_positions` an owner before
-  anything exposes it.
+  exist for Harvester and positions. `options_positions` has no `owner` column. It has a live
+  consumer: the daily job's notification pass (`Notifier.check_options_alerts` in `notifier.py`,
+  called from `calculate_and_send_notifications`, which `main.py` runs) expires past positions and reads every active position and
+  pending alert, across all rows, posting to the one shared Discord webhook. The registry also
+  constructs `OptionsPositionStore`. No REST route, MCP tool or Sidekick tool reads it, so no
+  *user-facing* surface exposes it today, but that rests on the consumer list staying short, not on
+  any owner predicate. Promote the rule to "every per-owner table", and give `options_positions` an
+  owner (and the notifier an owner-aware read) before anything else consumes it.
 - **G2 ([#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461)) — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
-  limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic (429s hurt every
-  user) and unbounded Sidekick turns on the user's own key.
+  limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic through the public
+  REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The
+  one limiter that exists, the keyproxy's per-`sub` redemption bucket, is Enforced (A06 row) and
+  stays; it bounds envelope redemptions per minute, which is neither an ingress limit nor a
+  per-user spending budget.
 - **G3 ([#462](https://github.com/JohnFunkCode/StockPortfolioManager/issues/462)) — Bound parameters aren't enforced.** The dynamic SQL interpolates only code-built
   fragments today, but nothing would catch a value interpolated tomorrow. An AST test like the
   pickle ban could flag f-string/`%`/`.format` SQL whose fields aren't on an allow-list.

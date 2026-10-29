@@ -155,3 +155,4 @@ security.md.
 | Step | Date | PR | Notes |
 |---|---|---|---|
 | plan | 2026-10-29 | — | D1–D5 agreed with John: containment test, enforced read-only list, spotlighting deferred, no live check. |
+| step 1 | 2026-10-29 | — | Prompt rule, `READ_ONLY_TOOLS`, `TestPromptInjectionContainment` (6 cases), `TestReadOnlyTools`, security.md LLM01/LLM06, G4 removed, CLAUDE.md rule. #478 merged before this branch was cut, so the checkpoint lands here. |

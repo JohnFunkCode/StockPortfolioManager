@@ -9,9 +9,12 @@ Pure unit layer — no DB, no network, no Anthropic. Covers:
 import json
 import math
 import unittest
+from unittest.mock import Mock
 
 from api.sse import event_stream, sse_encode
 from quantcore.services.chat import (
+    READ_ONLY_TOOLS,
+    ChatService,
     Directive,
     Done,
     ErrorEvent,
@@ -413,6 +416,39 @@ class TestToolSchemas(unittest.TestCase):
         tool = next(t for t in TOOL_SCHEMAS if t["name"] == "scan_arbitrage")
         self.assertIn("watch", tool["description"])
         self.assertIn("not an error", tool["description"])
+
+
+
+class TestReadOnlyTools(unittest.TestCase):
+    """Every tool the model can call only reads (#463, OWASP LLM06).
+
+    That is what bounds an injected instruction in a tool result to a
+    misleading answer. The test can't tell whether a handler writes — review
+    does that — but it makes adding a tool a deliberate edit to READ_ONLY_TOOLS,
+    under the comment that says what a write tool needs first.
+    """
+
+    WHY = (
+        "a new Sidekick tool must be read-only and listed in READ_ONLY_TOOLS, or "
+        "ship architectural-standard-v2 \u00a78 write gating first "
+        "(docs/proposals/prompt-injection-g4-plan.md D2)"
+    )
+
+    def test_schemas_are_exactly_the_read_only_tools_plus_show_component(self):
+        names = {t["name"] for t in TOOL_SCHEMAS}
+        self.assertEqual(names - {"show_component"}, READ_ONLY_TOOLS, self.WHY)
+
+    def test_handlers_are_exactly_the_read_only_tools(self):
+        service = ChatService(
+            prices=Mock(),
+            fundamentals=Mock(),
+            sentiment=Mock(),
+            options=Mock(),
+            arbitrage=Mock(),
+            portfolio=Mock(),
+            client_factory=lambda context: Mock(),
+        )
+        self.assertEqual(set(service._handlers), READ_ONLY_TOOLS, self.WHY)
 
 
 if __name__ == "__main__":

@@ -375,6 +375,15 @@ model loading, error handling, Cloud Run config or Sidekick/MCP tools is reviewe
 categories it touches, findings name their category, and a changed control or gap updates its row
 in the same PR. The rules themselves stay where they are in this file; the map links to them.
 
+**Inbound rate limit (G2, #461).** Every protected api route counts against one per-principal
+token bucket in `api/rate_limit.py`, held in-process (at most 3× the setting across the 3
+instances, by design). It runs after `require_principal`, so a 401 never counts. It ships in
+**`shadow`**: a would-be refusal is logged as `SECURITY rate_limited` (a G6 metric contract) and the
+request is served. Switching to `enforce` and setting real limits is G2 step 3, from the soak data
+and agreed by the team; don't do either outside it. An unparseable setting falls back to
+`shadow`. Plan, numbers and the Sidekick budget still to come:
+[`rate-limiting-g2-plan.md`](docs/proposals/rate-limiting-g2-plan.md).
+
 ### Issue triage
 
 New issues go to **Inbox** on project board 4; the `issue-triage` scheduled task suggests Area,

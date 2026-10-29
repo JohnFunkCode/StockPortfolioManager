@@ -40,6 +40,7 @@ if str(FAST_MCP_DIR) not in sys.path:
 from .auth import assert_auth_enforced_on_cloud_run, require_principal  # noqa: E402
 from .errors import register_exception_handlers  # noqa: E402
 from .json_response import QuantCoreJSONResponse  # noqa: E402
+from .rate_limit import enforce_rate_limit  # noqa: E402
 
 
 def create_app() -> FastAPI:
@@ -92,7 +93,9 @@ def create_app() -> FastAPI:
     # Every business route is gated by the JWT dependency. Locally and in the
     # docker-compose stack AUTH_DISABLED=1 makes the dependency a no-op (it injects a
     # local principal), so this is inert until JWT is turned on for Cloud Run.
-    protected = Depends(require_principal)
+    # The rate limit runs after it (FastAPI resolves require_principal once per
+    # request), so a missing token is a 401 before it can count (G2, #461).
+    protected = [Depends(require_principal), Depends(enforce_rate_limit)]
     for module in (
         plans,
         rungs,
@@ -110,7 +113,7 @@ def create_app() -> FastAPI:
         keyproxy,
         settings,
     ):
-        app.include_router(module.router, dependencies=[protected])
+        app.include_router(module.router, dependencies=protected)
 
     return app
 

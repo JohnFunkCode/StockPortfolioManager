@@ -22,6 +22,18 @@ describe('apiRequest', () => {
     });
   });
 
+  it('surfaces the rate limiter\'s 429 message (G2, #461)', async () => {
+    // The body api/errors.py builds for the HTTPException api/rate_limit.py raises.
+    const message = 'Too many requests. Try again in 5 seconds.';
+    vi.stubGlobal('fetch', vi.fn(async () =>
+      new Response(JSON.stringify({ error: message, message, status: 429 }), {
+        status: 429,
+        headers: { 'Retry-After': '5' },
+      }),
+    ));
+    await expect(apiRequest('/api/x')).rejects.toMatchObject({ status: 429, message });
+  });
+
   it('falls back to statusText when the error body is not JSON', async () => {
     // Non-JSON body -> response.json() rejects -> the .catch(() => ({})) path.
     vi.stubGlobal('fetch', vi.fn(async () =>

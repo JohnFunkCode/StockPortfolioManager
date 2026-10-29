@@ -8,6 +8,7 @@
 # The events and reasons are pinned by tests/test_auth_alerting.py, which runs these
 # regexes over the lines auth.py actually emits:
 #   event:  auth_rejected | unmapped_principal | unmapped_principal_soft
+#           | rate_limited (api/rate_limit.py, G2 #461)
 #   reason: missing | expired | invalid   (auth_rejected only; empty otherwise)
 # No identity label, ever: the lines carry identity= for diagnosis in the log itself.
 description: >-

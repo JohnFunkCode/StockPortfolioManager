@@ -10,6 +10,7 @@ nothing reaches Google Cloud.
 import importlib.util
 import json
 import logging
+import os
 import re
 import unittest
 from contextlib import redirect_stdout
@@ -17,6 +18,7 @@ from io import StringIO
 from pathlib import Path
 from unittest import mock
 
+from api import rate_limit
 from api.auth import Principal, _log_rejection, require_owner, resolve_owner_or_none
 from quantcore.services.identity import UnknownIdentityError
 
@@ -142,6 +144,21 @@ class ExtractorTests(unittest.TestCase):
         self.assertEqual(
             self._labels(soft_line), {"event": "unmapped_principal_soft", "reason": ""}
         )
+
+    def test_rate_limited_event(self):
+        # G2 (#461): metric only until step 3, so no policy reads it yet -- but the
+        # metric must already count the line the soak is measured by.
+        principal = Principal.from_claims({"sub": "runaway"}, None)
+        request = mock.MagicMock()
+        request.scope = {"route": mock.MagicMock(path="/api/securities/{ticker}")}
+        env = {rate_limit.MODE_ENV: "shadow", rate_limit.BURST_ENV: "1"}
+        rate_limit.reset_limiter()
+        self.addCleanup(rate_limit.reset_limiter)
+        with mock.patch.dict(os.environ, env):
+            rate_limit.enforce_rate_limit(request, principal)  # takes the one token
+
+            (line,) = self._lines(lambda: rate_limit.enforce_rate_limit(request, principal))
+        self.assertEqual(self._labels(line), {"event": "rate_limited", "reason": ""})
 
     def test_policy_label_values_are_values_the_metric_produces(self):
         produced = {"auth_rejected", "unmapped_principal", "unmapped_principal_soft",

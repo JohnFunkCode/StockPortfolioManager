@@ -14,6 +14,8 @@ Status vocabulary:
 
 - **Enforced** — a test or CI step fails when the rule is broken.
 - **Convention** — a written rule that only a reviewer checks.
+- **Shadow** — the control is built and tested but only logs what it would refuse; it becomes
+  Enforced when switched on. The gap it belongs to stays open until then.
 - **Gap** — not covered; listed under [Gaps](#gaps) with an id.
 
 Mapped against `main` at 2026-10-27. When you add a control or close a gap, update its row in the
@@ -78,7 +80,8 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | A plan exists only while the owner holds the shares. | `tests/test_harvester_service.py` | Enforced |
 | Watchlist removal is UI-only: the MCP seam has no `delete` verb. | `mcp_gateway/rest_client.py` | Convention |
 | The keyproxy rate-limits envelope redemption per `sub` (`SubRateLimiter` in `keyproxy/replay.py`, token bucket, `KEYPROXY_RATE_LIMIT_PER_MIN`, default 30), answering 429; a full bucket map refuses new subs (fail closed). | `tests/test_keyproxy_replay.py` (`TestSubRateLimiter`), `tests/test_keyproxy_service.py` (`test_third_redemption_in_a_minute_is_429`) | Enforced |
-| The public REST tier (`quantcore-api`) and the MCP wrappers have no inbound rate limit; the only bounds are Cloud Run `max_instances` and concurrency. Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. Chosen design, not yet implemented: a per-principal token bucket in the api, shadow mode before enforcing ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md)). | — | **Gap G2** |
+| Every protected `quantcore-api` route counts against a per-principal token bucket (`api/rate_limit.py`, in-process, one bucket for all routes; `QUANTCORE_RATE_LIMIT_MODE`/`_PER_MIN`/`_BURST`). It runs after auth, so a 401 never counts, and covers the MCP wrappers too, which forward the caller's token. **Shadow mode**: a would-be refusal is logged as `SECURITY rate_limited` and the request is served; enforcing (429 + `Retry-After`) waits for limits set from the soak ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) step 3). | `tests/test_rate_limit.py` (every protected operation, via OpenAPI), `tests/test_auth_alerting.py` (`test_rate_limited_event`) | Shadow (G2) |
+| Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. Chosen design, not yet implemented: a daily per-user token budget ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) step 2). | — | **Gap G2** |
 
 ### A07 Authentication Failures
 
@@ -143,7 +146,8 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The
   one limiter that exists, the keyproxy's per-`sub` redemption bucket, is Enforced (A06 row) and
   stays; it bounds envelope redemptions per minute, which is neither an ingress limit nor a
-  per-user spending budget.
+  per-user spending budget. The api's per-principal limiter (A06 row) now exists in shadow mode,
+  logging but not refusing; what remains is the Sidekick budget and enforcing both.
   Plan: [rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) (proposed; shadow mode first, then enforce).
 
 ## Reviewing a PR with this map

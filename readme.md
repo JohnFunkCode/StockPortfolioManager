@@ -157,6 +157,7 @@ Create a `.env` in the repo root. It is git-ignored; never commit credentials.
 | `QUANTCORE_TEST_DB_DSN` | optional: an isolated database for testing and one-off scripts |
 | `QUANTCORE_UNITTEST_DB_DSN` | optional: a local Postgres the unit suite prefers (see [Testing](#testing)) |
 | `QUANTCORE_SCHEMA_MODE` | optional: how startup treats the schema (below) |
+| `QUANTCORE_RATE_LIMIT_MODE`, `_PER_MIN`, `_BURST` | optional: the api's per-user request limit, `shadow` (log only, the default), `enforce` (429) or `off`. Never applies with `AUTH_DISABLED`. See [rate-limiting-g2-plan.md](docs/proposals/rate-limiting-g2-plan.md) |
 | `DISCORD_WEBHOOK_URL` | where alerts are posted |
 | `BUCKET_NAME`, `BUCKET_KEY` | optional: S3 upload target for the legacy HTML report |
 | `CLOUDSQL_CONNECTION_NAME`, `CLOUDSQL_PORT`, `CLOUDSQL_QUOTA_PROJECT` | optional: Cloud SQL Auth Proxy target (and a `CLOUDSQL_TEST_*` trio for the test instance) |

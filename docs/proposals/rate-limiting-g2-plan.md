@@ -191,6 +191,21 @@ From prod logs over the last 30 days:
 
 The numbers go in the checkpoint log and set the shadow-mode starting values below.
 
+**Results (2026-10-29, prod, 2026-09-29 → 2026-10-29):**
+
+| Measure | Value |
+|---|---|
+| Sidekick model calls logged by the keyproxy | 9 (5 `POST /api/chat` turns), all one user |
+| Busiest day, one user | ~112k tokens (2026-10-27) |
+| Largest single model call | 51.5k tokens |
+| `quantcore-api` requests | ~3,100 in 30 days |
+| Busiest minute, whole api | 36 requests |
+| Busiest minute, one source (user agent + IP) | 24 requests (p99 22) |
+| Busiest 10 s window, one source | 24 requests (p99 12) |
+
+Sidekick use is too light to set a budget from; the step 2 soak has to supply that. The ingress
+shadow thresholds stay at 120/min with a burst of 60: 5× and 2.5× the busiest source seen.
+
 ### Step 1 — Ingress limiter, shadow mode (one PR)
 
 New `api/rate_limit.py`:
@@ -226,8 +241,9 @@ How a 429 reaches people:
 
 - **MCP:** `mcp_gateway/rest_client.py` already raises `RestError(429, payload)`, which the tool
   reports as an error. No change is needed beyond a test pinning it.
-- **UI:** `frontend/src/api/client.ts` maps a 429 to that message, so a page shows "try again"
-  rather than a generic failure. Vitest covers it.
+- **UI:** `frontend/src/api/client.ts` and `chatStream.ts` already surface the body's `message`,
+  so a page shows "Too many requests. Try again in N seconds." with no change; a vitest case
+  pins it.
 
 Metric only, no alert (D9):
 
@@ -442,3 +458,19 @@ From the team review on PR #483 (2026-10-29):
 | review | 2026-10-29 | #483 | Q1–Q4 answered: nothing throttled until step 3; enforced budget fails closed and tells the user (shadow stays open); metrics only until limits are set; over-ceiling users contact the dev team. Added D8–D10 and Q5 (contact channel). |
 | review | 2026-10-29 | #483 | Q5 answered: no contact address in the repo. The messages say "contact the development team", matching the keyproxy's copy; the planned `SIDEKICK_SUPPORT_CONTACT` variable was dropped. |
 | review | 2026-10-29 | #483 | Guppy review: (1) a turn-start usage snapshot let concurrent turns overshoot by more than one call; D3 now admits each model call with an atomic conditional reservation in Postgres, reconciled after the call, with concurrent-admission tests. (2) #461's "Done when" asks for the map's A06/LLM10 rows now: both rows and the G2 gap entry link this plan, still Gap/Partly. |
+| step 0 | 2026-10-29 | — | Measured (table under Step 0). Sidekick: 9 calls in 30 days, one user, busiest day ~112k tokens; too light to set a budget. Ingress: busiest source 24 req/min and 24 per 10 s, so 120/min, burst 60 stand. |
+| step 1 | 2026-10-29 | — | `api/rate_limit.py` + `enforce_rate_limit` on every protected router, shadow by default, inventory sets shadow/120/60. Gotchas below. No alert policy (D9); the metric comment lists the new event. |
+
+## Gotchas
+
+- **FastAPI 0.146 keeps included routers as lazy `_IncludedRouter` containers** (step 1). Their
+  include-time `dependencies=` live on the include context, not on any route's `dependant`, so
+  walking `app.routes` (as `tests/test_api_smoke.py` does for route-level dependencies) can't see
+  the limiter at all. The wiring test is behavioural instead: it makes the limiter refuse
+  everyone and requires a 429 from every operation in `app.openapi()`. A route left out of the
+  schema would escape it; none is today.
+- **Importing `api.main` builds the app**, which runs `ensure_schema()` and needs a database.
+  The wiring test patches `quantcore.db.ensure_schema` around the import, so the whole of
+  `tests/test_rate_limit.py` runs without Postgres.
+- **Settings are read per request**, so a bad value would log its error on every request. It is
+  reported once per variable per process instead.

@@ -22,6 +22,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 
 # flyway_schema_history marks a database as Flyway-managed; it is not part of
 # the application schema and every deployed database that has ever run
@@ -225,7 +226,7 @@ def scratch_database(dsn: str, name: str | None = None) -> Iterator[str]:
         conn.set_session(autocommit=True)
         with conn.cursor() as cur:
             try:
-                cur.execute(f'CREATE DATABASE "{name}"')
+                cur.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
             except psycopg2.errors.InsufficientPrivilege as exc:
                 raise ScratchDatabaseUnavailable(
                     f"role lacks CREATEDB against {admin_dsn.split('@')[-1]}: {exc}"
@@ -234,7 +235,8 @@ def scratch_database(dsn: str, name: str | None = None) -> Iterator[str]:
             yield _with_database(dsn, name)
         finally:
             with conn.cursor() as cur:
-                cur.execute(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+                cur.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)")
+                            .format(sql.Identifier(name)))
     finally:
         conn.close()
 

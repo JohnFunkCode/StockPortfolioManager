@@ -94,10 +94,32 @@ it. The server ceiling is the breach-exposure bound that no setting can raise. D
 - **What counts:** `input_tokens + output_tokens` from each `final` frame, the same sum the
   keyproxy charges. If prompt caching is ever added, cache-creation and cache-read tokens join the
   sum in that PR.
-- **When it's checked:** before each model call in the tool loop, against the running in-memory
-  total (today's stored usage plus this turn's usage so far). So the overshoot is bounded by one
-  model call, not one turn.
-- **When it's charged:** after each `final` frame, one upsert that adds to today's row.
+- **Admission is an atomic reservation in Postgres, before every model call.** A turn-start
+  snapshot isn't enough: two turns running at once (a second tab, or a runaway client driving the
+  API directly) would each check against usage that ignores the other, and together overshoot by
+  more than one call (#483 review). So before each model call, `ChatService` reserves that call's
+  worst case with **one conditional statement** that adds the reservation only if
+  `input_tokens + output_tokens + reserved_tokens + reservation <= budget`. Postgres serializes
+  the two writers on the row, whichever instance they run on, so of two concurrent calls that
+  can't both fit, exactly one is admitted. No in-process state or lock is involved.
+- **The reservation** is the call's output cap, `max_tokens` (16,384 today,
+  `KeyProxyGateway`; thinking counts against it, so output can't exceed it), plus a conservative
+  input estimate: the previous call's reported `input_tokens` plus the new tool results at one
+  token per 2 characters, or, for a turn's first call, the request body at one token per 2
+  characters. Tool results are number-heavy JSON, which tokenizes denser than prose, so 2 errs high.
+- **Reconciliation:** after each `final` frame, one statement releases the reservation and adds
+  the call's actual `input_tokens` and `output_tokens`.
+- **A reservation that is never reconciled stays charged.** If an instance dies mid-call, or the
+  call errors after it may have reached the provider, the reservation counts as spend until the
+  day rolls over. That errs toward stopping, in line with D8, and needs no lease or expiry
+  machinery. It's released only when the keyproxy reports it refused the call before reaching
+  the provider. Leftover `reserved_tokens` on a past day is visible in the table, so the soak can
+  see how often it happens.
+- **The bound this gives:** stored usage plus outstanding reservations never exceeds the budget
+  at admission. Actual spend can exceed it only by the amount the input estimate undercounts, summed
+  over the calls in flight at that moment. Output never contributes, because `max_tokens` is a
+  hard cap. If the soak shows the estimate undercounting, the ratio is a constant to tighten in
+  step 3.
 
 **D4 — Ship in shadow mode, then enforce. Shadow mode throttles nothing.** Both limits ship logging
 what they *would* refuse, without refusing, delaying or slowing anything; the user sees no
@@ -127,7 +149,7 @@ the ingress bucket doesn't count them. A chat turn costs the ingress bucket exac
 (`POST /api/chat`); its tool calls are bounded by `max_iterations` and its spend by D3.
 
 **D8 — Once enforced, the budget fails closed and tells the user (review Q2).** If the budget
-can't be read at the start of a turn, or a charge can't be written after a model call, the turn
+reservation can't be made before a model call, or a call can't be reconciled after it, the turn
 ends with an `ErrorEvent`: "Sidekick can't check your usage budget right now, so this turn was
 stopped. Please try again in a few minutes." Any partial answer already streamed stays. The
 failure is logged as `SECURITY chat_budget_unavailable mode=enforce` with the exception class only,
@@ -147,8 +169,8 @@ the team reads them there during the soak. Alert policies for `rate_limited` and
 user can lower their own cap in Settings, never raise it past the server ceiling. When the
 ceiling isn't enough, the budget-exhausted message and the Settings budget section both tell the
 user to contact the development team, the same wording the keyproxy's `TOKEN_BUDGET_MESSAGE`
-already uses (Q5). The team
-then looks at that user's usage and decides what to change in the system. There is deliberately
+already uses (Q5). The team then looks at that user's usage and decides what to change in the
+system. There is deliberately
 no per-user override mechanism: the first such request is the signal to revisit the ceiling,
 not to add an exceptions list.
 
@@ -226,7 +248,8 @@ Tests (`tests/test_rate_limit.py`):
 Docs (same PR, per CLAUDE.md):
 
 - This doc: step 0's numbers and the step 1 checkpoint.
-- `security.md`: the A06 row moves from the G2 gap to "Shadow" and names the guard tests.
+- `security.md`: the A06 G2 row (linked to this plan in the proposal PR) moves to "Shadow" and
+  names the guard tests.
 - `CLAUDE.md`: one rule under the security map ("the api rate-limits per principal in-process; one
   bucket; shadow until G2 step 3") linking here.
 - `readme.md`: the three new environment variables.
@@ -244,6 +267,8 @@ CREATE TABLE IF NOT EXISTS chat_usage (
     turns          INTEGER     NOT NULL DEFAULT 0,
     input_tokens   BIGINT      NOT NULL DEFAULT 0,
     output_tokens  BIGINT      NOT NULL DEFAULT 0,
+    -- Admitted model calls not yet reconciled (D3). Counts against the budget.
+    reserved_tokens BIGINT     NOT NULL DEFAULT 0,
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (owner, usage_day)
 );
@@ -257,8 +282,14 @@ Both statements are expand-only, so CI applies them automatically on both projec
 
 Repository: new `ChatUsageRepository` (`quantcore/repositories/chat_usage_repository.py`).
 
-- `used_today(*, owner, day) -> int` and `charge(*, owner, day, input_tokens, output_tokens,
-  new_turn)`, a single `INSERT … ON CONFLICT DO UPDATE` that adds to the row.
+- `reserve(*, owner, day, tokens, budget, enforce, new_turn) -> Admission`: one
+  `INSERT … ON CONFLICT DO UPDATE … WHERE input_tokens + output_tokens + reserved_tokens + %s <= %s
+  RETURNING …`. A returned row means admitted. No row means over budget: in shadow mode the
+  repository then adds the reservation unconditionally, so accounting stays true while nothing is
+  refused, and reports `over_budget=True` for the log line.
+- `reconcile(*, owner, day, reserved, input_tokens, output_tokens)`: releases the reservation and
+  adds the actuals, in one additive update.
+- `used(*, owner, day) -> int` for the Settings page.
 - `owner` is required and keyword-only, and every statement filters on it, matching the G1 rule.
   The wrong-owner test lands with it.
 - `UserSettingsRepository` gains `get_/set_chat_daily_token_budget`. A user who sets only a budget
@@ -272,9 +303,9 @@ Service:
   it. A stored cap above a since-lowered ceiling resolves to the ceiling, the same fallback
   `chat_model` uses for a retired model.
 - **`ChatService.stream_chat`:**
-  - At the start of a turn, read `used_today` once.
-  - Before each model call, compare `used_today + this_turn` with the effective budget.
-  - After each `final`, `charge(...)`.
+  - Before each model call, `reserve(...)` that call's worst case (D3). The turn holds no usage
+    snapshot of its own; the row is the only total.
+  - After each `final`, `reconcile(...)`.
   - When the budget is spent:
     - **shadow:** log `SECURITY chat_budget_exhausted mode=shadow identity=…` once per turn and
       carry on.
@@ -282,7 +313,7 @@ Service:
       used today's Sidekick budget (N of M tokens). It resets at midnight ET. If you need more than
       the system limit, please contact the development team." (D10). If this
       happens mid-turn, the partial answer above the error stays, as it does for `max_tokens`.
-  - If the budget can't be read or charged: in enforce mode, end the turn with the D8 message; in
+  - If a reservation or reconciliation fails: in enforce mode, end the turn with the D8 message; in
     shadow mode, log `chat_budget_unavailable` and carry on.
 - The registry injects `ChatUsageRepository` and the settings resolver into `ChatService` as
   repositories and callables, never as a service, so `registry.py` stays acyclic.
@@ -293,6 +324,7 @@ Settings:
 |---|---|---|
 | `SIDEKICK_BUDGET_MODE` | `off` \| `shadow` \| `enforce` | `shadow` |
 | `SIDEKICK_DAILY_TOKEN_BUDGET` | the server ceiling, tokens per user per ET day | from step 0 |
+
 REST and UI:
 
 - `GET /api/settings` adds `chat_daily_token_budget` (the user's cap or `null`),
@@ -313,17 +345,29 @@ Metric only, no alert (D9): regex coverage for `chat_budget_exhausted` and
 
 Tests:
 
-- **`tests/test_chat_usage_repository.py`:** upsert accumulation, the ET day boundary, and a
-  wrong-owner case.
+- **`tests/test_chat_usage_repository.py`:** reserve/reconcile arithmetic, the ET day boundary,
+  shadow mode recording an over-budget reservation, and a wrong-owner case.
+- **Concurrent admission** (the #483 review's counterexample, against the real test database):
+  - two threads, each with its **own** repository and connection (standing in for two api
+    instances), released together by a `threading.Barrier`, against a budget with room for exactly
+    one reservation: exactly one is admitted, and the row ends within budget;
+  - the reviewer's case: stored usage 90, budget 100, two concurrent turns each wanting two calls
+    of 6: at most one call is admitted, never the 114 a snapshot design allows;
+  - repeated in a loop (e.g. 50 rounds), because a race test that passes once proves little.
 - **`tests/test_chat_service.py`:**
   - shadow logs and completes;
   - enforce refuses at turn start;
   - enforce stops mid-turn before the next model call, keeping the partial answer;
-  - usage is charged per `final`;
-  - the exhausted message carries the support contact;
-  - enforce, failing read: the turn is refused with the D8 message and no model call is made;
-  - enforce, failing charge: the turn stops after the current call, keeping the partial answer;
-  - shadow, failing read or charge: the turn completes and `chat_budget_unavailable` is logged.
+  - every model call is reserved before it's made and reconciled after its `final`;
+  - an error after the call may have reached the provider leaves the reservation charged; a
+    keyproxy refusal releases it;
+  - the exhausted message tells the user to contact the development team;
+  - enforce, failing reservation: the turn is refused with the D8 message and no model call is
+    made;
+  - enforce, failing reconciliation: the turn stops after the current call, keeping the partial
+    answer;
+  - shadow, failing reservation or reconciliation: the turn completes and
+    `chat_budget_unavailable` is logged.
 - **`tests/test_settings_api.py`:** cap bounds, `null` clears it, a cap above the ceiling resolves
   to the ceiling, owners are isolated.
 - The never-log policy: no budget line carries usage numbers tied to a key, an envelope, or a
@@ -331,7 +375,7 @@ Tests:
 
 Docs (same PR):
 
-- `security.md`: the LLM10 row moves to "Shadow".
+- `security.md`: the LLM10 row (linked to this plan in the proposal PR) moves to "Shadow".
 - `byok.md`: the budget sits beside the keyproxy's per-session ceiling, and the doc explains which
   bounds what.
 - `data.md` and CLAUDE.md: the table count and `chat_usage`.
@@ -397,3 +441,4 @@ From the team review on PR #483 (2026-10-29):
 | plan | 2026-10-29 | — | D1–D4 agreed with John: in-process limiter, one bucket, daily token budget with a user cap below a server ceiling, shadow before enforce. Proposal written for team review. |
 | review | 2026-10-29 | #483 | Q1–Q4 answered: nothing throttled until step 3; enforced budget fails closed and tells the user (shadow stays open); metrics only until limits are set; over-ceiling users contact the dev team. Added D8–D10 and Q5 (contact channel). |
 | review | 2026-10-29 | #483 | Q5 answered: no contact address in the repo. The messages say "contact the development team", matching the keyproxy's copy; the planned `SIDEKICK_SUPPORT_CONTACT` variable was dropped. |
+| review | 2026-10-29 | #483 | Guppy review: (1) a turn-start usage snapshot let concurrent turns overshoot by more than one call; D3 now admits each model call with an atomic conditional reservation in Postgres, reconciled after the call, with concurrent-admission tests. (2) #461's "Done when" asks for the map's A06/LLM10 rows now: both rows and the G2 gap entry link this plan, still Gap/Partly. |

@@ -201,6 +201,33 @@ class AuthDependencyTests(unittest.TestCase):
         self.assertTrue(r.json()["is_local"])
 
 
+class ClaimShapeTests(unittest.TestCase):
+    """``Principal.from_claims`` accepts a string or a list of strings, nothing else (#472)."""
+
+    def test_accepted_shapes(self):
+        cases = [
+            ({"roles": "admin"}, ("admin",), ()),
+            ({"roles": ["a", "b"]}, ("a", "b"), ()),
+            ({"role": "trader"}, ("trader",), ()),
+            ({"roles": [], "role": "trader"}, ("trader",), ()),
+            ({"scope": "read write"}, (), ("read", "write")),
+            ({"scopes": ["read", "write"]}, (), ("read", "write")),
+            ({"scope": "", "scopes": ["read"]}, (), ("read",)),
+            ({}, (), ()),
+        ]
+        for claims, roles, scopes in cases:
+            with self.subTest(claims):
+                p = Principal.from_claims({"sub": "x", **claims}, None)
+                self.assertEqual((p.roles, p.scopes), (roles, scopes))
+
+    def test_malformed_shapes_raise_invalid_token(self):
+        for claims in ({"roles": 42}, {"roles": 0}, {"role": True}, {"scope": 7},
+                       {"scopes": {}}, {"roles": [1, 2]}, {"scope": ["a", None]}):
+            with self.subTest(claims):
+                with self.assertRaises(jwt.InvalidTokenError):
+                    Principal.from_claims({"sub": "x", **claims}, None)
+
+
 class DualModeES256Tests(unittest.TestCase):
     """Packet 7a: ES256 user tokens verified alongside HS256 service tokens.
 
@@ -470,6 +497,20 @@ class SecurityEventLogTests(unittest.TestCase):
                 self.assertEqual(
                     out, "SECURITY auth_rejected reason=expired identity=holder"
                 )
+
+    def test_valid_token_with_malformed_roles_or_scope_is_invalid(self):
+        # A token we signed whose roles/scope isn't a string or a list of strings
+        # was a 500 that no alert counted (#472); now it is a logged 401.
+        for claim in ({"roles": 42}, {"role": True}, {"scope": 7},
+                      {"scopes": {"a": 1}}, {"roles": {"a": 1}}, {"roles": [1, 2]},
+                      {"scope": ["read", None]}):
+            with self.subTest(claim):
+                tok = _token({"sub": "holder", **claim})
+                out = self._rejected(tok)
+                self.assertEqual(out, "SECURITY auth_rejected reason=invalid")
+                r = self.client.get("/protected", headers={"Authorization": f"Bearer {tok}"})
+                self.assertEqual(r.headers.get("WWW-Authenticate"), "Bearer")
+                self.assertEqual(r.json()["detail"], INVALID_TOKEN_DETAIL)
 
     def test_accepted_token_logs_nothing(self):
         with self.assertNoLogs("quantcore.security", level="WARNING"):

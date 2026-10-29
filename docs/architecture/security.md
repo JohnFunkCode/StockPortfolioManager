@@ -84,6 +84,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Rule | Guard | Status |
 |---|---|---|
 | `api/auth.py`'s JWT check is the **single** enforcement point for the public services (#297). | `tests/test_auth.py` | Enforced |
+| A verified token's `roles`/`role` and `scope`/`scopes` must each be a string or a list of strings; any other shape (a number, an object, `true`, a list holding a non-string) is an invalid token, a 401 that logs `reason=invalid`, never a 500 (#472). | `tests/test_auth.py` (`ClaimShapeTests`, `SecurityEventLogTests`) | Enforced |
 | UI identity: `frontend/server/` verifies the IAP assertion before minting a token. | `frontend/server/auth.test.mjs`, `proxy.test.mjs` | Enforced |
 | Auth is **inert until configured** locally (no verification key, or `AUTH_DISABLED`, resolves every call to `john`), but **fails closed on Cloud Run** (#459): when `K_SERVICE` is set, `create_app()` in `api/main.py` and `keyproxy/main.py` raises `AuthConfigurationError` without a key or with the disable flag, so the revision never takes traffic. | `tests/test_auth.py` (`CloudRunFailClosedTests`), `tests/test_keyproxy_auth.py` (`TestCloudRunFailClosed`) | Enforced |
 
@@ -111,6 +112,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Rule | Guard | Status |
 |---|---|---|
 | A caught unexpected exception never reaches the caller as text: `route_internal_error`, class-only log lines, the same rule for the chat SSE error frame. | `tests/test_error_redaction.py` (also fails on an unexercised call site) | Enforced |
+| A malformed claim on a token we signed is rejected as invalid, not left to raise a `TypeError` from `Principal.from_claims`: an unhandled 500 there escaped the auth-failure alert (#472). | `tests/test_auth.py` `ClaimShapeTests` | Enforced |
 | Non-finite floats serialize as `null`; options tables store NULL, never NaN. | `tests/test_json_response.py` | Enforced |
 | Schema drift fails startup (`SchemaDriftError`), so a bad revision never takes traffic. | `tests/test_schema_bootstrap.py` | Enforced |
 | The daily job's late steps never raise; failures are made loud by alarms. | `tests/test_daily_job_capture.py` | Enforced |

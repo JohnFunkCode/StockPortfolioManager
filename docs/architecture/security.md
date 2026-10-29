@@ -145,7 +145,7 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   constructs `OptionsPositionStore`. No REST route, MCP tool or Sidekick tool reads it, so no
   *user-facing* surface exposes it today, but that rests on the consumer list staying short, not on
   any owner predicate. Promote the rule to "every per-owner table", and give `options_positions` an
-  owner (and the notifier an owner-aware read) before anything else consumes it.
+  owner (and the notifier an owner-aware read) before anything else consumes it. Plan: [owner-isolation-g1-plan.md](../proposals/owner-isolation-g1-plan.md).
 - **G2 ([#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461)) — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
   limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic through the public
   REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The

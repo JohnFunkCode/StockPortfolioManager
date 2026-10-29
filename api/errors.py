@@ -27,10 +27,13 @@ from .json_response import QuantCoreJSONResponse
 logger = logging.getLogger(__name__)
 
 
-def _body(error: str, message: str, status: int) -> QuantCoreJSONResponse:
+def _body(
+    error: str, message: str, status: int, headers: dict[str, str] | None = None
+) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse(
         status_code=status,
         content={"error": error, "message": message, "status": status},
+        headers=headers,
     )
 
 
@@ -62,6 +65,9 @@ def register_exception_handlers(app: FastAPI) -> None:
             getattr(exc, "detail", "Error") if isinstance(exc.detail, str) else "Error",
             str(exc.detail),
             exc.status_code,
+            # Keep the exception's headers: a 401 needs WWW-Authenticate (RFC 6750),
+            # and this handler used to drop it on every route.
+            getattr(exc, "headers", None),
         )
 
     @app.exception_handler(Exception)

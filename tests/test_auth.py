@@ -32,6 +32,7 @@ from api.auth import (
     require_principal,
     resolve_owner_or_none,
 )
+from api.errors import register_exception_handlers
 from quantcore.services.identity import UnknownIdentityError
 
 SECRET = "test-secret-key-at-least-32-bytes-long-000"
@@ -596,6 +597,51 @@ class RejectionBodyTests(unittest.TestCase):
             secret="a-different-secret-also-32-bytes-long-0000",
         )
         self.assertEqual(self._body(tok), INVALID_TOKEN_DETAIL)
+
+
+class ProductionEnvelopeTests(unittest.TestCase):
+    """A 401 that goes through the app's own error handlers keeps its header.
+
+    ``api.errors`` rebuilds every ``HTTPException`` into the legacy
+    ``{error, message, status}`` body; it used to drop the exception's headers, so
+    the deployed API never sent ``WWW-Authenticate`` while the bare-app tests above
+    saw it (found verifying #473 on test).
+    """
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in _AUTH_ENV_KEYS}
+        for k in _AUTH_ENV_KEYS:
+            os.environ.pop(k, None)
+        os.environ["QUANTCORE_JWT_SECRET"] = SECRET
+        app = _make_app()
+        register_exception_handlers(app)
+        self.client = TestClient(app, raise_server_exceptions=False)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def test_every_401_carries_the_bearer_challenge(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        cases = {
+            "missing": ({}, "missing bearer token"),
+            "invalid": ({"Authorization": "Bearer not-a-jwt"}, INVALID_TOKEN_DETAIL),
+            "expired": (
+                {"Authorization": f"Bearer {_token({'sub': 'john', 'exp': exp})}"},
+                EXPIRED_TOKEN_DETAIL,
+            ),
+        }
+        for name, (headers, detail) in cases.items():
+            with self.subTest(name), self.assertLogs("quantcore.security", "WARNING"):
+                r = self.client.get("/protected", headers=headers)
+                self.assertEqual(r.status_code, 401)
+                self.assertEqual(r.headers.get("www-authenticate"), "Bearer")
+                self.assertEqual(
+                    r.json(), {"error": detail, "message": detail, "status": 401}
+                )
 
 
 class UnmappedIdentityLogTests(unittest.TestCase):

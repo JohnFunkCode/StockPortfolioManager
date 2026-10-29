@@ -78,7 +78,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | A plan exists only while the owner holds the shares. | `tests/test_harvester_service.py` | Enforced |
 | Watchlist removal is UI-only: the MCP seam has no `delete` verb. | `mcp_gateway/rest_client.py` | Convention |
 | The keyproxy rate-limits envelope redemption per `sub` (`SubRateLimiter` in `keyproxy/replay.py`, token bucket, `KEYPROXY_RATE_LIMIT_PER_MIN`, default 30), answering 429; a full bucket map refuses new subs (fail closed). | `tests/test_keyproxy_replay.py` (`TestSubRateLimiter`), `tests/test_keyproxy_service.py` (`test_third_redemption_in_a_minute_is_429`) | Enforced |
-| The public REST tier (`quantcore-api`) and the MCP wrappers have no inbound rate limit; the only bounds are Cloud Run `max_instances` and concurrency. Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. | — | **Gap G2** |
+| The public REST tier (`quantcore-api`) and the MCP wrappers have no inbound rate limit; the only bounds are Cloud Run `max_instances` and concurrency. Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. Chosen design, not yet implemented: a per-principal token bucket in the api, shadow mode before enforcing ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md)). | — | **Gap G2** |
 
 ### A07 Authentication Failures
 
@@ -132,7 +132,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | LLM07 System Prompt Leakage | The system prompt holds no secrets; it is in the repo. | N/A |
 | LLM08 Vector and Embedding Weaknesses | No RAG or vector store. | N/A today |
 | LLM09 Misinformation | The prompt bars numbers the model hasn't fetched and forbids outside data; refusals must name the rule. | Convention (prompt) |
-| LLM10 Unbounded Consumption | Arbitrage tool caps mirror the service's caps (tested); but there is no per-user turn or token budget. | Partly — see **G2** |
+| LLM10 Unbounded Consumption | Arbitrage tool caps mirror the service's caps (tested); but there is no per-user turn or token budget. Chosen design, not yet implemented: a daily per-user Sidekick token budget, admitted by atomic reservation in Postgres ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md)). | Partly — see **G2** |
 
 ## Gaps
 
@@ -144,6 +144,7 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   one limiter that exists, the keyproxy's per-`sub` redemption bucket, is Enforced (A06 row) and
   stays; it bounds envelope redemptions per minute, which is neither an ingress limit nor a
   per-user spending budget.
+  Plan: [rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) (proposed; shadow mode first, then enforce).
 
 ## Reviewing a PR with this map
 

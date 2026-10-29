@@ -7,8 +7,17 @@ tests/test_schema_introspect_live.py (runs against the CI Postgres service /
 QUANTCORE_DB_DSN), per PR 1 Step 2 of docs/proposals/schema-ownership-plan.md.
 """
 import unittest
+from unittest import mock
 
-from quantcore.schema_introspect import IGNORED_TABLES, _column_type, _with_database, diff_schemas
+from psycopg2 import sql
+
+from quantcore.schema_introspect import (
+    IGNORED_TABLES,
+    _column_type,
+    _with_database,
+    diff_schemas,
+    scratch_database,
+)
 
 
 def _col(type_="integer", nullable=False, default=None):
@@ -267,6 +276,48 @@ class WithDatabaseTests(unittest.TestCase):
         dsn = "postgresql://quantcore:secret@localhost:5432/quantcore"
         _with_database(dsn, "postgres")
         self.assertEqual(dsn, "postgresql://quantcore:secret@localhost:5432/quantcore")
+
+
+class ScratchDatabaseQuotingTests(unittest.TestCase):
+    """The name reaches CREATE/DROP as an Identifier, never as SQL text (#462).
+
+    A mocked connection, so no database: the live path is
+    tests/test_schema_introspect_live.py, which only ever uses the random default name.
+    """
+
+    HOSTILE = 'x" WITH OWNER evil; DROP DATABASE "quantcore'
+
+    def setUp(self):
+        self.conn = mock.MagicMock()
+        self.cur = self.conn.cursor.return_value.__enter__.return_value
+        patcher = mock.patch("quantcore.schema_introspect.psycopg2.connect",
+                             return_value=self.conn)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _statements(self):
+        return [c.args[0] for c in self.cur.execute.call_args_list]
+
+    def _assert_create_then_drop(self):
+        statements = self._statements()
+        self.assertEqual(len(statements), 2)
+        for statement, keyword in zip(statements, ("CREATE DATABASE", "DROP DATABASE IF EXISTS")):
+            self.assertIsInstance(statement, sql.Composed)
+            self.assertIn(sql.Identifier(self.HOSTILE), statement.seq)
+            self.assertIn(keyword, str(statement.seq[0]))
+            self.assertNotIn(self.HOSTILE, str(statement.seq[0]))
+        self.conn.close.assert_called_once()
+
+    def test_create_and_drop_quote_the_name_as_an_identifier(self):
+        with scratch_database("postgresql://u:p@h:5432/quantcore", self.HOSTILE):
+            pass
+        self._assert_create_then_drop()
+
+    def test_drop_still_runs_when_the_body_raises(self):
+        with self.assertRaises(RuntimeError):
+            with scratch_database("postgresql://u:p@h:5432/quantcore", self.HOSTILE):
+                raise RuntimeError("body failed")
+        self._assert_create_then_drop()
 
 
 if __name__ == "__main__":

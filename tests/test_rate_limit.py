@@ -93,50 +93,124 @@ class BucketTests(unittest.TestCase):
         self.clock = FakeClock()
         self.limiter = PrincipalRateLimiter(per_minute=60, burst=3, clock=self.clock)
 
+    def _wait(self, identity: str, limiter=None) -> float:
+        return (limiter or self.limiter).check(identity).retry_after
+
     def test_burst_then_refusal(self):
-        self.assertEqual([self.limiter.check("a") for _ in range(3)], [0.0, 0.0, 0.0])
-        self.assertAlmostEqual(self.limiter.check("a"), 1.0)  # 60/min = 1 token/s
+        self.assertEqual([self._wait("a") for _ in range(3)], [0.0, 0.0, 0.0])
+        self.assertAlmostEqual(self._wait("a"), 1.0)  # 60/min = 1 token/s
 
     def test_refills_at_the_configured_rate(self):
         for _ in range(3):
-            self.limiter.check("a")
+            self._wait("a")
         self.clock.now += 0.5
-        self.assertAlmostEqual(self.limiter.check("a"), 0.5)
+        self.assertAlmostEqual(self._wait("a"), 0.5)
         self.clock.now += 0.5
-        self.assertEqual(self.limiter.check("a"), 0.0)
+        self.assertEqual(self._wait("a"), 0.0)
 
     def test_refill_never_exceeds_the_burst(self):
-        self.limiter.check("a")
+        self._wait("a")
         self.clock.now += 3600
-        self.assertEqual([self.limiter.check("a") for _ in range(3)], [0.0, 0.0, 0.0])
-        self.assertGreater(self.limiter.check("a"), 0.0)
+        self.assertEqual([self._wait("a") for _ in range(3)], [0.0, 0.0, 0.0])
+        self.assertGreater(self._wait("a"), 0.0)
 
     def test_identities_have_separate_buckets(self):
         for _ in range(3):
-            self.limiter.check("a")
-        self.assertGreater(self.limiter.check("a"), 0.0)
-        self.assertEqual(self.limiter.check("b"), 0.0)
+            self._wait("a")
+        self.assertGreater(self._wait("a"), 0.0)
+        self.assertEqual(self._wait("b"), 0.0)
 
     def test_full_map_prunes_idle_buckets(self):
         limiter = PrincipalRateLimiter(per_minute=60, burst=3, max_principals=2, clock=self.clock)
-        limiter.check("a")
-        limiter.check("b")
+        self._wait("a", limiter)
+        self._wait("b", limiter)
         self.clock.now += 10  # both refill to full, so both are idle
-        self.assertEqual(limiter.check("c"), 0.0)
+        self.assertEqual(self._wait("c", limiter), 0.0)
 
     def test_full_map_refuses_a_new_identity_but_keeps_existing_ones(self):
         limiter = PrincipalRateLimiter(per_minute=60, burst=3, max_principals=2, clock=self.clock)
-        limiter.check("a")
-        limiter.check("b")
-        self.assertGreater(limiter.check("c"), 0.0)  # nothing idle to prune: fail closed
-        self.assertEqual(limiter.check("a"), 0.0)
+        self._wait("a", limiter)
+        self._wait("b", limiter)
+        self.assertGreater(self._wait("c", limiter), 0.0)  # nothing idle to prune: fail closed
+        self.assertEqual(self._wait("a", limiter), 0.0)
+
+    def test_admitted_requests_never_ask_to_log(self):
+        self.assertEqual([self.limiter.check("a").log for _ in range(3)], [False] * 3)
 
     def test_log_dedup_is_once_per_identity_per_minute(self):
-        self.assertTrue(self.limiter.should_log("a"))
-        self.assertFalse(self.limiter.should_log("a"))
-        self.assertTrue(self.limiter.should_log("b"))
-        self.clock.now += 60
-        self.assertTrue(self.limiter.should_log("a"))
+        for identity in ("a", "b"):
+            for _ in range(3):
+                self.limiter.check(identity)
+        self.assertTrue(self.limiter.check("a").log)
+        self.assertFalse(self.limiter.check("a").log)
+        self.assertTrue(self.limiter.check("b").log)
+        self.clock.now += 60  # refills too, so drain again before the next refusal
+        for _ in range(3):
+            self.limiter.check("a")
+        self.assertTrue(self.limiter.check("a").log)
+
+
+class CapacityBoundTests(unittest.TestCase):
+    """Every piece of state stays within ``max_principals`` (#489 review)."""
+
+    def setUp(self) -> None:
+        self.clock = FakeClock()  # fixed: nothing ages, nothing refills
+        self.limiter = PrincipalRateLimiter(
+            per_minute=60, burst=1, max_principals=2, clock=self.clock
+        )
+
+    def _flood(self, count: int, start: int = 0) -> list:
+        """Two requests per new identity, as the review's probe did."""
+        decisions = []
+        for i in range(start, start + count):
+            decisions += [self.limiter.check(f"id{i}"), self.limiter.check(f"id{i}")]
+        return decisions
+
+    def test_overflowing_identities_leave_no_state_behind(self):
+        self._flood(100)
+        self.assertEqual(len(self.limiter._buckets), 2)
+        self.assertEqual(
+            {name for name in vars(self.limiter) if isinstance(vars(self.limiter)[name], dict)},
+            {"_buckets"},
+        )
+
+    def test_overflow_refusals_log_once_per_interval_in_total(self):
+        decisions = self._flood(100)
+        # id0 and id1 each log their own refusal; the 98 overflow identities share one.
+        self.assertEqual(sum(d.log for d in decisions), 3)
+
+    def test_the_overflow_log_reopens_after_the_interval(self):
+        # Slow refill and a burst of 2, so the two held buckets never go idle and
+        # the map stays full while the clock moves a whole interval.
+        self.limiter = PrincipalRateLimiter(
+            per_minute=1, burst=2, max_principals=2, clock=self.clock
+        )
+        self.assertEqual(sum(d.log for d in self._flood(100)), 1)
+        self.clock.now += rate_limit.LOG_INTERVAL_SECONDS - 0.01
+        self.assertEqual(sum(d.log for d in self._flood(50, start=100)), 0)
+        self.clock.now += 0.01
+        self.assertEqual(sum(d.log for d in self._flood(50, start=150)), 1)
+        self.assertEqual(len(self.limiter._buckets), 2)
+
+    def test_overflow_refusals_are_still_refused(self):
+        decisions = self._flood(100)
+        self.assertTrue(all(d.retry_after > 0 for d in decisions[4:]))
+
+    def test_a_prune_that_frees_nothing_backs_off(self):
+        self._flood(2)
+        with patch.object(self.limiter, "_prune", wraps=self.limiter._prune) as prune:
+            self._flood(50, start=2)
+            self.assertEqual(prune.call_count, 1)
+            self.clock.now += PrincipalRateLimiter.PRUNE_BACKOFF_SECONDS
+            self._flood(1, start=52)
+            self.assertEqual(prune.call_count, 2)
+
+    def test_at_production_scale_the_map_stays_at_the_cap(self):
+        limiter = PrincipalRateLimiter(per_minute=60, burst=1, clock=self.clock)
+        for i in range(10_020):
+            limiter.check(f"id{i}")
+            limiter.check(f"id{i}")
+        self.assertEqual(len(limiter._buckets), 10_000)
 
 
 class SettingsTests(EnvTestCase):
@@ -278,11 +352,8 @@ class WiringTests(EnvTestCase):
     env = {"QUANTCORE_JWT_SECRET": SECRET, MODE_ENV: "enforce"}
 
     class _RefuseAll:
-        def check(self, identity: str) -> float:
-            return 5.0
-
-        def should_log(self, identity: str) -> bool:
-            return False
+        def check(self, identity: str) -> rate_limit.Decision:
+            return rate_limit.Decision(5.0, False)
 
     def test_every_protected_operation_is_limited_and_health_is_not(self):
         import re

@@ -32,7 +32,7 @@ import math
 import os
 import threading
 import time
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -88,6 +88,13 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
+class Decision(NamedTuple):
+    """One request's outcome: ``retry_after`` 0.0 means admitted."""
+
+    retry_after: float
+    log: bool
+
+
 class PrincipalRateLimiter:
     """Thread-safe token bucket per identity.
 
@@ -96,7 +103,16 @@ class PrincipalRateLimiter:
     keyproxy's ``SubRateLimiter``: when full, idle (fully refilled) buckets are
     pruned, and if none can be freed a *new* identity is refused (fail closed);
     existing identities keep their state.
+
+    All state is bounded by that cap (#489 review). The log-dedup timestamp
+    lives in each identity's bucket, so it is dropped with the bucket; an
+    identity refused because the map is full has no bucket, and those share one
+    overflow timestamp, logged at most once per ``LOG_INTERVAL_SECONDS`` in
+    total. A prune that frees nothing isn't retried for ``PRUNE_BACKOFF_SECONDS``,
+    so a flood of new identities can't make every request scan the full map.
     """
+
+    PRUNE_BACKOFF_SECONDS = 1.0
 
     def __init__(
         self,
@@ -110,52 +126,48 @@ class PrincipalRateLimiter:
         self._max_principals = max_principals
         self._clock = clock
         self._lock = threading.Lock()
-        self._buckets: dict[str, list[float]] = {}  # identity -> [tokens, last_refill]
-        self._last_logged: dict[str, float] = {}
+        # identity -> [tokens, last_refill, last_logged]
+        self._buckets: dict[str, list[float]] = {}
+        self._overflow_logged = -math.inf
+        self._next_prune = -math.inf
 
-    def check(self, identity: str) -> float:
-        """Take one token. Returns 0.0 when allowed, else seconds until one is free."""
+    def check(self, identity: str) -> Decision:
+        """Take one token, and say whether a refusal should be logged."""
         with self._lock:
             now = self._clock()
             bucket = self._buckets.get(identity)
             if bucket is None:
-                if len(self._buckets) >= self._max_principals:
+                if len(self._buckets) >= self._max_principals and now >= self._next_prune:
                     self._prune(now)
                 if len(self._buckets) >= self._max_principals:
-                    return 1.0 / self._rate
-                bucket = [self._capacity, now]
+                    log = now - self._overflow_logged >= LOG_INTERVAL_SECONDS
+                    if log:
+                        self._overflow_logged = now
+                    return Decision(1.0 / self._rate, log)
+                bucket = [self._capacity, now, -math.inf]
                 self._buckets[identity] = bucket
             else:
-                tokens, last = bucket
+                tokens, last, _ = bucket
                 bucket[0] = min(self._capacity, tokens + (now - last) * self._rate)
                 bucket[1] = now
             if bucket[0] >= 1.0:
                 bucket[0] -= 1.0
-                return 0.0
-            return (1.0 - bucket[0]) / self._rate
-
-    def should_log(self, identity: str) -> bool:
-        """True at most once per ``LOG_INTERVAL_SECONDS`` per identity."""
-        with self._lock:
-            now = self._clock()
-            last = self._last_logged.get(identity)
-            if last is not None and now - last < LOG_INTERVAL_SECONDS:
-                return False
-            if len(self._last_logged) >= self._max_principals:
-                self._last_logged = {
-                    k: t for k, t in self._last_logged.items() if now - t < LOG_INTERVAL_SECONDS
-                }
-            self._last_logged[identity] = now
-            return True
+                return Decision(0.0, False)
+            log = now - bucket[2] >= LOG_INTERVAL_SECONDS
+            if log:
+                bucket[2] = now
+            return Decision((1.0 - bucket[0]) / self._rate, log)
 
     def _prune(self, now: float) -> None:
         idle = [
             identity
-            for identity, (tokens, last) in self._buckets.items()
+            for identity, (tokens, last, _) in self._buckets.items()
             if tokens + (now - last) * self._rate >= self._capacity
         ]
         for identity in idle:
             del self._buckets[identity]
+        if not idle:
+            self._next_prune = now + self.PRUNE_BACKOFF_SECONDS
 
 
 _limiter_lock = threading.Lock()
@@ -199,11 +211,10 @@ def enforce_rate_limit(
     mode = rate_limit_mode()
     if mode == "off" or principal.is_local:
         return
-    limiter = get_limiter()
-    retry_after = limiter.check(principal.owner)
+    retry_after, log = get_limiter().check(principal.owner)
     if retry_after <= 0:
         return
-    if limiter.should_log(principal.owner):
+    if log:
         _security_logger.warning(
             "SECURITY rate_limited mode=%s identity=%s at=%s",
             mode,

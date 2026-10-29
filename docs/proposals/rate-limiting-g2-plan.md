@@ -460,6 +460,7 @@ From the team review on PR #483 (2026-10-29):
 | review | 2026-10-29 | #483 | Guppy review: (1) a turn-start usage snapshot let concurrent turns overshoot by more than one call; D3 now admits each model call with an atomic conditional reservation in Postgres, reconciled after the call, with concurrent-admission tests. (2) #461's "Done when" asks for the map's A06/LLM10 rows now: both rows and the G2 gap entry link this plan, still Gap/Partly. |
 | step 0 | 2026-10-29 | — | Measured (table under Step 0). Sidekick: 9 calls in 30 days, one user, busiest day ~112k tokens; too light to set a budget. Ingress: busiest source 24 req/min and 24 per 10 s, so 120/min, burst 60 stand. |
 | step 1 | 2026-10-29 | — | `api/rate_limit.py` + `enforce_rate_limit` on every protected router, shadow by default, inventory sets shadow/120/60. Gotchas below. No alert policy (D9); the metric comment lists the new event. |
+| step 1 | 2026-10-29 | #489 | Guppy review: the log-dedup map grew past the principal cap (an identity refused because the map was full still got an entry, and each overflow copied the map). Dedup now lives in each bucket, overflowed identities share one throttle, and a prune that frees nothing backs off 1 s. `CapacityBoundTests` pins it. |
 
 ## Gotchas
 
@@ -474,3 +475,6 @@ From the team review on PR #483 (2026-10-29):
   `tests/test_rate_limit.py` runs without Postgres.
 - **Settings are read per request**, so a bad value would log its error on every request. It is
   reported once per variable per process instead.
+- **Capping the bucket map isn't enough; every per-identity map needs the cap** (#489 review).
+  The first cut kept log-dedup timestamps in a second dict, which an identity refused for a full
+  map still entered. Keep per-identity state inside the bucket so it shares the bucket's bound.

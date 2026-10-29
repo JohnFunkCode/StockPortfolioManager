@@ -84,6 +84,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Rule | Guard | Status |
 |---|---|---|
 | `api/auth.py`'s JWT check is the **single** enforcement point for the public services (#297). | `tests/test_auth.py` | Enforced |
+| A rejected token gets a fixed 401 body: `expired token` (PyJWT raises it only after the signature verified) or `invalid token` for everything else, with `WWW-Authenticate: Bearer`. PyJWT's message never reaches the caller, since it says how far verification got; the reason goes to the log instead (A09) (#473). | `tests/test_auth.py` (`RejectionBodyTests`) | Enforced |
 | UI identity: `frontend/server/` verifies the IAP assertion before minting a token. | `frontend/server/auth.test.mjs`, `proxy.test.mjs` | Enforced |
 | Auth is **inert until configured** locally (no verification key, or `AUTH_DISABLED`, resolves every call to `john`), but **fails closed on Cloud Run** (#459): when `K_SERVICE` is set, `create_app()` in `api/main.py` and `keyproxy/main.py` raises `AuthConfigurationError` without a key or with the disable flag, so the revision never takes traffic. | `tests/test_auth.py` (`CloudRunFailClosedTests`), `tests/test_keyproxy_auth.py` (`TestCloudRunFailClosed`) | Enforced |
 

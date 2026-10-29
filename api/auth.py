@@ -69,6 +69,14 @@ _security_logger = logging.getLogger("quantcore.security")
 # bypasses, when AUTH_DISABLED, or raises a uniform 401) rather than FastAPI's generic 403.
 _bearer = HTTPBearer(auto_error=False)
 
+# The only 401 bodies a rejected token gets (#473). PyJWT's own message ("Signature
+# verification failed", "Invalid audience", ...) says how far verification got, so it
+# stays out of the response; the log line carries the reason instead. Expiry is the
+# one distinction worth keeping: PyJWT raises it only after the signature verified,
+# and it tells a user their 90-day token lapsed.
+INVALID_TOKEN_DETAIL = "invalid token"
+EXPIRED_TOKEN_DETAIL = "expired token"
+
 
 def _auth_active() -> bool:
     """Enforce JWT only when a verification key is configured and not force-disabled."""
@@ -287,11 +295,13 @@ def _decode(token: str) -> dict[str, Any]:
     except jwt.PyJWTError as exc:
         if isinstance(exc, jwt.ExpiredSignatureError):
             _log_rejection("expired", _expired_identity(token))
+            detail = EXPIRED_TOKEN_DETAIL
         else:
             _log_rejection("invalid")
+            detail = INVALID_TOKEN_DETAIL
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"invalid or expired token: {exc}",
+            detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
 

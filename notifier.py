@@ -152,8 +152,11 @@ class Notifier:
         notifications for each.  Deduplication is handled by send_notifications()
         via the notification.log file.
         """
+        # Only this run's owner (#460). The webhook is that owner's channel, so
+        # this must never widen to every owner: another owner's options alerts
+        # posted here would be the cross-user leak the owner column prevents.
         # Auto-expire positions whose expiration date has already passed
-        expired = self._options_positions.auto_expire_past_positions()
+        expired = self._options_positions.auto_expire_past_positions(owner=self.owner)
         for pos in expired:
             embed = self._build_options_embed(
                 title=f"{pos['symbol']} ${pos['strike']:.2f} {pos['kind'].upper()} EXPIRED",
@@ -169,7 +172,7 @@ class Notifier:
             )
             self.send_notifications(embed)
 
-        active = self._options_positions.get_active_positions()
+        active = self._options_positions.get_active_positions(owner=self.owner)
         if not active:
             return
 
@@ -186,7 +189,9 @@ class Notifier:
             if price is not None:
                 current_prices[sym] = price
 
-        alerts = self._options_positions.get_pending_alerts(current_prices)
+        alerts = self._options_positions.get_pending_alerts(
+            current_prices, owner=self.owner
+        )
 
         _COLORS = {
             ALERT_ITM:           0x00FF00,  # Green  — in the money

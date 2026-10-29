@@ -784,6 +784,11 @@
           "nullable": true,
           "type": "text"
         },
+        "owner": {
+          "default": "'john'::text",
+          "nullable": false,
+          "type": "text"
+        },
         "position_id": {
           "default": "nextval('options_positions_position_id_seq'::regclass)",
           "nullable": false,
@@ -826,6 +831,7 @@
         "options_positions_status_check": "CHECK ((status = ANY (ARRAY['ACTIVE'::text, 'CLOSED'::text, 'EXPIRED'::text])))"
       },
       "indexes": {
+        "idx_options_positions_owner_status": "CREATE INDEX idx_options_positions_owner_status ON public.options_positions USING btree (owner, status)",
         "idx_positions_expiration": "CREATE INDEX idx_positions_expiration ON public.options_positions USING btree (expiration)",
         "idx_positions_symbol": "CREATE INDEX idx_positions_symbol ON public.options_positions USING btree (symbol)",
         "options_positions_pkey": "CREATE UNIQUE INDEX options_positions_pkey ON public.options_positions USING btree (position_id)"

@@ -30,11 +30,20 @@ of the code under test -- it reads ``db/schema_snapshot.json`` and the source.
      widen the restriction.
    - INSERT into such a table: ``owner`` is in the column list (an omitted
      column falls through to ``DEFAULT 'john'``).
-   - A child table (no ``owner`` column): some owning ancestor is restricted
-     as above, in the same query level or a subquery under it. Joining the
-     parent without restricting it isn't enough.
+   - Every reference counts: each alias of a self-join, and each branch of a
+     ``UNION``/``INTERSECT``/``EXCEPT``, is restricted on its own.
+   - A child table (no ``owner`` column): each reference to it is tied to a
+     restricted owning ancestor, either joined to it at the same level
+     (``child.col = parent.col``, the parent restricted) or filtered by
+     ``col IN (subquery)`` where the subquery restricts the ancestor (or
+     names a child under it, which the scan then checks in turn). Joining
+     the parent without restricting it isn't enough, and neither is an
+     ancestor restricted in an uncorrelated ``EXISTS`` or sibling subquery,
+     which filters none of the child's rows. The scan doesn't verify that the
+     joined columns are the foreign key.
    - A statement the scan can't classify (a ``{}`` f-string hole in its
-     ``WHERE``) fails, so a new shape gets a human look.
+     ``WHERE``, or a ``NOT`` around an owner predicate) fails, so a new shape
+     gets a human look.
 
    Statements that are cross-owner on purpose, or that the scan can't see
    through, go in ``ALLOWED`` keyed by file and a fingerprint of the
@@ -198,6 +207,8 @@ _PARAM = r"(?:%s|\?|:\w+|%\(\w+\)s)"
 _RESTRICT = re.compile(r"(?:\b(\w+)\.)?\bowner\s*(?<![<>!])=\s*" + _PARAM)
 _TABLE_REF = re.compile(r"\b(from|join|into|update)\s+(\w+)(?:\s+(?:as\s+)?(\w+))?")
 _DML = re.compile(r"^\s*(select|insert|update|delete|with)\b")
+_SET_OP = re.compile(r"\b(?:union|intersect|except)\b(?:\s+all)?")
+_IN_SUBQUERY = re.compile(r"(?:\b(\w+)\.)?\b(\w+)\s+in\s*\(<subquery:(\d+)>\)")
 _NOT_ALIAS = {
     "where", "join", "on", "set", "values", "left", "right", "inner", "outer",
     "cross", "full", "order", "group", "limit", "returning", "using", "select",
@@ -218,21 +229,29 @@ def fingerprint(sql: str) -> str:
 
 
 class _Scope:
-    """One query level: its own text (subqueries replaced by a marker) and its
-    subquery children."""
+    """One query level: its own text (each subquery replaced by a numbered
+    marker) and its subquery children."""
 
-    def __init__(self, text: str, children: list):
+    def __init__(self, text: str, children: list, sid: int = -1):
         self.text = text
         self.children = children
+        self.id = sid
+
+    def refs(self) -> list:
+        """(table, name) for each table this level names directly; ``name`` is
+        its alias, or the table itself when it has none."""
+        out = []
+        for m in _TABLE_REF.finditer(self.text):
+            table, alias = m.group(2), m.group(3)
+            out.append((table, alias if alias and alias not in _NOT_ALIAS else table))
+        return out
 
     def tables(self) -> dict:
         """alias-or-name -> table, for tables this level names directly."""
         out = {}
-        for m in _TABLE_REF.finditer(self.text):
-            table, alias = m.group(2), m.group(3)
+        for table, name in self.refs():
             out[table] = table
-            if alias and alias not in _NOT_ALIAS:
-                out[alias] = table
+            out[name] = table
         return out
 
     def predicate_region(self) -> str:
@@ -253,6 +272,11 @@ class _Scope:
                 region.append(part)
         return " ".join(region)
 
+    def branches(self) -> list:
+        """This level split at UNION / INTERSECT / EXCEPT: each branch reads
+        rows on its own, so each must restrict them on its own."""
+        return [_Scope(t, self.children, self.id) for t in _SET_OP.split(self.text)]
+
     def walk(self):
         yield self
         for child in self.children:
@@ -261,7 +285,11 @@ class _Scope:
 
 def parse_scopes(sql: str) -> _Scope:
     """Split ``sql`` (normalized) into query levels at parenthesized SELECTs.
-    Other parentheses (column lists, VALUES, IN lists, calls) stay inline."""
+    Other parentheses (column lists, VALUES, IN lists, calls) stay inline.
+    Markers are numbered across the statement, so one survives being inlined
+    into its parent's text."""
+    count = [0]
+
     def build(text, i):
         buf, children = [], []
         while i < len(text):
@@ -269,8 +297,10 @@ def parse_scopes(sql: str) -> _Scope:
             if ch == "(":
                 inner, j = build(text, i + 1)
                 if re.match(r"^\s*(select|with)\b", inner.text):
+                    inner.id = count[0]
+                    count[0] += 1
                     children.append(inner)
-                    buf.append("(<subquery>)")
+                    buf.append(f"(<subquery:{inner.id}>)")
                 else:
                     buf.append("(" + inner.text + ")")
                     children.extend(inner.children)
@@ -286,21 +316,31 @@ def parse_scopes(sql: str) -> _Scope:
     return scope
 
 
+def _restricted_refs(scope: _Scope, owner_tables: set) -> set:
+    """Names (aliases) of owner-column references that ``scope`` binds to an owner."""
+    refs = [(t, n) for t, n in scope.refs() if t in owner_tables]
+    found = {_restricted_name(m.group(1), refs) for m in _RESTRICT.finditer(scope.predicate_region())}
+    return found - {None}
+
+
+def _restricted_name(qual, refs: list):
+    """The reference an ``owner = ?`` qualified by ``qual`` (None: bare)
+    restricts: the alias it names, a table named once, or the level's only
+    owner table. None when it's ambiguous or names nothing here."""
+    if qual is None:
+        return refs[0][1] if len(refs) == 1 else None
+    if qual in {n for _, n in refs}:
+        return qual
+    same = [n for t, n in refs if t == qual]
+    return same[0] if len(same) == 1 else None
+
+
 def _restricted_in(scope: _Scope, owner_tables: set) -> set:
-    """Owner-column tables that ``scope`` itself restricts to a bound owner."""
-    aliases = scope.tables()
-    here = {t for t in aliases.values() if t in owner_tables}
-    region = scope.predicate_region()
-    found = set()
-    for m in _RESTRICT.finditer(region):
-        qual = m.group(1)
-        if qual:
-            table = aliases.get(qual)
-            if table in owner_tables:
-                found.add(table)
-        elif len(here) == 1:
-            found |= here
-    return found
+    """Owner-column tables every reference to which ``scope`` restricts -- a
+    self-join with one unrestricted alias doesn't count."""
+    refs = [(t, n) for t, n in scope.refs() if t in owner_tables]
+    done = _restricted_refs(scope, owner_tables)
+    return {t for t, _ in refs} - {t for t, n in refs if n not in done}
 
 
 def _insert_problem(table: str, columns: str, scoped: dict):
@@ -311,39 +351,89 @@ def _insert_problem(table: str, columns: str, scoped: dict):
     return None
 
 
-def _read_or_write_problem(table: str, scoped: dict, here: set, below: set):
-    """``here``/``below``: owner tables restricted at this level / in its subqueries."""
+def _joined(child: str, ancestor: str, region: str) -> bool:
+    """A column of ``child`` equated to a column of ``ancestor``."""
+    c, a = re.escape(child), re.escape(ancestor)
+    return bool(re.search(rf"\b{c}\.\w+\s*=\s*{a}\.\w+|\b{a}\.\w+\s*=\s*{c}\.\w+", region))
+
+
+def _vouches(sub: _Scope, ancestors: set, scoped: dict, owner_tables: set) -> bool:
+    """``sub`` restricts one of ``ancestors`` itself, or names a child table
+    under one of them (checked as its own level by the walk)."""
+    if _restricted_in(sub, owner_tables) & ancestors:
+        return True
+    return any(scoped.get(t, set()) & ancestors for t, _ in sub.refs())
+
+
+def _in_subquery_credit(name: str, scope: _Scope, ancestors: set, scoped: dict, owner_tables: set) -> bool:
+    """``name.col IN (subquery)`` (``col`` alone when this level names one
+    table) where the subquery vouches for an owning ancestor."""
+    subs = {c.id: c for c in scope.children}
+    single = len(scope.refs()) == 1
+    for m in _IN_SUBQUERY.finditer(scope.predicate_region()):
+        qual, col = m.group(1), m.group(2)
+        mine = qual == name if qual else (single and col != "not")
+        sub = subs.get(int(m.group(3)))
+        if mine and sub and _vouches(sub, ancestors, scoped, owner_tables):
+            return True
+    return False
+
+
+def _child_credited(name: str, ancestors: set, scope: _Scope, scoped: dict, owner_tables: set) -> bool:
+    """The child reference ``name`` is tied to a restricted owning ancestor:
+    joined to it at this level, or filtered by an IN subquery that restricts it.
+    An ancestor restricted somewhere else in the statement (an EXISTS, a
+    sibling subquery) doesn't count -- it filters nothing about these rows."""
+    done = _restricted_refs(scope, owner_tables)
+    region = scope.predicate_region()
+    joined = [n for t, n in scope.refs() if t in ancestors and n in done]
+    if any(_joined(name, a, region) for a in joined):
+        return True
+    return _in_subquery_credit(name, scope, ancestors, scoped, owner_tables)
+
+
+def _read_or_write_problem(table: str, scoped: dict, scope: _Scope, owner_tables: set):
     ancestors = scoped[table]
     if not ancestors:
-        return None if table in here else f"{table} is not restricted to a bound owner"
-    if ancestors & (here | below):
+        if table in _restricted_in(scope, owner_tables):
+            return None
+        return f"{table} is not restricted to a bound owner"
+    names = {n for t, n in scope.refs() if t == table}
+    if all(_child_credited(n, ancestors, scope, scoped, owner_tables) for n in names):
         return None
     return (
-        f"child table {table} without a restriction on its owner "
-        f"ancestor ({', '.join(sorted(ancestors))})"
+        f"child table {table} not tied (by a join or an IN subquery) to a "
+        f"restriction on its owner ancestor ({', '.join(sorted(ancestors))})"
     )
+
+
+def _negates_owner(region: str) -> bool:
+    """A NOT applied to an owner predicate: ``NOT owner = ?`` or ``NOT (...owner...)``."""
+    if re.search(r"\bnot\s+(?:\w+\.)?owner\b", region):
+        return True
+    for m in re.finditer(r"\bnot\s*\(", region):
+        depth, i = 1, m.end()
+        while i < len(region) and depth:
+            depth += {"(": 1, ")": -1}.get(region[i], 0)
+            i += 1
+        if re.search(r"\bowner\b", region[m.end():i]):
+            return True
+    return False
 
 
 def _clause_problems(region: str) -> list:
     """Problems that make a WHERE/ON clause untrustworthy as a whole."""
     if HOLE in region:
         return ["unclassifiable: an f-string hole in the WHERE clause"]
+    if _negates_owner(region):
+        return ["unclassifiable: a NOT around an owner predicate"]
     if re.search(r"\bor\b", region):
         return ["an OR in the WHERE clause can widen the owner restriction"]
     return []
 
 
-def _restrictions(scope: _Scope, owner_tables: set) -> tuple:
-    """(owner tables restricted at this level, ... in any subquery under it)."""
-    here = _restricted_in(scope, owner_tables)
-    below = set().union(
-        *(_restricted_in(s, owner_tables) for c in scope.children for s in c.walk())
-    )
-    return here, below
-
-
-def _check_scope(scope: _Scope, scoped: dict, owner_tables: set) -> list:
-    named = {t for t in scope.tables().values() if t in scoped}
+def _check_branch(scope: _Scope, scoped: dict, owner_tables: set) -> list:
+    named = {t for t, _ in scope.refs() if t in scoped}
     if not named:
         return []
     problems = _clause_problems(scope.predicate_region())
@@ -351,15 +441,18 @@ def _check_scope(scope: _Scope, scoped: dict, owner_tables: set) -> list:
         return problems
     insert = re.match(r"^\s*insert into (\w+)\s*\(([^)]*)\)", scope.text)
     inserted = insert.group(1) if insert else None
-    here, below = _restrictions(scope, owner_tables)
     for table in sorted(named):
         problem = (
             _insert_problem(table, insert.group(2), scoped) if table == inserted
-            else _read_or_write_problem(table, scoped, here, below)
+            else _read_or_write_problem(table, scoped, scope, owner_tables)
         )
         if problem:
             problems.append(problem)
     return problems
+
+
+def _check_scope(scope: _Scope, scoped: dict, owner_tables: set) -> list:
+    return [p for b in scope.branches() for p in _check_branch(b, scoped, owner_tables)]
 
 
 def check_statement(sql: str, scoped: dict) -> list:
@@ -519,6 +612,21 @@ MUST_REJECT = [
     "INSERT INTO plan_rungs (instance_id, rung_index) VALUES (:instance_id, :rung_index)",
     # The restriction is on the subquery's own table, not on the outer one.
     "SELECT * FROM positions WHERE position_id IN (SELECT position_id FROM plan_instances WHERE owner = ?)",
+    # An ancestor restricted in an uncorrelated subquery filters nothing (#482 review).
+    "SELECT ls.sale_id FROM lot_sales ls WHERE EXISTS (SELECT 1 FROM positions p WHERE p.owner = ?)",
+    "SELECT ls.* FROM lot_sales ls, positions p WHERE p.owner = ?",
+    "SELECT * FROM lot_sales WHERE lot_id NOT IN (SELECT position_id FROM positions WHERE owner = ?)",
+    # Negation inverts the restriction.
+    "SELECT position_id FROM positions WHERE NOT (owner = ?)",
+    "SELECT position_id FROM positions WHERE NOT owner = ?",
+    "SELECT position_id FROM positions WHERE status = 'OPEN' AND NOT (symbol = ? AND owner = ?)",
+    # Each set-operation branch reads rows on its own.
+    "SELECT symbol FROM positions WHERE owner = ? UNION SELECT symbol FROM positions",
+    "SELECT symbol FROM positions WHERE owner = ? UNION ALL SELECT symbol FROM options_positions",
+    # Every alias of an owner table must be restricted.
+    "SELECT b.* FROM positions a JOIN positions b ON a.symbol = b.symbol WHERE a.owner = ?",
+    "SELECT ls.* FROM lot_sales ls JOIN positions p ON p.position_id = ls.lot_id "
+    "JOIN lot_sales ls2 ON ls2.sale_id <> ls.sale_id WHERE p.owner = ?",
 ]
 
 MUST_ACCEPT = [
@@ -535,6 +643,13 @@ MUST_ACCEPT = [
     "WHERE pr.rung_id = ? AND pi.owner = ?",
     "UPDATE plan_instances SET status = 'CLOSED', notes = CASE WHEN :r IS NULL OR notes = '' "
     "THEN notes ELSE :r END WHERE owner = :owner AND status = 'ACTIVE'",
+    "SELECT symbol FROM positions WHERE owner = ? UNION SELECT symbol FROM options_positions WHERE owner = ?",
+    "SELECT b.* FROM positions a JOIN positions b ON a.symbol = b.symbol WHERE a.owner = ? AND b.owner = ?",
+    "SELECT position_id FROM positions WHERE owner = ? AND NOT EXISTS (SELECT 1 FROM lot_sales ls "
+    "WHERE ls.lot_id IN (SELECT position_id FROM positions WHERE owner = ?))",
+    "SELECT * FROM positions WHERE owner = ? AND status IS NOT NULL",
+    # A child reached through another child: the inner level vouches for the outer.
+    "SELECT * FROM plan_rungs WHERE instance_id IN (SELECT instance_id FROM plan_instances WHERE owner = ?)",
 ]
 
 

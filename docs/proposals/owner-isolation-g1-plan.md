@@ -220,7 +220,7 @@ inventory + heuristic scan that keeps the map complete; delete G1 from *Gaps*; c
 |---|---|---|---|---|
 | D1 check (prod/test row counts) | skipped | — | 2026-10-29 | D1 decided *keep* by John. No Cloud SQL proxy was running, so the read-only count wasn't taken; the DEFAULT backfills whatever rows exist, so it doesn't change the design |
 | 1 — options_positions owner | done | #480 | 2026-10-29 | V12, not V10: V10/V11 had landed meanwhile. Review: split `get_pending_alerts` (CC 16 / cognitive 27) into pure helpers (max 6 / 6) with byte-identical output on a 1,166-alert grid; added no-DB branch tests and an SQL-shape guard for every statement. Merged as `a4a23de`; on test 2026-10-29 (migrate Job `quantcore-migrate-4gbsr` succeeded, roll-out green); prod-rollout dispatched by John the same day |
-| 2 — general rule + guard | in review | (this PR) | 2026-10-29 | Rule in CLAUDE.md (+ arch-v2 Rule 12, AGENTS.md); `tests/test_owner_isolation_coverage.py` scans every tracked `.py` outside `tests/`, not just the mapped repositories; its first run found four unscoped Harvester statements, fixed here; 10 reviewed `ALLOWED` entries; G1 closed |
+| 2 — general rule + guard | in review | (this PR) | 2026-10-29 | Rule in CLAUDE.md (+ arch-v2 Rule 12, AGENTS.md); `tests/test_owner_isolation_coverage.py` scans every tracked `.py` outside `tests/`, not just the mapped repositories; its first run found four unscoped Harvester statements, fixed here; 10 reviewed `ALLOWED` entries; G1 closed. Review (Guppy, 50ab3e5): a child is credited only through a correlated join or an `IN` subquery on the ancestor (an uncorrelated `EXISTS` no longer counts); a `NOT` around an owner predicate is unclassifiable; each `UNION` branch and each self-join alias is restricted on its own; 12 new reject and 5 new accept fixtures; no `ALLOWED` change |
 | Plan review (Guppy, #476) | done | #476 | 2026-10-29 | Tightened the step-2 scan: restricting predicate, not token presence; child tables restrict the ancestor; reject fixtures; statement count 7 → 8 |
 
 ## Gotchas
@@ -270,3 +270,12 @@ _(Append here as each step lands — what misled you, not just the outcome.)_
   `UserSettingsRepository` take `owner` positionally, and it's required, so it can't be forgotten
   either. Converting 16 methods and their callers would add no isolation, so the rule says
   keyword-only for new code and the guard checks only for defaults.
+- **"The ancestor is restricted somewhere below" credits the wrong rows** (step 2 review, #482).
+  The first scan accepted a child whenever its ancestor was restricted at the same level *or any
+  subquery under it*, so `SELECT ls.sale_id FROM lot_sales ls WHERE EXISTS (SELECT 1 FROM
+  positions p WHERE p.owner = ?)` passed while returning every owner's sales: the EXISTS is true
+  for anyone who owns a position. A restriction only protects the child's rows when it's tied to
+  them, a join on the child's column or `child_col IN (…)`. The same review found `NOT (owner =
+  ?)`, an unscoped `UNION` branch and an unscoped self-join alias passing; the scanner now splits
+  set-op branches and checks every reference, not every table. Every real statement already had a
+  tied shape, so tightening it changed no `ALLOWED` entry.

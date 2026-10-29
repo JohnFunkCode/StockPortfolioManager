@@ -227,7 +227,8 @@ non-finite float rather than a 500. A NaN once 500'd `/options/iv-rank` for 65% 
 - **Every statement binds the owner** in its `WHERE` or `JOIN … ON`, private helpers included; an
   INSERT puts `owner` in its column list rather than leaning on `DEFAULT 'john'`. A child table is
   restricted through its owning ancestor (`… IN (SELECT … FROM plan_instances WHERE owner = …)` or
-  a join plus `p.owner = …`) — joining the parent without restricting it isn't enough. An id that
+  a join plus `p.owner = …`) — joining the parent without restricting it isn't enough, and nor is
+  an ancestor restricted in an uncorrelated `EXISTS`, which filters none of the child's rows. An id that
   an earlier owner-scoped query already resolved still gets the predicate: it is what contains the
   damage when that id is wrong.
 - **`owner` is a required argument, never defaulted** — keyword-only in new code, as Harvester and

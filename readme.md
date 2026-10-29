@@ -625,10 +625,10 @@ in [the skill's reference](.agents/skills/feature-research/references/research-m
 Any idea can become an issue — pick the **Idea**, **Bug** or **Ready to build** template. New
 issues land in the **Inbox** column of the
 [StockPortfolioManager project board](https://github.com/users/JohnFunkCode/projects/4). A
-scheduled Claude task comments a suggested Area, Priority and Size on each one, and a weekly
-triage pass by a person sets them and moves the item to Backlog, Ready or Parked. What the
-priorities mean and the bar for Ready are in
-[`docs/operations/issue-triage.md`](docs/operations/issue-triage.md).
+scheduled Claude task comments a suggested Area, Priority and Size on each one; anyone who
+passes by sets them and moves the item to Backlog, Ready or Parked. There are no meetings or
+deadlines — people pull from the Ready view when they have time. What the priorities mean and the
+bar for Ready are in [`docs/operations/issue-triage.md`](docs/operations/issue-triage.md).
 
 ## Documentation map
 

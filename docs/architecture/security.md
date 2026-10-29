@@ -157,7 +157,7 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   pickle ban could flag f-string/`%`/`.format` SQL whose fields aren't on an allow-list.
 - **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
   data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
-  read-only (LLM06) — that is the containment that makes this a low-impact gap.
+  read-only (LLM06) — that is the containment that makes this a low-impact gap. Plan: [prompt-injection-g4-plan.md](../proposals/prompt-injection-g4-plan.md).
 
 ## Reviewing a PR with this map
 

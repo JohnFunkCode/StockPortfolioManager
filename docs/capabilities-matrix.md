@@ -152,7 +152,7 @@ Capabilities are organized by domain. **Bold ⚠ rows** are built-but-not-in-UI 
 | **⚠ Covered call / put / long setup screening (watchlist)** — cache-first; the MCP path never calls Yahoo (`source=live` remains a REST-only operator escape hatch) | `analyze_options_watchlist` | `GET /api/options/screen-watchlist` | **—** | `options_analysis.py --puts-budget 1000` |
 | **⚠ Same, single symbol** | `analyze_options_symbol` | `GET .../options/screen` | **—** | `options_analysis.py` |
 | Portfolio delta exposure (aggregated) | — | `GET /api/portfolio/delta-exposure` | Harvester page → MM delta table | — |
-| Options-position alerts (ITM, expiration, profit target) | — | — | — | `main.py` daily Job (`Notifier.check_options_alerts`, reads `options_positions`) |
+| Options-position alerts (ITM, expiration, profit target) | — | — | — | `main.py` daily Job (`Notifier.check_options_alerts`, reads the run owner's `options_positions`; owner-scoped since V12) |
 | MCP wrapper health check | `mcp_health_check` | (wrapper-local) | — | — |
 
 ---
@@ -302,7 +302,7 @@ All Discord, sent by `notifier.py`; `send_notifications()` dedupes on the embed 
 |---|---|---|
 | Moving-average violations (30/50/100/200-day) and price below purchase price | `main.py` daily Job | Per holding, from the DB-backed positions |
 | Harvest rung hits | `main.py` daily Job | Via `HarvesterService` |
-| Options-position alerts (ITM, expiration, profit target); auto-expires past positions | `main.py` daily Job | Reads `options_positions` |
+| Options-position alerts (ITM, expiration, profit target); auto-expires past positions | `main.py` daily Job | Reads the run owner's `options_positions` (owner-scoped, V12) |
 | Sentiment flips | `main.py` daily Job | `Notifier.check_sentiment_flips` |
 | Empty watchlist (no YAML fallback, by design) | `main.py` daily Job | Dated title so a persisting condition alarms every day |
 | Options capture gap | `main.py` daily Job | Re-reads what actually landed in the database |
@@ -365,7 +365,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 
 ### Remaining Database Gaps
 
-1. **`options_positions` has no REST/WebUI/MCP surface.** It is read by the daily Job's options-position alerts and by the standalone INTC/WMT monitors, but positions can only be written directly through `OptionsPositionStore`. Either add REST CRUD + a UI positions panel, or document the store as the only write path.
+1. **`options_positions` has no REST/WebUI/MCP surface.** It is read by the daily Job's options-position alerts and by the standalone INTC/WMT monitors, but positions can only be written directly through `OptionsPositionStore` (which takes a required `owner`, V12 / #460). Either add REST CRUD + a UI positions panel, or document the store as the only write path.
 2. **Microstructure signals are never persisted.** `get_short_interest` / `get_dark_pool` / `get_bid_ask_spread` compute in real time; no historical trend is possible. Add a snapshot table if trend analysis is wanted.
 3. **News article data partially duplicated.** `sentiment_snapshots` re-embeds aggregate data derivable from `news_articles`; no FK cross-reference. Low priority.
 

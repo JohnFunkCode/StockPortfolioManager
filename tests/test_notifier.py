@@ -171,3 +171,37 @@ class NotifierSentimentFlipTest(unittest.TestCase):
                 else:
                     self.assertEqual(len(sent), 1)
                     self.assertEqual(sent[0]["embeds"][0]["color"], colour)
+
+
+class NotifierOptionsAlertsOwnerTests(unittest.TestCase):
+    """check_options_alerts reads only the run's owner's options positions
+    (#460): the webhook is that owner's channel."""
+
+    def test_every_store_call_is_scoped_to_the_notifier_owner(self):
+        services_stub = MagicMock()
+        services_stub.prices.get_fast_price.return_value = 110.0
+        # check_options_alerts re-imports get_services locally, so patch the
+        # registry's name as well as the notifier module's.
+        for target in ("notifier.get_services",
+                       "quantcore.services.registry.get_services"):
+            patcher = patch(target, return_value=services_stub)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        notifier = Notifier(Portfolio(), owner="ownerb")
+        store = MagicMock()
+        store.auto_expire_past_positions.return_value = []
+        store.get_active_positions.return_value = [{"symbol": "ZZOPT"}]
+        store.get_pending_alerts.return_value = []
+        notifier._options_positions = store
+        notifier.send_notifications = MagicMock()
+
+        notifier.check_options_alerts()
+
+        store.auto_expire_past_positions.assert_called_once_with(owner="ownerb")
+        store.get_active_positions.assert_called_once_with(owner="ownerb")
+        store.get_pending_alerts.assert_called_once_with(
+            {"ZZOPT": 110.0}, owner="ownerb"
+        )
+        notifier.send_notifications.assert_not_called()
+

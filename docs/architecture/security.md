@@ -30,7 +30,8 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Positions are per-owner the same way. | `tests/test_portfolio_repository.py` (`test_*_is_owner_scoped`) | Enforced |
 | Sidekick's owner-scoped tools take the owner from the turn context; their schemas have no `owner` parameter, so the model can't pick whose data it sees (`OWNER_SCOPED_TOOLS` in `quantcore/services/chat.py`). | `tests/test_chat_tools.py`, `tests/test_chat_protocol.py` | Enforced |
 | The UI is behind IAP; a user needs the audience entry, the IAP role **and** an `owner_identities` row ([quantui.md](quantui.md)). | manual grant script | Convention |
-| The SQL-isolation rule is written down for Harvester only, not as a rule for every per-owner table. `options_positions` has no `owner` column. | — | **Gap G1** |
+| `options_positions` is per-owner (V12, #460): every `OptionsPositionStore` statement carries the `owner` predicate, and the notifier reads only its run's owner. | `tests/test_repositories_db.py` (`test_wrong_owner_*`), `tests/test_notifier.py` | Enforced |
+| The SQL-isolation rule is written down for Harvester only, not as a rule for every per-owner table. | — | **Gap G1** |
 
 ### A02 Security Misconfiguration
 
@@ -138,14 +139,10 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 Each gap has a backlog issue (label `security`). Close it by changing the row above and deleting it here.
 
 - **G1 ([#460](https://github.com/JohnFunkCode/StockPortfolioManager/issues/460)) — Owner isolation isn't a general rule.** The SQL-predicate rule and its wrong-owner tests
-  exist for Harvester and positions. `options_positions` has no `owner` column. It has a live
-  consumer: the daily job's notification pass (`Notifier.check_options_alerts` in `notifier.py`,
-  called from `calculate_and_send_notifications`, which `main.py` runs) expires past positions and reads every active position and
-  pending alert, across all rows, posting to the one shared Discord webhook. The registry also
-  constructs `OptionsPositionStore`. No REST route, MCP tool or Sidekick tool reads it, so no
-  *user-facing* surface exposes it today, but that rests on the consumer list staying short, not on
-  any owner predicate. Promote the rule to "every per-owner table", and give `options_positions` an
-  owner (and the notifier an owner-aware read) before anything else consumes it. Plan: [owner-isolation-g1-plan.md](../proposals/owner-isolation-g1-plan.md).
+  exist for Harvester, positions and, since V12, `options_positions` (the notifier now reads only
+  its run's owner's options positions). Nothing yet tells the author of the *next* per-owner table
+  to follow it, or fails when they don't. Remaining: promote the rule to "every per-owner table"
+  with a coverage guard (step 2 of the plan). Plan: [owner-isolation-g1-plan.md](../proposals/owner-isolation-g1-plan.md).
 - **G2 ([#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461)) — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
   limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic through the public
   REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The

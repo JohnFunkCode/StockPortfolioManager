@@ -211,6 +211,7 @@ erDiagram
         string status "DEFAULT 'ACTIVE'"
         text closed_at
         text notes
+        string owner "DEFAULT 'john'"
     }
 
     NEWS_ARTICLES {
@@ -263,7 +264,7 @@ erDiagram
 - **OPTIONS_EXPIRATIONS** breaks down by expiration date
 - **OPTIONS_CONTRACTS** contains individual strike data
 - **GAMMA_WALL_HISTORY** tracks market-maker positioning over time
-- **OPTIONS_POSITIONS** tracks owned options contracts
+- **OPTIONS_POSITIONS** tracks owned options contracts, per owner (V12, #460)
 
 ### News & Sentiment
 - **NEWS_ARTICLES** stores individual articles by symbol

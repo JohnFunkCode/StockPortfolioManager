@@ -5,24 +5,28 @@ Addresses GitHub issue #12: "Enhance the notifier to send alerts related to
 option orders. E.g. sell when in the money, expirations, etc."
 
 Positions are added manually (or via CLI) and checked each time the notifier
-runs.  The store surfaces three kinds of alerts:
+runs.  Positions are owned (#460): ``owner`` is a required keyword-only
+argument on every public method, and every statement carries the ``owner``
+predicate, so another owner's position reads as absent and can't be changed.
+
+The store surfaces three kinds of alerts:
 
   ITM          — option just crossed into the money
   EXPIRATION   — expiration is within 7 days (fires daily) or 1 day (fires daily)
   PROFIT_TARGET — estimated intrinsic value reached 2× the purchase price
 
 Usage:
-    from options_position_store import OptionsPositionStore
+    from quantcore.repositories.options_position_repository import OptionsPositionStore
 
     store = OptionsPositionStore()
     pos_id = store.add_position(
         symbol="AMD", kind="put", strike=230.0, expiration="2026-05-16",
         contracts=1, purchase_price=4.10, purchase_date="2026-04-09",
-        target_price=187.89,
+        target_price=187.89, owner="john",
     )
 
-    alerts = store.get_pending_alerts(current_prices={"AMD": 215.0})
-    store.close_position(pos_id, reason="sold")
+    alerts = store.get_pending_alerts(current_prices={"AMD": 215.0}, owner="john")
+    store.close_position(pos_id, reason="sold", owner="john")
 """
 
 from contextlib import closing
@@ -35,7 +39,7 @@ from quantcore.analytics.market_time import market_date
 # Alert type constants
 ALERT_ITM           = "ITM"
 ALERT_EXPIRATION_7D = "EXPIRATION_7D"
-ALERT_EXPIRATION_1D = ALERT_EXPIRATION_1D = "EXPIRATION_1D"
+ALERT_EXPIRATION_1D = "EXPIRATION_1D"
 ALERT_PROFIT_TARGET = "PROFIT_TARGET"
 
 # Profit target multiplier — alert when intrinsic value reaches this × purchase cost
@@ -63,6 +67,8 @@ class OptionsPositionStore:
         purchase_date: str,
         target_price: Optional[float] = None,
         notes: Optional[str] = None,
+        *,
+        owner: str,
     ) -> int:
         """
         Add an active options position.
@@ -80,6 +86,7 @@ class OptionsPositionStore:
         purchase_date  : date purchased as "YYYY-MM-DD"
         target_price   : expected stock price at profit target (optional)
         notes          : free-text notes (optional)
+        owner          : whose position this is
         """
         kind = kind.lower()
         if kind not in ("call", "put"):
@@ -89,19 +96,21 @@ class OptionsPositionStore:
             cur = conn.execute(
                 """
                 INSERT INTO options_positions
-                    (symbol, kind, strike, expiration, contracts,
+                    (owner, symbol, kind, strike, expiration, contracts,
                      purchase_price, purchase_date, target_price, notes)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING position_id
                 """,
-                (symbol.upper(), kind, strike, expiration, contracts,
+                (owner, symbol.upper(), kind, strike, expiration, contracts,
                  purchase_price, purchase_date, target_price, notes),
             )
             pos_id = cur.fetchone()[0]
             conn.commit()
             return pos_id
 
-    def close_position(self, position_id: int, reason: str = "closed") -> None:
+    def close_position(
+        self, position_id: int, reason: str = "closed", *, owner: str
+    ) -> None:
         """Mark a position as CLOSED (manually sold or closed out)."""
         with closing(get_connection()) as conn:
             conn.execute(
@@ -110,32 +119,35 @@ class OptionsPositionStore:
                 SET status = 'CLOSED',
                     closed_at = %s,
                     notes = COALESCE(notes || ' | ', '') || %s
-                WHERE position_id = %s
+                WHERE position_id = %s AND owner = %s
                 """,
                 (
                     datetime.now(timezone.utc).isoformat(),
                     f"closed: {reason}",
                     position_id,
+                    owner,
                 ),
             )
             conn.commit()
 
-    def expire_position(self, position_id: int) -> None:
+    def expire_position(self, position_id: int, *, owner: str) -> None:
         """Mark a position as EXPIRED (option expiration date passed)."""
         with closing(get_connection()) as conn:
             conn.execute(
                 """
                 UPDATE options_positions
                 SET status = 'EXPIRED', closed_at = %s
-                WHERE position_id = %s
+                WHERE position_id = %s AND owner = %s
                 """,
-                (datetime.now(timezone.utc).isoformat(), position_id),
+                (datetime.now(timezone.utc).isoformat(), position_id, owner),
             )
             conn.commit()
 
-    def auto_expire_past_positions(self, *, now: datetime | None = None) -> list[dict]:
+    def auto_expire_past_positions(
+        self, *, owner: str, now: datetime | None = None
+    ) -> list[dict]:
         """
-        Mark all ACTIVE positions whose expiration date has passed as EXPIRED.
+        Mark the owner's ACTIVE positions whose expiration date has passed as EXPIRED.
         Returns the list of positions that were expired.
         """
         today_str = market_date(now).isoformat()
@@ -143,9 +155,9 @@ class OptionsPositionStore:
             rows = conn.execute(
                 """
                 SELECT * FROM options_positions
-                WHERE status = 'ACTIVE' AND expiration < ?
+                WHERE status = 'ACTIVE' AND expiration < %s AND owner = %s
                 """,
-                (today_str,),
+                (today_str, owner),
             ).fetchall()
             if rows:
                 ids = [r["position_id"] for r in rows]
@@ -153,30 +165,31 @@ class OptionsPositionStore:
                     """
                     UPDATE options_positions
                     SET status = 'EXPIRED', closed_at = %s
-                    WHERE position_id = ANY(%s)
+                    WHERE position_id = ANY(%s) AND owner = %s
                     """,
-                    [datetime.now(timezone.utc).isoformat(), ids],
+                    [datetime.now(timezone.utc).isoformat(), ids, owner],
                 )
                 conn.commit()
             return [dict(r) for r in rows]
 
-    def get_active_positions(self) -> list[dict]:
-        """Return all ACTIVE positions ordered by expiration date."""
+    def get_active_positions(self, *, owner: str) -> list[dict]:
+        """Return the owner's ACTIVE positions ordered by expiration date."""
         with closing(get_connection()) as conn:
             rows = conn.execute(
                 """
                 SELECT * FROM options_positions
-                WHERE status = 'ACTIVE'
+                WHERE status = 'ACTIVE' AND owner = %s
                 ORDER BY expiration ASC, symbol ASC
                 """,
+                (owner,),
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def get_position(self, position_id: int) -> Optional[dict]:
+    def get_position(self, position_id: int, *, owner: str) -> Optional[dict]:
         with closing(get_connection()) as conn:
             row = conn.execute(
-                "SELECT * FROM options_positions WHERE position_id = ?",
-                (position_id,),
+                "SELECT * FROM options_positions WHERE position_id = %s AND owner = %s",
+                (position_id, owner),
             ).fetchone()
             return dict(row) if row else None
 
@@ -185,10 +198,14 @@ class OptionsPositionStore:
     # ------------------------------------------------------------------
 
     def get_pending_alerts(
-        self, current_prices: dict[str, float], *, now: datetime | None = None
+        self,
+        current_prices: dict[str, float],
+        *,
+        owner: str,
+        now: datetime | None = None,
     ) -> list[dict]:
         """
-        Evaluate every ACTIVE position against current market prices and
+        Evaluate the owner's ACTIVE positions against current market prices and
         return a list of alert dicts.  The caller is responsible for
         deduplicating and sending.
 
@@ -206,7 +223,7 @@ class OptionsPositionStore:
         today = market_date(now)
         alerts = []
 
-        for pos in self.get_active_positions():
+        for pos in self.get_active_positions(owner=owner):
             symbol      = pos["symbol"]
             kind        = pos["kind"]
             strike      = pos["strike"]
@@ -315,10 +332,10 @@ class OptionsPositionStore:
     # Inventory helpers
     # ------------------------------------------------------------------
 
-    def position_count(self, status: str = "ACTIVE") -> int:
+    def position_count(self, status: str = "ACTIVE", *, owner: str) -> int:
         with closing(get_connection()) as conn:
             row = conn.execute(
-                "SELECT COUNT(*) FROM options_positions WHERE status = ?",
-                (status,),
+                "SELECT COUNT(*) FROM options_positions WHERE status = %s AND owner = %s",
+                (status, owner),
             ).fetchone()
             return row[0]

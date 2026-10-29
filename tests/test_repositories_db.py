@@ -334,26 +334,36 @@ class TestNewsStore(RepoTestBase):
 
 
 class TestOptionsPositionStore(RepoTestBase):
+    # Two synthetic owners (#460). Teardown deletes by SYM, which covers both.
+    OTHER_OWNER = "zzrepos-other-owner"
+
     def setUp(self):
         super().setUp()
         self.store = OptionsPositionStore()
 
     def add(self, kind="call", strike=100.0, expiration_days=30,
-            purchase_price=3.0, target=None):
+            purchase_price=3.0, target=None, owner=TEST_OWNER):
         exp = (date.today() + timedelta(days=expiration_days)).isoformat()
         return self.store.add_position(
             symbol=SYM, kind=kind, strike=strike, expiration=exp,
             contracts=2, purchase_price=purchase_price,
             purchase_date=date.today().isoformat(), target_price=target,
+            owner=owner,
         )
 
     def test_add_get_close_lifecycle(self):
         pid = self.add()
-        pos = self.store.get_position(pid)
+        pos = self.store.get_position(pid, owner=TEST_OWNER)
         self.assertEqual(pos["symbol"], SYM)
-        self.assertEqual(self.store.position_count("ACTIVE"), 1)
-        self.store.close_position(pid, reason="took profit")
-        self.assertEqual(self.store.position_count("ACTIVE"), 0)
+        self.assertEqual(self.store.position_count("ACTIVE", owner=TEST_OWNER), 1)
+        self.store.close_position(pid, reason="took profit", owner=TEST_OWNER)
+        self.assertEqual(self.store.position_count("ACTIVE", owner=TEST_OWNER), 0)
+
+    def test_add_position_records_owner(self):
+        pid = self.add()
+        self.assertEqual(
+            self.store.get_position(pid, owner=TEST_OWNER)["owner"], TEST_OWNER
+        )
 
     def test_invalid_kind_rejected(self):
         with self.assertRaises(ValueError):
@@ -362,46 +372,81 @@ class TestOptionsPositionStore(RepoTestBase):
     def test_auto_expire_past_positions(self):
         self.add(expiration_days=-2)                   # already expired
         live = self.add(expiration_days=30)
-        expired = self.store.auto_expire_past_positions()
+        expired = self.store.auto_expire_past_positions(owner=TEST_OWNER)
         expired_ids = [p["position_id"] for p in expired]
         self.assertEqual(len(expired_ids), 1)
-        active = self.store.get_active_positions()
+        active = self.store.get_active_positions(owner=TEST_OWNER)
         self.assertEqual([p["position_id"] for p in active], [live])
+
+    def test_wrong_owner_reads_come_back_empty(self):
+        pid = self.add(kind="call", strike=100.0, expiration_days=5,
+                       purchase_price=1.0)             # would alert: ITM + <=7d
+        other = self.OTHER_OWNER
+        self.assertIsNone(self.store.get_position(pid, owner=other))
+        self.assertEqual(self.store.get_active_positions(owner=other), [])
+        self.assertEqual(self.store.position_count("ACTIVE", owner=other), 0)
+        self.assertEqual(self.store.get_pending_alerts({SYM: 110.0}, owner=other), [])
+        # The owner still sees it all.
+        self.assertTrue(self.store.get_pending_alerts({SYM: 110.0}, owner=TEST_OWNER))
+
+    def test_wrong_owner_mutations_change_nothing(self):
+        pid = self.add()
+        past = self.add(expiration_days=-2)
+        other = self.OTHER_OWNER
+        self.store.close_position(pid, reason="not yours", owner=other)
+        self.store.expire_position(pid, owner=other)
+        self.assertEqual(self.store.auto_expire_past_positions(owner=other), [])
+        for position_id in (pid, past):
+            pos = self.store.get_position(position_id, owner=TEST_OWNER)
+            self.assertEqual(pos["status"], "ACTIVE")
+            self.assertIsNone(pos["closed_at"])
+            self.assertIsNone(pos["notes"])
+
+    def test_auto_expire_leaves_the_other_owners_past_positions_alone(self):
+        mine = self.add(expiration_days=-2)
+        theirs = self.add(expiration_days=-2, owner=self.OTHER_OWNER)
+        expired = self.store.auto_expire_past_positions(owner=TEST_OWNER)
+        self.assertEqual([p["position_id"] for p in expired], [mine])
+        self.assertEqual(
+            self.store.get_position(theirs, owner=self.OTHER_OWNER)["status"], "ACTIVE"
+        )
 
     def test_late_evening_does_not_expire_next_market_day(self):
         self.store.add_position(
             symbol=SYM, kind="call", strike=100.0, expiration="2026-08-15",
             contracts=2, purchase_price=3.0, purchase_date="2026-08-14",
-            target_price=None,
+            target_price=None, owner=TEST_OWNER,
         )
         evening = pytz.timezone("America/New_York").localize(
             datetime(2026, 8, 14, 23, 35)
         )
-        expired = self.store.auto_expire_past_positions(now=evening)
+        expired = self.store.auto_expire_past_positions(owner=TEST_OWNER, now=evening)
         self.assertEqual(expired, [])
 
     def test_pending_alerts_itm_and_expiry(self):
         self.add(kind="call", strike=100.0, expiration_days=5,
                  purchase_price=1.0)                   # ITM + <=7d expiry
-        alerts = self.store.get_pending_alerts({SYM: 110.0})
+        alerts = self.store.get_pending_alerts({SYM: 110.0}, owner=TEST_OWNER)
         types = {a["alert_type"] for a in alerts}
         self.assertIn("ITM", types)
         self.assertIn("EXPIRATION_7D", types)
         itm = next(a for a in alerts if a["alert_type"] == "ITM")
         self.assertEqual(itm["intrinsic_value"], 10.0)
         # Missing price -> position silently skipped.
-        self.assertEqual(self.store.get_pending_alerts({}), [])
+        self.assertEqual(self.store.get_pending_alerts({}, owner=TEST_OWNER), [])
 
     def test_late_evening_expiration_warning_uses_market_date(self):
         self.store.add_position(
             symbol=SYM, kind="call", strike=100.0, expiration="2026-08-16",
             contracts=1, purchase_price=1.0, purchase_date="2026-08-14",
-            target_price=None,
+            target_price=None, owner=TEST_OWNER,
         )
         evening = pytz.timezone("America/New_York").localize(
             datetime(2026, 8, 14, 23, 35)
         )
-        alerts = self.store.get_pending_alerts({SYM: 100.0}, now=evening)
+        alerts = self.store.get_pending_alerts(
+            {SYM: 100.0}, owner=TEST_OWNER, now=evening
+        )
         expiry_alerts = [a for a in alerts if a["alert_type"] == "EXPIRATION_1D"]
         self.assertEqual(expiry_alerts, [])
         self.assertEqual(alerts[0]["days_to_expiry"], 2)

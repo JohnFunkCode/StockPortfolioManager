@@ -70,7 +70,7 @@ Two PRs. Each is independently mergeable and leaves main green.
 
 Schema (the three files, CI-enforced):
 
-- `db/migrations/V10__options_positions_owner.sql`:
+- `db/migrations/V12__options_positions_owner.sql`:
   ```sql
   ALTER TABLE options_positions ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT 'john';
   CREATE INDEX IF NOT EXISTS idx_options_positions_owner_status
@@ -115,19 +115,19 @@ Tests (`tests/test_repositories_db.py::TestOptionsPositionStore`, real DB):
 Docs in the same PR: `docs/architecture/data.md` (table now per-owner), `docs/quantcore_erd.md`
 (`OPTIONS_POSITIONS.owner`), `docs/capabilities-matrix.md` rows that say it "reads
 `options_positions`" (now "John's `options_positions`"), and the security map: the G1 row's second
-sentence changes to "`options_positions` is per-owner (V10)" — G1 stays open until step 2.
+sentence changes to "`options_positions` is per-owner (V12)" — G1 stays open until step 2.
 
-Rollout: CI applies V10 on test with the merge, on prod with the next `prod-rollout.yml`. Verify
+Rollout: CI applies V12 on test with the merge, on prod with the next `prod-rollout.yml`. Verify
 with `python scripts/schema_check.py --prod` (not `flyway info`, see CLAUDE.md), then confirm the
 next daily run's options alerts are unchanged for John.
 
-Ordering: the new image needs the column, and V10 runs before roll-out in both workflows. Rolling
-the image back past V10 is harmless here (the old image ignores the column and the DEFAULT fills
+Ordering: the new image needs the column, and V12 runs before roll-out in both workflows. Rolling
+the image back past V12 is harmless here (the old image ignores the column and the DEFAULT fills
 it), but schema changes stay forward-fix only.
 
 ### Step 1′ — drop path (only if D1 goes the other way)
 
-`V10__drop_options_positions.sql` (`DROP TABLE options_positions`), applied by hand
+`V12__drop_options_positions.sql` (`DROP TABLE options_positions`), applied by hand
 (`./scripts/flyway.sh migrate`, then `--prod migrate`), removed from `_SCHEMA` and the snapshot;
 delete `OptionsPositionStore`, its registry field, `check_options_alerts`, the alert constants'
 users, and their tests; doc rows deleted rather than edited. Then step 2 unchanged.
@@ -218,14 +218,22 @@ inventory + heuristic scan that keeps the map complete; delete G1 from *Gaps*; c
 
 | Step | Status | PR | Date | Notes |
 |---|---|---|---|---|
-| D1 check (prod/test row counts) | pending | — | — | |
-| 1 — options_positions owner | pending | — | — | |
+| D1 check (prod/test row counts) | skipped | — | 2026-10-29 | D1 decided *keep* by John. No Cloud SQL proxy was running, so the read-only count wasn't taken; the DEFAULT backfills whatever rows exist, so it doesn't change the design |
+| 1 — options_positions owner | in review | (this PR) | 2026-10-29 | V12, not V10: V10/V11 had landed meanwhile |
 | 2 — general rule + guard | pending | — | — | |
 | Plan review (Guppy, #476) | done | #476 | 2026-10-29 | Tightened the step-2 scan: restricting predicate, not token presence; child tables restrict the ancestor; reject fixtures; statement count 7 → 8 |
 
 ## Gotchas
 
 _(Append here as each step lands — what misled you, not just the outcome.)_
+
+- **`ls db/migrations | tail` lies about the next version** (step 1). Lexical order puts
+  `V10__`/`V11__` *before* `V2__`, so the tail showed V8/V9 and the plan said V10 — both V10 and
+  V11 were already on main. `tests/test_schema_parity.py` caught the duplicate version (it fails
+  even without a database). Use `ls db/migrations | sort -V | tail -1`.
+- **`notifier.check_options_alerts` re-imports `get_services` locally**, so a test patching only
+  `notifier.get_services` hits the real registry; patch `quantcore.services.registry.get_services`
+  too.
 
 - **"Contains `owner`" looks like a check and isn't one** (plan review, #476). The first draft of
   the step-2 scan passed any SQL string mentioning `owner`, or any child query joining its parent.

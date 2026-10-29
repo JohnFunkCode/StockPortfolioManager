@@ -1,7 +1,7 @@
 # Auth-failure alerting (Security gap G6, issue #464)
 
-**Status:** steps 0–3 and 5 done (#468, #469); step 4 done on **test** (2026-10-28). Applying to
-**prod** (`apply --env prod`, John) is what's left; then G6 flips to Enforced. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
+**Status: COMPLETE** (2026-10-29). Steps 0–5 done (#468, #469, #470, and the PR marking G6
+Enforced). Live on test and prod; `check --env test|prod` both report 0 objects differ. Gap **G6** in [`security.md`](../architecture/security.md) (OWASP
 A09), found by the security map in #458.
 
 ## Problem
@@ -274,7 +274,8 @@ Append a checkpoint line to this doc for each, with what actually happened.
 - **2026-10-28, step 4 on test.** `apply --env test` with two addresses created both metrics,
   two email channels and all three policies on the first run. Google accepted both regex
   extractors and every policy filter as written, and the policies that use a just-created
-  metric were created in the same run without the feared lag. Proof:
+  metric were created in the same run without the feared lag (on test; prod did lag, see the
+  next checkpoint). Proof:
   - A burst of 15 garbage-bearer requests at `quantcore-api` (22:56:53–22:57:17Z) logged 15
     request-log 401s and 15 `auth_rejected reason=invalid` lines. The burst incident opened at
     23:01:43Z (about 4.5 minutes after the burst) and closed itself at 23:07:13Z.
@@ -300,3 +301,15 @@ Append a checkpoint line to this doc for each, with what actually happened.
     `email_address` label, so a re-run never duplicates one.
   - Incident timing on test: about 4.5 minutes to open after a burst, and about 5.5 minutes to
     close once the window drops back under the threshold.
+- **2026-10-29, step 4 on prod.** The prod rollout (run 40790417934, which carries #468's
+  `auth_rejected` line) succeeded. John ran `apply --env prod` with both addresses. As planned,
+  no synthetic burst was sent to prod. Gotcha:
+  - **The just-created-metric lag is real, just not every time.** The first run created both
+    metrics and both channels, then failed on the first policy with *"Cannot find metric(s) that
+    match type = logging.googleapis.com/user/auth_rejections. If a metric was created recently,
+    it could take up to 10 minutes to become available."* The script printed its re-run warning
+    and exited 1, leaving the other two policies uncreated. On test the same sequence had gone
+    through without a wait, so one clean run proves nothing. In between, `check --env prod`
+    correctly showed the three policies `MISSING` and everything else `ok`. Re-running `apply`
+    (no `--email` needed) updated the metrics, reused both channels, created all three
+    policies, and ended `0 object(s) differ`.

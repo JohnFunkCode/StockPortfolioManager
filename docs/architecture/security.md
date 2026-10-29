@@ -104,7 +104,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | A missing `owner_identities` mapping logs a security event on the `quantcore.security` logger: `SECURITY unmapped_principal` (403) or `unmapped_principal_soft` (Sidekick), identity only. | `tests/test_auth.py` `UnmappedIdentityLogTests` | Enforced |
 | Every 401 logs `SECURITY auth_rejected reason=missing\|expired\|invalid`, with the reason taken from the exception class. Only an expired token adds `identity=`, and only after a second verification with just `exp` skipped (PyJWT checks `exp` before `iss`/`aud`, so expiry proves only the signature); otherwise `identity=unknown`. The token never appears. | `tests/test_auth.py` `SecurityEventLogTests` | Enforced |
 | Discord alarms re-read what actually landed in the database (bilge-pump pattern, [daily-jobs.md](daily-jobs.md)). | `tests/test_daily_job_capture.py`, `tests/test_empty_watchlist_alarm.py` | Enforced |
-| A burst of 401/403s, an unmapped identity, or an expired token in use raises an email alert. Log-based metrics and alert policies are kept as code in `scripts/monitoring/` and applied by an operator with `scripts/auth_alerting.py`. | `tests/test_auth_alerting.py` (config, and the metric regexes run over the real log lines); `auth_alerting.py check` (live drift) | **Gap G6**: applied and proven on test (2026-10-28); not yet applied to prod |
+| A burst of 401/403s, an unmapped identity, or an expired token in use raises an email alert. Log-based metrics and alert policies are kept as code in `scripts/monitoring/` and applied by an operator with `scripts/auth_alerting.py`. | `tests/test_auth_alerting.py` (config, and the metric regexes run over the real log lines); `auth_alerting.py check` (live drift) | Enforced (applied to test and prod, 2026-10-28/29; proven on test, #464) |
 
 ### A10 Mishandling of Exceptional Conditions
 
@@ -155,14 +155,6 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
 - **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
   data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
   read-only (LLM06) — that is the containment that makes this a low-impact gap.
-- **G6 ([#464](https://github.com/JohnFunkCode/StockPortfolioManager/issues/464)) — No alert on auth-failure spikes.** Public services log 401/403s, but nothing turns a burst
-  into an alarm the way the daily job's Discord alarms do for data failures. The log lines the alert
-  will count are in place (the two `Enforced` A09 rows above), and so are the metrics and
-  policies as code (`scripts/monitoring/`). They are applied on test, where a synthetic burst
-  and an expired token each raised an emailed incident (2026-10-28). What remains is applying
-  them on prod (step 4 of
-  [`auth-failure-alerting-plan.md`](../proposals/auth-failure-alerting-plan.md)). The row
-  becomes Enforced after that.
 
 ## Reviewing a PR with this map
 

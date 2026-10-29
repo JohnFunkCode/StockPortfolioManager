@@ -23,6 +23,8 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from api.auth import (
+    EXPIRED_TOKEN_DETAIL,
+    INVALID_TOKEN_DETAIL,
     AuthConfigurationError,
     Principal,
     assert_auth_enforced_on_cloud_run,
@@ -508,7 +510,7 @@ class SecurityEventLogTests(unittest.TestCase):
                 self.assertEqual(out, "SECURITY auth_rejected reason=invalid")
                 r = self.client.get("/protected", headers={"Authorization": f"Bearer {tok}"})
                 self.assertEqual(r.headers.get("WWW-Authenticate"), "Bearer")
-                self.assertEqual(r.json()["detail"], "invalid or expired token")
+                self.assertEqual(r.json()["detail"], INVALID_TOKEN_DETAIL)
 
     def test_accepted_token_logs_nothing(self):
         with self.assertNoLogs("quantcore.security", level="WARNING"):
@@ -516,6 +518,84 @@ class SecurityEventLogTests(unittest.TestCase):
                 "/protected", headers={"Authorization": f"Bearer {_token({'sub': 'john'})}"}
             )
         self.assertEqual(r.status_code, 200)
+
+
+class RejectionBodyTests(unittest.TestCase):
+    """A rejected token gets a fixed 401 body, never PyJWT's message (#473).
+
+    The library's text says how far verification got (bad signature vs wrong
+    audience vs expired), which is an oracle for someone guessing tokens. The
+    ``SECURITY auth_rejected`` log line carries the reason instead.
+    """
+
+    # PyJWT's messages for the cases below; none may reach the body.
+    _PYJWT_TEXT = (
+        "Not enough segments",
+        "Invalid header",
+        "Signature verification failed",
+        "Signature has expired",
+        "Invalid audience",
+        "Audience doesn't match",
+        "Invalid issuer",
+    )
+
+    def setUp(self):
+        self._saved = {k: os.environ.get(k) for k in _AUTH_ENV_KEYS}
+        for k in _AUTH_ENV_KEYS:
+            os.environ.pop(k, None)
+        os.environ["QUANTCORE_JWT_SECRET"] = SECRET
+        os.environ["QUANTCORE_JWT_PUBLIC_KEY"] = EC_PUBLIC_PEM
+        os.environ["QUANTCORE_JWT_ISSUER"] = "https://expected-issuer"
+        self.client = TestClient(_make_app(), raise_server_exceptions=False)
+
+    def tearDown(self):
+        for k, v in self._saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _body(self, token: str) -> str:
+        with self.assertLogs("quantcore.security", level="WARNING"):
+            r = self.client.get("/protected", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.headers.get("www-authenticate"), "Bearer")
+        text = r.text
+        for message in self._PYJWT_TEXT:
+            self.assertNotIn(message, text)
+        return r.json()["detail"]
+
+    def test_invalid_tokens_share_one_body(self):
+        iss = "https://expected-issuer"
+        cases = {
+            "garbage": "not-a-jwt",
+            "bad signature": _token(
+                {"sub": "john", "iss": iss},
+                secret="a-different-secret-also-32-bytes-long-0000",
+            ),
+            "wrong audience": _user_token(
+                {"sub": "thomas@example.com", "iss": iss}, aud="other-service"
+            ),
+            "wrong issuer": _token({"sub": "john", "iss": "https://wrong-issuer"}),
+        }
+        for name, tok in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self._body(tok), INVALID_TOKEN_DETAIL)
+
+    def test_expired_token_says_only_expired(self):
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _token({"sub": "john", "exp": exp, "iss": "https://expected-issuer"})
+        self.assertEqual(self._body(tok), EXPIRED_TOKEN_DETAIL)
+
+    def test_expired_forgery_is_merely_invalid(self):
+        # PyJWT checks the signature before exp, so "expired" is never said about
+        # a token we didn't sign.
+        exp = datetime.now(timezone.utc) - timedelta(hours=1)
+        tok = _token(
+            {"sub": "mallory", "exp": exp, "iss": "https://expected-issuer"},
+            secret="a-different-secret-also-32-bytes-long-0000",
+        )
+        self.assertEqual(self._body(tok), INVALID_TOKEN_DETAIL)
 
 
 class UnmappedIdentityLogTests(unittest.TestCase):

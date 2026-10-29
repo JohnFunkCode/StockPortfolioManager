@@ -51,7 +51,7 @@ The repo's `.mcp.json` points the seven remote MCP servers at prod, each sending
 `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`. The wrappers forward that bearer unchanged to the
 REST tier, whose `api/auth.py` accepts it on its HS256 service-token path. So the only thing each
 person supplies is their own token. Without one, every data tool returns
-`401: … Not enough segments` — while the wrapper-local `mcp_health_check` still passes, which is
+a 401 (`invalid token` or `missing bearer token`) — while the wrapper-local `mcp_health_check` still passes, which is
 misleading.
 
 Prerequisite: `gcloud auth login` with an account holding the first role above.

@@ -271,8 +271,8 @@ Both the **api** image (the routes) and the **mcp** image (the tool definitions)
 land for the MCP path to work end to end — the workflow promotes the whole set.
 
 Prod also requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the environment Claude
-Code launches from. If it's unset, every data tool returns `401: … Not enough segments`
-while the wrapper-local health check still passes — which is misleading. Mint one with
+Code launches from. If it's unset, every data tool returns a 401 (`invalid token` or
+`missing bearer token`) while the wrapper-local health check still passes — which is misleading. Mint one with
 `scripts/mint_prod_jwt.py`; they expire after 90 days.
 
 Quick check that prod actually has the scanner:

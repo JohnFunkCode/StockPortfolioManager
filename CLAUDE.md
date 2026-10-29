@@ -467,8 +467,8 @@ inside `options_analysis.py`'s module docstring; **every tool has a contract cas
 [`mcp-tool-regression-plan.md`](docs/proposals/mcp-tool-regression-plan.md)) send `Authorization: Bearer ${QUANTCORE_MCP_TOKEN}`, which
 the wrappers forward unchanged to `quantcore-api` (identity passthrough → the legacy HS256
 service-token path in the now dual-mode `api/auth.py`). So real analysis requires `QUANTCORE_MCP_TOKEN` to be a valid prod JWT in the
-environment Claude Code launches from; if it's unset, every data tool returns `401: … Not enough
-segments` (the wrapper-local `mcp_health_check` still passes, which is misleading). Each user mints
+environment Claude Code launches from; if it's unset, every data tool returns a 401 (`invalid
+token` or `missing bearer token`; the wrapper-local `mcp_health_check` still passes, which is misleading). Each user mints
 their own 3-month token with `scripts/mint_prod_jwt.py --output export --expires-hours 2160 --sub
 <you>` (see readme "Connecting AI clients to prod"). **When onboarding a user, remind them the token
 expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`).

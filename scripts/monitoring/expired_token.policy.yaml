@@ -3,7 +3,7 @@
 #
 # Not an attack signal on its own — the burst policy covers volume. This one is the
 # rotation reminder: MCP tokens last 90 days (CLAUDE.md), and a lapsed one otherwise shows
-# up only as "401: invalid or expired token" inside some user's AI client. The log line
+# up only as "401: expired token" inside some user's AI client. The log line
 # names the holder (identity=, verified with only exp skipped). Severity is WARNING
 # because the API's lowest is WARNING (CRITICAL/ERROR/WARNING; there is no INFO).
 displayName: "G6: expired token in use"

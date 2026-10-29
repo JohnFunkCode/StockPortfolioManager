@@ -185,8 +185,8 @@ active rungs and firing alerts from `main.py`'s notification pass. Rules to keep
 
 - **Plans are owned.** `owner` is a **required keyword-only argument** on every public repository
   and service method that touches a plan, a rung, or an alert — never a defaulted one.
-- **Isolation is enforced in SQL, never in a route.** Every statement carries an `owner`
-  predicate, **including private helpers** and the scan path's SQL constants; another owner's plan
+- **Isolation is enforced in SQL, never in a route** — the per-owner rule under *Unified
+  Database*, private helpers and the scan path's SQL constants included. Another owner's plan
   reads as `None` and the route answers 404. Routes resolve the owner via
   `Depends(require_owner)` — there is no `?owner=` on the plans/rungs/dashboard routes.
 - **A plan may only exist while the owner holds the shares.** `build_plan` refuses a symbol with no
@@ -220,6 +220,28 @@ add an entry for a value to make it pass; bind it, or use `psycopg2.sql.Identifi
 The options tables never store NaN (`OptionsStore` writes NULL), and `QuantCoreJSONResponse` answers `null` for a
 non-finite float rather than a 500. A NaN once 500'd `/options/iv-rank` for 65% of prod calls.
 
+**Every per-owner table is isolated in SQL** (#460, OWASP A01). A per-owner table is one with an
+`owner` column or a foreign key into one (today `positions`/`lot_sales`, `plan_instances`/
+`plan_rungs`/`alerts`, `user_settings`, `options_positions`). Rules to keep:
+
+- **Every statement binds the owner** in its `WHERE` or `JOIN … ON`, private helpers included; an
+  INSERT puts `owner` in its column list rather than leaning on `DEFAULT 'john'`. A child table is
+  restricted through its owning ancestor (`… IN (SELECT … FROM plan_instances WHERE owner = …)` or
+  a join plus `p.owner = …`) — joining the parent without restricting it isn't enough, and nor is
+  an ancestor restricted in an uncorrelated `EXISTS`, which filters none of the child's rows. An id that
+  an earlier owner-scoped query already resolved still gets the predicate: it is what contains the
+  damage when that id is wrong.
+- **`owner` is a required argument, never defaulted** — keyword-only in new code, as Harvester and
+  `OptionsPositionStore` do.
+- **Each table has wrong-owner read and mutation tests** against the real database.
+- `tests/test_owner_isolation_coverage.py` enforces all three: it derives the per-owner tables from
+  the snapshot and fails on one without mapped tests, on SQL anywhere outside `tests/` that doesn't
+  restrict to a bound owner, and on a defaulted `owner`. Its `ALLOWED` list is the reviewed
+  exceptions (cross-owner on purpose, a child INSERT whose parent was resolved owner-scoped, a
+  WHERE it can't see through), each keyed by a fingerprint of the SQL and carrying its reason; add
+  one only with a reason. The scan is a tripwire — the wrong-owner tests are the proof.
+- Not per-owner, by design: the global `watchlist` (`added_by` is audit only) and
+  `owner_identities` (it maps a principal *to* its owner).
 Table list, why the writers disagree, and the SQLite migration script:
 [`docs/architecture/data.md`](docs/architecture/data.md).
 
@@ -348,7 +370,7 @@ Anthropic API key; the backend never holds a usable key at rest.
 
 [`docs/architecture/security.md`](docs/architecture/security.md) maps every OWASP Top 10:2025 and
 LLM Top 10 category to the rule here that covers it, the test or CI step that enforces it, and the
-open gaps (G1, G2; G3 closed by #462, G4 by #463, G5 by #459, G6 by #464). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
+open gaps (G2; G1 closed by #460, G3 by #462, G4 by #463, G5 by #459, G6 by #464). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
 model loading, error handling, Cloud Run config or Sidekick/MCP tools is reviewed against the
 categories it touches, findings name their category, and a changed control or gap updates its row
 in the same PR. The rules themselves stay where they are in this file; the map links to them.

@@ -81,5 +81,8 @@ These are the constraints most likely to be violated by an agent that skipped `C
   `gcloud run services update`, or the next roll-out reverts it.
 - **New or materially changed UI components** must be GenUI-compliant, registered in both
   component registries, and ship vitest tests in the same PR.
+- **Per-owner data is isolated in SQL:** every statement on a per-owner table binds the owner
+  (a child table through its parent), `owner` is never a defaulted argument, and each table has
+  wrong-owner tests — `tests/test_owner_isolation_coverage.py` enforces it (#460, see CLAUDE.md).
 - **Security-relevant PRs are reviewed against the OWASP map** in
   `docs/architecture/security.md` (arch-v2 Rule 11); update its row when a control or gap changes.

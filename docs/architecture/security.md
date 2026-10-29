@@ -26,12 +26,12 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Rule | Guard | Status |
 |---|---|---|
 | Owner-scoped routes resolve the owner with `Depends(require_owner)`; no `?owner=` parameter exists (`api/auth.py`). An identity with no `owner_identities` row gets a 403, never auto-provisioning. | `tests/test_auth.py`, `tests/test_identity_service.py` | Enforced |
+| Every per-owner table (an `owner` column or an FK into one) is isolated in SQL: each statement binds the owner, a child through its parent; `owner` is never defaulted; each table has wrong-owner tests (CLAUDE.md "Unified Database", arch-v2 Rule 12). The guard derives the tables from the schema snapshot, so a new one fails until its tests are mapped; its SQL scan is a heuristic tripwire with a reviewed `ALLOWED` list. | The per-table wrong-owner tests named in `OWNER_SCOPED`; `tests/test_owner_isolation_coverage.py` keeps that inventory complete | Enforced |
 | Owner isolation is in SQL: every Harvester statement, private helpers included, carries an `owner` predicate ([harvester.md](harvester.md)). | `tests/test_harvester_repository_db.py` (`test_wrong_owner_*`) | Enforced |
 | Positions are per-owner the same way. | `tests/test_portfolio_repository.py` (`test_*_is_owner_scoped`) | Enforced |
 | Sidekick's owner-scoped tools take the owner from the turn context; their schemas have no `owner` parameter, so the model can't pick whose data it sees (`OWNER_SCOPED_TOOLS` in `quantcore/services/chat.py`). | `tests/test_chat_tools.py`, `tests/test_chat_protocol.py` | Enforced |
 | The UI is behind IAP; a user needs the audience entry, the IAP role **and** an `owner_identities` row ([quantui.md](quantui.md)). | manual grant script | Convention |
 | `options_positions` is per-owner (V12, #460): every `OptionsPositionStore` statement carries the `owner` predicate, and the notifier reads only its run's owner. | `tests/test_repositories_db.py` (`test_wrong_owner_*`), `tests/test_notifier.py` | Enforced |
-| The SQL-isolation rule is written down for Harvester only, not as a rule for every per-owner table. | — | **Gap G1** |
 
 ### A02 Security Misconfiguration
 
@@ -138,11 +138,6 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 
 Each gap has a backlog issue (label `security`). Close it by changing the row above and deleting it here.
 
-- **G1 ([#460](https://github.com/JohnFunkCode/StockPortfolioManager/issues/460)) — Owner isolation isn't a general rule.** The SQL-predicate rule and its wrong-owner tests
-  exist for Harvester, positions and, since V12, `options_positions` (the notifier now reads only
-  its run's owner's options positions). Nothing yet tells the author of the *next* per-owner table
-  to follow it, or fails when they don't. Remaining: promote the rule to "every per-owner table"
-  with a coverage guard (step 2 of the plan). Plan: [owner-isolation-g1-plan.md](../proposals/owner-isolation-g1-plan.md).
 - **G2 ([#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461)) — No inbound rate limiting or per-user budget.** The standard's §8 says the REST tier rate
   limits every call. It doesn't. A valid token can drive unbounded Yahoo traffic through the public
   REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The

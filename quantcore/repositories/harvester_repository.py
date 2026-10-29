@@ -125,7 +125,10 @@ UPDATE alerts
 SET status = 'DISABLED'
 WHERE instance_id = :instance_id
   AND status = 'ACTIVE'
-  AND rung_id <> :rung_id;
+  AND rung_id <> :rung_id
+  AND instance_id IN (
+      SELECT instance_id FROM plan_instances WHERE owner = :owner
+  );
 """
 
 SQL_MARK_ALERT_FIRED = """
@@ -135,7 +138,10 @@ SET status = 'FIRED',
     fired_price = :price,
     last_checked_at = :ts
 WHERE alert_id = :alert_id
-  AND status = 'ACTIVE';
+  AND status = 'ACTIVE'
+  AND instance_id IN (
+      SELECT instance_id FROM plan_instances WHERE owner = :owner
+  );
 """
 
 SQL_MARK_RUNG_ACHIEVED = """
@@ -314,6 +320,56 @@ class HarvesterPlanDB:
         symbol = symbol.upper().strip()
         now = _utc_now_iso()
 
+        symbol_id = self._ensure_symbol_id(symbol, now)
+        self._store_daily_bars(symbol, bars)
+        prices_adj, history_end_date, price_asof = self._adjusted_history(symbol, params)
+
+        # 4) Build forward ladder (dynamic H)
+        forward_plan = design_forward_ladder_from_history(
+            prices_adj,
+            H=None,
+            n_iterations=params.n_iterations,
+            max_s0=params.max_s0,
+            alpha=params.alpha,
+            min_H=params.min_H,
+            max_H=params.max_H,
+        )
+        if not forward_plan:
+            raise RuntimeError(f"No feasible forward ladder found for {symbol}")
+
+        template_id = self._ensure_template(template_name, params, now)
+
+        # 6) Insert plan_instance (supersede this owner's active plan for that
+        #    symbol -- another owner's plan on the same ticker is untouched).
+        with closing(get_connection()) as conn:
+            try:
+                supersedes = self._supersede_active_plan(conn, symbol_id, owner=owner)
+                instance_id = self._insert_instance(
+                    conn, template_id, symbol_id, forward_plan, params,
+                    now=now, price_asof=price_asof, history_end_date=history_end_date,
+                    supersedes=supersedes, owner=owner,
+                )
+                self._insert_rungs(conn, instance_id, forward_plan["ladder"], now)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+        # 7) Create/refresh alert for the next pending rung only
+        self._ensure_next_rung_alert(instance_id, owner=owner)
+
+        return {
+            "symbol": symbol,
+            "instance_id": instance_id,
+            "template_id": template_id,
+            "history_end_date": history_end_date,
+            "price_asof": price_asof,
+            "shares_initial": int(forward_plan["s0"]),
+            "H": float(forward_plan["H"]),
+            "n_iterations": int(forward_plan["n_iterations"]),
+        }
+
+    def _ensure_symbol_id(self, symbol: str, now: str) -> int:
         # 1) Ensure symbol row and get symbol_id
         with closing(get_connection()) as conn:
             conn.execute(SQL_INSERT_SYMBOL, {"ticker": symbol, "created_at": now})
@@ -321,8 +377,9 @@ class HarvesterPlanDB:
             row = conn.execute(SQL_GET_SYMBOL_ID, {"ticker": symbol}).fetchone()
             if not row:
                 raise RuntimeError(f"Failed to resolve symbol_id for {symbol}")
-            symbol_id = int(row["symbol_id"])
+            return int(row["symbol_id"])
 
+    def _store_daily_bars(self, symbol: str, bars: pd.DataFrame) -> None:
         # 2) Normalize caller-supplied bars and upsert into ohlcv table
         # (HarvesterService fetches via YFinanceGateway — issue #74).
         bars = normalize_daily_bars(bars)
@@ -362,6 +419,9 @@ class HarvesterPlanDB:
                 conn.rollback()
                 raise
 
+    def _adjusted_history(self, symbol: str, params: PlanBuildParams):
+        """(adj_close prices oldest-first, last bar date, last close) for the
+        plan's history window, read back from ohlcv."""
         # 3) Pull last N adj_close prices from the local DB (deterministic)
         with closing(get_connection()) as conn:
             prices_rows = conn.execute(
@@ -410,20 +470,9 @@ class HarvesterPlanDB:
         history_end_date = datetime.fromtimestamp(history_end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         # Use last close as "price_asof" for simplicity. Replace with live quote if you prefer.
         price_asof = prices_close[-1]
+        return prices_adj, history_end_date, price_asof
 
-        # 4) Build forward ladder (dynamic H)
-        forward_plan = design_forward_ladder_from_history(
-            prices_adj,
-            H=None,
-            n_iterations=params.n_iterations,
-            max_s0=params.max_s0,
-            alpha=params.alpha,
-            min_H=params.min_H,
-            max_H=params.max_H,
-        )
-        if not forward_plan:
-            raise RuntimeError(f"No feasible forward ladder found for {symbol}")
-
+    def _ensure_template(self, template_name: str, params: PlanBuildParams, now: str) -> int:
         # 5) Create/find template
         with closing(get_connection()) as conn:
             tmpl = conn.execute(
@@ -436,170 +485,160 @@ class HarvesterPlanDB:
             ).fetchone()
 
             if tmpl:
-                template_id = int(tmpl["template_id"])
-            else:
-                cur = conn.execute(
-                    """
-                    INSERT INTO plan_templates (
-                      name, is_dynamic_h, history_window_days, n_iterations,
-                      alpha, min_h, max_h, fixed_h,
-                      drift_method, vol_method, stats_price_series,
-                      created_at
-                    ) VALUES (
-                      :name, 1, :history_window_days, :n_iterations,
-                      :alpha, :min_h, :max_h, NULL,
-                      'CAGR', 'LOGRET_STD', 'adj_close',
-                      :created_at
-                    )
-                    RETURNING template_id
-                    """,
-                    {
-                        "name": template_name,
-                        "history_window_days": params.history_window_days,
-                        "n_iterations": params.n_iterations,
-                        "alpha": params.alpha,
-                        "min_h": params.min_H,
-                        "max_h": params.max_H,
-                        "created_at": now,
-                    },
+                return int(tmpl["template_id"])
+            cur = conn.execute(
+                """
+                INSERT INTO plan_templates (
+                  name, is_dynamic_h, history_window_days, n_iterations,
+                  alpha, min_h, max_h, fixed_h,
+                  drift_method, vol_method, stats_price_series,
+                  created_at
+                ) VALUES (
+                  :name, 1, :history_window_days, :n_iterations,
+                  :alpha, :min_h, :max_h, NULL,
+                  'CAGR', 'LOGRET_STD', 'adj_close',
+                  :created_at
                 )
-                template_id = cur.fetchone()[0]
-                conn.commit()
+                RETURNING template_id
+                """,
+                {
+                    "name": template_name,
+                    "history_window_days": params.history_window_days,
+                    "n_iterations": params.n_iterations,
+                    "alpha": params.alpha,
+                    "min_h": params.min_H,
+                    "max_h": params.max_H,
+                    "created_at": now,
+                },
+            )
+            template_id = cur.fetchone()[0]
+            conn.commit()
+            return template_id
 
-        # 6) Insert plan_instance (supersede this owner's active plan for that
-        #    symbol -- another owner's plan on the same ticker is untouched).
-        with closing(get_connection()) as conn:
-            try:
-                prev = conn.execute(
-                    "SELECT instance_id FROM plan_instances WHERE symbol_id=? AND owner=? AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1;",
-                    (symbol_id, owner),
-                ).fetchone()
-                supersedes = int(prev["instance_id"]) if prev else None
-                if prev:
-                    conn.execute(
-                        "UPDATE plan_instances SET status='SUPERSEDED' WHERE instance_id=?;",
-                        (supersedes,),
-                    )
+    @staticmethod
+    def _supersede_active_plan(conn, symbol_id: int, *, owner: str) -> Optional[int]:
+        """Mark this owner's ACTIVE plan for the symbol SUPERSEDED; its id, or None.
+        Another owner's plan on the same ticker is untouched."""
+        prev = conn.execute(
+            "SELECT instance_id FROM plan_instances WHERE symbol_id=? AND owner=? AND status='ACTIVE' ORDER BY created_at DESC LIMIT 1;",
+            (symbol_id, owner),
+        ).fetchone()
+        if not prev:
+            return None
+        supersedes = int(prev["instance_id"])
+        conn.execute(
+            "UPDATE plan_instances SET status='SUPERSEDED' WHERE instance_id=? AND owner=?;",
+            (supersedes, owner),
+        )
+        return supersedes
 
-                shares_initial = int(forward_plan["s0"])
-                v0_floor = float(forward_plan["V0"])
-                # The planner leaves annual_vol unset when a caller supplies a
-                # fixed H (or when there are too few usable returns to measure
-                # volatility). The persisted column is required and this value
-                # is informational in that case, so keep the plan buildable
-                # with an explicit zero rather than float(None).
-                annual_vol = forward_plan["annual_vol"]
-                if annual_vol is None:
-                    annual_vol = 0.0
+    @staticmethod
+    def _insert_instance(
+        conn, template_id: int, symbol_id: int, forward_plan: Dict[str, Any],
+        params: PlanBuildParams, *, now: str, price_asof: float,
+        history_end_date: str, supersedes: Optional[int], owner: str,
+    ) -> int:
+        shares_initial = int(forward_plan["s0"])
+        v0_floor = float(forward_plan["V0"])
+        # The planner leaves annual_vol unset when a caller supplies a
+        # fixed H (or when there are too few usable returns to measure
+        # volatility). The persisted column is required and this value
+        # is informational in that case, so keep the plan buildable
+        # with an explicit zero rather than float(None).
+        annual_vol = forward_plan["annual_vol"]
+        if annual_vol is None:
+            annual_vol = 0.0
 
-                cur = conn.execute(
-                    """
-                    INSERT INTO plan_instances (
-                      template_id, symbol_id, position_id, owner, status,
-                      created_at, asof_date,
-                      price_asof,
-                      shares_initial, v0_floor, capital_at_risk,
-                      history_end_date, history_window_days,
-                      r_daily, annual_vol, h_threshold, n_iterations,
-                      stats_price_series,
-                      supersedes_instance_id
-                    ) VALUES (
-                      :template_id, :symbol_id, NULL, :owner, 'ACTIVE',
-                      :created_at, :asof_date,
-                      :price_asof,
-                      :shares_initial, :v0_floor, :capital_at_risk,
-                      :history_end_date, :history_window_days,
-                      :r_daily, :annual_vol, :h_threshold, :n_iterations,
-                      'adj_close',
-                      :supersedes_instance_id
-                    )
-                    RETURNING instance_id
-                    """,
-                    {
-                        "template_id": template_id,
-                        "symbol_id": symbol_id,
-                        "owner": owner,
-                        "created_at": now,
-                        "asof_date": now,
-                        "price_asof": price_asof,
-                        "shares_initial": shares_initial,
-                        "v0_floor": v0_floor,
-                        "capital_at_risk": v0_floor,
-                        "history_end_date": history_end_date,
-                        "history_window_days": params.history_window_days,
-                        "r_daily": float(forward_plan["r_daily"]),
-                        "annual_vol": float(annual_vol),
-                        "h_threshold": float(forward_plan["H"]),
-                        "n_iterations": int(forward_plan["n_iterations"]),
-                        "supersedes_instance_id": supersedes,
-                    },
-                )
-                instance_id = int(cur.fetchone()[0])
+        cur = conn.execute(
+            """
+            INSERT INTO plan_instances (
+              template_id, symbol_id, position_id, owner, status,
+              created_at, asof_date,
+              price_asof,
+              shares_initial, v0_floor, capital_at_risk,
+              history_end_date, history_window_days,
+              r_daily, annual_vol, h_threshold, n_iterations,
+              stats_price_series,
+              supersedes_instance_id
+            ) VALUES (
+              :template_id, :symbol_id, NULL, :owner, 'ACTIVE',
+              :created_at, :asof_date,
+              :price_asof,
+              :shares_initial, :v0_floor, :capital_at_risk,
+              :history_end_date, :history_window_days,
+              :r_daily, :annual_vol, :h_threshold, :n_iterations,
+              'adj_close',
+              :supersedes_instance_id
+            )
+            RETURNING instance_id
+            """,
+            {
+                "template_id": template_id,
+                "symbol_id": symbol_id,
+                "owner": owner,
+                "created_at": now,
+                "asof_date": now,
+                "price_asof": price_asof,
+                "shares_initial": shares_initial,
+                "v0_floor": v0_floor,
+                "capital_at_risk": v0_floor,
+                "history_end_date": history_end_date,
+                "history_window_days": params.history_window_days,
+                "r_daily": float(forward_plan["r_daily"]),
+                "annual_vol": float(annual_vol),
+                "h_threshold": float(forward_plan["H"]),
+                "n_iterations": int(forward_plan["n_iterations"]),
+                "supersedes_instance_id": supersedes,
+            },
+        )
+        return int(cur.fetchone()[0])
 
-                # Insert rungs
-                for rung in forward_plan["ladder"]:
-                    expected_days = rung["expected_days_from_now"]
-                    expected_date = None
-                    if expected_days is not None:
-                        expected_dt = datetime.fromisoformat(now)
-                        if expected_dt.tzinfo is None:
-                            expected_dt = expected_dt.replace(tzinfo=timezone.utc)
-                        expected_date = (expected_dt + timedelta(days=float(expected_days))).date().isoformat()
-                    conn.execute(
-                        """
-                        INSERT INTO plan_rungs (
-                          instance_id, rung_index,
-                          target_price,
-                          shares_before, shares_sold_planned, shares_after_planned,
-                          expected_days_from_now, expected_date,
-                          gross_harvest_planned, cumulative_harvest_planned,
-                          remaining_value_planned, total_wealth_planned, total_return_planned,
-                          status
-                        ) VALUES (
-                          :instance_id, :rung_index,
-                          :target_price,
-                          :shares_before, :shares_sold_planned, :shares_after_planned,
-                          :expected_days_from_now, :expected_date,
-                          :gross_harvest_planned, :cumulative_harvest_planned,
-                          :remaining_value_planned, :total_wealth_planned, :total_return_planned,
-                          'PENDING'
-                        );
-                        """,
-                        {
-                            "instance_id": instance_id,
-                            "rung_index": int(rung["harvest"]),
-                            "target_price": float(rung["price_target"]),
-                            "shares_before": int(rung["shares_before"]),
-                            "shares_sold_planned": int(rung["shares_sold"]),
-                            "shares_after_planned": int(rung["shares_after"]),
-                            "expected_days_from_now": float(expected_days) if expected_days is not None else None,
-                            "expected_date": expected_date,
-                            "gross_harvest_planned": float(rung["gross_harvest"]),
-                            "cumulative_harvest_planned": float(rung["cumulative_harvest"]),
-                            "remaining_value_planned": float(rung["remaining_value"]),
-                            "total_wealth_planned": float(rung["total_wealth"]),
-                            "total_return_planned": float(rung["total_return_vs_initial"]),
-                        }
-                    )
-
-                conn.commit()
-            except Exception:
-                conn.rollback()
-                raise
-
-        # 7) Create/refresh alert for the next pending rung only
-        self._ensure_next_rung_alert(instance_id, owner=owner)
-
-        return {
-            "symbol": symbol,
-            "instance_id": instance_id,
-            "template_id": template_id,
-            "history_end_date": history_end_date,
-            "price_asof": price_asof,
-            "shares_initial": shares_initial,
-            "H": float(forward_plan["H"]),
-            "n_iterations": int(forward_plan["n_iterations"]),
-        }
+    @staticmethod
+    def _insert_rungs(conn, instance_id: int, ladder, now: str) -> None:
+        for rung in ladder:
+            expected_days = rung["expected_days_from_now"]
+            expected_date = None
+            if expected_days is not None:
+                expected_dt = datetime.fromisoformat(now)
+                if expected_dt.tzinfo is None:
+                    expected_dt = expected_dt.replace(tzinfo=timezone.utc)
+                expected_date = (expected_dt + timedelta(days=float(expected_days))).date().isoformat()
+            conn.execute(
+                """
+                INSERT INTO plan_rungs (
+                  instance_id, rung_index,
+                  target_price,
+                  shares_before, shares_sold_planned, shares_after_planned,
+                  expected_days_from_now, expected_date,
+                  gross_harvest_planned, cumulative_harvest_planned,
+                  remaining_value_planned, total_wealth_planned, total_return_planned,
+                  status
+                ) VALUES (
+                  :instance_id, :rung_index,
+                  :target_price,
+                  :shares_before, :shares_sold_planned, :shares_after_planned,
+                  :expected_days_from_now, :expected_date,
+                  :gross_harvest_planned, :cumulative_harvest_planned,
+                  :remaining_value_planned, :total_wealth_planned, :total_return_planned,
+                  'PENDING'
+                );
+                """,
+                {
+                    "instance_id": instance_id,
+                    "rung_index": int(rung["harvest"]),
+                    "target_price": float(rung["price_target"]),
+                    "shares_before": int(rung["shares_before"]),
+                    "shares_sold_planned": int(rung["shares_sold"]),
+                    "shares_after_planned": int(rung["shares_after"]),
+                    "expected_days_from_now": float(expected_days) if expected_days is not None else None,
+                    "expected_date": expected_date,
+                    "gross_harvest_planned": float(rung["gross_harvest"]),
+                    "cumulative_harvest_planned": float(rung["cumulative_harvest"]),
+                    "remaining_value_planned": float(rung["remaining_value"]),
+                    "total_wealth_planned": float(rung["total_wealth"]),
+                    "total_return_planned": float(rung["total_return_vs_initial"]),
+                }
+            )
 
     def display_all_plans(self, status: str = "ACTIVE", *, owner: str) -> List[Dict[str, Any]]:
         """
@@ -708,9 +747,13 @@ class HarvesterPlanDB:
                 WHERE instance_id = :instance_id
                   AND status = 'PENDING'
                   AND target_price <= :current_price
+                  AND instance_id IN (
+                      SELECT instance_id FROM plan_instances WHERE owner = :owner
+                  )
                 ORDER BY rung_index ASC
                 """,
-                {"instance_id": instance_id, "current_price": float(current_price)},
+                {"instance_id": instance_id, "current_price": float(current_price),
+                 "owner": owner},
             ).fetchall()
             if not rows:
                 return []
@@ -1088,6 +1131,7 @@ class HarvesterPlanDB:
                 conn.execute(SQL_DISABLE_OTHER_ALERTS_FOR_INSTANCE, {
                     "instance_id": instance_id,
                     "rung_id": rung_id,
+                    "owner": owner,
                 })
                 conn.commit()
             except Exception:

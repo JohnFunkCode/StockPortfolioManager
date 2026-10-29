@@ -300,6 +300,7 @@ class HarvesterService:
                             "alert_id": int(alert["alert_id"]),
                             "ts": now,
                             "price": current_price,
+                            "owner": owner,
                         })
                     conn.execute(SQL_MARK_RUNG_ACHIEVED, {
                         "rung_id": rung_id,

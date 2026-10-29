@@ -248,6 +248,15 @@ the PR touches apply; the map's "Reviewing a PR" table says which.
    redaction are the precedents), the PR that adds the rule adds the guard.
 3. A PR that adds a control, or closes or opens a gap, updates its row in the map in the same PR.
 
+### Rule 12 — Per-owner data is isolated in SQL
+
+Isolation between owners is a predicate in every statement, never a check in a route or a filter
+in the caller: a per-owner table (an `owner` column, or a foreign key into one) is restricted to a
+bound owner in every read and write, a child through its owning ancestor; `owner` is never a
+defaulted argument; and each table ships wrong-owner read and mutation tests.
+`tests/test_owner_isolation_coverage.py` enforces it (#460). The full rule and its exception list
+are in `CLAUDE.md` ("Unified Database").
+
 ---
 
 ## 7. Capability Surface Policy

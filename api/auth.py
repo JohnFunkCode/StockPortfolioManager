@@ -173,21 +173,44 @@ class Principal:
 
     @classmethod
     def from_claims(cls, claims: dict[str, Any], token: Optional[str]) -> "Principal":
-        roles = claims.get("roles") or claims.get("role") or []
-        if isinstance(roles, str):
-            roles = [roles]
-        raw_scope = claims.get("scope") or claims.get("scopes") or []
-        scopes = raw_scope.split() if isinstance(raw_scope, str) else list(raw_scope)
+        """Build the principal from verified claims.
+
+        Raises ``jwt.InvalidTokenError`` when ``roles``/``role`` or ``scope``/``scopes``
+        is neither a string nor a list of strings: PyJWT doesn't check them, and a
+        token we signed with a malformed claim is an invalid token, not a 500 (#472).
+        """
         subject = str(claims.get("sub") or claims.get("email") or "")
         return cls(
             subject=subject,
             email=claims.get("email"),
             name=claims.get("name"),
-            roles=tuple(str(r) for r in roles),
-            scopes=tuple(str(s) for s in scopes),
+            roles=_string_list_claim(claims, ("roles", "role"), split=False),
+            scopes=_string_list_claim(claims, ("scope", "scopes"), split=True),
             claims=claims,
             token=token,
         )
+
+
+def _string_list_claim(
+    claims: dict[str, Any], keys: tuple[str, ...], *, split: bool
+) -> tuple[str, ...]:
+    """The first of ``keys`` that is set, as a tuple of strings.
+
+    A string is one value (``split=True``: space-separated values, the OAuth scope
+    form); a list must hold only strings. Anything else -- a number, an object,
+    ``true``, a list with a non-string in it -- raises ``jwt.InvalidTokenError``.
+    Unset, ``""`` and ``[]`` fall through to the next key, as ``or`` did before.
+    """
+    for key in keys:
+        value = claims.get(key)
+        if value is None or value == "" or value == []:
+            continue
+        if isinstance(value, str):
+            return tuple(value.split()) if split else (value,)
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
+            return tuple(value)
+        raise jwt.InvalidTokenError(f"malformed {key} claim")
+    return ()
 
 
 def _verify(token: str, *, verify_exp: bool = True) -> dict[str, Any]:
@@ -317,7 +340,18 @@ def require_principal(
         )
 
     claims = _decode(credentials.credentials)
-    return Principal.from_claims(claims, credentials.credentials)
+    try:
+        return Principal.from_claims(claims, credentials.credentials)
+    except jwt.InvalidTokenError:
+        # A malformed roles/scope claim on a token we signed (#472). Same log line
+        # and body as any other invalid token, so the reply says nothing about
+        # how far verification got.
+        _log_rejection("invalid")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 def require_owner(principal: Principal = Depends(require_principal)) -> str:

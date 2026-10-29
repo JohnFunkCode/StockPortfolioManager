@@ -234,6 +234,11 @@ _(Append here as each step lands — what misled you, not just the outcome.)_
 - **`notifier.check_options_alerts` re-imports `get_services` locally**, so a test patching only
   `notifier.get_services` hits the real registry; patch `quantcore.services.registry.get_services`
   too.
+- **A semicolon in a `_SCHEMA` comment breaks every test** (step 1, CI on 093ed5c). `init_schema()`
+  splits `_SCHEMA` on `;` (`quantcore/db.py`, `schema.split(';')`), so `-- … owner.sql; existing
+  rows …` produced a comment-only chunk, and psycopg2 raised `can't execute an empty query` for
+  every module that builds the app: 216 errors plus 10 lean-import failures. It couldn't show up
+  locally because the DB never connected here. Keep `;` out of `_SCHEMA` comments.
 
 - **"Contains `owner`" looks like a check and isn't one** (plan review, #476). The first draft of
   the step-2 scan passed any SQL string mentioning `owner`, or any child query joining its parent.

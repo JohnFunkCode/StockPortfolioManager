@@ -410,8 +410,9 @@ CREATE INDEX IF NOT EXISTS idx_positions_symbol ON options_positions(symbol);
 CREATE INDEX IF NOT EXISTS idx_positions_expiration ON options_positions(expiration);
 
 -- V12 (#460): per-owner options positions. Mirrors
--- db/migrations/V12__options_positions_owner.sql; existing rows backfill to
--- John's via the DEFAULT.
+-- db/migrations/V12__options_positions_owner.sql -- existing rows backfill to
+-- john via the DEFAULT. (No semicolons in comments here: init_schema() splits
+-- _SCHEMA on them, and a comment-only chunk is an empty query.)
 ALTER TABLE options_positions ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT 'john';
 
 CREATE INDEX IF NOT EXISTS idx_options_positions_owner_status

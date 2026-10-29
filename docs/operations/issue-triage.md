@@ -116,7 +116,7 @@ This is the board as configured on 2026-10-29. The configuration lives on GitHub
 
 | Workflow | Effect |
 |---|---|
-| *Auto-add to project* | Adds new issues from this repo to the board |
+| *Auto-add to project* | Adds new issues from this repo to the board (filter `is:issue is:open`, so PRs stay off) |
 | *Item added to project* | Sets Status to **Inbox** |
 | *Pull request linked to issue* | Moves the linked issue to **In review** |
 | *Item closed* / *Pull request merged* | Sets Status to **Done** |

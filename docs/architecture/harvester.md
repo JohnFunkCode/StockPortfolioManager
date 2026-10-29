@@ -24,10 +24,16 @@ Consequences to keep straight:
 - **Isolation is enforced in SQL, never in a route.** Every statement carries an `owner` predicate,
   so another owner's plan reads as `None` and mutates zero rows; the routes turn that into a 404 —
   the same answer as an id that never existed, which is what keeps the endpoint from leaking which
-  ids are taken. **No exceptions, including private helpers.** `_ensure_next_rung_alert` and the
-  two SQL constants the scan path executes directly (`SQL_GET_NEXT_PENDING_RUNG`,
-  `SQL_GET_ACTIVE_ALERT_FOR_RUNG`) all carry the predicate, even though every caller reaches them
-  with an id already resolved through a scoped query. The required keyword catches the caller that
+  ids are taken. **Private helpers included.** `_ensure_next_rung_alert` and the SQL constants the
+  scan path executes directly (`SQL_GET_NEXT_PENDING_RUNG`, `SQL_GET_ACTIVE_ALERT_FOR_RUNG`,
+  `SQL_MARK_ALERT_FIRED`, `SQL_DISABLE_OTHER_ALERTS_FOR_INSTANCE`) all carry the predicate, even
+  though every caller reaches them with an id already resolved through a scoped query. Four of
+  those — the two alert UPDATEs, the supersede UPDATE (`_supersede_active_plan`) and the rung read in
+  `harvest_hit_for_symbol` — only gained it in #460, when `tests/test_owner_isolation_coverage.py`
+  started checking every statement. The two child INSERTs (`SQL_UPSERT_ALERT_FOR_RUNG`, the
+  `plan_rungs` insert in `_insert_rungs`) can't bind an owner and are that guard's reviewed
+  exceptions; so are the three `purge_superseded_plans` statements, whose owner condition sits in
+  an f-string the scan can't read. The required keyword catches the caller that
   forgot to scope; the predicate contains the damage when one is wrong anyway — and those two
   failures are not equally bad, since the alternative to a no-op is a write onto another owner's
   ladder.

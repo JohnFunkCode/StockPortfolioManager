@@ -1,0 +1,646 @@
+[
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "InventoryTests::setUp",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "InventoryTests::test_derivation_finds_the_child_tables",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "InventoryTests::test_every_per_owner_table_is_mapped_or_exempt",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "InventoryTests::test_no_stale_entries",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "ScannerFixtureTests::test_fingerprint_ignores_layout_but_not_content",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "SqlScanTests::setUp",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_Scope::__init__",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_restrictions",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_snapshot_tables",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "fingerprint",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "normalize",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "ScannerFixtureTests::test_accepts",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "ScannerFixtureTests::test_rejects",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "SignatureTests::test_the_check_sees_a_default",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_Scope::walk",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_is_str",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_clause_problems",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_test_functions",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "owner_column_tables",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "owner_modules",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "SqlScanTests::test_every_statement_restricts_to_a_bound_owner",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_fstring_text",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_insert_problem",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "check_statement",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "SignatureTests::test_owner_is_never_defaulted",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_Scope::tables",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_defaults_owner",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_read_or_write_problem",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "owner_scoped_tables",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 5,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "scan_repository",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "InventoryTests::test_named_wrong_owner_tests_exist",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_scoped_statements",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_source_files",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_sql_literals",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "parents",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 7,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_owner_ancestors",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 8,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_Scope::predicate_region",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 8,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_string_literals",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 9,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_restricted_in",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 11,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "_check_scope",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 13,
+    "file_name": "test_owner_isolation_coverage.py",
+    "function_name": "parse_scopes",
+    "path": "tests/test_owner_isolation_coverage.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::__init__",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::delete_plan",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester_repository.py",
+    "function_name": "_utc_now_iso",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_ensure_symbol_id",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_ensure_template",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_insert_instance",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_supersede_active_plan",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::active_plan_ids",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::close_active_plan_for_symbol",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::get_alerts_for_plan",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::get_plan_by_id",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::get_rung_by_id",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::get_rungs_for_plan",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 1,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::list_all_symbols",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_ensure_next_rung_alert",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::build_plan",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::display_all_plans",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::update_plan_metadata",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::harvest_hit_for_symbol",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::mark_rungs_achieved",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_adjusted_history",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 6,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::get_dashboard_stats",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 8,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_insert_rungs",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 9,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::symbols_at_harvest_points",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 10,
+    "file_name": "harvester_repository.py",
+    "function_name": "normalize_daily_bars",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 11,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::_store_daily_bars",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 15,
+    "file_name": "harvester_repository.py",
+    "function_name": "HarvesterPlanDB::purge_superseded_plans",
+    "path": "quantcore/repositories/harvester_repository.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::__init__",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::active_plan_ids",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::close_active_plan_for_symbol",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::delete_plan",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_alerts_for_plan",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_dashboard_stats",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_plan_by_id",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_rung_by_id",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_rungs_for_plan",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::harvest_hit_for_symbol",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::list_all_symbols",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::mark_rungs_achieved",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::poll_latest_close",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::purge_superseded_plans",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::symbols_at_harvest_points",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 0,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::update_plan_metadata",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::_require_open_lot",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 2,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::build_plan",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::_open_symbols",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::display_all_plans",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 3,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::get_next_actions",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::_latest_close",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 4,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::record_execution",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  },
+  {
+    "complexity": 10,
+    "file_name": "harvester.py",
+    "function_name": "HarvesterService::scan_and_fire_alerts",
+    "path": "quantcore/services/harvester.py",
+    "refactor_plans": []
+  }
+]

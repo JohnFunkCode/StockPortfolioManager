@@ -21,12 +21,12 @@ Inbox → Backlog → Ready → In progress → In review → Done
 
 | Status | Means | Who moves it here |
 |---|---|---|
-| **Inbox** | New, not triaged yet | The triage routine, for any open issue not on the board or without a status |
+| **Inbox** | New, not triaged yet | The board's *Auto-add* + *Item added* workflows, as soon as the issue is filed (the routine is the backstop) |
 | **Backlog** | Triaged: has an Area, a Size, and a Priority (or deliberately none) | Anyone |
 | **Ready** | Meets the Ready bar below; anyone can pick it up | Anyone |
 | **In progress** | Someone is working on it, and they're the assignee | The person taking it |
-| **In review** | A PR is open for it | The author, or the board's automation if enabled |
-| **Done** | Closed | The board's automation |
+| **In review** | A PR is open for it | The board's *Pull request linked to issue* workflow |
+| **Done** | Closed | The board's *Item closed* workflow (a reopened issue goes back to Backlog) |
 | **Parked** | Kept on purpose, not being considered now. Stays open and searchable | Anyone |
 
 ## Filing an issue
@@ -37,7 +37,7 @@ Pick a template:
 - **Bug** asks what happened and where.
 - **Ready to build** requires acceptance criteria.
 
-Blank issues are still allowed. A template files the issue onto the board only if the person filing it has write access to the board. Everything else is picked up by the triage routine.
+Blank issues are still allowed. Every new issue lands on the board in **Inbox** within seconds, whichever way it was filed, because the board's *Auto-add* workflow picks it up.
 
 ## Triage: anyone, whenever they pass by
 
@@ -84,7 +84,7 @@ Letting go is just as easy: unassign yourself and move the item back to Ready. T
 
 `issue-triage` is a scheduled Claude task in the Claude desktop app on John's machine. It runs on weekday mornings while the app is open. The task's own prompt is a single line telling it to follow [`issue-triage-routine.md`](issue-triage-routine.md) as of `main`, so the routine's behaviour lives in this repo and changes through a PR. Each run:
 
-1. Adds any open issue that isn't on the board as **Inbox**, and sets **Inbox** on any board issue that has no status.
+1. Acts as a backstop for the board's workflows. It adds any open issue that isn't on the board as **Inbox**, and sets **Inbox** on any board issue that has no status. Normally there is nothing to do here.
 2. For up to 10 Inbox issues that don't have one yet, posts **one** comment marked `<!-- triage-suggestion -->`. The comment:
    - suggests an Area, Priority and Size, with a one-line reason for each;
    - names likely duplicates, or work that looks already done;
@@ -99,16 +99,35 @@ It changes nothing else. It never sets Priority, Size or Area, and never moves a
 
 Parking keeps the Ready list short. It isn't a judgment on the idea. Anyone can park an item, from the routine's candidate list or whenever an item looks unlikely to be picked up soon. To bring a parked item back, comment on it and move it to Backlog.
 
-## One-time board setup (UI only)
+## Board configuration
 
-GitHub's API can't create project views or change the board's built-in workflows, so these are done once in the board's UI:
+This is the board as configured on 2026-10-29. The configuration lives on GitHub, not in this repo, so update this section whenever you change it.
 
-- **Views:**
-  - *Inbox*: filter `status:Inbox`
-  - *Ready*: filter `status:Ready`, sorted by Priority, then Size
-  - *By Area*: board layout, grouped by Area
-  - *Team in progress*: filter `status:"In progress"`, grouped by Assignees
-- **Workflows** (board menu → Workflows):
-  - Turn on *Item closed* → Done and *Pull request merged* → Done.
-  - If the board offers a workflow that moves a linked issue when its PR opens, set it to In review. Otherwise the PR author moves the issue to In review by hand.
-  - Leave *Auto-add* off. The routine adds new issues as Inbox, and a second automatic adder would race it.
+**Views** (tabs). The board's older views (Backlog, Priority board, Team items, Roadmap, My items) are unchanged.
+
+| View | Layout | Filter | Sort / group |
+|---|---|---|---|
+| **Ready** | Table | `status:Ready is:open` | Priority ↑, then Size |
+| **Inbox** | Table | `status:Inbox is:open` | Created ↑ (oldest first) |
+| **By Area** | Board, columns by Status | `-status:Done,Parked` | Grouped by Area |
+| **Team in progress** | Board, columns by Status | `status:"In progress","In review"` | Grouped by Assignees |
+
+**Workflows** (board menu → Workflows), all on:
+
+| Workflow | Effect |
+|---|---|
+| *Auto-add to project* | Adds new issues from this repo to the board |
+| *Item added to project* | Sets Status to **Inbox** |
+| *Pull request linked to issue* | Moves the linked issue to **In review** |
+| *Item closed* / *Pull request merged* | Sets Status to **Done** |
+| *Item reopened* | Sets Status to **Backlog** |
+| *Auto-close issue*, *Auto-add sub-issues to project* | GitHub defaults; left on |
+
+These were verified end to end on 2026-10-29 with throwaway issue #487: it was in Inbox seconds after it was filed, and moved to Done when it was closed.
+
+**Gotchas from setting this up**
+
+- **Through the API:** GraphQL can create a view and set its name, layout, filter and visible fields (`createProjectV2View`, `updateProjectV2View`). It **cannot** set a view's sort or grouping. Workflows are UI-only: the API can list them and delete them, but can't enable or edit them.
+- **Status options:** adding one with `updateProjectV2Field` replaces the whole option list. Pass each existing option's `id`, or every item's Status is cleared.
+- **Auto-add filter:** if the filter matches pull requests too (`is:issue,pr`), PRs land in Inbox alongside issues. Keep it at `is:issue`.
+- **Creating the scheduled task:** Claude Code's auto mode refused to create it from a session, so create it by hand in the desktop app. The setup is in [`issue-triage-routine.md`](issue-triage-routine.md).

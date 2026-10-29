@@ -375,6 +375,17 @@ model loading, error handling, Cloud Run config or Sidekick/MCP tools is reviewe
 categories it touches, findings name their category, and a changed control or gap updates its row
 in the same PR. The rules themselves stay where they are in this file; the map links to them.
 
+### Issue triage
+
+New issues go to **Inbox** on project board 4; the `issue-triage` scheduled task suggests Area,
+Priority and Size in one marked comment per issue. **An agent never sets Priority, Size or
+Status past Inbox, never closes, assigns or unassigns an issue during triage, and never puts a
+date on anyone** — it is a free-time project; people decide and pull work. A PR for a Ready item
+says `Closes #<n>`. The routine's instructions live in
+[`docs/operations/issue-triage-routine.md`](docs/operations/issue-triage-routine.md) (change them
+by PR); flow, priority meanings and the Ready bar:
+[`docs/operations/issue-triage.md`](docs/operations/issue-triage.md).
+
 ### Cloud Run service inventory (single home for service config)
 
 **Every Cloud Run *service*'s config, in both projects, lives in

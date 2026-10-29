@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: How issues are triaged
+    url: https://github.com/JohnFunkCode/StockPortfolioManager/blob/main/docs/operations/issue-triage.md
+    about: Inbox → Backlog → Ready, what the priorities mean, and the Ready bar.

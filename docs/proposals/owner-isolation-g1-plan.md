@@ -12,10 +12,10 @@ author of the *next* per-owner table to do the same, and nothing fails if they d
 `options_positions` is the live instance of the gap:
 
 - No `owner` column (`quantcore/db.py` `_SCHEMA`, baseline V1, snapshot).
-- `OptionsPositionStore` (`quantcore/repositories/options_position_repository.py`) has seven SQL
-  statements, none with an owner predicate: `add_position`, `close_position`, `expire_position`,
-  `auto_expire_past_positions` (SELECT + UPDATE), `get_active_positions`, `get_position`,
-  `position_count`. `get_pending_alerts` reads through `get_active_positions`.
+- `OptionsPositionStore` (`quantcore/repositories/options_position_repository.py`) has eight SQL
+  statements in seven methods, none with an owner predicate: `add_position`, `close_position`,
+  `expire_position`, `auto_expire_past_positions` (SELECT + UPDATE), `get_active_positions`,
+  `get_position`, `position_count`. `get_pending_alerts` reads through `get_active_positions`.
 - One live reader: `Notifier.check_options_alerts` (`notifier.py`), run by `main.py`'s notification
   pass. It expires and alerts on **every** row and posts to the one shared Discord webhook. The
   notifier already carries `self.owner` (default `"john"`) and passes it to Harvester — the options
@@ -154,20 +154,57 @@ Guard (`tests/test_owner_isolation_coverage.py`, no DB, fast):
 2. A committed map `OWNER_SCOPED = {table: (repository module, test module, [wrong-owner test
    names])}` plus `EXEMPT = {"owner_identities": "<reason>", "watchlist": "<reason>"}`. The test
    fails if a derived table is in neither, if a map entry names a table that is no longer
-   owner-scoped, or if a named test function doesn't exist (AST lookup, no import).
-3. A static scan of each mapped repository module: every SQL string literal that names a
-   *top-level* owner table (`positions`, `plan_instances`, `user_settings`, `options_positions`)
-   must contain `owner`; a string naming a child table must contain `owner` or join its parent.
-   Allow-list individual strings by a short reason where a statement is legitimately unscoped (the
-   daily job's cross-owner walk, `SELECT DISTINCT owner FROM positions` in
-   `portfolio_repository.py`, is the known one; the Harvester scan path is already owner-scoped). Start report-only locally, then make it strict in
-   the same PR once the allow-list is settled.
+   owner-scoped, or if a named test function doesn't exist (AST loo3. A static scan of each mapped repository module. It is a **heuristic tripwire, not the proof
+   of isolation** — the wrong-owner read and mutation tests from (2) are what the security map cites
+   as the guard. "The string contains `owner`" is not the test: `SELECT owner, symbol FROM
+   options_positions` names the column and returns every owner's rows. The scan instead checks,
+   per statement kind:
+   - **SELECT / UPDATE / DELETE on a top-level owner table** (`positions`, `plan_instances`,
+     `user_settings`, `options_positions`): the `WHERE` clause (or a `JOIN … ON`) has a
+     *restricting* predicate binding that table's `owner` to a parameter — `owner = %s`,
+     `<alias>.owner = %s`, or the named form `owner = %(owner)s`. `owner` in the select list,
+     `ORDER BY`, `GROUP BY` or `RETURNING` doesn't count.
+   - **INSERT into one**: `owner` is in the column list with a bound value. An omitted column would
+     fall through to `DEFAULT 'john'` (D3), so omission is a failure, not a pass.
+   - **A child table** (`lot_sales`, `plan_rungs`, `alerts`): the statement must restrict the
+     *owning ancestor's* `owner` to a parameter, through the FK chain. Joining the parent isn't
+     enough — `SELECT ls.* FROM lot_sales ls JOIN positions p ON p.position_id = ls.lot_id` joins
+     and never restricts.
+   - An `INSERT … SELECT` or a sub-select is checked as the statements it contains.
+
+   The scan works on the SQL text with a small tokenizer (strip comments and string literals,
+   split on clause keywords). It is not a parser, and that limit is written in the test's
+   docstring. A statement it can't classify fails, so a new shape gets a human look instead of a
+   silent pass. Legitimately cross-owner statements go on an allow-list keyed by module + a
+   normalized-SQL fingerprint, each with a one-line reason; a changed statement drops off the list.
+   The known one is the daily job's walk, `SELECT DISTINCT owner FROM positions` in
+   `portfolio_repository.py`; the Harvester scan path is already owner-scoped. Each allow-list
+   entry also needs a reviewer, so adding one shows up in the PR diff.
+
+   Regression fixtures for the scan itself (`tests/test_owner_isolation_coverage.py`, pure strings,
+   no DB) — the scan must **reject**:
+   - `SELECT owner, symbol FROM options_positions` (owner only in the select list);
+   - `SELECT * FROM options_positions ORDER BY owner`;
+   - `SELECT ls.* FROM lot_sales ls JOIN positions p ON p.position_id = ls.lot_id` (parent joined,
+     not restricted);
+   - `UPDATE options_positions SET status = 'CLOSED' WHERE position_id = %s` and the same `DELETE`
+     (mutation without the owner predicate);
+   - `INSERT INTO options_positions (symbol, kind) VALUES (%s, %s)` (owner column omitted);
+   - `SELECT * FROM positions WHERE owner IS NOT NULL` / `WHERE owner <> %s` (not a restriction to
+     one owner);
+
+   and **accept** the real shapes (`… WHERE position_id = %s AND owner = %s`, the aliased
+   `p.owner = %s` join form, an INSERT with `owner` bound). Start report-only locally, then make it
+   strict in the same PR once the allow-list is settled.
+
+ist is settled.
 
 `user_settings` is isolated only at the API level today; add a repository-level wrong-owner test
 (`get`/`set` for owner B never sees or overwrites A's row) so the map can point at one.
 
-Docs: security map — A01's "written down for Harvester only" row becomes Enforced with
-`tests/test_owner_isolation_coverage.py` as its guard; delete G1 from *Gaps*; close #460.
+Docs: security map — A01's "written down for Harvester only" row becomes Enforced, citing the
+per-repository wrong-owner tests as the guard and `tests/test_owner_isolation_coverage.py` as the
+inventory + heuristic scan that keeps the map complete; delete G1 from *Gaps*; close #460.
 
 ## Out of scope
 
@@ -184,7 +221,14 @@ Docs: security map — A01's "written down for Harvester only" row becomes Enfor
 | D1 check (prod/test row counts) | pending | — | — | |
 | 1 — options_positions owner | pending | — | — | |
 | 2 — general rule + guard | pending | — | — | |
+| Plan review (Guppy, #476) | done | #476 | 2026-10-29 | Tightened the step-2 scan: restricting predicate, not token presence; child tables restrict the ancestor; reject fixtures; statement count 7 → 8 |
 
 ## Gotchas
 
 _(Append here as each step lands — what misled you, not just the outcome.)_
+
+- **"Contains `owner`" looks like a check and isn't one** (plan review, #476). The first draft of
+  the step-2 scan passed any SQL string mentioning `owner`, or any child query joining its parent.
+  `SELECT owner, symbol FROM options_positions` and a `lot_sales JOIN positions` with no owner
+  restriction both pass that and both read every owner's rows. The check has to be on a predicate
+  that restricts to a bound owner, and the behavioural wrong-owner tests stay the actual guard.

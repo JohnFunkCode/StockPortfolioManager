@@ -203,14 +203,22 @@ def _string_list_claim(
     """
     for key in keys:
         value = claims.get(key)
-        if value is None or value == "" or value == []:
-            continue
-        if isinstance(value, str):
-            return tuple(value.split()) if split else (value,)
-        if isinstance(value, list) and all(isinstance(v, str) for v in value):
-            return tuple(value)
-        raise jwt.InvalidTokenError(f"malformed {key} claim")
+        if value not in _UNSET_CLAIM:
+            return _as_strings(key, value, split=split)
     return ()
+
+
+# Compared by equality: 0 and False equal none of these, so they are validated
+# (and rejected) rather than read as unset.
+_UNSET_CLAIM = (None, "", [])
+
+
+def _as_strings(key: str, value: Any, *, split: bool) -> tuple[str, ...]:
+    if isinstance(value, str):
+        return tuple(value.split()) if split else (value,)
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    raise jwt.InvalidTokenError(f"malformed {key} claim")
 
 
 def _verify(token: str, *, verify_exp: bool = True) -> dict[str, Any]:

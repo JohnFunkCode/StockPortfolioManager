@@ -122,12 +122,12 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 
 | Category | What applies here | Status |
 |---|---|---|
-| LLM01 Prompt Injection | News headlines from Yahoo RSS reach the model through `get_news_sentiment`. The system prompt in `quantcore/services/chat.py` does not tell the model to treat tool results as data, not instructions. Impact is bounded by LLM06 below. | **Gap G4** |
+| LLM01 Prompt Injection | Third-party text (news headlines from Yahoo RSS via `get_news_sentiment`, provider strings) reaches the model inside tool results. The system prompt in `quantcore/services/chat.py` says everything in a tool result is data, never instructions, and that the model should tell the user when a result seems to contain some (#463). That rule can't be tested against a real model, so the guard is containment: a scripted model that obeys a hostile headline is blocked by the loop — an unknown (write) tool is an error, an invented `owner` is dropped for the turn's own, an off-spec directive renders nothing. Spotlighting third-party text is deferred until a write tool exists ([prompt-injection-g4-plan.md](../proposals/prompt-injection-g4-plan.md) D4). | Mitigated (prompt, `test_system_prompt_treats_tool_results_as_data`) · containment Enforced (`tests/test_chat_service.py` `TestPromptInjectionContainment`) |
 | LLM02 Sensitive Information Disclosure | Never-log/never-respond policy; owner-scoped tools take the owner from context. | Enforced |
 | LLM03 Supply Chain | Pinned FinBERT revision + sha256; the chat model catalog is an allow-list (`quantcore/chat_models.py`). | Enforced |
 | LLM04 Data and Model Poisoning | Only FinBERT is used, as-is from a pinned revision; no fine-tuning or training on user data. | N/A today |
 | LLM05 Improper Output Handling | Model output becomes UI only through `show_component` directives validated against strict prop specs on **both** sides (`validate_directive`, `componentRegistry.tsx`) and rendered by `DirectiveRenderer`; no HTML from the model. Trusted Types backstops the DOM. | Enforced (`tests/test_chat_protocol.py`, `frontend/src/chat/componentRegistry.test.ts`) |
-| LLM06 Excessive Agency | Every Sidekick tool is read-only. Of the MCP tools, `add_to_watchlist` and `collect_news` write. Any new write tool must follow the standard's §8 write gating, which isn't implemented yet. | Enforced for Sidekick; **Convention** for MCP |
+| LLM06 Excessive Agency | Every Sidekick tool is read-only: the model's tools are exactly `READ_ONLY_TOOLS` in `quantcore/services/chat.py`, plus `show_component`, which renders a validated directive and touches no service. A Sidekick write tool needs the standard's §8 write gating first (not implemented yet), and brings spotlighting of third-party text into scope (G4 plan D2/D4). Of the MCP tools, `add_to_watchlist` and `collect_news` write. | Enforced for Sidekick (`tests/test_chat_protocol.py` `TestReadOnlyTools` — the test pins the tool list; review judges that each only reads); **Convention** for MCP |
 | LLM07 System Prompt Leakage | The system prompt holds no secrets; it is in the repo. | N/A |
 | LLM08 Vector and Embedding Weaknesses | No RAG or vector store. | N/A today |
 | LLM09 Misinformation | The prompt bars numbers the model hasn't fetched and forbids outside data; refusals must name the rule. | Convention (prompt) |
@@ -155,9 +155,6 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
 - **G3 ([#462](https://github.com/JohnFunkCode/StockPortfolioManager/issues/462)) — Bound parameters aren't enforced.** The dynamic SQL interpolates only code-built
   fragments today, but nothing would catch a value interpolated tomorrow. An AST test like the
   pickle ban could flag f-string/`%`/`.format` SQL whose fields aren't on an allow-list.
-- **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
-  data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
-  read-only (LLM06) — that is the containment that makes this a low-impact gap. Plan: [prompt-injection-g4-plan.md](../proposals/prompt-injection-g4-plan.md).
 
 ## Reviewing a PR with this map
 

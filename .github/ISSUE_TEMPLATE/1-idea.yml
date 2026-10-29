@@ -1,0 +1,24 @@
+name: Idea
+description: Capture an idea quickly. Triage fills in the rest.
+labels: ["enhancement"]
+projects: ["JohnFunkCode/4"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: One line is enough.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
+      description: What it would let us do, or what it would stop going wrong.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes (optional)
+      description: Links, examples, related issues.

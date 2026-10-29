@@ -1,0 +1,38 @@
+name: Ready to build
+description: Work that is defined well enough for anyone on the team to pick up.
+labels: ["enhancement"]
+projects: ["JohnFunkCode/4"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What changes for the user, in a sentence or two.
+    validations:
+      required: true
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance criteria
+      description: Checkable statements a reviewer can verify against the PR.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: dropdown
+    id: size
+    attributes:
+      label: Size
+      description: L or XL should be split into sub-issues before it is Ready.
+      options:
+        - XS
+        - S
+        - M
+        - L (split before Ready)
+        - XL (split before Ready)
+    validations:
+      required: true
+  - type: textarea
+    id: out
+    attributes:
+      label: Out of scope (optional)

@@ -212,6 +212,11 @@ follow:
 - **A window measured in bars must be fetched in trading days** (`HarvesterService.build_plan`
   scales by `365/252`); when a gap survives anyway, raise — never substitute `close`.
 
+**SQL values are always bound parameters** (#462). An expression interpolated into SQL must be
+code-built (a column allow-list, a placeholder list, a literal picked by a bool) and listed, with
+its reason, in `ALLOWED` in `tests/test_sql_bound_params.py`, which fails on anything else. Never
+add an entry for a value to make it pass; bind it, or use `psycopg2.sql.Identifier` for a name.
+
 The options tables never store NaN (`OptionsStore` writes NULL), and `QuantCoreJSONResponse` answers `null` for a
 non-finite float rather than a 500. A NaN once 500'd `/options/iv-rank` for 65% of prod calls.
 
@@ -342,7 +347,7 @@ Anthropic API key; the backend never holds a usable key at rest.
 
 [`docs/architecture/security.md`](docs/architecture/security.md) maps every OWASP Top 10:2025 and
 LLM Top 10 category to the rule here that covers it, the test or CI step that enforces it, and the
-open gaps (G1–G4; G5 closed by #459, G6 by #464). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
+open gaps (G1, G2, G4; G3 closed by #462, G5 by #459, G6 by #464). arch-v2 **Rule 11**: a PR touching routes, owner-scoped data, SQL, auth, locks,
 model loading, error handling, Cloud Run config or Sidekick/MCP tools is reviewed against the
 categories it touches, findings name their category, and a changed control or gap updates its row
 in the same PR. The rules themselves stay where they are in this file; the map links to them.

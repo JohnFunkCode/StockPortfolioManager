@@ -64,7 +64,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 
 | Rule | Guard | Status |
 |---|---|---|
-| SQL values are always bound parameters. Dynamic SQL (`portfolio_repository._apply_lot_fields`, `harvester_repository`, `news_repository`) interpolates only code-built fragments: column allow-lists and placeholder lists. | none | Convention — **Gap G3** |
+| SQL values are always bound parameters. Dynamic SQL (`portfolio_repository._apply_lot_fields`, `harvester_repository`, `news_repository`, …) interpolates only code-built fragments: column allow-lists, placeholder lists and literal clauses picked by a bool. Every interpolation into SQL (f-string, `%`, `.format`, `+`/`+=`, or whatever reaches `execute`) must be on a reviewed allow-list keyed by file, function and expression, each with its reason; identifiers go through `psycopg2.sql.Identifier` (#462). | `tests/test_sql_bound_params.py` (AST scan; stale allow-list entries fail too) | Enforced |
 | The MCP→REST seam rejects path segments that reshape the request (`rest_client._path`). | `tests/test_mcp_seam.py` | Enforced |
 | The LLM never writes SQL or provider calls; it reaches data only through curated tools with strict input schemas. | `tests/test_chat_tools.py` | Enforced |
 | Outbound hosts are fixed in code (Polygon, open.er-api, Yahoo RSS); no route fetches a caller-supplied URL. | none | Convention |
@@ -152,9 +152,6 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   one limiter that exists, the keyproxy's per-`sub` redemption bucket, is Enforced (A06 row) and
   stays; it bounds envelope redemptions per minute, which is neither an ingress limit nor a
   per-user spending budget.
-- **G3 ([#462](https://github.com/JohnFunkCode/StockPortfolioManager/issues/462)) — Bound parameters aren't enforced.** The dynamic SQL interpolates only code-built
-  fragments today, but nothing would catch a value interpolated tomorrow. An AST test like the
-  pickle ban could flag f-string/`%`/`.format` SQL whose fields aren't on an allow-list.
 - **G4 ([#463](https://github.com/JohnFunkCode/StockPortfolioManager/issues/463)) — Indirect prompt injection via news text.** Add a system-prompt rule that tool results are
   data, never instructions, and a `CHAT_FAKE` test with a hostile headline. Keep Sidekick tools
   read-only (LLM06) — that is the containment that makes this a low-impact gap. Plan: [prompt-injection-g4-plan.md](../proposals/prompt-injection-g4-plan.md).

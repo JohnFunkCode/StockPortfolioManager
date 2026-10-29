@@ -91,6 +91,15 @@ class TestRestClientConfig(unittest.TestCase):
             rest_client._handle(http_response(502, text_body="<html>bad gateway"))
         self.assertIn("error", ctx.exception.payload)
 
+    def test_rate_limit_429_reaches_the_tool_with_its_message(self):
+        # G2 (#461): an enforced api limit must read as "try again", not a crash.
+        message = "Too many requests. Try again in 5 seconds."
+        body = {"error": message, "message": message, "status": 429}
+        with self.assertRaises(rest_client.RestError) as ctx:
+            rest_client._handle(http_response(429, body))
+        self.assertEqual(ctx.exception.status_code, 429)
+        self.assertIn(message, str(ctx.exception))
+
 
 class TestRestClientVerbs(unittest.TestCase):
     def arm_client(self, response):

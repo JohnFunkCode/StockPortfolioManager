@@ -66,6 +66,11 @@ cloudsql = ["{project}:{region}:quantcore"]
 [services.env]
 KEYPROXY_URL = "https://quantcore-keyproxy-{project_number}.{region}.run.app"
 KEYPROXY_ID_TOKEN_AUDIENCE = "https://quantcore-keyproxy-{project_number}.{region}.run.app"
+# Per-principal rate limit (G2, #461): shadow logs would-be refusals and serves
+# everything; enforce answers 429. Limits are set from the soak before enforce.
+QUANTCORE_RATE_LIMIT_MODE = "shadow"
+QUANTCORE_RATE_LIMIT_PER_MIN = "120"
+QUANTCORE_RATE_LIMIT_BURST = "60"
 [services.secrets]
 QUANTCORE_DB_DSN = { test = "quantcore-test-db-dsn:latest", prod = "quantcore-prod-db-dsn:latest" }
 QUANTCORE_JWT_SECRET = "quantcore-jwt-secret:latest"

@@ -204,4 +204,3 @@ class NotifierOptionsAlertsOwnerTests(unittest.TestCase):
             {"ZZOPT": 110.0}, owner="ownerb"
         )
         notifier.send_notifications.assert_not_called()
-

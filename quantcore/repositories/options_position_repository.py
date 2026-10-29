@@ -31,7 +31,7 @@ Usage:
 
 from contextlib import closing
 from datetime import date, datetime, timezone, timedelta
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from quantcore.db import get_connection
 from quantcore.analytics.market_time import market_date
@@ -221,111 +221,12 @@ class OptionsPositionStore:
             PROFIT_TARGET  — intrinsic value ≥ PROFIT_TARGET_MULTIPLIER × cost
         """
         today = market_date(now)
-        alerts = []
-
+        alerts: list[dict] = []
         for pos in self.get_active_positions(owner=owner):
-            symbol      = pos["symbol"]
-            kind        = pos["kind"]
-            strike      = pos["strike"]
-            expiry_str  = pos["expiration"]
-            contracts   = pos["contracts"]
-            purch_price = pos["purchase_price"]
-            target      = pos["target_price"]
-
-            current_price = current_prices.get(symbol)
+            current_price = current_prices.get(pos["symbol"])
             if current_price is None:
                 continue
-
-            try:
-                expiry_date = date.fromisoformat(expiry_str)
-            except ValueError:
-                continue
-
-            days_to_expiry = (expiry_date - today).days
-
-            # Intrinsic value per share at current price
-            if kind == "put":
-                intrinsic = max(0.0, strike - current_price)
-                is_itm    = current_price <= strike
-            else:  # call
-                intrinsic = max(0.0, current_price - strike)
-                is_itm    = current_price >= strike
-
-            cost_per_share = purch_price
-            roi_pct = ((intrinsic - cost_per_share) / cost_per_share * 100) if cost_per_share > 0 else 0.0
-            total_cost     = purch_price * 100 * contracts
-            total_intrinsic = intrinsic * 100 * contracts
-
-            base = {
-                "position_id":    pos["position_id"],
-                "symbol":         symbol,
-                "kind":           kind,
-                "strike":         strike,
-                "expiration":     expiry_str,
-                "contracts":      contracts,
-                "purchase_price": purch_price,
-                "target_price":   target,
-                "current_price":  current_price,
-                "days_to_expiry": days_to_expiry,
-                "intrinsic_value": round(intrinsic, 2),
-                "roi_pct":        round(roi_pct, 1),
-                "total_cost":     round(total_cost, 2),
-                "total_intrinsic": round(total_intrinsic, 2),
-            }
-
-            # --- Alert: In The Money ---
-            if is_itm:
-                direction = "below" if kind == "put" else "above"
-                alerts.append({
-                    **base,
-                    "alert_type": ALERT_ITM,
-                    "message": (
-                        f"{symbol} ${strike:.2f} {kind.upper()} is IN THE MONEY  "
-                        f"(price ${current_price:.2f} is {direction} strike ${strike:.2f})  "
-                        f"intrinsic ${intrinsic:.2f}/share  "
-                        f"est. value ${total_intrinsic:.0f}  ROI {roi_pct:+.0f}%"
-                    ),
-                })
-
-            # --- Alert: Expiration warnings ---
-            if 0 <= days_to_expiry <= 1:
-                label = "TOMORROW" if days_to_expiry == 1 else "TODAY"
-                alerts.append({
-                    **base,
-                    "alert_type": ALERT_EXPIRATION_1D,
-                    "message": (
-                        f"{symbol} ${strike:.2f} {kind.upper()} EXPIRES {label} ({expiry_str})  "
-                        f"current price ${current_price:.2f}  "
-                        f"intrinsic ${intrinsic:.2f}/share  "
-                        f"{'ITM — consider closing' if is_itm else 'OTM — will expire worthless'}"
-                    ),
-                })
-            elif 2 <= days_to_expiry <= 7:
-                alerts.append({
-                    **base,
-                    "alert_type": ALERT_EXPIRATION_7D,
-                    "message": (
-                        f"{symbol} ${strike:.2f} {kind.upper()} expires in {days_to_expiry}d ({expiry_str})  "
-                        f"current price ${current_price:.2f}  "
-                        f"intrinsic ${intrinsic:.2f}/share  "
-                        f"{'ITM' if is_itm else 'OTM'}"
-                    ),
-                })
-
-            # --- Alert: Profit target (intrinsic ≥ 2× cost) ---
-            if intrinsic > 0 and cost_per_share > 0:
-                if intrinsic >= PROFIT_TARGET_MULTIPLIER * cost_per_share:
-                    alerts.append({
-                        **base,
-                        "alert_type": ALERT_PROFIT_TARGET,
-                        "message": (
-                            f"{symbol} ${strike:.2f} {kind.upper()} hit PROFIT TARGET  "
-                            f"intrinsic ${intrinsic:.2f} ≥ {PROFIT_TARGET_MULTIPLIER:.0f}× cost ${cost_per_share:.2f}  "
-                            f"est. value ${total_intrinsic:.0f} vs cost ${total_cost:.0f}  "
-                            f"ROI {roi_pct:+.0f}%"
-                        ),
-                    })
-
+            alerts.extend(alerts_for_position(pos, current_price, today))
         return alerts
 
     # ------------------------------------------------------------------
@@ -339,3 +240,131 @@ class OptionsPositionStore:
                 (status, owner),
             ).fetchone()
             return row[0]
+
+
+# ----------------------------------------------------------------------
+# Alert evaluation -- pure functions, no I/O (one position at a time)
+# ----------------------------------------------------------------------
+
+class _Valuation(NamedTuple):
+    """One position valued at one price; ``base`` is the shared alert payload."""
+    base: dict
+    is_itm: bool
+    intrinsic: float
+    roi_pct: float
+    total_cost: float
+    total_intrinsic: float
+
+
+def _value_position(pos: dict, current_price: float, today: date) -> Optional[_Valuation]:
+    """Value ``pos`` at ``current_price``; None when its expiration doesn't parse."""
+    try:
+        expiry_date = date.fromisoformat(pos["expiration"])
+    except ValueError:
+        return None
+
+    strike = pos["strike"]
+    if pos["kind"] == "put":
+        intrinsic = max(0.0, strike - current_price)
+        is_itm = current_price <= strike
+    else:  # call
+        intrinsic = max(0.0, current_price - strike)
+        is_itm = current_price >= strike
+
+    cost_per_share = pos["purchase_price"]
+    roi_pct = ((intrinsic - cost_per_share) / cost_per_share * 100) if cost_per_share > 0 else 0.0
+    total_cost = cost_per_share * 100 * pos["contracts"]
+    total_intrinsic = intrinsic * 100 * pos["contracts"]
+
+    base = {
+        "position_id":    pos["position_id"],
+        "symbol":         pos["symbol"],
+        "kind":           pos["kind"],
+        "strike":         strike,
+        "expiration":     pos["expiration"],
+        "contracts":      pos["contracts"],
+        "purchase_price": cost_per_share,
+        "target_price":   pos["target_price"],
+        "current_price":  current_price,
+        "days_to_expiry": (expiry_date - today).days,
+        "intrinsic_value": round(intrinsic, 2),
+        "roi_pct":        round(roi_pct, 1),
+        "total_cost":     round(total_cost, 2),
+        "total_intrinsic": round(total_intrinsic, 2),
+    }
+    return _Valuation(base, is_itm, intrinsic, roi_pct, total_cost, total_intrinsic)
+
+
+def _itm_alert(v: _Valuation) -> Optional[dict]:
+    if not v.is_itm:
+        return None
+    b = v.base
+    direction = "below" if b["kind"] == "put" else "above"
+    return {
+        **b,
+        "alert_type": ALERT_ITM,
+        "message": (
+            f"{b['symbol']} ${b['strike']:.2f} {b['kind'].upper()} is IN THE MONEY  "
+            f"(price ${b['current_price']:.2f} is {direction} strike ${b['strike']:.2f})  "
+            f"intrinsic ${v.intrinsic:.2f}/share  "
+            f"est. value ${v.total_intrinsic:.0f}  ROI {v.roi_pct:+.0f}%"
+        ),
+    }
+
+
+def _expiration_alert(v: _Valuation) -> Optional[dict]:
+    b = v.base
+    days = b["days_to_expiry"]
+    head = f"{b['symbol']} ${b['strike']:.2f} {b['kind'].upper()}"
+    tail = (
+        f"current price ${b['current_price']:.2f}  "
+        f"intrinsic ${v.intrinsic:.2f}/share  "
+    )
+    if 0 <= days <= 1:
+        label = "TOMORROW" if days == 1 else "TODAY"
+        status = "ITM — consider closing" if v.is_itm else "OTM — will expire worthless"
+        return {
+            **b,
+            "alert_type": ALERT_EXPIRATION_1D,
+            "message": f"{head} EXPIRES {label} ({b['expiration']})  {tail}{status}",
+        }
+    if 2 <= days <= 7:
+        return {
+            **b,
+            "alert_type": ALERT_EXPIRATION_7D,
+            "message": (
+                f"{head} expires in {days}d ({b['expiration']})  "
+                f"{tail}{'ITM' if v.is_itm else 'OTM'}"
+            ),
+        }
+    return None
+
+
+def _profit_target_alert(v: _Valuation) -> Optional[dict]:
+    """Intrinsic value at PROFIT_TARGET_MULTIPLIER x cost or more."""
+    b = v.base
+    cost_per_share = b["purchase_price"]
+    if v.intrinsic <= 0 or cost_per_share <= 0:
+        return None
+    if v.intrinsic < PROFIT_TARGET_MULTIPLIER * cost_per_share:
+        return None
+    return {
+        **b,
+        "alert_type": ALERT_PROFIT_TARGET,
+        "message": (
+            f"{b['symbol']} ${b['strike']:.2f} {b['kind'].upper()} hit PROFIT TARGET  "
+            f"intrinsic ${v.intrinsic:.2f} ≥ {PROFIT_TARGET_MULTIPLIER:.0f}× cost ${cost_per_share:.2f}  "
+            f"est. value ${v.total_intrinsic:.0f} vs cost ${v.total_cost:.0f}  "
+            f"ROI {v.roi_pct:+.0f}%"
+        ),
+    }
+
+
+def alerts_for_position(pos: dict, current_price: float, today: date) -> list[dict]:
+    """Every alert ``pos`` raises at ``current_price`` on ``today``, in the order
+    ITM, expiration, profit target. A position can raise several at once."""
+    v = _value_position(pos, current_price, today)
+    if v is None:
+        return []
+    candidates = (_itm_alert(v), _expiration_alert(v), _profit_target_alert(v))
+    return [alert for alert in candidates if alert is not None]

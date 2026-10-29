@@ -219,7 +219,7 @@ inventory + heuristic scan that keeps the map complete; delete G1 from *Gaps*; c
 | Step | Status | PR | Date | Notes |
 |---|---|---|---|---|
 | D1 check (prod/test row counts) | skipped | — | 2026-10-29 | D1 decided *keep* by John. No Cloud SQL proxy was running, so the read-only count wasn't taken; the DEFAULT backfills whatever rows exist, so it doesn't change the design |
-| 1 — options_positions owner | in review | (this PR) | 2026-10-29 | V12, not V10: V10/V11 had landed meanwhile |
+| 1 — options_positions owner | in review | #480 | 2026-10-29 | V12, not V10: V10/V11 had landed meanwhile. Review: split `get_pending_alerts` (CC 16 / cognitive 27) into pure helpers (max 6 / 6) with byte-identical output on a 1,166-alert grid; added no-DB branch tests and an SQL-shape guard for every statement |
 | 2 — general rule + guard | pending | — | — | |
 | Plan review (Guppy, #476) | done | #476 | 2026-10-29 | Tightened the step-2 scan: restricting predicate, not token presence; child tables restrict the ancestor; reject fixtures; statement count 7 → 8 |
 
@@ -239,6 +239,10 @@ _(Append here as each step lands — what misled you, not just the outcome.)_
   rows …` produced a comment-only chunk, and psycopg2 raised `can't execute an empty query` for
   every module that builds the app: 216 errors plus 10 lean-import failures. It couldn't show up
   locally because the DB never connected here. Keep `;` out of `_SCHEMA` comments.
+- **A behavioural wrong-owner test can't see a redundant predicate** (step 1 review, #480). In
+  `auto_expire_past_positions` the owner-scoped SELECT picks the ids, so deleting `AND owner = %s`
+  from the bulk UPDATE after it left every DB test green. Only an SQL-shape assertion
+  (`tests/test_options_position_alerts.py`) catches it. Step 2's scan generalises that check.
 
 - **"Contains `owner`" looks like a check and isn't one** (plan review, #476). The first draft of
   the step-2 scan passed any SQL string mentioning `owner`, or any child query joining its parent.

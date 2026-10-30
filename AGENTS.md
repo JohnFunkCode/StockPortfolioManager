@@ -86,3 +86,7 @@ These are the constraints most likely to be violated by an agent that skipped `C
   wrong-owner tests — `tests/test_owner_isolation_coverage.py` enforces it (#460, see CLAUDE.md).
 - **Security-relevant PRs are reviewed against the OWASP map** in
   `docs/architecture/security.md` (arch-v2 Rule 11); update its row when a control or gap changes.
+- **One review per PR is enough:** each PR needs one Guppy review before merging. Don't wait for
+  a re-review or require one; Guppy may review a newer head on a later run, but that's a bonus,
+  not a gate. Open the PR only when it's complete. Commits pushed after the review only fix what
+  it found; any new scope goes in a new PR (see CLAUDE.md).

@@ -403,6 +403,24 @@ says `Closes #<n>`. The routine's instructions live in
 by PR); flow, priority meanings and the Ready bar:
 [`docs/operations/issue-triage.md`](docs/operations/issue-triage.md).
 
+### Pull request review: one review per PR
+
+Each PR needs **one** automated review before it merges: Guppy, the `pr-review` cron, run per
+[`docs/proposals/pr-review-instructions.md`](docs/proposals/pr-review-instructions.md). That
+procedure dedupes by head commit, so a later run *may* review a newer head. A second review is a
+bonus, though, not a requirement. In practice a PR often merges before the cron runs again.
+Treating one review as enough is a team decision (2026-10-29): this is a free-time project.
+Don't wait for a re-review, and don't add re-review gates, review-status checks or second
+review passes. Make the one review count instead:
+
+- **Open the PR when it's complete,** not as a draft to keep pushing to. Guppy reviews whatever
+  is there when it looks.
+- **A PR isn't ready to merge until Guppy has reviewed it.** No PR merges with zero reviews.
+- **Commits after the review only fix what it found.** Reply on the PR mapping each finding to
+  its fix commit. Anything else goes in a **new PR** so it gets its own review: a rework, a
+  follow-up request, or an unrelated fix noticed along the way. On #484, a process rework rode
+  in on the review-fix commit and merged unreviewed.
+
 ### Cloud Run service inventory (single home for service config)
 
 **Every Cloud Run *service*'s config, in both projects, lives in

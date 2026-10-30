@@ -499,9 +499,12 @@ From the team review on PR #483 (2026-10-29):
   without an `owner_identities` row still has a budget. One consequence surprised the test
   verification: the same person can hold **several budgets**, one per principal. A QuantUI login
   records usage under the login's email principal, so a JWT minted with `--sub john` (the MCP
-  token path) read 0 used while the UI turns were counted. That is correct, not a missed write.
-  Step 3 reads the soak data per principal, so a user who works through both the UI and an MCP
-  client shows up as two rows.
+  token path) read 0 used while the UI turns were counted. That is correct, not a missed write:
+  the `--sub john` principal had made no Sidekick call, so it had no `chat_usage` row, and `used()`
+  reads a missing row as 0. Only Sidekick model calls create rows, and MCP clients spend their own
+  model budget, so ordinary MCP traffic never appears in this table. A person's usage is split
+  across two rows only if they make Sidekick turns under two principals; step 3, which reads the
+  soak data per principal, should treat that as the exception, not the rule.
 - **No semicolon in a `_SCHEMA` comment** (step 2, first CI run of #491). `init_schema()` splits
   `_SCHEMA` on `;`, so `-- cap; NULL = …` left a comment-only chunk, and psycopg2 raised
   `can't execute an empty query` from every DB test and from `api.main`'s import. `db.py` already

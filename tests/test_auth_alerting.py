@@ -160,6 +160,33 @@ class ExtractorTests(unittest.TestCase):
             (line,) = self._lines(lambda: rate_limit.enforce_rate_limit(request, principal))
         self.assertEqual(self._labels(line), {"event": "rate_limited", "reason": ""})
 
+    def test_chat_budget_events(self):
+        # G2 (#461) step 2: the Sidekick daily budget's two events, metric only.
+        from quantcore.services import chat_budget
+
+        class Down:
+            def reserve(self, **kwargs):
+                raise RuntimeError("down")
+
+        class Full:
+            def reserve(self, **kwargs):
+                return False, 200
+
+        def turn(repo):
+            return chat_budget.SidekickBudget(
+                repo, budget_for=lambda owner: 100
+            ).start_turn("someone")
+
+        with mock.patch.dict(os.environ, {chat_budget.MODE_ENV: "shadow"}):
+            (exhausted,) = self._lines(lambda: turn(Full()).reserve(10))
+            (unavailable,) = self._lines(lambda: turn(Down()).reserve(10))
+        self.assertEqual(
+            self._labels(exhausted), {"event": "chat_budget_exhausted", "reason": ""}
+        )
+        self.assertEqual(
+            self._labels(unavailable), {"event": "chat_budget_unavailable", "reason": ""}
+        )
+
     def test_policy_label_values_are_values_the_metric_produces(self):
         produced = {"auth_rejected", "unmapped_principal", "unmapped_principal_soft",
                     "missing", "invalid", "expired"}

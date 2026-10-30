@@ -71,6 +71,10 @@ KEYPROXY_ID_TOKEN_AUDIENCE = "https://quantcore-keyproxy-{project_number}.{regio
 QUANTCORE_RATE_LIMIT_MODE = "shadow"
 QUANTCORE_RATE_LIMIT_PER_MIN = "120"
 QUANTCORE_RATE_LIMIT_BURST = "60"
+# Daily Sidekick token budget per user (G2, #461): shadow records usage and logs
+# would-be refusals; enforce stops the turn. The ceiling is set from the soak.
+SIDEKICK_BUDGET_MODE = "shadow"
+SIDEKICK_DAILY_TOKEN_BUDGET = "2000000"
 [services.secrets]
 QUANTCORE_DB_DSN = { test = "quantcore-test-db-dsn:latest", prod = "quantcore-prod-db-dsn:latest" }
 QUANTCORE_JWT_SECRET = "quantcore-jwt-secret:latest"

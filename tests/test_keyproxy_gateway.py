@@ -211,6 +211,8 @@ class TestKeyProxyChatClient(GatewayTestBase):
                 self.run_turn(client)
         self.assertEqual(str(ctx.exception), keyproxy_gateway.PROVIDER_ERROR_MESSAGE)
         self.assertNotIn(API_KEY, str(ctx.exception))
+        # It may have been billed, so ChatService keeps its budget reservation (G2).
+        self.assertTrue(ctx.exception.reached_provider)
         self.assertEqual(self.state.sessions._sessions, {})
         # The exception message (which carried the key) must never be logged.
         self.assert_never_logged(API_KEY)
@@ -288,6 +290,8 @@ class TestKeyProxyChatClient(GatewayTestBase):
             with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
                 self.run_turn(client)
         self.assertEqual(str(ctx.exception), keyproxy_gateway.RESEND_MESSAGE)
+        # Refused by the keyproxy before the provider: the reservation is released.
+        self.assertFalse(ctx.exception.reached_provider)
 
     def test_budget_exhaustion_detail_passes_through_verbatim(self):
         scope = chat_scope(
@@ -316,6 +320,7 @@ class TestKeyProxyChatClient(GatewayTestBase):
         with self.assertRaises(keyproxy_gateway.KeyProxyError) as ctx:
             self.run_turn(client)
         self.assertEqual(str(ctx.exception), keyproxy_gateway.RESEND_MESSAGE)
+        self.assertFalse(ctx.exception.reached_provider)
 
     def test_invalid_bearer_token_is_a_distinct_auth_error_and_logs_status(self):
         # A real 401 from require_caller (bad JWT), not a mocked status code —

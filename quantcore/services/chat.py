@@ -38,6 +38,13 @@ from decimal import Decimal
 from typing import Callable, Iterator, Protocol
 
 from quantcore.error_text import safe_error_text
+from quantcore.services.chat_budget import (
+    MAX_OUTPUT_TOKENS,
+    BudgetExhausted,
+    BudgetUnavailable,
+    call_usage,
+    estimate_tokens,
+)
 from quantcore.services.chat_tools import (
     TOOL_SCHEMAS,
     validate_directive,
@@ -239,6 +246,8 @@ class TurnContext:
     # no tool schema carries an ``owner`` parameter, and the dispatch strips
     # one if a model invents it.
     owner: str | None = None
+    # The AUTH_DISABLED stand-in principal: never budgeted (G2 plan D6).
+    is_local: bool = False
 
 
 ENVELOPE_REQUIRED_MESSAGE = (
@@ -433,6 +442,7 @@ class ChatService:
         client_factory: Callable[[TurnContext], ChatClient] | None = None,
         settings=None,
         allowed: frozenset[str] = frozenset(),
+        budget=None,
     ):
         self._prices = prices
         self._fundamentals = fundamentals
@@ -445,6 +455,9 @@ class ChatService:
         self._max_iterations = max_iterations
         self._settings = settings
         self._allowed = allowed
+        # The daily token budget (G2, #461): a chat_budget.SidekickBudget, or
+        # None for no accounting at all.
+        self._budget = budget
         self._client_factory = client_factory or (
             lambda context: _default_client_factory(context.model or self._model, self._effort)
         )
@@ -629,6 +642,19 @@ class ChatService:
                 return stored
         return self._model
 
+    @staticmethod
+    def _first_call_estimate(convo: list[dict]) -> int:
+        """A turn's first call, worst case: everything sent, plus the output cap.
+
+        The system prompt and tool schemas go out with every call, so they count.
+        """
+        chars = (
+            len(SYSTEM_PROMPT)
+            + len(json.dumps(TOOL_SCHEMAS))
+            + len(json.dumps(convo, default=str))
+        )
+        return estimate_tokens(chars) + MAX_OUTPUT_TOKENS
+
     def stream_chat(
         self,
         messages: list[dict],
@@ -648,15 +674,43 @@ class ChatService:
             if self._allowed:
                 context = dataclasses.replace(context, model=self._resolve_model(context))
             client = self._client_factory(context)
+            # Every model call is admitted by an atomic reservation of its worst
+            # case and settled after it reports usage (G2 plan D3).
+            turn_budget = (
+                self._budget.start_turn(context.subject)
+                if self._budget is not None and not context.is_local
+                else None
+            )
+            estimate = self._first_call_estimate(convo)
             for _ in range(self._max_iterations):
+                reservation = turn_budget.reserve(estimate) if turn_budget else None
                 final = None
-                for kind, payload in client.stream_turn(
-                    system=SYSTEM_PROMPT, tools=TOOL_SCHEMAS, messages=convo
-                ):
-                    if kind == "delta":
-                        yield TextDelta(delta=payload)
-                    elif kind == "final":
-                        final = payload
+                try:
+                    for kind, payload in client.stream_turn(
+                        system=SYSTEM_PROMPT, tools=TOOL_SCHEMAS, messages=convo
+                    ):
+                        if kind == "delta":
+                            yield TextDelta(delta=payload)
+                        elif kind == "final":
+                            final = payload
+                except Exception as exc:
+                    # A call that may have reached the provider stays charged;
+                    # only one refused before it (the keyproxy says so) is handed back.
+                    if reservation is not None and getattr(exc, "reached_provider", True) is False:
+                        try:
+                            turn_budget.release(reservation)
+                        except BudgetUnavailable:
+                            pass  # logged; the call's own error is the one to show
+                    raise
+                usage = call_usage(final) if final is not None else None
+                budget_lost = False
+                if reservation is not None:
+                    try:
+                        turn_budget.settle(reservation, usage)
+                    except BudgetUnavailable:
+                        # Enforce mode, fail closed (D8): this call's answer stands,
+                        # but no further call is made without accounting.
+                        budget_lost = True
                 if final is None:
                     yield ErrorEvent(message="model returned no final message")
                     return
@@ -684,6 +738,9 @@ class ChatService:
                     return
                 if not tool_uses:
                     yield Done(stop_reason=str(final.stop_reason or "end_turn"))
+                    return
+                if budget_lost:
+                    yield ErrorEvent(message=str(BudgetUnavailable()))
                     return
 
                 # Echo assistant content back unchanged (thinking blocks included).
@@ -769,6 +826,10 @@ class ChatService:
                     results_bytes = len(json.dumps(results))
                 except (TypeError, ValueError):
                     results_bytes = -1
+                # Next call's input is this one's input and output, plus the
+                # results; without reported usage, this call's estimate stands in.
+                base = sum(usage) if usage is not None else estimate
+                estimate = base + estimate_tokens(max(results_bytes, 0)) + MAX_OUTPUT_TOKENS
                 if degraded:
                     logger.warning(
                         "tool turn had degraded results tool_count=%d degraded=%s results_bytes=%d",
@@ -787,6 +848,10 @@ class ChatService:
         except ChatKeyRequired as exc:
             # Expected keyless state, not a failure — clean event, no log noise
             # (and nothing from the context may ever reach a log anyway).
+            yield ErrorEvent(message=str(exc))
+        except (BudgetExhausted, BudgetUnavailable) as exc:
+            # Enforce mode refused the next call. Already logged by the budget;
+            # a partial answer above this stays, as for max_tokens.
             yield ErrorEvent(message=str(exc))
         except Exception as exc:  # noqa: BLE001 — stream must end with a frame
             logger.exception("chat stream failed")

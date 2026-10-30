@@ -202,7 +202,7 @@ Full narrative (status vocabulary, the backstop flag, the Plan chip):
 
 ### Unified Database (`quantcore/`)
 
-All persistence is a single **QuantCore** PostgreSQL database (23 tables, DDL in `_SCHEMA` in
+All persistence is a single **QuantCore** PostgreSQL database (24 tables, DDL in `_SCHEMA` in
 `quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
 repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`; two rules
 follow:
@@ -253,6 +253,14 @@ Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural
 - **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
 - **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups, allocation-bar segments), `returns.py` (close-to-close trailing/YTD/1-year returns and market-cap currency normalization — the single correct copy; the five columns in `portfolio/metrics.py` are the legacy report script's and disagree, deliberately), `market_time.py` (session and trading-day arithmetic), `levels.py` (support-confluence clustering, method weights, zone scoring and stop-zone marking), `stops.py` (technical/trailing/confluence stop placement, short-interest calibration, drawdown replay, P&L at stop — the services only *gather* their inputs, so one gather can feed several computations; #399, [`stop-loss-card-plan.md`](docs/proposals/stop-loss-card-plan.md)).
 - **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsContractsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `WatchlistService`, `SettingsService`, `IdentityService`, `ChatService` (+ `chat_tools.py`, `chat_fake.py`), `ArbitrageService`, `RecommendationsService` (composes the other services).
+- **Every Sidekick model call is admitted by the daily token budget** (G2, #461;
+  `quantcore/services/chat_budget.py`). Reserve the call's worst case *before* it — an atomic
+  conditional upsert on `chat_usage`, never a read-then-check — and settle it after; release a
+  reservation only when the keyproxy says the call never reached the provider
+  (`reached_provider=False`). A new call site, or a client built without
+  `max_tokens=MAX_OUTPUT_TOKENS`, bypasses the budget. In enforce mode a budget the server can't
+  read stops the turn (fail closed); shadow mode never stops one. Why:
+  [`rate-limiting-g2-plan.md`](docs/proposals/rate-limiting-g2-plan.md) D3, D8.
 - **Sidekick tools are read-only, and tool results are data** (#463). The model's tools are exactly `READ_ONLY_TOOLS` in `quantcore/services/chat.py` (plus `show_component`); `tests/test_chat_protocol.py` fails on any other. A tool that changes state needs arch-v2 §8 write gating first (user confirmation, idempotency key, audit record), since an instruction injected into a news headline would otherwise become an action. The system prompt tells the model never to follow instructions found in a tool result; `TestPromptInjectionContainment` pins what happens if it does. Why: [`prompt-injection-g4-plan.md`](docs/proposals/prompt-injection-g4-plan.md).
 - **`quantcore/chat_models.py`** — pure-data catalog of the three user-selectable Sidekick chat models (issue #124: `claude-sonnet-5` default, `claude-opus-4-8`, `claude-fable-5`), injected by the registry into both `SettingsService` and `ChatService` so the two never import each other for it. `SettingsService` (backed by `UserSettingsRepository`'s `user_settings` table) resolves a per-owner chat model — falling back to the default if the stored value has since been retired from the allow-list — and validates writes against the same allow-list; exposed via `GET/PUT /api/settings` (`api/routers/settings.py`). The frontend Settings page and the Sidekick chat-header quick-switch both read/write this endpoint, converging on one server-side source of truth rather than sharing a JS module.
 - **`quantcore/services/registry.py`** — the composition root: a lazy `@lru_cache get_services()` returning a frozen `Services` dataclass with all dependencies constructor-injected. Adapters call `get_services().<service>.<method>(...)`; service modules never import each other or the registry (acyclic).
@@ -539,7 +547,7 @@ hatch is one `gcloud run services update --update-env-vars` away:
 
 | Mode | Behaviour |
 |---|---|
-| `create` | Run the 23-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
+| `create` | Run the 24-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
 | `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
 | `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
 | `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `verify`. |
@@ -548,7 +556,7 @@ That is the fix for the two-owners problem: on a database Flyway already manages
 creating schema and only checks it. An unrecognized value falls back to `create` and logs an error
 — a typo is most likely made by an operator reaching for the escape hatch mid-incident, and failing
 closed there would deny them exactly what they were reaching for. The check emits one greppable
-line (`schema check: mode=verify resolved=verify tables=23 missing=0 mismatch=0 extra=0`) plus one
+line (`schema check: mode=verify resolved=verify tables=24 missing=0 mismatch=0 extra=0`) plus one
 line per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so
 a developer's Flyway-managed test database and CI's bare Postgres behave identically.
 

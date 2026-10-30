@@ -94,6 +94,11 @@ OWNER_SCOPED = {
     "user_settings": [
         ("tests/test_repositories_db.py", "test_owners_are_isolated"),
         ("tests/test_settings_api.py", "test_owners_are_isolated"),
+        ("tests/test_settings_api.py", "test_budgets_are_owner_scoped"),
+    ],
+    "chat_usage": [
+        ("tests/test_chat_usage_repository.py", "test_wrong_owner_reads_and_writes_touch_nothing"),
+        ("tests/test_settings_api.py", "test_budgets_are_owner_scoped"),
     ],
     "options_positions": [
         ("tests/test_repositories_db.py", "test_wrong_owner_reads_come_back_empty"),

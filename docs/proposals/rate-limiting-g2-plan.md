@@ -3,7 +3,7 @@
 Issue: [#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461) · OWASP A06 /
 LLM10 · gap **G2** in [`docs/architecture/security.md`](../architecture/security.md).
 
-**Status: proposal, revised after team review.** Nothing here is built yet. D1–D4 were agreed with
+**Status: steps 0–2 built, both limits in shadow mode; step 3 (enforce) not started.** D1–D4 were agreed with
 John on 2026-10-29. The review's answers to Q1–Q4 are recorded under
 [Review answers](#review-answers) and folded into D4 and D8–D10. Q5 is answered too: no address, just "contact the development team".
 
@@ -461,6 +461,7 @@ From the team review on PR #483 (2026-10-29):
 | step 0 | 2026-10-29 | — | Measured (table under Step 0). Sidekick: 9 calls in 30 days, one user, busiest day ~112k tokens; too light to set a budget. Ingress: busiest source 24 req/min and 24 per 10 s, so 120/min, burst 60 stand. |
 | step 1 | 2026-10-29 | — | `api/rate_limit.py` + `enforce_rate_limit` on every protected router, shadow by default, inventory sets shadow/120/60. Gotchas below. No alert policy (D9); the metric comment lists the new event. |
 | step 1 | 2026-10-29 | #489 | Guppy review: the log-dedup map grew past the principal cap (an identity refused because the map was full still got an entry, and each overflow copied the map). Dedup now lives in each bucket, overflowed identities share one throttle, and a prune that frees nothing backs off 1 s. `CapacityBoundTests` pins it. |
+| step 2 | 2026-10-30 | — | Daily Sidekick token budget in shadow mode: `chat_usage` table (V13, plus `user_settings.chat_daily_token_budget`), `ChatUsageRepository` (atomic conditional reservation), `chat_budget.py` (modes, `TurnBudget`), `ChatService` reserves before and settles after every model call, `KeyProxyError.reached_provider`, Settings page budget section, `GET/PUT /api/settings` budget fields. Inventory sets shadow / 2,000,000. Gotchas below. |
 
 ## Gotchas
 
@@ -478,3 +479,19 @@ From the team review on PR #483 (2026-10-29):
 - **Capping the bucket map isn't enough; every per-identity map needs the cap** (#489 review).
   The first cut kept log-dedup timestamps in a second dict, which an identity refused for a full
   map still entered. Keep per-identity state inside the bucket so it shares the bucket's bound.
+- **`db/schema_snapshot.json` was hand-edited for V13** (step 2): the local Postgres refuses this
+  machine's agent processes, so `check_schema_snapshot.py --update` couldn't run here. The edit
+  is additions only, and CI's gate (`check_schema_snapshot.py`) and `test_schema_parity.py` check
+  it against a real database. If either fails, regenerate it with `--update` rather than
+  hand-fixing again.
+- **No `::` casts in SQL that binds `:name` parameters.** `quantcore.db._adapt_sql` rewrites
+  `:name` with a regex, so `x::date` would become `x:%(date)s`. Bind the right Python type (a
+  `datetime.date` arrives as `'…'::date` from psycopg2) or use `CAST(x AS date)`.
+- **The second model call's reservation is often smaller than the first's.** The first call's
+  estimate counts the system prompt and tool schemas from characters at 2 per token, while the
+  second builds on the first call's *reported* input tokens, which are far fewer. A test that
+  wants a mid-turn refusal therefore has to make the first call report large usage; a tight
+  budget alone refuses the first call or neither.
+- **The budget's owner key is the raw principal (`TurnContext.subject`)**, the key
+  `user_settings` already uses, not the canonical `owner` the portfolio tools resolve: a user
+  without an `owner_identities` row still has a budget.

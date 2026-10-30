@@ -50,6 +50,10 @@ const SETTINGS = {
     { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Heavy-lifting.' },
     { id: 'claude-fable-5', name: 'Claude Fable 5', description: 'Most capable.' },
   ],
+  chat_daily_token_budget: null,
+  chat_daily_token_budget_ceiling: 2000000,
+  chat_tokens_used_today: 0,
+  chat_daily_token_budget_effective: 2000000,
 };
 const getSettingsMock = vi.fn(async () => SETTINGS);
 const putChatModelMock = vi.fn(async (id: string) => ({ ...SETTINGS, chat_model: id }));

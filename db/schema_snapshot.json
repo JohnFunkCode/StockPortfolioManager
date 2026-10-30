@@ -156,6 +156,51 @@
         "idx_arb_nav_latest": "CREATE INDEX idx_arb_nav_latest ON public.arb_nav_snapshots USING btree (security, as_of DESC)"
       }
     },
+    "chat_usage": {
+      "columns": {
+        "input_tokens": {
+          "default": "0",
+          "nullable": false,
+          "type": "bigint"
+        },
+        "output_tokens": {
+          "default": "0",
+          "nullable": false,
+          "type": "bigint"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "reserved_tokens": {
+          "default": "0",
+          "nullable": false,
+          "type": "bigint"
+        },
+        "turns": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "updated_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "usage_day": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        }
+      },
+      "constraints": {
+        "chat_usage_pkey": "PRIMARY KEY (owner, usage_day)"
+      },
+      "indexes": {
+        "chat_usage_pkey": "CREATE UNIQUE INDEX chat_usage_pkey ON public.chat_usage USING btree (owner, usage_day)"
+      }
+    },
     "fetch_log": {
       "columns": {
         "fetched_at": {
@@ -1516,6 +1561,11 @@
     },
     "user_settings": {
       "columns": {
+        "chat_daily_token_budget": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
         "chat_model": {
           "default": null,
           "nullable": false,

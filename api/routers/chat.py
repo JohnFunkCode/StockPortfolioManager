@@ -49,6 +49,8 @@ def chat(
         # prices and technicals out of this turn. The portfolio tools are the
         # only ones that fail on a None here — see resolve_owner_or_none.
         owner=resolve_owner_or_none(principal),
+        # The AUTH_DISABLED stand-in is never budgeted (G2 plan D6).
+        is_local=principal.is_local,
     )
     events = services().chat.stream_chat(
         [{"role": m.role, "content": m.content} for m in body.messages],

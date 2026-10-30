@@ -107,6 +107,10 @@ describe('ChatProvider persistence + controls', () => {
       vi.spyOn(settingsApi, 'putChatModel').mockResolvedValue({
         chat_model: 'claude-opus-4-8',
         models: [],
+        chat_daily_token_budget: null,
+        chat_daily_token_budget_ceiling: 2000000,
+        chat_tokens_used_today: 0,
+        chat_daily_token_budget_effective: 2000000,
       });
       const { result } = renderHook(() => useChat(), { wrapper });
 

@@ -473,6 +473,22 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- The user's own daily Sidekick token cap, NULL meaning the server ceiling (V13, G2 #461).
+ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS chat_daily_token_budget INTEGER;
+
+-- Per-user daily Sidekick token usage, admitted by atomic reservation (V13, G2 #461).
+-- `owner` is the raw principal identity, the same key user_settings uses.
+CREATE TABLE IF NOT EXISTS chat_usage (
+    owner           TEXT        NOT NULL,
+    usage_day       DATE        NOT NULL,
+    turns           INTEGER     NOT NULL DEFAULT 0,
+    input_tokens    BIGINT      NOT NULL DEFAULT 0,
+    output_tokens   BIGINT      NOT NULL DEFAULT 0,
+    reserved_tokens BIGINT      NOT NULL DEFAULT 0,
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, usage_day)
+);
+
 -- Arbitrage scanner: point-in-time holdings/capital-structure snapshots for
 -- NAV vehicles (MSTR-style treasuries, closed-end funds, trusts). Curated
 -- input rather than fetched — no free API publishes a coin count or a

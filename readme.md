@@ -158,6 +158,7 @@ Create a `.env` in the repo root. It is git-ignored; never commit credentials.
 | `QUANTCORE_UNITTEST_DB_DSN` | optional: a local Postgres the unit suite prefers (see [Testing](#testing)) |
 | `QUANTCORE_SCHEMA_MODE` | optional: how startup treats the schema (below) |
 | `QUANTCORE_RATE_LIMIT_MODE`, `_PER_MIN`, `_BURST` | optional: the api's per-user request limit, `shadow` (log only, the default), `enforce` (429) or `off`. Never applies with `AUTH_DISABLED`. See [rate-limiting-g2-plan.md](docs/proposals/rate-limiting-g2-plan.md) |
+| `SIDEKICK_BUDGET_MODE`, `SIDEKICK_DAILY_TOKEN_BUDGET` | optional: the daily per-user Sidekick token budget, `shadow` (record and log only, the default), `enforce` (stop the turn) or `off`, and its system limit (default 2,000,000). Users may set a lower limit in Settings. See [rate-limiting-g2-plan.md](docs/proposals/rate-limiting-g2-plan.md) |
 | `DISCORD_WEBHOOK_URL` | where alerts are posted |
 | `BUCKET_NAME`, `BUCKET_KEY` | optional: S3 upload target for the legacy HTML report |
 | `CLOUDSQL_CONNECTION_NAME`, `CLOUDSQL_PORT`, `CLOUDSQL_QUOTA_PROJECT` | optional: Cloud SQL Auth Proxy target (and a `CLOUDSQL_TEST_*` trio for the test instance) |
@@ -264,7 +265,7 @@ none ([why it's read at runtime](docs/architecture/quantui.md)).
 | Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns, USD market caps, staleness, tags and news sentiment. Rows you hold carry a Held chip with your quantity and average price, and a Show filter narrows to them. Also hosts the technical screener, the sentiment dashboard and the options-snapshot refresh. It replaced the Securities page (#224); `/securities` redirects here |
 | Fundamentals | `/fundamentals` | Research | the tracked universe ranked by score, cut by sector, with score movement and the earnings calendar |
 | Arbitrage | `/arbitrage` | Research | scan results and per-pair factor breakdowns |
-| Settings | `/settings` | top level | your BYOK key vault and Sidekick model |
+| Settings | `/settings` | top level | your BYOK key vault, Sidekick model, and Sidekick daily budget |
 
 The drill-down pages, `/plans/:id` and `/securities/:symbol` (opened from a Watchlist row), are reached from those pages and
 never from the nav bar. A security's Technical Analysis tab ends with the stop-loss and support
@@ -452,6 +453,9 @@ Express ── per-user ES256 JWT ──► REST tier (/api/chat)
 - Users choose a chat model in Settings or from the chat header. The choices are
   `claude-sonnet-5` (the default), `claude-opus-4-8` and `claude-fable-5`, from
   `quantcore/chat_models.py`.
+- Settings also shows today's Sidekick token use against a daily budget, which a user may lower
+  below the system limit. The day runs midnight to midnight US Eastern. The budget is in shadow
+  mode for now: it is recorded and logged, but no turn is stopped.
 
 Design: [`docs/architecture/byok.md`](docs/architecture/byok.md).
 

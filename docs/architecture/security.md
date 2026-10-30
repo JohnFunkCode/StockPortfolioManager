@@ -81,7 +81,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | Watchlist removal is UI-only: the MCP seam has no `delete` verb. | `mcp_gateway/rest_client.py` | Convention |
 | The keyproxy rate-limits envelope redemption per `sub` (`SubRateLimiter` in `keyproxy/replay.py`, token bucket, `KEYPROXY_RATE_LIMIT_PER_MIN`, default 30), answering 429; a full bucket map refuses new subs (fail closed). | `tests/test_keyproxy_replay.py` (`TestSubRateLimiter`), `tests/test_keyproxy_service.py` (`test_third_redemption_in_a_minute_is_429`) | Enforced |
 | Every protected `quantcore-api` route counts against a per-principal token bucket (`api/rate_limit.py`, in-process, one bucket for all routes; `QUANTCORE_RATE_LIMIT_MODE`/`_PER_MIN`/`_BURST`). It runs after auth, so a 401 never counts, and covers the MCP wrappers too, which forward the caller's token. **Shadow mode**: a would-be refusal is logged as `SECURITY rate_limited` and the request is served; enforcing (429 + `Retry-After`) waits for limits set from the soak ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) step 3). | `tests/test_rate_limit.py` (every protected operation, via OpenAPI), `tests/test_auth_alerting.py` (`test_rate_limited_event`) | Shadow (G2) |
-| Nothing caps Sidekick turns or tokens per user, and they spend the user's own Anthropic key. The keyproxy limiter above caps redemptions per minute, not a spending budget. Chosen design, not yet implemented: a daily per-user token budget ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) step 2). | — | **Gap G2** |
+| Each Sidekick model call is admitted against a daily per-user token budget (`quantcore/services/chat_budget.py`, `chat_usage` table): an atomic conditional reservation of the call's worst case in Postgres, so concurrent turns on any instance can't jointly overshoot, reconciled with the provider's reported usage after the call. The budget is the user's own cap (Settings) under a server ceiling (`SIDEKICK_DAILY_TOKEN_BUDGET`). **Shadow mode** (`SIDEKICK_BUDGET_MODE`): a would-be refusal is logged as `SECURITY chat_budget_exhausted` and the turn runs; enforce stops the turn with a message and fails closed if the budget can't be read (`chat_budget_unavailable`). The keyproxy's per-session ceilings above still apply. | `tests/test_chat_budget.py` (modes, reserve/settle/release, ChatService loop), `tests/test_chat_usage_repository.py` (arithmetic, wrong owner, concurrent admission), `tests/test_auth_alerting.py` (`test_chat_budget_events`) | Shadow (G2) |
 
 ### A07 Authentication Failures
 
@@ -135,7 +135,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 | LLM07 System Prompt Leakage | The system prompt holds no secrets; it is in the repo. | N/A |
 | LLM08 Vector and Embedding Weaknesses | No RAG or vector store. | N/A today |
 | LLM09 Misinformation | The prompt bars numbers the model hasn't fetched and forbids outside data; refusals must name the rule. | Convention (prompt) |
-| LLM10 Unbounded Consumption | Arbitrage tool caps mirror the service's caps (tested); but there is no per-user turn or token budget. Chosen design, not yet implemented: a daily per-user Sidekick token budget, admitted by atomic reservation in Postgres ([rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md)). | Partly — see **G2** |
+| LLM10 Unbounded Consumption | Arbitrage tool caps mirror the service's caps (tested). A daily per-user Sidekick token budget, admitted by atomic reservation in Postgres, runs in shadow mode: it records and logs, but refuses nothing until step 3 of [rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md). | Partly — see **G2** |
 
 ## Gaps
 
@@ -146,8 +146,9 @@ Each gap has a backlog issue (label `security`). Close it by changing the row ab
   REST/MCP ingress (429s hurt every user) and unbounded Sidekick turns on the user's own key. The
   one limiter that exists, the keyproxy's per-`sub` redemption bucket, is Enforced (A06 row) and
   stays; it bounds envelope redemptions per minute, which is neither an ingress limit nor a
-  per-user spending budget. The api's per-principal limiter (A06 row) now exists in shadow mode,
-  logging but not refusing; what remains is the Sidekick budget and enforcing both.
+  per-user spending budget. The api's per-principal limiter and the daily Sidekick token budget
+  (A06 rows) now exist in shadow mode, recording and logging but not refusing; what remains is
+  setting the limits from the soak and enforcing both.
   Plan: [rate-limiting-g2-plan.md](../proposals/rate-limiting-g2-plan.md) (proposed; shadow mode first, then enforce).
 
 ## Reviewing a PR with this map

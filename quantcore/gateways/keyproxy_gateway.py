@@ -111,7 +111,18 @@ def _provider_error_message(data: object) -> str:
 
 
 class KeyProxyError(RuntimeError):
-    """A keyproxy interaction failed; the message is safe to show the user."""
+    """A keyproxy interaction failed; the message is safe to show the user.
+
+    ``reached_provider`` is False only when the failure is known to have
+    happened before the call reached the model provider (the session exchange,
+    or the keyproxy refusing the stream request). ChatService then releases
+    the call's token-budget reservation; any other failure may have been
+    billed, so its reservation stays charged (G2, #461).
+    """
+
+    def __init__(self, message: str, *, reached_provider: bool = True) -> None:
+        super().__init__(message)
+        self.reached_provider = reached_provider
 
 
 def _base_url() -> str:
@@ -396,7 +407,12 @@ class KeyProxyChatClient:
     # -- the protocol method ------------------------------------------------
 
     def stream_turn(self, *, system, tools, messages):
-        session_id = self._ensure_session()
+        try:
+            session_id = self._ensure_session()
+            headers = _headers(self._auth_token)
+        except KeyProxyError as exc:
+            exc.reached_provider = False  # nothing has been sent to the provider
+            raise
         body = {
             "session_id": session_id,
             "model": self._model,
@@ -411,18 +427,20 @@ class KeyProxyChatClient:
                 "POST",
                 f"{_base_url()}/v1/providers/anthropic/messages/stream",
                 json=body,
-                headers=_headers(self._auth_token),
+                headers=headers,
             ) as response:
                 if response.status_code != 200:
                     response.read()
                     # The session is unusable (expired / budget-exhausted /
-                    # killed) — a clean re-send error, never a hang.
+                    # killed) — a clean re-send error, never a hang. The
+                    # keyproxy refused before calling the provider.
                     self._session_id = None
                     _log_rejection(response.status_code)
                     raise KeyProxyError(
                         _error_message(
                             response.status_code, _response_detail(response)
-                        )
+                        ),
+                        reached_provider=False,
                     )
                 for event, data in _iter_sse(response.iter_lines()):
                     if event == "delta":

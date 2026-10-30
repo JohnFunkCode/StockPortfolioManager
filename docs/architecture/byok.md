@@ -12,6 +12,14 @@
   `quantcore-api` (never decrypted there) → **`keyproxy/`** (own FastAPI service, no DB) decrypts
   in memory, enforces scopes/budgets/replay (`scopes.py`, `sessions.py`, `replay.py`), streams
   SSE from Anthropic back through the chain.
+- **Two budgets, two jobs:** the keyproxy's session budget caps one envelope's calls and tokens,
+  and holds no state past the session. The **daily per-user token budget** (G2, #461) is
+  `quantcore-api`'s: `ChatService` reserves each model call's worst case in the `chat_usage` table
+  before calling the keyproxy and settles it with the reported usage after. A call the keyproxy
+  refused before the provider (`KeyProxyError.reached_provider is False`) is released; any other
+  failed call stays charged, since it may have been billed. Every call is made with
+  `max_tokens = MAX_OUTPUT_TOKENS` so its output can't exceed what was reserved. Design:
+  [`rate-limiting-g2-plan.md`](../proposals/rate-limiting-g2-plan.md) D3.
 - **Auth layers:** keyproxy is **IAM-locked on Cloud Run** (`--no-allow-unauthenticated`;
   `run.invoker` only for `quantcore-run@`; the api attaches a Google ID token in
   `X-Serverless-Authorization`) and runs as dedicated SA `keyproxy-runtime@` (zero project roles,

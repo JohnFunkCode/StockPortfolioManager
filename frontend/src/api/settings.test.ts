@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from './client';
-import { getSettings, putChatModel, type SettingsView } from './settings';
+import { getSettings, putChatBudget, putChatModel, type SettingsView } from './settings';
 
 const SETTINGS: SettingsView = {
   chat_model: 'claude-sonnet-5',
@@ -18,6 +18,10 @@ const SETTINGS: SettingsView = {
     { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', description: 'Heavy-lifting flagship.' },
     { id: 'claude-fable-5', name: 'Claude Fable 5', description: 'Most capable general model.' },
   ],
+  chat_daily_token_budget: null,
+  chat_daily_token_budget_ceiling: 2000000,
+  chat_tokens_used_today: 0,
+  chat_daily_token_budget_effective: 2000000,
 };
 
 /** A fresh Response per call — bodies are single-use. */
@@ -65,6 +69,17 @@ describe('settings api client', () => {
     expect(url).toBe('/api/settings');
     expect(options.method).toBe('PUT');
     expect(JSON.parse(options.body)).toEqual({ chat_model: 'claude-opus-4-8' });
+  });
+
+  it('putChatBudget sends the cap, and null to clear it', async () => {
+    fetchMock.mockImplementation(respondWith(SETTINGS));
+
+    await putChatBudget(50000);
+    await putChatBudget(null);
+
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ chat_daily_token_budget: 50000 });
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ chat_daily_token_budget: null });
+    expect(fetchMock.mock.calls[1][1].method).toBe('PUT');
   });
 
   it("surfaces FastAPI's {detail} error copy as the ApiError message", async () => {

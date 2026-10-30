@@ -48,6 +48,54 @@ class SettingsServiceTest(unittest.TestCase):
         UserSettingsRepository().set_chat_model(OWNER, "claude-2.1-retired")
         self.assertEqual(self.service.get_chat_model(OWNER), DEFAULT)
 
+    # -- daily Sidekick token budget (G2, #461) ---------------------------
+
+    def _with_ceiling(self, ceiling):
+        return SettingsService(
+            UserSettingsRepository(),
+            allowed=ALLOWED,
+            default=DEFAULT,
+            catalog=CATALOG,
+            ceiling=lambda: ceiling,
+        )
+
+    def test_effective_budget_is_the_ceiling_until_a_cap_is_set(self):
+        service = self._with_ceiling(1000)
+        self.assertEqual(service.effective_chat_budget(OWNER), 1000)
+        service.set_chat_daily_token_budget(OWNER, 400)
+        self.assertEqual(service.effective_chat_budget(OWNER), 400)
+        service.set_chat_daily_token_budget(OWNER, None)
+        self.assertEqual(service.effective_chat_budget(OWNER), 1000)
+
+    def test_a_cap_above_a_since_lowered_ceiling_resolves_to_the_ceiling(self):
+        self._with_ceiling(1000).set_chat_daily_token_budget(OWNER, 900)
+        lowered = self._with_ceiling(500)
+        self.assertEqual(lowered.effective_chat_budget(OWNER), 500)
+        view = lowered.get_settings(OWNER)
+        self.assertEqual(
+            (view.chat_daily_token_budget, view.chat_daily_token_budget_effective), (900, 500)
+        )
+
+    def test_a_cap_must_be_a_whole_number_within_the_ceiling(self):
+        service = self._with_ceiling(1000)
+        for bad in (0, -5, 1001, 2.5, True, "100"):
+            with self.subTest(bad):
+                with self.assertRaises(ValueError):
+                    service.set_chat_daily_token_budget(OWNER, bad)
+        self.assertIsNone(UserSettingsRepository().get_chat_daily_token_budget(OWNER))
+
+    def test_a_budget_only_write_keeps_the_resolved_model(self):
+        service = self._with_ceiling(1000)
+        service.set_chat_model(OWNER, "claude-fable-5")
+        service.set_chat_daily_token_budget(OWNER, 10)
+        self.assertEqual(service.get_chat_model(OWNER), "claude-fable-5")
+
+    def test_update_validates_both_before_writing_either(self):
+        service = self._with_ceiling(1000)
+        with self.assertRaises(ValueError):
+            service.update(OWNER, chat_model="claude-fable-5", chat_daily_token_budget=5000)
+        self.assertEqual(service.get_chat_model(OWNER), DEFAULT)
+
     def test_get_settings_returns_current_value_and_catalog(self):
         self.service.set_chat_model(OWNER, "claude-fable-5")
         view = self.service.get_settings(OWNER)

@@ -348,7 +348,7 @@ The rest of `scripts/` is CI and deployment plumbing (`ci_*.sh`/`.py`, `lock_dep
 
 ## Database Structure
 
-One unified **QuantCore** PostgreSQL database (**23 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
+One unified **QuantCore** PostgreSQL database (**24 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
 
 | Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|

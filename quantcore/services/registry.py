@@ -21,6 +21,7 @@ from quantcore.chat_models import CHAT_MODELS, DEFAULT_CHAT_MODEL, MODEL_IDS
 from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.arbitrage_repository import ArbitrageRepository
+from quantcore.repositories.chat_usage_repository import ChatUsageRepository
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 from quantcore.repositories.harvester_repository import HarvesterPlanDB
 from quantcore.repositories.news_repository import NewsStore
@@ -33,6 +34,7 @@ from quantcore.repositories.sentiment_repository import SentimentStore
 from quantcore.repositories.user_settings_repository import UserSettingsRepository
 from quantcore.repositories.watchlist_repository import WatchlistRepository
 from quantcore.services.arbitrage import ArbitrageService
+from quantcore.services.chat_budget import MAX_OUTPUT_TOKENS, SidekickBudget
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.chat import (
     CHAT_NOT_CONFIGURED_MESSAGE,
@@ -111,11 +113,18 @@ def get_services() -> Services:
     arbitrage_repository = ArbitrageRepository()
     owner_identity_repository = OwnerIdentityRepository()
     identity = IdentityService(owner_identity_repository=owner_identity_repository)
+    chat_usage_repository = ChatUsageRepository()
     settings = SettingsService(
         user_settings_repository,
         allowed=MODEL_IDS,
         default=DEFAULT_CHAT_MODEL,
         catalog=CHAT_MODELS,
+        usage_repo=chat_usage_repository,
+    )
+    # The daily Sidekick token budget (G2, #461). It reads each user's cap through
+    # a bound method, not the service, so ChatService never imports SettingsService.
+    chat_budget = SidekickBudget(
+        chat_usage_repository, budget_for=settings.effective_chat_budget
     )
     # PricesService is constructed first: OptionsService composes it for the
     # ATM-snapshot refresh path (acyclic — Prices never references Options).
@@ -210,6 +219,8 @@ def get_services() -> Services:
                 auth_token=context.auth_token or "",
                 model=context.model or chat_model,
                 effort=chat_effort,
+                # The cap each call's budget reservation assumes (chat_budget).
+                max_tokens=MAX_OUTPUT_TOKENS,
             )
 
     elif _truthy(os.environ.get("CHAT_ENV_KEY_FALLBACK")):
@@ -239,6 +250,7 @@ def get_services() -> Services:
         client_factory=chat_client_factory,
         settings=settings,
         allowed=MODEL_IDS,
+        budget=chat_budget,
     )
     # KEYPROXY_FAKE=1 swaps a canned in-process gateway (real keypair, real
     # envelope decrypt, no network) so /api/keyproxy routes are testable.

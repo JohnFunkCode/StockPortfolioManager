@@ -637,36 +637,42 @@ class FundamentalsService:
 
     # -- public API (one method per MCP tool / REST route) ------------------
 
-    def get_earnings_calendar(self, symbol: str, *, now: datetime | None = None) -> dict:
+    # `refresh=True` skips the cache read and appends a new snapshot. The daily
+    # warmer needs it for entries that are still inside the TTL but will expire
+    # before its alarm re-reads: a cache-first read of those is a hit, and
+    # nothing would be written (#494).
+
+    def get_earnings_calendar(self, symbol: str, *, now: datetime | None = None,
+                              refresh: bool = False) -> dict:
         sym = symbol.upper()
-        cached = self._repo.get(sym, "earnings_calendar")
+        cached = None if refresh else self._repo.get(sym, "earnings_calendar")
         if cached is not None:
             return cached
         result = self._compute_earnings_calendar(sym, now=now)
         self._repo.set(sym, "earnings_calendar", result)
         return result
 
-    def get_fundamental_score(self, symbol: str) -> dict:
+    def get_fundamental_score(self, symbol: str, *, refresh: bool = False) -> dict:
         sym = symbol.upper()
-        cached = self._repo.get(sym, "fundamental_score")
+        cached = None if refresh else self._repo.get(sym, "fundamental_score")
         if cached is not None:
             return cached
         result = self._compute_fundamental_score(sym)
         self._repo.set(sym, "fundamental_score", result)
         return result
 
-    def get_revenue_growth(self, symbol: str) -> dict:
+    def get_revenue_growth(self, symbol: str, *, refresh: bool = False) -> dict:
         sym = symbol.upper()
-        cached = self._repo.get(sym, "revenue_growth")
+        cached = None if refresh else self._repo.get(sym, "revenue_growth")
         if cached is not None:
             return cached
         result = self._compute_revenue_growth(sym)
         self._repo.set(sym, "revenue_growth", result)
         return result
 
-    def get_earnings_acceleration(self, symbol: str) -> dict:
+    def get_earnings_acceleration(self, symbol: str, *, refresh: bool = False) -> dict:
         sym = symbol.upper()
-        cached = self._repo.get(sym, "earnings_acceleration")
+        cached = None if refresh else self._repo.get(sym, "earnings_acceleration")
         if cached is not None:
             return cached
         result = self._compute_earnings_acceleration(sym)
@@ -718,13 +724,13 @@ class FundamentalsService:
         )
         return result
 
-    def get_full_fundamental_profile(self, symbol: str) -> dict:
+    def get_full_fundamental_profile(self, symbol: str, *, refresh: bool = False) -> dict:
         sym = symbol.upper()
 
-        earnings = self.get_earnings_calendar(sym)
-        score = self.get_fundamental_score(sym)
-        revenue = self.get_revenue_growth(sym)
-        eps = self.get_earnings_acceleration(sym)
+        earnings = self.get_earnings_calendar(sym, refresh=refresh)
+        score = self.get_fundamental_score(sym, refresh=refresh)
+        revenue = self.get_revenue_growth(sym, refresh=refresh)
+        eps = self.get_earnings_acceleration(sym, refresh=refresh)
 
         composite = score.get("composite_score", 0)
         trajectory = revenue.get("trajectory", "unknown")

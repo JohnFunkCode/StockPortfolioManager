@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import main
 from notifier import Notifier
+from quantcore.services.fundamentals import FundamentalsService
 
 
 class _FakeClock:
@@ -176,6 +177,151 @@ class WarmFundamentalsCacheTest(unittest.TestCase):
 
         self.fundamentals.get_full_fundamental_profile.assert_not_called()
         self.assertEqual(summary["candidates"], 0)
+
+
+    def test_a_symbol_about_to_expire_is_warmed_too(self):
+        """TTL and cadence are both 24h: a symbol warmed a few minutes later
+        last night is just inside the TTL now and would expire before the
+        alarm re-reads, firing it on a warmer that did its job (#494)."""
+        day = 86400
+        budget = 60
+        edge = day - (budget + main.WARM_LOOKAHEAD_SLACK_SECONDS)
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("OLD", day + 5, True), ("EDGE", edge + 1, False),
+             ("SAFE", edge - 1, False), ("NEW", 3600, False)],
+            ttl_seconds=day,
+        )
+
+        summary = main.warm_fundamentals_cache(
+            ["OLD", "EDGE", "SAFE", "NEW"], self.fundamentals, budget_seconds=budget
+        )
+
+        warmed = [c.args[0] for c in self.fundamentals.get_full_fundamental_profile.call_args_list]
+        self.assertEqual(warmed, ["OLD", "EDGE"])
+        self.assertEqual(summary["candidates"], 2)
+
+    def test_the_look_ahead_scales_with_the_budget(self):
+        """The pass can run for its whole budget before the alarm re-reads, so
+        a longer budget has to reach further ahead."""
+        day = 86400
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("A", day - 1000, False)], ttl_seconds=day,
+        )
+
+        short = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=60)
+        long_ = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=900)
+
+        self.assertEqual(short["candidates"], 0)
+        self.assertEqual(long_["candidates"], 1)
+
+    def test_a_zero_ttl_disables_the_look_ahead(self):
+        """A TTL of 0 means nothing expires, so nothing is about to."""
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("A", 10**9, False)], ttl_seconds=0,
+        )
+
+        summary = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=60)
+
+        self.fundamentals.get_full_fundamental_profile.assert_not_called()
+        self.assertEqual(summary["candidates"], 0)
+
+
+class NeedsWarmingTest(unittest.TestCase):
+    """The eligibility predicate on its own: stale, about to be, or neither."""
+
+    DAY = 86400
+
+    def _row(self, age, stale=False):
+        return {"symbol": "A", "age_seconds": age, "stale": stale}
+
+    def test_a_stale_row_needs_warming(self):
+        self.assertTrue(main._needs_warming(self._row(self.DAY + 1, stale=True), self.DAY, 960))
+
+    def test_a_never_fetched_row_needs_warming(self):
+        self.assertTrue(main._needs_warming(self._row(None, stale=True), self.DAY, 960))
+
+    def test_the_cutoff_is_exclusive(self):
+        edge = self.DAY - 960
+        self.assertFalse(main._needs_warming(self._row(edge), self.DAY, 960))
+        self.assertTrue(main._needs_warming(self._row(edge + 1), self.DAY, 960))
+
+    def test_a_missing_age_on_a_fresh_row_is_not_a_crash(self):
+        self.assertFalse(main._needs_warming(self._row(None), self.DAY, 960))
+
+    def test_a_zero_ttl_never_looks_ahead(self):
+        self.assertFalse(main._needs_warming(self._row(10**9), 0, 960))
+
+
+class _ClockedRepo:
+    """An in-memory FundamentalsRepository that honours the TTL against a
+    settable clock, so the real service's cache-first reads hit and miss the
+    way the Postgres-backed one does."""
+
+    def __init__(self, ttl_seconds, now):
+        self.ttl = ttl_seconds
+        self.now = now
+        self.rows = {}    # (symbol, data_type) -> (fetched_ts, payload)
+        self.writes = []
+
+    def get(self, symbol, data_type):
+        hit = self.rows.get((symbol, data_type))
+        if hit is None or self.now - hit[0] > self.ttl:
+            return None
+        return hit[1]
+
+    def set(self, symbol, data_type, payload):
+        self.rows[(symbol, data_type)] = (self.now, payload)
+        self.writes.append((symbol, data_type))
+
+    def get_all_latest(self, data_type):
+        return [{"symbol": sym, "_fetched_at_ts": ts}
+                for (sym, dt), (ts, _) in self.rows.items() if dt == data_type]
+
+    def ttl_seconds(self):
+        return self.ttl
+
+
+class WarmerRefreshesThroughTheRealServiceTest(unittest.TestCase):
+    """#494 review: the mocked tests prove which symbols are picked, not that
+    picking one writes anything. A still-fresh entry is a cache hit for the
+    service's cache-first getters, so this drives the real service."""
+
+    DATA_TYPES = ("earnings_calendar", "fundamental_score",
+                  "revenue_growth", "earnings_acceleration")
+
+    def setUp(self):
+        self.day = 86400
+        self.start = 1_800_000_000
+        self.repo = _ClockedRepo(self.day, now=self.start)
+        self.service = FundamentalsService(self.repo, MagicMock())
+        for name in ("_compute_fundamental_score", "_compute_revenue_growth",
+                     "_compute_earnings_acceleration"):
+            patch.object(self.service, name, return_value={}).start()
+        patch.object(self.service, "_compute_earnings_calendar", return_value={}).start()
+        self.addCleanup(patch.stopall)
+        clock = patch("quantcore.services.fundamentals.time.time",
+                      side_effect=lambda: self.repo.now)
+        clock.start()
+
+    def _seed(self, symbol, age):
+        for dt in self.DATA_TYPES:
+            self.repo.rows[(symbol, dt)] = (self.start - age, {})
+
+    def test_an_about_to_expire_entry_is_rewritten_and_stays_fresh(self):
+        self._seed("NEAR", self.day - 120)   # the reviewer's 86,280s case
+        self._seed("SAFE", 3600)
+
+        summary = main.warm_fundamentals_cache(["NEAR", "SAFE"], self.service,
+                                               budget_seconds=900)
+
+        self.assertEqual(summary["warmed"], 1)
+        self.assertEqual(sorted(self.repo.writes),
+                         sorted(("NEAR", dt) for dt in self.DATA_TYPES))
+        self.assertEqual(self.repo.rows[("NEAR", "fundamental_score")][0], self.start)
+
+        # Where the alarm re-read would have found it stale before the fix.
+        self.repo.now = self.start + 180
+        self.assertEqual(self.service.cache_freshness(["NEAR", "SAFE"])["coverage"], 1.0)
 
 
 class AlertIfFundamentalsStaleTest(unittest.TestCase):

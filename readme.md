@@ -633,14 +633,16 @@ issues land in the **Inbox** column of the
 scheduled Claude task comments a suggested Area, Priority and Size on each one; anyone who
 passes by sets them and moves the item to Backlog, Ready or Parked. There are no meetings or
 deadlines — people pull from the Ready view when they have time. What the priorities mean and the
-bar for Ready are in [`docs/operations/issue-triage.md`](docs/operations/issue-triage.md).
+bar for Ready are in [`docs/operations/issue-triage.md`](docs/operations/issue-triage.md); a
+step-by-step walkthrough for the team, with a comparison to the old process, is in
+[`docs/operations/team-workflow.md`](docs/operations/team-workflow.md).
 
 ## Documentation map
 
 | Where | What |
 |-------|------|
 | [`docs/architecture/`](docs/architecture/) | the detail and the *why*: [data](docs/architecture/data.md), [daily jobs](docs/architecture/daily-jobs.md), [QuantUI](docs/architecture/quantui.md), [BYOK](docs/architecture/byok.md), [Cloud Run services](docs/architecture/cloudrun-services.md), [Harvester](docs/architecture/harvester.md), [arbitrage](docs/architecture/arbitrage.md), [history](docs/architecture/history.md) |
-| [`docs/operations/`](docs/operations/) | runbooks: [team access](docs/operations/team-access.md), [prod promotion](docs/operations/prod-promotion.md), [service tokens](docs/operations/prod-jwt-tokens.md), [issue triage](docs/operations/issue-triage.md) |
+| [`docs/operations/`](docs/operations/) | runbooks: [team access](docs/operations/team-access.md), [prod promotion](docs/operations/prod-promotion.md), [service tokens](docs/operations/prod-jwt-tokens.md), [issue triage](docs/operations/issue-triage.md), [team workflow](docs/operations/team-workflow.md) |
 | [`docs/capabilities-matrix.md`](docs/capabilities-matrix.md) | which capability is reachable from REST, MCP and the UI |
 | [`docs/proposals/`](docs/proposals/) | design plans, each with a checkpoint log recorded as the work landed, including the gotchas |
 | [`CLAUDE.md`](CLAUDE.md), [`AGENTS.md`](AGENTS.md) | guidance and non-negotiable rules for AI coding agents working in this repo |

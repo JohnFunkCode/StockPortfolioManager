@@ -495,3 +495,8 @@ From the team review on PR #483 (2026-10-29):
 - **The budget's owner key is the raw principal (`TurnContext.subject`)**, the key
   `user_settings` already uses, not the canonical `owner` the portfolio tools resolve: a user
   without an `owner_identities` row still has a budget.
+- **No semicolon in a `_SCHEMA` comment** (step 2, first CI run of #491). `init_schema()` splits
+  `_SCHEMA` on `;`, so `-- cap; NULL = …` left a comment-only chunk, and psycopg2 raised
+  `can't execute an empty query` from every DB test and from `api.main`'s import. `db.py` already
+  warns about this beside V12; local runs couldn't show it because local Postgres refuses this
+  machine's agents.

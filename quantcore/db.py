@@ -473,7 +473,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- The user's own daily Sidekick token cap; NULL = the server ceiling (V13, G2 #461).
+-- The user's own daily Sidekick token cap, NULL meaning the server ceiling (V13, G2 #461).
 ALTER TABLE user_settings ADD COLUMN IF NOT EXISTS chat_daily_token_budget INTEGER;
 
 -- Per-user daily Sidekick token usage, admitted by atomic reservation (V13, G2 #461).

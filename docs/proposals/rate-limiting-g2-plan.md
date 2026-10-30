@@ -3,7 +3,7 @@
 Issue: [#461](https://github.com/JohnFunkCode/StockPortfolioManager/issues/461) · OWASP A06 /
 LLM10 · gap **G2** in [`docs/architecture/security.md`](../architecture/security.md).
 
-**Status: steps 0–2 built, both limits in shadow mode; step 3 (enforce) not started.** D1–D4 were agreed with
+**Status: steps 0–2 built and on test, both limits in shadow mode (step 2 soaking since 2026-10-30); step 3 (enforce) not started.** D1–D4 were agreed with
 John on 2026-10-29. The review's answers to Q1–Q4 are recorded under
 [Review answers](#review-answers) and folded into D4 and D8–D10. Q5 is answered too: no address, just "contact the development team".
 
@@ -461,8 +461,9 @@ From the team review on PR #483 (2026-10-29):
 | step 0 | 2026-10-29 | — | Measured (table under Step 0). Sidekick: 9 calls in 30 days, one user, busiest day ~112k tokens; too light to set a budget. Ingress: busiest source 24 req/min and 24 per 10 s, so 120/min, burst 60 stand. |
 | step 1 | 2026-10-29 | — | `api/rate_limit.py` + `enforce_rate_limit` on every protected router, shadow by default, inventory sets shadow/120/60. Gotchas below. No alert policy (D9); the metric comment lists the new event. |
 | step 1 | 2026-10-29 | #489 | Guppy review: the log-dedup map grew past the principal cap (an identity refused because the map was full still got an entry, and each overflow copied the map). Dedup now lives in each bucket, overflowed identities share one throttle, and a prune that frees nothing backs off 1 s. `CapacityBoundTests` pins it. |
-| step 2 | 2026-10-30 | — | Daily Sidekick token budget in shadow mode: `chat_usage` table (V13, plus `user_settings.chat_daily_token_budget`), `ChatUsageRepository` (atomic conditional reservation), `chat_budget.py` (modes, `TurnBudget`), `ChatService` reserves before and settles after every model call, `KeyProxyError.reached_provider`, Settings page budget section, `GET/PUT /api/settings` budget fields. Inventory sets shadow / 2,000,000. Gotchas below. |
-| step 2 review | 2026-10-30 | — | #491 review: the budget branches put `ChatService.stream_chat` at cyclomatic 47 / cognitive 90 (34 / 64 before). It is split into `_model_call` (reserve, stream, release or settle), `_stop_event`, `_run_tools`/`_run_tool`/`_show_component` and `_next_estimate`, and no unit in `chat.py` is above 10 / 15 now. Added tests: a shadow reconcile failure after a good reservation, and an enforce release failure that still shows the call's own error. |
+| step 2 | 2026-10-30 | #491 | Daily Sidekick token budget in shadow mode: `chat_usage` table (V13, plus `user_settings.chat_daily_token_budget`), `ChatUsageRepository` (atomic conditional reservation), `chat_budget.py` (modes, `TurnBudget`), `ChatService` reserves before and settles after every model call, `KeyProxyError.reached_provider`, Settings page budget section, `GET/PUT /api/settings` budget fields. Inventory sets shadow / 2,000,000. Gotchas below. |
+| step 2 review | 2026-10-30 | #491 | Guppy review: the budget branches put `ChatService.stream_chat` at cyclomatic 47 / cognitive 90 (34 / 64 before). It is split into `_model_call` (reserve, stream, release or settle), `_stop_event`, `_run_tools`/`_run_tool`/`_show_component` and `_next_estimate`, and no unit in `chat.py` is above 10 / 15 now. Added tests: a shadow reconcile failure after a good reservation, and an enforce release failure that still shows the call's own error. |
+| step 2 test | 2026-10-30 | #491 | Verified on test at `77db46c` (revision `quantcore-api-00217-gkw`). The migrate Job applied V13 (`now at version v13`), the api's startup check read `mode=auto resolved=verify tables=24 missing=0 mismatch=0 extra=0`, and the revision runs `SIDEKICK_BUDGET_MODE=shadow` / `SIDEKICK_DAILY_TOKEN_BUDGET=2000000`. `GET/PUT /api/settings`: the four budget fields came back, a 500,000 cap was saved, `{}` left it in place, `null` cleared it, and 0 and 3,000,000 were refused with 400 and the development-team message. Two real Sidekick turns from the UI left one `chat_usage` row for the ET day: 2 turns, 69,668 input and 1,082 output tokens, `reserved_tokens` 0, which means every reservation was settled. No `SECURITY chat_budget_*` line was logged. The shadow soak starts here. |
 
 ## Gotchas
 
@@ -495,7 +496,15 @@ From the team review on PR #483 (2026-10-29):
   budget alone refuses the first call or neither.
 - **The budget's owner key is the raw principal (`TurnContext.subject`)**, the key
   `user_settings` already uses, not the canonical `owner` the portfolio tools resolve: a user
-  without an `owner_identities` row still has a budget.
+  without an `owner_identities` row still has a budget. One consequence surprised the test
+  verification: the same person can hold **several budgets**, one per principal. A QuantUI login
+  records usage under the login's email principal, so a JWT minted with `--sub john` (the MCP
+  token path) read 0 used while the UI turns were counted. That is correct, not a missed write:
+  the `--sub john` principal had made no Sidekick call, so it had no `chat_usage` row, and `used()`
+  reads a missing row as 0. Only Sidekick model calls create rows, and MCP clients spend their own
+  model budget, so ordinary MCP traffic never appears in this table. A person's usage is split
+  across two rows only if they make Sidekick turns under two principals; step 3, which reads the
+  soak data per principal, should treat that as the exception, not the rule.
 - **No semicolon in a `_SCHEMA` comment** (step 2, first CI run of #491). `init_schema()` splits
   `_SCHEMA` on `;`, so `-- cap; NULL = …` left a comment-only chunk, and psycopg2 raised
   `can't execute an empty query` from every DB test and from `api.main`'s import. `db.py` already

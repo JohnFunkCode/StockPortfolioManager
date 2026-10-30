@@ -462,6 +462,7 @@ From the team review on PR #483 (2026-10-29):
 | step 1 | 2026-10-29 | — | `api/rate_limit.py` + `enforce_rate_limit` on every protected router, shadow by default, inventory sets shadow/120/60. Gotchas below. No alert policy (D9); the metric comment lists the new event. |
 | step 1 | 2026-10-29 | #489 | Guppy review: the log-dedup map grew past the principal cap (an identity refused because the map was full still got an entry, and each overflow copied the map). Dedup now lives in each bucket, overflowed identities share one throttle, and a prune that frees nothing backs off 1 s. `CapacityBoundTests` pins it. |
 | step 2 | 2026-10-30 | — | Daily Sidekick token budget in shadow mode: `chat_usage` table (V13, plus `user_settings.chat_daily_token_budget`), `ChatUsageRepository` (atomic conditional reservation), `chat_budget.py` (modes, `TurnBudget`), `ChatService` reserves before and settles after every model call, `KeyProxyError.reached_provider`, Settings page budget section, `GET/PUT /api/settings` budget fields. Inventory sets shadow / 2,000,000. Gotchas below. |
+| step 2 review | 2026-10-30 | — | #491 review: the budget branches put `ChatService.stream_chat` at cyclomatic 47 / cognitive 90 (34 / 64 before). It is split into `_model_call` (reserve, stream, release or settle), `_stop_event`, `_run_tools`/`_run_tool`/`_show_component` and `_next_estimate`, and no unit in `chat.py` is above 10 / 15 now. Added tests: a shadow reconcile failure after a good reservation, and an enforce release failure that still shows the call's own error. |
 
 ## Gotchas
 

@@ -290,6 +290,21 @@ class ShadowTurnBudgetTests(ModeEnv):
         self.assertEqual(len(logs.output), 1)
         self.assertIn("mode=shadow stage=reserve error=RuntimeError", logs.output[0])
 
+    def test_a_reconcile_failure_after_a_good_reservation_is_logged_not_raised(self):
+        repo = FakeUsageRepo()
+        repo.fail.add("reconcile")
+        turn = _budget(repo).start_turn(OWNER)
+        r = turn.reserve(10)
+        self.assertTrue(r.tracked)
+        with self.assertLogs("quantcore.security", "WARNING") as logs:
+            turn.settle(r, (1, 1))
+            turn.release(r)
+        self.assertEqual(len(logs.output), 2)
+        for line in logs.output:
+            self.assertIn("mode=shadow stage=reconcile error=RuntimeError", line)
+        # The reservation stays charged until the day rolls over.
+        self.assertEqual(repo.used(owner=OWNER, usage_day=DAY), 10)
+
 
 class OffTurnBudgetTests(ModeEnv):
     mode = "off"
@@ -445,6 +460,15 @@ class EnforceChatServiceTests(ChatServiceBudgetBase):
             self.run_turn(service)
         self.assertGreater(self.repo.used(owner=OWNER, usage_day=DAY), MAX_OUTPUT_TOKENS)
 
+    def test_a_failed_release_still_shows_the_calls_own_error(self):
+        refused = KeyProxyError("keyproxy said no", reached_provider=False)
+        service = self.make([refused])
+        self.repo.fail.add("reconcile")
+        with self.assertLogs(level="WARNING") as logs:
+            events = self.run_turn(service)
+        self.assertEqual([e.message for e in events], ["keyproxy said no"])
+        self.assertTrue(any("stage=reconcile" in line for line in logs.output))
+
     def test_the_local_principal_is_never_budgeted(self):
         service = self.make(list(TOOL_THEN_TEXT), budget=1)
         events = self.run_turn(service, TurnContext(subject="local", is_local=True))
@@ -462,6 +486,18 @@ class ShadowChatServiceTests(ChatServiceBudgetBase):
         self.assertIsInstance(events[-1], Done)
         self.assertEqual(self.client.calls, 2)
         self.assertEqual(len(logs.output), 1)  # once per turn, not per call
+
+    def test_a_reconcile_failure_alone_never_stops_a_turn(self):
+        service = self.make(list(TOOL_THEN_TEXT))
+        self.repo.fail.add("reconcile")
+        with self.assertLogs("quantcore.security", "WARNING") as logs:
+            events = self.run_turn(service)
+        self.assertIsInstance(events[-1], Done)
+        self.assertEqual(self.client.calls, 2)
+        self.assertEqual([c[0] for c in self.repo.calls], ["reserve", "reconcile"] * 2)
+        self.assertEqual(len(logs.output), 2)
+        for line in logs.output:
+            self.assertIn("mode=shadow stage=reconcile error=RuntimeError", line)
 
     def test_db_failures_never_stop_a_turn(self):
         service = self.make(list(TOOL_THEN_TEXT))

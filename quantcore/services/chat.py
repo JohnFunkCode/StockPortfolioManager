@@ -35,7 +35,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Callable, Iterator, Protocol
+from typing import Callable, Generator, Iterator, Protocol
 
 from quantcore.error_text import safe_error_text
 from quantcore.services.chat_budget import (
@@ -421,6 +421,55 @@ def _tool_result(tool_use_id: str, payload, is_error: bool = False) -> dict:
     return block
 
 
+def _first_invalid_interaction(interactions: list[dict]) -> str | None:
+    """The first interaction's rejection reason, or ``None`` if all are valid."""
+    for it in interactions:
+        ok, reason = validate_interaction(it)
+        if not ok:
+            return reason
+    return None
+
+
+def _tool_uses(final) -> list:
+    if final is None:
+        return []
+    return [b for b in final.content if getattr(b, "type", None) == "tool_use"]
+
+
+@dataclass(frozen=True)
+class _CallOutcome:
+    """What one budgeted model call left behind (see ``ChatService._model_call``)."""
+
+    final: object | None
+    usage: tuple[int, int] | None
+    budget_lost: bool  # enforce mode couldn't record this call's usage
+
+
+def _release_if_unsent(turn_budget, reservation, exc: Exception) -> None:
+    """Hand back a failed call's reservation, if the call never reached the provider.
+
+    A call that may have reached the provider stays charged; only one the
+    keyproxy refused before it (it says so) is released.
+    """
+    if reservation is None or getattr(exc, "reached_provider", True) is not False:
+        return
+    try:
+        turn_budget.release(reservation)
+    except BudgetUnavailable:
+        pass  # logged; the call's own error is the one to show
+
+
+def _settle(turn_budget, reservation, usage) -> bool:
+    """Settle a finished call. False when enforce mode couldn't record it (D8)."""
+    if reservation is None:
+        return True
+    try:
+        turn_budget.settle(reservation, usage)
+    except BudgetUnavailable:
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # The service
 # ---------------------------------------------------------------------------
@@ -642,6 +691,11 @@ class ChatService:
                 return stored
         return self._model
 
+    def _with_model(self, context: TurnContext) -> TurnContext:
+        if not self._allowed:
+            return context
+        return dataclasses.replace(context, model=self._resolve_model(context))
+
     @staticmethod
     def _first_call_estimate(convo: list[dict]) -> int:
         """A turn's first call, worst case: everything sent, plus the output cap.
@@ -655,6 +709,180 @@ class ChatService:
         )
         return estimate_tokens(chars) + MAX_OUTPUT_TOKENS
 
+    def _turn_budget(self, context: TurnContext):
+        """This turn's budget, or ``None`` when nothing is budgeted (G2 plan D3).
+
+        The local principal is never budgeted: it is a developer's own machine.
+        """
+        if self._budget is None or context.is_local:
+            return None
+        return self._budget.start_turn(context.subject)
+
+    def _model_call(
+        self, client, convo: list[dict], turn_budget, estimate: int
+    ) -> Generator[ChatEvent, None, _CallOutcome]:
+        """One budgeted model call: reserve its worst case, stream it, settle it.
+
+        Every model call is admitted by an atomic reservation and settled after
+        it reports usage (G2 plan D3). Raises BudgetExhausted/BudgetUnavailable
+        from the reservation in enforce mode, and whatever the client raises.
+        """
+        reservation = turn_budget.reserve(estimate) if turn_budget else None
+        final = None
+        try:
+            for kind, payload in client.stream_turn(
+                system=SYSTEM_PROMPT, tools=TOOL_SCHEMAS, messages=convo
+            ):
+                if kind == "delta":
+                    yield TextDelta(delta=payload)
+                elif kind == "final":
+                    final = payload
+        except Exception as exc:
+            _release_if_unsent(turn_budget, reservation, exc)
+            raise
+        usage = call_usage(final) if final is not None else None
+        return _CallOutcome(
+            final=final,
+            usage=usage,
+            budget_lost=not _settle(turn_budget, reservation, usage),
+        )
+
+    def _stop_event(
+        self, outcome: _CallOutcome, tool_uses: list, context: TurnContext
+    ) -> ChatEvent | None:
+        """The frame that ends the turn after this call, or ``None`` to run its tools."""
+        final = outcome.final
+        if final is None:
+            return ErrorEvent(message="model returned no final message")
+        if final.stop_reason == "refusal":
+            return ErrorEvent(message="The model declined this request.")
+        # Budget exhausted mid-answer. Stop here even when the turn
+        # carries tool_use blocks: a block cut off mid-stream can hold
+        # incomplete argument JSON, and echoing that assistant turn
+        # back to the provider is itself an invalid_request_error risk.
+        # A partial answer the user can see beats a turn that dies
+        # opaquely one iteration later.
+        if final.stop_reason == "max_tokens":
+            logger.warning(
+                "chat turn truncated at max_tokens model=%s pending_tools=%d",
+                context.model or self._model,
+                len(tool_uses),
+            )
+            return Done(stop_reason="max_tokens", truncated=True)
+        if not tool_uses:
+            return Done(stop_reason=str(final.stop_reason or "end_turn"))
+        if outcome.budget_lost:
+            # Enforce mode, fail closed (D8): this call's answer stands, but no
+            # further call is made without accounting.
+            return ErrorEvent(message=str(BudgetUnavailable()))
+        return None
+
+    def _show_component(self, tu, args: dict) -> Generator[ChatEvent, None, tuple[dict, bool]]:
+        component = args.get("component", "")
+        props = args.get("props")
+        ok, reason = validate_directive(component, props)
+        if not ok:
+            return _tool_result(tu.id, reason, is_error=True), False
+        yield Directive(
+            component=component,
+            props=props,
+            component_id=uuid.uuid4().hex[:12],
+        )
+        return _tool_result(tu.id, {"rendered": True}), True
+
+    def _run_tool(
+        self, tu, context: TurnContext
+    ) -> Generator[ChatEvent, None, tuple[dict, bool]]:
+        """Run one tool_use block. Returns its tool_result and whether it was clean."""
+        args = dict(tu.input or {})
+        if tu.name == "show_component":
+            return (yield from self._show_component(tu, args))
+
+        call_args = args
+        if tu.name in OWNER_SCOPED_TOOLS:
+            # The model never chooses whose holdings it reads. Drop
+            # any `owner` it invented — no schema declares one, so
+            # its presence means a hallucination, and passing it
+            # through would be a cross-user read.
+            args.pop("owner", None)
+            if context.owner is None:
+                # Fail closed on this tool alone: the rest of the
+                # turn's tools do not need an identity and keep
+                # working. Never reaches PortfolioService.
+                yield ToolStatus(tool=tu.name, args=args, state="error")
+                return _tool_result(tu.id, OWNER_UNRESOLVED_MESSAGE, is_error=True), False
+            # Resolved identity goes to the handler, not into the
+            # ToolStatus the UI renders — it is plumbing, and the
+            # user already knows whose portfolio they are asking
+            # about.
+            call_args = {**args, "owner": context.owner}
+
+        yield ToolStatus(tool=tu.name, args=args, state="running")
+        handler = self._handlers.get(tu.name)
+        if handler is None:
+            yield ToolStatus(tool=tu.name, args=args, state="error")
+            return _tool_result(tu.id, f"Unknown tool: {tu.name}", is_error=True), False
+        try:
+            out = handler(**call_args)
+        except Exception as exc:  # noqa: BLE001 — model gets to recover
+            safe_exc = safe_error_text(exc)
+            logger.warning("chat tool %s failed: %s", tu.name, safe_exc)
+            yield ToolStatus(tool=tu.name, args=args, state="error")
+            return _tool_result(tu.id, f"Error: {safe_exc}", is_error=True), False
+        yield ToolStatus(tool=tu.name, args=args, state="done")
+        # Some handlers (e.g. get_technical_signals, get_options_flow_signals)
+        # fan out internally and degrade individual sub-results rather than
+        # raising — surface those partial failures here too.
+        clean = not (isinstance(out, dict) and out.get("_errors"))
+        return _tool_result(tu.id, out), clean
+
+    def _run_tools(
+        self, tool_uses: list, context: TurnContext
+    ) -> Generator[ChatEvent, None, tuple[list[dict], list[str]]]:
+        """Run a turn's tool_use blocks in order. Returns the results and the degraded tools."""
+        results: list[dict] = []
+        degraded: list[str] = []
+        for tu in tool_uses:
+            result, clean = yield from self._run_tool(tu, context)
+            results.append(result)
+            if not clean:
+                degraded.append(tu.name)
+        return results, degraded
+
+    @staticmethod
+    def _next_estimate(
+        tool_uses: list,
+        results: list[dict],
+        degraded: list[str],
+        usage: tuple[int, int] | None,
+        estimate: int,
+    ) -> int:
+        """Log the tool turn and return the next call's worst-case reservation."""
+        # Diagnostic only: tool names are a fixed, non-sensitive enum
+        # (TOOL_SCHEMAS) and this is a byte count, not content — safe
+        # under the never-log policy. Narrows whether a provider
+        # invalid_request_error on the follow-up call correlates with
+        # multi-tool turns or with oversized tool_result payloads.
+        try:
+            results_bytes = len(json.dumps(results))
+        except (TypeError, ValueError):
+            results_bytes = -1
+        if degraded:
+            logger.warning(
+                "tool turn had degraded results tool_count=%d degraded=%s results_bytes=%d",
+                len(tool_uses), degraded, results_bytes,
+            )
+        logger.info(
+            "tool turn built tool_count=%d tools=%s results_bytes=%d",
+            len(tool_uses),
+            [tu.name for tu in tool_uses],
+            results_bytes,
+        )
+        # Next call's input is this one's input and output, plus the
+        # results; without reported usage, this call's estimate stands in.
+        base = sum(usage) if usage is not None else estimate
+        return base + estimate_tokens(max(results_bytes, 0)) + MAX_OUTPUT_TOKENS
+
     def stream_chat(
         self,
         messages: list[dict],
@@ -663,183 +891,29 @@ class ChatService:
     ) -> Iterator[ChatEvent]:
         convo = [{"role": m["role"], "content": m["content"]} for m in messages]
         if interactions:
-            for it in interactions:
-                ok, reason = validate_interaction(it)
-                if not ok:
-                    yield ErrorEvent(message=f"Invalid interaction: {reason}")
-                    return
+            invalid = _first_invalid_interaction(interactions)
+            if invalid is not None:
+                yield ErrorEvent(message=f"Invalid interaction: {invalid}")
+                return
             _fold_interactions(convo, interactions)
         try:
-            context = context or TurnContext()
-            if self._allowed:
-                context = dataclasses.replace(context, model=self._resolve_model(context))
+            context = self._with_model(context or TurnContext())
             client = self._client_factory(context)
-            # Every model call is admitted by an atomic reservation of its worst
-            # case and settled after it reports usage (G2 plan D3).
-            turn_budget = (
-                self._budget.start_turn(context.subject)
-                if self._budget is not None and not context.is_local
-                else None
-            )
+            turn_budget = self._turn_budget(context)
             estimate = self._first_call_estimate(convo)
             for _ in range(self._max_iterations):
-                reservation = turn_budget.reserve(estimate) if turn_budget else None
-                final = None
-                try:
-                    for kind, payload in client.stream_turn(
-                        system=SYSTEM_PROMPT, tools=TOOL_SCHEMAS, messages=convo
-                    ):
-                        if kind == "delta":
-                            yield TextDelta(delta=payload)
-                        elif kind == "final":
-                            final = payload
-                except Exception as exc:
-                    # A call that may have reached the provider stays charged;
-                    # only one refused before it (the keyproxy says so) is handed back.
-                    if reservation is not None and getattr(exc, "reached_provider", True) is False:
-                        try:
-                            turn_budget.release(reservation)
-                        except BudgetUnavailable:
-                            pass  # logged; the call's own error is the one to show
-                    raise
-                usage = call_usage(final) if final is not None else None
-                budget_lost = False
-                if reservation is not None:
-                    try:
-                        turn_budget.settle(reservation, usage)
-                    except BudgetUnavailable:
-                        # Enforce mode, fail closed (D8): this call's answer stands,
-                        # but no further call is made without accounting.
-                        budget_lost = True
-                if final is None:
-                    yield ErrorEvent(message="model returned no final message")
+                outcome = yield from self._model_call(client, convo, turn_budget, estimate)
+                tool_uses = _tool_uses(outcome.final)
+                stop = self._stop_event(outcome, tool_uses, context)
+                if stop is not None:
+                    yield stop
                     return
-                if final.stop_reason == "refusal":
-                    yield ErrorEvent(message="The model declined this request.")
-                    return
-
-                tool_uses = [
-                    b for b in final.content if getattr(b, "type", None) == "tool_use"
-                ]
-
-                # Budget exhausted mid-answer. Stop here even when the turn
-                # carries tool_use blocks: a block cut off mid-stream can hold
-                # incomplete argument JSON, and echoing that assistant turn
-                # back to the provider is itself an invalid_request_error risk.
-                # A partial answer the user can see beats a turn that dies
-                # opaquely one iteration later.
-                if final.stop_reason == "max_tokens":
-                    logger.warning(
-                        "chat turn truncated at max_tokens model=%s pending_tools=%d",
-                        context.model or self._model,
-                        len(tool_uses),
-                    )
-                    yield Done(stop_reason="max_tokens", truncated=True)
-                    return
-                if not tool_uses:
-                    yield Done(stop_reason=str(final.stop_reason or "end_turn"))
-                    return
-                if budget_lost:
-                    yield ErrorEvent(message=str(BudgetUnavailable()))
-                    return
-
                 # Echo assistant content back unchanged (thinking blocks included).
-                convo.append({"role": "assistant", "content": final.content})
-                results = []
-                degraded: list[str] = []
-                for tu in tool_uses:
-                    args = dict(tu.input or {})
-                    if tu.name == "show_component":
-                        component = args.get("component", "")
-                        props = args.get("props")
-                        ok, reason = validate_directive(component, props)
-                        if ok:
-                            yield Directive(
-                                component=component,
-                                props=props,
-                                component_id=uuid.uuid4().hex[:12],
-                            )
-                            results.append(_tool_result(tu.id, {"rendered": True}))
-                        else:
-                            results.append(_tool_result(tu.id, reason, is_error=True))
-                            degraded.append(tu.name)
-                        continue
-
-                    call_args = args
-                    if tu.name in OWNER_SCOPED_TOOLS:
-                        # The model never chooses whose holdings it reads. Drop
-                        # any `owner` it invented — no schema declares one, so
-                        # its presence means a hallucination, and passing it
-                        # through would be a cross-user read.
-                        args.pop("owner", None)
-                        if context.owner is None:
-                            # Fail closed on this tool alone: the rest of the
-                            # turn's tools do not need an identity and keep
-                            # working. Never reaches PortfolioService.
-                            yield ToolStatus(tool=tu.name, args=args, state="error")
-                            results.append(
-                                _tool_result(tu.id, OWNER_UNRESOLVED_MESSAGE, is_error=True)
-                            )
-                            degraded.append(tu.name)
-                            continue
-                        # Resolved identity goes to the handler, not into the
-                        # ToolStatus the UI renders — it is plumbing, and the
-                        # user already knows whose portfolio they are asking
-                        # about.
-                        call_args = {**args, "owner": context.owner}
-
-                    yield ToolStatus(tool=tu.name, args=args, state="running")
-                    handler = self._handlers.get(tu.name)
-                    if handler is None:
-                        yield ToolStatus(tool=tu.name, args=args, state="error")
-                        results.append(
-                            _tool_result(tu.id, f"Unknown tool: {tu.name}", is_error=True)
-                        )
-                        degraded.append(tu.name)
-                        continue
-                    try:
-                        out = handler(**call_args)
-                    except Exception as exc:  # noqa: BLE001 — model gets to recover
-                        safe_exc = safe_error_text(exc)
-                        logger.warning("chat tool %s failed: %s", tu.name, safe_exc)
-                        yield ToolStatus(tool=tu.name, args=args, state="error")
-                        results.append(
-                            _tool_result(tu.id, f"Error: {safe_exc}", is_error=True)
-                        )
-                        degraded.append(tu.name)
-                        continue
-                    yield ToolStatus(tool=tu.name, args=args, state="done")
-                    results.append(_tool_result(tu.id, out))
-                    # Some handlers (e.g. get_technical_signals, get_options_flow_signals)
-                    # fan out internally and degrade individual sub-results rather than
-                    # raising — surface those partial failures here too.
-                    if isinstance(out, dict) and out.get("_errors"):
-                        degraded.append(tu.name)
-
+                convo.append({"role": "assistant", "content": outcome.final.content})
+                results, degraded = yield from self._run_tools(tool_uses, context)
                 convo.append({"role": "user", "content": results})
-                # Diagnostic only: tool names are a fixed, non-sensitive enum
-                # (TOOL_SCHEMAS) and this is a byte count, not content — safe
-                # under the never-log policy. Narrows whether a provider
-                # invalid_request_error on the follow-up call correlates with
-                # multi-tool turns or with oversized tool_result payloads.
-                try:
-                    results_bytes = len(json.dumps(results))
-                except (TypeError, ValueError):
-                    results_bytes = -1
-                # Next call's input is this one's input and output, plus the
-                # results; without reported usage, this call's estimate stands in.
-                base = sum(usage) if usage is not None else estimate
-                estimate = base + estimate_tokens(max(results_bytes, 0)) + MAX_OUTPUT_TOKENS
-                if degraded:
-                    logger.warning(
-                        "tool turn had degraded results tool_count=%d degraded=%s results_bytes=%d",
-                        len(tool_uses), degraded, results_bytes,
-                    )
-                logger.info(
-                    "tool turn built tool_count=%d tools=%s results_bytes=%d",
-                    len(tool_uses),
-                    [tu.name for tu in tool_uses],
-                    results_bytes,
+                estimate = self._next_estimate(
+                    tool_uses, results, degraded, outcome.usage, estimate
                 )
 
             yield ErrorEvent(

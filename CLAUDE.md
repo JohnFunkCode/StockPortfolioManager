@@ -397,11 +397,13 @@ by PR); flow, priority meanings and the Ready bar:
 
 ### Pull request review: one review per PR
 
-Every PR gets **exactly one** automated review: Guppy, the `pr-review` cron, run per
-[`docs/proposals/pr-review-instructions.md`](docs/proposals/pr-review-instructions.md). Guppy
-never re-reviews later pushes. That is deliberate (2026-10-29): this is a free-time project, and
-one review is enough. Don't add re-review gates, review-status checks or second review passes.
-Make the one review count instead:
+Each PR needs **one** automated review before it merges: Guppy, the `pr-review` cron, run per
+[`docs/proposals/pr-review-instructions.md`](docs/proposals/pr-review-instructions.md). That
+procedure dedupes by head commit, so a later run *may* review a newer head. A second review is a
+bonus, though, not a requirement. In practice a PR often merges before the cron runs again.
+Treating one review as enough is a team decision (2026-10-29): this is a free-time project.
+Don't wait for a re-review, and don't add re-review gates, review-status checks or second
+review passes. Make the one review count instead:
 
 - **Open the PR when it's complete,** not as a draft to keep pushing to. Guppy reviews whatever
   is there when it looks.

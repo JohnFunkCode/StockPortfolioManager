@@ -510,6 +510,18 @@ def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     return True
 
 
+def _needs_warming(row, ttl_seconds, horizon_seconds) -> bool:
+    """Stale now, or will be within ``horizon_seconds`` (#494).
+
+    A TTL of 0 disables expiry, so nothing is about to expire; a row with no
+    age has never been fetched and is already ``stale``.
+    """
+    if row["stale"]:
+        return True
+    age = row["age_seconds"]
+    return ttl_seconds > 0 and age is not None and age > ttl_seconds - horizon_seconds
+
+
 def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
                             clock=time.monotonic) -> dict:
     """Refresh the fundamentals cache oldest-first until the budget runs out.
@@ -540,14 +552,10 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
     budget = _warm_budget_seconds(budget_seconds)
 
     before = fundamentals.cache_freshness(symbols)
-    # A TTL of 0 disables expiry, so there is nothing to look ahead to.
     ttl = before.get("ttl_seconds") or 0
-    expires_within = ttl - (budget + WARM_LOOKAHEAD_SLACK_SECONDS)
-    candidates = [
-        row["symbol"] for row in before["symbols"]
-        if row["stale"] or (ttl > 0 and row["age_seconds"] is not None
-                            and row["age_seconds"] > expires_within)
-    ]
+    horizon = budget + WARM_LOOKAHEAD_SLACK_SECONDS
+    candidates = [row["symbol"] for row in before["symbols"]
+                  if _needs_warming(row, ttl, horizon)]
 
     print(f"Warming fundamentals for {len(candidates)} stale or expiring of "
           f"{before['requested']} symbol(s), budget {budget:.0f}s "
@@ -563,7 +571,9 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
             break
         attempted += 1
         try:
-            fundamentals.get_full_fundamental_profile(sym)
+            # refresh=True: an about-to-expire entry is still a cache hit, and
+            # a cache-first read would write nothing (#494).
+            fundamentals.get_full_fundamental_profile(sym, refresh=True)
             warmed += 1
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the pass
             failed += 1

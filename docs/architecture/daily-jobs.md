@@ -31,7 +31,9 @@ fundamentals warming. The three steps that carry the weight:
    **or will cross it before the pass and its alarm re-read finish** (age > TTL − budget − 300 s,
    `WARM_LOOKAHEAD_SLACK_SECONDS`). The 24h TTL equals the nightly cadence, so without that
    look-ahead a symbol warmed a few minutes later the night before was skipped as fresh, expired
-   mid-pass, and fired the alarm on a warmer with zero failures (#494). Ordering comes from
+   mid-pass, and fired the alarm on a warmer with zero failures (#494). The warmer calls
+   `get_full_fundamental_profile(sym, refresh=True)`, which skips the cache read: an
+   about-to-expire entry is still a cache hit, so a cache-first call would write nothing. Ordering comes from
    `FundamentalsService.cache_freshness()`; the pass is wrapped in an outer `try/except` that
    never raises, so a warmer failure cannot retroactively fail a run whose notifications already
    went out. That silence is then made loud by `alert_if_fundamentals_stale()`, which re-reads

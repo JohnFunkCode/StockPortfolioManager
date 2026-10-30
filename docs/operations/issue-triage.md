@@ -8,6 +8,9 @@ ranked, and then either made ready to build or deliberately parked.
 flow runs on two things. People pull work when they have time, and an automated routine nudges
 but never decides.
 
+New to the process? [`team-workflow.md`](team-workflow.md) walks through it step by step and
+compares it with how we worked before.
+
 The work lives on the **StockPortfolioManager** project board
 (`https://github.com/users/JohnFunkCode/projects/4`). Its fields are `Status`, `Priority`, `Size`
 and `Area`, plus parent/sub-issues.

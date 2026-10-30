@@ -69,6 +69,9 @@ DEFAULT_CAPTURE_NO_OPTIONS_CEILING = 0.25  # alarm when more of the universe lis
 
 DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
 WARM_DEADLINE_MARGIN_SECONDS = 60.0
+# How far past the warm budget the post-warm alarm's re-read can land: the last
+# symbol's fetch overruns the budget check, then cache_freshness runs (#494).
+WARM_LOOKAHEAD_SLACK_SECONDS = 300.0
 DEFAULT_WARM_BUDGET_SECONDS = 900.0   # 15 minutes, below the 30-minute task limit
 DEFAULT_STALE_COVERAGE_FLOOR = 0.80   # alarm below 80% of symbols inside the TTL
 NEWS_STALE_MAX_AGE_HOURS_ENV = "NEWS_STALE_MAX_AGE_HOURS"
@@ -520,9 +523,14 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
     Oldest-first ordering plus a wall-clock budget converges the whole universe
     over a few nights while keeping any single night's cost predictable.
 
-    Only symbols outside the TTL are candidates. ``get_full_fundamental_profile``
-    writes all four data types in one pass, so they age together and
-    ``fundamental_score`` freshness stands in for the set.
+    Candidates are the symbols outside the TTL *or about to leave it*: anything
+    that would cross the TTL before the pass and its alarm re-read finish
+    (budget plus ``WARM_LOOKAHEAD_SLACK_SECONDS``). The TTL and the nightly
+    cadence are both 24h, so without the look-ahead a symbol warmed last night
+    a few minutes later than tonight's start is skipped as fresh, expires while
+    the pass runs, and the alarm fires on a warmer that did its job (#494).
+    ``get_full_fundamental_profile`` writes all four data types in one pass, so
+    they age together and ``fundamental_score`` freshness stands in for the set.
 
     One bad symbol degrades one row: the per-symbol ``try/except`` here is the
     inner guard, and ``run_fundamentals_warming`` is the outer one.
@@ -532,9 +540,16 @@ def warm_fundamentals_cache(symbols, fundamentals, budget_seconds=None,
     budget = _warm_budget_seconds(budget_seconds)
 
     before = fundamentals.cache_freshness(symbols)
-    candidates = [row["symbol"] for row in before["symbols"] if row["stale"]]
+    # A TTL of 0 disables expiry, so there is nothing to look ahead to.
+    ttl = before.get("ttl_seconds") or 0
+    expires_within = ttl - (budget + WARM_LOOKAHEAD_SLACK_SECONDS)
+    candidates = [
+        row["symbol"] for row in before["symbols"]
+        if row["stale"] or (ttl > 0 and row["age_seconds"] is not None
+                            and row["age_seconds"] > expires_within)
+    ]
 
-    print(f"Warming fundamentals for {len(candidates)} stale of "
+    print(f"Warming fundamentals for {len(candidates)} stale or expiring of "
           f"{before['requested']} symbol(s), budget {budget:.0f}s "
           f"(coverage {before['coverage']:.0%})...")
 

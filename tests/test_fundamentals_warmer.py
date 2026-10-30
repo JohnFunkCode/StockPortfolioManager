@@ -178,6 +178,53 @@ class WarmFundamentalsCacheTest(unittest.TestCase):
         self.assertEqual(summary["candidates"], 0)
 
 
+    def test_a_symbol_about_to_expire_is_warmed_too(self):
+        """TTL and cadence are both 24h: a symbol warmed a few minutes later
+        last night is just inside the TTL now and would expire before the
+        alarm re-reads, firing it on a warmer that did its job (#494)."""
+        day = 86400
+        budget = 60
+        edge = day - (budget + main.WARM_LOOKAHEAD_SLACK_SECONDS)
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("OLD", day + 5, True), ("EDGE", edge + 1, False),
+             ("SAFE", edge - 1, False), ("NEW", 3600, False)],
+            ttl_seconds=day,
+        )
+
+        summary = main.warm_fundamentals_cache(
+            ["OLD", "EDGE", "SAFE", "NEW"], self.fundamentals, budget_seconds=budget
+        )
+
+        warmed = [c.args[0] for c in self.fundamentals.get_full_fundamental_profile.call_args_list]
+        self.assertEqual(warmed, ["OLD", "EDGE"])
+        self.assertEqual(summary["candidates"], 2)
+
+    def test_the_look_ahead_scales_with_the_budget(self):
+        """The pass can run for its whole budget before the alarm re-reads, so
+        a longer budget has to reach further ahead."""
+        day = 86400
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("A", day - 1000, False)], ttl_seconds=day,
+        )
+
+        short = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=60)
+        long_ = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=900)
+
+        self.assertEqual(short["candidates"], 0)
+        self.assertEqual(long_["candidates"], 1)
+
+    def test_a_zero_ttl_disables_the_look_ahead(self):
+        """A TTL of 0 means nothing expires, so nothing is about to."""
+        self.fundamentals.cache_freshness.return_value = _freshness(
+            [("A", 10**9, False)], ttl_seconds=0,
+        )
+
+        summary = main.warm_fundamentals_cache(["A"], self.fundamentals, budget_seconds=60)
+
+        self.fundamentals.get_full_fundamental_profile.assert_not_called()
+        self.assertEqual(summary["candidates"], 0)
+
+
 class AlertIfFundamentalsStaleTest(unittest.TestCase):
     def setUp(self):
         self.notifier = MagicMock()

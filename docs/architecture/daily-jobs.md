@@ -27,7 +27,11 @@ fundamentals warming. The three steps that carry the weight:
 3. **Fundamentals warming** (last, deliberately — #373) — `run_fundamentals_warming(capture_symbols, …)` refreshes the
    fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
    budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;
-   the universe converges over a few nights. Ordering comes from
+   the universe converges over a few nights. A symbol is a candidate when it is outside the TTL
+   **or will cross it before the pass and its alarm re-read finish** (age > TTL − budget − 300 s,
+   `WARM_LOOKAHEAD_SLACK_SECONDS`). The 24h TTL equals the nightly cadence, so without that
+   look-ahead a symbol warmed a few minutes later the night before was skipped as fresh, expired
+   mid-pass, and fired the alarm on a warmer with zero failures (#494). Ordering comes from
    `FundamentalsService.cache_freshness()`; the pass is wrapped in an outer `try/except` that
    never raises, so a warmer failure cannot retroactively fail a run whose notifications already
    went out. That silence is then made loud by `alert_if_fundamentals_stale()`, which re-reads

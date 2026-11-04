@@ -11,8 +11,13 @@ import ConfirmDialog from '../common/ConfirmDialog';
 import CloseLotDialog from './CloseLotDialog';
 import EditLotNoteDialog from './EditLotNoteDialog';
 import { useDeleteLot, useUpdateLot } from '../../hooks/usePortfolio';
-import { formatCurrency, formatDollarsPerDay, formatPercentRaw, formatShares } from '../../utils/formatting';
+import { formatCurrency, formatDate, formatDollarsPerDay, formatPercentRaw, formatShares } from '../../utils/formatting';
 import type { Lot } from '../../api/portfolioTypes';
+
+/** The `YYYY-MM-DD` a date input needs; null/blank stays blank. */
+function dateInputValue(value: string | null | undefined): string {
+  return value ? value.slice(0, 10) : '';
+}
 
 function gainColor(value: number | null): string | undefined {
   if (value == null) return undefined;
@@ -23,6 +28,7 @@ export default function LotRow({ lot }: { lot: Lot }) {
   const [editing, setEditing] = useState(false);
   const [purchasePrice, setPurchasePrice] = useState(String(lot.purchase_price ?? ''));
   const [quantity, setQuantity] = useState(String(lot.quantity ?? ''));
+  const [tradeDate, setTradeDate] = useState(dateInputValue(lot.trade_date));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [closing, setClosing] = useState(false);
   const [editingNote, setEditingNote] = useState(false);
@@ -33,6 +39,7 @@ export default function LotRow({ lot }: { lot: Lot }) {
   const startEdit = () => {
     setPurchasePrice(String(lot.purchase_price ?? ''));
     setQuantity(String(lot.quantity ?? ''));
+    setTradeDate(dateInputValue(lot.trade_date));
     setEditing(true);
   };
 
@@ -43,6 +50,9 @@ export default function LotRow({ lot }: { lot: Lot }) {
         data: {
           purchase_price: purchasePrice ? parseFloat(purchasePrice) : undefined,
           quantity: quantity ? parseFloat(quantity) : undefined,
+          // Only sent when changed, so saving a price edit never rewrites the date.
+          trade_date:
+            tradeDate && tradeDate !== dateInputValue(lot.trade_date) ? tradeDate : undefined,
         },
       },
       { onSuccess: () => setEditing(false) },
@@ -66,6 +76,22 @@ export default function LotRow({ lot }: { lot: Lot }) {
                 <NotesIcon fontSize="small" color="action" />
               </Box>
             </Tooltip>
+          )}
+        </TableCell>
+        <TableCell>
+          {editing ? (
+            <TextField
+              size="small"
+              type="date"
+              value={tradeDate}
+              onChange={(e) => setTradeDate(e.target.value)}
+              inputProps={{ 'aria-label': 'Trade date' }}
+              sx={{ width: 150 }}
+            />
+          ) : lot.trade_date ? (
+            formatDate(lot.trade_date)
+          ) : (
+            '—'
           )}
         </TableCell>
         <TableCell>
@@ -147,7 +173,7 @@ export default function LotRow({ lot }: { lot: Lot }) {
 
       {updateLot.isError && editing && (
         <TableRow>
-          <TableCell colSpan={8}>
+          <TableCell colSpan={9}>
             <Typography variant="caption" sx={{ color: '#ef4444' }}>
               {(updateLot.error as Error).message}
             </Typography>

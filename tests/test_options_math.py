@@ -6,6 +6,7 @@ api/app.py and options_contract_tools.py). No I/O, no network — synthetic inpu
 with exact expected values.
 """
 
+import datetime
 import math
 import unittest
 
@@ -307,3 +308,71 @@ class TestVerticalSpreadCurves(unittest.TestCase):
 
     def test_default_risk_free_rate_constant(self):
         self.assertAlmostEqual(om.RISK_FREE_RATE, 0.045)
+
+
+class TestIvTrustSummary(unittest.TestCase):
+    """#424 follow-up: the share of gamma exposure resting on untrusted IV."""
+
+    TODAY = datetime.date(2026, 11, 3)
+    EXP = "2026-12-03"   # 30 days out
+
+    def _row(self, strike, oi, iv, quoted=True):
+        return {"strike": strike, "open_interest": oi, "iv": iv, "quoted": quoted}
+
+    def _summary(self, calls=(), puts=(), price=100.0):
+        return om.iv_trust_summary([(self.EXP, list(calls), list(puts))],
+                                   price, self.TODAY, 0.045)
+
+    def test_a_healthy_quoted_chain_has_no_untrusted_share(self):
+        s = self._summary(calls=[self._row(100, 500, 0.40), self._row(110, 200, 0.45)],
+                          puts=[self._row(90, 300, 0.50)])
+        self.assertEqual((s["contracts"], s["fallback"], s["no_quote"], s["open_interest"]),
+                         (3, 0, 0, 1000))
+        self.assertEqual(s["untrusted_gamma_share"], 0.0)
+
+    def test_missing_iv_is_weighted_at_the_30pct_fallback(self):
+        # Same strike and OI: one contract on the fallback, one quoted at
+        # exactly 30%, so their gamma weights match and the share is half.
+        s = self._summary(calls=[self._row(100, 400, 0.0)],
+                          puts=[self._row(100, 400, om.IV_FALLBACK)])
+        self.assertEqual(s["fallback"], 1)
+        self.assertAlmostEqual(s["untrusted_gamma_share"], 0.5, places=9)
+
+    def test_weighting_by_gamma_not_by_count(self):
+        # 9 of 10 contracts fall back, but they sit far from spot with tiny OI;
+        # the one near-spot contract carries almost all the gamma.
+        far = [self._row(200 + i, 5, 0.0) for i in range(9)]
+        s = self._summary(calls=far + [self._row(100, 1000, 0.40)])
+        self.assertEqual((s["contracts"], s["fallback"]), (10, 9))
+        self.assertLess(s["untrusted_gamma_share"], 0.01)
+
+    def test_a_near_spot_fallback_dominates(self):
+        s = self._summary(calls=[self._row(100, 1000, 0.0), self._row(140, 50, 0.40)])
+        self.assertGreater(s["untrusted_gamma_share"], 0.9)
+
+    def test_an_unquoted_contract_is_untrusted_even_with_an_iv(self):
+        # Dead chains report IVs like 25.0% with no bid or ask: a solver
+        # artefact, not a market reading.
+        s = self._summary(calls=[self._row(100, 300, 0.25, quoted=False)])
+        self.assertEqual((s["fallback"], s["no_quote"]), (0, 1))
+        self.assertEqual(s["untrusted_gamma_share"], 1.0)
+
+    def test_unknown_quote_status_is_not_counted(self):
+        s = self._summary(calls=[self._row(100, 300, 0.25, quoted=None)])
+        self.assertEqual(s["no_quote"], 0)
+        self.assertEqual(s["untrusted_gamma_share"], 0.0)
+
+    def test_a_low_but_quoted_iv_is_trusted(self):
+        # A stock pinned by a pending cash buyout can have a real ~3% IV.
+        s = self._summary(calls=[self._row(15, 15000, 0.031)], price=14.92)
+        self.assertEqual(s["untrusted_gamma_share"], 0.0)
+
+    def test_skips_what_the_gex_math_skips(self):
+        s = self._summary(calls=[self._row(0, 100, 0.0), self._row(100, 0, 0.0),
+                                 self._row(100, 10, 0.40)])
+        self.assertEqual((s["contracts"], s["fallback"], s["open_interest"]), (1, 0, 10))
+
+    def test_an_empty_chain_reports_zero(self):
+        self.assertEqual(om.iv_trust_summary([], 100.0, self.TODAY, 0.045),
+                         {"contracts": 0, "fallback": 0, "no_quote": 0,
+                          "open_interest": 0, "untrusted_gamma_share": 0.0})

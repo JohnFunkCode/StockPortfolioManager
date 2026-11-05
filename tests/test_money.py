@@ -41,11 +41,29 @@ class TestMoney(unittest.TestCase):
         self.assertEqual(converted.amount, Decimal("9.00"))
         self.assertEqual(converted.currency, "EUR")
 
-    def test_fetch_exchange_rate_live(self):
-        # This will call the real API and may fail if the service is down or rate-limited
-        rate = Money._fetch_exchange_rate("USD", "EUR")
-        self.assertIsInstance(rate, float)
-        self.assertGreater(rate, 0)
+    @patch("portfolio.money.requests.get")
+    def test_convert_to_from_recorded_http_response(self, get):
+        # Synthetic recorded HTTP payload, not a live quote: exercise the real
+        # rate parsing and conversion while mocking only the network boundary.
+        response = requests.Response()
+        response.status_code = 200
+        response._content = (
+            b'{"result":"success","base_code":"EUR",'
+            b'"rates":{"EUR":1,"USD":1.1,"GBP":0.85}}'
+        )
+        get.return_value = response
+        money = Money(Decimal("10.05"), "eur")
+
+        converted = money.convert_to("usd")
+
+        # 10.05 * 1.1 = 11.055, rounded half-up to two decimal places.
+        self.assertEqual(converted.amount, Decimal("11.06"))
+        self.assertEqual(converted.amount.as_tuple().exponent, -2)
+        self.assertEqual(converted.currency, "USD")
+        self.assertEqual(money.amount, Decimal("10.05"))
+        self.assertEqual(money.currency, "EUR")
+        get.assert_called_once_with("https://open.er-api.com/v6/latest/EUR",
+                                    timeout=EXCHANGE_RATE_TIMEOUT_SECONDS)
 
 
 
@@ -56,8 +74,11 @@ def _response(status=200, body=None):
 
 
 class TestFetchExchangeRate(unittest.TestCase):
-    """The URL and response handling, mocked (#348): the live test above can't see a wrong URL,
-    because the API ignores the suffix and still answers 200 with USD-based rates."""
+    """Offline URL and response handling regressions (#348).
+
+    The API ignores a wrong URL suffix and can still return USD-based rates;
+    explicit URL and base-code assertions catch that mistake deterministically.
+    """
 
     OK_EUR = {"result": "success", "base_code": "EUR", "rates": {"USD": 1.12, "EUR": 1}}
 

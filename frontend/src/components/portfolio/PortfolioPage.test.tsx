@@ -87,6 +87,7 @@ describe('PortfolioPage', () => {
     fireEvent.click(expandButtons[0]);
 
     expect(screen.getByText('Price Paid')).toBeInTheDocument();
+    expect(screen.getByText('Trade Date')).toBeInTheDocument();
     expect(screen.getAllByText('$30.00').length).toBeGreaterThanOrEqual(1);
   });
 

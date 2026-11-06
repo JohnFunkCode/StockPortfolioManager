@@ -204,13 +204,16 @@ Full narrative (status vocabulary, the backstop flag, the Plan chip):
 
 All persistence is a single **QuantCore** PostgreSQL database (24 tables, DDL in `_SCHEMA` in
 `quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
-repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`; two rules
-follow:
+repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`. Rules to
+keep:
 
 - **A price refresh may fill `adj_close`, never blank it** — `OhlcvRepository`'s upsert uses
   `COALESCE(EXCLUDED.adj_close, ohlcv.adj_close)`.
 - **A window measured in bars must be fetched in trading days** (`HarvesterService.build_plan`
   scales by `365/252`); when a gap survives anyway, raise — never substitute `close`.
+- **A re-fetch can't remove a bad bar.** Both writers upsert, so a stored row on a date Yahoo doesn't
+  return stays. Delete it by key (`scripts/repair_ohlcv_orphan_bars.py`); don't make a writer delete
+  what a fetch omits, because a gappy reply would then erase real history.
 
 **SQL values are always bound parameters** (#462). An expression interpolated into SQL must be
 code-built (a column allow-list, a placeholder list, a literal picked by a bool) and listed, with

@@ -7,6 +7,9 @@ symbol individually through the proven-correct single-symbol path
 (YFinanceGateway.fetch_history -> store_bars, ON CONFLICT DO UPDATE) and overwrites the bad
 rows in place. Re-fetching a healthy symbol is harmless (idempotent upsert).
 
+An upsert can't remove a row, so this left stolen bars on dates the real symbol
+has no bar. scripts/repair_ohlcv_orphan_bars.py removes those.
+
 Usage:
     .venv/bin/python scripts/repair_ohlcv_misalignment.py            # repair
     .venv/bin/python scripts/repair_ohlcv_misalignment.py --dry-run  # report only

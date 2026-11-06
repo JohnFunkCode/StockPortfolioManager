@@ -34,7 +34,7 @@ compared with Yahoo's chart API on 2026-11-06:
 
 | Check | Result |
 |---|---|
-| Rows Yahoo has no bar for | 83 cross-writes on 21 symbols, plus 3 rows that are not (below) |
+| Rows Yahoo has no bar for | 83 cross-writes on 21 symbols, plus 2 rows that are not (below) |
 | Each row's source | 82 match another symbol's bar on date and volume, and Yahoo confirms that symbol really has the bar. The other is TSLA's 2026-07-01 bar on 2208.HK: same OHLC, volume differs by 0.4%, so it looks like an earlier snapshot of that session |
 | Date range of the 83 rows | 2026-04-01 to 2026-07-01. The start is exactly 90 days before 06-30, which matches the 90-day fetch |
 | Dates where Yahoo does have a bar | No stored close differs from Yahoo's adjusted close by more than 8%, so the July repair worked on these |
@@ -64,7 +64,7 @@ results in a per-call context rather than module-global state.
   database. The theory predicts these rows were ingested on 2026-06-30 or 07-02, and the repair's
   dry run prints exactly that, so check it before applying.
 - **Symbols outside the watchlist.** The dry run reports identical bars across the whole table,
-  but only an upsert-surviving pair shows up that way.
+  but that only catches bars still byte-identical to another stored row.
 - **Harvester plans** built while these rows existed. Not checked.
 
 ## Why no writer change

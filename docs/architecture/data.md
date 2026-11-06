@@ -39,6 +39,13 @@ symbol and the count. If every bar is dropped, nothing is written, not even `fet
 relax the CHECK to let these through: the data is wrong, not the constraint. The harvester's
 writer (`SQL_UPSERT_DAILY_BAR`) does not filter yet.
 
+**A re-fetch can't remove a bad bar.** Both writers upsert, so a stored row on a date Yahoo no longer
+returns stays forever. The 2026-07 misalignment repair corrected every date the real symbol traded
+and left 83 stolen bars on dates it didn't, such as ASSA-B.ST's Memorial Day session on JCI and
+DELL. To remove a bad row, delete it by key, as `scripts/repair_ohlcv_orphan_bars.py` does. Don't
+make `_store_bars` delete what a fetch omits: a gappy reply would then erase real history. Why and
+the evidence: [`ohlcv-orphan-bars-repair-plan.md`](../proposals/ohlcv-orphan-bars-repair-plan.md).
+
 **The options tables store NULL, never NaN; the API answers null, never a 500.** Postgres `REAL`
 accepts NaN, and the options capture wrote it: a chain side with no contracts averages to NaN
 (pandas mean of nothing), and Yahoo's NaN bid/ask is truthy, so it slips past the usual `or 0`. Read

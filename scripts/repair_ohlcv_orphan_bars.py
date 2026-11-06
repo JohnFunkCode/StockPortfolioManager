@@ -18,7 +18,9 @@ ingested, and lists any other identical bars the manifest doesn't cover.
     python scripts/repair_ohlcv_orphan_bars.py
     python scripts/repair_ohlcv_orphan_bars.py --apply --confirm-target HOST:PORT/NAME
 
-Targets whatever QUANTCORE_DB_DSN points at. ``--apply`` needs ``--confirm-target``
+Targets whatever QUANTCORE_DB_DSN points at, read from the environment or from
+the .env beside quantcore/ when quantcore.db is imported (a worktree has none, so
+set it there). ``--apply`` needs ``--confirm-target``
 to name that database, and removes nothing unless every row still holds the
 manifest's values or is already gone.
 """
@@ -34,8 +36,6 @@ import sys
 from contextlib import closing
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -48,9 +48,12 @@ MATCH = "match"      # still holds the manifest's values: safe to remove
 GONE = "gone"        # already removed
 CHANGED = "changed"  # something rewrote it since the manifest: stop and look
 
-# `close` and `volume` are REAL (float4) and the manifest came through the API's
-# rounding, so an exact comparison would call an untouched row changed.
+# `close` and `volume` are REAL (float4), so an exact comparison would call an
+# untouched row changed. The manifest's closes also came through the API's rounding
+# to 4 decimals, which at a low price is more than the float4 noise: 19.943926 is
+# stored for a manifest 19.9439.
 _REL_TOLERANCE = 1e-6
+_CLOSE_ROUNDING = 5e-5
 
 
 def bar_ts(date_str: str) -> int:
@@ -66,7 +69,10 @@ def classify(expected: dict, stored) -> str:
     """Compare one manifest row with what the table holds now (None = no row)."""
     if stored is None:
         return GONE
-    same_close = math.isclose(float(stored["close"]), expected["close"], rel_tol=_REL_TOLERANCE)
+    same_close = math.isclose(
+        float(stored["close"]), expected["close"],
+        rel_tol=_REL_TOLERANCE, abs_tol=_CLOSE_ROUNDING,
+    )
     same_volume = math.isclose(float(stored["volume"]), expected["volume"], rel_tol=_REL_TOLERANCE)
     return MATCH if same_close and same_volume else CHANGED
 
@@ -159,7 +165,6 @@ def main() -> int:
     parser.add_argument("--confirm-target", help="host:port/name the --apply is meant for")
     args = parser.parse_args()
 
-    load_dotenv()
     target = describe_dsn()
     print(f"target: {target}  mode: {'APPLY' if args.apply else 'dry run'}")
     if args.apply and args.confirm_target != target:

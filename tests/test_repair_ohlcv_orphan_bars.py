@@ -91,6 +91,15 @@ class TestClassify(unittest.TestCase):
         stored = {"close": 341.100006, "volume": 1064447.0}
         self.assertEqual(repair.classify(self.EXPECTED, stored), repair.MATCH)
 
+    def test_the_manifests_rounding_still_matches_at_a_low_price(self):
+        # The manifest came through the API's 4-decimal rounding. Seen on prod:
+        # 19.943926 stored, 19.9439 listed, which a relative tolerance alone rejects.
+        expected = {"close": 19.9439, "volume": 4329200}
+        stored = {"close": 19.943926, "volume": 4329200.0}
+        self.assertEqual(repair.classify(expected, stored), repair.MATCH)
+        stored = {"close": 19.95, "volume": 4329200.0}
+        self.assertEqual(repair.classify(expected, stored), repair.CHANGED)
+
     def test_different_values_are_changed(self):
         self.assertEqual(
             repair.classify(self.EXPECTED, {"close": 137.59, "volume": 1064447}), repair.CHANGED

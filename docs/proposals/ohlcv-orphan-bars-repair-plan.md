@@ -52,6 +52,9 @@ the largest case: 30 of KC's bars from before CBRS's first real bar.
 - `KVUE` (495 rows) and `DOMO` (474 rows): Yahoo now returns a single bar for each, so the
   comparison says nothing about them. Their rows aren't cross-writes.
 
+**Ingest dates confirm it.** A read-only dry run against prod on 2026-11-06 found all 83 rows
+ingested on the incident dates: 40 on 2026-06-30 and 43 on 2026-07-02.
+
 **Why this looks over:** the newest cross-write is dated 2026-07-01. US symbols have no bar on the
 later NYSE holidays (07-03, 09-07), and those are the dates that would show a foreign bar landing
 on a US symbol. Two things now prevent the race: `_YF_DOWNLOAD_LOCK`, which
@@ -60,11 +63,9 @@ results in a per-call context rather than module-global state.
 
 **Not verified:**
 
-- **`ingested_at`.** The API doesn't expose it and this investigation didn't connect to the prod
-  database. The theory predicts these rows were ingested on 2026-06-30 or 07-02, and the repair's
-  dry run prints exactly that, so check it before applying.
-- **Symbols outside the watchlist.** The dry run reports identical bars across the whole table,
-  but that only catches bars still byte-identical to another stored row.
+- **Symbols outside the watchlist.** The dry run reports identical bars across the whole table and
+  found none outside the manifest, but that only catches bars still byte-identical to another
+  stored row.
 - **Harvester plans** built while these rows existed. Not checked.
 
 ## Why no writer change
@@ -113,5 +114,13 @@ correct themselves once the rows are gone.
   match.
 - **A duplicate doesn't say which side is wrong.** ASSA-B.ST and DELL hold the same row and only
   one is real. Removing every duplicate would have deleted ASSA-B.ST's real session.
-- **`close` and `volume` are `REAL`.** Compare with a tolerance. `classify` uses a relative one,
-  because a float4 read back never quite equals the rounded value in the manifest.
+- **`close` and `volume` are `REAL`, and the manifest is rounded.** The first prod dry run called 5
+  untouched rows `changed`: 19.943926 stored against 19.9439 listed is further apart than a relative
+  float4 tolerance allows. `classify` now also allows for the 4-decimal rounding.
+- **In a worktree the script targets `localhost`, not prod.** `quantcore.db` reads the `.env` beside
+  it and freezes `DB_DSN` at import, and a worktree has no `.env`. A `load_dotenv()` in the script's
+  `main()` runs too late to help. The printed `target:` line is what showed this. Set
+  `QUANTCORE_DB_DSN` in a worktree, and read that line before trusting a result.
+- **The proxy can't run inside the Claude sandbox.** It starts and reports ready, then every
+  connection dies with "server closed the connection" because it can't reach the Cloud SQL Admin API.
+  The real error is only in `cloud-sql-proxy.log`.

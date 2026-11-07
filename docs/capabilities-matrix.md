@@ -331,7 +331,7 @@ All Discord, sent by `notifier.py`; `send_notifications()` dedupes on the embed 
 | `scripts/generate_portfolio_report.py` | HTML portfolio report with charts, optional S3 upload — run by the Pi, never alongside `main.py` | Active |
 | `scripts/generate_watchlist_fundamentals_report.py` | Watchlist returns + fundamentals HTML report | Active |
 | `scripts/import_portfolio.py`, `scripts/import_watchlist.py` | Per-owner CSV → `positions`; `watchlist.yaml` → global `watchlist` (both full-sync replace) | Active |
-| `scripts/repair_watchlist_currency.py`, `scripts/backfill_news_sentiment.py`, `scripts/repair_ohlcv_misalignment.py` | Data repair / backfill | Operational utilities |
+| `scripts/repair_watchlist_currency.py`, `scripts/backfill_news_sentiment.py`, `scripts/repair_ohlcv_misalignment.py`, `scripts/repair_ohlcv_orphan_bars.py` | Data repair / backfill | Operational utilities |
 | `scripts/mint_prod_jwt.py` | Mint 90-day prod JWTs for MCP clients | Active — ops |
 | `scripts/grant_quantui_iap_access.sh` | Grant a user QuantUI (IAP role + `owner_identities` row) | Active — ops |
 | `scripts/flyway.sh`, `scripts/schema_check.py`, `scripts/check_schema_snapshot.py` | Migrations and schema-drift checks | Active — ops/CI |

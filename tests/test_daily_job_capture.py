@@ -5,8 +5,10 @@ hostage; these tests pin the other half -- that a degraded night is *visible*
 (a summary, then an alarm) and that no step can raise out of the tail.
 """
 import datetime
+import io
 import os
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import MagicMock, patch
 
 import main
@@ -188,6 +190,34 @@ class RecordGammaTest(unittest.TestCase):
                                       clock=_Clock(1.0), today=datetime.date(2026, 1, 1))
         self.assertTrue(s["budget_exhausted"])
         self.assertEqual(s["attempted"] + s["skipped"], 6)
+
+    def test_untrusted_iv_symbols_are_named_in_the_summary(self):
+        # #424 follow-up: flagged symbols are still recorded, and named.
+        o = MagicMock()
+        o.record_gex_from_snapshot.side_effect = [
+            {"gex_saved": True, "untrusted_iv_flagged": True},
+            {"gex_saved": True, "untrusted_iv_flagged": False},
+            {"gex_saved": True},            # an older result shape
+            MagicMock(),                    # anything but a dict never counts
+        ]
+        out = io.StringIO()
+        with redirect_stdout(out):
+            s = main.record_gamma_and_gex(["DEAD", "OK", "OLD", "ODD"], o,
+                                          budget_seconds=1000,
+                                          today=datetime.date.fromordinal(4 * 1000))
+        self.assertEqual(s["recorded"], 4)
+        self.assertEqual(s["untrusted_iv"], ["DEAD"])
+        self.assertIn("; untrusted IV 1: DEAD", out.getvalue())
+
+    def test_a_clean_run_prints_no_untrusted_iv_note(self):
+        o = MagicMock()
+        o.record_gex_from_snapshot.return_value = {"untrusted_iv_flagged": False}
+        out = io.StringIO()
+        with redirect_stdout(out):
+            s = main.record_gamma_and_gex(["A"], o, budget_seconds=1000,
+                                          today=datetime.date(2026, 1, 1))
+        self.assertEqual(s["untrusted_iv"], [])
+        self.assertNotIn("untrusted IV", out.getvalue())
 
 
 class CheckCaptureHealthTest(unittest.TestCase):

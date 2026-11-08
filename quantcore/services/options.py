@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 
 from quantcore.analytics.options_math import (
+    IV_FALLBACK,
     bs_charm,
     bs_d1,
     bs_delta,
@@ -37,6 +38,7 @@ from quantcore.analytics.options_math import (
     chain_side_full,
     compute_expected_move,
     compute_max_pain,
+    iv_trust_summary,
     safe_int as _safe_int,
 )
 from quantcore.analytics.market_time import market_date
@@ -54,6 +56,14 @@ logger = logging.getLogger(__name__)
 
 # Pause before refresh_options_snapshots retries a failed symbol.
 REFRESH_RETRY_PAUSE_SECONDS = 2
+
+# record_gex_from_snapshot warns when at least this share of a symbol's gamma
+# exposure rests on untrusted IV (``iv_trust_summary``). Measured on prod's
+# 2026-11-03 and 2026-11-06 captures (230 full chains each): every healthy
+# chain sat at 6.0% or below, and the same two broken ones cleared it both
+# days, a 7-contract chain (19.5%, 18.3%) and a delisted stock's dead chain
+# (100%). Under the #424 bug every chain read 100%.
+UNTRUSTED_IV_GAMMA_SHARE = 0.10
 
 
 def _refresh_symbols(portfolio: list[dict], watchlist: list[dict], source: str) -> list[str]:
@@ -87,7 +97,7 @@ def _usable_rows(rows: list[dict]):
         if K <= 0 or oi <= 0:
             continue
         iv = row["iv"]
-        yield K, oi, (iv if iv > 0 else 0.30)   # fallback 30% if IV missing
+        yield K, oi, (iv if iv > 0 else IV_FALLBACK)   # fallback 30% if IV missing
 
 
 def _frame_rows(df) -> list[dict]:
@@ -113,6 +123,38 @@ def _first_present(row: dict, *keys: str):
     return None
 
 
+def _check_iv_trust(symbol: str, price: float, chains: list,
+                    today: datetime.date, risk_free_rate: float) -> float:
+    """The share of ``chains``' gamma exposure on untrusted IV; warns once
+    when it reaches ``UNTRUSTED_IV_GAMMA_SHARE``.
+
+    The #424 bug sent every contract to the 30% fallback for eight trading
+    days and nothing said so. The warning carries counts only, never chain data.
+    """
+    trust = iv_trust_summary(chains, price, today, risk_free_rate)
+    share = trust["untrusted_gamma_share"]
+    if share >= UNTRUSTED_IV_GAMMA_SHARE:
+        logger.warning(
+            "untrusted IV ticker=%s gamma_share=%.1f%% fallback=%d no_quote=%d "
+            "contracts=%d open_interest=%d",
+            symbol, share * 100, trust["fallback"], trust["no_quote"],
+            trust["contracts"], trust["open_interest"],
+        )
+    return share
+
+
+def _quoted(contract: dict) -> bool | None:
+    """Whether a persisted contract had a quote: a positive bid or ask.
+
+    A NULL bid or ask (the capture writes NaN as NULL) counts as no quote.
+    ``None`` when the row carries neither column, so a shape without quotes
+    is unknown rather than unquoted.
+    """
+    if "bid" not in contract and "ask" not in contract:
+        return None
+    return (contract.get("bid") or 0) > 0 or (contract.get("ask") or 0) > 0
+
+
 def _snapshot_rows(contracts: list[dict], kind: str) -> list[dict]:
     """Persisted ``options_contracts`` rows as ``_usable_rows`` input.
 
@@ -124,12 +166,15 @@ def _snapshot_rows(contracts: list[dict], kind: str) -> list[dict]:
     ``implied_vol``; ``iv`` is the capture's in-memory key and is kept only as
     a fallback. Reading ``iv`` alone found nothing on real rows, so every
     contract silently took the 30% fallback in ``_usable_rows``.
+
+    ``quoted`` feeds ``iv_trust_summary`` only; the DAOI/GEX math ignores it.
     """
     return [
         {
             "strike": float(c.get("strike") or 0),
             "open_interest": _safe_int(c.get("open_interest")),
             "iv": float(_first_present(c, "implied_vol", "iv") or 0) / 100.0,
+            "quoted": _quoted(c),
         }
         for c in contracts
         if c.get("kind") == kind
@@ -1054,6 +1099,13 @@ class OptionsService:
 
         Returns ``None`` (nothing saved) when there is no full snapshot from
         today's market date; otherwise a small summary of what was saved.
+
+        The summary also carries ``untrusted_iv_share``: the share of the
+        scanned chain's gamma exposure that rests on untrusted IV (see
+        ``iv_trust_summary``). At ``UNTRUSTED_IV_GAMMA_SHARE`` or more it logs
+        one warning and sets ``untrusted_iv_flagged``. It only reports; the
+        saved rows are unchanged. The GEX scan's expirations include the
+        gamma wall's, so one measure covers both rows.
         """
         sym = symbol.upper()
         snap = self._options.get_latest_snapshot(sym)
@@ -1086,11 +1138,14 @@ class OptionsService:
             self._options.save_gamma_wall(sym, daoi)
         if gex is not None:
             self._options.save_gex_summary(sym, gex)
+        share = _check_iv_trust(sym, price, chains[:gex_expirations], today, risk_free_rate)
         return {
             "symbol": sym,
             "captured_at": snap["captured_at"],
             "gamma_wall_saved": daoi is not None,
             "gex_saved": gex is not None,
+            "untrusted_iv_share": round(share, 4),
+            "untrusted_iv_flagged": share >= UNTRUSTED_IV_GAMMA_SHARE,
         }
 
     def capture_counts(self, day: str) -> dict:

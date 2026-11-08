@@ -16,6 +16,7 @@ argument so each original caller's exact rounding is retained.
 
 from __future__ import annotations
 
+import datetime
 import math
 
 
@@ -275,6 +276,60 @@ def vertical_spread_curves(*, kind: str, long_strike: float, short_strike: float
         expiry.append(spread_payoff_at(S, **spec))
         now.append(spread_value_at(S, T=T, r=r, **spec) - float(debit))
     return {"prices": prices, "expiry": expiry, "now": now}
+
+
+# ---------------------------------------------------------------------------
+# IV trust: how much of a gamma profile rests on IV we can't trust
+# ---------------------------------------------------------------------------
+
+IV_FALLBACK = 0.30
+"""The sigma the DAOI/GEX math substitutes when a contract's IV is missing or
+zero (``_usable_rows`` in ``quantcore/services/options.py``)."""
+
+
+def iv_trust_summary(chains, price: float, today: datetime.date,
+                     risk_free_rate: float) -> dict:
+    """How much of a chain's gamma exposure rests on IV that can't be trusted.
+
+    ``chains`` is ``[(expiration, call_rows, put_rows)]`` with rows shaped like
+    ``_snapshot_rows`` output: ``strike``, ``open_interest``, ``iv`` (decimal)
+    and optionally ``quoted``. A contract is *untrusted* when its IV is missing
+    or zero, so the math used ``IV_FALLBACK``, or when it had no quote at all
+    (``quoted is False``): Yahoo's IV for an unquoted contract is 0 or a
+    solver artefact (an exact power of two), not a market reading.
+    ``quoted is None`` means unknown and is not counted.
+
+    The weight is unsigned gamma x open interest at the sigma the math really
+    used, so a far-from-spot contract with no gamma barely counts and a
+    near-spot one dominates, which is what moves the gamma wall and GEX. The
+    filter (positive strike and open interest) matches ``_usable_rows``.
+    """
+    counted = fallback = no_quote = open_interest = 0
+    total = untrusted = 0.0
+    for expiration, call_rows, put_rows in chains:
+        T = max((datetime.date.fromisoformat(expiration) - today).days / 365.0, 1 / 365.0)
+        for row in (*call_rows, *put_rows):
+            K = float(row["strike"] or 0)
+            oi = row["open_interest"]
+            if K <= 0 or oi <= 0:
+                continue
+            missing = not row["iv"] > 0
+            unquoted = row.get("quoted") is False
+            weight = bs_gamma(price, K, T, IV_FALLBACK if missing else row["iv"],
+                              risk_free_rate) * oi
+            counted += 1
+            fallback += missing
+            no_quote += unquoted
+            open_interest += oi
+            total += weight
+            untrusted += weight if (missing or unquoted) else 0.0
+    return {
+        "contracts": counted,
+        "fallback": fallback,
+        "no_quote": no_quote,
+        "open_interest": open_interest,
+        "untrusted_gamma_share": untrusted / total if total > 0 else 0.0,
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -268,7 +268,11 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
     silently understate exposure -- the missing expiration is often the
     near-dated one that carries most of the gamma. They are counted as
     ``partial_skipped`` and get no row today: a gap in the history is honest,
-    a low number is not (#378 review). Never raises.
+    a low number is not (#378 review).
+
+    ``untrusted_iv`` names the recorded symbols whose rows rest mostly on
+    untrusted IV (``record_gex_from_snapshot`` logs each one's counts). It is
+    reported, not alarmed: the rows are still written. Never raises.
     """
     budget = (_env_float(GEX_BUDGET_SECONDS_ENV, DEFAULT_GEX_BUDGET_SECONDS)
               if budget_seconds is None else budget_seconds)
@@ -283,6 +287,7 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
 
     started = clock()
     recorded = failed = attempted = no_snapshot = partial_skipped = 0
+    untrusted_iv = []
     for sym in ordered:
         if clock() - started >= budget:
             break
@@ -292,11 +297,13 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
             print(f"  {sym}: capture was partial; gamma/GEX not recorded")
             continue
         try:
-            if options.record_gex_from_snapshot(sym) is None:
+            result = options.record_gex_from_snapshot(sym)
+            if result is None:
                 no_snapshot += 1
                 print(f"  {sym}: no full snapshot from today; gamma/GEX not recorded")
             else:
                 recorded += 1
+                _note_untrusted_iv(sym, result, untrusted_iv)
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not kill the step
             failed += 1
             print(f"  {sym}: gamma/GEX record failed: {exc}")
@@ -307,13 +314,34 @@ def record_gamma_and_gex(symbols, options, budget_seconds=None,
         "failed": failed, "skipped": len(ordered) - attempted,
         "elapsed_seconds": round(clock() - started, 1), "budget_seconds": budget,
         "budget_exhausted": attempted < len(ordered),
+        "untrusted_iv": untrusted_iv,
     }
-    print(f"  recorded {recorded}, no_snapshot {no_snapshot}, "
-          f"partial_skipped {partial_skipped}, failed {failed}, "
-          f"skipped {summary['skipped']} "
-          f"in {summary['elapsed_seconds']}s"
-          + (" (budget exhausted)" if summary["budget_exhausted"] else ""))
+    print(_gex_summary_line(summary))
     return summary
+
+
+def _note_untrusted_iv(sym, result, untrusted_iv) -> None:
+    """Collect ``sym`` when its recorded rows rest mostly on untrusted IV.
+
+    ``record_gex_from_snapshot`` flags it (and logs the counts); this only
+    gathers the names for the step's summary line. Anything but a dict with
+    the flag set is ignored, so an older or partial result never counts.
+    """
+    if isinstance(result, dict) and result.get("untrusted_iv_flagged") is True:
+        untrusted_iv.append(sym)
+
+
+def _gex_summary_line(summary) -> str:
+    """The GEX step's one-line summary, naming any untrusted-IV symbols."""
+    line = (f"  recorded {summary['recorded']}, no_snapshot {summary['no_snapshot']}, "
+            f"partial_skipped {summary['partial_skipped']}, failed {summary['failed']}, "
+            f"skipped {summary['skipped']} in {summary['elapsed_seconds']}s")
+    if summary["budget_exhausted"]:
+        line += " (budget exhausted)"
+    if summary["untrusted_iv"]:
+        line += (f"; untrusted IV {len(summary['untrusted_iv'])}: "
+                 + ", ".join(summary["untrusted_iv"]))
+    return line
 
 
 def _coverage_problem(chains, optionable, no_options, floor):

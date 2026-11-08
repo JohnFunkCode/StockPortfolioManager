@@ -10,7 +10,7 @@ from unittest.mock import Mock
 import pandas as pd
 import pytz
 
-from quantcore.services.options import OptionsService, _snapshot_rows
+from quantcore.services.options import OptionsService, _quoted, _snapshot_rows
 
 EXP_NEAR = (date.today() + timedelta(days=30)).isoformat()
 EXP_FAR = (date.today() + timedelta(days=60)).isoformat()
@@ -384,6 +384,98 @@ class TestRecordGexFromSnapshot(unittest.TestCase):
         late = _ET.localize(datetime(2026, 8, 14, 23, 30))
         svc, _ = self._snap_service(_snapshot(captured_at=late.astimezone(pytz.utc).isoformat()))
         self.assertIsNotNone(svc.record_gex_from_snapshot("NVDA", now=late))
+
+
+def _quoted_snapshot(bid, ask, iv_key="implied_vol"):
+    """``_snapshot`` with a bid and ask on every contract, as the real
+    ``SELECT *`` rows carry them (NULL arrives as ``None``)."""
+    snap = _snapshot(iv_key=iv_key)
+    for exp in snap["expirations"]:
+        for c in exp["contracts"]:
+            c["bid"], c["ask"] = bid, ask
+    return snap
+
+
+class TestQuoted(unittest.TestCase):
+    """Whether a persisted contract had a quote (#424 follow-up)."""
+
+    def test_a_positive_bid_or_ask_is_a_quote(self):
+        self.assertTrue(_quoted({"bid": 1.2, "ask": 1.3}))
+        self.assertTrue(_quoted({"bid": 0.0, "ask": 0.05}))
+
+    def test_zero_or_null_on_both_sides_is_no_quote(self):
+        self.assertFalse(_quoted({"bid": 0.0, "ask": 0.0}))
+        self.assertFalse(_quoted({"bid": None, "ask": None}))
+
+    def test_a_row_without_quote_columns_is_unknown(self):
+        self.assertIsNone(_quoted({"strike": 100.0}))
+
+
+class TestRecordGexIvTrust(unittest.TestCase):
+    """#424 follow-up: the nightly record says when its rows rest on
+    untrusted IV, and changes nothing it saves."""
+
+    LOGGER = "quantcore.services.options"
+
+    def _record(self, snapshot):
+        store = Mock()
+        store.get_latest_snapshot.return_value = snapshot
+        result = _service(_NoYahoo(), store).record_gex_from_snapshot("NVDA", now=_NOW)
+        return result, store
+
+    def test_a_healthy_quoted_chain_is_not_flagged(self):
+        with self.assertNoLogs(self.LOGGER, level="WARNING"):
+            result, _ = self._record(_quoted_snapshot(1.0, 1.1))
+        # The fixture's one zero-IV contract sits far from spot (the 120
+        # call): it falls back, but carries almost none of the gamma.
+        self.assertGreater(result["untrusted_iv_share"], 0.0)
+        self.assertLess(result["untrusted_iv_share"], 0.05)
+        self.assertFalse(result["untrusted_iv_flagged"])
+
+    def test_the_424_bug_shape_is_flagged(self):
+        # The bug read a key the stored rows never carried, so every contract
+        # fell back to 30%. Rebuild that: IV under a key nothing reads.
+        with self.assertLogs(self.LOGGER, level="WARNING") as logs:
+            result, _ = self._record(_quoted_snapshot(1.0, 1.1, iv_key="unread"))
+        self.assertTrue(result["untrusted_iv_flagged"])
+        self.assertEqual(result["untrusted_iv_share"], 1.0)
+        self.assertIn("ticker=NVDA", logs.output[0])
+        self.assertIn("fallback=36", logs.output[0])   # 9 contracts x 4 expirations
+
+    def test_a_dead_chain_with_no_quotes_is_flagged(self):
+        # Real-looking IVs, but no bid or ask anywhere: a delisted stock.
+        with self.assertLogs(self.LOGGER, level="WARNING") as logs:
+            result, _ = self._record(_quoted_snapshot(0.0, 0.0))
+        self.assertTrue(result["untrusted_iv_flagged"])
+        self.assertIn("no_quote=36", logs.output[0])
+
+    def test_null_quotes_count_as_no_quote(self):
+        with self.assertLogs(self.LOGGER, level="WARNING"):
+            result, _ = self._record(_quoted_snapshot(None, None))
+        self.assertTrue(result["untrusted_iv_flagged"])
+
+    def test_a_snapshot_without_quote_columns_is_not_flagged(self):
+        # Unknown quote status is not evidence of a dead chain.
+        with self.assertNoLogs(self.LOGGER, level="WARNING"):
+            result, _ = self._record(_snapshot())
+        self.assertFalse(result["untrusted_iv_flagged"])
+
+    def test_the_warning_carries_counts_not_chain_data(self):
+        with self.assertLogs(self.LOGGER, level="WARNING") as logs:
+            self._record(_quoted_snapshot(0.0, 0.0))
+        self.assertRegex(
+            logs.records[0].getMessage(),
+            r"^untrusted IV ticker=NVDA gamma_share=\d+\.\d% fallback=\d+ "
+            r"no_quote=\d+ contracts=\d+ open_interest=\d+$")
+
+    def test_saved_rows_are_unchanged_by_the_check(self):
+        healthy = self._record(_quoted_snapshot(1.0, 1.1))[1]
+        dead = self._record(_quoted_snapshot(0.0, 0.0))[1]
+        for save in ("save_gamma_wall", "save_gex_summary"):
+            with self.subTest(save):
+                saved = getattr(dead, save).call_args.args[1]
+                self.assertEqual(getattr(healthy, save).call_args.args[1], saved)
+                self.assertFalse(any("untrusted" in key for key in saved))
 
 
 if __name__ == "__main__":

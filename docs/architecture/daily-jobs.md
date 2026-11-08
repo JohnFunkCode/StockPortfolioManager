@@ -121,7 +121,32 @@ fundamentals warming. The three steps that carry the weight:
    alone, found nothing on every real row, and every contract silently took the 30% fallback
    in `_usable_rows`; the parity test missed it because its fixture was keyed `iv` too. It is
    now keyed `implied_vol`, the real shape. Gamma-wall and GEX history written between #373
-   (2026-10-14) and the fix used a flat 30% IV.
+   (2026-10-14) and the fix used a flat 30% IV: on prod that is 1,813 nightly gamma-wall rows
+   across 227 symbols, 2026-10-14 to 10-23. Those rows are flagged here, not recomputed
+   (decision on #424); recompute them from the stored snapshots before backtesting on that
+   window.
+
+   **Untrusted-IV check.** So a failure like that can't stay silent again,
+   `record_gex_from_snapshot` measures how much of each symbol's gamma exposure rests on IV it
+   can't trust (`iv_trust_summary` in `quantcore/analytics/options_math.py`). A contract is
+   untrusted when its IV is missing or zero (it takes the 30% fallback) or when it had **no
+   quote** (bid and ask both 0 or NULL). Yahoo's IV for an unquoted contract is 0 or a solver
+   artefact, an exact power of two such as 12.5% or 25%. The weight is unsigned gamma × open
+   interest at the sigma the math used, so far-from-spot contracts barely count. The scan covers
+   the GEX expirations, which include the gamma wall's. At `UNTRUSTED_IV_GAMMA_SHARE` (10%) or
+   more it logs one `untrusted IV ticker=…` warning with counts only, and the step's summary line
+   names the symbol. The rows are still written: this reports, it doesn't alarm or change a
+   number.
+
+   *Why 10%:* on prod's 2026-11-03 and 2026-11-06 captures (230 full chains each), every healthy
+   chain sat at 1.5% or below on Nov 3 and 6.0% or below on Nov 6, and the same two broken ones
+   cleared it both days: 19.5% and 18.3% (a 7-contract chain) and 100% (a delisted stock's dead
+   chain). The Nov 6 high (6.0%) was a liquid name whose same-day expiration had in-the-money
+   puts quoted at intrinsic with an IV of 0, so they took the fallback near spot. A threshold on
+   the share of *contracts* would have missed both broken chains, because the fallback mostly
+   lands on far-from-spot strikes with no gamma. Under the #424 bug every chain read 100%.
+   A low IV that is quoted is trusted on purpose: a stock pinned by a pending cash buyout can
+   have a real IV near 3%.
 
    **429 backoff (#373).** `YFinanceGateway.expirations` and `.option_chain` retry a rate-limit
    error (HTTP 429 / "Too Many Requests" / `YFRateLimitError`) at most twice, sleeping 2 s then

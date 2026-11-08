@@ -325,6 +325,9 @@ class DatabaseTests(unittest.TestCase):
 
         assert_not_production()
         role = f"qc_app_test_{uuid.uuid4().hex[:10]}"
+        # Set once CREATE ROLE succeeds. Without CREATEROLE the cleanup's DROP
+        # ROLE would raise too, turning the intended skip into an error.
+        role_created = False
         try:
             admin = psycopg2.connect(db.DB_DSN)
         except psycopg2.OperationalError as exc:
@@ -341,6 +344,7 @@ class DatabaseTests(unittest.TestCase):
                         try:
                             # A grant from before the script ran must not survive it.
                             cur.execute(f'CREATE ROLE "{role}" LOGIN')
+                            role_created = True
                             cur.execute(f'GRANT TRUNCATE, REFERENCES, TRIGGER ON watchlist '
                                         f'TO "{role}"')
                             cur.execute(f'GRANT CREATE ON SCHEMA public TO "{role}"')
@@ -385,9 +389,12 @@ class DatabaseTests(unittest.TestCase):
         except ScratchDatabaseUnavailable as exc:
             self._skip_or_fail(str(exc))
         finally:
-            with admin.cursor() as cur:
-                cur.execute(f'DROP ROLE IF EXISTS "{role}"')
-            admin.close()
+            try:
+                if role_created:
+                    with admin.cursor() as cur:
+                        cur.execute(f'DROP ROLE IF EXISTS "{role}"')
+            finally:
+                admin.close()
 
     def _check_dml_and_ledger(self, app_dsn: str) -> None:
         import psycopg2

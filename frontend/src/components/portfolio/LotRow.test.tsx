@@ -100,6 +100,47 @@ describe('LotRow', () => {
     expect(api.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true);
   });
 
+  it('sets a trade date on a lot that had none', async () => {
+    const { api } = mount({ trade_date: null });
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    const dateInput = screen.getByLabelText('Trade date') as HTMLInputElement;
+    expect(dateInput.value).toBe('');
+    fireEvent.change(dateInput, { target: { value: '2025-11-03' } });
+    fireEvent.click(screen.getByLabelText('Save'));
+
+    await waitFor(() => {
+      const call = api.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({ trade_date: '2025-11-03' });
+    });
+  });
+
+  it('cancelling a changed date sends nothing and restores the stored date', () => {
+    const { api } = mount({ trade_date: '2026-01-02' });
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    fireEvent.change(screen.getByLabelText('Trade date'), { target: { value: '2025-12-15' } });
+    fireEvent.click(screen.getByLabelText('Cancel'));
+
+    expect(api.calls).toHaveLength(0);
+    expect(screen.getByText('Jan 2, 2026')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    expect((screen.getByLabelText('Trade date') as HTMLInputElement).value).toBe('2026-01-02');
+  });
+
+  it('a cleared date input leaves the stored date alone rather than nulling it', async () => {
+    // The API has no "clear the trade date" operation (it is the lot's identity
+    // field), so an emptied input means "unchanged", not "set to null".
+    const { api } = mount({ trade_date: '2026-01-02' });
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    fireEvent.change(screen.getByLabelText('Trade date'), { target: { value: '' } });
+    fireEvent.click(screen.getByLabelText('Save'));
+
+    await waitFor(() => {
+      const call = api.calls.find(([, init]) => init?.method === 'PATCH');
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String(call?.[1]?.body))).not.toHaveProperty('trade_date');
+    });
+  });
+
   it('cancel exits edit mode without submitting', () => {
     const { api } = mount();
     fireEvent.click(screen.getByLabelText('Edit lot'));

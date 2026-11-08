@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import PortfolioPage from './PortfolioPage';
-import { mockApi, renderWithProviders, symbolRow } from '../../testUtils';
+import { lotRow, mockApi, renderWithProviders, symbolRow } from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -87,7 +87,58 @@ describe('PortfolioPage', () => {
     fireEvent.click(expandButtons[0]);
 
     expect(screen.getByText('Price Paid')).toBeInTheDocument();
+    expect(screen.getByText('Trade Date')).toBeInTheDocument();
     expect(screen.getAllByText('$30.00').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('shows the saved trade date and recomputed Days Held and $/Day after an edit, and keeps them on remount', async () => {
+    // A stateful stand-in for the server: the PATCH changes the stored date, and
+    // every later /symbols read returns the lot as the server would recompute it.
+    let stored = lotRow({ trade_date: '2026-01-02', days_held: 200, dollars_per_day: 0.25 });
+    const symbols = () => ({
+      symbols: [symbolRow({ lots: [stored] })],
+      totals: { total_investment: 300, total_current_value: 350, total_gain_loss: 50, total_gain_loss_pct: 16.67, total_dollars_per_day: 0.25 },
+    });
+    mockApi([
+      [
+        /\/api\/portfolio\/lots\/1$/,
+        (_url: string, init?: RequestInit) => {
+          const patch = JSON.parse(String(init?.body));
+          stored = lotRow({ trade_date: patch.trade_date, days_held: 100, dollars_per_day: 0.5 });
+          return { lot: stored };
+        },
+      ],
+      ['/api/portfolio/symbols', () => symbols()],
+    ]);
+
+    const expandLots = async () => {
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      const expand = screen
+        .getAllByRole('button')
+        .find((btn) => btn.querySelector('svg[data-testid="KeyboardArrowRightIcon"]'));
+      fireEvent.click(expand!);
+    };
+
+    const { unmount } = renderWithProviders(<PortfolioPage />);
+    await expandLots();
+    expect(screen.getByText('Jan 2, 2026')).toBeInTheDocument();
+    expect(screen.getByText('200')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    fireEvent.change(screen.getByLabelText('Trade date'), { target: { value: '2026-04-11' } });
+    fireEvent.click(screen.getByLabelText('Save'));
+
+    // The mutation's invalidation refetches /symbols, and the row shows the new values.
+    expect(await screen.findByText('Apr 11, 2026')).toBeInTheDocument();
+    expect(screen.getByText('100')).toBeInTheDocument();
+    expect(screen.getByText('$0.50')).toBeInTheDocument();
+    expect(screen.queryByText('Jan 2, 2026')).not.toBeInTheDocument();
+
+    // A fresh mount (a reload) reads the saved date back.
+    unmount();
+    renderWithProviders(<PortfolioPage />);
+    await expandLots();
+    expect(screen.getByText('Apr 11, 2026')).toBeInTheDocument();
   });
 
   it('toggles sort direction when a column header is clicked', async () => {

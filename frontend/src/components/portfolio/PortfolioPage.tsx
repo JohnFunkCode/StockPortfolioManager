@@ -257,6 +257,7 @@ export default function PortfolioPage() {
                                 <TableHead>
                                   <TableRow>
                                     <TableCell />
+                                    <TableCell>Trade Date</TableCell>
                                     <TableCell>Price Paid</TableCell>
                                     <TableCell>Shares</TableCell>
                                     <TableCell>Gain/Loss %</TableCell>

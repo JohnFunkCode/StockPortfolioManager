@@ -431,6 +431,21 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         lots = self.service.list_positions(OWNER_A)
         self.assertEqual(lots[0]["notes"], "corrected")
 
+    def test_update_lot_trade_date_persists_and_recomputes_days_held(self):
+        # The QuantUI inline date edit (#168, PR #499) PATCHes only trade_date and
+        # relies on the next read for Days Held and $/Day: prove both round-trip.
+        lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5",
+                           purchase_date="2020-01-02")
+        before = self.service.list_lots(OWNER_A)[0]
+
+        self.assertTrue(self.service.update_lot(OWNER_A, lot_id, trade_date="2024-01-02"))
+
+        after = self.service.list_lots(OWNER_A)[0]
+        self.assertEqual(str(after["trade_date"])[:10], "2024-01-02")
+        # 2020-01-02 → 2024-01-02 is 1461 days (2020 is a leap year).
+        self.assertEqual(before["days_held"] - after["days_held"], 1461)
+        self.assertNotEqual(before["dollars_per_day"], after["dollars_per_day"])
+
     def test_update_lot_zero_purchase_price_raises_value_error(self):
         lot_id = self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5")
         with self.assertRaises(ValueError):

@@ -63,14 +63,14 @@ def _stub_yahoo(test):
     """Answer the two Yahoo lookups these routes make as a miss, offline.
 
     Adding to the watchlist resolves the currency through ``ticker_info``,
-    listing lots prices them through ``get_latest_quotes``, and the symbols
+    listing lots prices them through ``batch_quotes``, and the symbols
     route reads a day of history through ``fetch_history``; all three degrade
     softly on a miss, and a miss is what the fake ZZ* tickers would get from
     Yahoo anyway. tests/__init__.py makes any real yfinance request fail fast.
     """
     for name, value in (
         ("ticker_info", lambda self, symbol, timeout=15.0: {}),
-        ("get_latest_quotes", lambda self, symbols: {s: None for s in symbols}),
+        ("batch_quotes", lambda self, symbols, timeout=8.0: {s.upper(): None for s in symbols}),
         ("fetch_history", lambda self, symbol, interval, days, **kw:
             pd.DataFrame(columns=["Open", "High", "Low", "Close", "Volume"])),
     ):

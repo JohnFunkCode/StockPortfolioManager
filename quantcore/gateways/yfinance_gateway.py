@@ -17,8 +17,15 @@ import logging
 import threading
 import time
 
+import math
+from dataclasses import dataclass
+
 import pandas as pd
 import yfinance as yf
+# A yfinance internal (#518): the only seam to Yahoo's batch quote endpoint.
+# Imported at module level on purpose, so a release that moves it fails the
+# import (and CI's lean-import job) on the dependency-upgrade PR, not in prod.
+from yfinance.data import YfData
 
 from quantcore.analytics.market_time import ET
 
@@ -38,6 +45,85 @@ _FIELD_NAMES = {"Open", "High", "Low", "Close", "Volume", "Adj Close",
 # ten seconds at most per call: enough to ride out a short 429 burst, short
 # enough that the daily capture's per-symbol budget check still bounds the run.
 _RATE_LIMIT_BACKOFF_SECONDS = (2.0, 6.0)
+
+
+# Yahoo's batch quote endpoint (#518) and how it is called.
+_V7_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
+BATCH_QUOTE_CHUNK = 100
+BATCH_QUOTE_TIMEOUT_SECONDS = 8.0
+
+
+@dataclass(frozen=True)
+class Quote:
+    """One symbol's v7 quote. Numbers are None when Yahoo omits them or sends
+    a non-finite value; times are epoch seconds."""
+
+    regular_open: float | None
+    regular_high: float | None
+    regular_low: float | None
+    regular_price: float | None
+    regular_volume: int | None
+    regular_time: int | None
+    previous_close: float | None
+    regular_change_pct: float | None
+    pre_price: float | None
+    pre_change_pct: float | None
+    pre_time: int | None
+    post_price: float | None
+    post_change_pct: float | None
+    post_time: int | None
+    market_state: str | None
+    currency: str | None
+    exchange_tz: str | None
+
+
+def _num(raw: dict, key: str) -> float | None:
+    value = raw.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    value = float(value)
+    return value if math.isfinite(value) else None
+
+
+def _epoch(raw: dict, key: str) -> int | None:
+    value = _num(raw, key)
+    return int(value) if value is not None else None
+
+
+def _text(raw: dict, key: str) -> str | None:
+    value = raw.get(key)
+    return value if isinstance(value, str) and value else None
+
+
+def _parse_quote(raw: dict) -> Quote:
+    return Quote(
+        regular_open=_num(raw, "regularMarketOpen"),
+        regular_high=_num(raw, "regularMarketDayHigh"),
+        regular_low=_num(raw, "regularMarketDayLow"),
+        regular_price=_num(raw, "regularMarketPrice"),
+        regular_volume=_epoch(raw, "regularMarketVolume"),
+        regular_time=_epoch(raw, "regularMarketTime"),
+        previous_close=_num(raw, "regularMarketPreviousClose"),
+        regular_change_pct=_num(raw, "regularMarketChangePercent"),
+        pre_price=_num(raw, "preMarketPrice"),
+        pre_change_pct=_num(raw, "preMarketChangePercent"),
+        pre_time=_epoch(raw, "preMarketTime"),
+        post_price=_num(raw, "postMarketPrice"),
+        post_change_pct=_num(raw, "postMarketChangePercent"),
+        post_time=_epoch(raw, "postMarketTime"),
+        market_state=_text(raw, "marketState"),
+        currency=_text(raw, "currency"),
+        exchange_tz=_text(raw, "exchangeTimezoneName"),
+    )
+
+
+def _quote_results(payload) -> list[dict]:
+    """The result list of a v7 response, or [] for anything malformed."""
+    if not isinstance(payload, dict):
+        return []
+    body = payload.get("quoteResponse")
+    results = body.get("result") if isinstance(body, dict) else None
+    return [r for r in results if isinstance(r, dict)] if isinstance(results, list) else []
 
 
 def is_rate_limited(exc: BaseException) -> bool:
@@ -290,15 +376,74 @@ class YFinanceGateway:
                 tickers, period=period, auto_adjust=auto_adjust, progress=False
             )
 
-    def get_latest_quotes(self, symbols: list[str]) -> dict[str, float | None]:
-        """Batched last-price quote for many symbols in one yf.download call
-        (issue #126 Step 4.4) — the portfolio page's alternative to one
-        fast_info call per symbol. Never raises: a failed or empty download
-        maps every symbol to None so the caller can degrade to last close.
+    def batch_quotes(
+        self, symbols: list[str], timeout: float = BATCH_QUOTE_TIMEOUT_SECONDS,
+    ) -> dict[str, "Quote | None"]:
+        """Quotes for many symbols from Yahoo's v7 batch quote endpoint (#518).
+
+        ``yf.download`` looks batched but sends one chart request per ticker;
+        v7/finance/quote answers up to ~100 symbols per request (260 symbols:
+        3 requests, ~1.3 s). yfinance has no public wrapper for it, so this goes
+        through ``YfData.get_raw_json``, which handles the cookie and crumb.
+
+        Chunks of BATCH_QUOTE_CHUNK run concurrently on daemon threads (the
+        ``ticker_info`` pattern: a hung request is abandoned, not waited for)
+        and share one deadline, so the caller waits at most ``timeout``. A
+        chunk that fails or misses the deadline maps its symbols to None and
+        the others still return. Yahoo silently omits unknown symbols; those
+        are None too. Never raises.
         """
-        quotes: dict[str, float | None] = {s: None for s in symbols}
-        if not symbols:
+        wanted = list(dict.fromkeys(s.upper() for s in symbols if s))
+        quotes: dict[str, Quote | None] = {s: None for s in wanted}
+        if not wanted:
             return quotes
+
+        chunks = [wanted[i:i + BATCH_QUOTE_CHUNK]
+                  for i in range(0, len(wanted), BATCH_QUOTE_CHUNK)]
+        boxes: list[dict] = [{} for _ in chunks]
+
+        def _fetch(chunk: list[str], box: dict) -> None:
+            try:
+                box["value"] = YfData().get_raw_json(
+                    _V7_QUOTE_URL,
+                    params={"symbols": ",".join(chunk), "formatted": "false"},
+                    timeout=timeout,
+                )
+            except BaseException as exc:  # noqa: BLE001 — logged on the caller's thread
+                box["error"] = exc
+
+        workers = []
+        for n, (chunk, box) in enumerate(zip(chunks, boxes)):
+            worker = threading.Thread(
+                target=_fetch, args=(chunk, box), daemon=True, name=f"yf-quote-{n}",
+            )
+            worker.start()
+            workers.append(worker)
+
+        deadline = time.monotonic() + timeout
+        for worker in workers:
+            worker.join(max(0.0, deadline - time.monotonic()))
+
+        for chunk, box, worker in zip(chunks, boxes, workers):
+            if worker.is_alive():
+                logger.warning("batch_quotes: chunk of %d symbols timed out after %ss",
+                               len(chunk), timeout)
+                continue
+            if "error" in box:
+                # Class name only: the message can carry the request URL.
+                logger.warning("batch_quotes: chunk of %d symbols failed (%s)",
+                               len(chunk), type(box["error"]).__name__)
+                continue
+            for raw in _quote_results(box.get("value")):
+                symbol = str(raw.get("symbol") or "").upper()
+                if symbol in quotes:
+                    quotes[symbol] = _parse_quote(raw)
+
+        missing = [s for s, q in quotes.items() if q is None]
+        if missing:
+            logger.info("batch_quotes: no quote for %d of %d symbols",
+                        len(missing), len(wanted))
+        return quotes
         try:
             with _YF_DOWNLOAD_LOCK:
                 data = yf.download(

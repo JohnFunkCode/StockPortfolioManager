@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** planned; no PR has landed. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) in review; PRs 2–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -11,7 +11,7 @@ The two pages show different return windows, computed different ways:
 | | Portfolio | Watchlist |
 |---|---|---|
 | Columns | 7d / 30d / 90d | 5d / 30d / 60d / YTD / 1y |
-| Returns | `PortfolioService._period_returns`: per-symbol loop, can call Yahoo once per symbol | `PricesService.batch_returns`: one SQL query, no network |
+| Returns | `PortfolioService._period_returns`: per-symbol loop, can call Yahoo once per symbol | `PricesService.bulk_period_returns`: one SQL query, no network |
 | Current price | live, `PricesService.get_quotes` → `YFinanceGateway.get_latest_quotes` | last cached daily close |
 
 Neither page has a 1-day column. `get_latest_quotes` uses
@@ -23,7 +23,7 @@ requests per refresh.
 
 1. **Both pages show 1d / 5d / 30d / 60d / YTD / 1y.** The 1d–60d windows count **trading bars**, not
    calendar days (`analytics.returns.trailing_return`): "30d" is about 6 calendar weeks. YTD and 1y
-   stay calendar-anchored, as `batch_returns` computes them today. A column tooltip says
+   stay calendar-anchored, as `bulk_period_returns` computes them today. A column tooltip says
    so, and nobody "fixes" it to calendar days.
 2. **One batch-quote path for both pages**, through Yahoo's `v7/finance/quote` endpoint in chunks of
    **100**. The server-side quote cache TTL goes from 30 s to **60 s**; the 10 s force floor stays.
@@ -68,15 +68,17 @@ cache, and changing the bar-count meaning of the windows.
 
 A `Quote` carries: `regular_open`, `regular_high`, `regular_low`, `regular_price`, `regular_volume`,
 `regular_time` (epoch), `previous_close`, `regular_change_pct`, `pre_price`, `pre_change_pct`,
-`post_price`, `post_change_pct`, `market_state`, `currency`, `exchange_tz`.
+`post_price`, `post_change_pct`, `market_state`, `currency`, `exchange_tz`, plus `pre_time` and
+`post_time` (added in PR 1 for the latest-price rule below).
 
 `PricesService.get_batch_quotes(symbols, force=False)` holds the per-process TTL cache (60 s, force
 floor 10 s, the same shape as today's `_quote_cache`). It returns per symbol the quote fields plus:
 
-- `price`: the **latest** price. That is `post_price` when the market state is post-market (or closed
-  after a post session) and a post price exists, `pre_price` in pre-market, else `regular_price`.
-  This keeps decision 5.
-- `as_of`, `stale`
+- `price`: the **latest** price: whichever of `regular_price`, `pre_price` and `post_price` has the
+  newest time. After 4pm and overnight that is the post-market price, before the open the pre-market
+  one. This keeps decision 5. (PR 1 chose by time rather than by `market_state`: in `PREPRE` Yahoo
+  sends no pre price but still sends last night's post price, and a state rule would have dropped it.)
+- `as_of` (the chosen price's time), `stale`, and `quote` (the full `Quote`, None on the fallback)
 
 `get_quotes` (today's Portfolio path) is routed through it, and `get_latest_quotes` is retired.
 
@@ -158,7 +160,7 @@ Applied here:
 
 | May use the `OPEN` bar (live display) | Closed bars only |
 |---|---|
-| returns columns (`batch_returns`) | options watchlist screen (`OptionsScreeningService`, a ranking) |
+| returns columns (`bulk_period_returns`) | options watchlist screen (`OptionsScreeningService`, a ranking) |
 | price-level tools: support levels, VWAP, ATR bands, gap analysis | volume-based: `get_obv`, `get_volume_profile` |
 | price-based indicators: RSI, MACD, stochastic, moving averages | anything that alerts or changes stored state |
 | Sidekick and MCP analysis | `screen_securities` (a ranking) |
@@ -179,7 +181,7 @@ Mechanism:
 ### Endpoints
 
 - `GET /api/portfolio/symbols` (existing): rows gain `return_1d`, `return_5d`, `return_60d`,
-  `return_ytd`, `return_1y` from `batch_returns`, plus `quote` fields: `regular_change_pct`,
+  `return_ytd`, `return_1y` from `bulk_period_returns`, plus `quote` fields: `regular_change_pct`,
   `pre_change_pct`, `post_change_pct`, `market_state`, `quote_as_of`, `quote_stale`.
   `return_7d`/`return_90d` remain until PR 7 removes them.
 - `GET /api/watchlist/quotes` (new): the quote fields above for every watchlist symbol, from
@@ -187,7 +189,7 @@ Mechanism:
   CLAUDE.md requires for `/watchlist/fundamentals` and `/watchlist/mine`. Protected by
   `require_principal` and counted by the rate limiter like every other route. Errors go through
   `route_internal_error`. The watchlist is global, so there's no owner predicate.
-- `GET /api/watchlist/mine` (existing): gains `return_1d` from `batch_returns` (zero-network,
+- `GET /api/watchlist/mine` (existing): gains `return_1d` from `bulk_period_returns` (zero-network,
   unchanged shape otherwise) as the fallback value.
 - `?force=true` on both quote-bearing routes maps to `get_batch_quotes(force=True)` (the 10 s floor).
 
@@ -288,7 +290,7 @@ PR 4 close-out ────────────────────┘
 
 ### PR 6: API (additive)
 
-1. `PortfolioService.symbol_rows`: returns from `batch_returns(periods=(1, 5, 30, 60))`, whose
+1. `PortfolioService.symbol_rows`: returns from `bulk_period_returns(periods=(1, 5, 30, 60))`, whose
    `return_ytd` and `return_1y` come from the same read — calendar-anchored (`returns.ytd_return` and
    `returns.one_year_return` on the dated closes), not trailing bar counts — plus the
    quote fields and `return_1d_display`/`return_1d_stale`. Keep `return_7d`/`return_90d` for now.
@@ -354,3 +356,8 @@ PR 4 close-out ────────────────────┘
 - 2026-11-10: review fixes on PR #519. PR 3 now follows PR 2 (both edit `get_history`); PR 1 updates
   the existing `get_latest_quotes` tests; the close-out's position is stated as the last tail step;
   its fetch window reaches back to the oldest outstanding `OPEN` bar; YTD/1y named as calendar-anchored.
+- 2026-11-10: PR 1 (batch quotes) opened. `YFinanceGateway.batch_quotes` runs the chunks
+  concurrently on daemon threads under one 8 s deadline (the `ticker_info` pattern), so a hung chunk
+  is abandoned rather than waited on. Live probe: AAPL/MSFT/000660.KS/DOMO/a fake symbol in 0.4 s;
+  DOMO and the fake came back None, as gotcha 3 predicts. The plan had named the returns method
+  `batch_returns`; its real name is `bulk_period_returns`, now corrected throughout.

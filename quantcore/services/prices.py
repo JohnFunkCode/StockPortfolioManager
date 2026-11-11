@@ -70,8 +70,9 @@ def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
     pre-market one: the same "latest price" the Portfolio showed when quotes
     came from a ``prepost=True`` minute download (#518 decision 5). Choosing
     by time rather than by ``marketState`` keeps a stale pre-market price from
-    yesterday from beating today's regular session. None if the quote has no
-    positive price.
+    yesterday from beating today's regular session. A price Yahoo sent
+    without a time loses to any timed one; if it is the only price, it is
+    dated now, the time of the fetch. None if the quote has no positive price.
     """
     if quote is None:
         return None
@@ -355,27 +356,7 @@ class PricesService:
             needs_fallback = [s for s in due if s not in live and s not in self._quote_cache]
             fallback = self._last_closes(needs_fallback) if needs_fallback else {}
 
-            for symbol in due:
-                if symbol in live:
-                    price, as_of = live[symbol]
-                    self._quote_cache[symbol] = {
-                        "price": price, "as_of": as_of, "stale": False,
-                        "quote": fetched[symbol], "fetched_at": now,
-                    }
-                elif symbol in fallback:
-                    close_price, close_as_of = fallback[symbol]
-                    self._quote_cache[symbol] = {
-                        "price": close_price, "as_of": close_as_of, "stale": True,
-                        "quote": None, "fetched_at": now,
-                    }
-                elif symbol not in self._quote_cache:
-                    self._quote_cache[symbol] = {
-                        "price": None, "as_of": None, "stale": True,
-                        "quote": None, "fetched_at": now,
-                    }
-                # else: upstream had nothing new — keep serving the existing
-                # cache entry (good price or prior fallback) rather than
-                # clobbering it; it stays "due" and is retried next call.
+            self._store_quotes(due, live, fetched, fallback, now)
 
         return {
             symbol: {
@@ -384,6 +365,28 @@ class PricesService:
             }
             for symbol in symbols
         }
+
+    def _store_quotes(self, due, live, fetched, fallback, now) -> None:
+        """Write one fetch's outcome into the quote cache: the live quote, else
+        the last-close fallback flagged stale, else an empty stale entry."""
+        for symbol in due:
+            if symbol in live:
+                price, as_of = live[symbol]
+                entry = {"price": price, "as_of": as_of, "stale": False,
+                         "quote": fetched[symbol]}
+            elif symbol in fallback:
+                close_price, close_as_of = fallback[symbol]
+                entry = {"price": close_price, "as_of": close_as_of, "stale": True,
+                         "quote": None}
+            elif symbol not in self._quote_cache:
+                entry = {"price": None, "as_of": None, "stale": True, "quote": None}
+            else:
+                # Upstream had nothing new: keep serving the existing cache
+                # entry (good price or prior fallback) rather than clobbering
+                # it; it stays "due" and is retried next call.
+                continue
+            entry["fetched_at"] = now
+            self._quote_cache[symbol] = entry
 
     def get_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
         """The Portfolio's price lookup (issue #126 Step 4.4): ``get_batch_quotes``

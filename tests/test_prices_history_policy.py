@@ -302,3 +302,19 @@ class TestLatestPrice(unittest.TestCase):
         self.assertIsNone(_latest_price(quote(0.0, post=-1.0, post_at=self.REG + 1)))
         q = quote(0.0, at=self.REG, post=101.0, post_at=self.REG + 1)
         self.assertEqual(_latest_price(q)[0], 101.0)
+
+    def test_price_without_a_timestamp_is_dated_now(self):
+        # Yahoo sent a price but no time: the quote was just fetched, so the
+        # fetch time is the best "as of" there is.
+        before = datetime.datetime.now(datetime.timezone.utc)
+        price, as_of = _latest_price(quote(100.0, at=None))
+        after = datetime.datetime.now(datetime.timezone.utc)
+        self.assertEqual(price, 100.0)
+        self.assertLessEqual(before, as_of)
+        self.assertLessEqual(as_of, after)
+
+    def test_timed_price_beats_one_without_a_timestamp(self):
+        q = quote(100.0, at=None, post=101.0, post_at=self.REG)
+        price, as_of = _latest_price(q)
+        self.assertEqual(price, 101.0)
+        self.assertEqual(as_of, datetime.datetime.fromtimestamp(self.REG, datetime.timezone.utc))

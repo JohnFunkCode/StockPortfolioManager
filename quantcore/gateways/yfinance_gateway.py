@@ -85,7 +85,7 @@ def _num(raw: dict, key: str) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def _epoch(raw: dict, key: str) -> int | None:
+def _int(raw: dict, key: str) -> int | None:
     value = _num(raw, key)
     return int(value) if value is not None else None
 
@@ -101,16 +101,16 @@ def _parse_quote(raw: dict) -> Quote:
         regular_high=_num(raw, "regularMarketDayHigh"),
         regular_low=_num(raw, "regularMarketDayLow"),
         regular_price=_num(raw, "regularMarketPrice"),
-        regular_volume=_epoch(raw, "regularMarketVolume"),
-        regular_time=_epoch(raw, "regularMarketTime"),
+        regular_volume=_int(raw, "regularMarketVolume"),
+        regular_time=_int(raw, "regularMarketTime"),
         previous_close=_num(raw, "regularMarketPreviousClose"),
         regular_change_pct=_num(raw, "regularMarketChangePercent"),
         pre_price=_num(raw, "preMarketPrice"),
         pre_change_pct=_num(raw, "preMarketChangePercent"),
-        pre_time=_epoch(raw, "preMarketTime"),
+        pre_time=_int(raw, "preMarketTime"),
         post_price=_num(raw, "postMarketPrice"),
         post_change_pct=_num(raw, "postMarketChangePercent"),
-        post_time=_epoch(raw, "postMarketTime"),
+        post_time=_int(raw, "postMarketTime"),
         market_state=_text(raw, "marketState"),
         currency=_text(raw, "currency"),
         exchange_tz=_text(raw, "exchangeTimezoneName"),
@@ -124,6 +124,57 @@ def _quote_results(payload) -> list[dict]:
     body = payload.get("quoteResponse")
     results = body.get("result") if isinstance(body, dict) else None
     return [r for r in results if isinstance(r, dict)] if isinstance(results, list) else []
+
+
+def _fetch_quote_chunk(chunk: list[str], box: dict, timeout: float) -> None:
+    """Thread target: one v7 request, its payload or its exception into ``box``."""
+    try:
+        box["value"] = YfData().get_raw_json(
+            _V7_QUOTE_URL,
+            params={"symbols": ",".join(chunk), "formatted": "false"},
+            timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 — logged on the caller's thread
+        box["error"] = exc
+
+
+def _start_quote_workers(
+    chunks: list[list[str]], timeout: float,
+) -> list[tuple[list[str], dict, threading.Thread]]:
+    """Start one daemon thread per chunk; returns (chunk, result box, thread)."""
+    jobs = []
+    for n, chunk in enumerate(chunks):
+        box: dict = {}
+        worker = threading.Thread(
+            target=_fetch_quote_chunk, args=(chunk, box, timeout),
+            daemon=True, name=f"yf-quote-{n}",
+        )
+        worker.start()
+        jobs.append((chunk, box, worker))
+    return jobs
+
+
+def _collect_quote_chunks(jobs, quotes: dict, timeout: float) -> None:
+    """Join the workers against one shared deadline and fold each finished
+    chunk's quotes into ``quotes``. A chunk that failed or is still running is
+    logged and left as None."""
+    deadline = time.monotonic() + timeout
+    for _, _, worker in jobs:
+        worker.join(max(0.0, deadline - time.monotonic()))
+
+    for chunk, box, worker in jobs:
+        if worker.is_alive():
+            logger.warning("batch_quotes: chunk of %d symbols timed out after %ss",
+                           len(chunk), timeout)
+        elif "error" in box:
+            # Class name only: the message can carry the request URL.
+            logger.warning("batch_quotes: chunk of %d symbols failed (%s)",
+                           len(chunk), type(box["error"]).__name__)
+        else:
+            for raw in _quote_results(box.get("value")):
+                symbol = str(raw.get("symbol") or "").upper()
+                if symbol in quotes:
+                    quotes[symbol] = _parse_quote(raw)
 
 
 def is_rate_limited(exc: BaseException) -> bool:
@@ -400,79 +451,11 @@ class YFinanceGateway:
 
         chunks = [wanted[i:i + BATCH_QUOTE_CHUNK]
                   for i in range(0, len(wanted), BATCH_QUOTE_CHUNK)]
-        boxes: list[dict] = [{} for _ in chunks]
-
-        def _fetch(chunk: list[str], box: dict) -> None:
-            try:
-                box["value"] = YfData().get_raw_json(
-                    _V7_QUOTE_URL,
-                    params={"symbols": ",".join(chunk), "formatted": "false"},
-                    timeout=timeout,
-                )
-            except BaseException as exc:  # noqa: BLE001 — logged on the caller's thread
-                box["error"] = exc
-
-        workers = []
-        for n, (chunk, box) in enumerate(zip(chunks, boxes)):
-            worker = threading.Thread(
-                target=_fetch, args=(chunk, box), daemon=True, name=f"yf-quote-{n}",
-            )
-            worker.start()
-            workers.append(worker)
-
-        deadline = time.monotonic() + timeout
-        for worker in workers:
-            worker.join(max(0.0, deadline - time.monotonic()))
-
-        for chunk, box, worker in zip(chunks, boxes, workers):
-            if worker.is_alive():
-                logger.warning("batch_quotes: chunk of %d symbols timed out after %ss",
-                               len(chunk), timeout)
-                continue
-            if "error" in box:
-                # Class name only: the message can carry the request URL.
-                logger.warning("batch_quotes: chunk of %d symbols failed (%s)",
-                               len(chunk), type(box["error"]).__name__)
-                continue
-            for raw in _quote_results(box.get("value")):
-                symbol = str(raw.get("symbol") or "").upper()
-                if symbol in quotes:
-                    quotes[symbol] = _parse_quote(raw)
+        jobs = _start_quote_workers(chunks, timeout)
+        _collect_quote_chunks(jobs, quotes, timeout)
 
         missing = [s for s, q in quotes.items() if q is None]
         if missing:
             logger.info("batch_quotes: no quote for %d of %d symbols",
                         len(missing), len(wanted))
-        return quotes
-        try:
-            with _YF_DOWNLOAD_LOCK:
-                data = yf.download(
-                    tickers=" ".join(symbols),
-                    period="1d",
-                    interval="1m",
-                    progress=False,
-                    group_by="column",
-                    auto_adjust=False,
-                    prepost=True,
-                )
-        except Exception:
-            logger.warning("yfinance batch quote download failed for %s", symbols, exc_info=True)
-            return quotes
-        if data is None or data.empty or "Close" not in data:
-            logger.warning("yfinance returned no quote data for %s", symbols)
-            return quotes
-
-        closes = data["Close"]
-        if isinstance(data.columns, pd.MultiIndex):
-            for symbol in symbols:
-                try:
-                    series = closes[symbol].dropna()
-                except KeyError:
-                    continue
-                if not series.empty:
-                    quotes[symbol] = float(series.iloc[-1])
-        else:
-            series = closes.dropna()
-            if not series.empty:
-                quotes[symbols[0]] = float(series.iloc[-1])
         return quotes

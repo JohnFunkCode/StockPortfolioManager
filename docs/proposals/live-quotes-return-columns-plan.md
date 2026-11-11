@@ -21,8 +21,9 @@ requests per refresh.
 
 ## Decisions (2026-11-10)
 
-1. **Both pages show 1d / 5d / 30d / 60d / YTD / 1y.** Windows count **trading bars**, not calendar
-   days (`analytics.returns.trailing_return`): "30d" is about 6 calendar weeks. A column tooltip says
+1. **Both pages show 1d / 5d / 30d / 60d / YTD / 1y.** The 1d–60d windows count **trading bars**, not
+   calendar days (`analytics.returns.trailing_return`): "30d" is about 6 calendar weeks. YTD and 1y
+   stay calendar-anchored, as `batch_returns` computes them today. A column tooltip says
    so, and nobody "fixes" it to calendar days.
 2. **One batch-quote path for both pages**, through Yahoo's `v7/finance/quote` endpoint in chunks of
    **100**. The server-side quote cache TTL goes from 30 s to **60 s**; the 10 s force floor stays.
@@ -118,13 +119,17 @@ touch.
 
 ### The nightly close-out
 
-A new tail step in `main.py`, `run_ohlcv_closeout`, after fundamentals warming (daily bars can be
-re-fetched any later night; an options chain can't, so this goes last):
+A new tail step in `main.py`, `run_ohlcv_closeout`. It runs **last**, after
+`run_fundamentals_warming`, so the tail becomes notifications → options capture → gamma/GEX → capture
+health check → news staleness → fundamentals warming → **OHLCV close-out**. Daily bars can be
+re-fetched any later night and an options chain can't, so the close-out yields to everything else.
 
 - **Symbols:** every symbol with an `OPEN` `1d` bar, plus every watchlist and held symbol whose newest
   `CLOSED` bar is older than today's session.
-- **Fetch:** a short window (10 calendar days) per symbol through the existing `fetch_history` +
-  `store_bars`, which reclassifies today's bar `CLOSED` once the session is over. Paced in chunks, with
+- **Fetch:** per symbol through the existing `fetch_history` + `store_bars`, which reclassifies the
+  bar `CLOSED` once its session is over. The window starts at the **earlier** of 10 calendar days ago
+  and the symbol's oldest outstanding `OPEN` `1d` bar, so an `OPEN` bar older than 10 days (a run
+  that missed several nights) is still finalized instead of tripping the alarm every night. Paced in chunks, with
   a pause between them, to stay clear of the #373 429s.
 - **Budget:** `OHLCV_CLOSEOUT_BUDGET_SECONDS`, clamped by `_remaining_budget`, falling back to the
   default on an unparseable value (the CLAUDE.md tuning-env-var rule).
@@ -194,14 +199,15 @@ and `return_1d_stale`, so the front end only renders (arch-v2 Rules 8–9).
 
 Each PR updates its own docs (CLAUDE.md's first rule) and gets its one Guppy review. The guards (PRs
 2–4) land before the writer (PR 5), so the cache never holds universal `OPEN` bars without them. The
-API stays additive until the UI switches (PR 7). PRs 2, 3 and 4 don't depend on each other and can
-proceed in parallel.
+API stays additive until the UI switches (PR 7). PRs 1 and 4 are independent of the rest. **PR 3
+follows PR 2:** both change `get_history` (PR 2 adds `include_open`, PR 3 changes its re-fetch
+condition) and both add to the "Today's forming bar" docs section, so run in parallel they would
+conflict on merge.
 
 ```
-PR 1 batch quotes ──┐
-PR 2 reader policy ─┤
-PR 3 re-fetch rule ─┼─▶ PR 5 live writer ─▶ PR 6 API ─▶ PR 7 UI
-PR 4 close-out ─────┘
+PR 1 batch quotes ─────────────────┐
+PR 2 reader policy ─▶ PR 3 re-fetch ┼─▶ PR 5 live writer ─▶ PR 6 API ─▶ PR 7 UI
+PR 4 close-out ────────────────────┘
 ```
 
 ### PR 1: batch quote gateway and service (backend, no visible change)
@@ -216,7 +222,10 @@ PR 4 close-out ─────┘
    → last-close fallback; a failed chunk leaves the other chunks' results; timeout; TTL 60 s and the
    force floor; latest-price selection per `market_state`; `YfData` and `get_raw_json` exist with the
    expected signature.
-5. Docs: CLAUDE.md, under *Unified Database* or the gateways bullet, says the v7 batch endpoint is the
+5. Update the existing tests of the deleted method: `tests/test_prices_history_policy.py` (the
+   `get_quotes` cases that stub `gateway.get_latest_quotes`) moves to stubbing `batch_quotes`, and
+   `tests/test_api_smoke.py`'s `get_latest_quotes` patch (and its docstring) follows.
+6. Docs: CLAUDE.md, under *Unified Database* or the gateways bullet, says the v7 batch endpoint is the
    quote path, `yf.download` is per-ticker, and `YfData` is the one yfinance internal in use.
    `docs/architecture/data.md`: the quote path.
 
@@ -248,9 +257,12 @@ PR 4 close-out ─────┘
 
 ### PR 4: nightly close-out
 
-1. `run_ohlcv_closeout` in `main.py`, after warming, with budget, clamp, guard and alarm as designed.
-2. Repository reads: symbols with an `OPEN` `1d` bar; the count of `OPEN` `1d` bars dated before today.
-3. Tests: it finalizes an `OPEN` bar (stubbed fetch); it respects the budget clamp; an unparseable
+1. `run_ohlcv_closeout` in `main.py`, the last tail step (after `run_fundamentals_warming`), with
+   budget, clamp, guard and alarm as designed.
+2. Repository reads: symbols with an `OPEN` `1d` bar and each one's oldest such bar date; the count of
+   `OPEN` `1d` bars dated before today.
+3. Tests: it finalizes an `OPEN` bar (stubbed fetch); an `OPEN` bar more than 10 days old is inside
+   the requested window and is finalized; it respects the budget clamp; an unparseable
    budget env var falls back to the default; an exception inside never escapes; the alarm fires with
    the count and stays quiet at zero; it doesn't run on a closed day.
 4. Measure on test after merge: the step's wall time for ~260 symbols, and whether any 429s appear.
@@ -276,7 +288,9 @@ PR 4 close-out ─────┘
 
 ### PR 6: API (additive)
 
-1. `PortfolioService.symbol_rows`: returns from `batch_returns(periods=(1, 5, 30, 60))`, plus the
+1. `PortfolioService.symbol_rows`: returns from `batch_returns(periods=(1, 5, 30, 60))`, whose
+   `return_ytd` and `return_1y` come from the same read — calendar-anchored (`returns.ytd_return` and
+   `returns.one_year_return` on the dated closes), not trailing bar counts — plus the
    quote fields and `return_1d_display`/`return_1d_stale`. Keep `return_7d`/`return_90d` for now.
    Retire `_period_returns`'s per-symbol loop by computing the old fields from the same batch read.
 2. `WatchlistService`: `return_1d` on `/watchlist/mine` (still zero-network; the guard test stays
@@ -337,3 +351,6 @@ PR 4 close-out ─────┘
 
 - 2026-11-10: design agreed in discussion; issue #518 filed; this plan written. Measured the v7 batch
   endpoint against the 260 prod watchlist symbols: 3 requests, 1.32 s, 259 returned (DOMO missing).
+- 2026-11-10: review fixes on PR #519. PR 3 now follows PR 2 (both edit `get_history`); PR 1 updates
+  the existing `get_latest_quotes` tests; the close-out's position is stated as the last tail step;
+  its fetch window reaches back to the oldest outstanding `OPEN` bar; YTD/1y named as calendar-anchored.

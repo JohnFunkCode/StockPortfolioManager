@@ -69,6 +69,34 @@ guarded route does). Before this, those 500s left an empty log entry.
 
 **Migrating from a legacy SQLite database:** `scripts/migrate_sqlite_to_postgres.py` performs a one-shot copy of an existing `quantcore.sqlite` file into PostgreSQL — it initializes the schema, migrates all 16 tables in FK-safe order via batched `execute_values()` inserts, resets `SERIAL` sequences, and verifies row counts. Run it with `--sqlite <path>` and `--dsn <postgresql-uri>`.
 
+## Live quotes
+
+The Portfolio's live prices come from `PricesService.get_quotes`, a narrowed view of
+`get_batch_quotes`, which calls `YFinanceGateway.batch_quotes` (#518). Each layer has one job:
+
+- **Gateway:** `batch_quotes(symbols)` calls Yahoo's `v7/finance/quote` endpoint through
+  `yfinance.data.YfData().get_raw_json` (which handles the cookie and crumb), in chunks of 100 symbols.
+  The chunks run at once on daemon threads under one deadline (8 s), the same abandon-don't-wait
+  pattern as `ticker_info`. A failed or timed-out chunk maps its symbols to `None`, and so does a
+  symbol Yahoo silently leaves out of its reply (it does: DOMO, once). It never raises, and it logs a
+  failure by exception class only. Non-finite numbers become `None`.
+- **Service:** `get_batch_quotes` keeps a per-process cache: 60 s TTL, and a 10 s floor even under
+  `force=True` so the Refresh button can't hammer Yahoo. A symbol without a usable quote keeps its
+  previous cache entry, or falls back to its last stored daily close marked `stale` with that close's
+  `as_of`. `price` is the newest of the regular, pre- and post-market prices **by time**, so after the
+  close and overnight it is the post-market price, as it was when quotes came from a `prepost=True`
+  minute download.
+
+Why not `yf.download`: given many tickers it loops and sends one chart request per ticker. For the
+260-symbol watchlist that is 260 requests; the batch endpoint answered the same list in 3 requests and
+1.3 s. yfinance has no public batch quote (`yf.screen` can't filter equities by ticker, and
+`yf.WebSocket` only reports symbols as they trade), which is why this code depends on `YfData`.
+`tests/test_yfinance_batch_quotes.py` pins `YfData.get_raw_json`'s signature, and the module-level
+import makes a moved `YfData` fail the import on the weekly dependency-upgrade PR.
+
+Plan and what comes next (writing these quotes into `ohlcv` as today's forming bar):
+[`live-quotes-return-columns-plan.md`](../proposals/live-quotes-return-columns-plan.md).
+
 ## Positions and the watchlist
 
 Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.

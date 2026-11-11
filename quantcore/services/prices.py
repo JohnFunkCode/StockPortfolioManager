@@ -54,12 +54,45 @@ WARM_DAYS: dict[str, int] = {
     "15m": 59,
 }
 
-# Batched quote cache (issue #126 Step 4.4). QUOTE_TTL_SECONDS bounds how
-# often a normal call re-hits yfinance; QUOTE_FORCE_FLOOR_SECONDS is the
+# Batched quote cache (issue #126 Step 4.4; 60 s since #518). QUOTE_TTL_SECONDS
+# bounds how often a normal call re-hits Yahoo; QUOTE_FORCE_FLOOR_SECONDS is the
 # minimum re-fetch interval even under force=True, so a held-down manual
 # refresh button can't hammer the upstream.
-QUOTE_TTL_SECONDS = 30
+QUOTE_TTL_SECONDS = 60
 QUOTE_FORCE_FLOOR_SECONDS = 10
+
+
+def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
+    """The newest usable price in a gateway ``Quote`` and its UTC time (#518).
+
+    Picks whichever of the regular, pre- and post-market prices traded last,
+    so after 4pm it is the post-market price and before the open the
+    pre-market one: the same "latest price" the Portfolio showed when quotes
+    came from a ``prepost=True`` minute download (#518 decision 5). Choosing
+    by time rather than by ``marketState`` keeps a stale pre-market price from
+    yesterday from beating today's regular session. A price Yahoo sent
+    without a time loses to any timed one; if it is the only price, it is
+    dated now, the time of the fetch. None if the quote has no positive price.
+    """
+    if quote is None:
+        return None
+    best: tuple[float, int] | None = None
+    for price, at in (
+        (quote.regular_price, quote.regular_time),
+        (quote.pre_price, quote.pre_time),
+        (quote.post_price, quote.post_time),
+    ):
+        if price is None or price <= 0:
+            continue
+        at = at or 0
+        if best is None or at > best[1]:
+            best = (price, at)
+    if best is None:
+        return None
+    price, at = best
+    as_of = (datetime.datetime.fromtimestamp(at, tz=datetime.timezone.utc) if at
+             else datetime.datetime.now(datetime.timezone.utc))
+    return price, as_of
 
 
 def _safe_int(val):
@@ -277,21 +310,25 @@ class PricesService:
 
         return out
 
-    def get_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
-        """Batched, TTL-cached live quotes for many symbols (issue #126 Step
-        4.4) — the portfolio page's alternative to one get_fast_price call per
-        lot. One upstream call covers every symbol whose cached quote is
-        stale or missing; fresh entries are served from the shared in-memory
-        cache without touching yfinance.
+    def get_batch_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
+        """Batched, TTL-cached live quotes for many symbols (#518).
+
+        One ``YFinanceGateway.batch_quotes`` call (Yahoo's v7 batch endpoint,
+        ~100 symbols per request) covers every symbol whose cached quote is
+        missing or older than the TTL; fresh entries come from the shared
+        in-memory cache without touching Yahoo.
 
         `force=True` bypasses the normal TTL but still can't refetch a symbol
         more often than every ~QUOTE_FORCE_FLOOR_SECONDS, so a held-down
-        refresh button can't hammer Yahoo. A failed or partial upstream fetch
-        never raises — symbols with no live quote degrade to their last DB
-        close, flagged `stale=True` with an honest `as_of`.
+        refresh button can't hammer Yahoo. A failed or partial fetch never
+        raises: a symbol with no live quote keeps its previous cache entry, or
+        degrades to its last DB close flagged `stale=True` with an honest
+        `as_of`.
 
-        Returns {symbol: {"price": float|None, "as_of": datetime|None,
-        "stale": bool}}.
+        Returns {symbol: {"price", "as_of", "stale", "quote"}}. `price` is the
+        latest of the regular, pre- and post-market prices (see
+        ``_latest_price``); `quote` is the full gateway ``Quote``, or None on
+        the fallback path.
         """
         symbols = sorted({s.upper() for s in symbols if s})
         if not symbols:
@@ -306,42 +343,58 @@ class PricesService:
 
         if due:
             try:
-                fetched = self._yf.get_latest_quotes(due)
-            except Exception:
-                logger.warning("get_quotes: batched fetch failed for %s", due, exc_info=True)
-                fetched = {s: None for s in due}
+                fetched = self._yf.batch_quotes(due)
+            except Exception as exc:  # the gateway never raises; belt and braces
+                logger.warning("get_batch_quotes: fetch failed (%s)", type(exc).__name__)
+                fetched = {}
 
-            fetched_at = now
-            as_of = datetime.datetime.now(datetime.timezone.utc)
-            needs_fallback = [s for s in due if fetched.get(s) is None and s not in self._quote_cache]
+            live = {}
+            for symbol in due:
+                picked = _latest_price(fetched.get(symbol))
+                if picked is not None:
+                    live[symbol] = picked
+            needs_fallback = [s for s in due if s not in live and s not in self._quote_cache]
             fallback = self._last_closes(needs_fallback) if needs_fallback else {}
 
-            for symbol in due:
-                price = fetched.get(symbol)
-                if price is not None:
-                    self._quote_cache[symbol] = {
-                        "price": price, "as_of": as_of, "stale": False, "fetched_at": fetched_at,
-                    }
-                elif symbol in fallback:
-                    close_price, close_as_of = fallback[symbol]
-                    self._quote_cache[symbol] = {
-                        "price": close_price, "as_of": close_as_of, "stale": True, "fetched_at": fetched_at,
-                    }
-                elif symbol not in self._quote_cache:
-                    self._quote_cache[symbol] = {
-                        "price": None, "as_of": None, "stale": True, "fetched_at": fetched_at,
-                    }
-                # else: upstream had nothing new — keep serving the existing
-                # cache entry (good price or prior fallback) rather than
-                # clobbering it; it stays "due" and is retried next call.
+            self._store_quotes(due, live, fetched, fallback, now)
 
         return {
             symbol: {
-                "price": self._quote_cache[symbol]["price"],
-                "as_of": self._quote_cache[symbol]["as_of"],
-                "stale": self._quote_cache[symbol]["stale"],
+                key: self._quote_cache[symbol][key]
+                for key in ("price", "as_of", "stale", "quote")
             }
             for symbol in symbols
+        }
+
+    def _store_quotes(self, due, live, fetched, fallback, now) -> None:
+        """Write one fetch's outcome into the quote cache: the live quote, else
+        the last-close fallback flagged stale, else an empty stale entry."""
+        for symbol in due:
+            if symbol in live:
+                price, as_of = live[symbol]
+                entry = {"price": price, "as_of": as_of, "stale": False,
+                         "quote": fetched[symbol]}
+            elif symbol in fallback:
+                close_price, close_as_of = fallback[symbol]
+                entry = {"price": close_price, "as_of": close_as_of, "stale": True,
+                         "quote": None}
+            elif symbol not in self._quote_cache:
+                entry = {"price": None, "as_of": None, "stale": True, "quote": None}
+            else:
+                # Upstream had nothing new: keep serving the existing cache
+                # entry (good price or prior fallback) rather than clobbering
+                # it; it stays "due" and is retried next call.
+                continue
+            entry["fetched_at"] = now
+            self._quote_cache[symbol] = entry
+
+    def get_quotes(self, symbols: list[str], force: bool = False) -> dict[str, dict]:
+        """The Portfolio's price lookup (issue #126 Step 4.4): ``get_batch_quotes``
+        narrowed to {symbol: {"price": float|None, "as_of": datetime|None,
+        "stale": bool}}, the shape ``PortfolioService`` has always consumed."""
+        return {
+            symbol: {key: entry[key] for key in ("price", "as_of", "stale")}
+            for symbol, entry in self.get_batch_quotes(symbols, force=force).items()
         }
 
     # ------------------------------------------------------------------

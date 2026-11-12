@@ -144,6 +144,31 @@ How it is enforced:
   early "no data" returns don't carry the key. The composites `get_risk_signals` and
   `get_technical_signals` report `true` when any of their parts does.
 
+### When a forming bar is re-fetched
+
+`get_history` serves a cached `OPEN` bar as it is until the bar is due a refresh
+(`PricesService._open_bar_is_due`). It is due when either holds:
+
+- it was written more than `OPEN_BAR_MAX_AGE_SECONDS` (300) ago, or
+- it is dated before today's market date. That session is over, so the bar is re-fetched at any
+  age and the fetch stores it as `CLOSED`. A missed close-out heals on the first read this way.
+
+Before #518 PR 3 the trigger was "an `OPEN` bar exists". That was too eager, because a re-fetch
+downloads the caller's **whole window** (365 days, say) in one per-symbol `yf.download`, and
+`get_history` sits under most `PricesService` tools, each recommendation (four calls: the symbol,
+SPY, QQQ, the sector ETF) and the options and arbitrage services. During the session every one of
+those calls downloaded the window again.
+
+The rule is the same for every interval. `OhlcvRepository.open_bar_state` supplies its two inputs in
+one query: the oldest `OPEN` bar's `ts` and the oldest `ingested_at` among `OPEN` bars. It reports
+the oldest of each because one overdue bar is enough, and during the session an intraday interval
+has several `OPEN` bars. An `OPEN` bar with no `ingested_at` counts as due.
+
+The bar's date is its `ts` read in UTC, as the closed-bar check does. For an exchange east of UTC
+that is the day before the local session date, so such a bar becomes "an earlier session" at
+midnight Eastern and is re-fetched on each read from then on. That is the old behaviour, not a
+new cost.
+
 Two readers sit on the display side although they are near the line. `get_volume_analysis` reports
 today's volume against its average, which is the point of the tool during the session, and its
 response says so through `latest_bar_open`. `get_stock_price` saves a snapshot, but of the live

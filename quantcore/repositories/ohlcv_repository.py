@@ -138,6 +138,25 @@ def _has_open_bar(symbol: str, interval: str) -> bool:
     return row is not None
 
 
+def _open_bar_state(symbol: str, interval: str) -> Optional[tuple]:
+    """``(oldest OPEN ts, oldest OPEN ingested_at)``, or None with no OPEN bar.
+
+    The oldest of each, because one overdue bar is enough to need a re-fetch:
+    the ts shows a bar left OPEN from an earlier session, and the ingested_at
+    shows how stale the least recently written OPEN bar is. ``ingested_at`` is
+    None when no OPEN row has one.
+    """
+    with closing(get_connection()) as conn:
+        row = conn.execute(
+            "SELECT MIN(ts), MIN(ingested_at) FROM ohlcv "
+            "WHERE symbol=? AND interval=? AND status='OPEN'",
+            (symbol, interval),
+        ).fetchone()
+    if not row or row[0] is None:
+        return None
+    return int(row[0]), (int(row[1]) if row[1] is not None else None)
+
+
 _PRICE_COLS = ("Open", "High", "Low", "Close")
 
 
@@ -349,6 +368,7 @@ def _query_cache(
 count_cached = _count_cached
 latest_closed_ts = _latest_closed_ts
 has_open_bar = _has_open_bar
+open_bar_state = _open_bar_state
 store_bars = _store_bars
 get_bars = _query_cache
 
@@ -370,6 +390,9 @@ class OhlcvRepository:
 
     def has_open_bar(self, symbol: str, interval: str) -> bool:
         return _has_open_bar(symbol, interval)
+
+    def open_bar_state(self, symbol: str, interval: str) -> Optional[tuple]:
+        return _open_bar_state(symbol, interval)
 
     def store_bars(self, symbol: str, interval: str, df: pd.DataFrame) -> None:
         _store_bars(symbol, interval, df)

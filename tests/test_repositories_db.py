@@ -498,6 +498,7 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         ts = self.repo.latest_closed_ts(SYM, "1d")
         self.assertIsNotNone(ts)
         self.assertFalse(self.repo.has_open_bar(SYM, "1d"))  # all bars days old
+        self.assertIsNone(self.repo.open_bar_state(SYM, "1d"))
 
     def test_a_price_refresh_never_blanks_an_adjusted_close(self):
         # `ohlcv` has two writers. This one fetches with auto_adjust=True and
@@ -588,6 +589,27 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
             self.repo.get_bars(SYM, "1d", days=30, include_open=True).attrs["latest_bar_open"], True)
         self.assertIs(
             self.repo.get_bars(SYM, "1d", days=30, include_open=False).attrs["latest_bar_open"], False)
+
+    def test_open_bar_state_is_the_oldest_open_ts_and_ingested_at(self):
+        # #518 re-fetch rule: one overdue OPEN bar is enough, so the read
+        # reports the oldest ts and the oldest ingested_at among OPEN rows,
+        # and ignores every other status.
+        self.repo.store_bars(SYM, "1d", bars_df())
+        with closing(get_connection()) as conn:
+            ts = [r["ts"] for r in conn.execute(
+                "SELECT ts FROM ohlcv WHERE symbol = %s AND interval = '1d' ORDER BY ts",
+                (SYM,)).fetchall()]
+            conn.execute(
+                "UPDATE ohlcv SET ingested_at = 50 WHERE symbol = %s AND interval = '1d'",
+                (SYM,))
+            for bar_ts, ingested_at in ((ts[-2], 900), (ts[-1], 700)):
+                conn.execute(
+                    "UPDATE ohlcv SET status = 'OPEN', ingested_at = %s "
+                    "WHERE symbol = %s AND interval = '1d' AND ts = %s",
+                    (ingested_at, SYM, bar_ts))
+            conn.commit()
+        self.assertEqual(self.repo.open_bar_state(SYM, "1d"), (ts[-2], 700))
+        self.assertIsNone(self.repo.open_bar_state(SYM, "1h"))
 
     def test_negative_price_bar_is_dropped_not_fatal(self):
         # NIB.F: yfinance returned a daily bar at -4.08 across OHLC, the

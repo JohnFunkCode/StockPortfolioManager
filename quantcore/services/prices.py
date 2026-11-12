@@ -32,7 +32,11 @@ from quantcore.analytics.indicators import (
     safe_float,
 )
 from quantcore.analytics import returns
-from quantcore.analytics.market_time import latest_completed_session, period_to_days
+from quantcore.analytics.market_time import (
+    latest_completed_session,
+    market_date,
+    period_to_days,
+)
 from quantcore.analytics.volume_profile import build_volume_profile, find_volume_nodes
 from quantcore.error_text import safe_error_text
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
@@ -60,6 +64,11 @@ WARM_DAYS: dict[str, int] = {
 # refresh button can't hammer the upstream.
 QUOTE_TTL_SECONDS = 60
 QUOTE_FORCE_FLOOR_SECONDS = 10
+
+# How old a forming OPEN bar may be before get_history re-fetches it (#518).
+# A re-fetch downloads the caller's whole window, so "an OPEN bar exists" is
+# too eager a trigger once the quote path keeps that bar fresh.
+OPEN_BAR_MAX_AGE_SECONDS = 300
 
 
 def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
@@ -178,8 +187,8 @@ class PricesService:
     def get_history(self, symbol: str, interval: str = "1d", days: int = 365, *,
                     include_open: bool = True) -> pd.DataFrame:
         """Cached OHLCV history; fetches via the gateway only when: no cache
-        (cold start), an OPEN bar needs refreshing, or the latest CLOSED bar
-        predates the most recent started session.
+        (cold start), an OPEN bar is due a refresh (``_open_bar_is_due``), or
+        the latest CLOSED bar predates the most recent started session.
 
         Reader policy (#518): the default keeps today's forming ``OPEN`` bar,
         for live displays. A reader that ranks, alerts or uses volume passes
@@ -194,7 +203,7 @@ class PricesService:
         if self._ohlcv.count_cached(symbol, interval) == 0:
             days = max(days, WARM_DAYS.get(interval, 730))
             needs_fetch = True
-        elif include_open and self._ohlcv.has_open_bar(symbol, interval):
+        elif include_open and self._open_bar_is_due(symbol, interval):
             needs_fetch = True
         else:
             latest_ts = self._ohlcv.latest_closed_ts(symbol, interval)
@@ -209,6 +218,23 @@ class PricesService:
                 self._ohlcv.store_bars(symbol, interval, fresh)
 
         return self._ohlcv.get_bars(symbol, interval, days, include_open=include_open)
+
+    def _open_bar_is_due(self, symbol: str, interval: str) -> bool:
+        """Whether a forming bar should be re-fetched (#518).
+
+        A re-fetch downloads the caller's whole window, so a fresh OPEN bar is
+        served as it is. It is due once it was written more than
+        ``OPEN_BAR_MAX_AGE_SECONDS`` ago, or at any age when it is dated before
+        today's market date: that bar's session is over and a re-fetch closes it.
+        """
+        state = self._ohlcv.open_bar_state(symbol, interval)
+        if state is None:
+            return False
+        oldest_ts, ingested_at = state
+        bar_date = datetime.datetime.fromtimestamp(oldest_ts, tz=datetime.timezone.utc).date()
+        if bar_date < market_date():
+            return True
+        return ingested_at is None or time.time() - ingested_at > OPEN_BAR_MAX_AGE_SECONDS
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.

@@ -96,8 +96,11 @@ def get_portfolio() -> dict:
     """Return the caller's portfolio as a per-symbol roll-up, with totals.
 
     Each entry aggregates every open lot held in that symbol: total
-    investment, current value, gain/loss ($ and %), $/day, and 7/30/90-day
-    returns. Always the caller's own holdings — the owner is resolved from
+    investment, current value, gain/loss ($ and %), $/day, the return
+    windows (1d/5d/30d/60d count trading bars; YTD and 1y are calendar-
+    anchored), and the live 1d quote columns: return_1d_display is the
+    figure to quote, and return_1d_stale says it is a cached close-to-close
+    value, not a live quote. Always the caller's own holdings — the owner is resolved from
     the caller's authenticated token, never from an argument.
 
     Returns:

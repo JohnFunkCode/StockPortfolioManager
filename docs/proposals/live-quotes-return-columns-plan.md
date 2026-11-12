@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) in review; PRs 6–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) in review; PR 7 (UI) not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -438,3 +438,36 @@ PR 4 close-out ────────────────────┘
   does, so the batch doesn't depend on the service's filter. Added a test of a bar's whole life:
   written `OPEN` by a quote, stored `CLOSED` by the close-out on the **same row** (which also
   proves the two writers agree on `ts`), and not reopened by a later quote.
+- 2026-11-12: PR 5 merged as #525. PR 6 (API) opened. `PricesService.quote_changes` builds the
+  quote columns for both pages and `analytics.returns.display_1d` makes the display choice. Three
+  things the plan didn't settle:
+  - **The quotes endpoint reads the `return_1d` fallback itself, but only for symbols without a
+    live change.** `daily_bars_for_symbols` has no date bound, so reading it for the whole list on
+    every quote refresh would load every bar of 260 symbols a second time per page load.
+  - **Retiring the Portfolio's per-symbol `get_history` loop removed the only thing that fetched a
+    newly held symbol's history.** The close-out skips a symbol with no bars (PR 4) and so does the
+    live writer (PR 5), so its return columns would have stayed empty until someone opened an
+    analysis tool. `_warm_cold_history` keeps that one fetch, for symbols with zero cached bars.
+  - **No `get_watchlist_quotes` MCP tool.** Left for review as the plan says; the tool count stays
+    at 63. `get_portfolio`'s payload grew (additive) and its docstring is updated; its contract case
+    pins the request, not the payload, so it is unchanged.
+  `return_7d`/`return_30d`/`return_90d` are now floats from the bulk read, not `Decimal`s; the JSON
+  is the same, since the response class already wrote a `Decimal` as a number. `/watchlist/fundamentals`
+  gains `return_1d` too, because it shares its row builder with `/watchlist/mine`. Gotcha:
+  `scripts/check_openapi_snapshot.py --update` imports `api.main`, which runs `ensure_schema()`
+  against `QUANTCORE_DB_DSN`; run it as `python -c "import tests, ..."` so the unit-test DSN is
+  swapped in first.
+- 2026-11-12: review fixes on PR #526 (verdict REQUEST_CHANGES, two warnings). `quote_changes` is
+  split: the per-symbol row is `_quote_change_row` and the fallback read is `_cached_return_1d`.
+  A failed fallback read no longer fails `/watchlist/quotes`; the test for it found a second,
+  older raise on the same path (`_last_closes`, the quote cache's own last-close fallback), which
+  is now guarded too. A symbol that stays cold is warmed at most once an hour per process.
+  Gotcha: the review measures complexity with radon, which counts comprehensions and boolean
+  operators; ruff's C901 (mccabe) does not, so "nothing over 10 on ruff" said nothing about the
+  reviewer's threshold. Radon isn't installed in the development environment; the second review
+  measured the fixed head with radon 6.0.1: `quote_changes` 7, `_quote_change_row` 5,
+  `_cached_return_1d` 4, all within the goal of 10.
+- 2026-11-12: second review of PR #526 (COMMENT), three suggestions. A NaN or infinite quote
+  change is now treated as a missing one (`display_1d`, `_pct2`), `data.md` says all three watchlist
+  routes are declared before `/watchlist/{ticker}`, and a test pins that `get_batch_quotes` returns
+  an entry for every requested symbol when Yahoo's reply omits some.

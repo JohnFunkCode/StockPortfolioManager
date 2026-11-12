@@ -2,6 +2,7 @@ import csv
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from datetime import date
 from decimal import Decimal
@@ -31,6 +32,8 @@ class FakePrices:
     def __init__(self, quotes=None, histories=None):
         self._quotes = quotes or {}
         self._histories = histories or {}
+        self.history_calls, self.bulk_calls, self.change_calls = [], [], []
+        self.cached, self.live = {}, set()
 
     def get_fast_price(self, symbol):
         return self._quotes.get(symbol)
@@ -43,7 +46,34 @@ class FakePrices:
         return result
 
     def get_history(self, symbol, interval="1d", days=365):
+        self.history_calls.append(symbol)
         return self._histories.get(symbol)
+
+    def bulk_period_returns(self, symbols, periods=(5, 30, 60), as_of=None):
+        """The real method's shape, computed from the canned closes in
+        ``cached`` (what is "in the database"), never from ``histories``
+        (what a Yahoo fetch would return)."""
+        from quantcore.analytics import returns
+
+        self.bulk_calls.append((list(symbols), tuple(periods)))
+        out = {}
+        for symbol in symbols:
+            closes = list(self.cached.get(symbol, []))
+            row = {"price": closes[-1] if closes else None, "as_of": None,
+                   "bars": len(closes), "return_ytd": None, "return_1y": None}
+            for n in periods:
+                value = returns.trailing_return(closes, n)
+                row[f"return_{n}d"] = None if value is None else float(value)
+            out[symbol] = row
+        return out
+
+    def quote_changes(self, symbols, force=False, return_1d=None):
+        self.change_calls.append((list(symbols), dict(return_1d or {})))
+        return {s: {"regular_change_pct": 1.5, "pre_change_pct": None,
+                    "post_change_pct": -0.25, "market_state": "POST",
+                    "quote_as_of": None, "quote_stale": False,
+                    "return_1d_display": 1.5, "return_1d_stale": False}
+                for s in symbols if s in self.live}
 
 
 class FakeOptions:
@@ -366,40 +396,149 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         self.assertEqual(totals["total_current_value"], Decimal("125.00"))
         self.assertEqual(totals["total_gain_loss"], Decimal("35.00"))
 
-    def test_symbol_rows_period_returns_from_history(self):
+    def _returns_service(self, **attrs):
+        prices = FakePrices(quotes={"ZZTEST": 15.0, "ZZTST2": 25.0})
+        for name, value in attrs.items():
+            setattr(prices, name, value)
+        self.prices = prices
+        self.service = PortfolioService(
+            PortfolioRepository(), prices=prices, options=self.options)
+        return prices
+
+    def test_symbol_rows_return_columns_come_from_one_cached_read(self):
+        closes = [100.0] * 94 + [110.0]
+        prices = self._returns_service(cached={"ZZTEST": closes, "ZZTST2": closes})
+        self._add(symbol="ZZTEST")
+        self._add(symbol="ZZTST2")
+
+        rows = {r["symbol"]: r for r in self.service.symbol_rows(OWNER_A)}
+
+        # One bulk read for every symbol, and no per-symbol history fetch (#518).
+        self.assertEqual(prices.bulk_calls, [(["ZZTEST", "ZZTST2"], (1, 5, 7, 30, 60, 90))])
+        self.assertEqual(prices.history_calls, [])
+        row = rows["ZZTEST"]
+        for column in ("return_1d", "return_5d", "return_7d", "return_30d",
+                       "return_60d", "return_90d"):
+            self.assertEqual(row[column], 10.0, column)
+        self.assertIn("return_ytd", row)
+        self.assertIn("return_1y", row)
+
+    def test_symbol_rows_window_longer_than_the_history_is_none(self):
+        self._returns_service(cached={"ZZTEST": [100.0] * 40 + [110.0]})
+        self._add(symbol="ZZTEST")
+        row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertEqual(row["return_30d"], 10.0)
+        self.assertIsNone(row["return_60d"])
+        self.assertIsNone(row["return_90d"])
+
+    def test_symbol_rows_carry_the_live_quote_columns(self):
+        prices = self._returns_service(cached={"ZZTEST": [100.0, 110.0]}, live={"ZZTEST"})
+        self._add(symbol="ZZTEST")
+        row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertEqual(row["regular_change_pct"], 1.5)
+        self.assertEqual(row["post_change_pct"], -0.25)
+        self.assertEqual(row["market_state"], "POST")
+        self.assertEqual((row["return_1d_display"], row["return_1d_stale"]), (1.5, False))
+        self.assertIs(row["quote_stale"], False)
+        # The cached 1d it already read is handed over as the fallback, so the
+        # quote columns cost no second SQL read.
+        self.assertEqual(prices.change_calls, [(["ZZTEST"], {"ZZTEST": 10.0})])
+
+    def test_symbol_rows_without_a_quote_row_default_to_stale(self):
+        self._returns_service(cached={"ZZTEST": [100.0, 110.0]})   # nothing live
+        self._add(symbol="ZZTEST")
+        row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertIsNone(row["return_1d_display"])
+        self.assertIs(row["return_1d_stale"], True)
+        self.assertIs(row["quote_stale"], True)
+        self.assertIsNone(row["market_state"])
+
+    def test_symbol_rows_warm_a_symbol_with_no_cached_history_once(self):
         import pandas as pd
 
-        history = pd.DataFrame({"Close": [10.0] * 5 + [15.0]})
-        self.prices = FakePrices(
-            quotes={"ZZTEST": 15.0}, histories={"ZZTEST": history}
-        )
-        self.service = PortfolioService(
-            PortfolioRepository(), prices=self.prices, options=self.options
-        )
-        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+        prices = self._returns_service(cached={"ZZTST2": [100.0] * 6})
 
-        rows = self.service.symbol_rows(OWNER_A)
-        zztest = rows[0]
-        self.assertIn("return_7d", zztest)
-        self.assertIn("return_30d", zztest)
-        self.assertIn("return_90d", zztest)
+        def get_history(symbol, interval="1d", days=365):
+            prices.history_calls.append(symbol)
+            prices.cached[symbol] = [100.0] * 5 + [120.0]     # the fetch fills the cache
+            return pd.DataFrame({"Close": prices.cached[symbol]})
 
-    def test_symbol_rows_history_fetch_failure_degrades_to_none(self):
-        class BoomPrices(FakePrices):
-            def get_history(self, symbol, interval="1d", days=365):
-                raise RuntimeError("boom")
+        prices.get_history = get_history
+        self._add(symbol="ZZTEST")
+        self._add(symbol="ZZTST2")
 
-        self.prices = BoomPrices(quotes={"ZZTEST": 15.0})
-        self.service = PortfolioService(
-            PortfolioRepository(), prices=self.prices, options=self.options
-        )
-        self._add(symbol="ZZTEST", purchase_price="10.00", quantity="5", purchase_date="2020-01-02")
+        rows = {r["symbol"]: r for r in self.service.symbol_rows(OWNER_A)}
 
-        rows = self.service.symbol_rows(OWNER_A)
-        zztest = rows[0]
-        self.assertIsNone(zztest["return_7d"])
-        self.assertIsNone(zztest["return_30d"])
-        self.assertIsNone(zztest["return_90d"])
+        self.assertEqual(prices.history_calls, ["ZZTEST"])     # only the cold symbol
+        self.assertEqual(prices.bulk_calls[1][0], ["ZZTEST"])  # and only it is re-read
+        self.assertEqual(rows["ZZTEST"]["return_5d"], 20.0)
+        self.assertEqual(rows["ZZTST2"]["return_5d"], 0.0)
+
+    def test_a_symbol_that_stays_cold_is_not_refetched_on_every_call(self):
+        # A delisted or mistyped ticker never gets history. Without a bound it
+        # would cost one Yahoo call per Portfolio page load, forever.
+        from quantcore.services import portfolio as portfolio_module
+
+        prices = self._returns_service()          # get_history returns nothing
+        self._add(symbol="ZZTEST")
+        clock = [1000.0]
+        with patch.object(portfolio_module.time, "monotonic", lambda: clock[0]):
+            self.service.symbol_rows(OWNER_A)
+            self.service.symbol_rows(OWNER_A)
+            self.assertEqual(prices.history_calls, ["ZZTEST"])
+            clock[0] += portfolio_module.COLD_WARM_RETRY_SECONDS + 1
+            self.service.symbol_rows(OWNER_A)
+            self.assertEqual(prices.history_calls, ["ZZTEST", "ZZTEST"])
+
+    def test_symbol_rows_history_warm_failure_degrades_to_none(self):
+        prices = self._returns_service()
+
+        def boom(symbol, interval="1d", days=365):
+            raise RuntimeError("secret detail")
+
+        prices.get_history = boom
+        self._add(symbol="ZZTEST")
+
+        with self.assertLogs("quantcore.services.portfolio", "WARNING") as logs:
+            row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertIsNone(row["return_7d"])
+        self.assertIsNone(row["return_30d"])
+        self.assertIsNone(row["return_90d"])
+        self.assertEqual(len(prices.bulk_calls), 1)            # nothing warmed: no re-read
+        self.assertIn("RuntimeError", logs.output[0])
+        self.assertNotIn("secret detail", "\n".join(logs.output))
+
+    def test_symbol_rows_survive_a_failed_returns_read(self):
+        prices = self._returns_service(live={"ZZTEST"})
+
+        def boom(symbols, periods=(5, 30, 60), as_of=None):
+            raise RuntimeError("secret detail")
+
+        prices.bulk_period_returns = boom
+        self._add(symbol="ZZTEST")
+
+        with self.assertLogs("quantcore.services.portfolio", "WARNING") as logs:
+            row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertIsNone(row["return_1d"])
+        self.assertIsNone(row["return_1y"])
+        self.assertEqual(row["total_investment"], Decimal("50.00"))
+        self.assertEqual(row["return_1d_display"], 1.5)        # the quote still shows
+        self.assertNotIn("secret detail", "\n".join(logs.output))
+
+    def test_symbol_rows_survive_failed_quote_columns(self):
+        prices = self._returns_service(cached={"ZZTEST": [100.0, 110.0]})
+
+        def boom(symbols, force=False, return_1d=None):
+            raise RuntimeError("secret detail")
+
+        prices.quote_changes = boom
+        self._add(symbol="ZZTEST")
+
+        with self.assertLogs("quantcore.services.portfolio", "WARNING") as logs:
+            row = self.service.symbol_rows(OWNER_A)[0]
+        self.assertEqual(row["return_1d"], 10.0)
+        self.assertIs(row["return_1d_stale"], True)
+        self.assertNotIn("secret detail", "\n".join(logs.output))
 
     def test_symbol_rows_mm_hedge_bias_none_without_options_service(self):
         self.service = PortfolioService(PortfolioRepository(), prices=self.prices, options=None)

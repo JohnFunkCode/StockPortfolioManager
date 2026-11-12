@@ -104,6 +104,39 @@ def _live_daily_bar(symbol: str, quote) -> dict | None:
             "close": quote.regular_price, "volume": volume}
 
 
+def _pct2(value: float | None) -> float | None:
+    """A percentage to two places; None for a missing or non-finite one."""
+    if value is None or not math.isfinite(float(value)):
+        return None
+    return round(float(value), 2)
+
+
+def _quote_change_row(entry: dict, return_1d: float | None) -> dict:
+    """One symbol's live 1d columns from its quote-cache entry and its cached
+    close-to-close fallback (see ``PricesService.quote_changes``)."""
+    quote = entry["quote"]
+    regular = quote.regular_change_pct if quote else None
+    shown, shown_stale = returns.display_1d(regular, return_1d, entry["stale"])
+    return {
+        "regular_change_pct": _pct2(regular),
+        "pre_change_pct": _pct2(quote.pre_change_pct) if quote else None,
+        "post_change_pct": _pct2(quote.post_change_pct) if quote else None,
+        "market_state": quote.market_state if quote else None,
+        "quote_as_of": entry["as_of"],
+        "quote_stale": entry["stale"],
+        "return_1d_display": shown,
+        "return_1d_stale": shown_stale,
+    }
+
+
+def _live_change(entry: dict) -> float | None:
+    """A quote-cache entry's regular-session change, when it is a live one."""
+    quote = entry["quote"]
+    if entry["stale"] or quote is None:
+        return None
+    return quote.regular_change_pct
+
+
 def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
     """The newest usable price in a gateway ``Quote`` and its UTC time (#518).
 
@@ -334,8 +367,16 @@ class PricesService:
     def _last_closes(self, symbols: list[str]) -> dict[str, tuple[float, datetime.datetime]]:
         """Bulk last-close fallback for symbols with no usable live quote,
         via the repository's multi-symbol bulk read (decision #15's DB half)
-        rather than one get_history call per symbol."""
-        rows = self._ohlcv.daily_bars_for_symbols(symbols, include_open=True)
+        rather than one get_history call per symbol.
+
+        Never raises: a failed read leaves those symbols with no price (an
+        empty stale quote), and must not cost the others their live quotes."""
+        try:
+            rows = self._ohlcv.daily_bars_for_symbols(symbols, include_open=True)
+        except Exception as exc:  # noqa: BLE001 — the live quotes are still good
+            logger.warning("get_batch_quotes: last-close fallback failed (%s)",
+                           type(exc).__name__)
+            return {}
         closes: dict[str, tuple[float, datetime.datetime]] = {}
         for row in rows:  # ordered by symbol, ts ASC — last write per symbol wins
             as_of = datetime.datetime.fromtimestamp(row["ts"], tz=datetime.timezone.utc)
@@ -352,8 +393,9 @@ class PricesService:
         zero network calls (issue #147 Part B2).
 
         Modelled on ``screen_securities`` — one ``daily_bars_for_symbols`` read,
-        group in memory, then pure analytics — and deliberately *not* on
-        ``PortfolioService._period_returns``, which loops per symbol. The whole
+        group in memory, then pure analytics — and deliberately *not* a
+        per-symbol ``get_history`` loop (the Portfolio page had one until
+        #518). The whole
         point of the watchlist fundamentals page is that a 40-symbol table costs
         a constant number of queries; a per-symbol loop would put that back to
         40 and reintroduce the multi-minute yfinance walk the legacy report did.
@@ -536,6 +578,46 @@ class PricesService:
             symbol: {key: entry[key] for key in ("price", "as_of", "stale")}
             for symbol, entry in self.get_batch_quotes(symbols, force=force).items()
         }
+
+    def quote_changes(
+        self, symbols: list[str], force: bool = False,
+        return_1d: dict[str, float | None] | None = None,
+    ) -> dict[str, dict]:
+        """The live 1d columns for the Portfolio and Watchlist pages (#518).
+
+        Per symbol: ``regular_change_pct``, ``pre_change_pct``,
+        ``post_change_pct``, ``market_state``, ``quote_as_of``, ``quote_stale``,
+        and the figure to show, ``return_1d_display`` with ``return_1d_stale``
+        (``analytics.returns.display_1d``). One ``get_batch_quotes`` call, so
+        the TTL cache and the force floor apply.
+
+        ``return_1d`` is the cached close-to-close fallback per symbol. A
+        caller that already read it passes it; otherwise it is read here, and
+        only for the symbols that need it (one SQL query, none when every
+        quote is fresh). Never raises for a missing quote or a failed
+        fallback read; those rows come back stale.
+        """
+        symbols = sorted({s.upper() for s in symbols if s})
+        quotes = self.get_batch_quotes(symbols, force=force)
+        if return_1d is None:
+            return_1d = self._cached_return_1d(
+                [s for s in symbols if _live_change(quotes[s]) is None])
+        return {s: _quote_change_row(quotes[s], return_1d.get(s)) for s in symbols}
+
+    def _cached_return_1d(self, symbols: list[str]) -> dict[str, float | None]:
+        """The cached close-to-close 1d return for ``symbols``; ``{}`` on failure.
+
+        Never raises: a failed read costs these rows their fallback figure
+        (they show as stale with nothing to display), not the caller its quotes.
+        """
+        if not symbols:
+            return {}
+        try:
+            cached = self.bulk_period_returns(symbols, periods=(1,))
+        except Exception as exc:  # noqa: BLE001 — the live rows are still good
+            logger.warning("quote_changes: cached 1d read failed (%s)", type(exc).__name__)
+            return {}
+        return {s: row["return_1d"] for s, row in cached.items()}
 
     # ------------------------------------------------------------------
     # Quote + options summary

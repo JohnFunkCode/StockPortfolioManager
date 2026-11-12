@@ -286,10 +286,15 @@ format). The watchlist is DB-backed and **global** — one shared list, `added_b
 `watchlist.yaml` is import-only and there is deliberately **no fallback to the YAML file** (an
 empty table is a loud Discord alarm). Rules to keep:
 
-- `GET /api/watchlist/fundamentals` and `GET /api/watchlist/mine` must stay **declared before**
-  `/watchlist/{ticker}` in `api/routers/portfolio.py`, and their six- and seven-query,
-  zero-network shapes must not be "simplified" into a per-symbol loop
-  (`tests/test_watchlist_service.py` guards both). `/watchlist/mine` is the Watchlist page's
+- `GET /api/watchlist/fundamentals`, `GET /api/watchlist/mine` and `GET /api/watchlist/quotes`
+  must stay **declared before** `/watchlist/{ticker}` in `api/routers/portfolio.py`. The first
+  two have six- and seven-query, zero-network shapes that must not be "simplified" into a
+  per-symbol loop (`tests/test_watchlist_service.py` guards both). **Live quotes for the Watchlist
+  come only from `/watchlist/quotes`** (#518); don't put a quote call inside `/watchlist/mine`.
+- **A page's 1d figure is chosen server-side** (`analytics.returns.display_1d`, served as
+  `return_1d_display`/`return_1d_stale`): the quote's regular-session change when fresh, else the
+  cached close-to-close return marked stale. The Portfolio's return columns come from one
+  `bulk_period_returns` read, never a per-symbol `get_history` loop. `/watchlist/mine` is the Watchlist page's
   source since the Securities page was retired (#224); the portfolio is a subset of the
   watchlist, so a held symbol off the list is logged and left out, never added as a row.
 - Watchlist removal is UI-only: `mcp_gateway/rest_client.py` has no `delete` verb.

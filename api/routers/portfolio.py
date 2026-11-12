@@ -9,6 +9,7 @@ Ports the Flask handlers (api/app.py) for:
   DELETE    /api/watchlist/{ticker}
   GET       /api/watchlist/fundamentals
   GET       /api/watchlist/mine        (owner-scoped — issue #224)
+  GET       /api/watchlist/quotes      (live 1d columns — issue #518)
   GET       /api/securities/lookup
   POST      /api/portfolio/lots/{lot_id}/close/preview   (issue #266)
   GET       /api/portfolio/sales                          (issue #266)
@@ -73,6 +74,7 @@ from ..schemas.portfolio import (
     UpdateWatchlistTagsResponse,
     WatchlistFundamentalsResponse,
     WatchlistMineResponse,
+    WatchlistQuotesResponse,
 )
 from quantcore.services.portfolio import DuplicateSymbolError
 
@@ -338,6 +340,25 @@ def get_watchlist_mine(owner: str = Depends(require_owner)) -> QuantCoreJSONResp
     ``GET /api/securities``.
     """
     return QuantCoreJSONResponse(services().watchlist.owner_view(owner=owner))
+
+
+# Same ordering hazard again. This is the Watchlist page's one read that may
+# reach Yahoo (#518): /watchlist/mine stays zero-network, and the page merges
+# these rows onto it by symbol. The list is global, so there is no owner here.
+@router.get("/watchlist/quotes", response_model=WatchlistQuotesResponse)
+def get_watchlist_quotes(force: bool = False) -> QuantCoreJSONResponse:
+    """Live 1d columns for every watchlist symbol: the regular-session change,
+    the pre- and post-market changes, the market state, and the figure to
+    show (``return_1d_display``, with ``return_1d_stale``).
+
+    One batched, TTL-cached quote call. ``force=true`` skips the 60 s TTL but
+    not the 10 s floor. A symbol with no live quote comes back marked stale
+    with its cached close-to-close return.
+    """
+    try:
+        return QuantCoreJSONResponse(services().watchlist.quotes(force=force))
+    except Exception as exc:  # noqa: BLE001 — never echo exception text to the caller
+        return route_internal_error(logger, "get_watchlist_quotes", exc)
 
 
 @router.post("/watchlist", response_model=AddWatchlistResponse, status_code=201)

@@ -205,13 +205,47 @@ which picks a bar's status from the clock. Rules:
 Because the quote path rewrites `ingested_at` on each refresh, a symbol whose quotes are being read
 rarely reaches the 300 s age that triggers a history re-fetch.
 
+### The live 1d columns
+
+Both pages get their 1d figure from `PricesService.quote_changes(symbols, force, return_1d)` (#518).
+Per symbol it returns `regular_change_pct`, `pre_change_pct`, `post_change_pct`, `market_state`,
+`quote_as_of`, `quote_stale`, and the figure to show:
+
+- `return_1d_display` is the quote's regular-session change when the quote is fresh, and otherwise
+  the cached close-to-close `return_1d`. `return_1d_stale` is true in the second case. The choice
+  is `analytics.returns.display_1d`, so no page makes it (arch-v2 Rules 8 and 9).
+- The fallback is read from the cache only for the symbols that need it, so a call where every
+  quote is fresh costs no SQL. A caller that already holds `return_1d` passes it in.
+- It is one `get_batch_quotes` call: the 60 s TTL and the 10 s force floor apply. It never raises
+  for a missing quote, and a failed database read for either fallback (the cached `return_1d`, or
+  the quote cache's last close) is logged and leaves those rows stale with nothing to show. The
+  rows with a live quote are unaffected.
+
+Where it is served:
+
+| Route | Source | Network |
+|---|---|---|
+| `GET /api/portfolio/symbols` | `PortfolioService.symbol_rows`: `bulk_period_returns` for `return_1d/5d/30d/60d/ytd/1y` (and the old `7d`/`90d`), plus `quote_changes` | the quote call `list_lots` already makes |
+| `GET /api/watchlist/quotes` | `WatchlistService.quotes` | one batched quote call |
+| `GET /api/watchlist/mine` and `/fundamentals` | gain the cached `return_1d` only | none, as before |
+
+The Portfolio's return columns used to come from one `get_history` per symbol, each of which could
+reach Yahoo. They now come from one cached read. One network path is left on purpose:
+`_warm_cold_history` calls `get_history` for a held symbol with **no** cached bars, because nothing
+else would fetch its history (the nightly close-out skips such a symbol). It runs once per newly
+held symbol. A symbol whose history can't be fetched (delisted, a bad ticker) stays cold, so each
+is tried at most once an hour per process (`COLD_WARM_RETRY_SECONDS`), not on every page load.
+
+The 1d to 60d windows count trading bars and YTD and 1y are calendar-anchored, as
+`bulk_period_returns` has always computed them.
+
 Two readers sit on the display side although they are near the line. `get_volume_analysis` reports
 today's volume against its average, which is the point of the tool during the session, and its
 response says so through `latest_bar_open`. `get_stock_price` saves a snapshot, but of the live
 price it was asked for, not of a ranking.
 
 The other services that call `get_history` keep the default and are listed in the test as
-live-side: the Portfolio's period returns, the options-chain Bollinger context, relative-strength
+live-side: the Portfolio's cold-start history warm, the options-chain Bollinger context, relative-strength
 history, the support-confluence Fibonacci and previous-bar sources, and the bid-ask spread proxy.
 `ArbitrageService` has one history read (`_closes`), so the single-pair analysis and pair
 discovery read closed bars along with the scan.
@@ -223,7 +257,7 @@ harvester scan runs after the close. A future alert that reads the cache belongs
 
 Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.
 
-The watchlist is DB-backed too (`watchlist` table, `WatchlistRepository` → `WatchlistService`, issue #83) but — unlike positions — it is **global**: one shared list, no `owner` column, with the writing principal recorded in `added_by` for audit only. `watchlist.yaml` is now purely an import format (`scripts/import_watchlist.py`, full-sync replace); every consumer (the daily report, the options screener, the fundamentals report, the REST tier) reads the table, and there is deliberately **no fallback to the YAML file** — an empty table is a loud Discord alarm (`alert_if_watchlist_empty` in `main.py`), not a quiet degrade. Surfaced as `GET/POST /api/watchlist`, `PATCH /api/watchlist/{ticker}` (tags only — it **replaces** the set rather than merging, because the UI sends the chip set it is displaying and a merge could never remove the last tag; PATCH not PUT because the currency is resolved server-side and must not be client-writable), `DELETE /api/watchlist/{ticker}`, `GET /api/watchlist/mine` (the same rows plus the caller's `held`/`quantity`/`avg_price`, from `WatchlistService.owner_view` in **seven queries, zero network** — the six plus one `list_positions(owner)`; issue #224, it replaced `GET /api/securities`), and `GET /api/watchlist/fundamentals` (returns + cached fundamentals for the whole list — `WatchlistService.returns_and_fundamentals` composes `PricesService` and `FundamentalsService` to serve it in **six queries and zero network calls**, which is what let the nightly HTML report become a page; the query count is constant in list size and `tests/test_watchlist_service.py` guards it, so do not "simplify" it into a per-symbol loop). Both routes must stay **declared before** `/watchlist/{ticker}` in `api/routers/portfolio.py` — FastAPI matches in declaration order. Plus `list_watchlist` / `add_to_watchlist` on the portfolio MCP wrapper. Removal is a UI-only action: the seam `mcp_gateway/rest_client.py` has no `delete` verb, so no agent can drop symbols off a list the whole team shares.
+The watchlist is DB-backed too (`watchlist` table, `WatchlistRepository` → `WatchlistService`, issue #83) but — unlike positions — it is **global**: one shared list, no `owner` column, with the writing principal recorded in `added_by` for audit only. `watchlist.yaml` is now purely an import format (`scripts/import_watchlist.py`, full-sync replace); every consumer (the daily report, the options screener, the fundamentals report, the REST tier) reads the table, and there is deliberately **no fallback to the YAML file** — an empty table is a loud Discord alarm (`alert_if_watchlist_empty` in `main.py`), not a quiet degrade. Surfaced as `GET/POST /api/watchlist`, `PATCH /api/watchlist/{ticker}` (tags only — it **replaces** the set rather than merging, because the UI sends the chip set it is displaying and a merge could never remove the last tag; PATCH not PUT because the currency is resolved server-side and must not be client-writable), `DELETE /api/watchlist/{ticker}`, `GET /api/watchlist/quotes` (live 1d columns for the list, the one watchlist read that may call Yahoo; see [The live 1d columns](#the-live-1d-columns)), `GET /api/watchlist/mine` (the same rows plus the caller's `held`/`quantity`/`avg_price`, from `WatchlistService.owner_view` in **seven queries, zero network** — the six plus one `list_positions(owner)`; issue #224, it replaced `GET /api/securities`), and `GET /api/watchlist/fundamentals` (returns + cached fundamentals for the whole list — `WatchlistService.returns_and_fundamentals` composes `PricesService` and `FundamentalsService` to serve it in **six queries and zero network calls**, which is what let the nightly HTML report become a page; the query count is constant in list size and `tests/test_watchlist_service.py` guards it, so do not "simplify" it into a per-symbol loop). All three routes must stay **declared before** `/watchlist/{ticker}` in `api/routers/portfolio.py` — FastAPI matches in declaration order. Plus `list_watchlist` / `add_to_watchlist` on the portfolio MCP wrapper. Removal is a UI-only action: the seam `mcp_gateway/rest_client.py` has no `delete` verb, so no agent can drop symbols off a list the whole team shares.
 
 **The currency on a watchlist entry is resolved server-side, not supplied.**
 `WatchlistService.add_entry` reads it off the exchange via `YFinanceGateway.ticker_info`

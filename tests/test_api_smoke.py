@@ -549,6 +549,32 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(row["market_cap_currency"], "USD")
         self.assertGreaterEqual(body["unscored_count"], 1)
 
+    def test_watchlist_quotes_returns_the_envelope_not_a_ticker(self):
+        """The route-order guard for the live 1d endpoint (#518), and the
+        stale fallback end to end: the stubbed Yahoo answers every quote as a
+        miss, so each row comes back marked stale and the route still 200s."""
+        self.client.post("/api/watchlist", json={
+            "symbol": WATCHLIST_SYMBOL, "name": "Watchlist Smoke Co",
+        })
+
+        resp = self.client.get("/api/watchlist/quotes?force=true")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(set(body), {"generated_at", "count", "stale_count", "quotes"})
+        self.assertEqual(body["count"], len(body["quotes"]))
+        [row] = [r for r in body["quotes"] if r["symbol"] == WATCHLIST_SYMBOL]
+        self.assertEqual(
+            set(row),
+            {"symbol", "regular_change_pct", "pre_change_pct", "post_change_pct",
+             "market_state", "quote_as_of", "quote_stale", "return_1d_display",
+             "return_1d_stale"},
+        )
+        self.assertIs(row["quote_stale"], True)
+        self.assertIs(row["return_1d_stale"], True)
+        self.assertIsNone(row["regular_change_pct"])
+        self.assertIsNone(row["return_1d_display"])     # an invented symbol has no bars
+        self.assertGreaterEqual(body["stale_count"], 1)
+
     def test_watchlist_mine_returns_the_envelope_not_a_ticker(self):
         """Same route-order guard as the fundamentals test above, for the
         merged page's endpoint (issue #224)."""
@@ -568,6 +594,7 @@ class ApiSmokeTest(unittest.TestCase):
         [row] = [r for r in body["rows"] if r["symbol"] == WATCHLIST_SYMBOL]
         self.assertEqual(row["name"], "Watchlist Smoke Co")
         self.assertFalse(row["held"])
+        self.assertIn("return_1d", row)      # the cached fallback column (#518)
 
     def test_lookup_missing_symbol_returns_plain_400(self):
         resp = self.client.get("/api/securities/lookup")
@@ -748,6 +775,14 @@ class LotRoutesTest(unittest.TestCase):
         self.assertEqual([l["lot_id"] for l in row["lots"]], [lot["lot_id"]])
         self.assertIn("total_investment", row)
         self.assertIn("total_investment", body["totals"])
+        # #518: the six return windows and the live 1d columns are on the row.
+        for column in ("return_1d", "return_5d", "return_30d", "return_60d",
+                       "return_ytd", "return_1y", "return_7d", "return_90d",
+                       "regular_change_pct", "pre_change_pct", "post_change_pct",
+                       "market_state", "quote_as_of", "quote_stale",
+                       "return_1d_display", "return_1d_stale"):
+            self.assertIn(column, row)
+        self.assertIs(row["return_1d_stale"], True)   # the stubbed Yahoo has no quote
 
     def test_update_lot_patches_fields(self):
         lot = self._create_lot()

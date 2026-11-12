@@ -229,7 +229,7 @@ authoritative endpoint list.** There are 111 routes, so the table below only gro
 | Router | Prefix | Covers |
 |--------|--------|--------|
 | `system.py` | `/api/health` | health check |
-| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, CSV import, delta exposure. Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals; `GET /api/watchlist/mine` adds the caller's holdings to it) and security lookup |
+| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, CSV import, delta exposure. Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals; `GET /api/watchlist/mine` adds the caller's holdings to it; `GET /api/watchlist/quotes` returns live 1-day changes for the list, and is the one of the three that may call Yahoo) and security lookup |
 | `prices.py` | `/api/securities/{ticker}/…` | OHLCV, price summary, technicals, VWAP (rolling, anchored, history), ATR bands, volume profile, candlesticks, gaps, drawdown |
 | `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | chains and contracts, spread pricing, IV rank, flow, OI change, GEX, gamma-wall history, the watchlist screen |
 | `fundamentals.py` | `/api/securities/…` | scores (single and batch, at most 25 symbols), growth, acceleration, earnings calendar, history, sector breakdown, cache stats. Collection reads take `?scope=all\|tracked` |

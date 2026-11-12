@@ -38,6 +38,10 @@ logger = logging.getLogger(__name__)
 # beats a dialog that appears to have frozen.
 ADD_LOOKUP_TIMEOUT_SECONDS = 6.0
 
+# Trailing windows on a watchlist row, in bars. 1 is the cached fallback for
+# the live 1d column (#518).
+RETURN_PERIODS = (1, 5, 30, 60)
+
 
 def _metric(score: Dict[str, Any], name: str) -> Dict[str, Any]:
     """One scored metric out of a cached fundamental_score payload, or ``{}``.
@@ -120,6 +124,7 @@ def _price_columns(prices: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "price": prices.get("price"),
         "price_as_of": prices.get("as_of"),
+        "return_1d": prices.get("return_1d"),
         "return_5d": prices.get("return_5d"),
         "return_30d": prices.get("return_30d"),
         "return_60d": prices.get("return_60d"),
@@ -358,6 +363,26 @@ class WatchlistService:
         envelope["held_count"] = sum(1 for r in rows if r["held"])
         return envelope
 
+    def quotes(self, force: bool = False) -> Dict[str, Any]:
+        """The live 1d columns for every watchlist symbol (#518).
+
+        The Watchlist page calls this next to ``owner_view``, which stays
+        zero-network: this is the read that may reach Yahoo, through
+        ``PricesService.quote_changes`` (one batched, TTL-cached quote call).
+        It never raises for a missing quote; that symbol's row is marked
+        stale and carries the cached ``return_1d`` instead.
+        """
+        self._require("quotes", self._prices)
+        symbols = [s for s in (_symbol(e.get("symbol")) for e in self.list_entries()) if s]
+        changes = self._prices.quote_changes(symbols, force=force)
+        rows = [{"symbol": symbol, **changes[symbol]} for symbol in sorted(changes)]
+        return {
+            "generated_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "count": len(rows),
+            "stale_count": sum(1 for r in rows if r["return_1d_stale"]),
+            "quotes": rows,
+        }
+
     @staticmethod
     def _require(method: str, *dependencies: Any) -> None:
         if any(d is None for d in dependencies):
@@ -387,7 +412,8 @@ class WatchlistService:
         whatever the number of entries.
         """
         symbols = [s for s in (_symbol(e.get("symbol")) for e in entries) if s]
-        price_rows = self._prices.bulk_period_returns(symbols, as_of=as_of)
+        price_rows = self._prices.bulk_period_returns(
+            symbols, periods=RETURN_PERIODS, as_of=as_of)
         by_type = self._fundamentals_by_type()
         ttl_seconds = self._fundamentals.cache_ttl_seconds()
         now_ts = int(time.time())

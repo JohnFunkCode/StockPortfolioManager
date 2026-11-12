@@ -273,14 +273,11 @@ class SymbolRowResponse(BaseModel):
     total_gain_loss_pct: Optional[Decimal] = None
     total_dollars_per_day: Optional[Decimal] = None
     # Trailing windows count trading bars, not calendar days; YTD and 1y are
-    # calendar-anchored (#518). return_7d/return_90d stay until the page
-    # stops reading them.
+    # calendar-anchored (#518).
     return_1d: Optional[float] = None
     return_5d: Optional[float] = None
-    return_7d: Optional[float] = None
     return_30d: Optional[float] = None
     return_60d: Optional[float] = None
-    return_90d: Optional[float] = None
     return_ytd: Optional[float] = None
     return_1y: Optional[float] = None
     # Live 1d columns (#518). return_1d_display is the figure to show: the

@@ -66,6 +66,101 @@ describe('PortfolioPage', () => {
     expect(screen.queryByTestId('portfolio-allocation-chart')).not.toBeInTheDocument();
   });
 
+  describe('return columns (issue #518)', () => {
+    const symbolOrder = () =>
+      Array.from(document.querySelectorAll('[data-testid^="one-day-"]')).map((cell) =>
+        cell.getAttribute('data-testid')!.replace('one-day-', ''),
+      );
+
+    function mountRows(symbols: object[]) {
+      mockApi([['/api/portfolio/symbols', { symbols, totals: null }]]);
+      renderWithProviders(<PortfolioPage />);
+    }
+
+    it('shows 1d / 5d / 30d / 60d / YTD / 1y and no 7d or 90d', async () => {
+      mount();
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      const headers = holdings()
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent);
+      expect(headers).toEqual(
+        expect.arrayContaining(['1d', '5d', '30d', '60d', 'YTD', '1y']),
+      );
+      expect(headers).not.toContain('7d');
+      expect(headers).not.toContain('90d');
+    });
+
+    it('renders the server-chosen 1d figure and each window as percent', async () => {
+      mountRows([
+        symbolRow({
+          return_1d_display: 0.75, return_5d: 1.2, return_30d: 3.5, return_60d: 8.1,
+          return_ytd: 12.3, return_1y: -21.9,
+        }),
+      ]);
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      expect(within(screen.getByTestId('one-day-INTC')).getByText('0.75%')).toBeInTheDocument();
+      for (const text of ['1.20%', '3.50%', '8.10%', '12.30%', '-21.90%']) {
+        expect(holdings().getByText(text)).toBeInTheDocument();
+      }
+    });
+
+    it('marks a stale 1d figure and shows the cached value', async () => {
+      mountRows([symbolRow({ return_1d_display: 0.4, return_1d_stale: true, quote_stale: true })]);
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      const cell = within(screen.getByTestId('one-day-INTC'));
+      expect(cell.getByText('0.40%')).toBeInTheDocument();
+      expect(cell.getByLabelText('stale')).toBeInTheDocument();
+    });
+
+    it('labels the session per row', async () => {
+      mountRows([
+        symbolRow({ symbol: 'AAPL', market_state: 'POST', post_change_pct: -0.25 }),
+        symbolRow({ symbol: 'SONY', market_state: 'PRE', pre_change_pct: 0.4 }),
+        symbolRow({ symbol: 'INTC', market_state: 'REGULAR', post_change_pct: 9 }),
+      ]);
+      await waitFor(() => expect(holdings().getByText('AAPL')).toBeInTheDocument());
+      expect(within(screen.getByTestId('one-day-AAPL')).getByTestId('session-badge'))
+        .toHaveTextContent('AH -0.25%');
+      expect(within(screen.getByTestId('one-day-SONY')).getByTestId('session-badge'))
+        .toHaveTextContent('Pre +0.40%');
+      expect(within(screen.getByTestId('one-day-INTC')).queryByTestId('session-badge'))
+        .not.toBeInTheDocument();
+    });
+
+    it('sorts by 1d with stale rows last in both directions', async () => {
+      mountRows([
+        symbolRow({ symbol: 'OLD', return_1d_display: 9, return_1d_stale: true }),
+        symbolRow({ symbol: 'UP', return_1d_display: 2 }),
+        symbolRow({ symbol: 'NONE', return_1d_display: null, return_1d_stale: true }),
+        symbolRow({ symbol: 'DOWN', return_1d_display: -3 }),
+      ]);
+      await waitFor(() => expect(holdings().getByText('UP')).toBeInTheDocument());
+
+      fireEvent.click(holdings().getByText('1d'));
+      expect(symbolOrder()).toEqual(['DOWN', 'UP', 'OLD', 'NONE']);
+      fireEvent.click(holdings().getByText('1d'));
+      expect(symbolOrder()).toEqual(['UP', 'DOWN', 'OLD', 'NONE']);
+    });
+
+    it('still sorts the other windows numerically, nulls last', async () => {
+      mountRows([
+        symbolRow({ symbol: 'B', return_30d: 5 }),
+        symbolRow({ symbol: 'A', return_30d: null }),
+        symbolRow({ symbol: 'C', return_30d: -1 }),
+      ]);
+      await waitFor(() => expect(holdings().getByText('B')).toBeInTheDocument());
+      fireEvent.click(holdings().getByText('30d'));
+      expect(symbolOrder()).toEqual(['C', 'B', 'A']);
+    });
+
+    it('explains the windows on hover', async () => {
+      mount();
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      fireEvent.mouseOver(holdings().getByText('30d'));
+      expect(await screen.findByText(/Trading days, not calendar days/)).toBeInTheDocument();
+    });
+  });
+
   it('shows the empty state when there are no positions', async () => {
     mockApi([['/api/portfolio/symbols', { symbols: [], totals: null }]]);
     renderWithProviders(<PortfolioPage />);

@@ -32,9 +32,25 @@ export interface SymbolRow {
   total_gain_loss: number | null;
   total_gain_loss_pct: number | null;
   total_dollars_per_day: number | null;
-  return_7d: number | null;
+  // Return windows (issue #518). 1d–60d count trading bars, not calendar
+  // days; YTD and 1y are calendar-anchored. All percent, all server-computed.
+  return_1d: number | null;
+  return_5d: number | null;
   return_30d: number | null;
-  return_90d: number | null;
+  return_60d: number | null;
+  return_ytd: number | null;
+  return_1y: number | null;
+  // Live 1d columns. return_1d_display is the figure to show: the quote's
+  // regular-session change when fresh, else the cached return_1d with
+  // return_1d_stale true. The page renders it and computes nothing.
+  regular_change_pct: number | null;
+  pre_change_pct: number | null;
+  post_change_pct: number | null;
+  market_state: string | null;
+  quote_as_of: string | null;
+  quote_stale: boolean;
+  return_1d_display: number | null;
+  return_1d_stale: boolean;
   mm_hedge_bias: string | null;
   mm_hedge_bias_captured_at: string | null;
   // Stacked allocation bar (issue #147 Part A), computed server-side by

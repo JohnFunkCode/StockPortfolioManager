@@ -406,7 +406,7 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         return prices
 
     def test_symbol_rows_return_columns_come_from_one_cached_read(self):
-        closes = [100.0] * 94 + [110.0]
+        closes = [100.0] * 64 + [110.0]
         prices = self._returns_service(cached={"ZZTEST": closes, "ZZTST2": closes})
         self._add(symbol="ZZTEST")
         self._add(symbol="ZZTST2")
@@ -414,12 +414,14 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         rows = {r["symbol"]: r for r in self.service.symbol_rows(OWNER_A)}
 
         # One bulk read for every symbol, and no per-symbol history fetch (#518).
-        self.assertEqual(prices.bulk_calls, [(["ZZTEST", "ZZTST2"], (1, 5, 7, 30, 60, 90))])
+        self.assertEqual(prices.bulk_calls, [(["ZZTEST", "ZZTST2"], (1, 5, 30, 60))])
         self.assertEqual(prices.history_calls, [])
         row = rows["ZZTEST"]
-        for column in ("return_1d", "return_5d", "return_7d", "return_30d",
-                       "return_60d", "return_90d"):
+        for column in ("return_1d", "return_5d", "return_30d", "return_60d"):
             self.assertEqual(row[column], 10.0, column)
+        # The 7d and 90d columns were retired with the page that read them.
+        self.assertNotIn("return_7d", row)
+        self.assertNotIn("return_90d", row)
         self.assertIn("return_ytd", row)
         self.assertIn("return_1y", row)
 
@@ -429,7 +431,6 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         row = self.service.symbol_rows(OWNER_A)[0]
         self.assertEqual(row["return_30d"], 10.0)
         self.assertIsNone(row["return_60d"])
-        self.assertIsNone(row["return_90d"])
 
     def test_symbol_rows_carry_the_live_quote_columns(self):
         prices = self._returns_service(cached={"ZZTEST": [100.0, 110.0]}, live={"ZZTEST"})
@@ -501,9 +502,9 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
 
         with self.assertLogs("quantcore.services.portfolio", "WARNING") as logs:
             row = self.service.symbol_rows(OWNER_A)[0]
-        self.assertIsNone(row["return_7d"])
+        self.assertIsNone(row["return_5d"])
         self.assertIsNone(row["return_30d"])
-        self.assertIsNone(row["return_90d"])
+        self.assertIsNone(row["return_60d"])
         self.assertEqual(len(prices.bulk_calls), 1)            # nothing warmed: no re-read
         self.assertIn("RuntimeError", logs.output[0])
         self.assertNotIn("secret detail", "\n".join(logs.output))

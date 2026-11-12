@@ -25,9 +25,9 @@ from quantcore.repositories.portfolio_repository import PortfolioRepository
 
 logger = logging.getLogger(__name__)
 
-# Trailing windows read for the Portfolio table, in bars (#518). 7 and 90 are
-# the old columns, kept until the page stops reading them (PR 7).
-RETURN_PERIODS = (1, 5, 7, 30, 60, 90)
+# Trailing windows read for the Portfolio table, in bars (#518): the same
+# 1d / 5d / 30d / 60d the Watchlist shows, plus YTD and 1y from the same read.
+RETURN_PERIODS = (1, 5, 30, 60)
 # How long before a symbol that is still without history is fetched again.
 COLD_WARM_RETRY_SECONDS = 3600.0
 RETURN_COLUMNS = tuple(f"return_{n}d" for n in RETURN_PERIODS) + ("return_ytd", "return_1y")
@@ -394,7 +394,7 @@ class PortfolioService:
 
     def symbol_rows(self, owner: str, force: bool = False) -> List[Dict[str, Any]]:
         """Per-symbol roll-up: aggregate totals, period-return columns (1d, 5d,
-        30d, 60d, YTD, 1y, and the older 7d/90d), the live 1d quote columns
+        30d, 60d, YTD, 1y), the live 1d quote columns
         (#518), the MM
         hedge bias (decision #18), and the stacked allocation bar's three
         segments (issue #147 Part A), each carrying its own open child lots

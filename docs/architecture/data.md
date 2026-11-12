@@ -225,7 +225,7 @@ Where it is served:
 
 | Route | Source | Network |
 |---|---|---|
-| `GET /api/portfolio/symbols` | `PortfolioService.symbol_rows`: `bulk_period_returns` for `return_1d/5d/30d/60d/ytd/1y` (and the old `7d`/`90d`), plus `quote_changes` | the quote call `list_lots` already makes |
+| `GET /api/portfolio/symbols` | `PortfolioService.symbol_rows`: `bulk_period_returns` for `return_1d/5d/30d/60d/ytd/1y`, plus `quote_changes` | the quote call `list_lots` already makes |
 | `GET /api/watchlist/quotes` | `WatchlistService.quotes` | one batched quote call |
 | `GET /api/watchlist/mine` and `/fundamentals` | gain the cached `return_1d` only | none, as before |
 

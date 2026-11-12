@@ -12,11 +12,21 @@ import { apiRequest } from './client';
 import type {
   WatchlistFundamentalsResponse,
   WatchlistMineResponse,
+  WatchlistQuotesResponse,
   UpdateWatchlistTagsResponse,
 } from './watchlistTypes';
 
-export type { WatchlistFundamentalsResponse, WatchlistMineResponse, UpdateWatchlistTagsResponse };
-export type { WatchlistFundamentalsRow, WatchlistMineRow } from './watchlistTypes';
+export type {
+  WatchlistFundamentalsResponse,
+  WatchlistMineResponse,
+  WatchlistQuotesResponse,
+  UpdateWatchlistTagsResponse,
+};
+export type {
+  WatchlistFundamentalsRow,
+  WatchlistMineRow,
+  WatchlistQuoteRow,
+} from './watchlistTypes';
 
 export const watchlistApi = {
   /** The whole list with returns and cached fundamentals. Served in six
@@ -29,6 +39,15 @@ export const watchlistApi = {
    * `avg_price`) — what the merged `/watchlist` page reads (issue #224).
    * Owner-scoped server-side; seven queries, zero network calls. */
   getMine: () => apiRequest<WatchlistMineResponse>('/api/watchlist/mine'),
+
+  /** Live 1d columns for the whole list (issue #518). The one watchlist read
+   * that may reach Yahoo server-side, which is why it is not folded into
+   * `getMine`. `force` skips the server's 60 s quote cache (a 10 s floor
+   * still applies); the Refresh button is its only caller. */
+  getQuotes: (force = false) =>
+    apiRequest<WatchlistQuotesResponse>(
+      `/api/watchlist/quotes${force ? '?force=true' : ''}`,
+    ),
 
   /** Replace `ticker`'s tags. The full chip set the page is displaying, not a
    * delta — the server replaces rather than merges, which is the only way a

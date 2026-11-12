@@ -7,9 +7,14 @@
  * the signed-in user holds it. The portfolio is a subset of the shared
  * watchlist, so "held" is a flag on a watchlist row, never a row of its own.
  *
- * One request feeds the whole table (`GET /api/watchlist/mine`, seven queries
- * and zero network calls server-side — the six of `/watchlist/fundamentals`
- * plus the owner's open lots), so everything here is rendering and filtering.
+ * One request feeds the table (`GET /api/watchlist/mine`, seven queries and
+ * zero network calls server-side — the six of `/watchlist/fundamentals` plus
+ * the owner's open lots), so everything here is rendering and filtering.
+ * A second request, `GET /api/watchlist/quotes`, supplies only the live 1d
+ * column (issue #518) and is merged on by symbol. It is fetched on load and on
+ * the Refresh button, never on a timer, and the table doesn't wait for it:
+ * until it answers (or if it fails) the 1d column shows the cached
+ * `return_1d` from the first request, marked stale.
  * Qty and Avg Price are rolled up server-side (`position_rollup`), not here.
  * Two rules the report taught us, kept visible:
  *
@@ -23,12 +28,13 @@
  *   there until an FX source lands (issue #185), and a null that floats to the
  *   top of a "biggest first" sort reads as an answer.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -51,6 +57,7 @@ import {
 import type { SelectChangeEvent } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import FilterListIcon from '@mui/icons-material/FilterList';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import {
@@ -64,13 +71,20 @@ import type { GridComparatorFn, GridSortDirection } from '@mui/x-data-grid';
 import AddSecurityDialog from '../securities/AddSecurityDialog';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
+import OneDayChange, { compareOneDay } from '../common/OneDayChange';
+import type { OneDayFields } from '../common/OneDayChange';
 import ScreenerPanel from './ScreenerPanel';
 import SentimentDashboard from './SentimentDashboard';
 import OptionsRefreshPanel from './OptionsRefreshPanel';
 import { SentimentBadge } from './sentiment';
-import { useWatchlistMine, useSetWatchlistTags } from '../../hooks/useWatchlist';
+import {
+  useRefreshWatchlistQuotes,
+  useSetWatchlistTags,
+  useWatchlistMine,
+  useWatchlistQuotes,
+} from '../../hooks/useWatchlist';
 import { useRemoveFromWatchlist, useSentimentSummary } from '../../hooks/useSecurities';
-import type { WatchlistMineRow } from '../../api/watchlist';
+import type { WatchlistMineRow, WatchlistQuoteRow } from '../../api/watchlist';
 import {
   formatCurrency,
   formatDate,
@@ -92,6 +106,26 @@ function ReturnCell({ value }: { value: number | null | undefined }) {
       {formatPercentRaw(value, 1)}
     </Typography>
   );
+}
+
+/** A table row: the `/watchlist/mine` row with its 1d fields filled in. */
+type WatchlistRow = WatchlistMineRow & OneDayFields;
+
+/** The row's 1d fields: the live quote row when there is one, otherwise the
+ * cached `return_1d` marked stale. Both figures are the server's; this only
+ * picks which response to read. */
+function withOneDay(row: WatchlistMineRow, quote: WatchlistQuoteRow | undefined): WatchlistRow {
+  if (quote) {
+    return {
+      ...row,
+      return_1d_display: quote.return_1d_display,
+      return_1d_stale: quote.return_1d_stale,
+      market_state: quote.market_state,
+      pre_change_pct: quote.pre_change_pct,
+      post_change_pct: quote.post_change_pct,
+    };
+  }
+  return { ...row, return_1d_display: row.return_1d ?? null, return_1d_stale: true };
 }
 
 /** Composite score descending — the order the nightly report ranked by, so the
@@ -176,6 +210,18 @@ function readSortModel(): GridSortModel {
 export default function WatchlistPage() {
   const navigate = useNavigate();
   const { data, isLoading, error } = useWatchlistMine();
+  // The table never waits on this and never fails because of it (issue #518).
+  const { data: quotes, isFetching: quotesFetching, isError: quotesFailed } = useWatchlistQuotes();
+  const refreshQuotes = useRefreshWatchlistQuotes();
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    // A failed refresh keeps the figures already on screen; the header chip
+    // says the quotes are unavailable.
+    refreshQuotes()
+      .catch(() => undefined)
+      .finally(() => setRefreshing(false));
+  }, [refreshQuotes]);
   const setTags = useSetWatchlistTags();
   const removeFromWatchlist = useRemoveFromWatchlist();
   const {
@@ -205,7 +251,10 @@ export default function WatchlistPage() {
     });
   };
 
-  const rows = useMemo<WatchlistMineRow[]>(() => data?.rows ?? [], [data]);
+  const rows = useMemo<WatchlistRow[]>(() => {
+    const bySymbol = new Map((quotes?.quotes ?? []).map((q) => [q.symbol, q]));
+    return (data?.rows ?? []).map((row) => withOneDay(row, bySymbol.get(row.symbol)));
+  }, [data, quotes]);
 
   const sentimentMap = useMemo<Record<string, string>>(() => {
     const map: Record<string, string> = {};
@@ -221,7 +270,7 @@ export default function WatchlistPage() {
     return Array.from(set).sort();
   }, [rows]);
 
-  const filtered = useMemo<WatchlistMineRow[]>(
+  const filtered = useMemo<WatchlistRow[]>(
     () =>
       rows.filter((r) => {
         if (show === 'held' && !r.held) return false;
@@ -273,7 +322,7 @@ export default function WatchlistPage() {
     removeFromWatchlist.mutate(removeTarget, { onSuccess: () => setRemoveTarget(null) });
   };
 
-  const columns: GridColDef<WatchlistMineRow>[] = [
+  const columns: GridColDef<WatchlistRow>[] = [
     {
       field: 'symbol',
       headerName: 'Symbol',
@@ -339,8 +388,32 @@ export default function WatchlistPage() {
         ),
     },
     {
+      field: 'return_1d_display',
+      headerName: '1d',
+      description:
+        "Today's regular-session change. A row marked stale has no live quote and shows the last cached daily change.",
+      width: 150,
+      type: 'number',
+      // Stale rows last in both directions, then rows with no figure.
+      getSortComparator: (direction) => (_a, _b, paramsA, paramsB) =>
+        compareOneDay(
+          paramsA.api.getRow(paramsA.id) as WatchlistRow,
+          paramsB.api.getRow(paramsB.id) as WatchlistRow,
+          direction,
+        ),
+      renderCell: (p: GridRenderCellParams<WatchlistRow, number | null>) => (
+        // A block-level body2, like the neighbouring ReturnCell: an inline
+        // wrapper would inherit the grid cell's row-height line box and sit
+        // lower than the return columns beside it.
+        <Typography variant="body2" component="div" data-testid={`one-day-${p.row.symbol}`}>
+          <OneDayChange row={p.row} decimals={1} />
+        </Typography>
+      ),
+    },
+    {
       field: 'return_5d',
       headerName: '5d',
+      description: 'Last 5 bars. Trading days, not calendar days.',
       width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
@@ -350,6 +423,7 @@ export default function WatchlistPage() {
     {
       field: 'return_30d',
       headerName: '30d',
+      description: 'Last 30 bars, about 6 calendar weeks. Trading days, not calendar days.',
       width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
@@ -359,6 +433,7 @@ export default function WatchlistPage() {
     {
       field: 'return_60d',
       headerName: '60d',
+      description: 'Last 60 bars, about 12 calendar weeks. Trading days, not calendar days.',
       width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
@@ -368,6 +443,7 @@ export default function WatchlistPage() {
     {
       field: 'return_ytd',
       headerName: 'YTD',
+      description: 'Since the first trading day of this calendar year.',
       width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
@@ -377,6 +453,7 @@ export default function WatchlistPage() {
     {
       field: 'return_1y',
       headerName: '1y',
+      description: 'Since the same calendar date a year ago.',
       width: 70,
       type: 'number',
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
@@ -586,10 +663,29 @@ export default function WatchlistPage() {
               />
             </Tooltip>
           )}
+          {quotesFailed && (
+            <Tooltip title="Live quotes could not be loaded. The 1d column shows the last cached daily change.">
+              <Chip
+                size="small"
+                label="quotes unavailable"
+                sx={{ fontSize: 11, bgcolor: 'var(--qc-tint-amber)', color: 'var(--qc-ink-amber)', border: '1px solid var(--qc-ink-amber)' }}
+              />
+            </Tooltip>
+          )}
         </Stack>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-          Add Security
-        </Button>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Button
+            size="small"
+            startIcon={refreshing || quotesFetching ? <CircularProgress size={14} /> : <RefreshIcon />}
+            onClick={handleRefresh}
+            disabled={refreshing || quotesFetching}
+          >
+            Refresh
+          </Button>
+          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
+            Add Security
+          </Button>
+        </Stack>
       </Stack>
 
       <Paper sx={{ p: 2, mb: 2 }}>

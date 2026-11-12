@@ -43,10 +43,30 @@ watchlist, so there are no held-only rows: a held symbol that is off the list is
 logged as a warning. A held row gets a Held chip, and the Show filter is All / Held. The screener,
 the sentiment dashboard and the options-snapshot refresh moved over as
 `components/watchlist/ScreenerPanel.tsx`, `SentimentDashboard.tsx` and `OptionsRefreshPanel.tsx`.
-The API also serves live 1d columns for both pages (`return_1d_display` and the quote fields on
-`GET /api/portfolio/symbols`, and `GET /api/watchlist/quotes`); see
-[data.md](data.md#the-live-1d-columns). **No page reads them yet**: the Portfolio still shows
-7d / 30d / 90d and the Watchlist has no 1d column until the UI change (#518 PR 7).
+**Return columns and the live 1d figure (#518).** The Portfolio and Watchlist tables show the same
+windows: 1d / 5d / 30d / 60d / YTD / 1y. The 1d to 60d windows count trading bars, not calendar
+days, and YTD and 1y are calendar-anchored; each column header says so on hover, so nobody "fixes"
+30d to mean 30 calendar days. Rules to keep:
+
+- **The pages compute nothing.** The 1d figure is `return_1d_display`, chosen server-side
+  ([data.md](data.md#the-live-1d-columns)). Both tables render it through
+  `components/common/OneDayChange.tsx`, which adds only presentation: a `stale` marker when
+  `return_1d_stale` is true, and the pre-market (`Pre`) or after-hours (`AH`) change when the row's
+  own `market_state` says that session is current or just ended. The badge is per row because a
+  foreign listing keeps its own hours.
+- **Stale rows sort last on 1d in both directions**, then rows with no figure (`compareOneDay`). A
+  stale figure is an earlier day's move and must not top a "biggest movers" sort.
+- **The Portfolio** gets every column from its one `GET /api/portfolio/symbols` request.
+- **The Watchlist** makes a second request, `GET /api/watchlist/quotes` (`useWatchlistQuotes`), and
+  merges it onto the `/watchlist/mine` rows by symbol. The table doesn't wait for it and doesn't
+  fail with it: until it answers, or for a symbol it leaves out, the 1d cell shows the cached
+  `return_1d` from `/watchlist/mine`, marked stale; if it fails, a "quotes unavailable" chip says
+  so.
+- **Quotes load when the page loads and when Refresh is clicked, never on a timer.** The Watchlist's
+  Refresh button refetches with `force=true`. Don't add a `refetchInterval`: polling the whole list
+  from every open tab is the load the batch quote endpoint exists to avoid. A vitest case fails if
+  one appears.
+
 The per-symbol drill-down keeps its `/securities/:symbol` URL (its Back button returns to
 `/watchlist`), and `GET /api/securities` — the old list route — is gone; `/api/securities/lookup`
 and every `/api/securities/{ticker}/*` route stay.

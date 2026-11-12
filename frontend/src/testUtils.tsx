@@ -368,9 +368,20 @@ export function symbolRow(overrides: object = {}) {
     total_gain_loss: 50,
     total_gain_loss_pct: 16.67,
     total_dollars_per_day: 0.25,
-    return_7d: 1.2,
+    return_1d: 0.4,
+    return_5d: 1.2,
     return_30d: 3.5,
-    return_90d: 8.1,
+    return_60d: 8.1,
+    return_ytd: 12.3,
+    return_1y: 21.9,
+    regular_change_pct: 0.75,
+    pre_change_pct: null,
+    post_change_pct: null,
+    market_state: 'REGULAR',
+    quote_as_of: '2026-07-27T15:00:00Z',
+    quote_stale: false,
+    return_1d_display: 0.75,
+    return_1d_stale: false,
     mm_hedge_bias: 'buy_on_rally',
     mm_hedge_bias_captured_at: '2026-07-27T15:00:00Z',
     bar_base: 300,
@@ -408,6 +419,7 @@ export function watchlistRow(symbol = 'INTC', overrides: object = {}) {
     tags: [],
     price: 42.5,
     price_as_of: '2026-08-07T20:00:00Z',
+    return_1d: 0.3,
     return_5d: 1.2,
     return_30d: 4.8,
     return_60d: -2.5,
@@ -475,6 +487,32 @@ export function watchlistMine(
     held_count: rows.filter((r) => r.held).length,
     rows,
     ...overrides,
+  };
+}
+
+/** A row of GET /api/watchlist/quotes (issue #518): a live, fresh quote. */
+export function quoteRow(symbol = 'INTC', overrides: object = {}) {
+  return {
+    symbol,
+    regular_change_pct: 1.5,
+    pre_change_pct: null,
+    post_change_pct: null,
+    market_state: 'REGULAR',
+    quote_as_of: '2026-08-07T19:59:00Z',
+    quote_stale: false,
+    return_1d_display: 1.5,
+    return_1d_stale: false,
+    ...overrides,
+  };
+}
+
+/** The GET /api/watchlist/quotes envelope. */
+export function watchlistQuotes(rows: Array<ReturnType<typeof quoteRow>> = [quoteRow()]) {
+  return {
+    generated_at: '2026-08-07T20:00:00Z',
+    count: rows.length,
+    stale_count: rows.filter((r) => r.return_1d_stale).length,
+    quotes: rows,
   };
 }
 

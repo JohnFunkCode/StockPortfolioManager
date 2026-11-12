@@ -14,7 +14,9 @@ import {
   mockApi,
   renderWithProviders,
   mineRow,
+  quoteRow,
   watchlistMine,
+  watchlistQuotes,
   type MockedApi,
 } from '../../testUtils';
 
@@ -63,6 +65,13 @@ const ROWS = [
   }),
 ];
 
+// The live 1d column's second request (issue #518). ASSA-B.ST is deliberately
+// absent, as Yahoo's batch reply sometimes leaves a symbol out.
+const QUOTES = [
+  quoteRow('INTC', { return_1d_display: 1.5 }),
+  quoteRow('WMT', { return_1d_display: -0.8, market_state: 'POST', post_change_pct: 0.2 }),
+];
+
 // The page also reads the bulk news sentiment for its News column (#224).
 const SENTIMENT = {
   items: [{ symbol: 'INTC', overall_sentiment: 'positive', article_count: 4 }],
@@ -74,6 +83,7 @@ function arm(overrides: Array<[string | RegExp, unknown]> = []): MockedApi {
     ...(overrides as Array<[string | RegExp, never]>),
     ['/api/securities/news/sentiment-summary', SENTIMENT],
     ['/api/watchlist/mine', watchlistMine(ROWS)],
+    ['/api/watchlist/quotes', watchlistQuotes(QUOTES)],
   ]);
 }
 
@@ -122,8 +132,14 @@ describe('WatchlistPage', () => {
     const api = await mount();
     expect(inGrid().getByText('WMT')).toBeInTheDocument();
     expect(inGrid().getByText('ASSA-B.ST')).toBeInTheDocument();
-    // One fetch for the whole table — not one per symbol.
-    expect(api.calls.filter(([url]) => String(url).includes('/api/watchlist'))).toHaveLength(1);
+    // One fetch for the whole table and one for the live 1d column (issue
+    // #518) — never one per symbol.
+    await waitFor(() =>
+      expect(api.calls.filter(([url]) => String(url).includes('/api/watchlist'))).toHaveLength(2),
+    );
+    const paths = api.calls.map(([url]) => String(url));
+    expect(paths.filter((url) => url.includes('/api/watchlist/mine'))).toHaveLength(1);
+    expect(paths.filter((url) => url.includes('/api/watchlist/quotes'))).toHaveLength(1);
   });
 
   it('summarises count, price date, stale and unscored in the header', async () => {
@@ -196,6 +212,107 @@ describe('WatchlistPage', () => {
       await mount();
       fireEvent.click(inGrid().getByText('INTC'));
       expect(mockNavigate).toHaveBeenCalledWith('/securities/INTC');
+    });
+  });
+
+  describe('live 1d column (issue #518)', () => {
+    const oneDay = (symbol: string) => within(screen.getByTestId(`one-day-${symbol}`));
+    const quoteCalls = (api: MockedApi) =>
+      api.calls.map(([url]) => url).filter((url) => url.includes('/api/watchlist/quotes'));
+
+    it('merges the quotes onto the rows by symbol', async () => {
+      await mount();
+      await waitFor(() => expect(oneDay('INTC').getByText('1.5%')).toBeInTheDocument());
+      expect(oneDay('WMT').getByText('-0.8%')).toBeInTheDocument();
+      expect(oneDay('INTC').queryByLabelText('stale')).not.toBeInTheDocument();
+    });
+
+    it('shows the session badge for the row whose market is after hours', async () => {
+      await mount();
+      await waitFor(() =>
+        expect(oneDay('WMT').getByTestId('session-badge')).toHaveTextContent('AH +0.2%'),
+      );
+      expect(oneDay('INTC').queryByTestId('session-badge')).not.toBeInTheDocument();
+    });
+
+    it('falls back to the cached 1d, marked stale, for a symbol the quotes left out', async () => {
+      await mount([
+        ['/api/watchlist/mine', watchlistMine([...ROWS.slice(0, 2), mineRow('ASSA-B.ST', { return_1d: 0.6 })])],
+      ]);
+      await waitFor(() => expect(oneDay('INTC').getByText('1.5%')).toBeInTheDocument());
+      expect(oneDay('ASSA-B.ST').getByText('0.6%')).toBeInTheDocument();
+      expect(oneDay('ASSA-B.ST').getByLabelText('stale')).toBeInTheDocument();
+    });
+
+    it('renders a stale quote row as the server marked it', async () => {
+      await mount([
+        ['/api/watchlist/quotes', watchlistQuotes([
+          quoteRow('INTC', { return_1d_display: 0.4, return_1d_stale: true, quote_stale: true }),
+        ])],
+      ]);
+      await waitFor(() => expect(oneDay('INTC').getByText('0.4%')).toBeInTheDocument());
+      expect(oneDay('INTC').getByLabelText('stale')).toBeInTheDocument();
+    });
+
+    it('does not wait for the quotes: the table shows with the cached 1d first', async () => {
+      await mount([['/api/watchlist/quotes', () => new Promise<object>(() => {})]]);
+      expect(oneDay('INTC').getByText('0.3%')).toBeInTheDocument();
+      expect(oneDay('INTC').getByLabelText('stale')).toBeInTheDocument();
+    });
+
+    it('survives a failed quotes request and says so', async () => {
+      await mount([['/api/watchlist/quotes', () => ({ __status: 500, error: 'boom' })]]);
+      await waitFor(() => expect(screen.getByText('quotes unavailable')).toBeInTheDocument());
+      expect(oneDay('INTC').getByText('0.3%')).toBeInTheDocument();
+      expect(inGrid().getByText('WMT')).toBeInTheDocument();
+    });
+
+    it('sorts by 1d with stale rows last in both directions', async () => {
+      localStorage.setItem(
+        'watchlist-sort-model',
+        JSON.stringify([{ field: 'return_1d_display', sort: 'asc' }]),
+      );
+      await mount();
+      // ASSA-B.ST has no quote, so its cached figure is stale: last both ways.
+      await waitFor(() => expect(symbolOrder()).toEqual(['WMT', 'INTC', 'ASSA-B.ST']));
+
+      fireEvent.click(inGrid().getByText('1d'));
+      await waitFor(() => expect(symbolOrder()).toEqual(['INTC', 'WMT', 'ASSA-B.ST']));
+    });
+
+    it('fetches the quotes once on load and never on a timer', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const api = await mount();
+        await waitFor(() => expect(quoteCalls(api).length).toBe(1));
+        await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+        expect(quoteCalls(api).length).toBe(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('refetches with force=true from the Refresh button', async () => {
+      const api = await mount();
+      await waitFor(() => expect(quoteCalls(api).length).toBe(1));
+      expect(quoteCalls(api)[0]).not.toContain('force');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+      await waitFor(() => expect(quoteCalls(api).length).toBe(2));
+      expect(quoteCalls(api)[1]).toContain('force=true');
+    });
+
+    it('keeps the page up when a forced refresh fails', async () => {
+      let calls = 0;
+      await mount([
+        ['/api/watchlist/quotes', () =>
+          ++calls === 1 ? watchlistQuotes(QUOTES) : { __status: 500, error: 'boom' }],
+      ]);
+      await waitFor(() => expect(oneDay('INTC').getByText('1.5%')).toBeInTheDocument());
+      fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+      await waitFor(() => expect(calls).toBe(2));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh' })).toBeEnabled());
+      expect(inGrid().getByText('INTC')).toBeInTheDocument();
     });
   });
 

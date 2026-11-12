@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) in review; PR 7 (UI) not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) in review. Still owed after it merges: the measurements on test listed at the end of the checkpoint log. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -471,3 +471,24 @@ PR 4 close-out ────────────────────┘
   change is now treated as a missing one (`display_1d`, `_pct2`), `data.md` says all three watchlist
   routes are declared before `/watchlist/{ticker}`, and a test pins that `get_batch_quotes` returns
   an entry for every requested symbol when Yahoo's reply omits some.
+- 2026-11-12: PR 6 merged as #526. PR 7 (UI) opened, the last of the sequence. Both tables render
+  1d through one component, `OneDayChange`, and sort it with `compareOneDay` (stale last both
+  ways). `return_7d`/`return_90d` are gone from the service, the schema and the page. Decisions
+  made here:
+  - **The Watchlist shows the cached `return_1d` (stale) until the quotes request answers**, so the
+    table never waits on Yahoo, and keeps showing it for a symbol the quotes leave out.
+  - **The Watchlist got a Refresh button** (it had none); it refetches the quotes with
+    `force=true`. The Portfolio's existing Refresh is unchanged: it refetches without `force`, so
+    the server's 60 s quote cache still applies there.
+  - **No Sidekick card changes.** No registered component shows return columns, so plan step 5
+    had nothing to update.
+  Gotcha: a DataGrid cell's line box is the row height, so an inline wrapper in `renderCell` sits
+  lower than the bare `Typography` cells beside it. The 1d cell's wrapper is a block-level `body2`.
+  Verified in a browser against a **stub API with canned data** (both pages, dark and light
+  themes, the Refresh button sending `force=true`); not against the deployed test service.
+- **Still owed on test, after PR 7 deploys** (none of these has been run):
+  1. PR 4 step 4: the close-out's wall time and 429 count for the full universe, from a nightly
+     run's log; then tune `OHLCV_CLOSEOUT_CHUNK_SIZE`/`_PAUSE_SECONDS` if needed.
+  2. PR 5 step 4: after a page load during market hours, each quoted symbol has exactly one `OPEN`
+     `1d` row for today; after the nightly run none are left `OPEN`.
+  3. PR 7 step 7: both pages in the deployed UI during market hours and after the close.

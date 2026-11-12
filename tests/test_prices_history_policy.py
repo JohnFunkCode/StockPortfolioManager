@@ -5,7 +5,9 @@ architectural-standard-v2 Rule 5 (caching policy is a service concern) it now
 lives here, orchestrating YFinanceGateway (fetch) and OhlcvRepository
 (persist/query). Everything is mocked — no network, no DB.
 """
+import ast
 import datetime
+import pathlib
 import time
 import unittest
 from unittest.mock import Mock, patch
@@ -103,6 +105,76 @@ class TestHistoryPolicy(unittest.TestCase):
         )
         self.service.get_history("ZZNONE", "1d", 30)
         self.repo.store_bars.assert_not_called()
+
+
+class TestReaderPolicy(unittest.TestCase):
+    """#518 reader policy: live displays may read today's forming ``OPEN`` bar;
+    a reader that ranks, alerts or uses volume reads closed bars only."""
+
+    # Every function that reads closed bars only. A new ranking, alerting or
+    # volume-based reader is added here on purpose, in the same change that
+    # passes ``include_open=False``; so is one that stops being closed-only.
+    CLOSED_ONLY_READERS = {
+        ("quantcore/services/prices.py", "get_obv"),
+        ("quantcore/services/prices.py", "get_volume_profile"),
+        ("quantcore/services/prices.py", "screen_securities"),
+        ("quantcore/services/options_screening.py", "fetch_bollinger_bands"),
+        ("quantcore/services/options_screening.py", "fetch_iv_analysis"),
+        ("quantcore/services/options_screening.py", "_run_cached"),
+    }
+
+    def setUp(self):
+        self.repo = Mock()
+        self.repo.count_cached.return_value = 500
+        self.repo.has_open_bar.return_value = False
+        self.repo.latest_closed_ts.return_value = None
+        self.repo.get_bars.return_value = FRESH_DF
+        self.service = make_service(self.repo, Mock())
+
+    def test_get_history_reads_the_open_bar_by_default(self):
+        self.service.get_history("INTC", "1d", 30)
+        self.repo.get_bars.assert_called_once_with("INTC", "1d", 30, include_open=True)
+
+    def test_get_history_passes_closed_only_through(self):
+        self.service.get_history("INTC", "1d", 30, include_open=False)
+        self.repo.get_bars.assert_called_once_with("INTC", "1d", 30, include_open=False)
+
+    def test_closed_only_readers_are_exactly_the_listed_ones(self):
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = set()
+        for path in sorted((root / "quantcore" / "services").glob("*.py")):
+            tree = ast.parse(path.read_text())
+            for func in ast.walk(tree):
+                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(func):
+                    if isinstance(node, ast.Call) and any(
+                        kw.arg == "include_open"
+                        and isinstance(kw.value, ast.Constant)
+                        and kw.value.value is False
+                        for kw in node.keywords
+                    ):
+                        found.add((str(path.relative_to(root)), func.name))
+        self.assertEqual(found, self.CLOSED_ONLY_READERS)
+
+    def test_latest_bar_open_is_set_on_a_forming_bar(self):
+        closes = [100.0 + i for i in range(60)]
+        frame = pd.DataFrame(
+            {"Open": closes, "High": closes, "Low": closes, "Close": closes,
+             "Volume": [1000] * 60},
+            index=pd.date_range("2026-01-01", periods=60, tz="UTC"),
+        )
+        for is_open in (True, False):
+            frame.attrs["latest_bar_open"] = is_open
+            self.repo.get_bars.return_value = frame
+            with self.subTest(latest_bar_open=is_open):
+                self.assertIs(self.service.get_rsi("INTC")["latest_bar_open"], is_open)
+                self.assertIs(self.service.get_ohlcv_bars("INTC")["latest_bar_open"], is_open)
+                self.assertIs(
+                    self.service.get_technicals_table("INTC")["latest_bar_open"], is_open)
+
+    def test_latest_bar_open_is_false_for_a_frame_without_the_marker(self):
+        self.assertIs(self.service.get_ohlcv_bars("INTC")["latest_bar_open"], False)
 
 
 if __name__ == "__main__":
@@ -226,7 +298,7 @@ class TestGetQuotes(unittest.TestCase):
              "volume": 1, "high": 7, "low": 7, "open": 7},
         ]
         quotes = self.service.get_quotes(["AAA", "BBB"])
-        self.repo.daily_bars_for_symbols.assert_called_once_with(["BBB"])
+        self.repo.daily_bars_for_symbols.assert_called_once_with(["BBB"], include_open=True)
         self.assertFalse(quotes["AAA"]["stale"])
         self.assertEqual(quotes["BBB"]["price"], 7.0)
         self.assertTrue(quotes["BBB"]["stale"])

@@ -95,6 +95,12 @@ def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
     return price, as_of
 
 
+def _latest_bar_open(hist) -> bool:
+    """True when the newest bar of a ``get_history`` frame is today's forming
+    ``OPEN`` bar (the repository records it in ``DataFrame.attrs``)."""
+    return bool(getattr(hist, "attrs", {}).get("latest_bar_open", False))
+
+
 def _safe_int(val):
     try:
         f = float(val) if val is not None else 0.0
@@ -164,10 +170,15 @@ class PricesService:
     # keeping YFinanceGateway the single fetch seam.
     # ------------------------------------------------------------------
 
-    def get_history(self, symbol: str, interval: str = "1d", days: int = 365) -> pd.DataFrame:
+    def get_history(self, symbol: str, interval: str = "1d", days: int = 365, *,
+                    include_open: bool = True) -> pd.DataFrame:
         """Cached OHLCV history; fetches via the gateway only when: no cache
         (cold start), an OPEN bar needs refreshing, or the latest CLOSED bar
-        predates the most recent started session."""
+        predates the most recent started session.
+
+        Reader policy (#518): the default keeps today's forming ``OPEN`` bar,
+        for live displays. A reader that ranks, alerts or uses volume passes
+        ``include_open=False``; ``tests/test_prices_history_policy.py`` lists them."""
         if interval not in VALID_INTERVALS:
             raise ValueError(f"Invalid interval '{interval}'. Valid: {VALID_INTERVALS}")
         symbol = symbol.upper()
@@ -190,7 +201,7 @@ class PricesService:
             if not fresh.empty:
                 self._ohlcv.store_bars(symbol, interval, fresh)
 
-        return self._ohlcv.get_bars(symbol, interval, days)
+        return self._ohlcv.get_bars(symbol, interval, days, include_open=include_open)
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.
@@ -211,7 +222,7 @@ class PricesService:
         """Bulk last-close fallback for symbols with no usable live quote,
         via the repository's multi-symbol bulk read (decision #15's DB half)
         rather than one get_history call per symbol."""
-        rows = self._ohlcv.daily_bars_for_symbols(symbols)
+        rows = self._ohlcv.daily_bars_for_symbols(symbols, include_open=True)
         closes: dict[str, tuple[float, datetime.datetime]] = {}
         for row in rows:  # ordered by symbol, ts ASC — last write per symbol wins
             as_of = datetime.datetime.fromtimestamp(row["ts"], tz=datetime.timezone.utc)
@@ -263,7 +274,7 @@ class PricesService:
         if not symbols:
             return out
 
-        rows = self._ohlcv.daily_bars_for_symbols(symbols)
+        rows = self._ohlcv.daily_bars_for_symbols(symbols, include_open=True)
         bars_by_sym: dict[str, list] = defaultdict(list)
         for r in rows:
             bars_by_sym[r["symbol"]].append(r)
@@ -410,6 +421,7 @@ class PricesService:
 
         # Bollinger Bands
         hist = self.get_history(symbol.upper(), "1d", 90)
+        bar_open = _latest_bar_open(hist)
         close = hist["Close"].dropna()
         if len(close) >= 20:
             sma20 = float(close.rolling(window=20).mean().iloc[-1])
@@ -450,6 +462,7 @@ class PricesService:
             "currency": getattr(info, "currency", "USD"),
             "bollinger_bands": bollinger_bands,
             "options": options_data,
+            "latest_bar_open": bar_open,
         }
 
         self._options.save_snapshot(
@@ -473,6 +486,7 @@ class PricesService:
         fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
+        bar_open = _latest_bar_open(hist)
         closes = hist["Close"].dropna()
 
         if len(closes) < period + 1:
@@ -505,6 +519,7 @@ class PricesService:
             "rsi": round(float(rsi), 2),
             "signal": signal,
             "last_close": round(float(closes.iloc[-1]), 4),
+            "latest_bar_open": bar_open,
         }
 
     def get_macd(self, symbol: str, interval: str = "1d") -> dict:
@@ -515,6 +530,7 @@ class PricesService:
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
+        bar_open = _latest_bar_open(hist)
         closes = hist["Close"].dropna()
 
         if len(closes) < 35:
@@ -548,6 +564,7 @@ class PricesService:
             "histogram": round(hist_val, 4),
             "crossover": crossover,
             "last_close": round(float(closes.iloc[-1]), 4),
+            "latest_bar_open": bar_open,
         }
 
     def get_stochastic(self, symbol: str, k_period: int = 14, d_period: int = 3, interval: str = "1d") -> dict:
@@ -558,6 +575,7 @@ class PricesService:
         fetch_period = {"1d": "90d", "1wk": "2y", "1mo": "5y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period))
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < k_period + d_period:
             raise ValueError(
@@ -605,6 +623,7 @@ class PricesService:
             "signal":    signal,
             "crossover": crossover,
             "last_close": round(float(hist["Close"].iloc[-1]), 4),
+            "latest_bar_open": bar_open,
         }
 
     # ------------------------------------------------------------------
@@ -619,6 +638,7 @@ class PricesService:
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -715,6 +735,7 @@ class PricesService:
             "obv_divergence":   obv_divergence,
             "climax_events":    climax_events,
             "bottom_signal":    bottom_signal,
+            "latest_bar_open": bar_open,
         }
 
     def get_obv(self, symbol: str, lookback: int = 20, interval: str = "1d") -> dict:
@@ -724,7 +745,7 @@ class PricesService:
 
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
-        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period), include_open=False).copy()
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -844,6 +865,7 @@ class PricesService:
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -967,6 +989,7 @@ class PricesService:
             "reclaim_strength":         reclaim_strength,
             "crossover_events":         crossover_events,
             "interpretation":           interpretation,
+            "latest_bar_open": bar_open,
         }
 
     def get_vwap_history(self, symbol: str, since_days: int = 90, lookback: int = 20, interval: str = "1d") -> dict:
@@ -974,6 +997,7 @@ class PricesService:
         # Fetch enough extra bars to seed the first rolling window
         fetch_days = since_days + lookback + 5
         df = self.get_history(symbol, interval=interval, days=fetch_days)
+        bar_open = _latest_bar_open(df)
         if df is None or df.empty:
             return {"symbol": symbol, "error": "No OHLCV data in cache", "history": []}
 
@@ -991,7 +1015,7 @@ class PricesService:
             }
             for idx, row in df.iterrows()
         ]
-        return {"symbol": symbol, "lookback_bars": lookback, "data_points": len(history), "history": history}
+        return {"symbol": symbol, "lookback_bars": lookback, "data_points": len(history), "history": history, "latest_bar_open": bar_open}
 
     # ------------------------------------------------------------------
     # Pattern detection
@@ -1005,6 +1029,7 @@ class PricesService:
         fetch_period = {"1d": "6mo", "1wk": "3y", "1mo": "10y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < lookback + 25:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 25})")
@@ -1204,6 +1229,7 @@ class PricesService:
             "patterns_found": patterns_found,
             "pattern_count": len(patterns_found),
             "bounce_signal": bounce_signal,
+            "latest_bar_open": bar_open,
         }
 
     def get_atr_bands(self, symbol: str, period: int = 14, band_mult: float = 2.0,
@@ -1215,6 +1241,7 @@ class PricesService:
         fetch_period = {"1d": "2y", "1h": "60d", "1wk": "5y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         min_bars = period * 2 + 5
         if len(hist) < min_bars:
@@ -1289,6 +1316,7 @@ class PricesService:
             "stop_distance_pct": round(stop_distance_pct, 3),
             "bands_history":     bands_history,
             "interpretation":    interpretation,
+            "latest_bar_open": bar_open,
         }
 
     def get_volume_profile(self, symbol: str, days: int = 365, interval: str = "1d",
@@ -1307,7 +1335,7 @@ class PricesService:
             note = ("Intraday (1h) history is capped at ~60 days by the data source; "
                     "profile built on the available window.")
 
-        hist = self.get_history(sym, interval, days)
+        hist = self.get_history(sym, interval, days, include_open=False)
 
         min_bars = 20
         if len(hist) < min_bars:
@@ -1394,6 +1422,7 @@ class PricesService:
         sym = symbol.upper()
         days = min(int(lookback_days), 730)  # yfinance daily-fetch cap
         hist = self.get_history(sym, "1d", days).copy()
+        bar_open = _latest_bar_open(hist)
 
         min_bars = swing_bars * 2 + 10
         if len(hist) < min_bars:
@@ -1533,6 +1562,7 @@ class PricesService:
             "nearest_support":    nearest_support,
             "nearest_resistance": nearest_resistance,
             "interpretation":     " ".join(lines),
+            "latest_bar_open": bar_open,
         }
 
     def get_higher_lows(self, symbol: str, swing_bars: int = 3, lookback_swings: int = 6,
@@ -1544,6 +1574,7 @@ class PricesService:
         fetch_period = {"15m": "60d", "30m": "60d", "1h": "60d", "1d": "2y"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         min_bars = swing_bars * 2 + 10
         if len(hist) < min_bars:
@@ -1573,6 +1604,7 @@ class PricesService:
                 "pattern_strength":    "none",
                 "swing_lows":          [],
                 "interpretation":      "Insufficient swing lows detected — market may be trending strongly or data window too short.",
+                "latest_bar_open": bar_open,
             }
 
         # Build swing low records
@@ -1675,6 +1707,7 @@ class PricesService:
             "trend_before_lows":    trend_before,
             "swing_lows":           swing_lows,
             "interpretation":       interpretation,
+            "latest_bar_open": bar_open,
         }
 
     def get_gap_analysis(self, symbol: str, min_gap_pct: float = 0.5, lookback: int = 60,
@@ -1686,6 +1719,7 @@ class PricesService:
         fetch_period = {"1d": "2y", "1h": "60d"}[interval]
 
         hist = self.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < lookback + 5:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 5})")
@@ -1838,6 +1872,7 @@ class PricesService:
             "nearest_gap_below": nearest_below,
             "all_gaps":         gaps,
             "interpretation":   " ".join(lines),
+            "latest_bar_open": bar_open,
         }
 
     # ------------------------------------------------------------------
@@ -1849,6 +1884,7 @@ class PricesService:
         # ~252 trading days ≈ 365 calendar days; use 2× to be safe with the cache.
         calendar_days = max(lookback_days * 2, 365)
         hist = self.get_history(symbol.upper(), "1d", calendar_days).copy()
+        bar_open = _latest_bar_open(hist)
 
         if len(hist) < 10:
             raise ValueError(
@@ -1961,6 +1997,7 @@ class PricesService:
             "trailing_stop_pct":      trailing_stop_pct,
 
             "stop_width_note":        " ".join(notes),
+            "latest_bar_open": bar_open,
         }
 
     # ------------------------------------------------------------------
@@ -1970,6 +2007,7 @@ class PricesService:
     def get_ohlcv_bars(self, ticker: str, days: int = 180) -> dict:
         ticker = ticker.upper()
         df = self.get_history(ticker, "1d", days)
+        bar_open = _latest_bar_open(df)
 
         if df.empty:
             return {"ticker": ticker, "bars": []}
@@ -1986,7 +2024,7 @@ class PricesService:
                 "close": round(float(row["Close"]), 4),
                 "volume": int(row["Volume"]),
             })
-        return {"ticker": ticker, "bars": bars}
+        return {"ticker": ticker, "bars": bars, "latest_bar_open": bar_open}
 
     def get_risk_signals(self, ticker: str) -> dict:
         """Historical drawdown metrics for stop-loss calibration, plus VWAP context.
@@ -2013,6 +2051,7 @@ class PricesService:
     def get_technicals_table(self, ticker: str, days: int = 365) -> dict:
         ticker = ticker.upper()
         df = self.get_history(ticker, "1d", max(days, 400))
+        bar_open = _latest_bar_open(df)
 
         if df.empty:
             return {"ticker": ticker, "indicators": []}
@@ -2059,7 +2098,7 @@ class PricesService:
                 "macd_signal": safe_float(signal_line.iloc[idx]),
                 "macd_hist": safe_float(histogram.iloc[idx]),
             })
-        return {"ticker": ticker, "indicators": indicators}
+        return {"ticker": ticker, "indicators": indicators, "latest_bar_open": bar_open}
 
     def get_technical_signals(self, ticker: str) -> dict:
         ticker = ticker.upper()
@@ -2143,7 +2182,7 @@ class PricesService:
             return {"results": [], "count": 0}
 
         # Pull all daily bars for the symbols in one SQL query
-        rows = self._ohlcv.daily_bars_for_symbols(symbols)
+        rows = self._ohlcv.daily_bars_for_symbols(symbols, include_open=False)
 
         # Group rows by symbol and compute indicators
         bars_by_sym: dict[str, list] = defaultdict(list)

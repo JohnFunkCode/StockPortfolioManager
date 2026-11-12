@@ -117,7 +117,7 @@ class TestGetVolumeProfile(unittest.TestCase):
     def test_levels_and_nearest_node_selection(self):
         result = self.service.get_volume_profile("nvda", days=365, bins=5)
 
-        self.service.get_history.assert_called_once_with("NVDA", "1d", 365)
+        self.service.get_history.assert_called_once_with("NVDA", "1d", 365, include_open=False)
         self.assertEqual(result["symbol"], "NVDA")
         self.assertEqual(result["bars_used"], 24)
         self.assertEqual(result["poc"], 101.0)
@@ -141,7 +141,7 @@ class TestGetVolumeProfile(unittest.TestCase):
     def test_intraday_beyond_cap_gets_note_not_error(self):
         result = self.service.get_volume_profile("NVDA", days=365, interval="1h", bins=5)
         self.assertIn("capped", result["note"])
-        self.service.get_history.assert_called_once_with("NVDA", "1h", 365)
+        self.service.get_history.assert_called_once_with("NVDA", "1h", 365, include_open=False)
 
     def test_invalid_params_raise(self):
         with self.assertRaises(ValueError):

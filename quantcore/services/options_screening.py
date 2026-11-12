@@ -735,7 +735,7 @@ class OptionsScreeningService:
     def fetch_bollinger_bands(self, symbol: str) -> Optional[BollingerBands]:
         try:
             return _bands_from_history(
-                self._prices.get_history(symbol, "1d", period_to_days(HISTORY_PERIOD)))
+                self._prices.get_history(symbol, "1d", period_to_days(HISTORY_PERIOD), include_open=False))
         except Exception:
             return None
 
@@ -819,7 +819,7 @@ class OptionsScreeningService:
         most recent HV30 value so rank/percentile still reflect the vol environment.
         """
         try:
-            return _iv_from_history(self._prices.get_history(symbol, "1d", 365), options)
+            return _iv_from_history(self._prices.get_history(symbol, "1d", 365, include_open=False), options)
         except Exception:
             return None
 
@@ -1500,7 +1500,7 @@ class OptionsScreeningService:
         chains = self._options_repo.get_latest_full_chains(symbols, today.isoformat())
         inputs = _CachedInputs(
             chains=chains,
-            history=self._ohlcv.daily_history_for_symbols(symbols, CACHED_HISTORY_DAYS),
+            history=self._ohlcv.daily_history_for_symbols(symbols, CACHED_HISTORY_DAYS, include_open=False),
             earnings=self._cached_earnings(today),
             news=self._news_store.get_sentiment_summaries(symbols, days=CATALYST_LOOKBACK_DAYS),
         )

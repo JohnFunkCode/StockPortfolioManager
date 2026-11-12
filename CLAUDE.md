@@ -214,6 +214,10 @@ keep:
 - **A re-fetch can't remove a bad bar.** Both writers upsert, so a stored row on a date Yahoo doesn't
   return stays. Delete it by key (`scripts/repair_ohlcv_orphan_bars.py`); don't make a writer delete
   what a fetch omits, because a gappy reply would then erase real history.
+- **A reader that ranks, alerts, or uses volume reads closed bars only (`include_open=False`)**
+  (#518). `include_open` is required on the repository reads, and a new closed-only reader is added
+  to `TestReaderPolicy`'s list. Who reads today's forming bar and why:
+  [`data.md`](docs/architecture/data.md#todays-forming-bar).
 
 **SQL values are always bound parameters** (#462). An expression interpolated into SQL must be
 code-built (a column allow-list, a placeholder list, a literal picked by a bool) and listed, with

@@ -44,6 +44,13 @@ function spyingClient(): { qc: QueryClient; invalidated: string[] } {
   return { qc, invalidated };
 }
 
+/** A client with the app's default of one retry (`main.tsx`), made instant. */
+function appLikeClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: 1, retryDelay: 0, gcTime: 0, staleTime: 0 } },
+  });
+}
+
 describe('useWatchlistFundamentals', () => {
   it('fetches the whole table in one request', async () => {
     const api = mockApi([
@@ -145,6 +152,14 @@ describe('useWatchlistQuotes', () => {
     expect(options.refetchInterval).toBeFalsy();
     expect(options.staleTime).toBe(60 * 1000);
   });
+
+  it('does not retry a failed request, even when the app default retries', async () => {
+    const api = mockApi([['/api/watchlist/quotes', { __status: 500, error: 'quotes down' }]]);
+    const qc = appLikeClient();
+    const { result } = renderHookWithProviders(() => useWatchlistQuotes(), { queryClient: qc });
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(api.calls).toHaveLength(1);
+  });
 });
 
 describe('useRefreshWatchlistQuotes', () => {
@@ -165,5 +180,23 @@ describe('useRefreshWatchlistQuotes', () => {
 
     await waitFor(() => expect(result.current.quotes.data?.quotes[0].return_1d_display).toBe(2));
     expect(api.calls[1][0]).toContain('force=true');
+  });
+
+  it('does not retry a failed refresh, even when the app default retries', async () => {
+    let fail = false;
+    const api = mockApi([
+      ['/api/watchlist/quotes', () =>
+        fail ? { __status: 500, error: 'quotes down' } : watchlistQuotes([quoteRow('INTC')])],
+    ]);
+    const qc = appLikeClient();
+    const { result } = renderHookWithProviders(
+      () => ({ quotes: useWatchlistQuotes(), refresh: useRefreshWatchlistQuotes() }),
+      { queryClient: qc },
+    );
+    await waitFor(() => expect(result.current.quotes.isSuccess).toBe(true));
+
+    fail = true;
+    await expect(result.current.refresh()).rejects.toThrow();
+    expect(api.calls).toHaveLength(2);
   });
 });

@@ -61,7 +61,8 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   merges it onto the `/watchlist/mine` rows by symbol. The table doesn't wait for it and doesn't
   fail with it: until it answers, or for a symbol it leaves out, the 1d cell shows the cached
   `return_1d` from `/watchlist/mine`, marked stale; if it fails, a "quotes unavailable" chip says
-  so.
+  so. A failed quotes request is **not retried** (`retry: false` on the query and on
+  Refresh): each attempt can reach Yahoo on the server, and it fails mostly when Yahoo is down.
 - **Quotes load when the page loads and when Refresh is clicked, never on a timer.** The Watchlist's
   Refresh button refetches with `force=true`. Don't add a `refetchInterval`: polling the whole list
   from every open tab is the load the batch quote endpoint exists to avoid. A vitest case fails if

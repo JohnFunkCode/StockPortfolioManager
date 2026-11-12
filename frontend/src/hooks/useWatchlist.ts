@@ -32,12 +32,17 @@ const WATCHLIST_QUOTES_KEY = ['watchlist-quotes'];
  * Fetched on load and on the Refresh button only: `staleTime` matches the
  * server's 60 s quote cache and there is deliberately **no**
  * `refetchInterval`. Polling 260 symbols from every open tab is the load the
- * batch endpoint was built to avoid. */
+ * batch endpoint was built to avoid.
+ *
+ * `retry: false` for the same reason: each attempt can reach Yahoo on the
+ * server, and a failure is most likely during a Yahoo outage. The page falls
+ * back to the cached figures, so one attempt is enough. */
 export function useWatchlistQuotes() {
   return useQuery({
     queryKey: WATCHLIST_QUOTES_KEY,
     queryFn: () => watchlistApi.getQuotes(),
     staleTime: 60 * 1000,
+    retry: false,
   });
 }
 
@@ -50,6 +55,7 @@ export function useRefreshWatchlistQuotes() {
       queryKey: WATCHLIST_QUOTES_KEY,
       queryFn: () => watchlistApi.getQuotes(true),
       staleTime: 0,
+      retry: false,
     });
 }
 

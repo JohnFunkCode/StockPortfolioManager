@@ -12,7 +12,9 @@ All persistence is consolidated into a single **QuantCore** PostgreSQL database,
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
-**`ohlcv` has two writers, and they disagree about `adj_close`.** `OhlcvRepository` (the prices
+**`ohlcv` has two history writers, and they disagree about `adj_close`.** (A third writer, the
+live quote writer, writes only today's forming bar and leaves `adj_close` alone; see
+[The live quote writer](#the-live-quote-writer).) `OhlcvRepository` (the prices
 cache) fetches with `auto_adjust=True`, so the adjustment is already baked into `close` and it
 writes `adj_close = NULL`; `HarvesterPlanDB.build_plan` fetches with `auto_adjust=False,
 include_adj_close=True` and writes a real adjusted close for the same `(symbol, '1d', ts)` rows.
@@ -164,10 +166,42 @@ one query: the oldest `OPEN` bar's `ts` and the oldest `ingested_at` among `OPEN
 the oldest of each because one overdue bar is enough, and during the session an intraday interval
 has several `OPEN` bars. `ingested_at` is `NOT NULL`, so every `OPEN` bar has an age.
 
-The bar's date is its `ts` read in UTC, as the closed-bar check does. For an exchange east of UTC
-that is the day before the local session date, so such a bar becomes "an earlier session" at
-midnight Eastern and is re-fetched on each read from then on. That is the old behaviour, not a
-new cost.
+The bar's date is its `ts` read in UTC. That is the session's date for every exchange, because a
+daily bar's `ts` is midnight UTC of its session date (see the writer below).
+
+### The live quote writer
+
+`PricesService.get_batch_quotes` writes each fetched quote through to `ohlcv` as today's forming
+daily bar (`_write_live_bars` → `OhlcvRepository.upsert_live_daily_bars`), so the returns columns
+and price tools see today's price without a history download. It does not go through `store_bars`,
+which picks a bar's status from the clock. Rules:
+
+1. **`ts` is midnight UTC of the session's date on its exchange** (`market_time.session_bar_ts`):
+   the date of the quote's `regular_time` in its `exchange_tz`, then midnight UTC of that date.
+   Never "now": on a weekend or holiday the quote still carries the last session's time. Never the
+   UTC date of the instant: 10:30 in Sydney is 23:30 UTC the day before. This matches what the
+   history fetch stores, because `yf.download` returns a tz-naive daily index and `.timestamp()`
+   reads it as UTC. `ts` is in the primary key, so a different convention writes a second bar for
+   the same day that no fetch ever replaces.
+2. **Regular-session fields only** (`regular_open/high/low/price/volume`). A pre- or post-market
+   price never reaches a bar, although it can be the `price` the caller gets.
+3. **A `CLOSED` bar is never overwritten.** The upsert updates only `WHERE ohlcv.status = 'OPEN'`.
+   After the close-out, or on a weekend, the quote's session is one whose bar is final and the
+   write does nothing.
+4. **Always `OPEN`,** even after 4pm. The nightly close-out or a `get_history` re-fetch closes it.
+5. **Unusable quotes are skipped** (`_live_daily_bar`): any of open/high/low/price missing,
+   non-finite or ≤ 0 (a foreign listing before its open sends 0.0 for open, high and low), a
+   negative volume, or a session that can't be dated. A missing volume is stored as 0.
+6. **No bar for a symbol with no daily history.** The insert is conditional on the symbol already
+   having a daily row. A lone live bar would make `count_cached` non-zero, and `get_history` would
+   then skip its cold-start warm and serve a history as short as its caller's window.
+7. `adj_close` is written NULL and the `COALESCE` keeps a harvester value. One `executemany`, bound
+   parameters only.
+8. **A failed write never fails the quote.** It is logged by exception class and the caller gets
+   its quote.
+
+Because the quote path rewrites `ingested_at` on each refresh, a symbol whose quotes are being read
+rarely reaches the 300 s age that triggers a history re-fetch.
 
 Two readers sit on the display side although they are near the line. `get_volume_analysis` reports
 today's volume against its average, which is the point of the tool during the session, and its

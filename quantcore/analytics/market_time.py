@@ -65,6 +65,26 @@ def market_date(now: datetime.datetime | None = None) -> datetime.date:
     return _now_et(now).date()
 
 
+def session_bar_ts(epoch_seconds: int, exchange_tz: str) -> int | None:
+    """The ``ohlcv`` daily-bar ``ts`` for the session an instant falls in.
+
+    The session date is the instant's calendar date **on its exchange**; the
+    ``ts`` is midnight **UTC** of that date, because that is what the history
+    fetch stores (``yf.download`` returns a tz-naive daily index, which
+    ``.timestamp()`` reads as UTC). ``ts`` is in the table's primary key, so a
+    different convention here would write a second bar for the same day that
+    no fetch ever replaces. None when the timezone name is unknown.
+    """
+    try:
+        zone = pytz.timezone(exchange_tz)
+    except (pytz.UnknownTimeZoneError, AttributeError):
+        return None
+    local = datetime.datetime.fromtimestamp(int(epoch_seconds), tz=zone)
+    midnight_utc = datetime.datetime.combine(
+        local.date(), datetime.time(0), tzinfo=datetime.timezone.utc)
+    return int(midnight_utc.timestamp())
+
+
 def is_market_open(now: datetime.datetime | None = None) -> bool:
     """Approximate regular-hours check — weekdays 9:30–16:00 ET, not holiday-aware."""
     current = _now_et(now)

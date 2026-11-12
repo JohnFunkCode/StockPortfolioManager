@@ -206,20 +206,25 @@ Full narrative (status vocabulary, the backstop flag, the Plan chip):
 
 All persistence is a single **QuantCore** PostgreSQL database (24 tables, DDL in `_SCHEMA` in
 `quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
-repository and the REST API. `ohlcv` has two writers that disagree about `adj_close`. Rules to
-keep:
+repository and the REST API. `ohlcv` has three writers: the price refresh and the harvester, which
+disagree about `adj_close`, and the live quote writer (#518). Rules to keep:
 
 - **A price refresh may fill `adj_close`, never blank it** — `OhlcvRepository`'s upsert uses
   `COALESCE(EXCLUDED.adj_close, ohlcv.adj_close)`.
 - **A window measured in bars must be fetched in trading days** (`HarvesterService.build_plan`
   scales by `365/252`); when a gap survives anyway, raise — never substitute `close`.
-- **A re-fetch can't remove a bad bar.** Both writers upsert, so a stored row on a date Yahoo doesn't
+- **A re-fetch can't remove a bad bar.** Every writer upserts, so a stored row on a date Yahoo doesn't
   return stays. Delete it by key (`scripts/repair_ohlcv_orphan_bars.py`); don't make a writer delete
   what a fetch omits, because a gappy reply would then erase real history.
 - **A reader that ranks, alerts, or uses volume reads closed bars only (`include_open=False`)**
   (#518). `include_open` is required on the repository reads, and a new closed-only reader is added
   to `TestReaderPolicy`'s list. Who reads today's forming bar and why:
   [`data.md`](docs/architecture/data.md#todays-forming-bar).
+- **Live quotes write `OPEN` daily bars from regular-session fields only and never overwrite
+  `CLOSED`** (#518, `OhlcvRepository.upsert_live_daily_bars`). A daily bar's `ts` is midnight
+  **UTC** of the session's date on its exchange (`market_time.session_bar_ts`); another convention
+  writes a second bar for the same day that no fetch replaces. A symbol with no daily history gets
+  no live bar. Why: [`data.md`](docs/architecture/data.md#the-live-quote-writer).
 
 **SQL values are always bound parameters** (#462). An expression interpolated into SQL must be
 code-built (a column allow-list, a placeholder list, a literal picked by a bool) and listed, with

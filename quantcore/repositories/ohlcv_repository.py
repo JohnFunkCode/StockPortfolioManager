@@ -498,3 +498,53 @@ class OhlcvRepository:
                 (sorted({s.upper() for s in symbols}),),
             ).fetchall()
         return {r[0]: int(r[1]) for r in rows}
+
+    # --- live quote writer (#518) -------------------------------------
+
+    def upsert_live_daily_bars(self, bars: list[dict]) -> None:
+        """Write today's forming daily bars from live quotes, always ``OPEN``.
+
+        Each bar is ``{symbol, ts, open, high, low, close, volume}``; the
+        caller (``PricesService``) builds them from regular-session quote
+        fields and drops unusable ones. This does not go through
+        ``store_bars``, which picks the status from the clock. Rules:
+
+        - **A ``CLOSED`` bar is never overwritten.** The update applies only
+          where the stored row is ``OPEN``. Out of hours the quote's session
+          is one whose bar is already final, and the write does nothing.
+        - **No bar for a symbol with no daily history.** A lone live bar would
+          make ``count_cached`` non-zero, and ``get_history`` would then never
+          run its cold-start warm of the full history.
+        - ``adj_close`` is written NULL and the ``COALESCE`` keeps a value the
+          harvester stored, as in ``store_bars``.
+        """
+        if not bars:
+            return
+        ingested_at = int(time())
+        rows = [
+            (b["symbol"], int(b["ts"]), float(b["open"]), float(b["high"]),
+             float(b["low"]), float(b["close"]), int(b["volume"]), ingested_at, b["symbol"])
+            for b in bars
+        ]
+        with closing(get_connection()) as conn:
+            conn.executemany(
+                """
+                INSERT INTO ohlcv
+                    (symbol, interval, ts, open, high, low, close, volume,
+                     status, adj_close, data_vendor, ingested_at)
+                SELECT %s, '1d', %s, %s, %s, %s, %s, %s, 'OPEN', NULL, 'yfinance', %s
+                WHERE EXISTS (SELECT 1 FROM ohlcv WHERE symbol = %s AND interval = '1d')
+                ON CONFLICT (symbol, interval, ts) DO UPDATE SET
+                    open        = EXCLUDED.open,
+                    high        = EXCLUDED.high,
+                    low         = EXCLUDED.low,
+                    close       = EXCLUDED.close,
+                    volume      = EXCLUDED.volume,
+                    adj_close   = COALESCE(EXCLUDED.adj_close, ohlcv.adj_close),
+                    data_vendor = EXCLUDED.data_vendor,
+                    ingested_at = EXCLUDED.ingested_at
+                WHERE ohlcv.status = 'OPEN'
+                """,
+                rows,
+            )
+            conn.commit()

@@ -36,6 +36,7 @@ from quantcore.analytics.market_time import (
     latest_completed_session,
     market_date,
     period_to_days,
+    session_bar_ts,
 )
 from quantcore.analytics.volume_profile import build_volume_profile, find_volume_nodes
 from quantcore.error_text import safe_error_text
@@ -78,6 +79,29 @@ CLOSEOUT_MIN_DAYS = 10
 def _utc_date(ts: int) -> datetime.date:
     """The UTC date of a bar's ``ts``, the date every bar check here uses."""
     return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).date()
+
+
+def _live_daily_bar(symbol: str, quote) -> dict | None:
+    """Today's forming daily bar from a gateway ``Quote``, or None (#518).
+
+    Regular-session fields only: a pre- or post-market price never reaches a
+    bar. None when any of open/high/low/price is missing or not positive (a
+    foreign listing before its open sends 0.0 for open, high and low), when the
+    volume is negative, or when the session can't be dated. A missing volume
+    is stored as 0.
+    """
+    if quote is None or quote.regular_time is None:
+        return None
+    prices = (quote.regular_open, quote.regular_high, quote.regular_low, quote.regular_price)
+    if any(p is None or not math.isfinite(p) or p <= 0 for p in prices):
+        return None
+    volume = quote.regular_volume or 0
+    ts = session_bar_ts(quote.regular_time, quote.exchange_tz)
+    if ts is None or volume < 0:
+        return None
+    return {"symbol": symbol, "ts": ts, "open": quote.regular_open,
+            "high": quote.regular_high, "low": quote.regular_low,
+            "close": quote.regular_price, "volume": volume}
 
 
 def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
@@ -457,6 +481,7 @@ class PricesService:
             fallback = self._last_closes(needs_fallback) if needs_fallback else {}
 
             self._store_quotes(due, live, fetched, fallback, now)
+            self._write_live_bars(fetched)
 
         return {
             symbol: {
@@ -465,6 +490,21 @@ class PricesService:
             }
             for symbol in symbols
         }
+
+    def _write_live_bars(self, fetched: dict) -> None:
+        """Write the fetched quotes through to ``ohlcv`` as ``OPEN`` daily bars.
+
+        Never raises: a failed write costs the cache one refresh, and must not
+        cost the caller its quote.
+        """
+        bars = [bar for symbol, quote in fetched.items()
+                if (bar := _live_daily_bar(symbol, quote)) is not None]
+        if not bars:
+            return
+        try:
+            self._ohlcv.upsert_live_daily_bars(bars)
+        except Exception as exc:  # noqa: BLE001 — the quote is already served
+            logger.warning("get_batch_quotes: live bar write failed (%s)", type(exc).__name__)
 
     def _store_quotes(self, due, live, fetched, fallback, now) -> None:
         """Write one fetch's outcome into the quote cache: the live quote, else

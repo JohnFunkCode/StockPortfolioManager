@@ -2,6 +2,7 @@ import csv
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 from contextlib import closing
 from datetime import date
 from decimal import Decimal
@@ -472,6 +473,22 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         self.assertEqual(prices.bulk_calls[1][0], ["ZZTEST"])  # and only it is re-read
         self.assertEqual(rows["ZZTEST"]["return_5d"], 20.0)
         self.assertEqual(rows["ZZTST2"]["return_5d"], 0.0)
+
+    def test_a_symbol_that_stays_cold_is_not_refetched_on_every_call(self):
+        # A delisted or mistyped ticker never gets history. Without a bound it
+        # would cost one Yahoo call per Portfolio page load, forever.
+        from quantcore.services import portfolio as portfolio_module
+
+        prices = self._returns_service()          # get_history returns nothing
+        self._add(symbol="ZZTEST")
+        clock = [1000.0]
+        with patch.object(portfolio_module.time, "monotonic", lambda: clock[0]):
+            self.service.symbol_rows(OWNER_A)
+            self.service.symbol_rows(OWNER_A)
+            self.assertEqual(prices.history_calls, ["ZZTEST"])
+            clock[0] += portfolio_module.COLD_WARM_RETRY_SECONDS + 1
+            self.service.symbol_rows(OWNER_A)
+            self.assertEqual(prices.history_calls, ["ZZTEST", "ZZTEST"])
 
     def test_symbol_rows_history_warm_failure_degrades_to_none(self):
         prices = self._returns_service()

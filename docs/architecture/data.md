@@ -216,8 +216,10 @@ Per symbol it returns `regular_change_pct`, `pre_change_pct`, `post_change_pct`,
   is `analytics.returns.display_1d`, so no page makes it (arch-v2 Rules 8 and 9).
 - The fallback is read from the cache only for the symbols that need it, so a call where every
   quote is fresh costs no SQL. A caller that already holds `return_1d` passes it in.
-- It is one `get_batch_quotes` call: the 60 s TTL and the 10 s force floor apply, and it never
-  raises for a missing quote.
+- It is one `get_batch_quotes` call: the 60 s TTL and the 10 s force floor apply. It never raises
+  for a missing quote, and a failed database read for either fallback (the cached `return_1d`, or
+  the quote cache's last close) is logged and leaves those rows stale with nothing to show. The
+  rows with a live quote are unaffected.
 
 Where it is served:
 
@@ -231,7 +233,8 @@ The Portfolio's return columns used to come from one `get_history` per symbol, e
 reach Yahoo. They now come from one cached read. One network path is left on purpose:
 `_warm_cold_history` calls `get_history` for a held symbol with **no** cached bars, because nothing
 else would fetch its history (the nightly close-out skips such a symbol). It runs once per newly
-held symbol.
+held symbol. A symbol whose history can't be fetched (delisted, a bad ticker) stays cold, so each
+is tried at most once an hour per process (`COLD_WARM_RETRY_SECONDS`), not on every page load.
 
 The 1d to 60d windows count trading bars and YTD and 1y are calendar-anchored, as
 `bulk_period_returns` has always computed them.

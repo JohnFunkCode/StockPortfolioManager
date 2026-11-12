@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -27,6 +28,8 @@ logger = logging.getLogger(__name__)
 # Trailing windows read for the Portfolio table, in bars (#518). 7 and 90 are
 # the old columns, kept until the page stops reading them (PR 7).
 RETURN_PERIODS = (1, 5, 7, 30, 60, 90)
+# How long before a symbol that is still without history is fetched again.
+COLD_WARM_RETRY_SECONDS = 3600.0
 RETURN_COLUMNS = tuple(f"return_{n}d" for n in RETURN_PERIODS) + ("return_ytd", "return_1y")
 QUOTE_COLUMNS = {
     "regular_change_pct": None, "pre_change_pct": None, "post_change_pct": None,
@@ -142,6 +145,8 @@ class PortfolioService:
         # both directions would be a construction cycle. Optional for the same
         # reason as `options`.
         self._harvester_repo = harvester_repository
+        # symbol -> monotonic time of its last cold-start warm attempt (#518).
+        self._warm_attempts: Dict[str, float] = {}
 
     # ------------------------------------------------------------------
     # Reads
@@ -325,10 +330,17 @@ class PortfolioService:
 
         ``get_history`` on an empty cache fetches the full warm window. This
         is the one network path left in ``symbol_rows``, taken once per newly
-        held symbol.
+        held symbol. A symbol whose history can't be fetched (delisted, or a
+        bad ticker) stays cold, so each is tried at most once per
+        ``COLD_WARM_RETRY_SECONDS`` per process, not on every page load.
         """
         warmed = False
+        now = time.monotonic()
         for symbol in symbols:
+            last = self._warm_attempts.get(symbol)
+            if last is not None and now - last < COLD_WARM_RETRY_SECONDS:
+                continue
+            self._warm_attempts[symbol] = now
             try:
                 hist = self._prices.get_history(symbol, "1d", 365)
                 warmed = warmed or (hist is not None and not hist.empty)

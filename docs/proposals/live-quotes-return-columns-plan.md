@@ -457,3 +457,11 @@ PR 4 close-out ────────────────────┘
   `scripts/check_openapi_snapshot.py --update` imports `api.main`, which runs `ensure_schema()`
   against `QUANTCORE_DB_DSN`; run it as `python -c "import tests, ..."` so the unit-test DSN is
   swapped in first.
+- 2026-11-12: review fixes on PR #526 (verdict REQUEST_CHANGES, two warnings). `quote_changes` is
+  split: the per-symbol row is `_quote_change_row` and the fallback read is `_cached_return_1d`.
+  A failed fallback read no longer fails `/watchlist/quotes`; the test for it found a second,
+  older raise on the same path (`_last_closes`, the quote cache's own last-close fallback), which
+  is now guarded too. A symbol that stays cold is warmed at most once an hour per process.
+  Gotcha: the review measures complexity with radon, which counts comprehensions and boolean
+  operators; ruff's C901 (mccabe) does not, so "nothing over 10 on ruff" said nothing about the
+  reviewer's threshold. Radon isn't installed here, so the new numbers are reasoned, not measured.

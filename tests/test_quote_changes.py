@@ -104,6 +104,19 @@ class QuoteChangesTest(unittest.TestCase):
         self.assertEqual(out["BBB"]["return_1d_display"], -2.0)
         self.assertTrue(all(r["return_1d_stale"] and r["quote_stale"] for r in out.values()))
 
+    def test_a_failed_fallback_read_degrades_the_row_and_keeps_the_live_ones(self):
+        self.gateway.batch_quotes.return_value = {"AAA": quote(1.0), "DOMO": None}
+        self.service.bulk_period_returns = Mock(side_effect=RuntimeError("secret detail"))
+        with self.assertLogs("quantcore.services.prices", "WARNING") as logs:
+            out = self.service.quote_changes(["AAA", "DOMO"])
+        self.assertEqual((out["DOMO"]["return_1d_display"], out["DOMO"]["return_1d_stale"]),
+                         (None, True))
+        self.assertEqual((out["AAA"]["return_1d_display"], out["AAA"]["return_1d_stale"]),
+                         (1.0, False))
+        self.service.bulk_period_returns.assert_called_once_with(["DOMO"], periods=(1,))
+        self.assertIn("RuntimeError", logs.output[-1])
+        self.assertNotIn("secret detail", "\n".join(logs.output))
+
     def test_a_symbol_with_no_quote_and_no_bars_is_an_empty_stale_row(self):
         self.gateway.batch_quotes.return_value = {"NEW": None}
         row = self.service.quote_changes(["NEW"])["NEW"]
@@ -165,6 +178,29 @@ class WatchlistQuotesTest(unittest.TestCase):
         self.assertEqual((out["count"], out["stale_count"]), (2, 1))
         self.assertEqual([r["symbol"] for r in out["quotes"]], ["AMD", "NVDA"])
         self.assertEqual(out["quotes"][1]["return_1d_display"], 0.5)
+
+    def test_a_failed_fallback_read_does_not_fail_the_endpoint(self):
+        # The real PricesService under the real WatchlistService: Yahoo has no
+        # quote for one symbol and the database read for its fallback fails.
+        ohlcv = Mock()
+        ohlcv.daily_bars_for_symbols.side_effect = RuntimeError("secret detail")
+        gateway = Mock()
+        gateway.batch_quotes.return_value = {"AMD": quote(2.0), "NVDA": None}
+        repo = Mock()
+        repo.list_entries.return_value = [{"symbol": "NVDA"}, {"symbol": "AMD"}]
+        svc = WatchlistService(repo, prices=PricesService(
+            ohlcv_repository=ohlcv, yfinance_gateway=gateway,
+            options_repository=Mock(), sentiment_repository=Mock()))
+
+        with self.assertLogs("quantcore.services.prices", "WARNING") as logs:
+            out = svc.quotes()
+
+        rows = {r["symbol"]: r for r in out["quotes"]}
+        self.assertEqual((out["count"], out["stale_count"]), (2, 1))
+        self.assertEqual(rows["AMD"]["return_1d_display"], 2.0)
+        self.assertEqual((rows["NVDA"]["return_1d_display"], rows["NVDA"]["return_1d_stale"]),
+                         (None, True))
+        self.assertNotIn("secret detail", "\n".join(logs.output))
 
     def test_empty_watchlist(self):
         out = self._service([], {}).quotes()

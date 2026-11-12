@@ -376,3 +376,7 @@ PR 4 close-out ────────────────────┘
   `latest_bar_open`. The test now lists the live-side `get_history` callers too. Open decision
   recorded in `data.md`: `get_dark_pool` (volume-based) and the arbitrage scan (a ranking) still
   read the forming bar.
+- 2026-11-11: follow-up to PR 2, decided by John after the #521 review: `get_dark_pool`
+  (volume-based) and the arbitrage scanner's `_closes` (a ranking) move to closed bars only.
+  `_closes` is `ArbitrageService`'s only history read, so `analyze_arbitrage_pair` and pair
+  discovery move with the scan.

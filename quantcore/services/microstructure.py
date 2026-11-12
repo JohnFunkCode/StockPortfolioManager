@@ -144,7 +144,11 @@ class MicrostructureService:
         fetch_period = {"1d": "6mo", "1h": "60d"}[interval]
         fmt          = "%Y-%m-%d" if interval == "1d" else "%Y-%m-%d %H:%M"
 
-        hist = self._prices.get_history(symbol.upper(), interval, period_to_days(fetch_period)).copy()
+        # Closed bars only (#518 reader policy): the signal is volume against
+        # its average, and a forming bar holds a partial session's volume.
+        hist = self._prices.get_history(
+            symbol.upper(), interval, period_to_days(fetch_period), include_open=False,
+        ).copy()
 
         if len(hist) < lookback + 10:
             raise ValueError(f"Not enough data for {symbol} (got {len(hist)} bars, need {lookback + 10})")

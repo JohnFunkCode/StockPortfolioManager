@@ -121,6 +121,8 @@ class TestReaderPolicy(unittest.TestCase):
         ("quantcore/services/options_screening.py", "fetch_bollinger_bands"),
         ("quantcore/services/options_screening.py", "fetch_iv_analysis"),
         ("quantcore/services/options_screening.py", "_run_cached"),
+        ("quantcore/services/microstructure.py", "get_dark_pool"),
+        ("quantcore/services/arbitrage.py", "_closes"),
     }
 
     def setUp(self):
@@ -158,8 +160,6 @@ class TestReaderPolicy(unittest.TestCase):
         self.assertEqual(found, self.CLOSED_ONLY_READERS)
 
     LIVE_ELSEWHERE = {
-        ("quantcore/services/arbitrage.py", "_closes"),
-        ("quantcore/services/microstructure.py", "get_dark_pool"),
         ("quantcore/services/microstructure.py", "get_bid_ask_spread"),
         ("quantcore/services/options.py", "get_full_options_chain"),
         ("quantcore/services/portfolio.py", "_period_returns"),

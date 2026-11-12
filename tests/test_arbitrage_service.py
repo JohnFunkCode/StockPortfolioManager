@@ -49,8 +49,10 @@ class FakePrices:
         self.broken = set(broken)
         self.calls = []
 
-    def get_history(self, symbol, interval="1d", days=365):
+    def get_history(self, symbol, interval="1d", days=365, *, include_open):
         self.calls.append((symbol, interval, days))
+        # #518 reader policy: the scanner ranks, so it reads closed bars only.
+        assert include_open is False
         if symbol in self.broken:
             raise RuntimeError(f"yahoo exploded for {symbol}")
         return self.frames.get(symbol, pd.DataFrame())

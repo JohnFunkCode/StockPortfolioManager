@@ -637,7 +637,9 @@ class ArbitrageService:
     # ------------------------------------------------------------------ #
     def _closes(self, symbol: str, days: int) -> Optional[pd.Series]:
         try:
-            df = self._prices.get_history(symbol, "1d", days)
+            # Closed bars only (#518 reader policy): the scan ranks, and a
+            # spread ending on a half-formed bar moves through the session.
+            df = self._prices.get_history(symbol, "1d", days, include_open=False)
         except Exception:
             return None
         if df is None or getattr(df, "empty", True) or "Close" not in df:

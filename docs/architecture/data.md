@@ -106,8 +106,8 @@ that bar (#518):
 | May read the `OPEN` bar (live display) | Closed bars only (`include_open=False`) |
 |---|---|
 | returns columns (`bulk_period_returns`) and the last-close quote fallback | options watchlist screen (`OptionsScreeningService`, a ranking): its cached history read, `fetch_bollinger_bands`, `fetch_iv_analysis` |
-| price-level tools: support levels, VWAP, anchored VWAP, ATR bands, gap analysis, higher lows, drawdown | volume-based: `get_obv`, `get_volume_profile` |
-| price-based indicators: RSI, MACD, stochastic, candlestick patterns, the technicals table | `screen_securities` (a ranking) |
+| price-level tools: support levels, VWAP, anchored VWAP, ATR bands, gap analysis, higher lows, drawdown | volume-based: `get_obv`, `get_volume_profile`, `get_dark_pool` |
+| price-based indicators: RSI, MACD, stochastic, candlestick patterns, the technicals table | `screen_securities` and the arbitrage scanner's closes (rankings) |
 | `get_stock_price`, `get_ohlcv_bars`, `get_volume_analysis`, Sidekick and MCP analysis | anything that alerts or changes stored state |
 
 The rule: **a reader that ranks, alerts, or uses volume reads closed bars only.** A partial day's
@@ -151,11 +151,9 @@ price it was asked for, not of a ranking.
 
 The other services that call `get_history` keep the default and are listed in the test as
 live-side: the Portfolio's period returns, the options-chain Bollinger context, relative-strength
-history, the support-confluence Fibonacci and previous-bar sources, the bid-ask spread proxy,
-`get_dark_pool` and the arbitrage scanner's closes. **Two of those are not settled.**
-`get_dark_pool` is volume-based, and the arbitrage scan ranks candidates (on a price spread, not
-on volume). Both read the forming bar today, as they did before #518; whether they move to the
-closed side is an open decision, not a conclusion.
+history, the support-confluence Fibonacci and previous-bar sources, and the bid-ask spread proxy.
+`ArbitrageService` has one history read (`_closes`), so the single-pair analysis and pair
+discovery read closed bars along with the scan.
 
 Today's alert paths don't read `ohlcv`: `notifier.py` uses the legacy `portfolio/` metrics and the
 harvester scan runs after the close. A future alert that reads the cache belongs on the closed side.

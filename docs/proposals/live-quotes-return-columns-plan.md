@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) in review; PRs 5–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) in review; PRs 6–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -90,8 +90,9 @@ floor 10 s, the same shape as today's `_quote_cache`). It returns per symbol the
 `OhlcvRepository.upsert_live_daily_bars(quotes)`, called by `get_batch_quotes` after each successful
 fetch. It does **not** go through `store_bars`, which picks the status from the clock. Rules:
 
-1. **Same timestamp as Yahoo's daily bars.** `ts` = midnight of `regular_time`'s date in
-   `exchange_tz`, as epoch seconds. Never "now", and never US time for a foreign symbol (gotcha 4).
+1. **Same timestamp as the cache's daily bars.** `ts` = midnight **UTC** of `regular_time`'s date
+   in `exchange_tz`, as epoch seconds. Never "now", and never the UTC date of the instant (gotcha 4,
+   corrected in PR 5: this line first said midnight in `exchange_tz`).
 2. **Regular-session fields only:** `regular_open/high/low/price/volume`. Never a pre- or post-market
    price.
 3. **Never overwrite a `CLOSED` bar:**
@@ -342,10 +343,14 @@ PR 4 close-out ────────────────────┘
    nothing.
 3. **The batch response silently omits symbols.** DOMO was simply absent from 260 requested, with no
    error entry. Compare requested to returned; never assume a 1:1 response.
-4. **A daily bar's `ts` is midnight on the exchange's local date, not the quote time.** AAPL 2026-11-10
-   is `1794286800` (midnight ET), while `regularMarketTime` is `1794344400` (4pm ET). `000660.KS`'s bar
-   is midnight in Seoul. `ts` is in the primary key, so the wrong value makes a second bar for the
-   same day that no fetch removes.
+4. **A daily bar's `ts` is midnight UTC of the exchange's local session date, not the quote time.**
+   AAPL 2026-11-10 is `1794268800` in `ohlcv`, while `regularMarketTime` is `1794344400` (4pm ET).
+   `ts` is in the primary key, so the wrong value makes a second bar for the same day that no fetch
+   removes. *This gotcha first said `1794286800`, midnight ET, and "midnight in Seoul" for
+   `000660.KS`. That is what `Ticker.history`'s tz-aware index gives. The cache is filled by
+   `yf.download`, whose daily index is tz-naive, and `.timestamp()` reads a naive value as UTC.
+   Measured in PR 5 through `fetch_history` for AAPL, `000660.KS` and `ASSA-B.ST`: every stored
+   `ts % 86400` is 0.*
 5. **A foreign listing before its open returns `0.0` for open, high and low** (`000660.KS`, state
    `PRE`). `ohlcv` has `CHECK(close > 0)`; skip, don't write.
 6. **`/api/watchlist/mine` must stay zero-network.** Putting the quote call inside it would fail
@@ -416,3 +421,20 @@ PR 4 close-out ────────────────────┘
   that only moves on sleep. The summary's `stored` count is renamed `fetched`: `store_bars` drops
   invalid bars silently, so the walk can only say Yahoo sent bars; the alarm's database read is
   what says whether they were closed. The *Why* section is marked as the pre-#520 state.
+- 2026-11-12: PR 4 merged as #524 and deployed to test; its step-4 measurement (wall time and 429s
+  for the full universe) is still to be read from the first nightly run. PR 5 (live cache writer)
+  opened. **The plan's `ts` rule was wrong** and is corrected above (rule 1, gotcha 4): the cache
+  stores a daily bar at midnight UTC of the session date, not midnight on the exchange. Built as
+  planned, every live write would have added a second bar per symbol per day. The rule is one pure
+  function, `market_time.session_bar_ts`; `PricesService._live_daily_bar` maps and filters a quote,
+  and the repository takes plain bar dicts so it doesn't import the gateway's `Quote`. One rule
+  added to the design: **no live bar for a symbol with no daily history** (the insert is
+  `INSERT … SELECT … WHERE EXISTS`), for the same cold-start reason as PR 4. It also corrects a
+  paragraph PR 3 put in `data.md`, which said an exchange east of UTC has bars dated the day before.
+  Gotcha: the v7 quote endpoint needs `www.yahoo.com` for its cookie, so a sandboxed probe that
+  allows only the `finance.yahoo.com` hosts gets history but an `HTTPError` on quotes.
+- 2026-11-12: review fixes on PR #525. `upsert_live_daily_bars` now drops a bar the table would
+  reject (non-finite or non-positive price, negative or non-finite volume) itself, as `store_bars`
+  does, so the batch doesn't depend on the service's filter. Added a test of a bar's whole life:
+  written `OPEN` by a quote, stored `CLOSED` by the close-out on the **same row** (which also
+  proves the two writers agree on `ts`), and not reopened by a later quote.

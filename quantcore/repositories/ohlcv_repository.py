@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import enum
 import logging
+import math
 from contextlib import closing
 from dataclasses import dataclass
 from typing import Optional
@@ -155,6 +156,19 @@ def _open_bar_state(symbol: str, interval: str) -> Optional[tuple]:
     if not row or row[0] is None:
         return None
     return int(row[0]), int(row[1])
+
+
+def _live_bar_is_storable(bar: dict) -> bool:
+    """Whether a live bar's numbers can go in the table: every price finite
+    and positive, and a finite, non-negative volume. The same line
+    ``_drop_invalid_bars`` draws for fetched history."""
+    try:
+        prices = [float(bar[k]) for k in ("open", "high", "low", "close")]
+        volume = float(bar["volume"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (all(math.isfinite(p) and p > 0 for p in prices)
+            and math.isfinite(volume) and volume >= 0)
 
 
 _PRICE_COLS = ("Open", "High", "Low", "Close")
@@ -498,3 +512,58 @@ class OhlcvRepository:
                 (sorted({s.upper() for s in symbols}),),
             ).fetchall()
         return {r[0]: int(r[1]) for r in rows}
+
+    # --- live quote writer (#518) -------------------------------------
+
+    def upsert_live_daily_bars(self, bars: list[dict]) -> None:
+        """Write today's forming daily bars from live quotes, always ``OPEN``.
+
+        Each bar is ``{symbol, ts, open, high, low, close, volume}``; the
+        caller (``PricesService``) builds them from regular-session quote
+        fields and drops unusable ones. This does not go through
+        ``store_bars``, which picks the status from the clock. Rules:
+
+        - **A ``CLOSED`` bar is never overwritten.** The update applies only
+          where the stored row is ``OPEN``. Out of hours the quote's session
+          is one whose bar is already final, and the write does nothing.
+        - **No bar for a symbol with no daily history.** A lone live bar would
+          make ``count_cached`` non-zero, and ``get_history`` would then never
+          run its cold-start warm of the full history.
+        - ``adj_close`` is written NULL and the ``COALESCE`` keeps a value the
+          harvester stored, as in ``store_bars``.
+        - A bar the table's CHECK constraints would reject is dropped here
+          too, as ``store_bars`` does: one bad row fails the whole batch.
+        """
+        ingested_at = int(time())
+        rows = [
+            (b["symbol"], int(b["ts"]), float(b["open"]), float(b["high"]),
+             float(b["low"]), float(b["close"]), int(b["volume"]), ingested_at, b["symbol"])
+            for b in bars if _live_bar_is_storable(b)
+        ]
+        if len(rows) < len(bars):
+            logger.warning("Dropped %d invalid live bar(s) (non-positive/non-finite price "
+                           "or negative volume)", len(bars) - len(rows))
+        if not rows:
+            return
+        with closing(get_connection()) as conn:
+            conn.executemany(
+                """
+                INSERT INTO ohlcv
+                    (symbol, interval, ts, open, high, low, close, volume,
+                     status, adj_close, data_vendor, ingested_at)
+                SELECT %s, '1d', %s, %s, %s, %s, %s, %s, 'OPEN', NULL, 'yfinance', %s
+                WHERE EXISTS (SELECT 1 FROM ohlcv WHERE symbol = %s AND interval = '1d')
+                ON CONFLICT (symbol, interval, ts) DO UPDATE SET
+                    open        = EXCLUDED.open,
+                    high        = EXCLUDED.high,
+                    low         = EXCLUDED.low,
+                    close       = EXCLUDED.close,
+                    volume      = EXCLUDED.volume,
+                    adj_close   = COALESCE(EXCLUDED.adj_close, ohlcv.adj_close),
+                    data_vendor = EXCLUDED.data_vendor,
+                    ingested_at = EXCLUDED.ingested_at
+                WHERE ohlcv.status = 'OPEN'
+                """,
+                rows,
+            )
+            conn.commit()

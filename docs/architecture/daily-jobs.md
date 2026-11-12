@@ -11,7 +11,7 @@ spelling; the work did not). It loads John's positions and the shared watchlist 
 fetches prices/metrics, and then runs **in this order, which is a deliberate isolation property**
 — the cheap, high-value side effects land before anything that can run long: notifications →
 options capture → gamma/GEX (from the snapshot) → capture health check → news staleness →
-fundamentals warming. The three steps that carry the weight:
+fundamentals warming → OHLCV close-out. The four steps that carry the weight:
 
 1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
    `alert_if_watchlist_empty()`.
@@ -24,7 +24,7 @@ fundamentals warming. The three steps that carry the weight:
    calls Yahoo. A capture gap therefore shows up there as a `stale` list (symbols with no full
    chain from the last trading day), not as a slow or failing screen. Non-US listings and OTC ADRs
    that the capture can't chain always come back stale. That is expected, not an alarm.
-3. **Fundamentals warming** (last, deliberately — #373) — `run_fundamentals_warming(capture_symbols, …)` refreshes the
+3. **Fundamentals warming** (after the capture, deliberately — #373) — `run_fundamentals_warming(capture_symbols, …)` refreshes the
    fundamentals cache over that same universe, **oldest-`fetched_at` first**, under a wall-clock
    budget. A cold pass is ~10 serial yfinance calls per symbol and is *expected* not to finish;
    the universe converges over a few nights. A symbol is a candidate when it is outside the TTL
@@ -171,6 +171,37 @@ fundamentals warming. The three steps that carry the weight:
    The fundamentals batch endpoint accepts at most 25 unique symbols. It trims, uppercases, and
    deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
    before provider/database work begins. Larger universes must be split across requests.
+
+4. **OHLCV close-out** (last, #518) — `run_ohlcv_closeout(capture_symbols, …)` re-fetches recent
+   daily bars so the day's forming `OPEN` bars are stored `CLOSED`. Closed-only readers (the
+   options screen, rankings, volume tools) leave `OPEN` bars out, so without it they would miss
+   the day until something else re-fetched each symbol.
+
+   - **Which symbols** (`PricesService.closeout_plan`): every symbol with an `OPEN` daily bar,
+     on or off the universe, then every universe symbol whose newest `CLOSED` bar is dated before
+     today. A symbol with no cached daily bars is left out, because a 10-day window stored for it
+     would stop `get_history` warming its full history on first use.
+   - **How far back:** 10 calendar days (`CLOSEOUT_MIN_DAYS`), or further when the symbol's oldest
+     `OPEN` bar is older, so a bar left open across several missed nights is still finalized.
+   - **Fetch:** one `fetch_history` + `store_bars` per symbol. `store_bars` classifies a bar
+     `CLOSED` once its session is over. Paced: a 2 s pause after every 25 symbols
+     (`OHLCV_CLOSEOUT_PAUSE_SECONDS`, `OHLCV_CLOSEOUT_CHUNK_SIZE` in `main.py`). Those two numbers
+     are a first guess, not yet measured against a full universe.
+   - **Budget:** `OHLCV_CLOSEOUT_BUDGET_SECONDS` (default `300`), clamped to what is left of the
+     task deadline and falling back to the default on an unparseable value. The pauses count
+     against it.
+   - **Alarm:** after the walk, `alert_if_open_bars_remain` re-reads the database. If any `OPEN`
+     daily bar dated before today remains, it sends one Discord alarm (`send_open_bars_alert`)
+     with the bar count and up to 10 symbols. Today's own bar is not counted, so a night the
+     close-out ran out of budget alarms on the *next* run, if nothing has closed those bars by
+     then.
+   - **Why last.** A daily bar can be re-fetched any later night, and `get_history` closes a
+     leftover bar on first read anyway
+     ([data.md](data.md#when-a-forming-bar-is-re-fetched)). An options chain can't be re-captured
+     and the fundamentals warmer has its own alarm, so the close-out is the step that gives way.
+     The earlier budgets already add up to the task timeout (600 + 300 + 900 s), so on a night
+     every step spends its whole budget the close-out gets one second and one symbol.
+   - Like the other tail steps it never raises, and it does nothing on an NYSE-closed day.
 
 The job exits immediately on NYSE-closed days (`is_trading_day`), notifications included.
 

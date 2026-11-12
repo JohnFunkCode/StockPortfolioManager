@@ -113,20 +113,22 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
 this order** — notifications → options capture → gamma/GEX (from the persisted snapshot, no
-Yahoo calls) → capture health check → news staleness → fundamentals warming. The order is a deliberate isolation property: the cheap, high-value side
+Yahoo calls) → capture health check → news staleness → fundamentals warming → OHLCV close-out
+(#518). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
 
-- The warming pass and the capture tail are each wrapped in an outer `try/except` that **never
-  raises**, so a late failure cannot fail a run whose notifications already went out — and each is
+- The warming pass, the capture tail and the OHLCV close-out are each wrapped in an outer
+  `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
   made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
   halves.
 - **The GEX step reads the snapshot the capture just persisted** (`record_gex_from_snapshot`) —
   don't put a live Yahoo fetch back there; that doubled the run's Yahoo calls and drew 429s
-  (#373). Warming stays last because a missed end-of-day chain can't be re-captured.
+  (#373). Warming stays after the capture because a missed end-of-day chain can't be
+  re-captured, and the close-out stays last because a daily bar can be re-fetched any night.
 - Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
-  `GEX_RECORD_BUDGET_SECONDS`, `NEWS_*`) fall back to the default on an unparseable value — a typo
+  `GEX_RECORD_BUDGET_SECONDS`, `OHLCV_CLOSEOUT_BUDGET_SECONDS`, `NEWS_*`) fall back to the default on an unparseable value — a typo
   must not silently disarm an alarm.
 - The job exits 0 on NYSE-closed days (`is_trading_day`), notifications included.
 - The fundamentals batch endpoint takes at most 25 unique symbols (422 otherwise); larger universes

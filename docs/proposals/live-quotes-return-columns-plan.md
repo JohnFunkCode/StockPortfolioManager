@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) in review; PRs 4–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) in review; PRs 5–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -397,3 +397,14 @@ PR 4 close-out ────────────────────┘
   happen; the first cut's "no `ingested_at` counts as due" branch, its test and the docs sentence
   were dead and are removed. Added a repository test that a bar left `OPEN` is stored `CLOSED` when
   its session's bars are stored again.
+- 2026-11-12: PR 3 merged as #523. PR 4 (nightly close-out) opened. The rules live in
+  `PricesService` (`closeout_plan`, `close_out_daily_bars`, `open_daily_bars_before`) and `main.py`
+  holds the loop, budget and alarm, like the other tail steps. Two things the design didn't say:
+  a universe symbol with **no** cached daily bars is left out, because a 10-day window stored for
+  it makes `count_cached > 0` and `get_history` would then never run its cold-start warm; and
+  `run_ohlcv_closeout` checks `is_trading_day` itself so the closed-day rule is testable. Gotcha:
+  the capture, GEX and warming budgets already sum to the 1800 s task timeout, so the close-out
+  only runs in the time the earlier steps leave unspent. A starved night doesn't alarm that
+  night (today's bar isn't "before today"); it alarms on the next run if the bars are still open.
+  Pacing is 25 symbols then a 2 s pause, default budget 300 s; both unmeasured until step 4
+  (wall time and 429s on test for ~260 symbols).

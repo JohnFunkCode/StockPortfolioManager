@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The daily QuantCore job: notifications, options capture, GEX, news check, fundamentals warming.
+"""The daily QuantCore job: notifications, options capture, GEX, news check, fundamentals warming, OHLCV close-out.
 
 Runs as the ``quantcore-report`` Cloud Run Job on Cloud Scheduler, and locally
 as ``python main.py``. It no longer builds the HTML report — that moved to
@@ -11,16 +11,17 @@ high-value work runs first (Discord notifications and the Harvester rung
 checks), then the options-chain capture that keeps the open-interest history
 accumulating, then gamma/GEX computed from the chain the capture just
 persisted (no second Yahoo fetch, #373), the capture health check, the news
-staleness check, and only then the fundamentals warmer. Each tail step
+staleness check, the fundamentals warmer, and last the OHLCV close-out (#518). Each tail step
 swallows its own failures, so a slow or broken tail cannot take down the
 useful side effects that already succeeded. That defect — "a failure in the
 report path can fail the job and take the *useful* side effects down with it"
 — is what issue #147 was about.
 
-Warming stays last on purpose (#373): the end-of-day options chain can only be
-captured at the close, while a fundamentals profile skipped tonight can be
-warmed any later night. When the budget is short, the step that can be
-redone is the one that gives way.
+Warming stays after the capture on purpose (#373): the end-of-day options
+chain can only be captured at the close, while a fundamentals profile skipped
+tonight can be warmed any later night. The OHLCV close-out goes after warming
+for the same reason: a daily bar can be re-fetched any later night. When the
+budget is short, the step that can be redone is the one that gives way.
 
 The job does nothing on a day the NYSE is closed (weekend or holiday): no
 prices move, so a notification would be noise and a capture would be a
@@ -66,6 +67,14 @@ DEFAULT_GEX_BUDGET_SECONDS = 300.0
 DEFAULT_CAPTURE_COVERAGE_FLOOR = 0.90  # alarm when fewer of the universe's chains landed
 DEFAULT_CAPTURE_FAILURE_CEILING = 0.50  # alarm when more of a step's attempts failed
 DEFAULT_CAPTURE_NO_OPTIONS_CEILING = 0.25  # alarm when more of the universe listed no options
+
+OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV = "OHLCV_CLOSEOUT_BUDGET_SECONDS"
+DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS = 300.0
+# One history download per symbol, paced so a few hundred of them don't arrive
+# at Yahoo as one burst (#373). Not measured yet; see the #518 plan, PR 4 step 4.
+OHLCV_CLOSEOUT_CHUNK_SIZE = 25
+OHLCV_CLOSEOUT_PAUSE_SECONDS = 2.0
+OHLCV_CLOSEOUT_ALERT_SYMBOLS = 10
 
 DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
 WARM_DEADLINE_MARGIN_SECONDS = 60.0
@@ -712,6 +721,85 @@ def run_fundamentals_warming(symbols, fundamentals, notifier,
         print(f"ERROR: fundamentals warming pass failed: {exc}", file=sys.stderr)
 
 
+def close_out_ohlcv(symbols, prices, budget_seconds=None, clock=time.monotonic,
+                    sleep=time.sleep, today=None) -> dict:
+    """Re-fetch recent daily bars so today's forming ``OPEN`` bars are stored ``CLOSED``.
+
+    ``PricesService.closeout_plan`` decides which symbols and how far back;
+    this walks that plan under a wall-clock budget, pausing between chunks.
+    One bad symbol degrades one row. The pauses count against the budget.
+    """
+    budget = (_env_float(OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV,
+                         DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS)
+              if budget_seconds is None else budget_seconds)
+    plan = prices.closeout_plan(symbols, today or market_date())
+    print(f"Closing out daily bars for {len(plan)} symbol(s), budget {budget:.0f}s...")
+
+    started = clock()
+    summary = {"planned": len(plan), "attempted": 0, "stored": 0, "empty": 0,
+               "failed": 0, "failures": []}
+    for index, (sym, days) in enumerate(plan.items()):
+        if clock() - started >= budget:
+            break
+        if index and index % OHLCV_CLOSEOUT_CHUNK_SIZE == 0:
+            sleep(OHLCV_CLOSEOUT_PAUSE_SECONDS)
+        summary["attempted"] += 1
+        try:
+            summary["stored" if prices.close_out_daily_bars(sym, days) else "empty"] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad symbol must not stop the walk
+            summary["failed"] += 1
+            summary["failures"].append(sym)
+            print(f"  {sym}: close-out failed ({type(exc).__name__})")
+
+    summary["elapsed_seconds"] = clock() - started
+    summary["budget_exhausted"] = summary["attempted"] < summary["planned"]
+    print(f"Close-out: {summary['stored']} stored, {summary['empty']} empty, "
+          f"{summary['failed']} failed, {summary['planned'] - summary['attempted']} "
+          f"not attempted, {summary['elapsed_seconds']:.0f}s.")
+    return summary
+
+
+def alert_if_open_bars_remain(prices, notifier, today=None) -> bool:
+    """Alarm when daily bars from earlier sessions are still ``OPEN``.
+
+    Reads what is in the database after the close-out, not the close-out's own
+    summary, so it also catches a step that ran out of budget or never ran.
+    Today's bar is not counted: it is legitimately ``OPEN`` until the close.
+    """
+    leftover = prices.open_daily_bars_before(today or market_date())
+    if not leftover:
+        return False
+    bar_count = sum(leftover.values())
+    sample = sorted(leftover)[:OHLCV_CLOSEOUT_ALERT_SYMBOLS]
+    print(f"ERROR: {bar_count} daily bar(s) from earlier sessions are still OPEN across "
+          f"{len(leftover)} symbol(s), e.g. {', '.join(sample)}.", file=sys.stderr)
+    try:
+        notifier.send_open_bars_alert(bar_count, sample, len(leftover))
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        print(f"  (failed to send the open-bars alert: {type(exc).__name__})",
+              file=sys.stderr)
+    return True
+
+
+def run_ohlcv_closeout(symbols, prices, notifier, budget_seconds=None,
+                       clock=time.monotonic, sleep=time.sleep, today=None) -> None:
+    """Close out daily bars, then alarm on any left open. Never raises.
+
+    The last tail step (#518): a daily bar missed tonight can be re-fetched any
+    later night, so this is the step that gives way when the budget is short.
+    Does nothing on a day the NYSE is closed, like the rest of the job.
+    """
+    try:
+        today = today or market_date()
+        if not is_trading_day(today):
+            return
+        close_out_ohlcv(symbols, prices, budget_seconds=budget_seconds,
+                        clock=clock, sleep=sleep, today=today)
+        alert_if_open_bars_remain(prices, notifier, today=today)
+    except Exception as exc:  # noqa: BLE001 — the last step must not fail the job
+        print(f"ERROR: OHLCV close-out failed: {type(exc).__name__}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     # Make sure the schema is right (creates tables, or verifies them
     # where Flyway owns the DDL -- see QUANTCORE_SCHEMA_MODE).
@@ -786,4 +874,13 @@ if __name__ == "__main__":
         capture_symbols, get_services().fundamentals, notifier,
         budget_seconds=_remaining_budget(
             _warm_budget_seconds(None), job_started),
+    )
+
+    # Last of all: finalize today's daily bars. It yields to every step above
+    # because it is the one that can be redone on any later night (#518).
+    run_ohlcv_closeout(
+        capture_symbols, get_services().prices, notifier,
+        budget_seconds=_remaining_budget(
+            _env_float(OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV,
+                       DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS), job_started),
     )

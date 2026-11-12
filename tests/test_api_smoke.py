@@ -777,12 +777,14 @@ class LotRoutesTest(unittest.TestCase):
         self.assertIn("total_investment", body["totals"])
         # #518: the six return windows and the live 1d columns are on the row.
         for column in ("return_1d", "return_5d", "return_30d", "return_60d",
-                       "return_ytd", "return_1y", "return_7d", "return_90d",
+                       "return_ytd", "return_1y",
                        "regular_change_pct", "pre_change_pct", "post_change_pct",
                        "market_state", "quote_as_of", "quote_stale",
                        "return_1d_display", "return_1d_stale"):
             self.assertIn(column, row)
         self.assertIs(row["return_1d_stale"], True)   # the stubbed Yahoo has no quote
+        self.assertNotIn("return_7d", row)            # retired with PR 7
+        self.assertNotIn("return_90d", row)
 
     def test_update_lot_patches_fields(self):
         lot = self._create_lot()

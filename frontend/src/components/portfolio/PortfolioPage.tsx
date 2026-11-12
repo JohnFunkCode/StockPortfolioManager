@@ -15,6 +15,7 @@ import {
   TableHead,
   TableRow,
   TableSortLabel,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -24,6 +25,7 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useSymbolRows } from '../../hooks/usePortfolio';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
+import OneDayChange, { compareOneDay } from '../common/OneDayChange';
 import EmptyPortfolio from './EmptyPortfolio';
 import PortfolioSummary from './PortfolioSummary';
 import PortfolioAllocationChart from './PortfolioAllocationChart';
@@ -40,20 +42,37 @@ type SortKey =
   | 'total_gain_loss'
   | 'total_gain_loss_pct'
   | 'total_dollars_per_day'
-  | 'return_7d'
+  | 'return_1d_display'
+  | 'return_5d'
   | 'return_30d'
-  | 'return_90d';
+  | 'return_60d'
+  | 'return_ytd'
+  | 'return_1y';
 
-const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right' }> = [
+// The windows are easy to misread, so each header says what it measures.
+const BARS = 'Trading days, not calendar days';
+const RETURN_COLUMNS: Array<{ key: SortKey; label: string; hint: string }> = [
+  { key: 'return_5d', label: '5d', hint: `Last 5 bars. ${BARS}.` },
+  { key: 'return_30d', label: '30d', hint: `Last 30 bars, about 6 calendar weeks. ${BARS}.` },
+  { key: 'return_60d', label: '60d', hint: `Last 60 bars, about 12 calendar weeks. ${BARS}.` },
+  { key: 'return_ytd', label: 'YTD', hint: 'Since the first trading day of this calendar year.' },
+  { key: 'return_1y', label: '1y', hint: 'Since the same calendar date a year ago.' },
+];
+
+const COLUMNS: Array<{ key: SortKey; label: string; align?: 'right'; hint?: string }> = [
   { key: 'symbol', label: 'Symbol' },
   { key: 'total_investment', label: 'Investment', align: 'right' },
   { key: 'total_current_value', label: 'Current Value', align: 'right' },
   { key: 'total_gain_loss', label: 'Gain/Loss $', align: 'right' },
   { key: 'total_gain_loss_pct', label: 'Gain/Loss %', align: 'right' },
   { key: 'total_dollars_per_day', label: '$/Day', align: 'right' },
-  { key: 'return_7d', label: '7d', align: 'right' },
-  { key: 'return_30d', label: '30d', align: 'right' },
-  { key: 'return_90d', label: '90d', align: 'right' },
+  {
+    key: 'return_1d_display',
+    label: '1d',
+    align: 'right',
+    hint: "Today's regular-session change. A row marked stale has no live quote and shows the last cached daily change.",
+  },
+  ...RETURN_COLUMNS.map((col) => ({ ...col, align: 'right' as const })),
 ];
 
 function gainColor(value: number | null): string | undefined {
@@ -81,6 +100,11 @@ export default function PortfolioPage() {
 
   const sorted = useMemo<SymbolRow[]>(() => {
     const copy = [...rows];
+    if (sortKey === 'return_1d_display') {
+      // Stale rows stay last in both directions, so the direction is applied
+      // inside the comparator and the reverse below is skipped.
+      return copy.sort((a, b) => compareOneDay(a, b, sortDir));
+    }
     copy.sort((a, b) => {
       const av = a[sortKey];
       const bv = b[sortKey];
@@ -163,13 +187,15 @@ export default function PortfolioPage() {
                   <TableCell />
                   {COLUMNS.map((col) => (
                     <TableCell key={col.key} align={col.align}>
-                      <TableSortLabel
-                        active={sortKey === col.key}
-                        direction={sortKey === col.key ? sortDir : 'asc'}
-                        onClick={() => handleSort(col.key)}
-                      >
-                        {col.label}
-                      </TableSortLabel>
+                      <Tooltip title={col.hint ?? ''} disableHoverListener={!col.hint}>
+                        <TableSortLabel
+                          active={sortKey === col.key}
+                          direction={sortKey === col.key ? sortDir : 'asc'}
+                          onClick={() => handleSort(col.key)}
+                        >
+                          {col.label}
+                        </TableSortLabel>
+                      </Tooltip>
                     </TableCell>
                   ))}
                   <TableCell>MM Hedge Bias</TableCell>
@@ -204,15 +230,17 @@ export default function PortfolioPage() {
                           {formatPercentRaw(row.total_gain_loss_pct)}
                         </TableCell>
                         <TableCell align="right">{formatDollarsPerDay(row.total_dollars_per_day)}</TableCell>
-                        <TableCell align="right" sx={{ color: gainColor(row.return_7d) }}>
-                          {formatPercentRaw(row.return_7d)}
+                        <TableCell align="right" data-testid={`one-day-${row.symbol}`}>
+                          <OneDayChange row={row} />
                         </TableCell>
-                        <TableCell align="right" sx={{ color: gainColor(row.return_30d) }}>
-                          {formatPercentRaw(row.return_30d)}
-                        </TableCell>
-                        <TableCell align="right" sx={{ color: gainColor(row.return_90d) }}>
-                          {formatPercentRaw(row.return_90d)}
-                        </TableCell>
+                        {RETURN_COLUMNS.map((col) => {
+                          const value = row[col.key] as number | null;
+                          return (
+                            <TableCell key={col.key} align="right" sx={{ color: gainColor(value) }}>
+                              {formatPercentRaw(value)}
+                            </TableCell>
+                          );
+                        })}
                         <TableCell>
                           {hedge ? (
                             <Chip

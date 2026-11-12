@@ -18,6 +18,9 @@ export interface WatchlistFundamentalsRow {
 
   price: number | null;
   price_as_of: string | null;
+  /** Cached close-to-close 1d return: the fallback shown, marked stale, until
+   * (or unless) `/watchlist/quotes` answers with a live figure (issue #518). */
+  return_1d: number | null;
   return_5d: number | null;
   return_30d: number | null;
   return_60d: number | null;
@@ -80,6 +83,29 @@ export interface WatchlistMineRow extends WatchlistFundamentalsRow {
 export interface WatchlistMineResponse extends Omit<WatchlistFundamentalsResponse, 'rows'> {
   held_count: number;
   rows: WatchlistMineRow[];
+}
+
+/** One row of GET /api/watchlist/quotes (issue #518): a symbol's live 1d
+ * columns. `return_1d_display` is the figure to show and `return_1d_stale`
+ * says it is the cached fallback, not a live quote; both are chosen
+ * server-side. */
+export interface WatchlistQuoteRow {
+  symbol: string;
+  regular_change_pct: number | null;
+  pre_change_pct: number | null;
+  post_change_pct: number | null;
+  market_state: string | null;
+  quote_as_of: string | null;
+  quote_stale: boolean;
+  return_1d_display: number | null;
+  return_1d_stale: boolean;
+}
+
+export interface WatchlistQuotesResponse {
+  generated_at: string;
+  count: number;
+  stale_count: number;
+  quotes: WatchlistQuoteRow[];
 }
 
 /** PATCH /api/watchlist/{ticker} — tags are the only editable field, and they

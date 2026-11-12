@@ -456,3 +456,45 @@ class OhlcvRepository:
                 """,
                 [*symbols, bool(include_open)],
             ).fetchall()
+
+    # --- nightly close-out reads (#518) -------------------------------
+
+    def open_daily_bars(self) -> dict[str, int]:
+        """Every symbol with an ``OPEN`` daily bar -> the ts of its oldest one.
+
+        Not limited to a symbol list: the close-out finalizes whatever was left
+        open, including a symbol since dropped from the watchlist.
+        """
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                "SELECT symbol, MIN(ts) FROM ohlcv "
+                "WHERE interval = '1d' AND status = 'OPEN' GROUP BY symbol"
+            ).fetchall()
+        return {r[0]: int(r[1]) for r in rows}
+
+    def open_daily_bars_before(self, before_ts: int) -> dict[str, int]:
+        """Symbol -> how many of its ``OPEN`` daily bars have ``ts < before_ts``."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                "SELECT symbol, COUNT(*) FROM ohlcv "
+                "WHERE interval = '1d' AND status = 'OPEN' AND ts < %s "
+                "GROUP BY symbol ORDER BY symbol",
+                (int(before_ts),),
+            ).fetchall()
+        return {r[0]: int(r[1]) for r in rows}
+
+    def latest_closed_daily_ts(self, symbols: list[str]) -> dict[str, int]:
+        """``latest_closed_ts(sym, "1d")`` for many symbols in one query.
+
+        A symbol with no ``CLOSED`` daily bar is absent from the result.
+        """
+        if not symbols:
+            return {}
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                "SELECT symbol, MAX(ts) FROM ohlcv "
+                "WHERE interval = '1d' AND status = 'CLOSED' AND symbol = ANY(%s) "
+                "GROUP BY symbol",
+                (sorted({s.upper() for s in symbols}),),
+            ).fetchall()
+        return {r[0]: int(r[1]) for r in rows}

@@ -70,6 +70,15 @@ QUOTE_FORCE_FLOOR_SECONDS = 10
 # too eager a trigger once the quote path keeps that bar fresh.
 OPEN_BAR_MAX_AGE_SECONDS = 300
 
+# The nightly close-out re-fetches at least this many calendar days per symbol
+# (#518): enough to span a long weekend, short enough to be a cheap download.
+CLOSEOUT_MIN_DAYS = 10
+
+
+def _utc_date(ts: int) -> datetime.date:
+    """The UTC date of a bar's ``ts``, the date every bar check here uses."""
+    return datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).date()
+
 
 def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
     """The newest usable price in a gateway ``Quote`` and its UTC time (#518).
@@ -231,10 +240,57 @@ class PricesService:
         if state is None:
             return False
         oldest_ts, ingested_at = state
-        bar_date = datetime.datetime.fromtimestamp(oldest_ts, tz=datetime.timezone.utc).date()
-        if bar_date < market_date():
+        if _utc_date(oldest_ts) < market_date():
             return True
         return time.time() - ingested_at > OPEN_BAR_MAX_AGE_SECONDS
+
+    # ------------------------------------------------------------------
+    # Nightly close-out (#518): the daily job finalizes today's forming bars
+    # through these, so main.py holds the loop and the budget, not the rules.
+    # ------------------------------------------------------------------
+
+    def closeout_plan(self, symbols: list[str], today: datetime.date) -> dict[str, int]:
+        """Which symbols the close-out re-fetches -> how many days each.
+
+        Every symbol with an ``OPEN`` daily bar comes first, on or off the
+        list, with a window reaching back to its oldest ``OPEN`` bar so a bar
+        left open for more than ``CLOSEOUT_MIN_DAYS`` is still finalized. Then
+        each of ``symbols`` whose newest ``CLOSED`` bar is dated before
+        ``today``. A symbol with no cached daily bars is left out: a short
+        window stored for it would stop ``get_history`` warming its full
+        history on first use.
+        """
+        plan: dict[str, int] = {}
+        for sym, oldest_ts in sorted(self._ohlcv.open_daily_bars().items()):
+            # fetch_history's window ends tomorrow, so reaching a bar N days
+            # back takes N + 1 days; one more covers the UTC-date convention.
+            plan[sym] = max(CLOSEOUT_MIN_DAYS, (today - _utc_date(oldest_ts)).days + 2)
+        wanted = list(dict.fromkeys(s.upper() for s in symbols))
+        latest_closed = self._ohlcv.latest_closed_daily_ts(wanted)
+        for sym in wanted:
+            closed_ts = latest_closed.get(sym)
+            if sym not in plan and closed_ts is not None and _utc_date(closed_ts) < today:
+                plan[sym] = CLOSEOUT_MIN_DAYS
+        return plan
+
+    def close_out_daily_bars(self, symbol: str, days: int) -> bool:
+        """Re-fetch and store ``days`` of daily bars; False when Yahoo sent none.
+
+        ``store_bars`` classifies a bar ``CLOSED`` once its session is over,
+        which is what finalizes a forming bar. True means Yahoo sent bars, not
+        that every one was stored: ``store_bars`` drops invalid bars.
+        """
+        fresh = self._yf.fetch_history(symbol, "1d", days)
+        if fresh.empty:
+            return False
+        self._ohlcv.store_bars(symbol, "1d", fresh)
+        return True
+
+    def open_daily_bars_before(self, today: datetime.date) -> dict[str, int]:
+        """Symbol -> count of ``OPEN`` daily bars dated before ``today``."""
+        midnight = datetime.datetime.combine(
+            today, datetime.time(0), tzinfo=datetime.timezone.utc)
+        return self._ohlcv.open_daily_bars_before(int(midnight.timestamp()))
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.

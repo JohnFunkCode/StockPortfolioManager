@@ -502,6 +502,28 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_open_bars_alert(self, bar_count: int, symbols: list, symbol_count: int) -> None:
+        """Alarm that daily bars from earlier sessions are still ``OPEN`` after
+        the nightly close-out (#518). ``symbols`` is a sample, not the full list."""
+        sample = ", ".join(symbols)
+        more = f" and {symbol_count - len(symbols)} more" if symbol_count > len(symbols) else ""
+        embed = {
+            "content": f"OHLCV Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": "Daily bars left open after the close-out",
+                    "description": (
+                        f"- {bar_count} daily bar(s) from earlier sessions are still OPEN, "
+                        f"across {symbol_count} symbol(s): {sample}{more}.\n"
+                        "- Rankings and screens leave OPEN bars out, so these days are "
+                        "missing from them until a re-fetch closes the bars."
+                    ),
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_news_stale_alert(self, age_hours, ceiling_hours: float) -> None:
         """Alarm, raised from the daily report Job, that no news has landed lately.
 

@@ -330,6 +330,7 @@ it runs these steps, in order:
 4. the capture tail: capture full options chains, record GEX, then check capture health
 5. raise an alarm if the news is stale
 6. warm the fundamentals cache, then raise an alarm if coverage is stale
+7. close out the day's daily price bars, then raise an alarm if any earlier day's bar is still open
 
 The cheap, high-value side effects land first. Every later stage is wrapped so it cannot fail a run
 whose alerts already went out, and each one is backed by an alarm that re-reads what actually
@@ -347,6 +348,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | 900 (and it always stops 60 s before the deadline) |
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | 0.80 |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | 168 |
+| `OHLCV_CLOSEOUT_BUDGET_SECONDS` | 300 |
 | `NEWS_STALE_MAX_AGE_HOURS` | 120 |
 
 **The news Job** (`news_job.py`) collects headlines for every tracked symbol and scores them with

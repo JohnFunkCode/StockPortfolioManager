@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) in review; PRs 2–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) in review; PRs 3–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -361,3 +361,18 @@ PR 4 close-out ────────────────────┘
   is abandoned rather than waited on. Live probe: AAPL/MSFT/000660.KS/DOMO/a fake symbol in 0.4 s;
   DOMO and the fake came back None, as gotcha 3 predicts. The plan had named the returns method
   `batch_returns`; its real name is `bulk_period_returns`, now corrected throughout.
+- 2026-11-11: PR 1 merged as #520. PR 2 (reader policy) opened. `include_open` is required on the
+  three repository reads and excluded in SQL as `(%s OR status != 'OPEN')` with a bound boolean, so
+  `tests/test_sql_bound_params.py` needed no new `ALLOWED` entry. The options screen has three
+  history reads, not one: its cached bulk read plus the live path's `fetch_bollinger_bands` and
+  `fetch_iv_analysis`; all three are closed-only. `latest_bar_open` travels from `get_bars` to the
+  service in `DataFrame.attrs`, which costs no extra query and survives `.copy()`; it is on the 15
+  `PricesService` responses that read the forming bar. Two calls made here: `get_volume_analysis`
+  stays on the display side (the plan listed only OBV and volume profile as volume-based), and so
+  does `get_stock_price` although it saves a snapshot. Gotcha: `tests/test_volume_profile.py` pins
+  `get_history`'s exact call arguments, so a reader moving sides shows up there too.
+- 2026-11-11: review fixes on PR #521. A closed-only `get_history` call no longer re-fetches a
+  forming bar it won't return. `get_risk_signals` and `get_technical_signals` carry a top-level
+  `latest_bar_open`. The test now lists the live-side `get_history` callers too. Open decision
+  recorded in `data.md`: `get_dark_pool` (volume-based) and the arbitrage scan (a ranking) still
+  read the forming bar.

@@ -443,7 +443,7 @@ class CountingOhlcvRepository:
         self._bars = bars_by_symbol
         self.queries = 0
 
-    def daily_bars_for_symbols(self, symbols):
+    def daily_bars_for_symbols(self, symbols, *, include_open):
         self.queries += 1
         rows = []
         for sym in symbols:

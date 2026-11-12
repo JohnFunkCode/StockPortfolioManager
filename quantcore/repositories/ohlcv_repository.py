@@ -289,10 +289,17 @@ def _store_bars(symbol: str, interval: str, df: pd.DataFrame) -> None:
         conn.commit()
 
 
-def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
+def _query_cache(
+    symbol: str, interval: str, days: int, *, include_open: bool,
+) -> pd.DataFrame:
     """
     Return cached bars as a DataFrame (columns: Open, High, Low, Close, Volume).
     GAP bars are excluded; CORRECTED bars are included.
+
+    ``include_open`` is required (#518 reader policy): ``True`` keeps today's
+    forming ``OPEN`` bar, ``False`` drops it in SQL. A reader that ranks,
+    alerts or uses volume passes ``False`` — a partial day's volume and range
+    are not comparable with a full session's.
     """
     # Aware, not naive: .timestamp() on a naive datetime interprets it as *local*
     # time, so utcnow().timestamp() lands the cutoff a whole UTC offset away from
@@ -304,12 +311,13 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
     with closing(get_connection()) as conn:
         rows = conn.execute(
             """
-            SELECT ts, open, high, low, close, volume
+            SELECT ts, open, high, low, close, volume, status
             FROM   ohlcv
             WHERE  symbol=? AND interval=? AND ts>=? AND status != 'GAP'
+              AND  (? OR status != 'OPEN')
             ORDER  BY ts ASC
             """,
-            (symbol, interval, cutoff),
+            (symbol, interval, cutoff, bool(include_open)),
         ).fetchall()
 
     if not rows:
@@ -328,6 +336,8 @@ def _query_cache(symbol: str, interval: str, days: int) -> pd.DataFrame:
         },
         index=pd.DatetimeIndex(timestamps),
     )
+    # Read by PricesService to set `latest_bar_open` on a response (#518).
+    df.attrs["latest_bar_open"] = rows[-1][6] == "OPEN"
     return df
 
 
@@ -364,17 +374,20 @@ class OhlcvRepository:
     def store_bars(self, symbol: str, interval: str, df: pd.DataFrame) -> None:
         _store_bars(symbol, interval, df)
 
-    def get_bars(self, symbol: str, interval: str, days: int) -> pd.DataFrame:
-        return _query_cache(symbol, interval, days)
+    def get_bars(
+        self, symbol: str, interval: str, days: int, *, include_open: bool,
+    ) -> pd.DataFrame:
+        return _query_cache(symbol, interval, days, include_open=include_open)
 
     def daily_history_for_symbols(
-        self, symbols: list[str], days: int,
+        self, symbols: list[str], days: int, *, include_open: bool,
     ) -> dict[str, pd.DataFrame]:
         """``get_bars(sym, "1d", days)`` for many symbols in one query.
 
-        Same frame shape and GAP exclusion as ``get_bars``; a symbol with no
-        bars is absent from the result. Never refreshes — callers that need a
-        fresh bar go through ``PricesService.get_history``.
+        Same frame shape, GAP exclusion and ``include_open`` meaning as
+        ``get_bars``; a symbol with no bars is absent from the result. Never
+        refreshes — callers that need a fresh bar go through
+        ``PricesService.get_history``.
         """
         if not symbols:
             return {}
@@ -386,17 +399,24 @@ class OhlcvRepository:
                 FROM   ohlcv
                 WHERE  interval = '1d' AND symbol = ANY(%s)
                   AND  ts >= %s AND status != 'GAP'
+                  AND  (%s OR status != 'OPEN')
                 ORDER  BY symbol, ts ASC
                 """,
-                (sorted({s.upper() for s in symbols}), cutoff),
+                (sorted({s.upper() for s in symbols}), cutoff, bool(include_open)),
             ).fetchall()
         grouped: dict[str, list] = {}
         for r in rows:
             grouped.setdefault(r[0], []).append(r)
         return {sym: _bars_frame(bars) for sym, bars in grouped.items()}
 
-    def daily_bars_for_symbols(self, symbols: list[str]) -> list:
-        """All cached daily bars for the given symbols, ordered by symbol, ts."""
+    def daily_bars_for_symbols(
+        self, symbols: list[str], *, include_open: bool,
+    ) -> list:
+        """All cached daily bars for the given symbols, ordered by symbol, ts.
+
+        ``include_open=False`` drops today's forming ``OPEN`` bar in SQL, as in
+        ``get_bars``.
+        """
         if not symbols:
             return []
         with closing(get_connection()) as conn:
@@ -408,7 +428,8 @@ class OhlcvRepository:
                 WHERE interval = '1d'
                   AND symbol IN ({placeholders})
                   AND status != 'GAP'
+                  AND (? OR status != 'OPEN')
                 ORDER BY symbol, ts ASC
                 """,
-                symbols,
+                [*symbols, bool(include_open)],
             ).fetchall()

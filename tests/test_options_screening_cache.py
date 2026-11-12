@@ -82,7 +82,7 @@ class CachedScreenTestBase(unittest.TestCase):
         self.options_repo.get_latest_full_chains.side_effect = lambda syms, d: {
             s: self.chains[s] for s in syms if s in self.chains}
         self.ohlcv = Mock()
-        self.ohlcv.daily_history_for_symbols.side_effect = lambda syms, days: {
+        self.ohlcv.daily_history_for_symbols.side_effect = lambda syms, days, *, include_open: {
             s: self.history[s] for s in syms if s in self.history}
         self.fundamentals = Mock()
         self.fundamentals.get_all_latest.side_effect = lambda dt: self.earnings_rows
@@ -119,6 +119,8 @@ class CachedScreenTests(CachedScreenTestBase):
         self.options_repo.get_latest_full_chains.assert_called_once_with(
             ["AAA", "BBB"], "2026-10-06")
         self.ohlcv.daily_history_for_symbols.assert_called_once()
+        self.assertIs(
+            self.ohlcv.daily_history_for_symbols.call_args.kwargs["include_open"], False)
         self.fundamentals.get_all_latest.assert_called_once_with("earnings_calendar")
         self.news_store.get_sentiment_summaries.assert_called_once()
 

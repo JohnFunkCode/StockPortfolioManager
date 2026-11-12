@@ -489,7 +489,7 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertEqual(self.repo.count_cached(SYM, "1d"), 0)
         self.repo.store_bars(SYM, "1d", bars_df())
         self.assertEqual(self.repo.count_cached(SYM, "1d"), 5)
-        out = self.repo.get_bars(SYM, "1d", days=30)
+        out = self.repo.get_bars(SYM, "1d", days=30, include_open=True)
         self.assertEqual(len(out), 5)
         self.assertIn("Close", out.columns)
 
@@ -528,7 +528,7 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
 
     def test_daily_bars_for_symbols(self):
         self.repo.store_bars(SYM, "1d", bars_df())
-        rows = self.repo.daily_bars_for_symbols([SYM])
+        rows = self.repo.daily_bars_for_symbols([SYM], include_open=True)
         self.assertEqual(len(rows), 5)
         self.assertEqual(rows[0]["symbol"], SYM)
         self.assertIn("close", rows[0])
@@ -545,13 +545,49 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
                 (SYM, ts),
             )
             conn.commit()
-        out = self.repo.daily_history_for_symbols([SYM.lower(), "ZZREPOSNONE"], days=30)
+        out = self.repo.daily_history_for_symbols(
+            [SYM.lower(), "ZZREPOSNONE"], days=30, include_open=True)
         self.assertEqual(set(out), {SYM})
-        single = self.repo.get_bars(SYM, "1d", days=30)
+        single = self.repo.get_bars(SYM, "1d", days=30, include_open=True)
         self.assertEqual(len(out[SYM]), 4)
         self.assertEqual(list(out[SYM]["Close"]), list(single["Close"]))
         self.assertEqual(str(out[SYM].index.tz), "UTC")
-        self.assertEqual(self.repo.daily_history_for_symbols([], days=30), {})
+        self.assertEqual(
+            self.repo.daily_history_for_symbols([], days=30, include_open=True), {})
+
+    def _mark_latest_bar_open(self):
+        self.repo.store_bars(SYM, "1d", bars_df())
+        ts = self.repo.latest_closed_ts(SYM, "1d")
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "UPDATE ohlcv SET status = 'OPEN' "
+                "WHERE symbol = %s AND interval = '1d' AND ts = %s",
+                (SYM, ts),
+            )
+            conn.commit()
+
+    def test_include_open_false_drops_the_forming_bar_in_every_read(self):
+        # #518 reader policy: a reader that ranks, alerts or uses volume must
+        # not see today's partial bar. All three reads apply it in SQL.
+        self._mark_latest_bar_open()
+        self.assertEqual(len(self.repo.get_bars(SYM, "1d", days=30, include_open=True)), 5)
+        self.assertEqual(len(self.repo.get_bars(SYM, "1d", days=30, include_open=False)), 4)
+        self.assertEqual(
+            len(self.repo.daily_history_for_symbols([SYM], days=30, include_open=True)[SYM]), 5)
+        self.assertEqual(
+            len(self.repo.daily_history_for_symbols([SYM], days=30, include_open=False)[SYM]), 4)
+        self.assertEqual(len(self.repo.daily_bars_for_symbols([SYM], include_open=True)), 5)
+        self.assertEqual(len(self.repo.daily_bars_for_symbols([SYM], include_open=False)), 4)
+
+    def test_get_bars_records_whether_the_newest_bar_is_open(self):
+        self.repo.store_bars(SYM, "1d", bars_df())
+        closed = self.repo.get_bars(SYM, "1d", days=30, include_open=True)
+        self.assertIs(closed.attrs["latest_bar_open"], False)
+        self._mark_latest_bar_open()
+        self.assertIs(
+            self.repo.get_bars(SYM, "1d", days=30, include_open=True).attrs["latest_bar_open"], True)
+        self.assertIs(
+            self.repo.get_bars(SYM, "1d", days=30, include_open=False).attrs["latest_bar_open"], False)
 
     def test_negative_price_bar_is_dropped_not_fatal(self):
         # NIB.F: yfinance returned a daily bar at -4.08 across OHLC, the

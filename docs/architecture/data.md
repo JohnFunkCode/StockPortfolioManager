@@ -97,6 +97,69 @@ import makes a moved `YfData` fail the import on the weekly dependency-upgrade P
 Plan and what comes next (writing these quotes into `ohlcv` as today's forming bar):
 [`live-quotes-return-columns-plan.md`](../proposals/live-quotes-return-columns-plan.md).
 
+## Today's forming bar
+
+A daily bar in `ohlcv` has `status = 'OPEN'` while its session is still trading: its close is the
+latest price and its volume and range are a partial day's. Each reader chooses whether it may see
+that bar (#518):
+
+| May read the `OPEN` bar (live display) | Closed bars only (`include_open=False`) |
+|---|---|
+| returns columns (`bulk_period_returns`) and the last-close quote fallback | options watchlist screen (`OptionsScreeningService`, a ranking): its cached history read, `fetch_bollinger_bands`, `fetch_iv_analysis` |
+| price-level tools: support levels, VWAP, anchored VWAP, ATR bands, gap analysis, higher lows, drawdown | volume-based: `get_obv`, `get_volume_profile` |
+| price-based indicators: RSI, MACD, stochastic, candlestick patterns, the technicals table | `screen_securities` (a ranking) |
+| `get_stock_price`, `get_ohlcv_bars`, `get_volume_analysis`, Sidekick and MCP analysis | anything that alerts or changes stored state |
+
+The rule: **a reader that ranks, alerts, or uses volume reads closed bars only.** A partial day's
+volume and range can't be compared with a full session's, so a ranking built on them changes
+through the day for no market reason. The same split is the common practice elsewhere:
+
+- **TradingView** recalculates indicators on every update of the live bar and offers
+  [`barstate.isconfirmed`](https://tradingview.com/pine-script-docs/concepts/repainting) to act only
+  on a bar's final update.
+- **StockCharts** lets daily scans run on intraday updates, treating the latest as
+  [the current period's close](https://scan.stockcharts.com/discussion/comment/5713). It warns that
+  partial-day results [aren't "true" readings](https://scan.stockcharts.com/discussion/comment/3211)
+  and [excludes volume-based indicators](https://scan.stockcharts.com/discussion/comment/8854) from
+  intraday scans.
+- **QuantConnect LEAN** emits a daily bar consolidated from minute data only
+  [at market close or later](https://quantconnect.com/docs/v2/writing-algorithms/consolidating-data/consolidator-types/mixed-mode-consolidators).
+
+How it is enforced:
+
+- `include_open` is a **required keyword-only** argument on `OhlcvRepository.get_bars`,
+  `daily_history_for_symbols` and `daily_bars_for_symbols`, so every caller states its choice.
+  `False` excludes `OPEN` rows in SQL, with a bound boolean.
+- `PricesService.get_history(..., include_open=True)` defaults to the live-display side, because
+  most of its callers are displays. A closed-only reader passes `False`.
+- `TestReaderPolicy` in `tests/test_prices_history_policy.py` lists every function in
+  `quantcore/services/` on each side: those that pass `include_open=False`, and those that call
+  `get_history` with the default. It fails when a list and the code disagree, so a new reader's
+  side is chosen, not inherited.
+- A closed-only `get_history` call doesn't re-fetch a forming bar it won't return. It still
+  fetches when the latest `CLOSED` bar is behind the last completed session.
+- A `PricesService` response built on a frame whose newest bar is `OPEN` carries
+  `latest_bar_open: true` (otherwise `false`), so the UI and the Sidekick can label it. `get_bars`
+  records it in the frame's `DataFrame.attrs`; a frame from anywhere else reads as `false`. The
+  early "no data" returns don't carry the key. The composites `get_risk_signals` and
+  `get_technical_signals` report `true` when any of their parts does.
+
+Two readers sit on the display side although they are near the line. `get_volume_analysis` reports
+today's volume against its average, which is the point of the tool during the session, and its
+response says so through `latest_bar_open`. `get_stock_price` saves a snapshot, but of the live
+price it was asked for, not of a ranking.
+
+The other services that call `get_history` keep the default and are listed in the test as
+live-side: the Portfolio's period returns, the options-chain Bollinger context, relative-strength
+history, the support-confluence Fibonacci and previous-bar sources, the bid-ask spread proxy,
+`get_dark_pool` and the arbitrage scanner's closes. **Two of those are not settled.**
+`get_dark_pool` is volume-based, and the arbitrage scan ranks candidates (on a price spread, not
+on volume). Both read the forming bar today, as they did before #518; whether they move to the
+closed side is an open decision, not a conclusion.
+
+Today's alert paths don't read `ohlcv`: `notifier.py` uses the legacy `portfolio/` metrics and the
+harvester scan runs after the close. A future alert that reads the cache belongs on the closed side.
+
 ## Positions and the watchlist
 
 Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.

@@ -76,6 +76,21 @@ def trailing_return(closes: Sequence[float], days: int) -> Optional[Decimal]:
     return _pct_change(closes[-1], closes[-1 - days])
 
 
+def display_1d(
+    regular_change_pct: Optional[float], return_1d: Optional[float], quote_stale: bool,
+) -> tuple[Optional[float], bool]:
+    """The 1d figure a page shows, and whether it is stale (#518).
+
+    A fresh quote's regular-session change is the live number. Without one
+    (no quote, a last-close fallback, or a quote Yahoo sent without the
+    change) the page shows the cached close-to-close ``return_1d`` instead,
+    marked stale. The choice is made here so no page makes it.
+    """
+    if not quote_stale and regular_change_pct is not None:
+        return round(float(regular_change_pct), 2), False
+    return return_1d, True
+
+
 def ytd_return(bars: Bars, as_of: date) -> Optional[Decimal]:
     """Year-to-date, anchored to the **first close on or after Jan 1** of
     ``as_of``'s year.

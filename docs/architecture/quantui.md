@@ -43,6 +43,10 @@ watchlist, so there are no held-only rows: a held symbol that is off the list is
 logged as a warning. A held row gets a Held chip, and the Show filter is All / Held. The screener,
 the sentiment dashboard and the options-snapshot refresh moved over as
 `components/watchlist/ScreenerPanel.tsx`, `SentimentDashboard.tsx` and `OptionsRefreshPanel.tsx`.
+The API also serves live 1d columns for both pages (`return_1d_display` and the quote fields on
+`GET /api/portfolio/symbols`, and `GET /api/watchlist/quotes`); see
+[data.md](data.md#the-live-1d-columns). **No page reads them yet**: the Portfolio still shows
+7d / 30d / 90d and the Watchlist has no 1d column until the UI change (#518 PR 7).
 The per-symbol drill-down keeps its `/securities/:symbol` URL (its Back button returns to
 `/watchlist`), and `GET /api/securities` — the old list route — is gone; `/api/securities/lookup`
 and every `/api/securities/{ticker}/*` route stay.

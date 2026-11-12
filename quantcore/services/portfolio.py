@@ -24,7 +24,15 @@ from quantcore.repositories.portfolio_repository import PortfolioRepository
 
 logger = logging.getLogger(__name__)
 
-PERIOD_RETURN_DAYS = (7, 30, 90)
+# Trailing windows read for the Portfolio table, in bars (#518). 7 and 90 are
+# the old columns, kept until the page stops reading them (PR 7).
+RETURN_PERIODS = (1, 5, 7, 30, 60, 90)
+RETURN_COLUMNS = tuple(f"return_{n}d" for n in RETURN_PERIODS) + ("return_ytd", "return_1y")
+QUOTE_COLUMNS = {
+    "regular_change_pct": None, "pre_change_pct": None, "post_change_pct": None,
+    "market_state": None, "quote_as_of": None, "quote_stale": True,
+    "return_1d_display": None, "return_1d_stale": True,
+}
 
 
 class DuplicateSymbolError(Exception):
@@ -290,23 +298,58 @@ class PortfolioService:
             for lot in lots
         ]
 
-    def _period_returns(self, symbol: str) -> Dict[str, Optional[Decimal]]:
-        keys = {f"return_{d}d": None for d in PERIOD_RETURN_DAYS}
-        try:
-            hist = self._prices.get_history(symbol, "1d", max(PERIOD_RETURN_DAYS) + 5)
-        except Exception:
-            logger.warning("symbol_rows(%s): period-return history fetch failed", symbol, exc_info=True)
-            return keys
-        if hist is None or hist.empty:
-            return keys
+    def _period_returns(self, symbols: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Return columns for every symbol from **one** cached read (#518).
 
-        closes = hist["Close"]
-        current_price = Decimal(str(closes.iloc[-1]))
-        for d in PERIOD_RETURN_DAYS:
-            if len(closes) > d:
-                price_then = Decimal(str(closes.iloc[-1 - d]))
-                keys[f"return_{d}d"] = portfolio_math.period_return(current_price, price_then)
-        return keys
+        ``bulk_period_returns`` computes them all from a single SQL query and
+        no network call; before, this was one ``get_history`` per symbol,
+        each of which could reach Yahoo. A failure degrades every return
+        column to None and leaves the rest of the table standing.
+
+        A symbol with no cached history at all is warmed first
+        (``_warm_cold_history``): nothing else on this page fetches history
+        any more, and the nightly close-out skips such a symbol on purpose.
+        """
+        try:
+            rows = self._prices.bulk_period_returns(symbols, periods=RETURN_PERIODS)
+            cold = [s for s in symbols if not rows[s]["bars"]]
+            if cold and self._warm_cold_history(cold):
+                rows.update(self._prices.bulk_period_returns(cold, periods=RETURN_PERIODS))
+            return rows
+        except Exception as exc:  # noqa: BLE001 — the table outlives its return columns
+            logger.warning("symbol_rows: period returns failed (%s)", type(exc).__name__)
+            return {}
+
+    def _warm_cold_history(self, symbols: List[str]) -> bool:
+        """Cold-start the history of symbols with no cached bars; True if any worked.
+
+        ``get_history`` on an empty cache fetches the full warm window. This
+        is the one network path left in ``symbol_rows``, taken once per newly
+        held symbol.
+        """
+        warmed = False
+        for symbol in symbols:
+            try:
+                hist = self._prices.get_history(symbol, "1d", 365)
+                warmed = warmed or (hist is not None and not hist.empty)
+            except Exception as exc:  # noqa: BLE001 — one symbol's columns, not the page
+                logger.warning("symbol_rows(%s): history warm failed (%s)",
+                               symbol, type(exc).__name__)
+        return warmed
+
+    def _quote_changes(self, symbols: List[str], returns: Dict[str, Dict[str, Any]]
+                       ) -> Dict[str, Dict[str, Any]]:
+        """The live 1d columns per symbol, or ``{}`` when they can't be had.
+
+        ``list_lots`` has just fetched these symbols' quotes, so this reads the
+        quote cache and makes no upstream call of its own.
+        """
+        try:
+            return self._prices.quote_changes(
+                symbols, return_1d={s: row.get("return_1d") for s, row in returns.items()})
+        except Exception as exc:  # noqa: BLE001 — the table outlives its 1d column
+            logger.warning("symbol_rows: quote changes failed (%s)", type(exc).__name__)
+            return {}
 
     def _latest_mm_hedge_bias(self, symbol: str) -> Dict[str, Any]:
         result = {"mm_hedge_bias": None, "mm_hedge_bias_captured_at": None}
@@ -338,7 +381,9 @@ class PortfolioService:
             return {}
 
     def symbol_rows(self, owner: str, force: bool = False) -> List[Dict[str, Any]]:
-        """Per-symbol roll-up: aggregate totals, period-return columns, the MM
+        """Per-symbol roll-up: aggregate totals, period-return columns (1d, 5d,
+        30d, 60d, YTD, 1y, and the older 7d/90d), the live 1d quote columns
+        (#518), the MM
         hedge bias (decision #18), and the stacked allocation bar's three
         segments (issue #147 Part A), each carrying its own open child lots
         (decision #14). `force` bypasses the quote cache's TTL (Step 4.4).
@@ -350,6 +395,8 @@ class PortfolioService:
 
         plan_ids = self._active_plan_ids(owner)
         as_of = market_date()
+        returns = self._period_returns(sorted(by_symbol))
+        changes = self._quote_changes(sorted(by_symbol), returns)
         rows = []
         for symbol, symbol_lots in sorted(by_symbol.items()):
             priced_lots = [lot for lot in symbol_lots if lot["current_price"] is not None]
@@ -368,7 +415,8 @@ class PortfolioService:
                     totals["total_investment"] if priced_lots else None,
                     totals["total_gain_loss"] if priced_lots else None,
                 ),
-                **self._period_returns(symbol),
+                **{col: returns.get(symbol, {}).get(col) for col in RETURN_COLUMNS},
+                **{**QUOTE_COLUMNS, **changes.get(symbol, {})},
                 **self._latest_mm_hedge_bias(symbol),
                 # The Plan chip (issue #147 Part H6). One extra query for the
                 # whole page, not one per symbol; None means "no ladder yet",

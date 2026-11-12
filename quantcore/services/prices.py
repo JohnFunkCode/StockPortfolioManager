@@ -104,6 +104,18 @@ def _live_daily_bar(symbol: str, quote) -> dict | None:
             "close": quote.regular_price, "volume": volume}
 
 
+def _pct2(value: float | None) -> float | None:
+    return None if value is None else round(float(value), 2)
+
+
+def _live_change(entry: dict) -> float | None:
+    """A quote-cache entry's regular-session change, when it is a live one."""
+    quote = entry["quote"]
+    if entry["stale"] or quote is None:
+        return None
+    return quote.regular_change_pct
+
+
 def _latest_price(quote) -> tuple[float, datetime.datetime] | None:
     """The newest usable price in a gateway ``Quote`` and its UTC time (#518).
 
@@ -352,8 +364,9 @@ class PricesService:
         zero network calls (issue #147 Part B2).
 
         Modelled on ``screen_securities`` — one ``daily_bars_for_symbols`` read,
-        group in memory, then pure analytics — and deliberately *not* on
-        ``PortfolioService._period_returns``, which loops per symbol. The whole
+        group in memory, then pure analytics — and deliberately *not* a
+        per-symbol ``get_history`` loop (the Portfolio page had one until
+        #518). The whole
         point of the watchlist fundamentals page is that a 40-symbol table costs
         a constant number of queries; a per-symbol loop would put that back to
         40 and reintroduce the multi-minute yfinance walk the legacy report did.
@@ -536,6 +549,49 @@ class PricesService:
             symbol: {key: entry[key] for key in ("price", "as_of", "stale")}
             for symbol, entry in self.get_batch_quotes(symbols, force=force).items()
         }
+
+    def quote_changes(
+        self, symbols: list[str], force: bool = False,
+        return_1d: dict[str, float | None] | None = None,
+    ) -> dict[str, dict]:
+        """The live 1d columns for the Portfolio and Watchlist pages (#518).
+
+        Per symbol: ``regular_change_pct``, ``pre_change_pct``,
+        ``post_change_pct``, ``market_state``, ``quote_as_of``, ``quote_stale``,
+        and the figure to show, ``return_1d_display`` with ``return_1d_stale``
+        (``analytics.returns.display_1d``). One ``get_batch_quotes`` call, so
+        the TTL cache and the force floor apply.
+
+        ``return_1d`` is the cached close-to-close fallback per symbol. A
+        caller that already read it passes it; otherwise it is read here, and
+        only for the symbols that need it (one SQL query, none when every
+        quote is fresh).
+        """
+        symbols = sorted({s.upper() for s in symbols if s})
+        quotes = self.get_batch_quotes(symbols, force=force)
+        if return_1d is None:
+            need = [s for s in symbols if _live_change(quotes[s]) is None]
+            cached = self.bulk_period_returns(need, periods=(1,)) if need else {}
+            return_1d = {s: row["return_1d"] for s, row in cached.items()}
+
+        out: dict[str, dict] = {}
+        for symbol in symbols:
+            entry = quotes[symbol]
+            quote = entry["quote"]
+            shown, shown_stale = returns.display_1d(
+                quote.regular_change_pct if quote else None,
+                return_1d.get(symbol), entry["stale"])
+            out[symbol] = {
+                "regular_change_pct": _pct2(quote.regular_change_pct) if quote else None,
+                "pre_change_pct": _pct2(quote.pre_change_pct) if quote else None,
+                "post_change_pct": _pct2(quote.post_change_pct) if quote else None,
+                "market_state": quote.market_state if quote else None,
+                "quote_as_of": entry["as_of"],
+                "quote_stale": entry["stale"],
+                "return_1d_display": shown,
+                "return_1d_stale": shown_stale,
+            }
+        return out
 
     # ------------------------------------------------------------------
     # Quote + options summary

@@ -211,7 +211,7 @@ class TestReaderPolicy(unittest.TestCase):
     LIVE_ELSEWHERE = {
         ("quantcore/services/microstructure.py", "get_bid_ask_spread"),
         ("quantcore/services/options.py", "get_full_options_chain"),
-        ("quantcore/services/portfolio.py", "_period_returns"),
+        ("quantcore/services/portfolio.py", "_warm_cold_history"),
         ("quantcore/services/recommendations.py", "get_relative_strength_history"),
         ("quantcore/services/recommendations.py", "_prev_bar_hl"),
         ("quantcore/services/recommendations.py", "_src_fibonacci"),

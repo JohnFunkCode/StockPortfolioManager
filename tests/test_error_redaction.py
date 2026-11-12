@@ -177,6 +177,20 @@ class RouteRedactionTest(unittest.TestCase):
         self.assertIn("lookup_security failed symbol=TST", logs.output[0])
 
 
+    def test_watchlist_quotes(self):
+        self.patch_services(LeakyError(SECRET), portfolio_router)
+        with self.assertLogs("api.routers.portfolio", level="WARNING") as logs:
+            resp = self.client.get("/api/watchlist/quotes")
+        self.assert_redacted(resp, logs, "watchlist quotes")
+        self.assertIn("get_watchlist_quotes failed", logs.output[0])
+
+    def test_every_guarded_portfolio_route_is_exercised(self):
+        # A route_internal_error call site added to this router without a
+        # request in this file fails here.
+        self.assertEqual(guarded_route_names(portfolio_router),
+                         {"lookup_security", "get_watchlist_quotes"})
+
+
 class ChatStreamRedactionTest(unittest.TestCase):
     def frames(self, exc):
         def events():

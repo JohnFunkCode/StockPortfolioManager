@@ -272,9 +272,28 @@ class SymbolRowResponse(BaseModel):
     total_gain_loss: Optional[Decimal] = None
     total_gain_loss_pct: Optional[Decimal] = None
     total_dollars_per_day: Optional[Decimal] = None
-    return_7d: Optional[Decimal] = None
-    return_30d: Optional[Decimal] = None
-    return_90d: Optional[Decimal] = None
+    # Trailing windows count trading bars, not calendar days; YTD and 1y are
+    # calendar-anchored (#518). return_7d/return_90d stay until the page
+    # stops reading them.
+    return_1d: Optional[float] = None
+    return_5d: Optional[float] = None
+    return_7d: Optional[float] = None
+    return_30d: Optional[float] = None
+    return_60d: Optional[float] = None
+    return_90d: Optional[float] = None
+    return_ytd: Optional[float] = None
+    return_1y: Optional[float] = None
+    # Live 1d columns (#518). return_1d_display is the figure to show: the
+    # quote's regular-session change when fresh, else the cached return_1d
+    # with return_1d_stale true. The page renders it and computes nothing.
+    regular_change_pct: Optional[float] = None
+    pre_change_pct: Optional[float] = None
+    post_change_pct: Optional[float] = None
+    market_state: Optional[str] = None
+    quote_as_of: Optional[datetime] = None
+    quote_stale: bool = True
+    return_1d_display: Optional[float] = None
+    return_1d_stale: bool = True
     mm_hedge_bias: Optional[Any] = None
     mm_hedge_bias_captured_at: Optional[Any] = None
     # Stacked allocation bar (issue #147 Part A). bar_loss is negative — see
@@ -390,6 +409,7 @@ class WatchlistFundamentalsRow(BaseModel):
 
     price: Optional[float] = None
     price_as_of: Optional[str] = None
+    return_1d: Optional[float] = None
     return_5d: Optional[float] = None
     return_30d: Optional[float] = None
     return_60d: Optional[float] = None
@@ -455,3 +475,25 @@ class WatchlistMineResponse(BaseModel):
     unscored_count: int
     held_count: int
     rows: List[WatchlistMineRow]
+
+
+class WatchlistQuoteRow(BaseModel):
+    """One watchlist symbol's live 1d columns (#518); see SymbolRowResponse."""
+
+    symbol: str
+    regular_change_pct: Optional[float] = None
+    pre_change_pct: Optional[float] = None
+    post_change_pct: Optional[float] = None
+    market_state: Optional[str] = None
+    quote_as_of: Optional[datetime] = None
+    quote_stale: bool = True
+    return_1d_display: Optional[float] = None
+    return_1d_stale: bool = True
+
+
+class WatchlistQuotesResponse(BaseModel):
+    generated_at: str
+    count: int
+    # Rows whose 1d figure is the cached fallback, not a live quote.
+    stale_count: int
+    quotes: List[WatchlistQuoteRow]

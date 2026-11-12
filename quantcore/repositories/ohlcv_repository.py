@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import enum
 import logging
+import math
 from contextlib import closing
 from dataclasses import dataclass
 from typing import Optional
@@ -155,6 +156,19 @@ def _open_bar_state(symbol: str, interval: str) -> Optional[tuple]:
     if not row or row[0] is None:
         return None
     return int(row[0]), int(row[1])
+
+
+def _live_bar_is_storable(bar: dict) -> bool:
+    """Whether a live bar's numbers can go in the table: every price finite
+    and positive, and a finite, non-negative volume. The same line
+    ``_drop_invalid_bars`` draws for fetched history."""
+    try:
+        prices = [float(bar[k]) for k in ("open", "high", "low", "close")]
+        volume = float(bar["volume"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    return (all(math.isfinite(p) and p > 0 for p in prices)
+            and math.isfinite(volume) and volume >= 0)
 
 
 _PRICE_COLS = ("Open", "High", "Low", "Close")
@@ -517,15 +531,20 @@ class OhlcvRepository:
           run its cold-start warm of the full history.
         - ``adj_close`` is written NULL and the ``COALESCE`` keeps a value the
           harvester stored, as in ``store_bars``.
+        - A bar the table's CHECK constraints would reject is dropped here
+          too, as ``store_bars`` does: one bad row fails the whole batch.
         """
-        if not bars:
-            return
         ingested_at = int(time())
         rows = [
             (b["symbol"], int(b["ts"]), float(b["open"]), float(b["high"]),
              float(b["low"]), float(b["close"]), int(b["volume"]), ingested_at, b["symbol"])
-            for b in bars
+            for b in bars if _live_bar_is_storable(b)
         ]
+        if len(rows) < len(bars):
+            logger.warning("Dropped %d invalid live bar(s) (non-positive/non-finite price "
+                           "or negative volume)", len(bars) - len(rows))
+        if not rows:
+            return
         with closing(get_connection()) as conn:
             conn.executemany(
                 """

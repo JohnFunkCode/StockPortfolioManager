@@ -433,3 +433,8 @@ PR 4 close-out ────────────────────┘
   paragraph PR 3 put in `data.md`, which said an exchange east of UTC has bars dated the day before.
   Gotcha: the v7 quote endpoint needs `www.yahoo.com` for its cookie, so a sandboxed probe that
   allows only the `finance.yahoo.com` hosts gets history but an `HTTPError` on quotes.
+- 2026-11-12: review fixes on PR #525. `upsert_live_daily_bars` now drops a bar the table would
+  reject (non-finite or non-positive price, negative or non-finite volume) itself, as `store_bars`
+  does, so the batch doesn't depend on the service's filter. Added a test of a bar's whole life:
+  written `OPEN` by a quote, stored `CLOSED` by the close-out on the **same row** (which also
+  proves the two writers agree on `ts`), and not reopened by a later quote.

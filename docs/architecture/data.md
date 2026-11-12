@@ -191,7 +191,9 @@ which picks a bar's status from the clock. Rules:
 4. **Always `OPEN`,** even after 4pm. The nightly close-out or a `get_history` re-fetch closes it.
 5. **Unusable quotes are skipped** (`_live_daily_bar`): any of open/high/low/price missing,
    non-finite or ≤ 0 (a foreign listing before its open sends 0.0 for open, high and low), a
-   negative volume, or a session that can't be dated. A missing volume is stored as 0.
+   negative volume, or a session that can't be dated. A missing volume is stored as 0. The
+   repository drops a bar the table's CHECK constraints would reject as well, so it doesn't depend
+   on its caller: one bad row would fail the whole batch.
 6. **No bar for a symbol with no daily history.** The insert is conditional on the symbol already
    having a daily row. A lone live bar would make `count_cached` non-zero, and `get_history` would
    then skip its cold-start warm and serve a history as short as its caller's window.

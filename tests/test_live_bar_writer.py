@@ -245,6 +245,49 @@ class LiveBarWriterTest(unittest.TestCase):
         self.assertEqual(self._rows(OTHER), [])
         self.assertEqual(self.repo.count_cached(OTHER, "1d"), 0)
 
+    def test_repository_drops_a_bar_the_table_would_reject(self):
+        # The service filters first, but the repository must not depend on
+        # it: one unstorable row would fail the whole batch.
+        ts = midnight_utc(self.session)
+        good = {"symbol": SYM, "ts": ts, "open": 10.0, "high": 12.0, "low": 9.0,
+                "close": 11.0, "volume": 5}
+        bad = [dict(good, ts=ts + 86400, **change) for change in (
+            {"close": math.nan}, {"open": math.inf}, {"low": 0.0}, {"high": -1.0},
+            {"volume": -5}, {"volume": math.nan}, {"close": None})]
+        with self.assertLogs("quantcore.repositories.ohlcv_repository", "WARNING") as logs:
+            self.repo.upsert_live_daily_bars([*bad, good])
+        self.assertIn(f"Dropped {len(bad)} ", logs.output[0])
+        self.assertEqual(len(self._rows(day=self.session)), 1)
+        self.assertEqual(len(self._rows()), 6)
+        with self.assertLogs("quantcore.repositories.ohlcv_repository", "WARNING"):
+            self.repo.upsert_live_daily_bars(bad)      # nothing storable: no SQL, no raise
+        self.repo.upsert_live_daily_bars([])
+        self.assertEqual(len(self._rows()), 6)
+
+    def test_the_close_out_finalizes_a_live_written_bar_and_it_stays_closed(self):
+        # The whole life of a forming bar: written OPEN by a quote, stored
+        # CLOSED by the nightly close-out, and not reopened by a later quote.
+        self._quotes({SYM: quote(at(self.session, 15), price=11.0)})
+        self.assertEqual(self._rows(day=self.session)[0]["status"], "OPEN")
+
+        today = pd.Timestamp.now(tz="UTC").normalize().date()
+        service = self._service()
+        days = service.closeout_plan([], today)[SYM]
+        final = pd.DataFrame(
+            {"Open": [10.0], "High": [12.5], "Low": [9.0], "Close": [11.4], "Volume": [9000]},
+            index=pd.DatetimeIndex([pd.Timestamp(self.session)]))   # tz-naive, as yf.download
+        self.gateway.fetch_history.return_value = final
+        self.assertTrue(service.close_out_daily_bars(SYM, days))
+        self.gateway.fetch_history.assert_called_once_with(SYM, "1d", days)
+
+        row, = self._rows(day=self.session)                # the same row, not a second one
+        self.assertEqual((row["status"], row["close"], row["volume"]), ("CLOSED", 11.4, 9000))
+        self.assertNotIn(SYM, service.open_daily_bars_before(today))
+
+        self._quotes({SYM: quote(at(self.session, 16), price=99.0)})   # an after-hours read
+        self.assertEqual(self._rows(day=self.session), [row])
+        self.assertEqual(len(self._rows()), 6)
+
     def test_closed_only_readers_do_not_see_the_live_bar(self):
         self._quotes({SYM: quote(at(self.session, 11))})
         self.assertEqual(len(self.repo.get_bars(SYM, "1d", days=30, include_open=True)), 6)

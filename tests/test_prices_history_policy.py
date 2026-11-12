@@ -16,6 +16,7 @@ import pandas as pd
 
 from quantcore.gateways.yfinance_gateway import Quote
 from quantcore.services.prices import (
+    OPEN_BAR_MAX_AGE_SECONDS,
     QUOTE_FORCE_FLOOR_SECONDS,
     QUOTE_TTL_SECONDS,
     PricesService,
@@ -67,15 +68,63 @@ class TestHistoryPolicy(unittest.TestCase):
         self.repo.store_bars.assert_called_once()
         self.assertIs(result, self.repo.get_bars.return_value)
 
-    def test_open_bar_triggers_refetch(self):
+    # --- the OPEN-bar re-fetch rule (#518 PR 3) ---------------------------
+    TODAY = datetime.date(2026, 7, 13)
+    NOW = 1_800_000_000.0
+
+    def _history_with_open_bar(self, interval, *, bar_date, age):
+        """get_history against a cache whose only reason to fetch is an OPEN
+        bar dated ``bar_date`` and written ``age`` seconds ago."""
         self.repo.count_cached.return_value = 500
-        self.repo.has_open_bar.return_value = True
-        self.service.get_history("INTC", "1d", 30)
+        self.repo.latest_closed_ts.return_value = None
+        bar_ts = int(datetime.datetime.combine(
+            bar_date, datetime.time(14, 30), tzinfo=datetime.timezone.utc).timestamp())
+        self.repo.open_bar_state.return_value = (bar_ts, int(self.NOW) - age)
+        with patch("quantcore.services.prices.market_date", return_value=self.TODAY), \
+                patch("quantcore.services.prices.time.time", return_value=self.NOW):
+            self.service.get_history("INTC", interval, 30)
+        self.repo.open_bar_state.assert_called_once_with("INTC", interval)
+
+    def test_fresh_open_bar_is_not_refetched(self):
+        self._history_with_open_bar("1d", bar_date=self.TODAY, age=OPEN_BAR_MAX_AGE_SECONDS)
+        self.gateway.fetch_history.assert_not_called()
+        self.repo.store_bars.assert_not_called()
+
+    def test_open_bar_past_the_max_age_is_refetched(self):
+        self._history_with_open_bar(
+            "1d", bar_date=self.TODAY, age=OPEN_BAR_MAX_AGE_SECONDS + 1)
+        self.gateway.fetch_history.assert_called_once()
+
+    def test_open_bar_from_an_earlier_session_is_refetched_at_any_age(self):
+        self._history_with_open_bar(
+            "1d", bar_date=self.TODAY - datetime.timedelta(days=1), age=1)
+        self.gateway.fetch_history.assert_called_once()
+
+    def test_intraday_open_bars_follow_the_same_rule(self):
+        for interval in ("1h", "30m", "15m"):
+            for age, bar_date, fetched in (
+                (OPEN_BAR_MAX_AGE_SECONDS, self.TODAY, False),
+                (OPEN_BAR_MAX_AGE_SECONDS + 1, self.TODAY, True),
+                (1, self.TODAY - datetime.timedelta(days=3), True),
+            ):
+                with self.subTest(interval=interval, age=age, bar_date=bar_date):
+                    self.repo.reset_mock()
+                    self.gateway.reset_mock()
+                    self._history_with_open_bar(interval, bar_date=bar_date, age=age)
+                    self.assertEqual(self.gateway.fetch_history.called, fetched)
+
+    def test_no_open_bar_falls_through_to_the_closed_bar_check(self):
+        self.repo.count_cached.return_value = 500
+        self.repo.open_bar_state.return_value = None
+        self.repo.latest_closed_ts.return_value = ts_for(datetime.date(2026, 7, 9))
+        with patch("quantcore.services.prices.latest_completed_session",
+                   return_value=self.TODAY):
+            self.service.get_history("INTC", "1d", 30)
         self.gateway.fetch_history.assert_called_once()
 
     def test_stale_closed_bar_triggers_refetch(self):
         self.repo.count_cached.return_value = 500
-        self.repo.has_open_bar.return_value = False
+        self.repo.open_bar_state.return_value = None
         stale = datetime.date(2026, 7, 9)
         session = datetime.date(2026, 7, 13)
         self.repo.latest_closed_ts.return_value = ts_for(stale)
@@ -87,7 +136,7 @@ class TestHistoryPolicy(unittest.TestCase):
 
     def test_fresh_cache_no_fetch(self):
         self.repo.count_cached.return_value = 500
-        self.repo.has_open_bar.return_value = False
+        self.repo.open_bar_state.return_value = None
         session = datetime.date(2026, 7, 13)
         self.repo.latest_closed_ts.return_value = ts_for(session)
         with patch(
@@ -128,7 +177,7 @@ class TestReaderPolicy(unittest.TestCase):
     def setUp(self):
         self.repo = Mock()
         self.repo.count_cached.return_value = 500
-        self.repo.has_open_bar.return_value = False
+        self.repo.open_bar_state.return_value = None
         self.repo.latest_closed_ts.return_value = None
         self.repo.get_bars.return_value = FRESH_DF
         self.service = make_service(self.repo, Mock())
@@ -198,7 +247,7 @@ class TestReaderPolicy(unittest.TestCase):
 
     def test_closed_only_read_does_not_refresh_a_forming_bar(self):
         # The bar would be fetched, stored and then left out of the result.
-        self.repo.has_open_bar.return_value = True
+        self.repo.open_bar_state.return_value = (0, 0)  # overdue OPEN bar
         session = datetime.date(2026, 7, 13)
         self.repo.latest_closed_ts.return_value = ts_for(session)
         with patch(
@@ -210,7 +259,7 @@ class TestReaderPolicy(unittest.TestCase):
             self.service._yf.fetch_history.assert_called_once()
 
     def test_closed_only_read_still_fetches_when_the_closed_bar_is_behind(self):
-        self.repo.has_open_bar.return_value = True
+        self.repo.open_bar_state.return_value = (0, 0)  # overdue OPEN bar
         self.repo.latest_closed_ts.return_value = ts_for(datetime.date(2026, 7, 9))
         with patch(
             "quantcore.services.prices.latest_completed_session",

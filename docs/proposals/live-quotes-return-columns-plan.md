@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) in review; PRs 3–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) in review; PRs 4–7 not started. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -107,7 +107,8 @@ fetch. It does **not** go through `store_bars`, which picks the status from the 
 
 `get_history`'s second condition changes from "an `OPEN` bar exists" to "an `OPEN` bar exists **and**
 its `ingested_at` is more than `OPEN_BAR_MAX_AGE_SECONDS` (300) old". It needs a repository read,
-`open_bar_ingested_at(symbol, interval) -> int | None`, the newest `OPEN` bar's `ingested_at`.
+`open_bar_state(symbol, interval)`, returning the oldest `OPEN` bar's `ts` and the oldest
+`ingested_at` among `OPEN` bars (as built in PR 3; the plan first named it `open_bar_ingested_at`).
 
 Why it matters: a re-fetch downloads the caller's **whole window** (for example 365 days) as one
 per-symbol `yf.download`. `get_history` sits under about 16 `PricesService` call sites,
@@ -250,7 +251,7 @@ PR 4 close-out ────────────────────┘
 
 ### PR 3: `OPEN`-bar re-fetch rule
 
-1. `OhlcvRepository.open_bar_ingested_at`.
+1. `OhlcvRepository.open_bar_state` (first planned as `open_bar_ingested_at`).
 2. `get_history`: re-fetch an `OPEN` bar only when it is older than `OPEN_BAR_MAX_AGE_SECONDS = 300`,
    or when it is dated before the current session.
 3. Tests: a fresh `OPEN` bar is not re-fetched; one 301 s old is; an `OPEN` bar from yesterday is
@@ -380,3 +381,19 @@ PR 4 close-out ────────────────────┘
   (volume-based) and the arbitrage scanner's `_closes` (a ranking) move to closed bars only.
   `_closes` is `ArbitrageService`'s only history read, so `analyze_arbitrage_pair` and pair
   discovery move with the scan.
+- 2026-11-11: PR 2 merged as #521 and its follow-up as #522. PR 3 (re-fetch rule) opened. The
+  repository read is `open_bar_state`, not the planned `open_bar_ingested_at`: the "earlier session"
+  half of the rule needs the bar's `ts` as well, and one query returns both. It reports the
+  **oldest** `ts` and `ingested_at` among `OPEN` bars, not the newest, because an intraday interval
+  holds several `OPEN` bars during the session and a leftover one from an earlier session must not
+  hide behind today's. "Dated before the current session" is implemented as "before `market_date()`".
+  `latest_completed_session()` can't be used for it: despite the name it returns the latest session
+  that has *started*, which is today during the session. Gotcha: today's bar stays `OPEN` after the
+  4pm close until a re-fetch older than 300 s or the close-out (PR 4) finalizes it, and once the
+  live writer (PR 5) keeps `ingested_at` fresh, only the close-out or the date rolling over does.
+  `has_open_bar` is no longer called by the service; it stays on the repository.
+- 2026-11-12: review fixes on PR #523. The review suggested guarding against an `OPEN` row with a
+  NULL `ingested_at` hiding behind a sibling's. `ohlcv.ingested_at` is `NOT NULL`, so that can't
+  happen; the first cut's "no `ingested_at` counts as due" branch, its test and the docs sentence
+  were dead and are removed. Added a repository test that a bar left `OPEN` is stored `CLOSED` when
+  its session's bars are stored again.

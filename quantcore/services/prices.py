@@ -105,7 +105,10 @@ def _live_daily_bar(symbol: str, quote) -> dict | None:
 
 
 def _pct2(value: float | None) -> float | None:
-    return None if value is None else round(float(value), 2)
+    """A percentage to two places; None for a missing or non-finite one."""
+    if value is None or not math.isfinite(float(value)):
+        return None
+    return round(float(value), 2)
 
 
 def _quote_change_row(entry: dict, return_1d: float | None) -> dict:

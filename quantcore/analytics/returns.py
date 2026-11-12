@@ -25,6 +25,7 @@ than read off the clock, so a caller can ask what YTD looked like in March.
 
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Optional, Sequence, Tuple
@@ -83,12 +84,19 @@ def display_1d(
 
     A fresh quote's regular-session change is the live number. Without one
     (no quote, a last-close fallback, or a quote Yahoo sent without the
-    change) the page shows the cached close-to-close ``return_1d`` instead,
+    change, or with a non-finite one) the page shows the cached
+    close-to-close ``return_1d`` instead,
     marked stale. The choice is made here so no page makes it.
     """
-    if not quote_stale and regular_change_pct is not None:
+    if not quote_stale and _is_finite(regular_change_pct):
         return round(float(regular_change_pct), 2), False
     return return_1d, True
+
+
+def _is_finite(value: Optional[float]) -> bool:
+    """A usable number: not None, NaN or infinite. A non-finite change is
+    treated as a missing one, and it is not valid JSON either."""
+    return value is not None and math.isfinite(float(value))
 
 
 def ytd_return(bars: Bars, as_of: date) -> Optional[Decimal]:

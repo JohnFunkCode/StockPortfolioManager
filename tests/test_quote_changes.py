@@ -5,6 +5,7 @@
 quote call; ``WatchlistService.quotes`` is the Watchlist's envelope around it.
 Yahoo is stubbed throughout.
 """
+import math
 import unittest
 from unittest.mock import Mock
 
@@ -46,6 +47,12 @@ class DisplayOneDayTest(unittest.TestCase):
 
     def test_fresh_quote_without_a_change_falls_back_and_is_stale(self):
         self.assertEqual(display_1d(None, 0.4, False), (0.4, True))
+
+    def test_a_non_finite_change_is_treated_as_missing(self):
+        # NaN is not None, and it is not valid JSON: it must not be shown as live.
+        for bad in (math.nan, math.inf, -math.inf):
+            with self.subTest(bad):
+                self.assertEqual(display_1d(bad, 0.4, False), (0.4, True))
 
     def test_nothing_to_show_is_none_and_stale(self):
         self.assertEqual(display_1d(None, None, True), (None, True))
@@ -116,6 +123,36 @@ class QuoteChangesTest(unittest.TestCase):
         self.service.bulk_period_returns.assert_called_once_with(["DOMO"], periods=(1,))
         self.assertIn("RuntimeError", logs.output[-1])
         self.assertNotIn("secret detail", "\n".join(logs.output))
+
+    def test_non_finite_quote_changes_never_reach_a_row(self):
+        self.gateway.batch_quotes.return_value = {
+            "AAA": quote(math.nan, pre=math.inf, post=math.nan)}
+        self.repo.daily_bars_for_symbols.return_value = bars("AAA", [100.0, 102.0])
+        row = self.service.quote_changes(["AAA"], return_1d={"AAA": 2.0})["AAA"]
+        self.assertIsNone(row["regular_change_pct"])
+        self.assertIsNone(row["pre_change_pct"])
+        self.assertIsNone(row["post_change_pct"])
+        self.assertEqual((row["return_1d_display"], row["return_1d_stale"]), (2.0, True))
+
+    def test_every_requested_symbol_gets_a_row_on_a_partial_fetch(self):
+        # Yahoo's batch reply silently omits symbols. quote_changes indexes the
+        # quote cache by every requested symbol, so get_batch_quotes must
+        # return an entry for each: live, last close, or an empty stale one.
+        self.gateway.batch_quotes.return_value = {"AAA": quote(1.0)}    # BBB, CCC absent
+        self.repo.daily_bars_for_symbols.return_value = bars("BBB", [10.0, 11.0])
+        quotes = self.service.get_batch_quotes(["AAA", "BBB", "CCC"])
+        self.assertEqual(set(quotes), {"AAA", "BBB", "CCC"})
+        self.assertEqual((quotes["BBB"]["price"], quotes["BBB"]["stale"]), (11.0, True))
+        self.assertEqual((quotes["CCC"]["price"], quotes["CCC"]["stale"]), (None, True))
+
+        fresh = PricesService(
+            ohlcv_repository=self.repo, yfinance_gateway=self.gateway,
+            options_repository=Mock(), sentiment_repository=Mock())
+        out = fresh.quote_changes(["AAA", "BBB", "CCC"])
+        self.assertEqual(set(out), {"AAA", "BBB", "CCC"})
+        self.assertEqual(out["BBB"]["return_1d_display"], 10.0)
+        self.assertEqual((out["CCC"]["return_1d_display"], out["CCC"]["return_1d_stale"]),
+                         (None, True))
 
     def test_a_symbol_with_no_quote_and_no_bars_is_an_empty_stale_row(self):
         self.gateway.batch_quotes.return_value = {"NEW": None}

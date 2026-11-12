@@ -464,4 +464,10 @@ PR 4 close-out ────────────────────┘
   is now guarded too. A symbol that stays cold is warmed at most once an hour per process.
   Gotcha: the review measures complexity with radon, which counts comprehensions and boolean
   operators; ruff's C901 (mccabe) does not, so "nothing over 10 on ruff" said nothing about the
-  reviewer's threshold. Radon isn't installed here, so the new numbers are reasoned, not measured.
+  reviewer's threshold. Radon isn't installed in the development environment; the second review
+  measured the fixed head with radon 6.0.1: `quote_changes` 7, `_quote_change_row` 5,
+  `_cached_return_1d` 4, all within the goal of 10.
+- 2026-11-12: second review of PR #526 (COMMENT), three suggestions. A NaN or infinite quote
+  change is now treated as a missing one (`display_1d`, `_pct2`), `data.md` says all three watchlist
+  routes are declared before `/watchlist/{ticker}`, and a test pins that `get_batch_quotes` returns
+  an entry for every requested symbol when Yahoo's reply omits some.

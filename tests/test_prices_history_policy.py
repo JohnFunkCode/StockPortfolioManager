@@ -157,6 +157,105 @@ class TestReaderPolicy(unittest.TestCase):
                         found.add((str(path.relative_to(root)), func.name))
         self.assertEqual(found, self.CLOSED_ONLY_READERS)
 
+    LIVE_ELSEWHERE = {
+        ("quantcore/services/arbitrage.py", "_closes"),
+        ("quantcore/services/microstructure.py", "get_dark_pool"),
+        ("quantcore/services/microstructure.py", "get_bid_ask_spread"),
+        ("quantcore/services/options.py", "get_full_options_chain"),
+        ("quantcore/services/portfolio.py", "_period_returns"),
+        ("quantcore/services/recommendations.py", "get_relative_strength_history"),
+        ("quantcore/services/recommendations.py", "_prev_bar_hl"),
+        ("quantcore/services/recommendations.py", "_src_fibonacci"),
+    }
+
+    # Every function that reads history on the live-display side (the
+    # default). A new get_history caller lands here or in the list above, so
+    # its side is chosen, not inherited.
+    LIVE_READERS = {
+        ("quantcore/services/prices.py", name) for name in (
+            "get_stock_price", "get_rsi", "get_macd", "get_stochastic",
+            "get_volume_analysis", "get_vwap", "get_vwap_history",
+            "get_candlestick_patterns", "get_atr_bands", "get_anchored_vwap",
+            "get_higher_lows", "get_gap_analysis", "get_historical_drawdown",
+            "get_ohlcv_bars", "get_technicals_table",
+        )
+    } | LIVE_ELSEWHERE
+
+    def test_live_readers_are_exactly_the_listed_ones(self):
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = set()
+        for path in sorted((root / "quantcore" / "services").glob("*.py")):
+            for func in ast.walk(ast.parse(path.read_text())):
+                if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                for node in ast.walk(func):
+                    if (isinstance(node, ast.Call)
+                            and isinstance(node.func, ast.Attribute)
+                            and node.func.attr == "get_history"
+                            and not any(kw.arg == "include_open" for kw in node.keywords)):
+                        found.add((str(path.relative_to(root)), func.name))
+        self.assertEqual(found, self.LIVE_READERS)
+
+    def test_closed_only_read_does_not_refresh_a_forming_bar(self):
+        # The bar would be fetched, stored and then left out of the result.
+        self.repo.has_open_bar.return_value = True
+        session = datetime.date(2026, 7, 13)
+        self.repo.latest_closed_ts.return_value = ts_for(session)
+        with patch(
+            "quantcore.services.prices.latest_completed_session", return_value=session
+        ):
+            self.service.get_history("INTC", "1d", 30, include_open=False)
+            self.service._yf.fetch_history.assert_not_called()
+            self.service.get_history("INTC", "1d", 30)
+            self.service._yf.fetch_history.assert_called_once()
+
+    def test_closed_only_read_still_fetches_when_the_closed_bar_is_behind(self):
+        self.repo.has_open_bar.return_value = True
+        self.repo.latest_closed_ts.return_value = ts_for(datetime.date(2026, 7, 9))
+        with patch(
+            "quantcore.services.prices.latest_completed_session",
+            return_value=datetime.date(2026, 7, 13),
+        ):
+            self.service.get_history("INTC", "1d", 30, include_open=False)
+        self.service._yf.fetch_history.assert_called_once()
+
+    def test_volume_readers_ask_the_repository_for_closed_bars(self):
+        closes = [100.0 + (i % 7) for i in range(260)]
+        self.repo.get_bars.return_value = pd.DataFrame(
+            {"Open": closes, "High": [c + 1 for c in closes],
+             "Low": [c - 1 for c in closes], "Close": closes,
+             "Volume": [1000 + i for i in range(260)]},
+            index=pd.date_range("2025-06-01", periods=260, tz="UTC"),
+        )
+        for reader in (self.service.get_obv, self.service.get_volume_profile):
+            self.repo.get_bars.reset_mock()
+            with self.subTest(reader=reader.__name__):
+                reader("INTC")
+                self.assertIs(self.repo.get_bars.call_args.kwargs["include_open"], False)
+
+    def test_composites_report_a_forming_bar_from_any_part(self):
+        svc = self.service
+        with patch.object(svc, "get_historical_drawdown", return_value={"latest_bar_open": False}), \
+             patch.object(svc, "get_vwap", return_value={"vwap": 1.0, "latest_bar_open": True}):
+            self.assertIs(svc.get_risk_signals("INTC")["latest_bar_open"], True)
+        with patch.object(svc, "get_historical_drawdown", return_value={"latest_bar_open": False}), \
+             patch.object(svc, "get_vwap", side_effect=RuntimeError("x")):
+            self.assertIs(svc.get_risk_signals("INTC")["latest_bar_open"], False)
+        parts = ("get_stochastic", "get_vwap", "get_obv", "get_volume_analysis",
+                 "get_candlestick_patterns", "get_higher_lows", "get_gap_analysis")
+        for flagged, expected in (("get_gap_analysis", True), (None, False)):
+            patches = [
+                patch.object(svc, name, return_value={"latest_bar_open": name == flagged})
+                for name in parts
+            ]
+            for p in patches:
+                p.start()
+            try:
+                self.assertIs(svc.get_technical_signals("INTC")["latest_bar_open"], expected)
+            finally:
+                for p in patches:
+                    p.stop()
+
     def test_latest_bar_open_is_set_on_a_forming_bar(self):
         closes = [100.0 + i for i in range(60)]
         frame = pd.DataFrame(

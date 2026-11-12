@@ -101,6 +101,11 @@ def _latest_bar_open(hist) -> bool:
     return bool(getattr(hist, "attrs", {}).get("latest_bar_open", False))
 
 
+def _any_bar_open(*responses) -> bool:
+    """True when any sub-response of a composite read today's forming bar."""
+    return any(bool(r.get("latest_bar_open")) for r in responses if isinstance(r, dict))
+
+
 def _safe_int(val):
     try:
         f = float(val) if val is not None else 0.0
@@ -178,7 +183,9 @@ class PricesService:
 
         Reader policy (#518): the default keeps today's forming ``OPEN`` bar,
         for live displays. A reader that ranks, alerts or uses volume passes
-        ``include_open=False``; ``tests/test_prices_history_policy.py`` lists them."""
+        ``include_open=False``; ``tests/test_prices_history_policy.py`` lists them.
+        A closed-only read doesn't refresh a forming bar it won't return; it
+        still fetches when the latest CLOSED bar is behind."""
         if interval not in VALID_INTERVALS:
             raise ValueError(f"Invalid interval '{interval}'. Valid: {VALID_INTERVALS}")
         symbol = symbol.upper()
@@ -187,7 +194,7 @@ class PricesService:
         if self._ohlcv.count_cached(symbol, interval) == 0:
             days = max(days, WARM_DAYS.get(interval, 730))
             needs_fetch = True
-        elif self._ohlcv.has_open_bar(symbol, interval):
+        elif include_open and self._ohlcv.has_open_bar(symbol, interval):
             needs_fetch = True
         else:
             latest_ts = self._ohlcv.latest_closed_ts(symbol, interval)
@@ -2041,12 +2048,14 @@ class PricesService:
             return {"ticker": ticker, "drawdown": None, "error": safe_error_text(exc)}
         # Derive a simple stop-loss recommendation from drawdown stats
         price_data: dict = {}
+        vd = None
         try:
             vd = self.get_vwap(ticker)
             price_data = {"vwap": vd.get("vwap"), "vwap_position": vd.get("position")}
         except Exception:
             pass
-        return {"ticker": ticker, "drawdown": dd, **price_data}
+        return {"ticker": ticker, "drawdown": dd, **price_data,
+                "latest_bar_open": _any_bar_open(dd, vd)}
 
     def get_technicals_table(self, ticker: str, days: int = 365) -> dict:
         ticker = ticker.upper()
@@ -2130,7 +2139,8 @@ class PricesService:
                 "technical signal sub-indicator(s) failed ticker=%s indicators=%s",
                 ticker, sorted(errors),
             )
-        return {"ticker": ticker, "_errors": errors if errors else None, **results}
+        return {"ticker": ticker, "_errors": errors if errors else None, **results,
+                "latest_bar_open": _any_bar_open(*results.values())}
 
     def screen_securities(self, filters: dict, portfolio: list[dict], watchlist: list[dict]) -> dict:
         rsi_max        = filters.get("rsi_max")

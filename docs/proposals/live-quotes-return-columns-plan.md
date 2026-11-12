@@ -371,3 +371,8 @@ PR 4 close-out ────────────────────┘
   stays on the display side (the plan listed only OBV and volume profile as volume-based), and so
   does `get_stock_price` although it saves a snapshot. Gotcha: `tests/test_volume_profile.py` pins
   `get_history`'s exact call arguments, so a reader moving sides shows up there too.
+- 2026-11-11: review fixes on PR #521. A closed-only `get_history` call no longer re-fetches a
+  forming bar it won't return. `get_risk_signals` and `get_technical_signals` carry a top-level
+  `latest_bar_open`. The test now lists the live-side `get_history` callers too. Open decision
+  recorded in `data.md`: `get_dark_pool` (volume-based) and the arbitrage scan (a ranking) still
+  read the forming bar.

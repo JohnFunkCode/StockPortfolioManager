@@ -6,6 +6,9 @@ volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
 ## Why
 
+This section describes the code as it was before the work started. PR 1 (#520) has since retired
+`get_latest_quotes`; live quotes now come from `YFinanceGateway.batch_quotes`.
+
 The two pages show different return windows, computed different ways:
 
 | | Portfolio | Watchlist |
@@ -408,3 +411,8 @@ PR 4 close-out ────────────────────┘
   night (today's bar isn't "before today"); it alarms on the next run if the bars are still open.
   Pacing is 25 symbols then a 2 s pause, default budget 300 s; both unmeasured until step 4
   (wall time and 429s on test for ~260 symbols).
+- 2026-11-12: review fixes on PR #524. The walk now pauses before it checks the budget, so no
+  symbol starts after a pause that spent the last of it, and a test drives the budget with a clock
+  that only moves on sleep. The summary's `stored` count is renamed `fetched`: `store_bars` drops
+  invalid bars silently, so the walk can only say Yahoo sent bars; the alarm's database read is
+  what says whether they were closed. The *Why* section is marked as the pre-#520 state.

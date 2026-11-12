@@ -130,7 +130,7 @@ class CloseOutOhlcvTest(unittest.TestCase):
         self.assertEqual(
             prices.close_out_daily_bars.call_args_list,
             [mock.call("A", 10), mock.call("B", 14), mock.call("C", 10), mock.call("D", 10)])
-        self.assertEqual((s["planned"], s["attempted"], s["stored"], s["empty"], s["failed"]),
+        self.assertEqual((s["planned"], s["attempted"], s["fetched"], s["empty"], s["failed"]),
                          (4, 4, 2, 1, 1))
         self.assertEqual(s["failures"], ["C"])
         self.assertFalse(s["budget_exhausted"])
@@ -153,6 +153,24 @@ class CloseOutOhlcvTest(unittest.TestCase):
         main.close_out_ohlcv([], prices, budget_seconds=10_000, today=TODAY, sleep=sleep)
         self.assertEqual(sleep.call_args_list,
                          [mock.call(main.OHLCV_CLOSEOUT_PAUSE_SECONDS)] * 2)
+
+    def test_pauses_count_against_the_budget(self):
+        # A clock that only moves when the step sleeps: the walk itself is
+        # free, so only the pauses can spend the budget.
+        now = [0.0]
+
+        def sleep(seconds):
+            now[0] += seconds
+
+        chunk = main.OHLCV_CLOSEOUT_CHUNK_SIZE
+        prices = fake_prices(plan={f"S{i}": 10 for i in range(chunk * 5)})
+        budget = main.OHLCV_CLOSEOUT_PAUSE_SECONDS * 2
+        s = main.close_out_ohlcv([], prices, budget_seconds=budget, clock=lambda: now[0],
+                                 today=TODAY, sleep=sleep)
+        # Two pauses spend the whole budget, and no symbol starts after the second.
+        self.assertEqual(s["attempted"], chunk * 2)
+        self.assertEqual(s["elapsed_seconds"], budget)
+        self.assertTrue(s["budget_exhausted"])
 
     def test_budget_comes_from_the_environment(self):
         prices = fake_prices(plan={s: 10 for s in "ABCDEFGH"})

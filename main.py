@@ -728,6 +728,10 @@ def close_out_ohlcv(symbols, prices, budget_seconds=None, clock=time.monotonic,
     ``PricesService.closeout_plan`` decides which symbols and how far back;
     this walks that plan under a wall-clock budget, pausing between chunks.
     One bad symbol degrades one row. The pauses count against the budget.
+
+    ``fetched`` counts symbols Yahoo sent bars for, not bars that landed:
+    ``store_bars`` drops invalid bars without saying so. Whether bars were
+    closed is ``alert_if_open_bars_remain``'s question, and it asks the database.
     """
     budget = (_env_float(OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV,
                          DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS)
@@ -736,16 +740,18 @@ def close_out_ohlcv(symbols, prices, budget_seconds=None, clock=time.monotonic,
     print(f"Closing out daily bars for {len(plan)} symbol(s), budget {budget:.0f}s...")
 
     started = clock()
-    summary = {"planned": len(plan), "attempted": 0, "stored": 0, "empty": 0,
+    summary = {"planned": len(plan), "attempted": 0, "fetched": 0, "empty": 0,
                "failed": 0, "failures": []}
     for index, (sym, days) in enumerate(plan.items()):
-        if clock() - started >= budget:
-            break
+        # Pause first, then check: the pause is spent budget, so a symbol is
+        # never started after a pause that used up the last of it.
         if index and index % OHLCV_CLOSEOUT_CHUNK_SIZE == 0:
             sleep(OHLCV_CLOSEOUT_PAUSE_SECONDS)
+        if clock() - started >= budget:
+            break
         summary["attempted"] += 1
         try:
-            summary["stored" if prices.close_out_daily_bars(sym, days) else "empty"] += 1
+            summary["fetched" if prices.close_out_daily_bars(sym, days) else "empty"] += 1
         except Exception as exc:  # noqa: BLE001 — one bad symbol must not stop the walk
             summary["failed"] += 1
             summary["failures"].append(sym)
@@ -753,7 +759,7 @@ def close_out_ohlcv(symbols, prices, budget_seconds=None, clock=time.monotonic,
 
     summary["elapsed_seconds"] = clock() - started
     summary["budget_exhausted"] = summary["attempted"] < summary["planned"]
-    print(f"Close-out: {summary['stored']} stored, {summary['empty']} empty, "
+    print(f"Close-out: {summary['fetched']} fetched, {summary['empty']} empty, "
           f"{summary['failed']} failed, {summary['planned'] - summary['attempted']} "
           f"not attempted, {summary['elapsed_seconds']:.0f}s.")
     return summary

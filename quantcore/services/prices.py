@@ -277,7 +277,8 @@ class PricesService:
         """Re-fetch and store ``days`` of daily bars; False when Yahoo sent none.
 
         ``store_bars`` classifies a bar ``CLOSED`` once its session is over,
-        which is what finalizes a forming bar.
+        which is what finalizes a forming bar. True means Yahoo sent bars, not
+        that every one was stored: ``store_bars`` drops invalid bars.
         """
         fresh = self._yf.fetch_history(symbol, "1d", days)
         if fresh.empty:

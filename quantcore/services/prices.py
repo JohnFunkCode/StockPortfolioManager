@@ -234,7 +234,7 @@ class PricesService:
         bar_date = datetime.datetime.fromtimestamp(oldest_ts, tz=datetime.timezone.utc).date()
         if bar_date < market_date():
             return True
-        return ingested_at is None or time.time() - ingested_at > OPEN_BAR_MAX_AGE_SECONDS
+        return time.time() - ingested_at > OPEN_BAR_MAX_AGE_SECONDS
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.

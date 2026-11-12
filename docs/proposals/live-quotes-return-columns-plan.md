@@ -392,3 +392,8 @@ PR 4 close-out ────────────────────┘
   4pm close until a re-fetch older than 300 s or the close-out (PR 4) finalizes it, and once the
   live writer (PR 5) keeps `ingested_at` fresh, only the close-out or the date rolling over does.
   `has_open_bar` is no longer called by the service; it stays on the repository.
+- 2026-11-12: review fixes on PR #523. The review suggested guarding against an `OPEN` row with a
+  NULL `ingested_at` hiding behind a sibling's. `ohlcv.ingested_at` is `NOT NULL`, so that can't
+  happen; the first cut's "no `ingested_at` counts as due" branch, its test and the docs sentence
+  were dead and are removed. Added a repository test that a bar left `OPEN` is stored `CLOSED` when
+  its session's bars are stored again.

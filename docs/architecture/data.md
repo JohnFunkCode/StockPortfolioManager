@@ -162,7 +162,7 @@ those calls downloaded the window again.
 The rule is the same for every interval. `OhlcvRepository.open_bar_state` supplies its two inputs in
 one query: the oldest `OPEN` bar's `ts` and the oldest `ingested_at` among `OPEN` bars. It reports
 the oldest of each because one overdue bar is enough, and during the session an intraday interval
-has several `OPEN` bars. An `OPEN` bar with no `ingested_at` counts as due.
+has several `OPEN` bars. `ingested_at` is `NOT NULL`, so every `OPEN` bar has an age.
 
 The bar's date is its `ts` read in UTC, as the closed-bar check does. For an exchange east of UTC
 that is the day before the local session date, so such a bar becomes "an earlier session" at

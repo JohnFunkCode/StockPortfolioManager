@@ -74,13 +74,12 @@ class TestHistoryPolicy(unittest.TestCase):
 
     def _history_with_open_bar(self, interval, *, bar_date, age):
         """get_history against a cache whose only reason to fetch is an OPEN
-        bar dated ``bar_date`` and written ``age`` seconds ago (None: unknown)."""
+        bar dated ``bar_date`` and written ``age`` seconds ago."""
         self.repo.count_cached.return_value = 500
         self.repo.latest_closed_ts.return_value = None
         bar_ts = int(datetime.datetime.combine(
             bar_date, datetime.time(14, 30), tzinfo=datetime.timezone.utc).timestamp())
-        ingested_at = None if age is None else int(self.NOW) - age
-        self.repo.open_bar_state.return_value = (bar_ts, ingested_at)
+        self.repo.open_bar_state.return_value = (bar_ts, int(self.NOW) - age)
         with patch("quantcore.services.prices.market_date", return_value=self.TODAY), \
                 patch("quantcore.services.prices.time.time", return_value=self.NOW):
             self.service.get_history("INTC", interval, 30)
@@ -99,10 +98,6 @@ class TestHistoryPolicy(unittest.TestCase):
     def test_open_bar_from_an_earlier_session_is_refetched_at_any_age(self):
         self._history_with_open_bar(
             "1d", bar_date=self.TODAY - datetime.timedelta(days=1), age=1)
-        self.gateway.fetch_history.assert_called_once()
-
-    def test_open_bar_with_no_ingested_at_is_refetched(self):
-        self._history_with_open_bar("1d", bar_date=self.TODAY, age=None)
         self.gateway.fetch_history.assert_called_once()
 
     def test_intraday_open_bars_follow_the_same_rule(self):

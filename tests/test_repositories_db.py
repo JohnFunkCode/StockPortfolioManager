@@ -611,6 +611,21 @@ class TestOhlcvRepositoryFacade(RepoTestBase):
         self.assertEqual(self.repo.open_bar_state(SYM, "1d"), (ts[-2], 700))
         self.assertIsNone(self.repo.open_bar_state(SYM, "1h"))
 
+    def test_refetch_closes_an_open_bar_from_an_earlier_session(self):
+        # The healing half of the re-fetch rule: a bar left OPEN by a missed
+        # close-out is stored CLOSED when its session's bars are stored again.
+        self._mark_latest_bar_open()
+        self.assertIsNotNone(self.repo.open_bar_state(SYM, "1d"))
+        closed_before = self.repo.latest_closed_ts(SYM, "1d")
+
+        self.repo.store_bars(SYM, "1d", bars_df())   # what the re-fetch stores
+
+        self.assertIsNone(self.repo.open_bar_state(SYM, "1d"))
+        self.assertGreater(self.repo.latest_closed_ts(SYM, "1d"), closed_before)
+        self.assertIs(
+            self.repo.get_bars(SYM, "1d", days=30, include_open=True).attrs["latest_bar_open"],
+            False)
+
     def test_negative_price_bar_is_dropped_not_fatal(self):
         # NIB.F: yfinance returned a daily bar at -4.08 across OHLC, the
         # executemany hit CHECK(close > 0), and the whole batch — and the

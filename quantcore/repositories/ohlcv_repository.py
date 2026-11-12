@@ -144,7 +144,7 @@ def _open_bar_state(symbol: str, interval: str) -> Optional[tuple]:
     The oldest of each, because one overdue bar is enough to need a re-fetch:
     the ts shows a bar left OPEN from an earlier session, and the ingested_at
     shows how stale the least recently written OPEN bar is. ``ingested_at`` is
-    None when no OPEN row has one.
+    NOT NULL in the schema, so ``MIN`` sees every OPEN row.
     """
     with closing(get_connection()) as conn:
         row = conn.execute(
@@ -154,7 +154,7 @@ def _open_bar_state(symbol: str, interval: str) -> Optional[tuple]:
         ).fetchone()
     if not row or row[0] is None:
         return None
-    return int(row[0]), (int(row[1]) if row[1] is not None else None)
+    return int(row[0]), int(row[1])
 
 
 _PRICE_COLS = ("Open", "High", "Low", "Close")

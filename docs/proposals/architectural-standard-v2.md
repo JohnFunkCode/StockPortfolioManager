@@ -179,6 +179,8 @@ A PR that adds a new analytic directly to a route, tool, or script — without a
 
 Any front-end component that **displays analytical data** (prices, indicators, options analytics, fundamentals, sentiment, positions) must be built so the LLM sidekick can render it as a validated directive — even if no chat surface needs it yet. Page-exclusive layout/navigation chrome is exempt.
 
+**A row-bound fragment is exempt from registration, not from the math rule.** A component that only renders values its parent already holds, and that is never shown on its own, is not something the sidekick could reference: a table cell such as `OneDayChange` (the 1d cell of the Portfolio and Watchlist grids), a chip, a badge. It takes its row's fields as props by design, so items 1, 2, 3, 5 and 6 below do not apply to it. Item 4 does (its numbers and any choice between them are computed in `quantcore/analytics` and served, never worked out in the cell), and so does Rule 9. The unit that must be registered is the card or panel that fetches for itself. If a fragment's content is wanted in chat, that is a new card, built to this rule.
+
 Compliance means all of:
 
 1. **Self-contained, scalar props.** The component accepts only serializable primitives (`ticker`, strikes, dates, enums) and fetches its own data through the existing hooks/REST client. Never callbacks, objects, or pre-fetched data blobs as directive props.

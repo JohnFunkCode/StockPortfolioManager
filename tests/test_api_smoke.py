@@ -566,8 +566,8 @@ class ApiSmokeTest(unittest.TestCase):
         self.assertEqual(
             set(row),
             {"symbol", "regular_change_pct", "pre_change_pct", "post_change_pct",
-             "market_state", "quote_as_of", "quote_stale", "return_1d_display",
-             "return_1d_stale"},
+             "market_state", "quote_as_of", "quote_stale", "quote_earlier_session",
+             "return_1d_display", "return_1d_stale"},
         )
         self.assertIs(row["quote_stale"], True)
         self.assertIs(row["return_1d_stale"], True)
@@ -780,7 +780,7 @@ class LotRoutesTest(unittest.TestCase):
                        "return_ytd", "return_1y",
                        "regular_change_pct", "pre_change_pct", "post_change_pct",
                        "market_state", "quote_as_of", "quote_stale",
-                       "return_1d_display", "return_1d_stale"):
+                       "quote_earlier_session", "return_1d_display", "return_1d_stale"):
             self.assertIn(column, row)
         self.assertIs(row["return_1d_stale"], True)   # the stubbed Yahoo has no quote
         self.assertNotIn("return_7d", row)            # retired with PR 7

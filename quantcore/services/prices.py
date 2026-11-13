@@ -33,6 +33,7 @@ from quantcore.analytics.indicators import (
 )
 from quantcore.analytics import returns
 from quantcore.analytics.market_time import (
+    is_earlier_session,
     latest_completed_session,
     market_date,
     period_to_days,
@@ -111,12 +112,18 @@ def _pct2(value: float | None) -> float | None:
     return round(float(value), 2)
 
 
-def _quote_change_row(entry: dict, return_1d: float | None) -> dict:
+def _quote_change_row(
+    entry: dict, return_1d: float | None, now: datetime.datetime | None = None,
+) -> dict:
     """One symbol's live 1d columns from its quote-cache entry and its cached
     close-to-close fallback (see ``PricesService.quote_changes``)."""
     quote = entry["quote"]
     regular = quote.regular_change_pct if quote else None
-    shown, shown_stale = returns.display_1d(regular, return_1d, entry["stale"])
+    # A live quote whose last trade predates the current session: no trade
+    # today yet, or a home-market holiday. A fallback entry is already stale.
+    earlier = bool(quote) and not entry["stale"] and is_earlier_session(
+        quote.regular_time, quote.exchange_tz, now)
+    shown, shown_stale = returns.display_1d(regular, return_1d, entry["stale"], earlier)
     return {
         "regular_change_pct": _pct2(regular),
         "pre_change_pct": _pct2(quote.pre_change_pct) if quote else None,
@@ -124,6 +131,7 @@ def _quote_change_row(entry: dict, return_1d: float | None) -> dict:
         "market_state": quote.market_state if quote else None,
         "quote_as_of": entry["as_of"],
         "quote_stale": entry["stale"],
+        "quote_earlier_session": earlier,
         "return_1d_display": shown,
         "return_1d_stale": shown_stale,
     }
@@ -582,11 +590,14 @@ class PricesService:
     def quote_changes(
         self, symbols: list[str], force: bool = False,
         return_1d: dict[str, float | None] | None = None,
+        now: datetime.datetime | None = None,
     ) -> dict[str, dict]:
         """The live 1d columns for the Portfolio and Watchlist pages (#518).
 
         Per symbol: ``regular_change_pct``, ``pre_change_pct``,
         ``post_change_pct``, ``market_state``, ``quote_as_of``, ``quote_stale``,
+        ``quote_earlier_session`` (a live quote whose last trade is from
+        before the current session; ``now`` is for tests),
         and the figure to show, ``return_1d_display`` with ``return_1d_stale``
         (``analytics.returns.display_1d``). One ``get_batch_quotes`` call, so
         the TTL cache and the force floor apply.
@@ -602,7 +613,7 @@ class PricesService:
         if return_1d is None:
             return_1d = self._cached_return_1d(
                 [s for s in symbols if _live_change(quotes[s]) is None])
-        return {s: _quote_change_row(quotes[s], return_1d.get(s)) for s in symbols}
+        return {s: _quote_change_row(quotes[s], return_1d.get(s), now) for s in symbols}
 
     def _cached_return_1d(self, symbols: list[str]) -> dict[str, float | None]:
         """The cached close-to-close 1d return for ``symbols``; ``{}`` on failure.

@@ -4,7 +4,7 @@
  * stale-last ordering.
  */
 import { describe, expect, it } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import OneDayChange, { compareOneDay, sessionBadge } from './OneDayChange';
 
 describe('OneDayChange', () => {
@@ -30,6 +30,24 @@ describe('OneDayChange', () => {
     render(<OneDayChange row={{ return_1d_display: 0.4, return_1d_stale: true }} />);
     expect(screen.getByText('0.40%')).toBeInTheDocument();
     expect(screen.getByLabelText('stale')).toBeInTheDocument();
+  });
+
+  it('says a stale figure has no live quote', async () => {
+    render(<OneDayChange row={{ return_1d_display: 0.4, return_1d_stale: true }} />);
+    fireEvent.mouseOver(screen.getByLabelText('stale'));
+    expect(await screen.findByText(/No live quote/)).toBeInTheDocument();
+  });
+
+  it('says an earlier-session figure is the previous session\'s change', async () => {
+    render(
+      <OneDayChange
+        row={{ return_1d_display: -2.5, return_1d_stale: true, quote_earlier_session: true }}
+      />,
+    );
+    expect(screen.getByText('-2.50%')).toBeInTheDocument();
+    fireEvent.mouseOver(screen.getByLabelText('stale'));
+    expect(await screen.findByText(/No trade in the current session yet/)).toBeInTheDocument();
+    expect(screen.queryByText(/No live quote/)).not.toBeInTheDocument();
   });
 
   it('shows the after-hours change beside 1d after the close', () => {

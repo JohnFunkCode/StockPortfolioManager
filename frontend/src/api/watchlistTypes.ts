@@ -97,6 +97,8 @@ export interface WatchlistQuoteRow {
   market_state: string | null;
   quote_as_of: string | null;
   quote_stale: boolean;
+  /** A live quote whose last trade is from before the current session. */
+  quote_earlier_session?: boolean;
   return_1d_display: number | null;
   return_1d_stale: boolean;
 }

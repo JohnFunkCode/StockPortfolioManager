@@ -108,6 +108,45 @@ def latest_completed_session(now: datetime.datetime | None = None) -> datetime.d
     return session
 
 
+def latest_started_session(now: datetime.datetime | None = None) -> datetime.date:
+    """The most recent NYSE session that has opened, skipping weekends and
+    holidays.
+
+    ``latest_completed_session`` skips weekends only, which is enough for "is
+    there a newer bar?" but would call every US quote a day old on a holiday.
+    """
+    current = _now_et(now)
+    session = current.date()
+    if current.time() < _OPEN:
+        session -= datetime.timedelta(days=1)
+    while not is_trading_day(session):
+        session -= datetime.timedelta(days=1)
+    return session
+
+
+def is_earlier_session(
+    epoch_seconds: int | None, exchange_tz: str | None,
+    now: datetime.datetime | None = None,
+) -> bool:
+    """True when a quote's last regular trade is from before the latest NYSE
+    session that has opened: the symbol has not traded in the current one.
+
+    The comparison is by session **date** (the trade's calendar date on its
+    exchange), not by age. An Asian listing's session ends hours before New
+    York opens and is still today's, so an age threshold would mark it every
+    afternoon; a date comparison marks it only on its home-market holiday.
+    Needs no calendar but the NYSE's. False when the trade can't be dated, so
+    an unknown is never marked.
+    """
+    if epoch_seconds is None:
+        return False
+    ts = session_bar_ts(epoch_seconds, exchange_tz)
+    if ts is None:
+        return False
+    traded = datetime.datetime.fromtimestamp(ts, tz=datetime.timezone.utc).date()
+    return traded < latest_started_session(now)
+
+
 def _nth_weekday(year: int, month: int, weekday: int, n: int) -> datetime.date:
     """The n-th (1-based) given weekday of a month; n=-1 means the last one."""
     if n > 0:

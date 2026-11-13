@@ -341,7 +341,8 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   pre-checks migrations. The gate steps run after approval but before prod auth, and the job
   promotes the preflight's digests, never the tag. One `environment: prod` job only: each would
   ask again ([`single-approval-rollout-plan.md`](docs/proposals/single-approval-rollout-plan.md)). Any other branch/tag/SHA reaches **test only**
-  by dispatching `deploy.yml` **from main** with its `ref` input (#120): the gates run on the ref,
+  by a person dispatching `deploy.yml` **from main** with its `ref` input (#120; the agent bot
+  account is refused as actor or re-runner, before any GCP sign-in, #532): the gates run on the ref,
   `scripts/check_deploy_ref.py` refuses a ref whose own commits add, edit or delete a migration, and the build gets
   scratch `:dispatch-latest`/`:buildcache-dispatch` tags — **never move `:latest` off main**, it is
   prod-rollout's default. Test then differs from main until the next merge

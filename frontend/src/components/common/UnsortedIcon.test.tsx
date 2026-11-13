@@ -48,6 +48,9 @@ describe('UnsortedIcon', () => {
       expect(within(header).queryByTestId('unsorted-icon')).toBeNull();
 
       await userEvent.click(within(header).getByText('N'));
+      expect(header).toHaveAttribute('aria-sort', 'descending');
+      expect(within(header).queryByTestId('unsorted-icon')).toBeNull();
+
       await userEvent.click(within(header).getByText('N'));
       expect(header).toHaveAttribute('aria-sort', 'none');
       expect(within(header).getByTestId('unsorted-icon')).toBeInTheDocument();

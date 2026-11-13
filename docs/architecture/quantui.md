@@ -67,6 +67,10 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   Refresh button refetches with `force=true`. Don't add a `refetchInterval`: polling the whole list
   from every open tab is the load the batch quote endpoint exists to avoid. A vitest case fails if
   one appears.
+- **An unsorted DataGrid column shows a dash, not the grid's default greyed-out up-arrow**, which
+  read as "sorted low to high" on the click that clears a sort. It is set once for every grid, as
+  `MuiDataGrid.defaultProps.slots` in `frontend/src/themes.ts` (`UnsortedIcon`). A grid that passes
+  its own `slots` prop replaces that default and must include `columnUnsortedIcon` again.
 
 The per-symbol drill-down keeps its `/securities/:symbol` URL (its Back button returns to
 `/watchlist`), and `GET /api/securities` — the old list route — is gone; `/api/securities/lookup`

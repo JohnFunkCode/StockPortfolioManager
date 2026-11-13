@@ -109,7 +109,8 @@ def latest_completed_session(now: datetime.datetime | None = None) -> datetime.d
 
 
 def latest_started_session(now: datetime.datetime | None = None) -> datetime.date:
-    """The most recent NYSE session that has opened, holidays included.
+    """The most recent NYSE session that has opened, skipping weekends and
+    holidays.
 
     ``latest_completed_session`` skips weekends only, which is enough for "is
     there a newer bar?" but would call every US quote a day old on a holiday.

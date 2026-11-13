@@ -289,6 +289,8 @@ class SymbolRowResponse(BaseModel):
     market_state: Optional[str] = None
     quote_as_of: Optional[datetime] = None
     quote_stale: bool = True
+    # A live quote whose last trade is from before the current session.
+    quote_earlier_session: bool = False
     return_1d_display: Optional[float] = None
     return_1d_stale: bool = True
     mm_hedge_bias: Optional[Any] = None
@@ -484,6 +486,8 @@ class WatchlistQuoteRow(BaseModel):
     market_state: Optional[str] = None
     quote_as_of: Optional[datetime] = None
     quote_stale: bool = True
+    # A live quote whose last trade is from before the current session.
+    quote_earlier_session: bool = False
     return_1d_display: Optional[float] = None
     return_1d_stale: bool = True
 

@@ -12,7 +12,9 @@ from quantcore.analytics.market_time import (
     ET,
     is_market_open,
     is_trading_day,
+    is_earlier_session,
     latest_completed_session,
+    latest_started_session,
     market_date,
     nyse_holidays,
     period_to_days,
@@ -64,6 +66,66 @@ class TestLatestCompletedSession(unittest.TestCase):
             latest_completed_session(now=et(2026, 7, 12, 12, 0)),  # Sunday
             datetime.date(2026, 7, 10),
         )
+
+
+def _epoch(zone, *args):
+    return int(pytz.timezone(zone).localize(datetime.datetime(*args)).timestamp())
+
+
+class TestLatestStartedSession(unittest.TestCase):
+    def test_during_and_before_the_session(self):
+        self.assertEqual(latest_started_session(now=et(2026, 7, 15, 10, 0)), datetime.date(2026, 7, 15))
+        self.assertEqual(latest_started_session(now=et(2026, 7, 15, 8, 0)), datetime.date(2026, 7, 14))
+
+    def test_weekend_and_monday_premarket_roll_back_to_friday(self):
+        self.assertEqual(latest_started_session(now=et(2026, 7, 12, 12, 0)), datetime.date(2026, 7, 10))
+        self.assertEqual(latest_started_session(now=et(2026, 7, 13, 8, 0)), datetime.date(2026, 7, 10))
+
+    def test_a_holiday_is_not_a_session(self):
+        # 2026-07-03 is the observed Independence Day; latest_completed_session
+        # would answer the 3rd, and every US quote would then look a day old.
+        self.assertEqual(latest_started_session(now=et(2026, 7, 3, 12, 0)), datetime.date(2026, 7, 2))
+        self.assertEqual(latest_started_session(now=et(2026, 7, 6, 8, 0)), datetime.date(2026, 7, 2))
+
+
+class TestIsEarlierSession(unittest.TestCase):
+    NY, SEOUL = "America/New_York", "Asia/Seoul"
+
+    def test_a_us_symbol_with_no_trade_yet_today(self):
+        traded = _epoch(self.NY, 2026, 7, 14, 15, 59)
+        self.assertTrue(is_earlier_session(traded, self.NY, now=et(2026, 7, 15, 10, 0)))
+
+    def test_before_the_open_yesterdays_trade_is_the_current_session(self):
+        traded = _epoch(self.NY, 2026, 7, 14, 15, 59)
+        self.assertFalse(is_earlier_session(traded, self.NY, now=et(2026, 7, 15, 8, 0)))
+
+    def test_a_trade_in_todays_session(self):
+        traded = _epoch(self.NY, 2026, 7, 15, 9, 31)
+        self.assertFalse(is_earlier_session(traded, self.NY, now=et(2026, 7, 15, 10, 0)))
+
+    def test_an_asian_close_hours_ago_is_still_todays_session(self):
+        # 15:30 in Seoul on the 15th is 02:30 in New York: over twelve hours
+        # old by mid-afternoon, and not a day old. An age rule gets this wrong.
+        traded = _epoch(self.SEOUL, 2026, 7, 15, 15, 30)
+        self.assertFalse(is_earlier_session(traded, self.SEOUL, now=et(2026, 7, 15, 15, 0)))
+
+    def test_a_home_market_holiday_is_an_earlier_session(self):
+        traded = _epoch(self.SEOUL, 2026, 7, 14, 15, 30)
+        self.assertTrue(is_earlier_session(traded, self.SEOUL, now=et(2026, 7, 15, 10, 0)))
+
+    def test_tomorrows_asian_session_is_not_earlier(self):
+        traded = _epoch(self.SEOUL, 2026, 7, 16, 9, 10)
+        self.assertFalse(is_earlier_session(traded, self.SEOUL, now=et(2026, 7, 15, 20, 15)))
+
+    def test_on_an_nyse_holiday_the_last_session_is_current(self):
+        traded = _epoch(self.NY, 2026, 7, 2, 15, 59)
+        self.assertFalse(is_earlier_session(traded, self.NY, now=et(2026, 7, 3, 12, 0)))
+
+    def test_a_trade_that_cannot_be_dated_is_never_marked(self):
+        now = et(2026, 7, 15, 10, 0)
+        self.assertFalse(is_earlier_session(None, self.NY, now=now))
+        self.assertFalse(is_earlier_session(1, None, now=now))
+        self.assertFalse(is_earlier_session(1, "Not/AZone", now=now))
 
 
 class TestMarketDate(unittest.TestCase):

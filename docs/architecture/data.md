@@ -209,11 +209,20 @@ rarely reaches the 300 s age that triggers a history re-fetch.
 
 Both pages get their 1d figure from `PricesService.quote_changes(symbols, force, return_1d)` (#518).
 Per symbol it returns `regular_change_pct`, `pre_change_pct`, `post_change_pct`, `market_state`,
-`quote_as_of`, `quote_stale`, and the figure to show:
+`quote_as_of`, `quote_stale`, `quote_earlier_session`, and the figure to show:
 
 - `return_1d_display` is the quote's regular-session change when the quote is fresh, and otherwise
   the cached close-to-close `return_1d`. `return_1d_stale` is true in the second case. The choice
   is `analytics.returns.display_1d`, so no page makes it (arch-v2 Rules 8 and 9).
+- **A fresh quote from an earlier session is shown and marked stale.** `quote_earlier_session` is
+  true when the quote's last regular trade, dated on its exchange, is before the latest NYSE
+  session that has opened (`market_time.is_earlier_session`): a thin symbol with no trade yet
+  today, or a foreign listing on its home-market holiday. The figure is still the quote's change,
+  with `return_1d_stale` true, because it is the previous session's move. The comparison is by
+  session date, never by age: an Asian listing's close is hours old every US afternoon and is
+  still that day's session. `quote_stale` stays false; it means Yahoo sent no quote. Numbers
+  behind the decision:
+  [`live-quotes-return-columns-plan.md`](../proposals/live-quotes-return-columns-plan.md).
 - The fallback is read from the cache only for the symbols that need it, so a call where every
   quote is fresh costs no SQL. A caller that already holds `return_1d` passes it in.
 - It is one `get_batch_quotes` call: the 60 s TTL and the 10 s force floor apply. It never raises

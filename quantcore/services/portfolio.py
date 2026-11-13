@@ -34,6 +34,7 @@ RETURN_COLUMNS = tuple(f"return_{n}d" for n in RETURN_PERIODS) + ("return_ytd", 
 QUOTE_COLUMNS = {
     "regular_change_pct": None, "pre_change_pct": None, "post_change_pct": None,
     "market_state": None, "quote_as_of": None, "quote_stale": True,
+    "quote_earlier_session": False,
     "return_1d_display": None, "return_1d_stale": True,
 }
 

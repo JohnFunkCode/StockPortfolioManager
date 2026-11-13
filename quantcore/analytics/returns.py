@@ -79,6 +79,7 @@ def trailing_return(closes: Sequence[float], days: int) -> Optional[Decimal]:
 
 def display_1d(
     regular_change_pct: Optional[float], return_1d: Optional[float], quote_stale: bool,
+    earlier_session: bool = False,
 ) -> tuple[Optional[float], bool]:
     """The 1d figure a page shows, and whether it is stale (#518).
 
@@ -87,9 +88,14 @@ def display_1d(
     change, or with a non-finite one) the page shows the cached
     close-to-close ``return_1d`` instead,
     marked stale. The choice is made here so no page makes it.
+
+    ``earlier_session`` is for a fresh quote whose last trade is from before
+    the current session (``market_time.is_earlier_session``): the change is
+    still shown, because it is the latest there is, but marked stale, because
+    it is the previous session's move and not today's.
     """
     if not quote_stale and _is_finite(regular_change_pct):
-        return round(float(regular_change_pct), 2), False
+        return round(float(regular_change_pct), 2), bool(earlier_session)
     return return_1d, True
 
 

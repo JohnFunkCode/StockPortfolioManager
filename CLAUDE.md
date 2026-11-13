@@ -293,7 +293,9 @@ empty table is a loud Discord alarm). Rules to keep:
   come only from `/watchlist/quotes`** (#518); don't put a quote call inside `/watchlist/mine`.
 - **A page's 1d figure is chosen server-side** (`analytics.returns.display_1d`, served as
   `return_1d_display`/`return_1d_stale`): the quote's regular-session change when fresh, else the
-  cached close-to-close return marked stale. The Portfolio's return columns come from one
+  cached close-to-close return marked stale. A fresh quote whose last trade is from before the
+  current session is shown but marked stale too, judged by session date, never by age
+  (`market_time.is_earlier_session`). The Portfolio's return columns come from one
   `bulk_period_returns` read, never a per-symbol `get_history` loop. `/watchlist/mine` is the Watchlist page's
   source since the Securities page was retired (#224); the portfolio is a subset of the
   watchlist, so a held symbol off the list is logged and left out, never added as a row.

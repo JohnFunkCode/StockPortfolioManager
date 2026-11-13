@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) merged as #527, with its follow-up #528 (the unsorted-column icon). The measurements owed on test were run on 2026-11-12 and 2026-11-13 and are at the end of the checkpoint log; two questions they raised are open. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) merged as #527, with its follow-up #528 (the unsorted-column icon). The measurements owed on test were run on 2026-11-12 and 2026-11-13 and are in the checkpoint log. The day-old-quote question they raised was decided the same day (the last entry: such a row is marked stale); the full-universe close-out cost is still unmeasured. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -530,3 +530,28 @@ PR 4 close-out ────────────────────┘
   Gotcha: `get_connection()` returns a wrapper with `execute` but no `cursor()`, and `watchlist`
   has `symbol_id`, not `symbol` (join `symbols` for the ticker), so an ad-hoc read script written
   from memory fails twice before it runs.
+- 2026-11-13: **a quote from an earlier session is marked stale** (the first finding above,
+  decided by John after the measurement below). The rule is `market_time.is_earlier_session`:
+  the quote's last regular trade, dated on its exchange, is before the latest NYSE session that
+  has opened (`latest_started_session`, which skips holidays). `display_1d` still shows the
+  quote's change, marked stale, and the row carries `quote_earlier_session` so the 1d cell's
+  tooltip can say why. Such rows sort last on 1d with the other stale rows and count in
+  `/watchlist/quotes`' `stale_count`.
+  - **Why by date and not by age.** An Asian listing's session ends hours before New York opens
+    and is still that day's session. An age threshold would mark every one of them each US
+    afternoon; the date comparison marks them only on a home-market holiday, and needs no
+    calendar but the NYSE's.
+  - **How often, from test's bars** (229 watchlist symbols, 252 NYSE days to 2026-11-12, counting
+    a missing or zero-volume `CLOSED` bar as a no-trade day): 378 of 57,458 symbol-days, 0.7%.
+    Half are three thin listings (NIB.F on 167 of 252 days, HSYDF 16, AIXXF 6). The other half
+    are 20 foreign listings on 3 to 23 home-market holidays each, which cluster: about ten days a
+    year have 7 to 18 rows a day old at once (2026-05-01 had 18). A further 66 missing bars on
+    liquid US names (DOMO 30, KVUE 9) look like gaps in test's stored history and are not counted.
+    On a no-trade day the figure shown had a median size of 1.6% and was over 5% in 9% of cases,
+    where the true change is zero.
+  - **It is not an early-in-the-day effect.** 226 of the 229 symbols have a median volume above
+    160,000 shares and trade within moments of the open; the rows this marks stay a day old for
+    the whole US session. First-trade times were not measured (test has hourly bars for 11 symbols).
+  - **Known side effect:** between 9:30 ET and a symbol's first print (longer for a delayed OTC
+    quote) its row is marked. That is accurate, since the figure is the previous session's.
+  - Not verified on the deployed test service; the checks are unit tests with a fixed clock.

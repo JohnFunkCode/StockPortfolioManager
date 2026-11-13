@@ -6,6 +6,8 @@
  * fresh, otherwise the cached close-to-close return), and `stale` is
  * `return_1d_stale`. This component only renders them, plus the pre-market or
  * after-hours change when that session is the current or most recent one.
+ * `quote_earlier_session` only picks the stale marker's tooltip: the quote is
+ * live but its last trade is from before the current session.
  */
 import { Box, Tooltip, Typography } from '@mui/material';
 import { formatPercentRaw } from '../../utils/formatting';
@@ -16,6 +18,7 @@ const RED = '#ef4444';
 export interface OneDayFields {
   return_1d_display?: number | null;
   return_1d_stale?: boolean | null;
+  quote_earlier_session?: boolean | null;
   market_state?: string | null;
   pre_change_pct?: number | null;
   post_change_pct?: number | null;
@@ -99,7 +102,13 @@ export default function OneDayChange({
         {formatPercentRaw(value, decimals)}
       </Typography>
       {row.return_1d_stale && (
-        <Tooltip title="No live quote. This is the last cached daily change.">
+        <Tooltip
+          title={
+            row.quote_earlier_session
+              ? 'No trade in the current session yet. This is the previous session\'s change.'
+              : 'No live quote. This is the last cached daily change.'
+          }
+        >
           <Typography
             variant="caption"
             component="span"

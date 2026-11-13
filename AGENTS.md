@@ -80,7 +80,8 @@ These are the constraints most likely to be violated by an agent that skipped `C
   lives in `deploy/cloudrun-services.toml` (#161); change it there, not with a one-off
   `gcloud run services update`, or the next roll-out reverts it.
 - **New or materially changed UI components** must be GenUI-compliant, registered in both
-  component registries, and ship vitest tests in the same PR.
+  component registries, and ship vitest tests in the same PR. A table cell, chip or badge that
+  only renders its row's values is exempt from registration (arch-v2 Rule 8), not from tests.
 - **Per-owner data is isolated in SQL:** every statement on a per-owner table binds the owner
   (a child table through its parent), `owner` is never a defaulted argument, and each table has
   wrong-owner tests — `tests/test_owner_isolation_coverage.py` enforces it (#460, see CLAUDE.md).

@@ -47,7 +47,9 @@
 # :dispatch-latest / :buildcache-dispatch tags, NEVER :latest — prod-rollout promotes
 # :latest by default. Caveats: test != main until the next push to main reclaims it (the
 # run summary names the deployed SHA), and this does not replace a revert PR when main
-# itself should be parked at a state. Plan: docs/proposals/deploy-ref-to-test-plan.md.
+# itself should be parked at a state. Agent bot accounts (AGENT_BOT_ACCOUNTS in the deploy
+# job's first step) are refused, as actor or as re-runner (#532): a dispatch is a person's
+# call. Plan: docs/proposals/deploy-ref-to-test-plan.md.
 
 name: Deploy Version To Test
 
@@ -342,13 +344,31 @@ jobs:
       DEPLOY_SHA: ${{ needs.gate.outputs.sha }}
       DEPLOY_REF: ${{ inputs.ref || github.ref_name }}
     steps:
-      - name: Refuse a dispatch not run from main
+      - name: Refuse a dispatch not run from main, or started by an agent
         # The deploy machinery must be main's: a dispatch "from" a branch would run that
         # branch's copy of this file against test. Pick the code with the `ref` input.
+        # #532: agent bot accounts may not put unreviewed code on TEST. Both the actor and
+        # the triggering actor are checked, so a bot re-run of a person's dispatch is refused
+        # too. This step runs before checkout and the GCP sign-in, so a refused run never
+        # holds credentials. Logins compare case-insensitively (tr, not bash 4's ${x,,}).
+        env:
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          AGENT_BOT_ACCOUNTS: funkyinnovationsllc
         run: |
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ] && [ "$GITHUB_REF" != refs/heads/main ]; then
             echo "::error title=run this from main::Dispatch deploy.yml from main and name the code to deploy in the 'ref' input (this run is from $GITHUB_REF)."
             exit 1
+          fi
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            for who in "$GITHUB_ACTOR" "$TRIGGERING_ACTOR"; do
+              lower=$(printf '%s' "$who" | tr '[:upper:]' '[:lower:]')
+              for bot in $AGENT_BOT_ACCOUNTS; do
+                if [ "$lower" = "$bot" ]; then
+                  echo "::error title=agents can't deploy to TEST::Manual TEST deploys must be started by a person, not $who."
+                  exit 1
+                fi
+              done
+            done
           fi
       # main's machinery at the root (scripts, inventory); the code to build under ref/.
       - uses: actions/checkout@v7

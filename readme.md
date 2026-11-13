@@ -409,7 +409,8 @@ system of record for all analysis**, and **test** is for development and CI.
   Runbook: [`prod-promotion.md`](docs/operations/prod-promotion.md).
 - An unmerged branch can be tried on test by dispatching the deploy workflow ("Deploy Version To
   Test" in the Actions list) from `main` with a
-  `ref` input. A ref that changes migrations is refused. Details:
+  `ref` input. A ref that changes migrations is refused, and so is a run started (or re-run)
+  by the agent bot account: only a person can put unmerged code on test. Details:
   [`deploy-ref-to-test-plan.md`](docs/proposals/deploy-ref-to-test-plan.md).
 
 QuantUI sits behind Identity-Aware Proxy. Its Express server verifies the IAP assertion and mints a

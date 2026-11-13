@@ -260,6 +260,75 @@ class DispatchWiringTest(unittest.TestCase):
                     self.assertIsNone(re.search(r"\$\{\{\s*inputs\.", s.get("run", "")))
 
 
+class DispatchRefusalTest(unittest.TestCase):
+    """Runs the deploy job's first step under bash (#120, #532).
+
+    A dispatch must come from main and be started by a person: an agent bot account is
+    refused as the actor or as the re-runner of a person's run. Pushes are never refused.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.first = yaml.safe_load(DEPLOY_YML.read_text())["jobs"]["deploy"]["steps"][0]
+
+    def run_step(self, event="workflow_dispatch", ref="refs/heads/main",
+                 actor="JohnFunkCode", triggering_actor="JohnFunkCode"):
+        # Resolve the step's own env block the way Actions would for this run.
+        env = {k: str(v).replace("${{ github.triggering_actor }}", triggering_actor)
+               for k, v in self.first.get("env", {}).items()}
+        env.update(GITHUB_EVENT_NAME=event, GITHUB_REF=ref, GITHUB_ACTOR=actor,
+                   PATH="/usr/bin:/bin")
+        return subprocess.run(["bash", "-e", "-c", self.first["run"]], env=env,
+                              capture_output=True, text=True)
+
+    def test_runs_before_any_checkout_or_sign_in(self):
+        self.assertNotIn("uses", self.first)
+        steps = yaml.safe_load(DEPLOY_YML.read_text())["jobs"]["deploy"]["steps"]
+        auth = [i for i, s in enumerate(steps)
+                if s.get("uses", "").startswith("google-github-actions/auth@")]
+        self.assertTrue(auth)
+        self.assertGreater(min(auth), 0)
+
+    def test_person_dispatch_from_main_passes(self):
+        self.assertEqual(self.run_step().returncode, 0)
+
+    def test_push_to_main_passes(self):
+        self.assertEqual(self.run_step(event="push").returncode, 0)
+
+    def test_push_by_the_bot_is_not_refused(self):
+        # A merge to main is reviewed code; only a manual dispatch is refused.
+        self.assertEqual(self.run_step(event="push", actor="FunkyInnovationsLLC",
+                                       triggering_actor="FunkyInnovationsLLC").returncode, 0)
+
+    def test_dispatch_not_from_main_refused(self):
+        r = self.run_step(ref="refs/heads/task/T-1")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("run this from main", r.stdout)
+
+    def test_bot_dispatch_refused(self):
+        for login in ("FunkyInnovationsLLC", "funkyinnovationsllc", "FUNKYINNOVATIONSLLC"):
+            with self.subTest(login=login):
+                r = self.run_step(actor=login, triggering_actor=login)
+                self.assertEqual(r.returncode, 1)
+                self.assertIn("agents can't deploy to TEST", r.stdout)
+
+    def test_bot_dispatch_rerun_by_a_person_refused(self):
+        # Pins the github.actor check on its own: the re-runner here is a person.
+        r = self.run_step(actor="FunkyInnovationsLLC", triggering_actor="JohnFunkCode")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not FunkyInnovationsLLC", r.stdout)
+
+    def test_bot_rerun_of_a_person_dispatch_refused(self):
+        r = self.run_step(actor="JohnFunkCode", triggering_actor="FunkyInnovationsLLC")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not FunkyInnovationsLLC", r.stdout)
+
+    def test_login_with_bot_name_as_substring_passes(self):
+        self.assertEqual(self.run_step(actor="FunkyInnovationsLLC-human",
+                                       triggering_actor="FunkyInnovationsLLC-human").returncode, 0)
+
+
+
 WORKFLOWS = ROOT / ".github" / "workflows"
 
 

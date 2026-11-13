@@ -99,6 +99,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 |---|---|---|
 | Model weights load only from hash-verified safetensors. `torch.load`, `pickle.load` and `trust_remote_code` are banned (#381). | `tests/test_no_pickle_model_loads.py` (AST scan) | Enforced |
 | Prod promotes the digests preflight bound, never a moving tag. | `prod-rollout.yml` | Enforced |
+| Only a person can put unreviewed code on test: a manual `deploy.yml` dispatch started or re-run by an agent bot account (`AGENT_BOT_ACCOUNTS`) is refused in the deploy job's first step, before checkout and the GCP sign-in (#532). Agents can't remove the check: their tokens lack `workflow` scope and `deploy.yml` changes need a CODEOWNERS-approved PR. | `tests/test_check_deploy_ref.py` `DispatchRefusalTest` (runs the step under bash) | Enforced |
 | Schema has a single owner: Flyway, with three-file parity. | `tests/test_schema_parity.py`, `check_schema_snapshot.py` | Enforced |
 | A refresh may fill `ohlcv.adj_close`, never blank it. | `tests/test_repositories_db.py` | Enforced |
 

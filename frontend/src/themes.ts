@@ -1,5 +1,6 @@
 import { createTheme, alpha } from '@mui/material/styles';
 import type {} from '@mui/x-data-grid/themeAugmentation';
+import UnsortedIcon from './components/common/UnsortedIcon';
 
 // ---------------------------------------------------------------------------
 // Palette definitions
@@ -345,6 +346,8 @@ function buildTheme(P: typeof DARK, mode: 'dark' | 'light') {
       },
 
       MuiDataGrid: {
+        // An unsorted column shows a dash, not the default greyed-out up-arrow.
+        defaultProps: { slots: { columnUnsortedIcon: UnsortedIcon } },
         styleOverrides: {
           root: {
             border: `1px solid ${alpha(P.primary, 0.18)}`,

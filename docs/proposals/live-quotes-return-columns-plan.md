@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) in review. Still owed after it merges: the measurements on test listed at the end of the checkpoint log. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) merged as #527, with its follow-up #528 (the unsorted-column icon). The measurements owed on test were run on 2026-11-12 and 2026-11-13 and are at the end of the checkpoint log; two questions they raised are open. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -486,9 +486,44 @@ PR 4 close-out ────────────────────┘
   lower than the bare `Typography` cells beside it. The 1d cell's wrapper is a block-level `body2`.
   Verified in a browser against a **stub API with canned data** (both pages, dark and light
   themes, the Refresh button sending `force=true`); not against the deployed test service.
-- **Still owed on test, after PR 7 deploys** (none of these has been run):
-  1. PR 4 step 4: the close-out's wall time and 429 count for the full universe, from a nightly
-     run's log; then tune `OHLCV_CLOSEOUT_CHUNK_SIZE`/`_PAUSE_SECONDS` if needed.
-  2. PR 5 step 4: after a page load during market hours, each quoted symbol has exactly one `OPEN`
-     `1d` row for today; after the nightly run none are left `OPEN`.
-  3. PR 7 step 7: both pages in the deployed UI during market hours and after the close.
+- 2026-11-13: the three measurements owed on test, run against the deployed test service (229
+  watchlist symbols, 5 holdings) after the close on 2026-11-12 and in market hours on 2026-11-13.
+  1. **Close-out cost (PR 4 step 4): no tuning needed, but the full universe is still unmeasured.**
+     The nightly run of 2026-11-12 logged `Close-out: 7 fetched, 2 empty, 0 failed, 0 not
+     attempted, 2s`, with no 429s and exit 0. Only 9 symbols had an `OPEN` bar that night, because
+     the live writer had deployed that afternoon and few symbols had been quoted. `OHLCV_CLOSEOUT_CHUNK_SIZE` and
+     `_PAUSE_SECONDS` are unchanged. The number to look at is the close-out line of a run that
+     follows a market-hours page load (the first is 2026-11-13's).
+  2. **Open bars (PR 5 step 4): pass.** After the nightly run there were no `OPEN` `1d` rows, and
+     that day's 257 bars were all `CLOSED`. After market-hours loads of both pages there were 227
+     `OPEN` rows for 227 symbols, every `ts` at midnight UTC, and no symbol with two bars for one
+     day in the last five. The three watchlist symbols without one are explained: Yahoo returned
+     no quote for DOMO and KVUE, and HSYDF's last trade was the day before, a bar already `CLOSED`.
+  3. **Both pages (PR 7 step 7): pass, after the close and in market hours.** The Watchlist makes
+     one `/watchlist/mine` and one `/watchlist/quotes` request per load, Refresh sends
+     `?force=true`, DOMO and KVUE read `-2.5% stale`, and after-hours badges show after the close
+     and not during the session. Warm, `/watchlist/quotes` answered in 0.3 to 1.0 s. All 229 rows
+     sort correctly on 1d in both directions with the stale rows last. The Portfolio shows its six
+     return columns from one `/portfolio/symbols` request. No console errors on either page.
+
+  What the runs showed that the design did not anticipate:
+  - **A quote can be a day old and not stale.** A symbol that has not traded yet today (AIXXF and
+    HSYDF at midday, Korean listings in `PRE` state overnight) comes back with yesterday's
+    `quote_as_of` and yesterday's change, and the page shows that as today's 1d with no marker.
+    `quote_stale` is true only when Yahoo returns no quote. Whether such a row should read as
+    stale is undecided.
+  - **A live bar can be dated yesterday.** AIXXF's Nov 12 bar was not in the database after the
+    nightly run, so the next day's quote, still carrying Nov 12's session, wrote an `OPEN` bar
+    for Nov 12. That follows the rules (the bar's date is the session's, and a `CLOSED` bar is
+    never overwritten); the next close-out is expected to close it, which was not checked.
+  - **The live 1d and the close-to-close 1d differ on an ex-dividend day.** GLW went ex-dividend
+    on 2026-11-13: Yahoo's `regularMarketPreviousClose` was 119.22, the stored close 119.50 less
+    the 0.28 dividend, so the quote said -5.82% where the bars said -6.04%. The page shows the
+    quote's figure. The two agree again the next day.
+  - **The first load after idle is a cold start.** `/watchlist/quotes` took 17.7 s and
+    `/watchlist/mine` 25.7 s while three api instances started, and one `sentiment-summary`
+    request got a 500 for want of an instance. That is instance start-up, not the quote path: the
+    next load took 1.0 s and 2.8 s.
+  Gotcha: `get_connection()` returns a wrapper with `execute` but no `cursor()`, and `watchlist`
+  has `symbol_id`, not `symbol` (join `symbols` for the ticker), so an ad-hoc read script written
+  from memory fails twice before it runs.

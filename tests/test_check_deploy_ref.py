@@ -275,7 +275,7 @@ class DispatchRefusalTest(unittest.TestCase):
                  actor="JohnFunkCode", triggering_actor="JohnFunkCode"):
         # Resolve the step's own env block the way Actions would for this run.
         env = {k: str(v).replace("${{ github.triggering_actor }}", triggering_actor)
-               for k, v in self.first["env"].items()}
+               for k, v in self.first.get("env", {}).items()}
         env.update(GITHUB_EVENT_NAME=event, GITHUB_REF=ref, GITHUB_ACTOR=actor,
                    PATH="/usr/bin:/bin")
         return subprocess.run(["bash", "-e", "-c", self.first["run"]], env=env,
@@ -311,6 +311,12 @@ class DispatchRefusalTest(unittest.TestCase):
                 r = self.run_step(actor=login, triggering_actor=login)
                 self.assertEqual(r.returncode, 1)
                 self.assertIn("agents can't deploy to TEST", r.stdout)
+
+    def test_bot_dispatch_rerun_by_a_person_refused(self):
+        # Pins the github.actor check on its own: the re-runner here is a person.
+        r = self.run_step(actor="FunkyInnovationsLLC", triggering_actor="JohnFunkCode")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("not FunkyInnovationsLLC", r.stdout)
 
     def test_bot_rerun_of_a_person_dispatch_refused(self):
         r = self.run_step(actor="JohnFunkCode", triggering_actor="FunkyInnovationsLLC")

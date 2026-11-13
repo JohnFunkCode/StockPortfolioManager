@@ -495,10 +495,13 @@ PR 4 close-out ────────────────────┘
      `_PAUSE_SECONDS` are unchanged. The number to look at is the close-out line of a run that
      follows a market-hours page load (the first is 2026-11-13's).
   2. **Open bars (PR 5 step 4): pass.** After the nightly run there were no `OPEN` `1d` rows, and
-     that day's 257 bars were all `CLOSED`. After market-hours loads of both pages there were 227
-     `OPEN` rows for 227 symbols, every `ts` at midnight UTC, and no symbol with two bars for one
-     day in the last five. The three watchlist symbols without one are explained: Yahoo returned
-     no quote for DOMO and KVUE, and HSYDF's last trade was the day before, a bar already `CLOSED`.
+     that day's 257 bars were all `CLOSED` (226 for watchlist symbols and 31 for symbols off the
+     list, such as benchmarks, that other readers keep). After market-hours loads of both pages
+     there were 227 `OPEN` rows for 227 symbols, every `ts` at midnight UTC, and no symbol with two
+     bars for one day in the last five. The 227 are 226 of the 229 watchlist symbols plus GLW,
+     which is held but not on the watchlist. The three watchlist symbols without one are
+     explained: Yahoo returned no quote for DOMO and KVUE, and HSYDF's last trade was the day
+     before, a bar already `CLOSED`.
   3. **Both pages (PR 7 step 7): pass, after the close and in market hours.** The Watchlist makes
      one `/watchlist/mine` and one `/watchlist/quotes` request per load, Refresh sends
      `?force=true`, DOMO and KVUE read `-2.5% stale`, and after-hours badges show after the close

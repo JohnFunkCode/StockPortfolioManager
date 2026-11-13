@@ -112,6 +112,15 @@ describe('PortfolioPage', () => {
       expect(cell.getByLabelText('stale')).toBeInTheDocument();
     });
 
+    it('says why an earlier-session 1d figure is stale', async () => {
+      mountRows([symbolRow({
+        return_1d_display: -2.5, return_1d_stale: true, quote_earlier_session: true,
+      })]);
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      fireEvent.mouseOver(within(screen.getByTestId('one-day-INTC')).getByLabelText('stale'));
+      expect(await screen.findByText(/No trade in the current session yet/)).toBeInTheDocument();
+    });
+
     it('labels the session per row', async () => {
       mountRows([
         symbolRow({ symbol: 'AAPL', market_state: 'POST', post_change_pct: -0.25 }),

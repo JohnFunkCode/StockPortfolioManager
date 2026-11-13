@@ -120,6 +120,7 @@ function withOneDay(row: WatchlistMineRow, quote: WatchlistQuoteRow | undefined)
       ...row,
       return_1d_display: quote.return_1d_display,
       return_1d_stale: quote.return_1d_stale,
+      quote_earlier_session: quote.quote_earlier_session,
       market_state: quote.market_state,
       pre_change_pct: quote.pre_change_pct,
       post_change_pct: quote.post_change_pct,

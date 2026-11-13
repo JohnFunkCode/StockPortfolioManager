@@ -254,6 +254,21 @@ describe('WatchlistPage', () => {
       expect(oneDay('INTC').getByLabelText('stale')).toBeInTheDocument();
     });
 
+    it('says why an earlier-session quote row is stale', async () => {
+      // The page copies the quote's fields onto the row one by one, so a field
+      // it forgets never reaches the cell (#530 shipped without this one).
+      await mount([
+        ['/api/watchlist/quotes', watchlistQuotes([
+          quoteRow('INTC', {
+            return_1d_display: -2.5, return_1d_stale: true, quote_earlier_session: true,
+          }),
+        ])],
+      ]);
+      await waitFor(() => expect(oneDay('INTC').getByText('-2.5%')).toBeInTheDocument());
+      fireEvent.mouseOver(oneDay('INTC').getByLabelText('stale'));
+      expect(await screen.findByText(/No trade in the current session yet/)).toBeInTheDocument();
+    });
+
     it('does not wait for the quotes: the table shows with the cached 1d first', async () => {
       await mount([['/api/watchlist/quotes', () => new Promise<object>(() => {})]]);
       expect(oneDay('INTC').getByText('0.3%')).toBeInTheDocument();

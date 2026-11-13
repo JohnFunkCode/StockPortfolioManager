@@ -554,4 +554,20 @@ PR 4 close-out ────────────────────┘
     the whole US session. First-trade times were not measured (test has hourly bars for 11 symbols).
   - **Known side effect:** between 9:30 ET and a symbol's first print (longer for a delayed OTC
     quote) its row is marked. That is accurate, since the figure is the previous session's.
-  - Not verified on the deployed test service; the checks are unit tests with a fixed clock.
+  - Not verified on the deployed test service when it merged (#530); see the next entry.
+- 2026-11-13: the earlier-session marker checked on test in market hours (13:55 ET), after #530
+  rolled out. **The rule passes; the Watchlist tooltip did not, and is fixed in the follow-up PR.**
+  - `/api/watchlist/quotes`: all 229 rows carry `quote_earlier_session`. It is true for exactly
+    AIXXF and HSYDF, both `REGULAR` with a `quote_as_of` of the Nov 12 close and no trade yet
+    that day; they show the quote's change with `return_1d_stale` true and `quote_stale` false.
+    None of the 20 foreign listings (`CLOSED` or `POSTPOST`, their Nov 13 sessions over) is
+    marked. DOMO and KVUE stay the no-quote kind of stale. `stale_count` is 4.
+  - Watchlist page: HSYDF reads `-11.2% stale` in amber and no longer ranks among the day's
+    movers (ascending 1d starts at AMD -9.8%); 000660.KS reads `-3.0%` with no marker.
+  - **The bug:** HSYDF's tooltip said "No live quote", the wrong reason. `WatchlistPage.withOneDay`
+    copies the quote's fields onto the row one by one and #530 did not add the new one, so it
+    never reached the cell. The Portfolio spreads the whole row and was not affected (not seen
+    on test, where no held symbol is in this state; covered by a page test).
+  Gotcha: #530's tests covered the cell and the service and passed, because neither goes
+  through the page's field-by-field copy. A new field on `/watchlist/quotes` needs a
+  `WatchlistPage` test that reads it from the rendered row; both pages have one now.

@@ -706,3 +706,76 @@ export function stopLossResponse(overrides: Partial<StopLossResponse> = {}): Sto
     ...overrides,
   };
 }
+
+/** One sale of GET /api/portfolio/realized (#235): 5 INTC bought at 30, sold at 40. */
+export function realizedSale(overrides: object = {}) {
+  return {
+    sale_id: 1,
+    lot_id: 1,
+    symbol: 'INTC',
+    currency: 'USD',
+    account: null,
+    trade_date: '2026-01-02',
+    sale_trade_date: '2026-06-15',
+    shares_sold: 5,
+    purchase_price: 30,
+    sale_price: 40,
+    fx_rate_at_purchase: null,
+    fx_rate_at_sale: null,
+    cost_basis_native: 150,
+    proceeds_native: 200,
+    realized_pnl_native: 50,
+    cost_basis: 150,
+    proceeds: 200,
+    realized_pnl: 50,
+    realized_pnl_pct: 33.33,
+    fx_missing: false,
+    basis_missing: false,
+    allocation_method: 'FIFO',
+    notes: null,
+    ...overrides,
+  };
+}
+
+/** One symbol row of the realized payload, holding one sale by default. */
+export function realizedSymbol(overrides: object = {}) {
+  return {
+    symbol: 'INTC',
+    still_held: false,
+    shares_closed: 5,
+    sale_count: 1,
+    fx_missing_count: 0,
+    basis_missing_count: 0,
+    cost_basis: 150,
+    proceeds: 200,
+    realized_pnl: 50,
+    realized_pnl_pct: 33.33,
+    bar_base: 150,
+    bar_gain: 50,
+    bar_loss: 0,
+    sales: [realizedSale()],
+    ...overrides,
+  };
+}
+
+/** A whole realized payload for the Year period. `totals` are the fixture's
+ * own figures, not sums of `symbols`: the page shows what the server sent. */
+export function realizedResponse(symbols: object[] = [realizedSymbol()], overrides: object = {}) {
+  return {
+    period: 'year',
+    start_date: '2025-11-14',
+    end_date: '2026-11-14',
+    symbols,
+    totals: {
+      symbol_count: symbols.length,
+      sale_count: symbols.length,
+      fx_missing_count: 0,
+      basis_missing_count: 0,
+      cost_basis: 150,
+      proceeds: 200,
+      realized_pnl: 50,
+      realized_pnl_pct: 33.33,
+    },
+    ...overrides,
+  };
+}

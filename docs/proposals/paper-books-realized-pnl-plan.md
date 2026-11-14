@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 has started (2.1); the checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 is under way (2.1 and 2.2); the checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -263,11 +263,12 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   owner- and book-scoped repository read; `GET /api/portfolio/realized?period=&book_id=` declared
   before any path-parameter sibling; wrong-owner and wrong-book tests; `docs/openapi-surface.txt`.
   The payload's shape is in section 5.3.
-- [ ] **2.2 Realized view.**
+- [x] **2.2 Realized view.**
   The Realized section, and the summary strip with jump links above Holdings: period pulldown, summary, chart on `allocation_segments`, expandable sales from
   the same payload, the "still held" marker, the empty state, the "excludes fees and tax
   adjustments" line. Registered as a Sidekick component in both registries, with vitest and
-  parity cases. Updates the capabilities matrix row.
+  parity cases. Updates the capabilities matrix row. What was built, and what was left for later
+  steps, is in section 5.4.
 - [ ] **2.3 FX.**
   Historical FX in `YFinanceGateway`; the prior-close rule in analytics;
   `lot_sales.fx_rate_at_sale`; rates captured when a lot is opened and closed; a backfill script
@@ -296,6 +297,27 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
 The money fields are `null` when nothing could be summed, never zero. Symbols come best realized
 P/L first (decision 14), and each symbol's sales oldest first. The rules behind the numbers are in
 [`data.md`](../architecture/data.md#realized-pl).
+
+#### 5.4 The Realized view as built (2.2)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Realized section | `RealizedPnl.tsx` | One request feeds the summary, chart, table and expanded sales. Table columns are symbol, cost basis, proceeds and realized $ (section 4); shares closed and realized % are in the expanded row |
+| Period pulldown | in `RealizedPnl` | Month, Quarter, Year, All; opens on Year. Its own state (decision 13): not shared, not in the URL |
+| Chart | `PortfolioAllocationChart`, `variant="realized"` | Same bars and segments. It keeps the payload's order, best realized first (decision 14) |
+| Summary strip | `BookSummaryStrip.tsx` | Book value, unrealized, realized for the last year, and jump links to Holdings and Realized. Return vs SPY is left out until 5.3 |
+| Sidekick card | `realized_pnl`, no props | `RealizedPnlCard` in both registries. Always the real book |
+
+Left for later steps, on purpose:
+
+- **A sale's reason is shown but can't be edited here.** `useUpdateSale` still has no caller. The
+  capabilities matrix lists it as the remaining gap.
+- **Sidekick can show realized P/L but not reason about it.** There is no data tool for it, and
+  the tool description tells the model to show the card and quote no figure of its own. The
+  read-only book tool is step 5.4.
+- **The source of a sale** (stop, manual, and so on) joins the expanded row in 4.3.
+- **The holdings totals row (`PortfolioSummary`) stays inside Holdings.** Until the cash ledger
+  (3.1), the strip's book value is the same number as "Total Current Value" below it.
 
 ### Milestone 3: cash, orders and paper buys
 
@@ -476,6 +498,22 @@ Known before any code is written. Add to this list as the work finds more.
   and it is why `realized_pnl` takes the held symbols as an argument and reads nothing itself.
 - **The capabilities matrix had not counted the three `/api/books` operations** (found in 2.1).
   Its totals were corrected in the same PR: 115 operations, 62 reached.
+- **The strip and the Realized section share one request, until they don't** (2.2). Both ask for
+  the Year period with the same query key, so the page makes one realized request on load. When
+  the section's period changes it makes a second, and the strip stays on the Year figure. A
+  strip that read the section's data instead would have relabelled a 30-day figure "last year".
+- **A book with no open lots still has a Realized section** (2.2). The page used to show
+  `EmptyPortfolio` in place of everything when there were no holdings. A fully sold book is
+  exactly the one whose realized figures matter, so only the Holdings section is empty now.
+- **Refresh re-reads the holdings only** (2.2). Realized figures don't depend on prices. A close,
+  a lot edit and a sale-note edit all invalidate the realized query.
+- **A second table on the page breaks page-wide test lookups** (2.2). `getByRole('table')` was how
+  the page tests found the holdings; they use `holdings-table` now. A catch-all mock route such
+  as `'/api/portfolio'` also started answering the realized request with the wrong body. The
+  1.4 note about ticker text applies again: the realized chart and table repeat the symbols.
+- **The realized chart must not sort by size** (2.2). The allocation chart orders its bars
+  largest first. Reused as it was, it would have reordered the realized rows away from decision
+  14's "best first", and put its bars in a different order from the table beneath it.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -520,3 +558,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.3 review | #548 | Two regressions from the rounding change fixed (a blank quantity on a lot edit, a missing share count on a sale). The review's three complexity warnings predate the PR; they became step 1.4, a separate PR |
 | 2026-11-14 | 1.4 Complexity follow-up | #551 | No behaviour change. Row builders extracted from both `create_portfolio_html` functions and the underwater-lot block from the notifier; all three are now at or under the goals (section 5.2). A direct test for each helper, and `html_summary.py` has tests for the first time. Milestone 1 is done |
 | 2026-11-14 | 2.1 Realized P/L backend | #552 | `portfolio_math.realized_pnl` and `market_time.rolling_window`; `PortfolioRepository.list_realized_sales` (owner, book and date window, all bound); `PortfolioService.realized_pnl`; `GET /api/portfolio/realized?period=&book_id=`. USD only: a non-USD sale is flagged and left out until 2.3. No UI and no schema change. Payload in section 5.3 |
+| 2026-11-14 | 2.2 Realized view | #554 | The Portfolio page is stacked sections: summary strip, Holdings, Realized. `RealizedPnl` (period pulldown, summary, chart, sortable table, expandable sales, "still held", the left-out count, the empty states, the fees line), `BookSummaryStrip`, `useRealized`, and the Sidekick `realized_pnl` card in both registries. No route or schema change. As built, and what was left: section 5.4 |

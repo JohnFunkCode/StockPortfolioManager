@@ -343,8 +343,8 @@ call. The maths is `portfolio_math.realized_pnl`.
   cost basis of the shares closed and the gain or loss is the realized P/L, so the top of the bar
   is the proceeds.
 
-Nothing in the UI calls the route yet; the Realized section is step 2.2 of
-[`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
+The Portfolio page's Realized section and the Sidekick `realized_pnl` card read the route
+([`quantui.md`](quantui.md)); they show the payload and compute nothing.
 
 ### Positions
 

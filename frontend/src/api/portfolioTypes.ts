@@ -182,3 +182,71 @@ export interface CloseLotResponse {
   sale_trade_date: string;
   allocations: CloseLotAllocation[];
 }
+
+/** The Realized view's period (#235): rolling windows of calendar days ending
+ * today. The server resolves the dates; the page only names the period. */
+export type RealizedPeriod = 'month' | 'quarter' | 'year' | 'all';
+
+/** Sums over the sales that have USD figures. A money field is null, never
+ * zero, when nothing could be summed. */
+export interface RealizedTotals {
+  sale_count: number;
+  fx_missing_count: number;
+  basis_missing_count: number;
+  cost_basis: number | null;
+  proceeds: number | null;
+  realized_pnl: number | null;
+  realized_pnl_pct: number | null;
+}
+
+/** One sale with its realized P/L. `cost_basis`, `proceeds` and `realized_pnl`
+ * are USD and gross of fees; the `*_native` figures are in `currency`. A sale
+ * flagged `fx_missing` or `basis_missing` has no USD figures and is in no total. */
+export interface RealizedSale {
+  sale_id: number;
+  lot_id: number;
+  symbol: string;
+  currency: string;
+  account: string | null;
+  /** The purchase's trade date. */
+  trade_date: string | null;
+  sale_trade_date: string;
+  shares_sold: number;
+  purchase_price: number | null;
+  sale_price: number;
+  fx_rate_at_purchase: number | null;
+  fx_rate_at_sale: number | null;
+  cost_basis_native: number | null;
+  proceeds_native: number | null;
+  realized_pnl_native: number | null;
+  cost_basis: number | null;
+  proceeds: number | null;
+  realized_pnl: number | null;
+  realized_pnl_pct: number | null;
+  fx_missing: boolean;
+  basis_missing: boolean;
+  allocation_method: string | null;
+  notes: string | null;
+}
+
+export interface RealizedSymbolRow extends RealizedTotals {
+  symbol: string;
+  /** The book still has an open lot of this symbol: a partial exit. */
+  still_held: boolean;
+  shares_closed: number;
+  // The allocation chart's grammar: base is the cost basis of the shares
+  // closed, the gain or (negative) loss is the realized P/L.
+  bar_base: number | null;
+  bar_gain: number | null;
+  bar_loss: number | null;
+  sales: RealizedSale[];
+}
+
+/** GET /api/portfolio/realized. Both dates are null for `all`. */
+export interface RealizedResponse {
+  period: RealizedPeriod;
+  start_date: string | null;
+  end_date: string | null;
+  symbols: RealizedSymbolRow[];
+  totals: RealizedTotals & { symbol_count: number };
+}

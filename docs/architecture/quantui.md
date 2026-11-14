@@ -56,7 +56,23 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   foreign listing keeps its own hours.
 - **Stale rows sort last on 1d in both directions**, then rows with no figure (`compareOneDay`). A
   stale figure is an earlier day's move and must not top a "biggest movers" sort.
-- **The Portfolio** gets every column from its one `GET /api/portfolio/symbols` request.
+- **The Portfolio's holdings table** gets every column from its one `GET /api/portfolio/symbols`
+  request.
+- **The Portfolio is one page of stacked sections** (#235, plan decision 7): a summary strip
+  (`BookSummaryStrip`), then Holdings, then Realized. Each section makes its own request and shows
+  its own loading and error state, so Holdings never waits for a section under it, and a book
+  with no open lots still shows what it realized. The strip leaves out a figure it doesn't have
+  (still loading, failed, or not built yet); it never shows a zero or a dash in its place. Its
+  jump links and the section ids come from `PORTFOLIO_SECTIONS`.
+- **The Realized section is `RealizedPnl`**, fed by one `GET /api/portfolio/realized` request:
+  summary, bar chart, table and every expanded row's sales. The period pulldown (Month, Quarter,
+  Year, All; it opens on Year) changes the request and is never a client-side filter, so the
+  totals are the server's. The period is the section's own state: it is not shared with any other
+  section and is not in the URL. The strip's "Realized, last year" is always the Year request,
+  which the section shares until its period is changed. The chart is `PortfolioAllocationChart`
+  with `variant="realized"`, which keeps the order the rows arrive in (best realized first)
+  where the allocation chart sorts by size. The same component with no props is the Sidekick
+  `realized_pnl` card, which therefore always reads the real book.
 - **The Portfolio shows one book at a time** (#431). `BookSelector` draws a chip per book, the real
   book first, and puts the books past five under "More". The selected paper book is in the URL
   (`?book=<id>`); no parameter means the real book, and the page then sends no `book_id`. The Real

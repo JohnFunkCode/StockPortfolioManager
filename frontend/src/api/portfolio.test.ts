@@ -73,6 +73,20 @@ describe('portfolioApi sales', () => {
   });
 });
 
+describe('portfolioApi realized (#235)', () => {
+  it('getRealized always sends the period, and the book only when one is named', async () => {
+    const api = mockApi([['/api/portfolio/realized', { symbols: [] }]]);
+    await portfolioApi.getRealized('year');
+    await portfolioApi.getRealized('all', null);
+    await portfolioApi.getRealized('month', 7);
+    expect(api.calls.map(([url]) => url)).toEqual([
+      '/api/portfolio/realized?period=year',
+      '/api/portfolio/realized?period=all',
+      '/api/portfolio/realized?period=month&book_id=7',
+    ]);
+  });
+});
+
 describe('portfolioApi mutations', () => {
   it('createLot POSTs the payload to /api/portfolio/lots', async () => {
     const api = mockApi([[/\/api\/portfolio\/lots/, { symbol: 'INTC' }]]);

@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import PortfolioPage from './PortfolioPage';
-import { lotRow, mockApi, renderWithProviders, symbolRow } from '../../testUtils';
+import {
+  lotRow,
+  mockApi,
+  realizedResponse,
+  realizedSymbol,
+  renderWithProviders,
+  symbolRow,
+} from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -24,6 +31,8 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
       },
     ],
     ['/api/books', { books: [] }],
+    // The Realized section's own request (#235): no sales unless a test says so.
+    ['/api/portfolio/realized', realizedResponse([])],
     ...routes,
   ]);
   renderWithProviders(<PortfolioPage />);
@@ -33,7 +42,8 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
 // The allocation chart above the table labels its x axis with the same tickers
 // (issue #147 Part A), so a page-wide getByText('INTC') is ambiguous. Symbol
 // lookups scope to the holdings table; the chart has its own tests.
-const holdings = () => within(screen.getByRole('table'));
+// The Realized section below has a table of its own, so it is found by id.
+const holdings = () => within(screen.getByTestId('holdings-table'));
 
 describe('PortfolioPage', () => {
   it('renders the Portfolio heading and totals once loaded', async () => {
@@ -302,7 +312,7 @@ describe('PortfolioPage', () => {
         '/api/portfolio/symbols',
         { symbols: [symbolRow({ symbol: 'AAPL', active_plan_id: null })], totals: null },
       ],
-      ['/api/portfolio', { securities: [{ symbol: 'AAPL', name: 'AAPL Corp', source: 'portfolio', tags: [], currency: 'USD' }] }],
+      [/\/api\/portfolio$/, { securities: [{ symbol: 'AAPL', name: 'AAPL Corp', source: 'portfolio', tags: [], currency: 'USD' }] }],
     ]);
     renderWithProviders(<PortfolioPage />);
     await waitFor(() => expect(holdings().getByText('AAPL')).toBeInTheDocument());
@@ -322,7 +332,12 @@ describe('PortfolioPage', () => {
     await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     expect(api.unmatched).toHaveLength(0);
     expect(
-      api.calls.every(([url]) => url.includes('/api/portfolio/symbols') || url.includes('/api/books')),
+      api.calls.every(
+        ([url]) =>
+          url.includes('/api/portfolio/symbols') ||
+          url.includes('/api/portfolio/realized') ||
+          url.includes('/api/books'),
+      ),
     ).toBe(true);
   });
 
@@ -485,5 +500,125 @@ describe('PortfolioPage books (#431)', () => {
     await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
     expect(await screen.findByRole('status')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
+  });
+
+  describe('stacked sections (#235, decision 7)', () => {
+    it('shows the summary strip, then Holdings, then Realized', async () => {
+      mount();
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.getByText('Book value')).toBeInTheDocument();
+      expect(strip.getByText('$630.00')).toBeInTheDocument();
+      expect(strip.getByText('Unrealized')).toBeInTheDocument();
+
+      const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
+      expect(headings).toEqual(['Holdings', 'Realized']);
+      // The jump links land on the sections.
+      expect(document.getElementById('holdings')).toHaveTextContent('Holdings');
+      expect(document.getElementById('realized')).toContainElement(screen.getByTestId('realized-pnl'));
+    });
+
+    it("puts the last year's realized P/L in the strip from the section's own request", async () => {
+      const api = mockApi([
+        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
+        ['/api/books', { books: [] }],
+        [
+          '/api/portfolio/realized',
+          realizedResponse([realizedSymbol()], {
+            totals: { ...realizedResponse().totals, realized_pnl: 1234.5 },
+          }),
+        ],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      await waitFor(() => expect(screen.getByTestId('realized-table')).toBeInTheDocument());
+
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.getByText('Realized, last year')).toBeInTheDocument();
+      expect(strip.getByText('$1,234.50')).toBeInTheDocument();
+      // The strip and the section both want Year: one request, not two.
+      expect(api.calls.filter(([url]) => url.includes('/api/portfolio/realized'))).toHaveLength(1);
+    });
+
+    it("keeps the strip on the last year when the section's period changes", async () => {
+      mockApi([
+        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
+        ['/api/books', { books: [] }],
+        [
+          /realized\?period=all/,
+          realizedResponse([realizedSymbol()], {
+            period: 'all',
+            totals: { ...realizedResponse().totals, realized_pnl: 999 },
+          }),
+        ],
+        [
+          '/api/portfolio/realized',
+          realizedResponse([realizedSymbol()], {
+            totals: { ...realizedResponse().totals, realized_pnl: 111 },
+          }),
+        ],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      const strip = () => within(screen.getByTestId('book-summary-strip'));
+      await waitFor(() => expect(strip().getByText('$111.00')).toBeInTheDocument());
+
+      fireEvent.change(screen.getByLabelText('Realized period'), { target: { value: 'all' } });
+
+      await waitFor(() =>
+        expect(within(screen.getByTestId('realized-pnl')).getByText('$999.00')).toBeInTheDocument(),
+      );
+      expect(strip().getByText('$111.00')).toBeInTheDocument();
+      expect(strip().queryByText('$999.00')).toBeNull();
+    });
+
+    it('shows Holdings without waiting for Realized', async () => {
+      mockApi([
+        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
+        ['/api/books', { books: [] }],
+        ['/api/portfolio/realized', () => new Promise<object>(() => {})],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      expect(screen.getByText(/Loading realized P\/L/)).toBeInTheDocument();
+      expect(screen.queryByText('Realized, last year')).toBeNull();
+    });
+
+    it('keeps Holdings when Realized fails, and says which part failed', async () => {
+      mockApi([
+        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
+        ['/api/books', { books: [] }],
+        ['/api/portfolio/realized', () => ({ __status: 500, error: 'boom' })],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      await waitFor(() => expect(screen.getByText(/Couldn't load realized P\/L/)).toBeInTheDocument());
+      expect(holdings().getByText('INTC')).toBeInTheDocument();
+    });
+
+    it('shows what a book with no open lots has realized', async () => {
+      // Fully sold out: the holdings are empty and the sales are not.
+      mockApi([
+        ['/api/portfolio/symbols', { symbols: [], totals: null }],
+        ['/api/books', { books: [] }],
+        ['/api/portfolio/realized', realizedResponse()],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      await waitFor(() => expect(screen.getByTestId('realized-row-INTC')).toBeInTheDocument());
+      expect(screen.getByText('Your portfolio is empty')).toBeInTheDocument();
+      expect(screen.queryByText('Book value')).toBeNull();
+    });
+
+    it("asks for the selected book's realized P/L", async () => {
+      const api = mockApi([
+        [/\/api\/portfolio\/symbols\?book_id=7$/, { symbols: [], totals: null }],
+        ['/api/books', { books: [] }],
+        ['/api/portfolio/realized', realizedResponse()],
+      ]);
+      renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+      await waitFor(() => expect(screen.getByTestId('realized-row-INTC')).toBeInTheDocument());
+      const realized = api.calls.filter(([url]) => url.includes('/api/portfolio/realized'));
+      expect(realized.map(([url]) => url)).toEqual([
+        expect.stringContaining('period=year&book_id=7'),
+      ]);
+    });
   });
 });

@@ -3,6 +3,7 @@ import { portfolioApi } from '../api/portfolio';
 import type {
   CloseLotPayload,
   CreateLotPayload,
+  RealizedPeriod,
   UpdateLotPayload,
   UpdateSalePayload,
 } from '../api/portfolioTypes';
@@ -20,6 +21,8 @@ function invalidatePortfolio(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['portfolio-symbols'] });
   qc.invalidateQueries({ queryKey: ['portfolio-lots'] });
   qc.invalidateQueries({ queryKey: ['portfolio-sales'] });
+  // A close adds a sale, and an edited or deleted lot changes a sale's basis.
+  qc.invalidateQueries({ queryKey: ['portfolio-realized'] });
 }
 
 export function useCreateLot() {
@@ -75,11 +78,24 @@ export function useSales(symbol?: string, bookId: number | null = null) {
   });
 }
 
+/** Realized P/L for one period of one book; null is the real book (#235). */
+export function useRealized(period: RealizedPeriod, bookId: number | null = null) {
+  return useQuery({
+    queryKey: ['portfolio-realized', period, bookId],
+    queryFn: () => portfolioApi.getRealized(period, bookId),
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useUpdateSale() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ saleId, data }: { saleId: number; data: UpdateSalePayload }) =>
       portfolioApi.updateSale(saleId, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolio-sales'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['portfolio-sales'] });
+      // The realized payload carries each sale's note.
+      qc.invalidateQueries({ queryKey: ['portfolio-realized'] });
+    },
   });
 }

@@ -93,4 +93,42 @@ describe('PortfolioAllocationChart', () => {
     expect(container.querySelector('svg')).toBeNull();
     expect(screen.queryByTestId('portfolio-allocation-chart')).not.toBeInTheDocument();
   });
+
+  it('draws realized bars in the order given, under their own names', () => {
+    // #235: the realized rows arrive best first, and the chart keeps that.
+    const { container } = render(
+      <PortfolioAllocationChart
+        variant="realized"
+        rows={[
+          { symbol: 'SMALL', bar_base: 10, bar_gain: 9, bar_loss: 0 },
+          { symbol: 'BIG', bar_base: 900, bar_gain: 0, bar_loss: -50 },
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('realized-pnl-chart')).toBeInTheDocument();
+    expect(screen.queryByTestId('portfolio-allocation-chart')).toBeNull();
+    expect(screen.getByText(/Cost basis of shares sold/)).toBeInTheDocument();
+    expect(screen.getByText(/Realized gain/)).toBeInTheDocument();
+    expect(screen.getByText(/Realized loss/)).toBeInTheDocument();
+
+    const small = container.querySelector('[data-testid="realized-base-SMALL"]')!;
+    const big = container.querySelector('[data-testid="realized-base-BIG"]')!;
+    expect(Number(small.getAttribute('x'))).toBeLessThan(Number(big.getAttribute('x')));
+    expect(container.querySelector('[data-testid="realized-loss-BIG"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="alloc-"]')).toBeNull();
+  });
+
+  it('still orders allocation bars by size', () => {
+    const { container } = render(
+      <PortfolioAllocationChart
+        rows={[
+          { symbol: 'SMALL', bar_base: 10, bar_gain: 9, bar_loss: 0 },
+          { symbol: 'BIG', bar_base: 900, bar_gain: 0, bar_loss: 0 },
+        ]}
+      />,
+    );
+    const small = container.querySelector('[data-testid="alloc-base-SMALL"]')!;
+    const big = container.querySelector('[data-testid="alloc-base-BIG"]')!;
+    expect(Number(big.getAttribute('x'))).toBeLessThan(Number(small.getAttribute('x')));
+  });
 });

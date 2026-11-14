@@ -1096,6 +1096,31 @@ class LotRoutesTest(unittest.TestCase):
         self.assertEqual(sale["realized_pnl_native"], 10.0)
         self.assertIsNone(sale["realized_pnl"])
 
+    def test_realized_converts_a_non_usd_sale_at_each_sides_rate(self):
+        """#235 step 2.3: the rates are captured when the lot is opened and
+        closed, and the realized read then needs no network at all."""
+        rate = {"value": 1.10}
+
+        def closes(_self, currency, start, end):
+            days = (end - start).days + 1
+            return {start + datetime.timedelta(days=n): rate["value"] for n in range(days)}
+
+        with patch.object(YFinanceGateway, "fx_daily_closes", closes):
+            lot = self._create_lot(currency="EUR")          # 5 at 10.00, EUR at 1.10
+            rate["value"] = 1.00
+            self._sell(lot, "5", "12.00", days_ago=1)       # EUR at 1.00
+
+        _, row = self._realized()                           # Yahoo is blocked again here
+        self.assertEqual(row["fx_missing_count"], 0)
+        (sale,) = row["sales"]
+        self.assertFalse(sale["fx_missing"])
+        self.assertEqual((sale["fx_rate_at_purchase"], sale["fx_rate_at_sale"]), (1.1, 1.0))
+        self.assertEqual((sale["cost_basis"], sale["proceeds"]), (55.0, 60.0))
+        self.assertEqual(sale["realized_pnl"], 5.0)
+        self.assertEqual(sale["realized_pnl_native"], 10.0)
+        self.assertEqual(row["realized_pnl"], 5.0)
+        self.assertEqual(row["bar_base"], 55.0)
+
     def test_realized_rejects_an_unknown_period(self):
         for bad in ("ytd", "YEAR", "30"):
             with self.subTest(period=bad):

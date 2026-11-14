@@ -478,6 +478,157 @@ class PortfolioRepositoryRealizedSalesTest(unittest.TestCase):
         )
 
 
+FX_OTHER_OWNER = "zz_owner_lots_other"
+
+
+class PortfolioRepositoryFxRatesTest(unittest.TestCase):
+    """#235 step 2.3: the FX rates stored with a lot and with a sale, and the
+    backfill's reads and writes."""
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            for owner in (OWNER, FX_OTHER_OWNER):
+                conn.execute("DELETE FROM positions WHERE owner = %s", (owner,))
+            conn.commit()
+
+    def _lot(self, owner=OWNER, **overrides):
+        row = {
+            "name": "Test Lot", "symbol": SYMBOL, "purchase_price": 10.0, "quantity": 5,
+            "purchase_date": "2026-01-02", "currency": "EUR",
+        }
+        row.update(overrides)
+        return self.repo.add_position(owner, row)
+
+    def _rates(self, owner=OWNER):
+        return [
+            (s["fx_rate_at_purchase"], s["fx_rate_at_sale"])
+            for s in self.repo.list_realized_sales(owner)
+        ]
+
+    def test_a_lot_and_its_sale_store_their_rates(self):
+        lot = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        self.repo.close_lots(
+            OWNER, [(lot, Decimal("5"))], Decimal("12"), "2026-03-01",
+            fx_rates_at_sale={"EUR": Decimal("1.05")},
+        )
+        self.assertEqual(self._rates(), [(Decimal("1.1"), Decimal("1.05"))])
+
+    def test_a_sale_takes_the_rate_for_its_own_lots_currency(self):
+        eur = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        usd = self._lot(currency="USD")
+        gbp = self._lot(currency="GBP", fx_rate_at_purchase=Decimal("1.30"))
+        self.repo.close_lots(
+            OWNER, [(eur, Decimal("5")), (usd, Decimal("5")), (gbp, Decimal("5"))],
+            Decimal("12"), "2026-03-01", fx_rates_at_sale={"EUR": Decimal("1.05")},
+        )
+        by_lot = {s["lot_id"]: s["fx_rate_at_sale"] for s in self.repo.list_realized_sales(OWNER)}
+        # USD needs none, and GBP had none to be found: both stay NULL, never 1.
+        self.assertEqual(by_lot, {eur: Decimal("1.05"), usd: None, gbp: None})
+
+    def test_no_rates_given_stores_none(self):
+        lot = self._lot()
+        self.repo.close_lots(OWNER, [(lot, Decimal("5"))], Decimal("12"), "2026-03-01")
+        self.assertEqual(self._rates(), [(None, None)])
+
+    def test_the_remainder_of_a_split_keeps_its_parents_purchase_rate(self):
+        lot = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        (first,) = self.repo.close_lots(
+            OWNER, [(lot, Decimal("2"))], Decimal("12"), "2026-03-01",
+            fx_rates_at_sale={"EUR": Decimal("1.05")},
+        )
+        self.repo.close_lots(
+            OWNER, [(first["child_lot_id"], Decimal("3"))], Decimal("13"), "2026-04-01",
+            fx_rates_at_sale={"EUR": Decimal("1.07")},
+        )
+        self.assertEqual(self._rates(), [
+            (Decimal("1.1"), Decimal("1.05")),
+            (Decimal("1.1"), Decimal("1.07")),
+        ])
+
+    def test_update_lot_can_replace_or_clear_the_purchase_rate(self):
+        lot = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        self.repo.insert_sale(OWNER, lot, 1, 12.0, "2026-03-01")
+
+        self.assertTrue(self.repo.update_lot(OWNER, lot, {"fx_rate_at_purchase": Decimal("1.20")}))
+        self.assertEqual(self._rates(), [(Decimal("1.2"), None)])
+        self.assertTrue(self.repo.update_lot(OWNER, lot, {"fx_rate_at_purchase": None}))
+        self.assertEqual(self._rates(), [(None, None)])
+
+    def test_a_currency_edit_clears_that_lots_sale_rates_only(self):
+        lot = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        other = self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        for lot_id in (lot, other):
+            self.repo.insert_sale(
+                OWNER, lot_id, 1, 12.0, "2026-03-01", fx_rate_at_sale=Decimal("1.05"))
+
+        def sale_rates():
+            return {s["lot_id"]: s["fx_rate_at_sale"] for s in self.repo.list_realized_sales(OWNER)}
+
+        # An edit that leaves the currency alone leaves the sale rates alone.
+        self.repo.update_lot(OWNER, lot, {"notes": "x"})
+        self.assertEqual(sale_rates(), {lot: Decimal("1.05"), other: Decimal("1.05")})
+        # Another owner's edit matches no lot, so it clears nothing.
+        self.assertFalse(self.repo.update_lot(FX_OTHER_OWNER, lot, {"currency": "GBP"}))
+        self.assertEqual(sale_rates(), {lot: Decimal("1.05"), other: Decimal("1.05")})
+
+        self.assertTrue(self.repo.update_lot(OWNER, lot, {"currency": "GBP"}))
+        self.assertEqual(sale_rates(), {lot: None, other: Decimal("1.05")})
+
+    def test_missing_lists_only_non_usd_rows_without_a_rate(self):
+        missing = self._lot()
+        self._lot(fx_rate_at_purchase=Decimal("1.10"))
+        usd = self._lot(currency="USD")
+        blank = self._lot(currency=None)
+        lower = self._lot(currency=" gbp ")
+        sale_missing = self.repo.insert_sale(OWNER, missing, 1, 12.0, "2026-03-01")
+        self.repo.insert_sale(OWNER, missing, 1, 12.0, "2026-03-02", fx_rate_at_sale=Decimal("1.05"))
+        self.repo.insert_sale(OWNER, usd, 1, 12.0, "2026-03-03")
+        self.repo.insert_sale(OWNER, blank, 1, 12.0, "2026-03-04")
+
+        self.assertEqual(self.repo.list_lots_missing_fx(OWNER), [
+            {"lot_id": missing, "symbol": SYMBOL, "currency": "EUR", "trade_date": "2026-01-02"},
+            {"lot_id": lower, "symbol": SYMBOL, "currency": "GBP", "trade_date": "2026-01-02"},
+        ])
+        self.assertEqual(self.repo.list_sales_missing_fx(OWNER), [{
+            "sale_id": sale_missing, "lot_id": missing, "symbol": SYMBOL,
+            "currency": "EUR", "sale_trade_date": "2026-03-01",
+        }])
+
+    def test_a_closed_lot_is_still_listed(self):
+        lot = self._lot()
+        self.repo.close_lots(OWNER, [(lot, Decimal("5"))], Decimal("12"), "2026-03-01")
+        self.assertEqual([r["lot_id"] for r in self.repo.list_lots_missing_fx(OWNER)], [lot])
+
+    def test_fill_writes_a_missing_rate_and_never_replaces_one(self):
+        lot = self._lot()
+        sale = self.repo.insert_sale(OWNER, lot, 1, 12.0, "2026-03-01")
+
+        self.assertTrue(self.repo.fill_lot_fx_rate(OWNER, lot, Decimal("1.10")))
+        self.assertTrue(self.repo.fill_sale_fx_rate(OWNER, sale, Decimal("1.05")))
+        self.assertEqual(self._rates(), [(Decimal("1.1"), Decimal("1.05"))])
+        self.assertEqual(self.repo.list_lots_missing_fx(OWNER), [])
+        self.assertEqual(self.repo.list_sales_missing_fx(OWNER), [])
+
+        self.assertFalse(self.repo.fill_lot_fx_rate(OWNER, lot, Decimal("9")))
+        self.assertFalse(self.repo.fill_sale_fx_rate(OWNER, sale, Decimal("9")))
+        self.assertEqual(self._rates(), [(Decimal("1.1"), Decimal("1.05"))])
+
+    def test_fx_backfill_is_owner_scoped(self):
+        lot = self._lot()
+        sale = self.repo.insert_sale(OWNER, lot, 1, 12.0, "2026-03-01")
+
+        self.assertEqual(self.repo.list_lots_missing_fx(FX_OTHER_OWNER), [])
+        self.assertEqual(self.repo.list_sales_missing_fx(FX_OTHER_OWNER), [])
+        self.assertFalse(self.repo.fill_lot_fx_rate(FX_OTHER_OWNER, lot, Decimal("9")))
+        self.assertFalse(self.repo.fill_sale_fx_rate(FX_OTHER_OWNER, sale, Decimal("9")))
+        self.assertEqual(self._rates(), [(None, None)])
+
+
 BOOK_OWNER = "zz_owner_books"
 OTHER_OWNER = "zz_owner_books_other"
 
@@ -631,6 +782,43 @@ class PortfolioRepositoryBooksTest(unittest.TestCase):
         self.assertEqual(lots(OTHER_OWNER, book_id=paper), [])
         self.assertEqual(lots(OTHER_OWNER), [])
         self.assertEqual(self._book_ids(OTHER_OWNER), [])
+
+    def test_fx_backfill_follows_its_lots_book(self):
+        real_lot = self.repo.add_position(BOOK_OWNER, self._row(currency="EUR"))
+        paper = self.books.create_paper_book(owner=BOOK_OWNER, name="Momentum", starting_cash=1000)
+        paper_lot = self.repo.add_position(BOOK_OWNER, self._row(currency="EUR"), book_id=paper)
+        self.repo.insert_sale(BOOK_OWNER, real_lot, 1, 12.0, "2026-02-01")
+        paper_sale = self.repo.insert_sale(
+            BOOK_OWNER, paper_lot, 1, 13.0, "2026-02-02", book_id=paper)
+
+        def missing(**kwargs):
+            return (
+                [r["lot_id"] for r in self.repo.list_lots_missing_fx(BOOK_OWNER, **kwargs)],
+                [r["lot_id"] for r in self.repo.list_sales_missing_fx(BOOK_OWNER, **kwargs)],
+            )
+
+        self.assertEqual(missing(), ([real_lot], [real_lot]), "the default read reached a paper row")
+        self.assertEqual(missing(book_id=paper), ([paper_lot], [paper_lot]))
+
+        # A paper row can't be filled through the real book, or by another owner.
+        self.assertFalse(self.repo.fill_lot_fx_rate(BOOK_OWNER, paper_lot, Decimal("1.1")))
+        self.assertFalse(self.repo.fill_sale_fx_rate(BOOK_OWNER, paper_sale, Decimal("1.1")))
+        self.assertFalse(
+            self.repo.fill_lot_fx_rate(OTHER_OWNER, paper_lot, Decimal("1.1"), book_id=paper))
+        self.assertFalse(
+            self.repo.fill_sale_fx_rate(OTHER_OWNER, paper_sale, Decimal("1.1"), book_id=paper))
+        self.assertEqual(missing(book_id=paper), ([paper_lot], [paper_lot]))
+        self.assertEqual(self._book_ids(OTHER_OWNER), [])
+
+        self.assertTrue(self.repo.fill_lot_fx_rate(BOOK_OWNER, paper_lot, Decimal("1.1"), book_id=paper))
+        self.assertTrue(
+            self.repo.fill_sale_fx_rate(BOOK_OWNER, paper_sale, Decimal("1.1"), book_id=paper))
+        self.assertEqual(missing(book_id=paper), ([], []))
+        self.assertEqual(missing(), ([real_lot], [real_lot]))
+
+        # A currency edit through the real book can't clear a paper sale's rate.
+        self.assertFalse(self.repo.update_lot(BOOK_OWNER, paper_lot, {"currency": "GBP"}))
+        self.assertEqual(missing(book_id=paper), ([], []))
 
     def test_partial_close_child_stays_in_its_parents_book(self):
         _, paper_lot, paper = self._seed()

@@ -17,9 +17,9 @@ import logging
 import time
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from quantcore.analytics import portfolio_math
+from quantcore.analytics import fx, portfolio_math
 from quantcore.analytics.market_time import market_date, rolling_window
 from quantcore.repositories.books_repository import PAPER, BookNotFoundError
 from quantcore.repositories.portfolio_repository import PortfolioRepository
@@ -150,8 +150,13 @@ class PortfolioService:
         options=None,
         harvester_repository=None,
         books_repository=None,
+        fx_gateway=None,
     ) -> None:
         self._repo = portfolio_repository
+        # YFinanceGateway — daily FX closes for the rate stored on a non-USD
+        # lot or sale when it is recorded (#235 step 2.3). Optional like
+        # `options`; without it no rate is captured and the sale is flagged.
+        self._fx_gateway = fx_gateway
         # BooksRepository — checks a named book is the owner's before a read
         # (#431 step 1.2). Optional like `options`; without it a named book is
         # refused, never read unchecked.
@@ -222,6 +227,9 @@ class PortfolioService:
                     )
                     warned_deprecated_alias = True
                 rows.append(row)
+        rates = self._fx_rates((row["currency"], row["trade_date"]) for row in rows)
+        for row in rows:
+            row["fx_rate_at_purchase"] = self._rate_from(rates, row["currency"], row["trade_date"])
         return self._repo.replace_owner_positions(owner, rows)
 
     def add_position(self, owner: str = "john", **fields: Any) -> Dict[str, Any]:
@@ -232,8 +240,103 @@ class PortfolioService:
         if not row["symbol"]:
             raise ValueError("symbol is required")
         _validate_lot_fields(row, require_all=True)
+        row["fx_rate_at_purchase"] = self._fx_rate(row["currency"], row["trade_date"])
         self._repo.add_position(owner, row)
         return {"symbol": row["symbol"]}
+
+    # ------------------------------------------------------------------
+    # FX rates captured at write time (#235 step 2.3)
+    # ------------------------------------------------------------------
+    def _fx_rates(
+        self, wanted: Iterable[Tuple[Optional[str], Any]]
+    ) -> Dict[Tuple[str, date], Decimal]:
+        """`{(currency, date): USD per unit}` for the `(currency, date)` pairs
+        in `wanted` that need a rate and have one.
+
+        One gateway call per currency, however many dates it has. A pair is
+        simply absent when it is USD, has no date, is dated after today (no
+        close exists yet), or its lookup failed or found no close within a
+        week. This never raises: the rate belongs to a trade the caller is
+        about to record, and a slow Yahoo must cost the rate, never the trade.
+        A rate that is missing is filled in later by `backfill_fx_rates`.
+        """
+        today = market_date()
+        by_currency: Dict[str, set] = {}
+        for currency, on in wanted:
+            day = fx.as_date(on)
+            if fx.needs_rate(currency) and day is not None and day <= today:
+                by_currency.setdefault(fx.normalize_currency(currency), set()).add(day)
+
+        rates: Dict[Tuple[str, date], Decimal] = {}
+        if self._fx_gateway is None:
+            return rates
+        for currency, days in by_currency.items():
+            try:
+                start, end = fx.fetch_window(days)
+                closes = self._fx_gateway.fx_daily_closes(currency, start, end)
+            except Exception as exc:  # noqa: BLE001 — the write outlives its rate
+                logger.warning("fx rates for %s unavailable (%s)", currency, type(exc).__name__)
+                continue
+            for day in days:
+                rate = fx.prior_close_rate(closes, day)
+                if rate is not None:
+                    rates[(currency, day)] = rate
+        return rates
+
+    @staticmethod
+    def _rate_from(
+        rates: Dict[Tuple[str, date], Decimal], currency: Optional[str], on: Any
+    ) -> Optional[Decimal]:
+        return rates.get((fx.normalize_currency(currency), fx.as_date(on)))
+
+    def _sale_fx_rates(
+        self,
+        symbol_lots: Sequence[Dict[str, Any]],
+        allocation: Sequence[Tuple[Any, Decimal]],
+        sale_trade_date: Any,
+    ) -> Dict[str, Decimal]:
+        """`{currency: USD per unit on the sale date}` for the currencies of
+        the lots a sale touches. A currency with no rate to be had is absent,
+        and so is USD."""
+        sold_ids = {allocated_id for allocated_id, _ in allocation}
+        rates = self._fx_rates(
+            (lot["currency"], sale_trade_date)
+            for lot in symbol_lots if lot["lot_id"] in sold_ids
+        )
+        return {currency: rate for (currency, _), rate in rates.items()}
+
+    def _fx_rate(self, currency: Optional[str], on: Any) -> Optional[Decimal]:
+        """The rate for one trade, or None (USD, or no rate to be had)."""
+        return self._rate_from(self._fx_rates([(currency, on)]), currency, on)
+
+    def backfill_fx_rates(self, owner: str, *, apply: bool = False) -> Dict[str, Any]:
+        """Fill the FX rates missing from `owner`'s non-USD lots and sales in
+        their real book (#235). Writes nothing unless `apply`.
+
+        Only a rate that is still NULL is filled; one captured with the trade
+        is never replaced. Returns `lots` and `sales`, each a list of rows
+        with the `rate` found (None when there was none) and whether it was
+        `filled`.
+        """
+        lots = self._repo.list_lots_missing_fx(owner)
+        sales = self._repo.list_sales_missing_fx(owner)
+        rates = self._fx_rates(
+            [(lot["currency"], lot["trade_date"]) for lot in lots]
+            + [(sale["currency"], sale["sale_trade_date"]) for sale in sales]
+        )
+        for lot in lots:
+            lot["rate"] = self._rate_from(rates, lot["currency"], lot["trade_date"])
+            lot["filled"] = bool(
+                apply and lot["rate"] is not None
+                and self._repo.fill_lot_fx_rate(owner, lot["lot_id"], lot["rate"])
+            )
+        for sale in sales:
+            sale["rate"] = self._rate_from(rates, sale["currency"], sale["sale_trade_date"])
+            sale["filled"] = bool(
+                apply and sale["rate"] is not None
+                and self._repo.fill_sale_fx_rate(owner, sale["sale_id"], sale["rate"])
+            )
+        return {"owner": owner, "applied": apply, "lots": lots, "sales": sales}
 
     def remove_position(self, owner: str, symbol: str) -> int:
         """Remove every lot of `symbol` for `owner`. Returns rows removed."""
@@ -527,7 +630,47 @@ class PortfolioService:
         _validate_lot_fields(fields, require_all=False)
         if "notes" in fields:
             fields = {**fields, "notes": _clean_note(fields["notes"])}
-        return self._repo.update_lot(owner, lot_id, fields)
+        fields = self._with_purchase_rate(owner, lot_id, fields)
+        updated = self._repo.update_lot(owner, lot_id, fields)
+        if updated and "currency" in fields:
+            self._refill_sale_rates(owner, lot_id)
+        return updated
+
+    def _refill_sale_rates(self, owner: str, lot_id: int) -> None:
+        """Look up the sale-date rates the repository just cleared, after a
+        lot's currency was corrected. After the edit has committed and never
+        raising, like `_close_plan_if_flat`: the edit is the fact, and a sale
+        left without a rate is flagged and filled by the backfill."""
+        try:
+            sales = [s for s in self._repo.list_sales_missing_fx(owner) if s["lot_id"] == lot_id]
+            rates = self._fx_rates((s["currency"], s["sale_trade_date"]) for s in sales)
+            for sale in sales:
+                rate = self._rate_from(rates, sale["currency"], sale["sale_trade_date"])
+                if rate is not None:
+                    self._repo.fill_sale_fx_rate(owner, sale["sale_id"], rate)
+        except Exception as exc:  # noqa: BLE001 — the edit already committed
+            logger.warning(
+                "sale fx rates for lot %s not refilled (%s)", lot_id, type(exc).__name__
+            )
+
+    def _with_purchase_rate(
+        self, owner: str, lot_id: int, fields: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """`fields` plus the lot's purchase-date FX rate, when the edit moves
+        the trade date or changes the currency (#235).
+
+        The stored rate belongs to the old date and currency, so it is
+        replaced, and by None when the new one can't be had: a stale rate
+        would be a confidently wrong number, and a missing one is flagged.
+        """
+        if fields.get("trade_date") is None and fields.get("currency") is None:
+            return fields
+        lot = self._repo.get_lot(owner, lot_id)
+        if lot is None:
+            return fields
+        currency = fields.get("currency") or lot["currency"]
+        on = fields.get("trade_date") or lot["trade_date"]
+        return {**fields, "fx_rate_at_purchase": self._fx_rate(currency, on)}
 
     def delete_lot(self, owner: str, lot_id: int) -> bool:
         """Remove a mistaken lot entry. Returns True if a lot was deleted."""
@@ -655,7 +798,7 @@ class PortfolioService:
         notes are stored as NULL; a `lot_notes` key outside the resolved
         allocation is rejected.
         """
-        anchor, shares, _, allocation = self._resolve_close_allocation(
+        anchor, shares, symbol_lots, allocation = self._resolve_close_allocation(
             owner, lot_id, shares, method, lots
         )
         sale_price = Decimal(str(sale_price))
@@ -671,10 +814,13 @@ class PortfolioService:
         if extra:
             raise ValueError(f"lot_notes references lot(s) not in this sale: {sorted(extra)}")
 
+        # Looked up before the transaction opens, so no connection waits on
+        # the network.
         allocations = self._repo.close_lots(
             owner, allocation, sale_price, sale_trade_date,
             fees=fees, allocation_method=method,
             notes=notes, lot_notes=cleaned_lot_notes or None,
+            fx_rates_at_sale=self._sale_fx_rates(symbol_lots, allocation, sale_trade_date),
         )
         self._close_plan_if_flat(owner, anchor["symbol"], "last open lot closed")
         return {

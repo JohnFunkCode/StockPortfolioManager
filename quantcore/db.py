@@ -165,6 +165,12 @@ CREATE TABLE IF NOT EXISTS lot_sales (
 );
 CREATE INDEX IF NOT EXISTS idx_lot_sales_lot ON lot_sales(lot_id);
 
+-- V15 (#235, plan step 2.3): the sale-side FX rate. Mirrors
+-- db/migrations/V15__lot_sales_fx_rate.sql. USD per one unit of the lot's
+-- currency on sale_trade_date. NULL means no rate recorded (never 1.0).
+ALTER TABLE lot_sales
+  ADD COLUMN IF NOT EXISTS fx_rate_at_sale NUMERIC(18,8);
+
 -- V14 (#431, plan step 1.1): books. Mirrors db/migrations/V14__books.sql.
 -- A book is a named, owned container of positions -- one REAL book per owner
 -- (the partial unique index) and any number of PAPER books. positions.book_id

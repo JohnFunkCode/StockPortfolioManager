@@ -74,10 +74,12 @@ BOOK_SCOPED = {
         (_REPO_TESTS, "test_a_named_book_reads_only_that_book"),
         (_REPO_TESTS, "test_default_mutations_leave_a_paper_book_alone"),
         (_REPO_TESTS, "test_another_owners_book_reads_nothing_and_takes_no_writes"),
+        (_REPO_TESTS, "test_fx_backfill_follows_its_lots_book"),
     ],
     "lot_sales": [
         (_REPO_TESTS, "test_sales_follow_their_lots_book"),
         (_REPO_TESTS, "test_realized_sales_follow_their_lots_book"),
+        (_REPO_TESTS, "test_fx_backfill_follows_its_lots_book"),
         (_REPO_TESTS, "test_default_mutations_leave_a_paper_book_alone"),
     ],
 }
@@ -284,7 +286,7 @@ ALLOWED = {
         "rather than to one book -- it is the cross-owner walk, and returns "
         "owner names only."
     ),
-    ("quantcore/repositories/portfolio_repository.py", "871b12c740ba"): (
+    ("quantcore/repositories/portfolio_repository.py", "0c5b7928de4c"): (
         "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "
         "read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
         "connection, and raise ValueError if it isn't in that book."

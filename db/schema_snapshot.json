@@ -469,6 +469,11 @@
           "nullable": true,
           "type": "numeric(18,6)"
         },
+        "fx_rate_at_sale": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,8)"
+        },
         "lot_id": {
           "default": null,
           "nullable": false,

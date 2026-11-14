@@ -52,6 +52,10 @@ _V7_QUOTE_URL = "https://query1.finance.yahoo.com/v7/finance/quote"
 BATCH_QUOTE_CHUNK = 100
 BATCH_QUOTE_TIMEOUT_SECONDS = 8.0
 
+# An FX lookup runs inside a lot write (#235), so it gets a short timeout: a
+# slow Yahoo costs the rate, which a backfill can fill in, never the write.
+FX_TIMEOUT_SECONDS = 8.0
+
 
 @dataclass(frozen=True)
 class Quote:
@@ -190,6 +194,36 @@ def is_rate_limited(exc: BaseException) -> bool:
     return "429" in text or "Too Many Requests" in text
 
 
+def _is_positive_finite(value) -> bool:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number > 0
+
+
+def _currency_code(currency) -> str:
+    """``currency`` as an upper-case three-letter code, or ``ValueError``. The
+    code becomes part of a symbol sent to Yahoo, so nothing else is let by."""
+    code = (currency or "").strip().upper()
+    if len(code) != 3 or not code.isascii() or not code.isalpha():
+        raise ValueError(f"not a currency code: {currency!r}")
+    return code
+
+
+def _daily_closes(
+    closes: pd.Series, start: datetime.date, end: datetime.date
+) -> dict[datetime.date, float]:
+    """``{date: close}`` for the positive finite closes dated ``start`` to
+    ``end`` inclusive. Any other row is left out."""
+    by_day: dict[datetime.date, float] = {}
+    for stamp, value in closes.items():
+        day = pd.Timestamp(stamp).date()
+        if start <= day <= end and _is_positive_finite(value):
+            by_day[day] = float(value)
+    return by_day
+
+
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     """yf.download returns MultiIndex columns in newer versions; flatten to
     field names whichever level holds them."""
@@ -281,6 +315,40 @@ class YFinanceGateway:
         if include_adj_close and "Adj Close" in df.columns:
             cols.append("Adj Close")
         return df[cols].dropna(subset=["Close"])
+
+    def fx_daily_closes(
+        self, currency: str, start: datetime.date, end: datetime.date
+    ) -> dict[datetime.date, float]:
+        """Daily closes of ``currency`` in USD, ``start`` to ``end`` inclusive.
+
+        ``{date: USD per one unit of currency}`` from Yahoo's ``<CCY>USD=X``
+        pair (#235). Days with no positive finite close are left out, and an
+        unknown currency or an empty reply is ``{}``: the caller decides what
+        a missing day means (`analytics.fx.prior_close_rate`), and never
+        substitutes 1.0. ``currency`` must be a three-letter code, because it
+        becomes part of the symbol requested.
+        """
+        code = _currency_code(currency)
+        # `end` is exclusive at Yahoo (see fetch_history), so ask one day past.
+        last = end + datetime.timedelta(days=1)
+        with _YF_DOWNLOAD_LOCK:
+            df = yf.download(
+                f"{code}USD=X",
+                start=start.strftime("%Y-%m-%d"),
+                end=last.strftime("%Y-%m-%d"),
+                interval="1d",
+                auto_adjust=False,
+                progress=False,
+                timeout=FX_TIMEOUT_SECONDS,
+            )
+        if df is None or df.empty:
+            logger.warning("yfinance returned no FX closes for %s", code)
+            return {}
+        df = _flatten_columns(df)
+        if "Close" not in df.columns:
+            logger.warning("yfinance FX columns unexpected for %s: %s", code, list(df.columns))
+            return {}
+        return _daily_closes(df["Close"], start, end)
 
     def close_thread_caches(self) -> None:
         """Close the *calling thread's* yfinance peewee cache DB connections.

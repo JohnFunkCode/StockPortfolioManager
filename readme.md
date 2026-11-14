@@ -190,6 +190,11 @@ python scripts/import_watchlist.py --yaml watchlist.yaml   # full-sync replace
 
 Moving from the old SQLite store? Use `scripts/migrate_sqlite_to_postgres.py`.
 
+Realized P/L is in USD, converted at the exchange rate on each trade's date. The rate is stored
+when a non-USD lot is opened or closed. To fill rates that are missing (older rows, or a trade
+recorded while Yahoo was unreachable), run `python scripts/backfill_fx_rates.py` (a dry run;
+`--apply` writes).
+
 ### Migrations (Flyway)
 
 Versioned SQL lives in `db/migrations/V*.sql`. Every schema change touches exactly **three**

@@ -332,11 +332,14 @@ call. The maths is `portfolio_math.realized_pnl`.
 - **A total is the sum of the rounded rows under it.** Each sale's cost basis and proceeds are
   rounded to the cent and its P/L is their difference; a symbol's figures and the page totals add
   those up. Rounding a sum of unrounded figures could differ from the rows on screen by a cent.
-- **USD only for now.** A non-USD sale is listed with its native figures and `fx_missing: true`,
-  has no USD figures, and is in no total; `fx_missing_count` says how many. A missing rate is
-  never read as 1.0. `lot_sales` has no `fx_rate_at_sale` column yet and nothing writes
-  `positions.fx_rate_at_purchase`: both arrive in plan step 2.3. A sale whose lot has no purchase
-  price is treated the same way (`basis_missing`).
+- **Everything is in USD, each side at its own trade-date rate.** Cost basis converts at
+  `positions.fx_rate_at_purchase` and proceeds at `lot_sales.fx_rate_at_sale`, so a currency move
+  during the hold is part of the result. A USD sale needs no rate. The `*_native` figures stay in
+  the lot's currency and are shown on the expanded sale, never summed.
+- **A missing rate is never read as 1.0.** A non-USD sale without both rates is listed with its
+  native figures and `fx_missing: true`, has no USD figures, and is in no total;
+  `fx_missing_count` says how many. A sale whose lot has no purchase price is treated the same
+  way (`basis_missing`). How the rates get onto the rows: [FX rates](#fx-rates).
 - **A symbol with no summable sale has `None` money figures and no bar**, not zeroes that would
   read as "broke even", and sorts last. Symbols are otherwise ordered best realized P/L first.
 - The bar segments come from `allocation_segments`, as on the allocation chart: the base is the
@@ -345,6 +348,46 @@ call. The maths is `portfolio_math.realized_pnl`.
 
 The Portfolio page's Realized section and the Sidekick `realized_pnl` card read the route
 ([`quantui.md`](quantui.md)); they show the payload and compute nothing.
+
+### FX rates
+
+A rate is **USD per one unit of the lot's currency**, stored to eight decimals
+(`NUMERIC(18,8)`) on the row it belongs to: `positions.fx_rate_at_purchase` for the lot's
+`trade_date` and `lot_sales.fx_rate_at_sale` for the sale's `sale_trade_date` (#235, V15). NULL
+means no rate is recorded, which is always the case for a USD row.
+
+- **The rate is captured when the trade is recorded, so the realized read makes no network call.**
+  `PortfolioService` looks it up on Add Lot, on a CSV import, on a lot edit that moves the trade
+  date or changes the currency, and on a close. The lookup runs before the transaction opens, one
+  request per currency however many dates are wanted.
+- **A lookup that fails costs the rate, never the trade.** `_fx_rates` never raises: the lot or
+  sale is written with a NULL rate, the sale shows as `fx_missing`, and the backfill below fills
+  it in later. The log line names the exception class only.
+- **A lot edit replaces the rate, by NULL when the new one can't be had.** The stored rate belongs
+  to the old date and currency; keeping it would be a confidently wrong number. A currency edit
+  also clears the sale-date rate of the lot's sales, in the same transaction, and looks them up
+  again once the edit has committed.
+- **The source is `YFinanceGateway.fx_daily_closes`**: daily closes of Yahoo's `<CCY>USD=X` pair,
+  under the download lock, with an 8-second timeout. It accepts a three-letter code only, because
+  the code becomes part of the symbol requested.
+- **Which close answers for a date is `analytics.fx.prior_close_rate`**: that day's close, or the
+  most recent one before it (a weekend or a holiday), reaching back at most 7 days. Never a later
+  close. A trade dated after today gets no rate.
+- **The remainder lot of a partial close keeps its parent's purchase rate.** It has the same
+  trade date, so no second lookup is made.
+- **A rate captured on the trade's own day is that moment's rate, not the day's close.** FX trades
+  around the clock and Yahoo's bar for today is still forming. The backfill would store the final
+  close for the same date, so the two can differ in the fourth decimal.
+- **A currency is a three-letter code here.** Lots store the code upper-cased, so a London stock
+  priced in pence (`GBp` at Yahoo) can't be told from one priced in pounds; enter its prices in
+  pounds with currency `GBP`.
+
+**`scripts/backfill_fx_rates.py`** fills the rates that are missing: rows written before V15, and
+trades recorded while Yahoo was unreachable. It is `PortfolioService.backfill_fx_rates` per owner,
+real books only. Dry run by default (`--apply` writes, `--owner` narrows, `--allow-prod` is
+needed for the production database). It fills only a rate that is NULL, so it never replaces one
+captured with the trade and is safe to run twice. A row it can't rate is reported, left NULL, and
+makes the run exit 1.
 
 ### Positions
 

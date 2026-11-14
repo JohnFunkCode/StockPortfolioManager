@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 is under way (2.1 and 2.2); the checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 has its three feature steps (2.1, 2.2 and 2.3), which closes #235; the 2.4 refactor is left. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -269,10 +269,11 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   adjustments" line. Registered as a Sidekick component in both registries, with vitest and
   parity cases. Updates the capabilities matrix row. What was built, and what was left for later
   steps, is in section 5.4.
-- [ ] **2.3 FX.**
+- [x] **2.3 FX.**
   Historical FX in `YFinanceGateway`; the prior-close rule in analytics;
   `lot_sales.fx_rate_at_sale`; rates captured when a lot is opened and closed; a backfill script
-  for existing non-USD rows; the "no FX rate" flag and count. Closes #235.
+  for existing non-USD rows; the "no FX rate" flag and count. Closes #235. What was built, and
+  what an operator still has to run, is in section 5.5.
 - [ ] **2.4 Complexity follow-up from the 2.1 review.**
   A refactor with no behaviour change, in its own PR, as 1.4 was. The #552 review measured six
   units that 2.1 did not change as over the cyclomatic goal of 10 (radon 6.0.1):
@@ -318,6 +319,24 @@ Left for later steps, on purpose:
 - **The source of a sale** (stop, manual, and so on) joins the expanded row in 4.3.
 - **The holdings totals row (`PortfolioSummary`) stays inside Holdings.** Until the cash ledger
   (3.1), the strip's book value is the same number as "Total Current Value" below it.
+
+#### 5.5 FX as built (2.3)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Sale-side rate column | `V15__lot_sales_fx_rate.sql`, `_SCHEMA`, the snapshot | `lot_sales.fx_rate_at_sale NUMERIC(18,8)`, nullable. Plain `ADD COLUMN`, so CI applies it. The table count stays 25 |
+| FX source | `YFinanceGateway.fx_daily_closes` | Daily closes of `<CCY>USD=X`, USD per unit, under the download lock, 8-second timeout, three-letter codes only |
+| Prior-close rule | `quantcore/analytics/fx.py` | The day's close or the most recent one before it, at most 7 days back, never a later one |
+| Capture on write | `PortfolioService._fx_rates` | Add Lot, CSV import, a lot edit that moves the date or currency, and close. One request per currency. Never raises |
+| Backfill | `PortfolioService.backfill_fx_rates`, `scripts/backfill_fx_rates.py` | Per owner, real books, dry run by default, fills only NULL rates |
+| The view | `RealizedPnl.tsx` | A converted sale shows its native figure and both rates under the dollar figure. The "no FX rate" chip and count were already there from 2.2 |
+
+The rules are in [`data.md`](../architecture/data.md#fx-rates).
+
+**Still to run, by an operator, after this reaches each environment:**
+`python scripts/backfill_fx_rates.py` (dry run), then `--apply`; for prod, through the proxy with
+`--allow-prod`. Until then every existing non-USD sale keeps its "no FX rate" flag. Prod's
+positions were empty when this was written, so the prod run may find nothing.
 
 ### Milestone 3: cash, orders and paper buys
 
@@ -514,6 +533,36 @@ Known before any code is written. Add to this list as the work finds more.
 - **The realized chart must not sort by size** (2.2). The allocation chart orders its bars
   largest first. Reused as it was, it would have reordered the realized rows away from decision
   14's "best first", and put its bars in a different order from the table beneath it.
+- **A `;` inside a `--` comment in `_SCHEMA` breaks every connection** (2.3). `init_schema()`
+  splits the DDL on semicolons, so the comment's second half became a statement and the first
+  half an empty query: 108 tests errored with "can't execute an empty query". Migration files are
+  not split this way, so the same comment is fine in `db/migrations/`.
+- **Adding a column to `SQL_INSERT_SALE` changes its fingerprint** (2.3). The owner and book
+  isolation scans key their reviewed exceptions by a hash of the SQL, so both `ALLOWED` entries
+  for that INSERT had to be re-keyed. The reason on each still holds: the lot is read owner- and
+  book-scoped on the same connection first.
+- **The backfill goes owner by owner on purpose** (2.3). One cross-owner UPDATE would have been
+  shorter, and would have needed four `ALLOWED` entries in the isolation scans. Looping
+  `list_owners()` keeps every statement bound to an owner and a book, with none.
+- **`list_owners()` skips an owner who holds only paper positions** (2.3), so the backfill does
+  too. Paper orders are USD-only for now (section 3), so there is nothing for it to fill there.
+  Revisit when a paper book can hold a non-USD lot.
+- **A same-day rate is not the day's close** (2.3). FX trades around the clock, so Yahoo's bar
+  for today is still forming when a trade is recorded today. The stored rate is that moment's;
+  a backfill of the same date later would store the final close. Accepted: both are within the
+  day's range, and the alternative (yesterday's close) is further from the trade.
+- **In tests a rate lookup is a soft miss, not an error** (2.3). `tests/__init__.py` blocks
+  Yahoo, `yf.download` swallows that and returns nothing, and the lot is written with no rate.
+  So every existing test that adds a non-USD lot kept passing unchanged; a test that wants a
+  rate stubs `fx_daily_closes`.
+- **Pence can't be told from pounds** (2.3, not fixed). A lot's currency is stored upper-cased,
+  so Yahoo's `GBp` becomes `GBP`, and a price typed in pence would convert at the pound rate:
+  100 times too high. Lots are entered by hand, so the prices are whatever the user types; the
+  docs say to enter pounds. A check against the exchange's quote currency would be a new issue.
+- **A lot's currency can be edited after it has sales** (2.3). The sale-date rates on those sales
+  were for the old currency, and the backfill only fills a NULL, so it would never have corrected
+  them. `update_lot` clears them in the same transaction as the edit, and the service looks them
+  up again afterwards. A trade-date edit needs none of this: it moves only the purchase rate.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -559,3 +608,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.4 Complexity follow-up | #551 | No behaviour change. Row builders extracted from both `create_portfolio_html` functions and the underwater-lot block from the notifier; all three are now at or under the goals (section 5.2). A direct test for each helper, and `html_summary.py` has tests for the first time. Milestone 1 is done |
 | 2026-11-14 | 2.1 Realized P/L backend | #552 | `portfolio_math.realized_pnl` and `market_time.rolling_window`; `PortfolioRepository.list_realized_sales` (owner, book and date window, all bound); `PortfolioService.realized_pnl`; `GET /api/portfolio/realized?period=&book_id=`. USD only: a non-USD sale is flagged and left out until 2.3. No UI and no schema change. Payload in section 5.3 |
 | 2026-11-14 | 2.2 Realized view | #554 | The Portfolio page is stacked sections: summary strip, Holdings, Realized. `RealizedPnl` (period pulldown, summary, chart, sortable table, expandable sales, "still held", the left-out count, the empty states, the fees line), `BookSummaryStrip`, `useRealized`, and the Sidekick `realized_pnl` card in both registries. No route or schema change. As built, and what was left: section 5.4 |
+| 2026-11-14 | 2.3 FX | #555 | V15: `lot_sales.fx_rate_at_sale`. `YFinanceGateway.fx_daily_closes`, `analytics/fx.py` (prior-close rule), rates captured on add, import, a date or currency edit and close, `scripts/backfill_fx_rates.py`, and the conversion line on a converted sale. A lookup that fails stores no rate and never fails the write. Closes #235. The backfill is still to be run on each environment (section 5.5) |
+| 2026-11-14 | 2.3 review | #555 | Three units this PR added or grew were in the complexity warning band (radon, goal 10): `close_lot` 12 → 8, `fx_daily_closes` 11 → 4, the backfill script's `main` 11 → 7. Extracted `_sale_fx_rates`, `_currency_code`, `_daily_closes`, `_backfill` and `_parse_args` (all 5 or under), each with a direct test. No behaviour change. They were fixed here, not left for 2.4, because 2.4 is for units a PR did not change |

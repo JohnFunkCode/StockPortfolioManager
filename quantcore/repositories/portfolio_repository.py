@@ -32,7 +32,7 @@ from quantcore.repositories.books_repository import resolve_book_id
 MUTABLE_LOT_COLUMNS = {
     "name", "purchase_price", "quantity", "purchase_date", "currency",
     "sale_price", "sale_date", "status", "parent_lot_id", "trade_date",
-    "fees", "acquisition_type", "account", "notes",
+    "fees", "acquisition_type", "account", "notes", "fx_rate_at_purchase",
 }
 
 SQL_INSERT_SYMBOL = """
@@ -127,12 +127,14 @@ INSERT INTO positions (
     owner, book_id, symbol_id, name,
     purchase_price, quantity, purchase_date, currency, sale_price, sale_date,
     opened_at, entry_price, shares, cost_basis_total,
-    status, parent_lot_id, trade_date, fees, acquisition_type, account, notes
+    status, parent_lot_id, trade_date, fees, acquisition_type, account, notes,
+    fx_rate_at_purchase
 ) VALUES (
     :owner, :book_id, :symbol_id, :name,
     :purchase_price, :quantity, :purchase_date, :currency, :sale_price, :sale_date,
     :opened_at, :entry_price, :shares, :cost_basis_total,
-    :status, :parent_lot_id, :trade_date, :fees, :acquisition_type, :account, :notes
+    :status, :parent_lot_id, :trade_date, :fees, :acquisition_type, :account, :notes,
+    :fx_rate_at_purchase
 )
 RETURNING position_id;
 """
@@ -155,7 +157,8 @@ SELECT
     p.acquisition_type AS acquisition_type,
     p.account        AS account,
     p.notes          AS notes,
-    p.book_id        AS book_id
+    p.book_id        AS book_id,
+    p.fx_rate_at_purchase AS fx_rate_at_purchase
 FROM positions p
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner
@@ -213,9 +216,11 @@ ORDER BY p.trade_date, p.position_id;
 
 SQL_INSERT_SALE = """
 INSERT INTO lot_sales (
-    lot_id, shares_sold, sale_price, sale_trade_date, fees, allocation_method, notes
+    lot_id, shares_sold, sale_price, sale_trade_date, fees, allocation_method, notes,
+    fx_rate_at_sale
 ) VALUES (
-    :lot_id, :shares_sold, :sale_price, :sale_trade_date, :fees, :allocation_method, :notes
+    :lot_id, :shares_sold, :sale_price, :sale_trade_date, :fees, :allocation_method, :notes,
+    :fx_rate_at_sale
 )
 RETURNING sale_id;
 """
@@ -266,7 +271,8 @@ SELECT
     p.trade_date          AS trade_date,
     p.currency            AS currency,
     p.account             AS account,
-    p.fx_rate_at_purchase AS fx_rate_at_purchase
+    p.fx_rate_at_purchase AS fx_rate_at_purchase,
+    ls.fx_rate_at_sale    AS fx_rate_at_sale
 FROM lot_sales ls
 JOIN positions p ON p.position_id = ls.lot_id
 JOIN symbols s ON s.symbol_id = p.symbol_id
@@ -285,6 +291,97 @@ ORDER BY ls.sale_trade_date, ls.sale_id;
 SQL_UPDATE_SALE_NOTES = """
 UPDATE lot_sales SET notes = :notes
 WHERE sale_id = :sale_id
+  AND lot_id IN (
+      SELECT position_id FROM positions
+      WHERE owner = :owner
+        AND book_id IN (
+            SELECT b.book_id FROM books b
+            WHERE b.owner = :owner
+              AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                       THEN b.kind = 'real'
+                       ELSE b.book_id = CAST(:book_id AS INTEGER) END));
+"""
+
+# FX backfill (#235 step 2.3): the non-USD rows that still have no rate, and
+# the writes that fill one in. A blank currency is USD, and `<>` is not true
+# of a NULL, so a lot with no currency is never listed. Each write is
+# restricted to rows whose rate is still NULL: a backfill fills a gap and
+# never replaces a rate captured when the trade was recorded.
+SQL_LIST_LOTS_MISSING_FX = """
+SELECT
+    p.position_id AS lot_id,
+    s.ticker      AS symbol,
+    p.currency    AS currency,
+    p.trade_date  AS trade_date
+FROM positions p
+JOIN symbols s ON s.symbol_id = p.symbol_id
+WHERE p.owner = :owner
+  AND p.fx_rate_at_purchase IS NULL
+  AND UPPER(TRIM(p.currency)) <> 'USD'
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+ORDER BY p.position_id;
+"""
+
+SQL_LIST_SALES_MISSING_FX = """
+SELECT
+    ls.sale_id         AS sale_id,
+    ls.lot_id          AS lot_id,
+    s.ticker           AS symbol,
+    p.currency         AS currency,
+    ls.sale_trade_date AS sale_trade_date
+FROM lot_sales ls
+JOIN positions p ON p.position_id = ls.lot_id
+JOIN symbols s ON s.symbol_id = p.symbol_id
+WHERE p.owner = :owner
+  AND ls.fx_rate_at_sale IS NULL
+  AND UPPER(TRIM(p.currency)) <> 'USD'
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+ORDER BY ls.sale_id;
+"""
+
+SQL_FILL_LOT_FX_RATE = """
+UPDATE positions SET fx_rate_at_purchase = :rate
+WHERE owner = :owner
+  AND position_id = :lot_id
+  AND fx_rate_at_purchase IS NULL
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
+"""
+
+SQL_FILL_SALE_FX_RATE = """
+UPDATE lot_sales SET fx_rate_at_sale = :rate
+WHERE sale_id = :sale_id
+  AND fx_rate_at_sale IS NULL
+  AND lot_id IN (
+      SELECT position_id FROM positions
+      WHERE owner = :owner
+        AND book_id IN (
+            SELECT b.book_id FROM books b
+            WHERE b.owner = :owner
+              AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                       THEN b.kind = 'real'
+                       ELSE b.book_id = CAST(:book_id AS INTEGER) END));
+"""
+
+# A lot whose currency was corrected: its sales' rates were for the old
+# currency, so they are cleared with the edit and looked up again.
+SQL_CLEAR_LOT_SALE_FX_RATES = """
+UPDATE lot_sales SET fx_rate_at_sale = NULL
+WHERE lot_id = :lot_id
   AND lot_id IN (
       SELECT position_id FROM positions
       WHERE owner = :owner
@@ -391,6 +488,7 @@ class PortfolioRepository:
             "acquisition_type": row.get("acquisition_type") or "BUY",
             "account": row.get("account"),
             "notes": row.get("notes"),
+            "fx_rate_at_purchase": row.get("fx_rate_at_purchase"),
             **legacy,
         })
         return int(cur.fetchone()["position_id"])
@@ -540,10 +638,19 @@ class PortfolioRepository:
 
         `fields` keys must be a subset of the mutable lot columns; unknown keys
         raise rather than being silently dropped.
+
+        A change of `currency` also clears the sale-date FX rate of every sale
+        of the lot, in the same transaction: those rates were for the old
+        currency (#235).
         """
         with closing(get_connection()) as conn:
             try:
                 updated = self._apply_lot_fields(conn, owner, lot_id, fields, book_id=book_id)
+                if updated and "currency" in fields:
+                    conn.execute(
+                        SQL_CLEAR_LOT_SALE_FX_RATES,
+                        {"owner": owner, "lot_id": lot_id, "book_id": book_id},
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -575,6 +682,7 @@ class PortfolioRepository:
         allocation_method: Optional[str] = None,
         notes: Optional[str] = None,
         *,
+        fx_rate_at_sale: Any = None,
         book_id: Optional[int] = None,
     ) -> int:
         """Record a partial or full sale against `lot_id`. Returns the new `sale_id`.
@@ -597,6 +705,7 @@ class PortfolioRepository:
                     "fees": fees,
                     "allocation_method": allocation_method,
                     "notes": notes,
+                    "fx_rate_at_sale": fx_rate_at_sale,
                 })
                 sale_id = int(cur.fetchone()["sale_id"])
                 conn.commit()
@@ -648,9 +757,9 @@ class PortfolioRepository:
         None leaves that side open. Only `lot_sales` rows count: the legacy
         `positions.sale_price` / `sale_date` columns are not a source.
 
-        `fx_rate_at_sale` is always None for now. `lot_sales` gets that column
-        in plan step 2.3; until then a non-USD sale has no rate, and the maths
-        flags it and leaves it out of the totals.
+        Both FX rates are whatever was recorded with the trade, None when
+        nothing was. The maths flags a non-USD sale that lacks either and
+        leaves it out of the totals.
         """
         with closing(get_connection()) as conn:
             rows = conn.execute(SQL_LIST_REALIZED_SALES, {
@@ -674,10 +783,80 @@ class PortfolioRepository:
                 "currency": (r["currency"] or "USD").strip().upper(),
                 "account": r["account"] or None,
                 "fx_rate_at_purchase": _dec(r["fx_rate_at_purchase"]),
-                "fx_rate_at_sale": None,
+                "fx_rate_at_sale": _dec(r["fx_rate_at_sale"]),
             }
             for r in rows
         ]
+
+    def list_lots_missing_fx(
+        self, owner: str, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """`owner`'s non-USD lots in one book, open or closed, that have no
+        purchase-date FX rate (#235)."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                SQL_LIST_LOTS_MISSING_FX, {"owner": owner, "book_id": book_id}
+            ).fetchall()
+        return [
+            {
+                "lot_id": int(r["lot_id"]),
+                "symbol": (r["symbol"] or "").strip().upper(),
+                "currency": (r["currency"] or "").strip().upper(),
+                "trade_date": str(r["trade_date"]) if r["trade_date"] else None,
+            }
+            for r in rows
+        ]
+
+    def list_sales_missing_fx(
+        self, owner: str, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """`owner`'s sales of non-USD lots in one book that have no sale-date
+        FX rate (#235)."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                SQL_LIST_SALES_MISSING_FX, {"owner": owner, "book_id": book_id}
+            ).fetchall()
+        return [
+            {
+                "sale_id": int(r["sale_id"]),
+                "lot_id": int(r["lot_id"]),
+                "symbol": (r["symbol"] or "").strip().upper(),
+                "currency": (r["currency"] or "").strip().upper(),
+                "sale_trade_date": str(r["sale_trade_date"]),
+            }
+            for r in rows
+        ]
+
+    def fill_lot_fx_rate(
+        self, owner: str, lot_id: int, rate: Any, *, book_id: Optional[int] = None
+    ) -> bool:
+        """Store a lot's purchase-date FX rate if it has none. Returns True if
+        a row was filled; a lot that already has a rate is left as it is."""
+        return self._fill_fx_rate(
+            SQL_FILL_LOT_FX_RATE,
+            {"owner": owner, "lot_id": lot_id, "rate": rate, "book_id": book_id},
+        )
+
+    def fill_sale_fx_rate(
+        self, owner: str, sale_id: int, rate: Any, *, book_id: Optional[int] = None
+    ) -> bool:
+        """Store a sale's sale-date FX rate if it has none. Owner- and
+        book-scoped through the sale's lot. Returns True if a row was filled."""
+        return self._fill_fx_rate(
+            SQL_FILL_SALE_FX_RATE,
+            {"owner": owner, "sale_id": sale_id, "rate": rate, "book_id": book_id},
+        )
+
+    @staticmethod
+    def _fill_fx_rate(sql: str, params: Dict[str, Any]) -> bool:
+        with closing(get_connection()) as conn:
+            try:
+                filled = conn.execute(sql, params).rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return filled > 0
 
     def update_sale_notes(
         self, owner: str, sale_id: int, notes: Optional[str], *, book_id: Optional[int] = None
@@ -711,6 +890,7 @@ class PortfolioRepository:
         notes: Optional[str] = None,
         lot_notes: Optional[Mapping[int, str]] = None,
         *,
+        fx_rates_at_sale: Optional[Mapping[str, Any]] = None,
         book_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Atomically record a sale that may span multiple lots (issue #126
@@ -729,6 +909,11 @@ class PortfolioRepository:
         `notes` is the default sale note written to every `lot_sales` row;
         `lot_notes` (`{lot_id: note}`) overrides it for individual lots
         (issue #266). The remainder lot of a split keeps the *purchase* note.
+
+        `fx_rates_at_sale` is `{currency: USD per unit on the sale date}`
+        (#235). Each `lot_sales` row stores the rate for its lot's currency,
+        or NULL when the mapping has none (always the case for a USD lot). The
+        remainder lot of a split keeps its parent's purchase-date rate.
         """
         results: List[Dict[str, Any]] = []
         with closing(get_connection()) as conn:
@@ -757,6 +942,7 @@ class PortfolioRepository:
                         "fees": fees,
                         "allocation_method": allocation_method,
                         "notes": sale_notes,
+                        "fx_rate_at_sale": (fx_rates_at_sale or {}).get(lot["currency"]),
                     })
                     sale_id = int(cur.fetchone()["sale_id"])
 
@@ -777,6 +963,7 @@ class PortfolioRepository:
                             "acquisition_type": lot["acquisition_type"],
                             "account": lot["account"],
                             "notes": lot["notes"],
+                            "fx_rate_at_purchase": row["fx_rate_at_purchase"],
                         }, book_id=int(row["book_id"]))
 
                     self._apply_lot_fields(conn, owner, lot_id, {

@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 from contextlib import closing
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -853,6 +853,333 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         self.assertTrue(self.service.update_lot(OWNER_A, lot_id, notes="   "))
 
         self.assertIsNone(self.service.list_positions(OWNER_A)[0]["notes"])
+
+
+class FakeFxGateway:
+    """Stand-in for YFinanceGateway.fx_daily_closes: a flat rate per currency
+    on every day asked for, no network. `closes` overrides a currency's
+    series; `raises` makes every lookup fail."""
+
+    def __init__(self, rates=None, closes=None, raises=None):
+        self.rates = rates or {}
+        self.closes = closes or {}
+        self.raises = raises
+        self.calls = []
+
+    def fx_daily_closes(self, currency, start, end):
+        self.calls.append((currency, start, end))
+        if self.raises is not None:
+            raise self.raises
+        if currency in self.closes:
+            return dict(self.closes[currency])
+        rate = self.rates.get(currency)
+        if rate is None:
+            return {}
+        days = (end - start).days + 1
+        return {start + timedelta(days=n): rate for n in range(days)}
+
+
+class PortfolioServiceFxRatesTest(unittest.TestCase):
+    """#235 step 2.3: the FX rate is captured when a non-USD lot is opened,
+    edited or closed, and a lookup that fails costs the rate, never the write."""
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+        self.fx = FakeFxGateway(rates={"EUR": 1.10, "GBP": 1.30})
+        self.service = self._service(self.fx)
+
+    def _service(self, fx_gateway):
+        return PortfolioService(
+            self.repo, prices=FakePrices(quotes={"ZZTEST": 15.0}), fx_gateway=fx_gateway
+        )
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute(
+                "DELETE FROM positions WHERE owner IN (%s, %s)", (OWNER_A, OWNER_B)
+            )
+            conn.commit()
+
+    def _add(self, service=None, **overrides):
+        fields = {
+            "name": "Test Lot", "symbol": "ZZTEST", "purchase_price": "10.00",
+            "quantity": "5", "trade_date": "2026-01-05", "currency": "EUR",
+        }
+        fields.update(overrides)
+        (service or self.service).add_position(OWNER_A, **fields)
+        return max(p["lot_id"] for p in self.repo.list_positions(OWNER_A))
+
+    def _purchase_rate(self, lot_id):
+        with closing(get_connection()) as conn:
+            row = conn.execute(
+                "SELECT fx_rate_at_purchase FROM positions WHERE position_id = %s AND owner = %s",
+                (lot_id, OWNER_A),
+            ).fetchone()
+        return row["fx_rate_at_purchase"]
+
+    def _sale(self):
+        (row,) = self.service.realized_pnl(OWNER_A, period="all")["symbols"]
+        (sale,) = row["sales"]
+        return row, sale
+
+    # ---- opening a lot -------------------------------------------------
+    def test_a_non_usd_lot_stores_the_rate_on_its_trade_date(self):
+        lot = self._add()
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.1"))
+        ((currency, start, end),) = self.fx.calls
+        self.assertEqual((currency, end), ("EUR", date(2026, 1, 5)))
+        self.assertEqual(start, date(2025, 12, 29))
+
+    def test_a_usd_lot_makes_no_lookup_and_stores_no_rate(self):
+        lot = self._add(currency="USD")
+        self.assertIsNone(self._purchase_rate(lot))
+        self.assertEqual(self.fx.calls, [])
+
+    def test_a_weekend_trade_date_takes_the_prior_close(self):
+        self.fx.closes["EUR"] = {date(2026, 1, 2): 1.08, date(2026, 1, 5): 1.12}
+        lot = self._add(trade_date="2026-01-04")          # a Sunday
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.08"))
+
+    def test_a_failed_lookup_still_records_the_lot_with_no_rate(self):
+        service = self._service(FakeFxGateway(raises=RuntimeError("secret-dsn-text")))
+        with self.assertLogs("quantcore.services.portfolio", level="WARNING") as logs:
+            lot = self._add(service)
+        self.assertIsNone(self._purchase_rate(lot))
+        # The log names the exception class and never its text.
+        self.assertIn("RuntimeError", logs.output[0])
+        self.assertNotIn("secret-dsn-text", "".join(logs.output))
+
+    def test_no_close_near_the_date_or_no_gateway_is_no_rate(self):
+        self.fx.closes["EUR"] = {date(2025, 12, 1): 1.08}
+        self.assertIsNone(self._purchase_rate(self._add()))
+        self.assertIsNone(self._purchase_rate(self._add(self._service(None))))
+        self.assertIsNone(self._purchase_rate(self._add(currency="CHF")))   # no series at all
+
+    def test_a_trade_dated_after_today_gets_no_rate(self):
+        with patch("quantcore.services.portfolio.market_date", return_value=date(2026, 1, 4)):
+            lot = self._add()
+        self.assertIsNone(self._purchase_rate(lot))
+        self.assertEqual(self.fx.calls, [])
+
+    # ---- editing a lot -------------------------------------------------
+    def test_moving_the_trade_date_replaces_the_rate(self):
+        lot = self._add()
+        self.fx.rates["EUR"] = 1.20
+        self.assertTrue(self.service.update_lot(OWNER_A, lot, trade_date="2026-02-02"))
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.2"))
+        self.assertEqual(self.fx.calls[-1][2], date(2026, 2, 2))
+
+    def test_changing_the_currency_replaces_or_clears_the_rate(self):
+        lot = self._add()
+        self.service.update_lot(OWNER_A, lot, currency="GBP")
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.3"))
+        self.service.update_lot(OWNER_A, lot, currency="USD")
+        self.assertIsNone(self._purchase_rate(lot))
+
+    def test_a_currency_edit_re_rates_the_lots_sales(self):
+        lot = self._add()
+        self.service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+        self.assertEqual(self._sale()[1]["fx_rate_at_sale"], Decimal("1.1"))
+
+        self.assertTrue(self.service.update_lot(OWNER_A, lot, currency="GBP"))
+        _, sale = self._sale()
+        self.assertEqual(
+            (sale["fx_rate_at_purchase"], sale["fx_rate_at_sale"]), (Decimal("1.3"), Decimal("1.3"))
+        )
+
+        # To USD: no rate is needed, and the old one is not left behind.
+        self.service.update_lot(OWNER_A, lot, currency="USD")
+        _, sale = self._sale()
+        self.assertEqual((sale["fx_rate_at_purchase"], sale["fx_rate_at_sale"]), (None, None))
+        self.assertEqual(sale["realized_pnl"], Decimal("10.00"))
+
+    def test_a_currency_edit_that_cannot_be_re_rated_flags_the_sale(self):
+        lot = self._add()
+        self.service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+        self.fx.raises = RuntimeError("down")
+
+        self.assertTrue(self.service.update_lot(OWNER_A, lot, currency="GBP"))
+        _, sale = self._sale()
+        self.assertEqual((sale["fx_rate_at_purchase"], sale["fx_rate_at_sale"]), (None, None))
+        self.assertTrue(sale["fx_missing"])
+
+    def test_a_refill_that_breaks_does_not_fail_the_committed_edit(self):
+        lot = self._add()
+        with patch.object(self.repo, "list_sales_missing_fx", side_effect=RuntimeError("secret")), \
+                self.assertLogs("quantcore.services.portfolio", level="WARNING") as logs:
+            self.assertTrue(self.service.update_lot(OWNER_A, lot, currency="GBP"))
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.3"))
+        self.assertNotIn("secret", "".join(logs.output))
+
+    def test_an_edit_whose_lookup_fails_clears_the_stale_rate(self):
+        lot = self._add()
+        self.fx.raises = RuntimeError("down")
+        self.service.update_lot(OWNER_A, lot, trade_date="2026-02-02")
+        self.assertIsNone(self._purchase_rate(lot))
+
+    def test_an_edit_that_moves_neither_leaves_the_rate_alone(self):
+        lot = self._add()
+        self.fx.calls.clear()
+        self.fx.rates["EUR"] = 9.0
+        self.service.update_lot(OWNER_A, lot, notes="x", quantity="4")
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.1"))
+        self.assertEqual(self.fx.calls, [])
+
+    def test_editing_a_lot_that_is_not_the_owners_changes_nothing(self):
+        lot = self._add()
+        self.fx.calls.clear()
+        self.assertFalse(self.service.update_lot(OWNER_B, lot, trade_date="2026-02-02"))
+        self.assertEqual(self._purchase_rate(lot), Decimal("1.1"))
+        self.assertEqual(self.fx.calls, [])
+
+    # ---- closing a lot -------------------------------------------------
+    def test_a_sale_stores_its_rate_and_realized_pnl_is_in_dollars(self):
+        lot = self._add()                                 # bought at 1.10
+        self.fx.rates["EUR"] = 1.00
+        self.service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+
+        row, sale = self._sale()
+        self.assertEqual(
+            (sale["fx_rate_at_purchase"], sale["fx_rate_at_sale"]), (Decimal("1.1"), Decimal("1"))
+        )
+        self.assertFalse(sale["fx_missing"])
+        # 5 x 10 x 1.10 = 55.00 basis; 5 x 12 x 1.00 = 60.00 proceeds.
+        self.assertEqual(
+            (sale["cost_basis"], sale["proceeds"], sale["realized_pnl"]),
+            (Decimal("55.00"), Decimal("60.00"), Decimal("5.00")),
+        )
+        self.assertEqual(sale["realized_pnl_native"], Decimal("10.00"))
+        self.assertEqual((row["fx_missing_count"], row["realized_pnl"]), (0, Decimal("5.00")))
+
+    def test_a_usd_sale_makes_no_lookup(self):
+        lot = self._add(currency="USD")
+        self.service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+        _, sale = self._sale()
+        self.assertEqual(self.fx.calls, [])
+        self.assertIsNone(sale["fx_rate_at_sale"])
+        self.assertEqual(sale["realized_pnl"], Decimal("10.00"))
+
+    def test_a_sale_whose_lookup_fails_is_recorded_and_flagged(self):
+        lot = self._add()
+        self.fx.raises = RuntimeError("down")
+        self.service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+
+        row, sale = self._sale()
+        self.assertTrue(sale["fx_missing"])
+        self.assertIsNone(sale["realized_pnl"])
+        self.assertEqual((row["fx_missing_count"], row["realized_pnl"]), (1, None))
+
+    def test_a_sale_across_lots_looks_each_currency_up_once(self):
+        first = self._add()
+        self._add(trade_date="2026-01-06")
+        self.fx.calls.clear()
+        self.service.close_lot(OWNER_A, first, "8", "12.00", "2026-03-02")
+
+        self.assertEqual([c[0] for c in self.fx.calls], ["EUR"])
+        sales = self.repo.list_realized_sales(OWNER_A)
+        self.assertEqual([s["fx_rate_at_sale"] for s in sales], [Decimal("1.1"), Decimal("1.1")])
+        # The 2-share remainder keeps the purchase-date rate of the lot it came from.
+        (remainder,) = self.repo.list_positions(OWNER_A)
+        self.assertEqual(self._purchase_rate(remainder["lot_id"]), Decimal("1.1"))
+
+    def test_sale_fx_rates_covers_only_the_lots_the_sale_touches(self):
+        lots = [
+            {"lot_id": 1, "currency": "EUR"},
+            {"lot_id": 2, "currency": "USD"},
+            {"lot_id": 3, "currency": "GBP"},     # open, but not in this sale
+            {"lot_id": 4, "currency": "CHF"},     # in the sale, no rate to be had
+        ]
+        allocation = [(1, Decimal("2")), (2, Decimal("1")), (4, Decimal("1"))]
+
+        rates = self.service._sale_fx_rates(lots, allocation, "2026-03-02")
+
+        self.assertEqual(rates, {"EUR": Decimal("1.1")})
+        self.assertEqual(sorted(c[0] for c in self.fx.calls), ["CHF", "EUR"])
+        self.assertEqual(self.service._sale_fx_rates(lots, [], "2026-03-02"), {})
+
+    # ---- CSV import ----------------------------------------------------
+    def test_import_makes_one_lookup_per_currency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "portfolio.csv"
+            with open(path, "w", newline="") as fh:
+                writer = csv.writer(fh)
+                writer.writerow(["name", "symbol", "purchase_price", "quantity", "trade_date", "currency"])
+                writer.writerow(["A", "ZZTEST", "10", "1", "2026-01-05", "EUR"])
+                writer.writerow(["B", "ZZTST2", "10", "1", "2026-02-10", "EUR"])
+                writer.writerow(["C", "ZZTST3", "10", "1", "2026-01-20", "GBP"])
+                writer.writerow(["D", "ZZTEST", "10", "1", "2026-01-21", "USD"])
+            self.assertEqual(self.service.import_csv(str(path), OWNER_A), 4)
+
+        self.assertEqual(sorted(self.fx.calls), [
+            ("EUR", date(2025, 12, 29), date(2026, 2, 10)),
+            ("GBP", date(2026, 1, 13), date(2026, 1, 20)),
+        ])
+        rates = {
+            (p["name"]): self._purchase_rate(p["lot_id"]) for p in self.repo.list_positions(OWNER_A)
+        }
+        self.assertEqual(rates, {
+            "A": Decimal("1.1"), "B": Decimal("1.1"), "C": Decimal("1.3"), "D": None,
+        })
+
+    # ---- backfill ------------------------------------------------------
+    def _unrated_sale(self):
+        """A EUR lot and its sale, both recorded with no rate."""
+        service = self._service(None)
+        lot = self._add(service)
+        service.close_lot(OWNER_A, lot, "5", "12.00", "2026-03-02")
+        (sale,) = self.repo.list_realized_sales(OWNER_A)
+        return lot, sale["sale_id"]
+
+    def test_backfill_dry_run_reports_and_writes_nothing(self):
+        lot, sale_id = self._unrated_sale()
+
+        result = self.service.backfill_fx_rates(OWNER_A)
+
+        self.assertEqual((result["owner"], result["applied"]), (OWNER_A, False))
+        self.assertEqual(
+            [(r["lot_id"], r["rate"], r["filled"]) for r in result["lots"]],
+            [(lot, Decimal("1.1"), False)],
+        )
+        self.assertEqual(
+            [(r["sale_id"], r["rate"], r["filled"]) for r in result["sales"]],
+            [(sale_id, Decimal("1.1"), False)],
+        )
+        self.assertTrue(self._sale()[1]["fx_missing"])
+        # One lookup covers the lot's date and the sale's.
+        self.assertEqual(self.fx.calls, [("EUR", date(2025, 12, 29), date(2026, 3, 2))])
+
+    def test_backfill_apply_fills_both_sides_and_is_safe_to_repeat(self):
+        self._unrated_sale()
+
+        result = self.service.backfill_fx_rates(OWNER_A, apply=True)
+        self.assertEqual([r["filled"] for r in result["lots"] + result["sales"]], [True, True])
+        row, sale = self._sale()
+        self.assertFalse(sale["fx_missing"])
+        self.assertEqual(row["realized_pnl"], Decimal("11.00"))     # (60 - 50) x 1.10
+
+        self.fx.rates["EUR"] = 9.0
+        again = self.service.backfill_fx_rates(OWNER_A, apply=True)
+        self.assertEqual((again["lots"], again["sales"]), ([], []))
+        self.assertEqual(self._sale()[0]["realized_pnl"], Decimal("11.00"))
+
+    def test_backfill_leaves_a_row_it_cannot_rate(self):
+        self._unrated_sale()
+        self.fx.rates.clear()
+
+        result = self.service.backfill_fx_rates(OWNER_A, apply=True)
+        self.assertEqual(
+            [(r["rate"], r["filled"]) for r in result["lots"] + result["sales"]],
+            [(None, False), (None, False)],
+        )
+        self.assertTrue(self._sale()[1]["fx_missing"])
+
+    def test_backfill_reads_and_writes_one_owner(self):
+        self._unrated_sale()
+        result = self.service.backfill_fx_rates(OWNER_B, apply=True)
+        self.assertEqual((result["lots"], result["sales"]), ([], []))
+        self.assertTrue(self._sale()[1]["fx_missing"])
 
 
 class AllSymbolsTest(unittest.TestCase):

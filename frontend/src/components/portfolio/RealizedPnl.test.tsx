@@ -173,6 +173,46 @@ describe('RealizedPnl', () => {
     await waitFor(() => expect(screen.queryByTestId('realized-sale-1')).not.toBeInTheDocument());
   });
 
+  it('shows a converted sale in dollars, with its own currency and both rates', async () => {
+    mount(
+      realizedResponse([
+        realizedSymbol({
+          symbol: 'SAP.DE',
+          cost_basis: 165,
+          proceeds: 200,
+          realized_pnl: 35,
+          sales: [
+            realizedSale({
+              sale_id: 7,
+              symbol: 'SAP.DE',
+              currency: 'EUR',
+              fx_rate_at_purchase: 1.1,
+              fx_rate_at_sale: 1.0,
+              cost_basis: 165,
+              proceeds: 200,
+              realized_pnl: 35,
+              realized_pnl_native: 50,
+            }),
+          ],
+        }),
+      ]),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Show SAP.DE sales' }));
+    const sale = await screen.findByTestId('realized-sale-7');
+    expect(within(sale).getByText('$35.00')).toBeInTheDocument();
+    expect(within(sale).queryByText('no FX rate')).not.toBeInTheDocument();
+    expect(screen.getByTestId('realized-sale-fx-7')).toHaveTextContent('€50.00 at 1.1000 → 1.0000');
+  });
+
+  it('shows no conversion line under a dollar sale', async () => {
+    mount(realizedResponse([realizedSymbol()]));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Show INTC sales' }));
+    await screen.findByTestId('realized-sale-1');
+    expect(screen.queryByTestId('realized-sale-fx-1')).not.toBeInTheDocument();
+  });
+
   it('flags a sale with no FX rate, shows its own currency, and counts it', async () => {
     mount(
       realizedResponse(

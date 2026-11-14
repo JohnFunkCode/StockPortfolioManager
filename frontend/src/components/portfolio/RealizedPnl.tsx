@@ -116,9 +116,40 @@ function SaleRealized({ sale }: { sale: RealizedSale }) {
     );
   }
   return (
-    <Box component="span" sx={{ color: gainColor(sale.realized_pnl) }}>
-      {formatCurrency(sale.realized_pnl)}
-    </Box>
+    <>
+      <Box component="span" sx={{ color: gainColor(sale.realized_pnl) }}>
+        {formatCurrency(sale.realized_pnl)}
+      </Box>
+      <Conversion sale={sale} />
+    </>
+  );
+}
+
+/** A rate as stored: dollars per one unit of the lot's currency. */
+function formatRate(rate: number): string {
+  return rate.toFixed(4);
+}
+
+/** Under a converted sale's dollar figure: the figure in the lot's own
+ * currency and the two rates that turned it into dollars, so the conversion
+ * can be seen. Nothing for a sale that has no recorded rates (a USD sale). */
+function Conversion({ sale }: { sale: RealizedSale }) {
+  if (sale.fx_rate_at_purchase == null || sale.fx_rate_at_sale == null) return null;
+  const bought = formatRate(sale.fx_rate_at_purchase);
+  const sold = formatRate(sale.fx_rate_at_sale);
+  return (
+    <Tooltip
+      title={`Realized in ${sale.currency}. Converted at ${bought} dollars per ${sale.currency} on the purchase date and ${sold} on the sale date.`}
+    >
+      <Typography
+        variant="caption"
+        color="text.secondary"
+        sx={{ display: 'block' }}
+        data-testid={`realized-sale-fx-${sale.sale_id}`}
+      >
+        {formatCurrency(sale.realized_pnl_native, sale.currency)} at {bought} → {sold}
+      </Typography>
+    </Tooltip>
   );
 }
 

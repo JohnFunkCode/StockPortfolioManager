@@ -578,7 +578,7 @@ PR 4 close-out ────────────────────┘
     symbol(s), budget 300s` and `Close-out: 1 fetched, 2 empty, 0 failed, 0 not attempted, 0s`.
   - The other bars were already `CLOSED` when it started: Nov 13's 251 bars were all re-fetched
     between 22:48 and 22:54 UTC, by an earlier step of the same job (the options capture was
-    logging through those minutes). Which step's read does it was not traced.
+    logging through those minutes). Traced in the next entry.
   - So the "full-universe close-out cost" this log kept asking for does not occur while the
     earlier steps run: the close-out only sees what they miss. `OHLCV_CLOSEOUT_CHUNK_SIZE` and
     `_PAUSE_SECONDS` stay unchanged. It would meet the whole universe only on a night those
@@ -587,4 +587,19 @@ PR 4 close-out ────────────────────┘
   - AIXXF's `OPEN` bar dated Nov 12 is `CLOSED` (36.846), and its Nov 13 bar is too. That closes
     the open point in the "live bar can be dated yesterday" finding above.
   - After the run there are no `OPEN` `1d` rows: 258 `CLOSED` for Nov 12 and 251 for Nov 13.
-    Which three symbols the close-out handled was not read from the log.
+    The three symbols the close-out handled are named in the next entry.
+- 2026-11-13: the two points the entry above left untraced (#538 review), both from the code
+  and the bars' `ingested_at`; the job's log names neither.
+  - **The options capture closes the day's bars.** `capture_options_chains` calls
+    `OptionsService.get_full_options_chain` per symbol, which reads
+    `get_history(symbol, "1d", 90)` for its Bollinger context. By 17:45 ET the page loads have
+    stopped, so each forming bar is older than `OPEN_BAR_MAX_AGE_SECONDS` (300 s) and the read
+    re-fetches it; the session is over, so the bar is stored `CLOSED`. That is the 22:48 to
+    22:54 UTC burst. A symbol the capture does not reach (its budget runs out, or it fails
+    before the read) keeps its `OPEN` bar for the close-out.
+  - **The three symbols were HSYDF, DOMO and KVUE**, and none had an `OPEN` bar.
+    `closeout_plan` also takes each listed symbol whose newest `CLOSED` bar is dated before
+    today. HSYDF did not trade on Nov 13, so its newest bar was Nov 12: it is the `1 fetched`
+    (its bars carry the close-out's 23:07:07 UTC `ingested_at`). DOMO and KVUE are the
+    `2 empty`: Yahoo sends them nothing, and their newest bars are from October. Those two will
+    be re-tried and come back empty every night while they stay on the watchlist.

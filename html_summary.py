@@ -80,6 +80,45 @@ def fig_to_base64(fig):
     img_str = base64.b64encode(buf.read()).decode('utf-8')
     return img_str
 
+def _stock_row(stock):
+    """One stock's figures for the details table."""
+    gain_loss = stock.calculate_gain_loss()
+    gain_loss_pct = stock.calculate_gain_loss_percentage()
+    return {
+        'name': stock.name,
+        'symbol': stock.symbol,
+        'purchase_price': float(stock.purchase_price.amount),
+        'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
+        'quantity': format_quantity(stock.quantity),
+        'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
+        'gain_loss_pct': f"{gain_loss_pct:.2f}%" if gain_loss_pct is not None else "N/A"
+    }
+
+
+def _stock_row_html(stock):
+    """The <tr> for one _stock_row() dict.
+
+    A stock with no current price still raises here (its "N/A" can't take the
+    .2f format). That predates this function and is left alone: the script
+    updates every price before it renders.
+    """
+    gain_loss_class = ""
+    if stock['gain_loss'] != "N/A":
+        gain_loss_class = "gain" if stock['gain_loss'] >= 0 else "loss"
+
+    return f"""
+                <tr>
+                    <td>{stock['name']}</td>
+                    <td>{stock['symbol']}</td>
+                    <td>${stock['purchase_price']:.2f}</td>
+                    <td>${stock['current_price']:.2f}</td>
+                    <td>{stock['quantity']}</td>
+                    <td class="{gain_loss_class}">${stock['gain_loss']:.2f}</td>
+                    <td class="{gain_loss_class}">{stock['gain_loss_pct']}</td>
+                </tr>
+        """
+
+
 def create_portfolio_html(portfolio):
     """Create HTML content for the portfolio"""
     # Get current date and time
@@ -104,18 +143,7 @@ def create_portfolio_html(portfolio):
         current_value = stock.get_current_value()
         current_values.append(float(current_value.amount) if current_value else 0)
 
-        gain_loss = stock.calculate_gain_loss()
-        gain_loss_pct = stock.calculate_gain_loss_percentage()
-
-        stock_details.append({
-            'name': stock.name,
-            'symbol': stock.symbol,
-            'purchase_price': float(stock.purchase_price.amount),
-            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'quantity': format_quantity(stock.quantity),
-            'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
-            'gain_loss_pct': f"{gain_loss_pct:.2f}%" if gain_loss_pct is not None else "N/A"
-        })
+        stock_details.append(_stock_row(stock))
 
     # Create charts
     # Pie chart data
@@ -226,21 +254,7 @@ def create_portfolio_html(portfolio):
 
     # Add rows for each stock
     for stock in stock_details:
-        gain_loss_class = ""
-        if stock['gain_loss'] != "N/A":
-            gain_loss_class = "gain" if stock['gain_loss'] >= 0 else "loss"
-
-        html_content += f"""
-                <tr>
-                    <td>{stock['name']}</td>
-                    <td>{stock['symbol']}</td>
-                    <td>${stock['purchase_price']:.2f}</td>
-                    <td>${stock['current_price']:.2f}</td>
-                    <td>{stock['quantity']}</td>
-                    <td class="{gain_loss_class}">${stock['gain_loss']:.2f}</td>
-                    <td class="{gain_loss_class}">{stock['gain_loss_pct']}</td>
-                </tr>
-        """
+        html_content += _stock_row_html(stock)
 
     html_content += """
             </tbody>

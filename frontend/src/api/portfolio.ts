@@ -16,13 +16,23 @@ import type {
   UpdateSaleResponse,
 } from './portfolioTypes';
 
-export const portfolioApi = {
-  getLots: (force = false) =>
-    apiRequest<{ lots: Lot[] }>(`/api/portfolio/lots${force ? '?force=true' : ''}`),
+/** The query string for a portfolio read. No `bookId` means the real book
+ * (#431): the parameter is left off, never sent as the real book's id. */
+function readQuery(params: { force?: boolean; symbol?: string; bookId?: number | null }): string {
+  const parts: string[] = [];
+  if (params.force) parts.push('force=true');
+  if (params.symbol) parts.push(`symbol=${encodeURIComponent(params.symbol)}`);
+  if (params.bookId != null) parts.push(`book_id=${params.bookId}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
 
-  getSymbolRows: (force = false) =>
+export const portfolioApi = {
+  getLots: (force = false, bookId?: number | null) =>
+    apiRequest<{ lots: Lot[] }>(`/api/portfolio/lots${readQuery({ force, bookId })}`),
+
+  getSymbolRows: (force = false, bookId?: number | null) =>
     apiRequest<{ symbols: SymbolRow[]; totals: PortfolioTotals }>(
-      `/api/portfolio/symbols${force ? '?force=true' : ''}`
+      `/api/portfolio/symbols${readQuery({ force, bookId })}`
     ),
 
   createLot: (data: CreateLotPayload) =>
@@ -55,10 +65,8 @@ export const portfolioApi = {
       body: JSON.stringify({ shares }),
     }),
 
-  getSales: (symbol?: string) =>
-    apiRequest<{ sales: Sale[] }>(
-      `/api/portfolio/sales${symbol ? `?symbol=${encodeURIComponent(symbol)}` : ''}`
-    ),
+  getSales: (symbol?: string, bookId?: number | null) =>
+    apiRequest<{ sales: Sale[] }>(`/api/portfolio/sales${readQuery({ symbol, bookId })}`),
 
   updateSale: (saleId: number, data: UpdateSalePayload) =>
     apiRequest<UpdateSaleResponse>(`/api/portfolio/sales/${saleId}`, {

@@ -32,6 +32,26 @@ describe('portfolioApi GET endpoints', () => {
     expect(api.calls[0][0]).not.toContain('force');
   });
 
+  it('names a book with book_id and leaves it off for the real book (#431)', async () => {
+    const api = mockApi([[/\/api\/portfolio\//, { symbols: [], lots: [], sales: [] }]]);
+    await portfolioApi.getSymbolRows(false, 7);
+    await portfolioApi.getSymbolRows(true, 7);
+    await portfolioApi.getLots(false, 7);
+    await portfolioApi.getSales('intc', 7);
+    await portfolioApi.getSales(undefined, 7);
+    await portfolioApi.getSymbolRows(false, null);
+    await portfolioApi.getSales('intc');
+    expect(api.calls.map(([url]) => url)).toEqual([
+      '/api/portfolio/symbols?book_id=7',
+      '/api/portfolio/symbols?force=true&book_id=7',
+      '/api/portfolio/lots?book_id=7',
+      '/api/portfolio/sales?symbol=intc&book_id=7',
+      '/api/portfolio/sales?book_id=7',
+      '/api/portfolio/symbols',
+      '/api/portfolio/sales?symbol=intc',
+    ]);
+  });
+
   it('getSymbolRows appends force=true when requested', async () => {
     const api = mockApi([[/\/api\/portfolio\/symbols/, { symbols: [] }]]);
     await portfolioApi.getSymbolRows(true);

@@ -224,7 +224,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 111 routes, so the table below only groups them.
+authoritative endpoint list.** There are 115 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|
@@ -238,6 +238,7 @@ authoritative endpoint list.** There are 111 routes, so the table below only gro
 | `recommendations.py` | `/api/securities/{ticker}/…` | trade recommendation, stop-loss analysis (opt-in `confluence=stop\|full` stop, `position=mine` from your own lots), relative strength, support confluence |
 | `arbitrage.py` | `/api/arbitrage/…` | universe, pair analysis, scan, discovery, spread history |
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
+| `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |
 

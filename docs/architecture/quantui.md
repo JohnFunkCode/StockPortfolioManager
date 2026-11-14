@@ -57,6 +57,14 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
 - **Stale rows sort last on 1d in both directions**, then rows with no figure (`compareOneDay`). A
   stale figure is an earlier day's move and must not top a "biggest movers" sort.
 - **The Portfolio** gets every column from its one `GET /api/portfolio/symbols` request.
+- **The Portfolio shows one book at a time** (#431). `BookSelector` draws a chip per book, the real
+  book first, and puts the books past five under "More". The selected paper book is in the URL
+  (`?book=<id>`); no parameter means the real book, and the page then sends no `book_id`. The Real
+  chip is always drawn, and the selector and banner sit outside the table's loading and error
+  states, so a failed book list or a book that won't load never blocks the page. A paper book
+  gets `PaperBookBanner` ("Simulated positions. Nothing here is a real holding."), no Add Lot, no
+  Plan column and no lot actions: the system sets every paper fill. A lot's brokerage account is
+  the Account column of the lot table, in every book; it is never a second kind of book.
 - **The Watchlist** makes a second request, `GET /api/watchlist/quotes` (`useWatchlistQuotes`), and
   merges it onto the `/watchlist/mine` rows by symbol. The table doesn't wait for it and doesn't
   fail with it: until it answers, or for a symbol it leaves out, the 1d cell shows the cached

@@ -8,6 +8,7 @@ GET    /api/arbitrage/pairs/{security}/premium-history  ->  premium_history_api_
 GET    /api/arbitrage/pairs/{security}/spread-history  ->  spread_history_api_arbitrage_pairs__security__spread_history_get
 GET    /api/arbitrage/scan  ->  scan_api_arbitrage_scan_get
 GET    /api/arbitrage/universe  ->  get_universe_api_arbitrage_universe_get
+GET    /api/books  ->  list_books_api_books_get
 GET    /api/dashboard/stats  ->  dashboard_stats_api_dashboard_stats_get
 GET    /api/health  ->  health_api_health_get
 GET    /api/keyproxy/publickey  ->  publickey_api_keyproxy_publickey_get
@@ -93,6 +94,8 @@ PATCH  /api/plans/{instance_id}  ->  update_plan_api_plans__instance_id__patch
 PATCH  /api/portfolio/lots/{lot_id}  ->  update_lot_api_portfolio_lots__lot_id__patch
 PATCH  /api/portfolio/sales/{sale_id}  ->  update_sale_api_portfolio_sales__sale_id__patch
 PATCH  /api/watchlist/{ticker}  ->  update_watchlist_tags_api_watchlist__ticker__patch
+POST   /api/books  ->  create_book_api_books_post
+POST   /api/books/{book_id}/archive  ->  archive_book_api_books__book_id__archive_post
 POST   /api/chat  ->  chat_api_chat_post
 POST   /api/keyproxy/validate  ->  validate_api_keyproxy_validate_post
 POST   /api/plans  ->  create_plan_api_plans_post

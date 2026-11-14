@@ -31,6 +31,11 @@ REAL = "real"
 PAPER = "paper"
 REAL_BOOK_NAME = "Real"
 
+
+class BookNotFoundError(ValueError):
+    """A book id that isn't this owner's. A `ValueError`, so a caller that
+    treats bad input alike still does; a route answers 404 for it."""
+
 SQL_INSERT_REAL_BOOK = """
 INSERT INTO books (owner, name, kind)
 VALUES (:owner, 'Real', 'real')
@@ -97,14 +102,14 @@ def resolve_book_id(conn, *, owner: str, book_id: Optional[int]) -> int:
     """The book a write goes to: `owner`'s real book when `book_id` is None
     (created if missing), otherwise `book_id` — which must be `owner`'s.
 
-    Raises `ValueError` for a book that isn't this owner's; it never says
+    Raises `BookNotFoundError` for a book that isn't this owner's; it never says
     whether the id exists for someone else.
     """
     if book_id is None:
         return ensure_real_book(conn, owner=owner)
     row = conn.execute(SQL_GET_BOOK, {"owner": owner, "book_id": book_id}).fetchone()
     if row is None:
-        raise ValueError(f"book {book_id} not found for owner {owner!r}")
+        raise BookNotFoundError(f"book {book_id} not found for owner {owner!r}")
     return int(row["book_id"])
 
 

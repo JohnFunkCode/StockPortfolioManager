@@ -138,13 +138,20 @@ class BooksRepository:
 
         The owner's real book is created first if it is missing, so an owner
         with a paper book always has a real one for default reads to land on.
-        Raises `ValueError` for an empty name, a negative starting cash, or a
-        name this owner already uses.
+        Raises `ValueError` for an empty name, a starting cash that is negative
+        or not a finite number, or a name this owner already uses.
         """
         name = (name or "").strip()
         if not name:
             raise ValueError("a book needs a name")
-        cash = Decimal(str(starting_cash))
+        try:
+            cash = Decimal(str(starting_cash))
+        except ArithmeticError:
+            raise ValueError("starting cash must be a number") from None
+        # NaN and Infinity pass `< 0`, and Postgres NUMERIC stores NaN above
+        # every number, so the column's CHECK would let it through too.
+        if not cash.is_finite():
+            raise ValueError("starting cash must be a finite number")
         if cash < 0:
             raise ValueError("starting cash cannot be negative")
         with closing(get_connection()) as conn:

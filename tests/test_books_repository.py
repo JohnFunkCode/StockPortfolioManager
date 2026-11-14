@@ -65,6 +65,10 @@ class BooksRepositoryTest(unittest.TestCase):
             {"name": "Real"},                # the real book's name
             {"name": "   "},
             {"name": "Short", "starting_cash": -1},
+            # NaN and Infinity pass a `< 0` check, and Postgres would store NaN.
+            {"name": "NotANumber", "starting_cash": float("nan")},
+            {"name": "Endless", "starting_cash": float("inf")},
+            {"name": "Words", "starting_cash": "lots"},
         ):
             with self.subTest(**kwargs), self.assertRaises(ValueError):
                 self.repo.create_paper_book(owner=OWNER, **kwargs)

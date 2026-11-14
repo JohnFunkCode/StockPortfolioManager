@@ -41,6 +41,7 @@ under test.
 import ast
 import re
 import unittest
+from typing import Optional
 
 from tests.test_owner_isolation_coverage import (
     HOLE,
@@ -231,20 +232,36 @@ def _check_level(scope, scoped: dict) -> list:
     insert = re.match(r"^\s*insert into (\w+)\s*\(([^)]*)\)", scope.text)
     for table in sorted(named):
         if insert and insert.group(1) == table:
-            if scoped[table]:
-                problems.append(f"INSERT into child table {table}: its book can't be bound here")
-            elif "book_id" not in [c.strip() for c in insert.group(2).split(",")]:
-                problems.append(f"INSERT into {table} without a book_id column")
-            continue
-        if not scoped[table]:
-            if set(_names(scope, table)) - _restricted_names(scope, own):
-                problems.append(f"{table} is not restricted to a book")
-        elif not all(_child_ok(n, scoped[table], scope, own) for n in _names(scope, table)):
-            problems.append(
-                f"child table {table} not tied to a book restriction on "
-                f"{', '.join(sorted(scoped[table]))}"
-            )
+            problem = _insert_problem(table, insert.group(2), scoped)
+        else:
+            problem = _read_problem(table, scope, scoped, own)
+        if problem:
+            problems.append(problem)
     return problems
+
+
+def _insert_problem(table: str, columns: str, scoped: dict) -> Optional[str]:
+    """What is wrong with an INSERT into `table`, or None."""
+    if scoped[table]:
+        return f"INSERT into child table {table}: its book can't be bound here"
+    if "book_id" not in [c.strip() for c in columns.split(",")]:
+        return f"INSERT into {table} without a book_id column"
+    return None
+
+
+def _read_problem(table: str, scope, scoped: dict, own: set) -> Optional[str]:
+    """What is wrong with a statement that reads or changes `table`, or None."""
+    names = _names(scope, table)
+    if not scoped[table]:
+        if set(names) - _restricted_names(scope, own):
+            return f"{table} is not restricted to a book"
+        return None
+    if all(_child_ok(n, scoped[table], scope, own) for n in names):
+        return None
+    return (
+        f"child table {table} not tied to a book restriction on "
+        f"{', '.join(sorted(scoped[table]))}"
+    )
 
 
 def check_statement(sql: str, scoped: dict) -> list:

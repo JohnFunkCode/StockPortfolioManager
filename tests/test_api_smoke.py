@@ -10,6 +10,7 @@ set* as the underlying service dict — proving the response_model documentation
 does not strip keys (handlers return QuantCoreJSONResponse verbatim).
 """
 
+import datetime
 import os
 import unittest
 from contextlib import closing
@@ -1008,6 +1009,115 @@ class LotRoutesTest(unittest.TestCase):
             f"/api/portfolio/lots/{lot['lot_id']}/close/preview", json={"shares": "1"}
         )
         self.assertEqual(resp.status_code, 404)
+
+    # ---- realized P/L (issue #235) ------------------------------------
+    def _realized(self, **params):
+        """This symbol's row from GET /api/portfolio/realized, or None. The
+        local principal's owner may hold other sales, so tests read one row."""
+        resp = self.client.get("/api/portfolio/realized", params=params)
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        rows = [r for r in body["symbols"] if r["symbol"] == self.SYMBOL]
+        return body, (rows[0] if rows else None)
+
+    def _sell(self, lot, shares, price, days_ago):
+        from quantcore.analytics.market_time import market_date
+        day = market_date() - datetime.timedelta(days=days_ago)
+        resp = self.client.post(self._close_url(lot), json={
+            "shares": shares, "sale_price": price, "sale_trade_date": day.isoformat(),
+        })
+        self.assertEqual(resp.status_code, 200, resp.text)
+        return day.isoformat()
+
+    def test_realized_reports_a_partial_close(self):
+        lot = self._create_lot()                      # 5 shares at 10.00
+        sold_on = self._sell(lot, "2", "12.50", days_ago=3)
+
+        body, row = self._realized()
+        self.assertEqual(body["period"], "year")
+        self.assertEqual(row["shares_closed"], 2.0)
+        self.assertEqual(row["cost_basis"], 20.0)
+        self.assertEqual(row["proceeds"], 25.0)
+        self.assertEqual(row["realized_pnl"], 5.0)
+        self.assertEqual(row["realized_pnl_pct"], 25.0)
+        self.assertEqual((row["bar_base"], row["bar_gain"], row["bar_loss"]), (20.0, 5.0, 0.0))
+        self.assertTrue(row["still_held"], "three shares are still open")
+        (sale,) = row["sales"]
+        self.assertEqual(sale["lot_id"], lot["lot_id"])
+        self.assertEqual(sale["sale_trade_date"], sold_on)
+        self.assertEqual(sale["trade_date"], "2026-06-01")
+        self.assertEqual((sale["purchase_price"], sale["sale_price"]), (10.0, 12.5))
+        self.assertEqual(sale["realized_pnl"], 5.0)
+        self.assertFalse(sale["fx_missing"])
+
+    def test_realized_period_filters_by_sale_date_and_defaults_to_year(self):
+        from quantcore.analytics.market_time import market_date
+        today = market_date()
+        for days_ago, price in ((10, "11.00"), (60, "12.00"), (200, "13.00"), (400, "14.00")):
+            self._sell(self._create_lot(), "5", price, days_ago)
+
+        def sale_prices(**params):
+            _, row = self._realized(**params)
+            return sorted(s["sale_price"] for s in row["sales"]) if row else []
+
+        self.assertEqual(sale_prices(period="month"), [11.0])
+        self.assertEqual(sale_prices(period="quarter"), [11.0, 12.0])
+        self.assertEqual(sale_prices(period="year"), [11.0, 12.0, 13.0])
+        self.assertEqual(sale_prices(), [11.0, 12.0, 13.0])
+        self.assertEqual(sale_prices(period="all"), [11.0, 12.0, 13.0, 14.0])
+
+        body, row = self._realized(period="month")
+        self.assertEqual(body["end_date"], today.isoformat())
+        self.assertEqual(body["start_date"], (today - datetime.timedelta(days=30)).isoformat())
+        # The row's totals cover only the sales in the window.
+        self.assertEqual(row["realized_pnl"], 5.0)        # 5 x (11 - 10)
+        self.assertFalse(row["still_held"])
+        body, _ = self._realized(period="all")
+        self.assertIsNone(body["start_date"])
+        self.assertIsNone(body["end_date"])
+
+    def test_realized_window_includes_its_first_day(self):
+        self._sell(self._create_lot(), "5", "11.00", days_ago=30)
+        self._sell(self._create_lot(), "5", "12.00", days_ago=31)
+        _, row = self._realized(period="month")
+        self.assertEqual([s["sale_price"] for s in row["sales"]], [11.0])
+
+    def test_realized_flags_a_non_usd_sale_and_leaves_it_out(self):
+        lot = self._create_lot(currency="EUR")
+        self._sell(lot, "5", "12.00", days_ago=1)
+
+        _, row = self._realized()
+        self.assertEqual(row["fx_missing_count"], 1)
+        self.assertIsNone(row["realized_pnl"])
+        self.assertIsNone(row["bar_base"])
+        (sale,) = row["sales"]
+        self.assertTrue(sale["fx_missing"])
+        self.assertEqual(sale["currency"], "EUR")
+        self.assertEqual(sale["realized_pnl_native"], 10.0)
+        self.assertIsNone(sale["realized_pnl"])
+
+    def test_realized_rejects_an_unknown_period(self):
+        for bad in ("ytd", "YEAR", "30"):
+            with self.subTest(period=bad):
+                resp = self.client.get("/api/portfolio/realized", params={"period": bad})
+                self.assertEqual(resp.status_code, 422)
+
+    def test_realized_is_owner_scoped(self):
+        self._sell(self._create_lot(), "5", "12.00", days_ago=1)
+        self.assertIsNotNone(self._realized()[1])
+
+        self._override_principal(TEST_IDENTITY)
+        body, row = self._realized(period="all")
+        self.assertIsNone(row)
+        self.assertEqual(body["symbols"], [])
+        self.assertEqual(body["totals"]["sale_count"], 0)
+        self.assertIsNone(body["totals"]["realized_pnl"])
+
+    def test_realized_is_declared_before_any_portfolio_path_parameter(self):
+        from api.routers import portfolio
+        paths = [r.path for r in portfolio.router.routes if r.path.startswith("/api/portfolio")]
+        first_param = next(i for i, path in enumerate(paths) if "{" in path)
+        self.assertLess(paths.index("/api/portfolio/realized"), first_param)
 
     def test_close_missing_lot_returns_404(self):
         resp = self.client.post(

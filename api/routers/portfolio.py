@@ -14,6 +14,7 @@ Ports the Flask handlers (api/app.py) for:
   POST      /api/portfolio/lots/{lot_id}/close/preview   (issue #266)
   GET       /api/portfolio/sales                          (issue #266)
   PATCH     /api/portfolio/sales/{sale_id}                (issue #266)
+  GET       /api/portfolio/realized                       (issue #235)
 
 The owner is resolved from the authenticated principal via ``require_owner``
 (issue #126 decision #1) — there is no ``?owner=`` query param; there is no
@@ -33,7 +34,7 @@ from __future__ import annotations
 import logging
 import tempfile
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, Request, UploadFile
 
@@ -60,6 +61,7 @@ from ..schemas.portfolio import (
     DeleteLotResponse,
     ImportResult,
     LotsResponse,
+    RealizedResponse,
     RemovePositionResponse,
     RemoveWatchlistResponse,
     SalesResponse,
@@ -89,6 +91,27 @@ router = APIRouter(prefix="/api", tags=["securities"])
 @router.get("/portfolio", response_model=SecuritiesResponse)
 def get_portfolio(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
     return QuantCoreJSONResponse({"securities": load_portfolio(owner)})
+
+
+# Declared before every `/portfolio/{...}` route on purpose: FastAPI matches in
+# declaration order, so a later `GET /portfolio/{ticker}` must not be able to
+# take this path (the hazard `/watchlist/fundamentals` already carries).
+@router.get("/portfolio/realized", response_model=RealizedResponse)
+def get_realized(
+    period: Literal["month", "quarter", "year", "all"] = "year",
+    book_id: Optional[int] = None,
+    owner: str = Depends(require_owner),
+) -> QuantCoreJSONResponse:
+    """Realized P/L on the owner's recorded sales, by symbol (issue #235).
+
+    `period` is a rolling window ending today: the last 30, 90 or 365 days, or
+    everything. `book_id` names one of the owner's books; without it, the real
+    book. USD, gross of fees, with no basis or wash-sale adjustment."""
+    try:
+        result = services().portfolio.realized_pnl(owner, period, book_id=book_id)
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
+    return QuantCoreJSONResponse(result)
 
 
 @router.post("/portfolio", response_model=AddSecurityResponse, status_code=201)

@@ -77,6 +77,7 @@ BOOK_SCOPED = {
     ],
     "lot_sales": [
         (_REPO_TESTS, "test_sales_follow_their_lots_book"),
+        (_REPO_TESTS, "test_realized_sales_follow_their_lots_book"),
         (_REPO_TESTS, "test_default_mutations_leave_a_paper_book_alone"),
     ],
 }

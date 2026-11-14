@@ -387,6 +387,78 @@ class SalesResponse(BaseModel):
     sales: List[SaleResponse]
 
 
+class RealizedSale(BaseModel):
+    """One sale with its realized P/L (#235). `cost_basis`, `proceeds` and
+    `realized_pnl` are USD and gross of fees; the `*_native` figures are in
+    the lot's `currency`. A sale flagged `fx_missing` or `basis_missing` has
+    no USD figures and is in no total."""
+
+    sale_id: int
+    lot_id: int
+    symbol: str
+    currency: str
+    account: Optional[str] = None
+    trade_date: Optional[str] = None
+    sale_trade_date: str
+    shares_sold: Decimal
+    purchase_price: Optional[Decimal] = None
+    sale_price: Decimal
+    fx_rate_at_purchase: Optional[Decimal] = None
+    fx_rate_at_sale: Optional[Decimal] = None
+    cost_basis_native: Optional[Decimal] = None
+    proceeds_native: Optional[Decimal] = None
+    realized_pnl_native: Optional[Decimal] = None
+    cost_basis: Optional[Decimal] = None
+    proceeds: Optional[Decimal] = None
+    realized_pnl: Optional[Decimal] = None
+    realized_pnl_pct: Optional[Decimal] = None
+    fx_missing: bool = False
+    basis_missing: bool = False
+    allocation_method: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class RealizedTotals(BaseModel):
+    """Sums over the sales that have USD figures. The money fields are None,
+    not zero, when no sale could be summed."""
+
+    sale_count: int
+    fx_missing_count: int
+    basis_missing_count: int
+    cost_basis: Optional[Decimal] = None
+    proceeds: Optional[Decimal] = None
+    realized_pnl: Optional[Decimal] = None
+    realized_pnl_pct: Optional[Decimal] = None
+
+
+class RealizedSymbolRow(RealizedTotals):
+    symbol: str
+    # The symbol still has an open lot in this book: a partial exit.
+    still_held: bool
+    shares_closed: Decimal
+    # Same grammar as the allocation chart: base is the cost basis of the
+    # shares closed, the gain or (negative) loss is the realized P/L.
+    bar_base: Optional[Decimal] = None
+    bar_gain: Optional[Decimal] = None
+    bar_loss: Optional[Decimal] = None
+    sales: List[RealizedSale]
+
+
+class RealizedPortfolioTotals(RealizedTotals):
+    symbol_count: int
+
+
+class RealizedResponse(BaseModel):
+    """GET /api/portfolio/realized (#235). `start_date` and `end_date` are the
+    window the period resolved to, both inclusive; both are None for `all`."""
+
+    period: str
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    symbols: List[RealizedSymbolRow]
+    totals: RealizedPortfolioTotals
+
+
 class UpdateSaleResponse(BaseModel):
     sale_id: int
     updated: bool

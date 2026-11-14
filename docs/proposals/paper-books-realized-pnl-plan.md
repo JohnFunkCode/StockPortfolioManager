@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1's book work (1.1 to 1.3) is built; the checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 has started (2.1); the checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -46,7 +46,7 @@ Checked on `main` at `945319e`.
   audit of the UI, CSV import and MCP outputs.
 - **Sale history is half-surfaced.** `GET /api/portfolio/sales` and `PATCH /api/portfolio/sales/{id}`
   exist (#266) with their hooks, but no component calls them. No realized-P/L maths exists in
-  `quantcore/analytics`.
+  `quantcore/analytics`. (Step 2.1 has since added it.)
 - **No FX source.** Nothing in `quantcore/` supplies a rate and `positions.fx_rate_at_purchase` is
   never written. Daily book-value snapshots add a second consumer: a real book with a non-USD lot
   needs a rate for every day, not only the trade dates.
@@ -258,10 +258,11 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
 
 ### Milestone 2: realized P/L (#235)
 
-- [ ] **2.1 Realized P/L backend.**
+- [x] **2.1 Realized P/L backend.**
   `portfolio_math.realized_pnl` and the rolling-window date maths in `quantcore/analytics`; an
   owner- and book-scoped repository read; `GET /api/portfolio/realized?period=&book_id=` declared
   before any path-parameter sibling; wrong-owner and wrong-book tests; `docs/openapi-surface.txt`.
+  The payload's shape is in section 5.3.
 - [ ] **2.2 Realized view.**
   The Realized section, and the summary strip with jump links above Holdings: period pulldown, summary, chart on `allocation_segments`, expandable sales from
   the same payload, the "still held" marker, the empty state, the "excludes fees and tax
@@ -271,6 +272,20 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   Historical FX in `YFinanceGateway`; the prior-close rule in analytics;
   `lot_sales.fx_rate_at_sale`; rates captured when a lot is opened and closed; a backfill script
   for existing non-USD rows; the "no FX rate" flag and count. Closes #235.
+
+#### 5.3 The realized payload (2.1), for the view in 2.2
+
+`GET /api/portfolio/realized` returns `period`, `start_date`, `end_date`, `symbols` and `totals`.
+
+| Where | Fields |
+|---|---|
+| `totals` | `symbol_count`, `sale_count`, `fx_missing_count`, `basis_missing_count`, `cost_basis`, `proceeds`, `realized_pnl`, `realized_pnl_pct` |
+| each of `symbols` | the same without `symbol_count`, plus `symbol`, `still_held`, `shares_closed`, `bar_base`, `bar_gain`, `bar_loss` and `sales` |
+| each of `sales` | `sale_id`, `lot_id`, `symbol`, `currency`, `account`, `trade_date` (the purchase), `sale_trade_date`, `shares_sold`, `purchase_price`, `sale_price`, the USD `cost_basis`, `proceeds`, `realized_pnl`, `realized_pnl_pct`, the three `*_native` figures, both `fx_rate_*`, `fx_missing`, `basis_missing`, `allocation_method`, `notes` |
+
+The money fields are `null` when nothing could be summed, never zero. Symbols come best realized
+P/L first (decision 14), and each symbol's sales oldest first. The rules behind the numbers are in
+[`data.md`](../architecture/data.md#realized-pl).
 
 ### Milestone 3: cash, orders and paper buys
 
@@ -431,6 +446,26 @@ Known before any code is written. Add to this list as the work finds more.
 - **A test that draws with matplotlib must pick the Agg backend first** (1.4). On a Mac the
   default backend starts a GUI application from inside the test run. CI is headless and never
   shows it. `tests/test_html_summary.py` calls `matplotlib.use("Agg")` before importing the script.
+- **The isolation scans refuse an `OR` in a WHERE clause** (2.1). The optional date window was
+  first written `(:start IS NULL OR sale_trade_date >= :start)`, which both the owner and the book
+  scan failed, because an `OR` can widen the restriction beside it. It is
+  `sale_trade_date >= COALESCE(:start, sale_trade_date)` instead: still bound, nothing formatted
+  into the SQL, and no `ALLOWED` entry. It relies on the column being NOT NULL.
+- **Realized P/L does not require the lot to be CLOSED** (2.1). #235 says "`lot_sales` rows joined
+  to their CLOSED parent lot". Every sale `close_lots` writes is on a CLOSED lot, but
+  `insert_sale` (used only by tests today) can put a sale on a lot that stays OPEN. Filtering on
+  the status would hide a sale that `GET /api/portfolio/sales` lists, so the read takes every
+  `lot_sales` row and uses `shares_sold`, never the lot's `quantity`.
+- **`fx_rate_at_sale` is in the payload before the column exists** (2.1). The repository returns
+  it as None so that 2.3 changes one line of SQL and no shape. Until then every non-USD sale is
+  flagged `fx_missing` (decision 17), and the 2.2 view has to show that count from the start.
+- **Rounding each sale, then adding, is what makes the totals reconcile** (2.1). #235 requires
+  that the total equals the transactions shown. A symbol total computed from unrounded figures can
+  be a cent off the sum of its rows.
+- **`still_held` costs a second read** (2.1): the book's open lots. It is one query for the page,
+  and it is why `realized_pnl` takes the held symbols as an argument and reads nothing itself.
+- **The capabilities matrix had not counted the three `/api/books` operations** (found in 2.1).
+  Its totals were corrected in the same PR: 115 operations, 62 reached.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -474,3 +509,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.3 Fractional-share audit | #548 | Audit table in section 5.1. Fixed: `parseInt` in the Add Security dialog, share counts shown to 4 (or 3) decimals, sales and edits finer than six decimals, integer-only `shares` on the stop-loss route and MCP tool, `int()` in the legacy CSV readers, padded counts in the loss alert and report. Harvester's whole-share columns recorded for phase 4. The book work of milestone 1 is done |
 | 2026-11-14 | 1.3 review | #548 | Two regressions from the rounding change fixed (a blank quantity on a lot edit, a missing share count on a sale). The review's three complexity warnings predate the PR; they became step 1.4, a separate PR |
 | 2026-11-14 | 1.4 Complexity follow-up | #551 | No behaviour change. Row builders extracted from both `create_portfolio_html` functions and the underwater-lot block from the notifier; all three are now at or under the goals (section 5.2). A direct test for each helper, and `html_summary.py` has tests for the first time. Milestone 1 is done |
+| 2026-11-14 | 2.1 Realized P/L backend | #552 | `portfolio_math.realized_pnl` and `market_time.rolling_window`; `PortfolioRepository.list_realized_sales` (owner, book and date window, all bound); `PortfolioService.realized_pnl`; `GET /api/portfolio/realized?period=&book_id=`. USD only: a non-USD sale is flagged and left out until 2.3. No UI and no schema change. Payload in section 5.3 |

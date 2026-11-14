@@ -182,7 +182,7 @@ export default function UniverseTable({ entries, onOpenWorkup }: Props) {
                         <Box component="span" sx={{ whiteSpace: 'nowrap' }}>
                           {e.holdings_as_of}
                         </Box>
-                        {e.holdings_stale && (
+                        {e.holdings_stale && e.holdings_age_days != null && (
                           <Chip
                             size="small"
                             color="warning"

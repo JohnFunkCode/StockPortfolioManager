@@ -72,6 +72,14 @@ describe('UniverseTable', () => {
     expect(screen.queryByText(/days old/)).toBeNull();
   });
 
+  it('shows no age chip when a stale entry arrives without an age', () => {
+    renderWithProviders(
+      <UniverseTable entries={[entry({ holdings_age_days: null, holdings_stale: true })]} />,
+    );
+    expect(screen.getByText('2026-07-14')).toBeInTheDocument();
+    expect(screen.queryByText(/days old/)).toBeNull();
+  });
+
   it('marks a futures-only hedge and dashes out missing holdings', () => {
     renderWithProviders(<UniverseTable entries={[USO]} />);
     expect(screen.getByText('futures only')).toBeInTheDocument();

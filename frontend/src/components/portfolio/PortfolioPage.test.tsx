@@ -4,6 +4,7 @@ import PortfolioPage from './PortfolioPage';
 import {
   lotRow,
   mockApi,
+  portfolioTotals,
   realizedResponse,
   realizedSymbol,
   renderWithProviders,
@@ -585,13 +586,20 @@ describe('PortfolioPage books (#431)', () => {
 
     it('keeps Holdings when Realized fails, and says which part failed', async () => {
       mockApi([
-        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
+        ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: portfolioTotals() }],
         ['/api/books', { books: [] }],
         ['/api/portfolio/realized', () => ({ __status: 500, error: 'boom' })],
       ]);
       renderWithProviders(<PortfolioPage />);
       await waitFor(() => expect(screen.getByText(/Couldn't load realized P\/L/)).toBeInTheDocument());
       expect(holdings().getByText('INTC')).toBeInTheDocument();
+      // The strip leaves the failed figure out and keeps the ones it has
+      // (#554 review): no zero, dash or N/A stands in for it.
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.queryByText('Realized, last year')).toBeNull();
+      expect(strip.queryByText(/N\/A|—|\$0\.00/)).toBeNull();
+      expect(strip.getByText('Book value')).toBeInTheDocument();
+      expect(strip.getByRole('link', { name: 'Realized' })).toBeInTheDocument();
     });
 
     it('shows what a book with no open lots has realized', async () => {

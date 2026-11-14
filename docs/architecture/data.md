@@ -7,8 +7,8 @@
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 24 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 25 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -263,6 +263,42 @@ Today's alert paths don't read `ohlcv`: `notifier.py` uses the legacy `portfolio
 harvester scan runs after the close. A future alert that reads the cache belongs on the closed side.
 
 ## Positions and the watchlist
+
+### Books
+
+Every position is in a **book** (`books`, V14, #431): a named container that belongs to one owner.
+An owner has exactly one `real` book and any number of `paper` books. The real book holds what
+the owner actually owns. A paper book holds simulated positions, for trying a strategy without
+money.
+
+Why a column on `positions` and not a second table: a paper lot is a lot. It has the same fields,
+the same close and split rules and the same P/L arithmetic, so a separate table would mean two
+copies of every statement. One table means the difference has to be enforced, and it is, in SQL:
+
+- Every `PortfolioRepository` statement carries the same subquery,
+  `book_id IN (SELECT b.book_id FROM books b WHERE b.owner = :owner AND CASE WHEN :book_id IS NULL
+  THEN b.kind = 'real' ELSE b.book_id = :book_id END)`. With no book named it selects the owner's
+  real book. With a book named it selects that book only if it is this owner's.
+- `book_id` is a keyword-only argument that defaults to `None`. Nothing that existed before books
+  passes it, so every earlier reader (Harvester, the daily job's notifications,
+  `/watchlist/mine`, the MCP portfolio tools) reads the real book without being changed.
+- The CSV full-sync (`replace_owner_positions`) deletes and reloads one book. It used to delete
+  every position the owner had, which would now wipe their paper books.
+- `list_owners` (the daily job's walk) counts only owners who hold something in a real book.
+- `lot_sales` has no `book_id`. A sale is in its lot's book, the same way it has its lot's owner.
+- The remainder lot of a partial close goes into its parent's book.
+
+The real book is created by the owner's first write, never by a read. The migration created one
+for every owner who already held a position. `BooksRepository` lists, creates and archives books;
+a book is never deleted, because position rows point at it, and the real book can't be archived.
+
+A book is **not** an account. `positions.account` is the brokerage account inside a book (an IRA
+and a taxable account can both be in the real book).
+
+`starting_cash` is stored but nothing reads it yet. The cash ledger is step 3.1 of
+[`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
+
+### Positions
 
 Positions are DB-backed with multi-owner support (`positions` table, `owner` column); `portfolio.csv` is a per-owner import format (`scripts/import_portfolio.py --csv portfolio.csv --owner john`, full-sync replace). The REST `GET/POST/DELETE /api/portfolio*` routes take an `?owner=` param defaulting to `john`; `main.py`'s report/notifications stay on John's portfolio.
 

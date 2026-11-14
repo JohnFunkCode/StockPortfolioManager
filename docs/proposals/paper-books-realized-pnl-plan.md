@@ -185,7 +185,7 @@ log when the PR merges.
 
 ### Milestone 1: books
 
-- [ ] **1.1 Books schema and the real-by-default rule.**
+- [x] **1.1 Books schema and the real-by-default rule.**
   `books` table; `book_id` on `positions` (sales reach their book through their lot); the migration
   creates one real book per owner and backfills. Repository methods take an optional book and
   default to the owner's real book. A coverage test fails on SQL that reads a book-scoped table
@@ -305,9 +305,25 @@ Known before any code is written. Add to this list as the work finds more.
 - **Every owner needs a real book, not only the ones the migration saw.** A fresh database and a
   newly granted user have no rows to backfill, so the real book must also be created on first use.
   One real book per owner is a unique partial index, not a convention.
-- **The backfill is data, the columns are schema.** The DDL goes in all three schema files; the
-  backfill statements follow the `V8__close_orphan_plans.sql` precedent and are not mirrored into
-  `_SCHEMA`. The parity test has to pass with that split.
+- **The backfill is mirrored into `_SCHEMA` after all** (found in 1.1; the plan first said to
+  follow `V8__close_orphan_plans.sql` and leave it out). `init_schema()` also runs on create-mode
+  databases that already hold position rows, such as a local or unit-test database. There,
+  `SET NOT NULL` fails without the backfill. Both statements are idempotent, and both are cross-owner
+  on purpose, so each has a reasoned `ALLOWED` entry in the owner and book coverage tests.
+- **A snapshot regenerated on Postgres 18 is wrong for CI** (found in 1.1).
+  `check_schema_snapshot.py --update` on the local PG18 wrote 159 `*_not_null` constraint rows
+  that Postgres 16 (CI) doesn't report. They were stripped by hand; the diff for a schema change
+  should only show the objects that change added.
+- **`book_id` is NOT NULL with no default, so the roll-out has a short gap** (accepted in 1.1). A
+  revision from before V14 writes no `book_id`, so its Add Lot fails between the migrate step and
+  the new revision serving. Rolling an image back past V14 breaks lot inserts for the same reason,
+  which is the forward-fix-only rule doing its job. A default was rejected: it could not name the
+  right owner's book.
+- **Harvester plans are not book-scoped** (decided in 1.1). `plan_instances` has a foreign key to
+  `positions`, so the book coverage test derives it; it is listed in `NOT_BOOK_SCOPED` because a
+  plan follows the owner's real holdings. A paper-book plan would need that revisited.
+- **`_row_to_dict` does not return `book_id` yet.** Step 1.2 adds it when the API needs it; adding
+  it in 1.1 would have changed every positions payload for no reader.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -345,4 +361,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | Seven proposals decided | none yet | Decisions 8 to 14. All of #221 is now in scope (milestone 4 grows to five PRs, 20 in total); seeding is on top of starting cash. Closes P2, P4, P5, P7, P8, P10, P11 |
 | 2026-11-14 | Compare books placed | none yet | Linked view from Performance. Decision 15; closes P3 |
 | 2026-11-14 | Plan agreed | none yet | Decisions 16 to 18; closes P9, P12, P13, so none are open. Next: commit this document, then PR 1.1 |
+| 2026-11-14 | 1.1 Books schema | this PR | V14: `books`, `positions.book_id` (NOT NULL, backfilled). `BooksRepository`; every `PortfolioRepository` statement restricted to a book, real by default. `tests/test_book_isolation_coverage.py`. No route or UI change: nothing can create a paper book outside tests until 1.2 |
 | 2026-11-14 | Review fixes | #545 | Count corrected to 20 PRs; homes given to #431's delisted-symbol, book-vs-account and attribution items; P-numbers mapped to decisions |

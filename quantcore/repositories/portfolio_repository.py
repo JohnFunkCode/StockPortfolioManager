@@ -10,6 +10,13 @@ dicts matching the shape the REST layer previously produced from the CSV
 (`name`, `symbol`, `purchase_price`, `quantity`, `purchase_date`, `currency`,
 `sale_price`, `sale_date`, `source="portfolio"`, `tags=[]`) so adapters and the
 WebUI are unaffected.
+
+Every statement on `positions` is restricted to one **book** as well as one
+owner (#431). `book_id` is a keyword-only argument that defaults to None, and
+None means the owner's REAL book: the restriction is the same literal subquery
+in every statement, so a caller that says nothing can never read or change a
+paper book, and a `book_id` that isn't this owner's matches no rows.
+`tests/test_book_isolation_coverage.py` fails on a statement without it.
 """
 
 from __future__ import annotations
@@ -20,6 +27,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from quantcore.db import get_connection
+from quantcore.repositories.books_repository import resolve_book_id
 
 MUTABLE_LOT_COLUMNS = {
     "name", "purchase_price", "quantity", "purchase_date", "currency",
@@ -59,38 +67,69 @@ FROM positions p
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner
   AND p.status = :status
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
 ORDER BY s.ticker, p.purchase_date;
 """
 
+# Cross-owner on purpose (the daily job's walk). Real books only: an owner who
+# holds nothing but paper positions has no symbols the job should capture.
 SQL_LIST_OWNERS = """
-SELECT DISTINCT owner FROM positions ORDER BY owner;
+SELECT DISTINCT p.owner AS owner
+FROM positions p
+JOIN books b ON b.book_id = p.book_id
+WHERE b.kind = 'real'
+ORDER BY p.owner;
 """
 
 SQL_DELETE_OWNER_POSITIONS = """
-DELETE FROM positions WHERE owner = :owner;
+DELETE FROM positions
+WHERE owner = :owner
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 SQL_DELETE_OWNER_SYMBOL = """
 DELETE FROM positions
 WHERE owner = :owner
-  AND symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
+  AND symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker)
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 SQL_COUNT_OWNER_SYMBOL = """
 SELECT COUNT(*) AS n
 FROM positions
 WHERE owner = :owner
-  AND symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker);
+  AND symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker)
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 SQL_INSERT_POSITION = """
 INSERT INTO positions (
-    owner, symbol_id, name,
+    owner, book_id, symbol_id, name,
     purchase_price, quantity, purchase_date, currency, sale_price, sale_date,
     opened_at, entry_price, shares, cost_basis_total,
     status, parent_lot_id, trade_date, fees, acquisition_type, account, notes
 ) VALUES (
-    :owner, :symbol_id, :name,
+    :owner, :book_id, :symbol_id, :name,
     :purchase_price, :quantity, :purchase_date, :currency, :sale_price, :sale_date,
     :opened_at, :entry_price, :shares, :cost_basis_total,
     :status, :parent_lot_id, :trade_date, :fees, :acquisition_type, :account, :notes
@@ -115,15 +154,30 @@ SELECT
     p.fees           AS fees,
     p.acquisition_type AS acquisition_type,
     p.account        AS account,
-    p.notes          AS notes
+    p.notes          AS notes,
+    p.book_id        AS book_id
 FROM positions p
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner
-  AND p.position_id = :lot_id;
+  AND p.position_id = :lot_id
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 SQL_DELETE_LOT = """
-DELETE FROM positions WHERE owner = :owner AND position_id = :lot_id;
+DELETE FROM positions
+WHERE owner = :owner
+  AND position_id = :lot_id
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 SQL_LIST_LOTS_FOR_SYMBOL = """
@@ -148,6 +202,12 @@ FROM positions p
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner
   AND s.ticker = :ticker{status_clause}
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
 ORDER BY p.trade_date, p.position_id;
 """
 
@@ -160,8 +220,8 @@ INSERT INTO lot_sales (
 RETURNING sale_id;
 """
 
-# lot_sales has no owner column: ownership is always decided through the lot's
-# positions row (issue #266).
+# lot_sales has no owner or book column: both are always decided through the
+# lot's positions row (issues #266, #431).
 SQL_LIST_SALES = """
 SELECT
     ls.sale_id           AS sale_id,
@@ -177,13 +237,27 @@ FROM lot_sales ls
 JOIN positions p ON p.position_id = ls.lot_id
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner{symbol_clause}
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
 ORDER BY ls.sale_trade_date, ls.sale_id;
 """
 
 SQL_UPDATE_SALE_NOTES = """
 UPDATE lot_sales SET notes = :notes
 WHERE sale_id = :sale_id
-  AND lot_id IN (SELECT position_id FROM positions WHERE owner = :owner);
+  AND lot_id IN (
+      SELECT position_id FROM positions
+      WHERE owner = :owner
+        AND book_id IN (
+            SELECT b.book_id FROM books b
+            WHERE b.owner = :owner
+              AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                       THEN b.kind = 'real'
+                       ELSE b.book_id = CAST(:book_id AS INTEGER) END));
 """
 
 
@@ -224,7 +298,10 @@ def _row_to_dict(row) -> Dict[str, Any]:
 
 
 class PortfolioRepository:
-    """SQL persistence for portfolio positions, scoped by owner."""
+    """SQL persistence for portfolio positions, scoped by owner and by book.
+
+    `book_id=None` on any method means the owner's real book.
+    """
 
     # ------------------------------------------------------------------
     # Symbol resolution
@@ -254,12 +331,15 @@ class PortfolioRepository:
             "cost_basis_total": cost,
         }
 
-    def _insert_position(self, conn, owner: str, row: Dict[str, Any]) -> int:
-        """Insert one lot. Returns the new `position_id` (lot_id)."""
+    def _insert_position(self, conn, owner: str, row: Dict[str, Any], *, book_id: int) -> int:
+        """Insert one lot into `book_id`, which the caller has already resolved
+        as this owner's (`resolve_book_id`, or the book of the owner-scoped lot
+        it is splitting). Returns the new `position_id` (lot_id)."""
         symbol_id = self._resolve_symbol_id(conn, row["symbol"])
         legacy = self._legacy_values(row)
         cur = conn.execute(SQL_INSERT_POSITION, {
             "owner": owner,
+            "book_id": book_id,
             "symbol_id": symbol_id,
             "name": row.get("name"),
             "purchase_price": row.get("purchase_price"),
@@ -279,7 +359,9 @@ class PortfolioRepository:
         })
         return int(cur.fetchone()["position_id"])
 
-    def _apply_lot_fields(self, conn, owner: str, lot_id: int, fields: Dict[str, Any]) -> int:
+    def _apply_lot_fields(
+        self, conn, owner: str, lot_id: int, fields: Dict[str, Any], *, book_id: Optional[int]
+    ) -> int:
         """Patch a lot's mutable columns on an already-open `conn` (no commit —
         the caller controls the transaction). Returns the rowcount affected.
         Shared by `update_lot` and `close_lots` so the allowlist/validation
@@ -293,48 +375,63 @@ class PortfolioRepository:
         set_clause = ", ".join(f"{col} = :{col}" for col in fields)
         sql = (
             f"UPDATE positions SET {set_clause} "
-            "WHERE owner = :owner AND position_id = :lot_id;"
+            "WHERE owner = :owner AND position_id = :lot_id "
+            "AND book_id IN ("
+            "SELECT b.book_id FROM books b WHERE b.owner = :owner "
+            "AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL THEN b.kind = 'real' "
+            "ELSE b.book_id = CAST(:book_id AS INTEGER) END);"
         )
-        params = {**fields, "owner": owner, "lot_id": lot_id}
+        params = {**fields, "owner": owner, "lot_id": lot_id, "book_id": book_id}
         cur = conn.execute(sql, params)
         return cur.rowcount
 
     # ------------------------------------------------------------------
     # Reads
     # ------------------------------------------------------------------
-    def list_positions(self, owner: str, status: str = "OPEN") -> List[Dict[str, Any]]:
-        """List `owner`'s lots. Defaults to open lots only (decision #12)."""
+    def list_positions(
+        self, owner: str, status: str = "OPEN", *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """List `owner`'s lots in one book. Defaults to open lots only (decision #12)."""
         with closing(get_connection()) as conn:
             rows = conn.execute(
-                SQL_LIST_POSITIONS, {"owner": owner, "status": status}
+                SQL_LIST_POSITIONS, {"owner": owner, "status": status, "book_id": book_id}
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
     def list_owners(self) -> List[str]:
+        """Every owner holding a position in a real book."""
         with closing(get_connection()) as conn:
             rows = conn.execute(SQL_LIST_OWNERS).fetchall()
         return [r["owner"] for r in rows]
 
-    def count_for_symbol(self, owner: str, ticker: str) -> int:
+    def count_for_symbol(
+        self, owner: str, ticker: str, *, book_id: Optional[int] = None
+    ) -> int:
         with closing(get_connection()) as conn:
             row = conn.execute(
-                SQL_COUNT_OWNER_SYMBOL, {"owner": owner, "ticker": ticker.strip().upper()}
+                SQL_COUNT_OWNER_SYMBOL,
+                {"owner": owner, "ticker": ticker.strip().upper(), "book_id": book_id},
             ).fetchone()
         return int(row["n"]) if row else 0
 
-    def get_lot(self, owner: str, lot_id: int) -> Optional[Dict[str, Any]]:
+    def get_lot(
+        self, owner: str, lot_id: int, *, book_id: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
         with closing(get_connection()) as conn:
-            row = conn.execute(SQL_GET_LOT, {"owner": owner, "lot_id": lot_id}).fetchone()
+            row = conn.execute(
+                SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+            ).fetchone()
         return _row_to_dict(row) if row is not None else None
 
     def list_lots_for_symbol(
-        self, owner: str, ticker: str, status: Optional[str] = "OPEN"
+        self, owner: str, ticker: str, status: Optional[str] = "OPEN",
+        *, book_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """List every lot of `ticker` for `owner`. `status=None` returns all statuses."""
         sql = SQL_LIST_LOTS_FOR_SYMBOL.format(
             status_clause="" if status is None else "\n  AND p.status = :status"
         )
-        params = {"owner": owner, "ticker": ticker.strip().upper()}
+        params = {"owner": owner, "ticker": ticker.strip().upper(), "book_id": book_id}
         if status is not None:
             params["status"] = status
         with closing(get_connection()) as conn:
@@ -344,41 +441,54 @@ class PortfolioRepository:
     # ------------------------------------------------------------------
     # Writes
     # ------------------------------------------------------------------
-    def replace_owner_positions(self, owner: str, rows: List[Dict[str, Any]]) -> int:
-        """Full-sync: delete all of `owner`'s positions and insert `rows`, atomically.
+    def replace_owner_positions(
+        self, owner: str, rows: List[Dict[str, Any]], *, book_id: Optional[int] = None
+    ) -> int:
+        """Full-sync: delete all of `owner`'s positions in one book and insert
+        `rows` into it, atomically. The owner's other books are untouched, so a
+        CSV import (the real book) never wipes a paper book.
 
         Returns the number of rows inserted.
         """
         with closing(get_connection()) as conn:
             try:
-                conn.execute(SQL_DELETE_OWNER_POSITIONS, {"owner": owner})
+                book = resolve_book_id(conn, owner=owner, book_id=book_id)
+                conn.execute(SQL_DELETE_OWNER_POSITIONS, {"owner": owner, "book_id": book})
                 for row in rows:
-                    self._insert_position(conn, owner, row)
+                    self._insert_position(conn, owner, row, book_id=book)
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
         return len(rows)
 
-    def add_position(self, owner: str, row: Dict[str, Any]) -> int:
+    def add_position(
+        self, owner: str, row: Dict[str, Any], *, book_id: Optional[int] = None
+    ) -> int:
         """Insert a single lot. Every call creates a new lot (issue #126 Step 3.2)
         — the old owner/symbol/date upsert is gone. Returns the new `lot_id`.
+
+        Raises `ValueError` for a `book_id` that isn't this owner's.
         """
         with closing(get_connection()) as conn:
             try:
-                lot_id = self._insert_position(conn, owner, row)
+                book = resolve_book_id(conn, owner=owner, book_id=book_id)
+                lot_id = self._insert_position(conn, owner, row, book_id=book)
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
         return lot_id
 
-    def remove_position(self, owner: str, ticker: str) -> int:
-        """Delete every lot of `ticker` for `owner`. Returns rows removed."""
+    def remove_position(
+        self, owner: str, ticker: str, *, book_id: Optional[int] = None
+    ) -> int:
+        """Delete every lot of `ticker` for `owner` in one book. Returns rows removed."""
         with closing(get_connection()) as conn:
             try:
                 cur = conn.execute(
-                    SQL_DELETE_OWNER_SYMBOL, {"owner": owner, "ticker": ticker.strip().upper()}
+                    SQL_DELETE_OWNER_SYMBOL,
+                    {"owner": owner, "ticker": ticker.strip().upper(), "book_id": book_id},
                 )
                 removed = cur.rowcount
                 conn.commit()
@@ -387,7 +497,9 @@ class PortfolioRepository:
                 raise
         return int(removed)
 
-    def update_lot(self, owner: str, lot_id: int, fields: Dict[str, Any]) -> bool:
+    def update_lot(
+        self, owner: str, lot_id: int, fields: Dict[str, Any], *, book_id: Optional[int] = None
+    ) -> bool:
         """Patch a single lot's mutable fields. Returns True if a row was updated.
 
         `fields` keys must be a subset of the mutable lot columns; unknown keys
@@ -395,18 +507,20 @@ class PortfolioRepository:
         """
         with closing(get_connection()) as conn:
             try:
-                updated = self._apply_lot_fields(conn, owner, lot_id, fields)
+                updated = self._apply_lot_fields(conn, owner, lot_id, fields, book_id=book_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
         return updated > 0
 
-    def delete_lot(self, owner: str, lot_id: int) -> bool:
+    def delete_lot(self, owner: str, lot_id: int, *, book_id: Optional[int] = None) -> bool:
         """Delete a single lot. Returns True if a row was deleted."""
         with closing(get_connection()) as conn:
             try:
-                cur = conn.execute(SQL_DELETE_LOT, {"owner": owner, "lot_id": lot_id})
+                cur = conn.execute(
+                    SQL_DELETE_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+                )
                 deleted = cur.rowcount
                 conn.commit()
             except Exception:
@@ -424,15 +538,19 @@ class PortfolioRepository:
         fees: Any = None,
         allocation_method: Optional[str] = None,
         notes: Optional[str] = None,
+        *,
+        book_id: Optional[int] = None,
     ) -> int:
         """Record a partial or full sale against `lot_id`. Returns the new `sale_id`.
 
-        Owner-scoped via an existence check — `lot_sales` itself has no owner
-        column, so a lot id alone must never be sufficient to write a row.
+        Owner- and book-scoped via an existence check — `lot_sales` itself has
+        neither column, so a lot id alone must never be sufficient to write a row.
         """
         with closing(get_connection()) as conn:
             try:
-                lot = conn.execute(SQL_GET_LOT, {"owner": owner, "lot_id": lot_id}).fetchone()
+                lot = conn.execute(
+                    SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+                ).fetchone()
                 if lot is None:
                     raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
                 cur = conn.execute(SQL_INSERT_SALE, {
@@ -451,12 +569,15 @@ class PortfolioRepository:
                 raise
         return sale_id
 
-    def list_sales(self, owner: str, ticker: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List `owner`'s recorded sales, oldest first; `ticker` narrows to one symbol."""
+    def list_sales(
+        self, owner: str, ticker: Optional[str] = None, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """List `owner`'s recorded sales in one book, oldest first; `ticker`
+        narrows to one symbol."""
         sql = SQL_LIST_SALES.format(
             symbol_clause="" if ticker is None else "\n  AND s.ticker = :ticker"
         )
-        params: Dict[str, Any] = {"owner": owner}
+        params: Dict[str, Any] = {"owner": owner, "book_id": book_id}
         if ticker is not None:
             params["ticker"] = ticker.strip().upper()
         with closing(get_connection()) as conn:
@@ -476,7 +597,9 @@ class PortfolioRepository:
             for r in rows
         ]
 
-    def update_sale_notes(self, owner: str, sale_id: int, notes: Optional[str]) -> bool:
+    def update_sale_notes(
+        self, owner: str, sale_id: int, notes: Optional[str], *, book_id: Optional[int] = None
+    ) -> bool:
         """Set or clear a sale's note. Returns True if a row was updated.
 
         Owner-scoped through the sale's lot — another owner's `sale_id` matches
@@ -486,7 +609,7 @@ class PortfolioRepository:
             try:
                 cur = conn.execute(
                     SQL_UPDATE_SALE_NOTES,
-                    {"owner": owner, "sale_id": sale_id, "notes": notes},
+                    {"owner": owner, "sale_id": sale_id, "notes": notes, "book_id": book_id},
                 )
                 updated = cur.rowcount
                 conn.commit()
@@ -505,6 +628,8 @@ class PortfolioRepository:
         allocation_method: Optional[str] = None,
         notes: Optional[str] = None,
         lot_notes: Optional[Mapping[int, str]] = None,
+        *,
+        book_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """Atomically record a sale that may span multiple lots (issue #126
         Step 4.3). `allocation` is `[(lot_id, shares), ...]` — the output of
@@ -515,7 +640,8 @@ class PortfolioRepository:
         the shares actually sold and it is marked CLOSED, and a new child lot
         is inserted for the remainder, carrying the original `trade_date` and
         `purchase_price` with `parent_lot_id` set (partial close). Every lot
-        must belong to `owner` and be OPEN. One transaction: any failure
+        must belong to `owner`, be in the one book, and be OPEN; the remainder
+        lot of a split goes into its parent's book. One transaction: any failure
         leaves every lot and `lot_sales` row exactly as it was.
 
         `notes` is the default sale note written to every `lot_sales` row;
@@ -526,7 +652,9 @@ class PortfolioRepository:
         with closing(get_connection()) as conn:
             try:
                 for lot_id, shares in allocation:
-                    row = conn.execute(SQL_GET_LOT, {"owner": owner, "lot_id": lot_id}).fetchone()
+                    row = conn.execute(
+                        SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+                    ).fetchone()
                     if row is None:
                         raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
                     lot = _row_to_dict(row)
@@ -567,12 +695,12 @@ class PortfolioRepository:
                             "acquisition_type": lot["acquisition_type"],
                             "account": lot["account"],
                             "notes": lot["notes"],
-                        })
+                        }, book_id=int(row["book_id"]))
 
                     self._apply_lot_fields(conn, owner, lot_id, {
                         "quantity": shares,
                         "status": "CLOSED",
-                    })
+                    }, book_id=book_id)
 
                     results.append({
                         "lot_id": lot_id,

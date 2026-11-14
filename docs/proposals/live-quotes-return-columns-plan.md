@@ -1,6 +1,6 @@
 # Consistent return columns and live quotes on Portfolio and Watchlist (#518)
 
-**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) merged as #527, with its follow-up #528 (the unsorted-column icon). The measurements owed on test were run on 2026-11-12 and 2026-11-13 and are in the checkpoint log. The day-old-quote question they raised was decided the same day (the last entry: such a row is marked stale); the full-universe close-out cost is still unmeasured. Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
+**Status:** PR 1 (batch quotes) merged as #520; PR 2 (reader policy) merged as #521, with its follow-up #522; PR 3 (re-fetch rule) merged as #523; PR 4 (nightly close-out) merged as #524; PR 5 (live cache writer) merged as #525; PR 6 (API) merged as #526; PR 7 (UI) merged as #527, with its follow-up #528 (the unsorted-column icon). The measurements owed on test were run on 2026-11-12 and 2026-11-13 and are in the checkpoint log. The day-old-quote question they raised was decided the same day (the last entry: such a row is marked stale); the 2026-11-13 nightly run then showed the close-out has little left to do (the last entry). Issue [#518](https://github.com/JohnFunkCode/StockPortfolioManager/issues/518).
 Related: #126 (asked for "today's gain/loss", never built), #373 (Yahoo 429s at the daily job's call
 volume), #224 (`/watchlist/mine` became the Watchlist page's source).
 
@@ -571,3 +571,20 @@ PR 4 close-out ────────────────────┘
   Gotcha: #530's tests covered the cell and the service and passed, because neither goes
   through the page's field-by-field copy. A new field on `/watchlist/quotes` needs a
   `WatchlistPage` test that reads it from the rendered row; both pages have one now.
+- 2026-11-13: the nightly run after a full market-hours day on test (execution
+  `quantcore-report-jxwg4`, 22:45 to 23:07 UTC, succeeded). **Nothing was left `OPEN`, and the
+  close-out is a backstop, not the step that closes the day's bars.**
+  - The run began with 227 `OPEN` bars. The close-out logged `Closing out daily bars for 3
+    symbol(s), budget 300s` and `Close-out: 1 fetched, 2 empty, 0 failed, 0 not attempted, 0s`.
+  - The other bars were already `CLOSED` when it started: Nov 13's 251 bars were all re-fetched
+    between 22:48 and 22:54 UTC, by an earlier step of the same job (the options capture was
+    logging through those minutes). Which step's read does it was not traced.
+  - So the "full-universe close-out cost" this log kept asking for does not occur while the
+    earlier steps run: the close-out only sees what they miss. `OHLCV_CLOSEOUT_CHUNK_SIZE` and
+    `_PAUSE_SECONDS` stay unchanged. It would meet the whole universe only on a night those
+    steps are skipped or fail, which is still unmeasured; its budget (300 s, clamped to the
+    task deadline) bounds that case.
+  - AIXXF's `OPEN` bar dated Nov 12 is `CLOSED` (36.846), and its Nov 13 bar is too. That closes
+    the open point in the "live bar can be dated yesterday" finding above.
+  - After the run there are no `OPEN` `1d` rows: 258 `CLOSED` for Nov 12 and 251 for Nov 13.
+    Which three symbols the close-out handled was not read from the log.

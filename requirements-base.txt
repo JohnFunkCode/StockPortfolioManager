@@ -28,6 +28,11 @@ requests>=2.25.0
 # Transitive (requests/httpx), floored for PYSEC-2026-4320: 2026.10.18 bundles
 # emSign roots whose intermediate CA keys were compromised.
 certifi>=2026.10.19
+# Transitive (pydantic -> email-validator), floored for CVE-2026-128089.
+dnspython>=2.9.2
+# Transitive (yfinance -> beautifulsoup4), floored for CVE-2026-126190 (a major bump).
+# Needs python >= 3.11.5; the universal lock spans 3.11+, so older 3.11 keeps soupsieve 2.x.
+soupsieve>=4.0.0; python_full_version >= '3.11.5'
 python-dotenv>=1.1.1
 PyYAML>=6.0.3
 fastapi>=0.110.0

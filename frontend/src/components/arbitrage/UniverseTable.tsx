@@ -92,7 +92,7 @@ function Details({
                 : `$${compact(entry.annual_senior_cost_usd)}`
             }
           />
-          <Figure label="Diluted shares"value={compact(entry.diluted_shares)} />
+          <Figure label="Diluted shares" value={compact(entry.diluted_shares)} />
           <Figure label="Source" value={entry.source ?? '—'} />
         </Stack>
       )}

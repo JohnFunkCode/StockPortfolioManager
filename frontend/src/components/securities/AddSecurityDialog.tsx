@@ -117,7 +117,7 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
           ...base,
           currency: form.currency,
           purchase_price: form.purchase_price ? parseFloat(form.purchase_price) : undefined,
-          quantity: form.quantity ? parseInt(form.quantity, 10) : undefined,
+          quantity: form.quantity ? parseFloat(form.quantity) : undefined,
           purchase_date: form.purchase_date || undefined,
         });
       }
@@ -246,7 +246,7 @@ export default function AddSecurityDialog({ open, onClose }: Props) {
                   type="number"
                   value={form.quantity}
                   onChange={set('quantity')}
-                  inputProps={{ min: 1, step: 1 }}
+                  inputProps={{ min: 0, step: 'any' }}
                   sx={{ flex: 1 }}
                 />
               </Stack>

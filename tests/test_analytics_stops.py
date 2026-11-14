@@ -1,6 +1,7 @@
 """Unit tests for quantcore.analytics.stops — technical and trailing stop math."""
 
 import unittest
+from decimal import Decimal
 from pathlib import Path
 
 from quantcore.analytics import stops
@@ -94,6 +95,31 @@ class PositionPnlTests(unittest.TestCase):
         pnl = stops.position_pnl(110.0, 100.0, 0, 105.0, 104.0)
         self.assertEqual(pnl["total_unrealized_pnl"], 10.0)
         self.assertEqual(pnl["pnl_at_trailing_stop"], 4.0)
+
+
+    def test_a_fractional_position_scales_by_its_fraction(self):
+        pnl = stops.position_pnl(110.0, 100.0, 0.5, 105.0, 104.0)
+        self.assertEqual(pnl["shares"], 0.5)
+        self.assertEqual(pnl["total_unrealized_pnl"], 5.0)
+        self.assertEqual(pnl["pnl_at_trailing_stop"], 2.0)
+
+
+class ShareCountTests(unittest.TestCase):
+    def test_whole_counts_stay_ints(self):
+        for given in (10, 10.0, Decimal("10.000000")):
+            with self.subTest(given=given):
+                count = stops.share_count(given)
+                self.assertEqual(count, 10)
+                self.assertIsInstance(count, int)
+
+    def test_a_fraction_is_kept(self):
+        self.assertEqual(stops.share_count(Decimal("0.062501")), 0.062501)
+        self.assertEqual(stops.share_count(0.5), 0.5)
+
+    def test_no_count_or_a_non_number_is_zero(self):
+        for given in (0, None, float("nan"), float("inf")):
+            with self.subTest(given=given):
+                self.assertEqual(stops.share_count(given), 0)
 
 
 class PnlAtStopTests(unittest.TestCase):

@@ -50,7 +50,26 @@ def _money(v) -> Optional[Decimal]:
 
 
 def _quantity(v) -> Optional[Decimal]:
+    """A share count at the precision the database stores (`NUMERIC(18,6)`).
+
+    Every write rounds here, once, before any arithmetic. Left to the column,
+    a partial sale of 0.3333335 from one share would store 0.333334 sold and
+    0.666667 remaining: more shares than the lot held.
+    """
     return Decimal(str(v)).quantize(Decimal("0.000001")) if v not in (None, "") else None
+
+
+def _share_count(v, name: str) -> Decimal:
+    """`_quantity` for a share count the caller must supply. `_quantity` reads
+    a blank as "no value", which is right for a CSV cell and wrong for a sale
+    or an edit: there a blank, `None` or a non-number is a `ValueError`."""
+    try:
+        count = _quantity(v)
+    except InvalidOperation:
+        count = None
+    if count is None or not count.is_finite():
+        raise ValueError(f"{name} is not a valid number: {v!r}")
+    return count
 
 
 def _clean_note(note: Any) -> Optional[str]:
@@ -503,6 +522,8 @@ class PortfolioService:
         supplied must be positive/valid, so a correction can't null out an
         existing lot into the same unusable state add_position rejects.
         """
+        if fields.get("quantity") is not None:
+            fields = {**fields, "quantity": _share_count(fields["quantity"], "quantity")}
         _validate_lot_fields(fields, require_all=False)
         if "notes" in fields:
             fields = {**fields, "notes": _clean_note(fields["notes"])}
@@ -530,7 +551,9 @@ class PortfolioService:
         anchor = self._repo.get_lot(owner, lot_id)
         if anchor is None:
             raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
-        shares = Decimal(str(shares))
+        shares = _share_count(shares, "shares")
+        if lots is not None:
+            lots = [(alloc_lot_id, _share_count(alloc, "shares")) for alloc_lot_id, alloc in lots]
         symbol_lots = self._repo.list_lots_for_symbol(owner, anchor["symbol"], status="OPEN")
         allocation = portfolio_math.allocate(symbol_lots, shares, method, lots)
         return anchor, shares, symbol_lots, allocation

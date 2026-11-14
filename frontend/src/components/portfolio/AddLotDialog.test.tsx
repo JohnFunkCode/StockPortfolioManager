@@ -60,6 +60,20 @@ describe('AddLotDialog', () => {
     });
   });
 
+  it('sends a fractional quantity unrounded', async () => {
+    const { api, onClose } = mount();
+    fireEvent.change(screen.getByLabelText(/Symbol/i), { target: { value: 'AAPL' } });
+    fireEvent.change(screen.getByLabelText(/Purchase Price/i), { target: { value: '150' } });
+    fireEvent.change(screen.getByLabelText(/Quantity/i), { target: { value: '0.062501' } });
+    fireEvent.change(screen.getByLabelText(/Trade Date/i), { target: { value: '2026-01-15' } });
+    fireEvent.click(screen.getByRole('button', { name: /Add Lot/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(createBody(api).quantity).toBe(0.062501);
+    // A whole-number step would make the browser flag a fraction as invalid.
+    expect(screen.getByLabelText(/Quantity/i)).toHaveAttribute('step', 'any');
+  });
+
   it('sends the reason for purchase when one is entered', async () => {
     const { api, onClose } = mount();
     fireEvent.change(screen.getByLabelText(/Symbol/i), { target: { value: 'AAPL' } });

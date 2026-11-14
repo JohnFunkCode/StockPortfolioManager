@@ -663,7 +663,7 @@ export default function SecurityDetailPage() {
               type="number"
               value={addForm.quantity}
               onChange={(e) => setAddForm((f) => ({ ...f, quantity: e.target.value }))}
-              inputProps={{ min: 0 }}
+              inputProps={{ min: 0, step: 'any' }}
             />
             <TextField
               label="Purchase Date"

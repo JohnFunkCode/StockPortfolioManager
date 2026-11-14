@@ -41,14 +41,18 @@ SURFACE = ROOT / "docs" / "openapi-surface.txt"
 
 
 # Tools whose result is not the REST payload verbatim: canned payload -> result.
-LOTS = {"lots": [{"symbol": "BRK-B", "qty": 1}, {"symbol": "AAPL", "qty": 2}]}
+# The quantities are fractional on purpose (#431 step 1.3): a wrapper must hand
+# on the share count the REST tier sent, not a whole number.
+LOTS = {"lots": [{"symbol": "BRK-B", "quantity": 0.062501}, {"symbol": "AAPL", "quantity": 2}]}
 POST_PROCESSED = {
     (PF, "get_symbol_lots"): (LOTS, {"ticker": "BRK-B", "lots": [LOTS["lots"][0]]}),
     (PF, "get_portfolio_summary"): ({"symbols": [], "totals": {"value": 10}}, {"value": 10}),
     (PF, "get_symbol_sales"): (
-        {"sales": [{"sale_id": 1, "notes": "x" * 600}, {"sale_id": 2, "notes": "short"}]},
+        {"sales": [{"sale_id": 1, "shares_sold": 0.062501, "notes": "x" * 600},
+                   {"sale_id": 2, "notes": "short"}]},
         {"ticker": "BRK-B", "sales": [
-            {"sale_id": 1, "notes": "x" * 500 + "…", "notes_truncated": True},
+            {"sale_id": 1, "shares_sold": 0.062501, "notes": "x" * 500 + "…",
+             "notes_truncated": True},
             {"sale_id": 2, "notes": "short"},
         ]},
     ),

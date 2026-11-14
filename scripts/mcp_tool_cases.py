@@ -81,10 +81,10 @@ CASES = {
         f"{SEC}/drawdown", lookback_days="252"))],
     (SP, "get_stop_loss_analysis"): [
         ({"symbol": "BRK-B"}, G(
-            f"{SEC}/stop-loss", cost_basis="0.0", shares="0", max_expirations="4",
+            f"{SEC}/stop-loss", cost_basis="0.0", shares="0.0", max_expirations="4",
             confluence="none")),
         ({"symbol": "BRK-B", "confluence": "full"}, G(
-            f"{SEC}/stop-loss", cost_basis="0.0", shares="0", max_expirations="4",
+            f"{SEC}/stop-loss", cost_basis="0.0", shares="0.0", max_expirations="4",
             confluence="full")),
     ],
     (SP, "get_vwap_history"): [({"symbol": "BRK-B"}, G(

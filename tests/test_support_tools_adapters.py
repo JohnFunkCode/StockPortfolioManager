@@ -232,6 +232,13 @@ class TestStopLossRoute(unittest.TestCase):
         )
         self.require_owner.assert_not_called()
 
+    def test_shares_may_be_fractional(self):
+        # An int parameter answered 422 for the half share a lot can hold.
+        resp = self.client.get("/api/securities/NVDA/stop-loss",
+                               params={"cost_basis": 100, "shares": 0.5})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self._called_with().kwargs["shares"], 0.5)
+
     def test_confluence_and_position_mine_pass_the_callers_owner(self):
         resp = self.client.get(
             "/api/securities/NVDA/stop-loss",

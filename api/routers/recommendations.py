@@ -39,7 +39,7 @@ def get_trade_recommendation(ticker: str, capital: float = 5000.0) -> QuantCoreJ
 def get_stop_loss_analysis(
     ticker: str,
     cost_basis: float = 0.0,
-    shares: int = 0,
+    shares: float = 0.0,
     max_expirations: int = 4,
     confluence: Literal["none", "stop", "full"] = "none",
     position: Optional[Literal["mine"]] = None,

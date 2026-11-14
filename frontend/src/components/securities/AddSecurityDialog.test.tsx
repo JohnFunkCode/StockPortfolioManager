@@ -54,6 +54,27 @@ describe('AddSecurityDialog', () => {
     expect(JSON.parse(String(post![1]?.body)).symbol).toBe('INTC');
   });
 
+  it('sends a fractional quantity from the Portfolio tab, not a truncated one', async () => {
+    const api = mockApi([
+      ['/api/securities/lookup', { symbol: 'INTC', name: 'Intel', suggested_tags: [] }],
+      ['/api/portfolio', { added: true }],
+    ]);
+    const onClose = vi.fn();
+    renderWithProviders(<AddSecurityDialog open onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Portfolio' }));
+    fireEvent.change(symbolInput(), { target: { value: 'INTC' } });
+    const quantity = screen.getByLabelText(/Quantity/i);
+    expect(quantity).toHaveAttribute('step', 'any');
+    fireEvent.change(quantity, { target: { value: '2.5' } });
+    fireEvent.click(screen.getByText(/Add to Portfolio/i));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const post = api.calls.find((c) => c[0].includes('/api/portfolio') && c[1]?.method === 'POST');
+    // parseInt sent 2 here, and 0 for a holding under one share.
+    expect(JSON.parse(String(post![1]?.body)).quantity).toBe(2.5);
+  });
+
   it('offers no currency field for a watchlist entry, and sends none', async () => {
     // The server resolves the watchlist currency off the exchange; a picker
     // here would only let a user contradict it, which is how three European

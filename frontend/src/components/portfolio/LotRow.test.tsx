@@ -29,6 +29,24 @@ describe('LotRow', () => {
     expect(screen.getByText('16.67%')).toBeInTheDocument();
   });
 
+  it('shows a fractional quantity to the stored six decimals', () => {
+    mount({ quantity: 0.062501 });
+    expect(screen.getByText('0.062501')).toBeInTheDocument();
+  });
+
+  it('edits a quantity down to a fraction', async () => {
+    const { api } = mount();
+    fireEvent.click(screen.getByLabelText('Edit lot'));
+    const numberInputs = document.querySelectorAll('input[type="number"]') as NodeListOf<HTMLInputElement>;
+    expect(numberInputs[1]).toHaveAttribute('step', 'any');
+    fireEvent.change(numberInputs[1], { target: { value: '0.062501' } });
+    fireEvent.click(screen.getByLabelText('Save'));
+
+    const patch = () => api.calls.find(([url, init]) => url.includes('/api/portfolio/lots/1') && init?.method === 'PATCH');
+    await waitFor(() => expect(patch()).toBeTruthy());
+    expect(JSON.parse(String(patch()?.[1]?.body)).quantity).toBe(0.062501);
+  });
+
   it('shows — for days held / dollars per day when null', () => {
     mount({ days_held: null, dollars_per_day: null });
     expect(screen.getAllByText('—').length).toBeGreaterThanOrEqual(1);

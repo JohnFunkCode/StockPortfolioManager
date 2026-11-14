@@ -13,6 +13,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import { scaleLinear } from 'd3';
 import { useStopLoss } from '../../hooks/useSecurities';
 import { NO_SUPPORT_BELOW_PRICE } from '../../api/securitiesTypes';
+import { formatShares } from '../../utils/formatting';
 import type {
   DrawdownReplayRow,
   StopLossConfluence,
@@ -290,7 +291,7 @@ function PositionPnl({ position }: { position: StopLossPosition }) {
   return (
     <Box data-testid="stop-position" sx={{ flex: 1, minWidth: 200 }}>
       <Caption>
-        Position · {position.shares > 0 ? `${position.shares} sh @ ` : 'cost '}{money(position.cost_basis)}
+        Position · {position.shares > 0 ? `${formatShares(position.shares)} sh @ ` : 'cost '}{money(position.cost_basis)}
       </Caption>
       <ContextRow label="Unrealized"
         value={`${signedMoney(position.total_unrealized_pnl)}${unit} (${signedPct(position.unrealized_pnl_pct)})`}

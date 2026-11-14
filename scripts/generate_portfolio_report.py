@@ -53,6 +53,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from portfolio import portfolio as portfolio_module  # noqa: E402
 from portfolio import watch_list  # noqa: E402
+from portfolio.stock import format_quantity  # noqa: E402
 from quantcore.db import ensure_schema  # noqa: E402
 from quantcore.services.registry import get_services  # noqa: E402
 
@@ -212,7 +213,7 @@ def create_portfolio_html(portfolio, watchlist):
             'symbol': stock.symbol,
             'purchase_price': float(stock.purchase_price.amount),
             'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'quantity': stock.quantity,
+            'quantity': format_quantity(stock.quantity),
             'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
             'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
             'days_held': (datetime.now().date() - stock.purchase_date).days,

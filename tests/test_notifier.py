@@ -1,5 +1,6 @@
 import unittest
 from datetime import date
+from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from notifier import Notifier
@@ -50,6 +51,25 @@ class NotifierMultiLotLossAlertTest(unittest.TestCase):
         sent_embeds: list = []
         notifier.send_notifications = MagicMock(side_effect=sent_embeds.append)
         return notifier, sent_embeds
+
+    def test_loss_alert_shows_the_share_count_without_database_padding(self):
+        """Lots read from the database carry NUMERIC(18,6) quantities; the
+        alert said "x 10.000000" (#431 plan step 1.3)."""
+        portfolio = Portfolio()
+        for quantity, when in ((Decimal("10.000000"), date(2026, 1, 2)),
+                               (Decimal("0.062500"), date(2026, 2, 3))):
+            portfolio.add_stock(_lot(
+                "ZZLOSSTEST", "ZZ Loss Test", purchase_price=50.0, quantity=quantity,
+                purchase_date=when, current_price=40.0,
+            ))
+        notifier, sent_embeds = self._make_notifier(portfolio)
+        notifier.calculate_and_send_notifications()
+
+        [alert] = [e for e in sent_embeds
+                   if e["embeds"][0]["title"] == "ZZ Loss Test (ZZLOSSTEST) Loss Alert"]
+        description = alert["embeds"][0]["description"]
+        self.assertIn(" x 10: ", description)
+        self.assertIn(" x 0.0625: ", description)
 
     def test_one_underwater_lot_and_one_profitable_lot_yields_one_alert(self):
         portfolio = Portfolio()

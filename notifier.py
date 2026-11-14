@@ -8,6 +8,7 @@ import requests
 from dotenv import load_dotenv
 from portfolio import portfolio as spm
 import portfolio.money as money
+from portfolio.stock import format_quantity
 PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
@@ -120,7 +121,7 @@ class Notifier:
 
             if underwater_lots:
                 lot_lines = [
-                    f"Purchased {lot.purchase_date} @ {lot.purchase_price} x {lot.quantity}: "
+                    f"Purchased {lot.purchase_date} @ {lot.purchase_price} x {format_quantity(lot.quantity)}: "
                     f"{lot.calculate_gain_loss_percentage():.1f}% or {lot.calculate_gain_loss()} Loss"
                     for lot in underwater_lots
                 ]

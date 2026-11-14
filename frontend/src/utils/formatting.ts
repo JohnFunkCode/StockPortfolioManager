@@ -61,10 +61,18 @@ export function formatDateTime(dateString: string | null | undefined): string {
   return new Date(dateString).toLocaleString('en-US');
 }
 
-/** Fractional shares to at most 4 decimals, trailing zeros trimmed. */
+/** The decimals a share count is stored with (`positions.quantity NUMERIC(18,6)`). */
+export const SHARE_DECIMALS = 6;
+
+/**
+ * Fractional shares to the stored precision, trailing zeros trimmed. Showing
+ * fewer decimals than are stored would show a lot as fewer shares than it
+ * holds: at 4 decimals, 0.00005 shares read "0.0001" and 0.00001 read "0".
+ */
 export function formatShares(value: number | null | undefined): string {
   if (value == null) return 'N/A';
-  return value.toFixed(4).replace(/\.?0+$/, '') || '0';
+  const fixed = value.toFixed(SHARE_DECIMALS);
+  return fixed.includes('.') ? fixed.replace(/\.?0+$/, '') : fixed;
 }
 
 /** Dollars-per-day is null when days held is 0 — render that as em dash, not N/A. */

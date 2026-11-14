@@ -5,7 +5,7 @@ import { usePlans } from '../../hooks/usePlans';
 import { usePortfolioDeltaExposure } from '../../hooks/useSecurities';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
-import { formatCurrency, formatPercent } from '../../utils/formatting';
+import { formatCurrency, formatPercent, formatShares } from '../../utils/formatting';
 
 export default function DashboardPage() {
   const { data: stats, isLoading, error } = useDashboard();
@@ -81,7 +81,7 @@ export default function DashboardPage() {
                     onClick={() => navigate(`/securities/${pos.symbol}`)}>
                     <TableCell><strong>{pos.symbol}</strong></TableCell>
                     <TableCell align="right">${pos.price.toFixed(2)}</TableCell>
-                    <TableCell align="right">{pos.shares || '—'}</TableCell>
+                    <TableCell align="right">{pos.shares ? formatShares(pos.shares) : '—'}</TableCell>
                     <TableCell align="right" sx={{ color: pos.net_daoi_shares > 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>
                       {pos.net_daoi_shares > 0 ? '+' : ''}{pos.net_daoi_shares.toLocaleString()}
                     </TableCell>

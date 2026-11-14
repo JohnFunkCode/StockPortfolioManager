@@ -786,6 +786,35 @@ class LotRoutesTest(unittest.TestCase):
         self.assertNotIn("return_7d", row)            # retired with PR 7
         self.assertNotIn("return_90d", row)
 
+    def test_a_fractional_lot_survives_the_round_trip(self):
+        """Plan step 1.3 (#431): a fraction goes in, is partly sold, and comes
+        back from every read at the six decimals it is stored with."""
+        lot = self._create_lot(quantity="0.062501")
+        self.assertEqual(lot["quantity"], 0.062501)
+
+        resp = self.client.patch(
+            f"/api/portfolio/lots/{lot['lot_id']}", json={"quantity": "0.5"}
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        preview = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close/preview", json={"shares": "0.125"}
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual([a["shares"] for a in preview.json()["allocations"]], [0.125])
+
+        resp = self.client.post(
+            f"/api/portfolio/lots/{lot['lot_id']}/close",
+            json={"shares": "0.125", "sale_price": "12.00", "sale_trade_date": "2026-06-10"},
+        )
+        self.assertEqual(resp.status_code, 200, resp.text)
+
+        lots = [l for l in self.client.get("/api/portfolio/lots").json()["lots"]
+                if l["symbol"] == self.SYMBOL]
+        self.assertEqual([l["quantity"] for l in lots], [0.375])
+        sales = self.client.get("/api/portfolio/sales", params={"symbol": self.SYMBOL}).json()
+        self.assertEqual([s["shares_sold"] for s in sales["sales"]], [0.125])
+
     def test_update_lot_patches_fields(self):
         lot = self._create_lot()
         resp = self.client.patch(

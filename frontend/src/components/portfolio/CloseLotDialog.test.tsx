@@ -50,6 +50,25 @@ describe('CloseLotDialog', () => {
     expect(closeBody(api)).toMatchObject({ shares: 10, sale_price: 35 });
   });
 
+  it('prefills and sells a fractional lot unrounded', async () => {
+    const api = mockApi([
+      ['/api/portfolio/lots/1/close/preview', {
+        symbol: 'INTC',
+        allocations: [{ lot_id: 1, shares: 0.062501, trade_date: '2026-01-02', purchase_price: 30 }],
+      }],
+      ['/api/portfolio/lots/1/close', { lot: lotRow({ status: 'CLOSED' }) }],
+    ]);
+    renderWithProviders(<CloseLotDialog open lot={lotRow({ quantity: 0.062501 })} onClose={vi.fn()} />);
+    const shares = document.querySelector('input[type="number"]') as HTMLInputElement;
+    expect(shares.value).toBe('0.062501');
+    expect(shares).toHaveAttribute('step', 'any');
+    expect(screen.getByText(/Lot has 0\.062501 shares/)).toBeInTheDocument();
+
+    await clickSell();
+    await waitFor(() => expect(closeBody(api)).not.toBeNull());
+    expect(closeBody(api).shares).toBe(0.062501);
+  });
+
   it('closes once the sale succeeds', async () => {
     const { onClose } = mount();
     await clickSell();

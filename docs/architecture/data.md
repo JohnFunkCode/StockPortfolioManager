@@ -292,6 +292,20 @@ The real book is created by the owner's first write, never by a read. The migrat
 for every owner who already held a position. `BooksRepository` lists, creates and archives books;
 a book is never deleted, because position rows point at it, and the real book can't be archived.
 
+`BooksService` serves them over REST (`api/routers/books.py`, step 1.2):
+
+| Route | Does |
+|---|---|
+| `GET /api/books` | the owner's books, the real book first; archived ones only with `include_archived=true`. Empty for an owner who has never written anything |
+| `POST /api/books` | create a paper book (`name` up to 60 characters, `starting_cash` zero or more). 422 for bad input or a name already used |
+| `POST /api/books/{book_id}/archive` | archive a paper book. 404 for a book that isn't the owner's, 422 for the real book; archiving twice is not an error |
+
+The portfolio reads `GET /api/portfolio/lots`, `/symbols` and `/sales` take an optional
+`book_id`. Without it they read the real book. With a book that isn't the owner's they answer
+404: `PortfolioService._require_book` looks the book up before reading, because the SQL alone
+would return an empty table. A paper book's rows carry no `active_plan_id`. The lot writes take
+no book and act on the real book only; paper orders are step 3.5.
+
 A book is **not** an account. `positions.account` is the brokerage account inside a book (an IRA
 and a taxable account can both be in the real book).
 

@@ -23,4 +23,10 @@ describe('EmptyPortfolio', () => {
     expect(screen.queryByText(/restricted to authorized users/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/prosecuted/i)).not.toBeInTheDocument();
   });
+
+  it('says a paper book is empty without inviting an Add Lot', () => {
+    renderWithProviders(<EmptyPortfolio paper />);
+    expect(screen.getByText('This paper book is empty')).toBeInTheDocument();
+    expect(screen.queryByText(/add your first position/i)).not.toBeInTheDocument();
+  });
 });

@@ -23,6 +23,7 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
         },
       },
     ],
+    ['/api/books', { books: [] }],
     ...routes,
   ]);
   renderWithProviders(<PortfolioPage />);
@@ -320,7 +321,9 @@ describe('PortfolioPage', () => {
     const api = mount();
     await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     expect(api.unmatched).toHaveLength(0);
-    expect(api.calls.every(([url]) => url.includes('/api/portfolio/symbols'))).toBe(true);
+    expect(
+      api.calls.every(([url]) => url.includes('/api/portfolio/symbols') || url.includes('/api/books')),
+    ).toBe(true);
   });
 
   it('refetches when the Refresh button is clicked', async () => {
@@ -329,5 +332,158 @@ describe('PortfolioPage', () => {
     const before = api.calls.length;
     fireEvent.click(screen.getByRole('button', { name: /Refresh/i }));
     await waitFor(() => expect(api.calls.length).toBeGreaterThan(before));
+  });
+});
+
+describe('PortfolioPage books (#431)', () => {
+  const REAL = { book_id: 1, name: 'Real', kind: 'real', starting_cash: 0, created_at: '2026-11-01T00:00:00Z', archived_at: null };
+  const PAPER = { book_id: 7, name: 'Momentum', kind: 'paper', starting_cash: 10000, created_at: '2026-11-02T00:00:00Z', archived_at: null };
+  const totals = null;
+
+  function mountBooks(options: { route?: string; paperRows?: object | null } = {}) {
+    const paper =
+      options.paperRows === undefined
+        ? { symbols: [symbolRow({ symbol: 'NVDA', lots: [lotRow({ lot_id: 9, symbol: 'NVDA', account: 'Sim' })] })], totals }
+        : options.paperRows;
+    const api = mockApi([
+      [/\/api\/books\/7\/archive$/, { ...PAPER, archived_at: '2026-11-14T00:00:00Z' }],
+      ['/api/books', { books: [REAL, PAPER] }],
+      [/\/api\/portfolio\/symbols\?book_id=7$/, paper ?? { __status: 404, error: 'book 7 not found' }],
+      [/\/api\/portfolio\/symbols$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: options.route ?? '/' });
+    return api;
+  }
+
+  const urls = (api: { calls: Array<[string, RequestInit | undefined]> }) => api.calls.map(([url]) => url);
+
+  it('shows the real book by default and sends no book id', async () => {
+    const api = mountBooks();
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: 'Momentum' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Real' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /Add Lot/i })).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(urls(api).some((url) => url.includes('book_id'))).toBe(false);
+  });
+
+  it('switches to a paper book: banner, no Add Lot, no Plan column, no lot actions', async () => {
+    const api = mountBooks();
+    fireEvent.click(await screen.findByRole('button', { name: 'Momentum' }));
+
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+    expect(urls(api)).toContain('/api/portfolio/symbols?book_id=7');
+    const banner = screen.getByRole('status');
+    expect(within(banner).getByText('Paper book: Momentum')).toBeInTheDocument();
+    expect(within(banner).getByText(/Nothing here is a real holding/)).toBeInTheDocument();
+    expect(within(banner).getByText(/\$10,000\.00/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Plan')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Create plan/i })).not.toBeInTheDocument();
+
+    // Open the symbol's lots: the account is a column, and nothing is editable.
+    fireEvent.click(document.querySelector('svg[data-testid="KeyboardArrowRightIcon"]')!.closest('button')!);
+    expect(await screen.findByText('Account')).toBeInTheDocument();
+    expect(screen.getByText('Sim')).toBeInTheDocument();
+    expect(screen.queryByText('Actions')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Edit lot')).not.toBeInTheDocument();
+  });
+
+  it('keeps the Account column and the lot actions in the real book', async () => {
+    mountBooks();
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    fireEvent.click(document.querySelector('svg[data-testid="KeyboardArrowRightIcon"]')!.closest('button')!);
+    expect(await screen.findByText('Account')).toBeInTheDocument();
+    expect(screen.getByText('Actions')).toBeInTheDocument();
+    expect(screen.getByLabelText('Edit lot')).toBeInTheDocument();
+  });
+
+  it('opens on the book named in the URL, and goes back to Real', async () => {
+    const api = mountBooks({ route: '/?book=7' });
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+    expect(urls(api).filter((url) => url.endsWith('/api/portfolio/symbols'))).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Real' }));
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('says an empty paper book is empty', async () => {
+    mountBooks({ route: '/?book=7', paperRows: { symbols: [], totals } });
+    expect(await screen.findByText('This paper book is empty')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toBeInTheDocument();
+  });
+
+  it('keeps the selector on screen when the book cannot be loaded', async () => {
+    mountBooks({ route: '/?book=7', paperRows: null });
+    expect(await screen.findByText('book 7 not found')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Real' }));
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+  });
+
+  it('ignores a book parameter that is not a number', async () => {
+    const api = mountBooks({ route: '/?book=abc' });
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(urls(api).some((url) => url.includes('book_id'))).toBe(false);
+  });
+
+  it('returns to the real book after archiving the paper book', async () => {
+    const api = mountBooks({ route: '/?book=7' });
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Archive book' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Archive' }));
+
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    const call = api.calls.find(([url]) => url.endsWith('/api/books/7/archive'));
+    expect(call?.[1]?.method).toBe('POST');
+  });
+
+  it('still shows the Real chip and the holdings when the book list fails', async () => {
+    mockApi([
+      ['/api/books', { __status: 500, error: 'boom' }],
+      ['/api/portfolio/symbols', { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />);
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: 'Real' })).toBeInTheDocument();
+  });
+
+  // A list that failed can't say what book 1 is, so the page doesn't call it
+  // paper. It stays read-only, because it can't say the book is real either.
+  it('does not call a named book paper when the book list fails', async () => {
+    mockApi([
+      ['/api/books', { __status: 500, error: 'boom' }],
+      [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Paper book/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Plan')).not.toBeInTheDocument();
+  });
+
+  it('treats the real book named by its own id as the real book', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL, PAPER] }],
+      [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: /Add Lot/i })).toBeInTheDocument();
+    expect(screen.getByText('Plan')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows the banner for a book the loaded list does not hold', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL] }],
+      [/\/api\/portfolio\/symbols\?book_id=7$/, { symbols: [symbolRow({ symbol: 'NVDA' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
   });
 });

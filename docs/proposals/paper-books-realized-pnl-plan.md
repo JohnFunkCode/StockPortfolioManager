@@ -190,7 +190,7 @@ log when the PR merges.
   creates one real book per owner and backfills. Repository methods take an optional book and
   default to the owner's real book. A coverage test fails on SQL that reads a book-scoped table
   without restricting the book. `CLAUDE.md` gains the book rule beside the owner rule.
-- [ ] **1.2 Books API and the book selector.**
+- [x] **1.2 Books API and the book selector.**
   `BooksService` and routes to list, create and archive paper books; `book_id` on the portfolio
   routes; the selector (chips, with a "More" pulldown past five books) and the paper banner; a
   lot's account shown as a field inside its book, never as a second kind of book on the Portfolio page; Add Lot hidden for paper books.
@@ -322,8 +322,34 @@ Known before any code is written. Add to this list as the work finds more.
 - **Harvester plans are not book-scoped** (decided in 1.1). `plan_instances` has a foreign key to
   `positions`, so the book coverage test derives it; it is listed in `NOT_BOOK_SCOPED` because a
   plan follows the owner's real holdings. A paper-book plan would need that revisited.
-- **`_row_to_dict` does not return `book_id` yet.** Step 1.2 adds it when the API needs it; adding
-  it in 1.1 would have changed every positions payload for no reader.
+- **`_row_to_dict` still does not return `book_id`** (checked in 1.2). The page already knows
+  which book it asked for, so no reader needed it. Add it when a payload mixes books, which the
+  Compare view (5.4) may.
+- **Only the reads take a book in 1.2.** `GET /portfolio/lots`, `/symbols` and `/sales` accept
+  `book_id`. The lot writes (add, edit, delete, close) stay real-only, because the system sets
+  every paper fill and paper orders arrive in 3.5. So a paper book made through the UI is empty
+  until then, and the page hides the lot actions as well as Add Lot. The read tests put paper
+  lots in through the repository.
+- **The Real chip sends no `book_id`** (1.2). It selects "no book", which the server reads as the
+  real book. Sending the real book's id would work, but an owner who has never written anything
+  has no book row, and a read must not create one. The selector therefore draws a Real chip even
+  when `GET /api/books` returns an empty list, is still loading, or fails.
+- **A book that isn't the owner's is a 404, not an empty table** (1.2). The repository SQL returns
+  no rows for such an id, which would look like a book that holds nothing. `PortfolioService`
+  looks the book up first (`_require_book`) and raises `BookNotFoundError`. That lookup runs only
+  when a book is named, so the default read still touches no `books` row. The error is a
+  `ValueError` subclass, so a route must catch it before `ValueError` to answer 404 and not 422.
+- **A paper book shows no Plan column** (1.2). Harvest plans follow real holdings (see the 1.1
+  note above), and `symbol_rows` skips the plan lookup for a paper book. Without that, a paper
+  row for a symbol the owner also holds for real would have shown the real plan's chip.
+- **An archived book is still readable by id** (1.2). Archiving takes it out of the selector
+  (`GET /api/books` leaves it out unless `include_archived=true`), but `?book=<id>` on the page
+  still opens it, read-only, with a banner that can't name it. There is no un-archive yet.
+- **"Read-only" and "paper" are two questions on the page** (1.2, #547 review). A named book is
+  editable only once the loaded list says it is the real one. It is called paper (the banner, the
+  empty-state text) only once the list has loaded. While the list loads, or after it fails, the
+  page shows no banner and no Add Lot. The first version asked one question and so called the
+  real book paper when it was opened by its own id and the list failed.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -363,3 +389,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | Plan agreed | none yet | Decisions 16 to 18; closes P9, P12, P13, so none are open. Next: commit this document, then PR 1.1 |
 | 2026-11-14 | 1.1 Books schema | #546 | V14: `books`, `positions.book_id` (NOT NULL, backfilled). `BooksRepository`; every `PortfolioRepository` statement restricted to a book, real by default. `tests/test_book_isolation_coverage.py`. No route or UI change: nothing can create a paper book outside tests until 1.2 |
 | 2026-11-14 | Review fixes | #545 | Count corrected to 20 PRs; homes given to #431's delisted-symbol, book-vs-account and attribution items; P-numbers mapped to decisions |
+| 2026-11-14 | 1.2 Books API and the book selector | #547 | `BooksService`, `/api/books` (list, create, archive), `book_id` on the three portfolio read routes (404 for a book that isn't the owner's), the selector, the paper banner, the Account column. Lot writes stay real-only until 3.5 |

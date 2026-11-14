@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -23,6 +23,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useSymbolRows } from '../../hooks/usePortfolio';
+import { useBooks } from '../../hooks/useBooks';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import OneDayChange, { compareOneDay } from '../common/OneDayChange';
@@ -31,9 +32,11 @@ import PortfolioSummary from './PortfolioSummary';
 import PortfolioAllocationChart from './PortfolioAllocationChart';
 import LotRow from './LotRow';
 import AddLotDialog from './AddLotDialog';
+import BookSelector from './BookSelector';
+import PaperBookBanner from './PaperBookBanner';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
-import type { SymbolRow } from '../../api/portfolioTypes';
+import type { Lot, SymbolRow } from '../../api/portfolioTypes';
 
 type SortKey =
   | 'symbol'
@@ -84,9 +87,96 @@ const HEDGE_COLORS: Record<string, { bg: string; color: string }> = {
   buy_on_rally: { bg: 'var(--qc-tint-green)', color: 'var(--qc-ink-green)' },
 };
 
+/** The harvest ladder (issue #147 Part H6). A chip when one is running, a
+ * quiet invitation when none is — deliberately not the next rung's price,
+ * which would be a second number competing with the returns. Row-bound: it
+ * shows only what its row already holds. */
+function PlanCell({
+  planId,
+  onOpen,
+  onCreate,
+}: {
+  planId: number | null;
+  onOpen: (planId: number) => void;
+  onCreate: () => void;
+}) {
+  return (
+    <TableCell>
+      {planId != null ? (
+        <Chip
+          size="small"
+          label="Plan"
+          clickable
+          onClick={() => onOpen(planId)}
+          sx={{ bgcolor: 'var(--qc-tint-blue)', color: 'var(--qc-ink-blue)' }}
+        />
+      ) : (
+        <Button
+          size="small"
+          color="inherit"
+          sx={{ color: 'text.secondary', textTransform: 'none', minWidth: 0 }}
+          onClick={onCreate}
+        >
+          Create plan
+        </Button>
+      )}
+    </TableCell>
+  );
+}
+
+/** One symbol's open lots. `readOnly` is a paper book (#431): the Actions
+ * column goes, because the system sets every paper fill. */
+function LotsTable({ lots, readOnly }: { lots: Lot[]; readOnly: boolean }) {
+  return (
+    <Table size="small">
+      <TableHead>
+        <TableRow>
+          <TableCell />
+          <TableCell>Trade Date</TableCell>
+          <TableCell>Price Paid</TableCell>
+          <TableCell>Shares</TableCell>
+          <TableCell>Gain/Loss %</TableCell>
+          <TableCell>Gain/Loss $</TableCell>
+          <TableCell>Days Held</TableCell>
+          <TableCell>$/Day</TableCell>
+          <TableCell>Account</TableCell>
+          {!readOnly && <TableCell align="right">Actions</TableCell>}
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {lots.map((lot) => (
+          <LotRow key={lot.lot_id} lot={lot} readOnly={readOnly} />
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
+
+/** The paper book named by `?book=<id>`, or null for the real book. */
+function bookIdFrom(params: URLSearchParams): number | null {
+  const raw = params.get('book');
+  return raw && /^\d+$/.test(raw) ? Number(raw) : null;
+}
+
 export default function PortfolioPage() {
   const navigate = useNavigate();
-  const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useSymbolRows();
+  // The selected book lives in the URL (#431), so a reload keeps it. No
+  // `book` means the real book, and the page then sends no book id at all.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const bookId = bookIdFrom(searchParams);
+  const selectBook = (id: number | null) =>
+    setSearchParams(id === null ? {} : { book: String(id) }, { replace: true });
+  const { data: booksData } = useBooks();
+  const book = booksData?.books.find((b) => b.book_id === bookId);
+  // A named book is editable only once the list says it is the real one, so
+  // nothing is editable while the list loads or after it fails.
+  const readOnly = bookId !== null && book?.kind !== 'real';
+  // It is called paper only once the list has loaded: a list that is loading
+  // or failed can't say what the book is. A book missing from a loaded list
+  // (an archived one, opened by id) is paper.
+  const isPaper = readOnly && booksData !== undefined;
+
+  const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useSymbolRows(false, bookId);
 
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -138,8 +228,8 @@ export default function PortfolioPage() {
     });
   };
 
-  if (isLoading) return <LoadingSpinner />;
-  if (error) return <ErrorAlert message={(error as Error).message} />;
+  // Lot columns, plus Actions for a book that can be edited by hand.
+  const lotColSpan = COLUMNS.length + (readOnly ? 2 : 3);
 
   return (
     <Box>
@@ -159,14 +249,27 @@ export default function PortfolioPage() {
           >
             Refresh
           </Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
-            Add Lot
-          </Button>
+          {/* Add Lot is for the real book only: the system sets every paper
+              fill (#431). */}
+          {!readOnly && (
+            <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
+              Add Lot
+            </Button>
+          )}
         </Stack>
       </Stack>
 
-      {rows.length === 0 ? (
-        <EmptyPortfolio />
+      {/* The selector and banner sit outside the loading and error states, so
+          a book that fails to load can still be left. */}
+      <BookSelector selectedBookId={bookId} onSelect={selectBook} />
+      {isPaper && <PaperBookBanner book={book} onArchived={() => selectBook(null)} />}
+
+      {isLoading ? (
+        <LoadingSpinner />
+      ) : error ? (
+        <ErrorAlert message={(error as Error).message} />
+      ) : rows.length === 0 ? (
+        <EmptyPortfolio paper={isPaper} />
       ) : (
         <>
           {data?.totals && <PortfolioSummary totals={data.totals} />}
@@ -199,7 +302,8 @@ export default function PortfolioPage() {
                     </TableCell>
                   ))}
                   <TableCell>MM Hedge Bias</TableCell>
-                  <TableCell>Plan</TableCell>
+                  {/* Harvest plans belong to real holdings. */}
+                  {!readOnly && <TableCell>Plan</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -252,55 +356,19 @@ export default function PortfolioPage() {
                             '—'
                           )}
                         </TableCell>
-                        {/* The harvest ladder (issue #147 Part H6). A chip when
-                            one is running, a quiet invitation when none is —
-                            deliberately not the next rung's price, which would
-                            be a second number competing with the returns. */}
-                        <TableCell>
-                          {row.active_plan_id != null ? (
-                            <Chip
-                              size="small"
-                              label="Plan"
-                              clickable
-                              onClick={() => navigate(`/plans/${row.active_plan_id}`)}
-                              sx={{ bgcolor: 'var(--qc-tint-blue)', color: 'var(--qc-ink-blue)' }}
-                            />
-                          ) : (
-                            <Button
-                              size="small"
-                              color="inherit"
-                              sx={{ color: 'text.secondary', textTransform: 'none', minWidth: 0 }}
-                              onClick={() => setPlanSymbol(row.symbol)}
-                            >
-                              Create plan
-                            </Button>
-                          )}
-                        </TableCell>
+                        {!readOnly && (
+                          <PlanCell
+                            planId={row.active_plan_id}
+                            onOpen={(id) => navigate(`/plans/${id}`)}
+                            onCreate={() => setPlanSymbol(row.symbol)}
+                          />
+                        )}
                       </TableRow>
                       <TableRow>
-                        <TableCell colSpan={COLUMNS.length + 3} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
+                        <TableCell colSpan={lotColSpan} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
                           <Collapse in={isOpen} unmountOnExit>
                             <Box sx={{ pl: 6, pr: 2, py: 1 }}>
-                              <Table size="small">
-                                <TableHead>
-                                  <TableRow>
-                                    <TableCell />
-                                    <TableCell>Trade Date</TableCell>
-                                    <TableCell>Price Paid</TableCell>
-                                    <TableCell>Shares</TableCell>
-                                    <TableCell>Gain/Loss %</TableCell>
-                                    <TableCell>Gain/Loss $</TableCell>
-                                    <TableCell>Days Held</TableCell>
-                                    <TableCell>$/Day</TableCell>
-                                    <TableCell align="right">Actions</TableCell>
-                                  </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                  {row.lots.map((lot) => (
-                                    <LotRow key={lot.lot_id} lot={lot} />
-                                  ))}
-                                </TableBody>
-                              </Table>
+                              <LotsTable lots={row.lots} readOnly={readOnly} />
                             </Box>
                           </Collapse>
                         </TableCell>

@@ -70,6 +70,7 @@ def create_app() -> FastAPI:
     # Route groups are registered incrementally across Phase 2 steps.
     from .routers import (
         arbitrage,
+        books,
         chat,
         dashboard,
         fundamentals,
@@ -102,6 +103,7 @@ def create_app() -> FastAPI:
         symbols,
         dashboard,
         portfolio,
+        books,
         prices,
         options,
         fundamentals,

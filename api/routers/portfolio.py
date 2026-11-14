@@ -76,7 +76,7 @@ from ..schemas.portfolio import (
     WatchlistMineResponse,
     WatchlistQuotesResponse,
 )
-from quantcore.services.portfolio import DuplicateSymbolError
+from quantcore.services.portfolio import BookNotFoundError, DuplicateSymbolError
 
 logger = logging.getLogger(__name__)
 
@@ -167,17 +167,31 @@ async def import_portfolio(
 # --------------------------------------------------------------------------- #
 @router.get("/portfolio/lots", response_model=LotsResponse)
 def get_lots(
-    force: bool = False, owner: str = Depends(require_owner)
+    force: bool = False,
+    book_id: Optional[int] = None,
+    owner: str = Depends(require_owner),
 ) -> QuantCoreJSONResponse:
-    lots = services().portfolio.list_lots(owner, status="OPEN", force=force)
+    """`book_id` names one of the owner's books; without it, the real book."""
+    try:
+        lots = services().portfolio.list_lots(
+            owner, status="OPEN", force=force, book_id=book_id
+        )
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
     return QuantCoreJSONResponse({"lots": lots})
 
 
 @router.get("/portfolio/symbols", response_model=SymbolRowsResponse)
 def get_symbol_rows(
-    force: bool = False, owner: str = Depends(require_owner)
+    force: bool = False,
+    book_id: Optional[int] = None,
+    owner: str = Depends(require_owner),
 ) -> QuantCoreJSONResponse:
-    rows = services().portfolio.symbol_rows(owner, force=force)
+    """`book_id` names one of the owner's books; without it, the real book."""
+    try:
+        rows = services().portfolio.symbol_rows(owner, force=force, book_id=book_id)
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
     totals = services().portfolio.portfolio_totals(rows)
     return QuantCoreJSONResponse({"symbols": rows, "totals": totals})
 
@@ -281,12 +295,17 @@ def preview_close_lot(
 
 @router.get("/portfolio/sales", response_model=SalesResponse)
 def get_sales(
-    symbol: Optional[str] = None, owner: str = Depends(require_owner)
+    symbol: Optional[str] = None,
+    book_id: Optional[int] = None,
+    owner: str = Depends(require_owner),
 ) -> QuantCoreJSONResponse:
-    """The owner's recorded sales with their notes (issue #266)."""
-    return QuantCoreJSONResponse(
-        {"sales": services().portfolio.list_sales(owner, symbol)}
-    )
+    """The owner's recorded sales with their notes (issue #266). `book_id`
+    names one of the owner's books; without it, the real book."""
+    try:
+        sales = services().portfolio.list_sales(owner, symbol, book_id=book_id)
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
+    return QuantCoreJSONResponse({"sales": sales})
 
 
 @router.patch("/portfolio/sales/{sale_id}", response_model=UpdateSaleResponse)

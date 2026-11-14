@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import portfolio_math
 from quantcore.analytics.market_time import market_date
+from quantcore.repositories.books_repository import PAPER, BookNotFoundError
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 
 logger = logging.getLogger(__name__)
@@ -129,8 +130,13 @@ class PortfolioService:
         prices,
         options=None,
         harvester_repository=None,
+        books_repository=None,
     ) -> None:
         self._repo = portfolio_repository
+        # BooksRepository — checks a named book is the owner's before a read
+        # (#431 step 1.2). Optional like `options`; without it a named book is
+        # refused, never read unchecked.
+        self._books_repo = books_repository
         # PricesService — one batched, TTL-cached get_quotes() call per
         # list_lots() instead of one get_fast_price() per lot (issue #126
         # Step 4.4).
@@ -288,15 +294,48 @@ class PortfolioService:
             row["dollars_per_day"] = None
         return row
 
-    def list_lots(self, owner: str, status: str = "OPEN", force: bool = False) -> List[Dict[str, Any]]:
+    def _require_book(self, owner: str, book_id: Optional[int]) -> Optional[Dict[str, Any]]:
+        """The named book, or None when no book is named (the real book).
+
+        Raises `BookNotFoundError` for a book that isn't `owner`'s. The
+        repository's SQL already returns no rows for such an id; this turns
+        the empty table into a 404, so a stale link doesn't read as a book
+        that holds nothing. A read with no book named looks nothing up, so it
+        still never creates a book.
+        """
+        if book_id is None:
+            return None
+        book = (
+            self._books_repo.get_book(owner=owner, book_id=book_id)
+            if self._books_repo is not None else None
+        )
+        if book is None:
+            raise BookNotFoundError(f"book {book_id} not found")
+        return book
+
+    def list_lots(
+        self,
+        owner: str,
+        status: str = "OPEN",
+        force: bool = False,
+        *,
+        book_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """`owner`'s lots, enriched with live price, gain/loss, days held, $/day.
 
         Live prices come from one batched, TTL-cached PricesService.get_quotes()
         call covering every distinct symbol rather than one quote per lot
         (issue #126 Step 4.4). `force` bypasses the cache's TTL (still subject
-        to its own re-fetch floor).
+        to its own re-fetch floor). `book_id` names a book; None is the real
+        book, and a book that isn't `owner`'s raises `BookNotFoundError`.
         """
-        lots = self._repo.list_positions(owner, status=status)
+        self._require_book(owner, book_id)
+        return self._priced_lots(owner, status, force, book_id)
+
+    def _priced_lots(
+        self, owner: str, status: str, force: bool, book_id: Optional[int]
+    ) -> List[Dict[str, Any]]:
+        lots = self._repo.list_positions(owner, status=status, book_id=book_id)
         quotes = self._prices.get_quotes([lot["symbol"] for lot in lots], force=force)
         as_of = market_date()
         return [
@@ -393,20 +432,27 @@ class PortfolioService:
             logger.warning("symbol_rows(%s): active plan lookup failed", owner, exc_info=True)
             return {}
 
-    def symbol_rows(self, owner: str, force: bool = False) -> List[Dict[str, Any]]:
+    def symbol_rows(
+        self, owner: str, force: bool = False, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """Per-symbol roll-up: aggregate totals, period-return columns (1d, 5d,
         30d, 60d, YTD, 1y), the live 1d quote columns
         (#518), the MM
         hedge bias (decision #18), and the stacked allocation bar's three
         segments (issue #147 Part A), each carrying its own open child lots
         (decision #14). `force` bypasses the quote cache's TTL (Step 4.4).
+
+        `book_id` names a book; None is the real book. A paper book gets no
+        Plan chip: harvest plans belong to real holdings (#431).
         """
-        lots = self.list_lots(owner, status="OPEN", force=force)
+        book = self._require_book(owner, book_id)
+        lots = self._priced_lots(owner, "OPEN", force, book_id)
         by_symbol: Dict[str, List[Dict[str, Any]]] = {}
         for lot in lots:
             by_symbol.setdefault(lot["symbol"], []).append(lot)
 
-        plan_ids = self._active_plan_ids(owner)
+        is_paper = book is not None and book["kind"] == PAPER
+        plan_ids = {} if is_paper else self._active_plan_ids(owner)
         as_of = market_date()
         returns = self._period_returns(sorted(by_symbol))
         changes = self._quote_changes(sorted(by_symbol), returns)
@@ -518,9 +564,15 @@ class PortfolioService:
             ],
         }
 
-    def list_sales(self, owner: str, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
-        """`owner`'s recorded sales (with their notes), optionally for one symbol."""
-        return self._repo.list_sales(owner, symbol.strip().upper() if symbol else None)
+    def list_sales(
+        self, owner: str, symbol: Optional[str] = None, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """`owner`'s recorded sales (with their notes), optionally for one
+        symbol. `book_id` names a book; None is the real book."""
+        self._require_book(owner, book_id)
+        return self._repo.list_sales(
+            owner, symbol.strip().upper() if symbol else None, book_id=book_id
+        )
 
     def update_sale_notes(self, owner: str, sale_id: int, notes: Optional[str]) -> bool:
         """Set or clear a sale's note. Returns False if no such sale for `owner`."""

@@ -24,7 +24,14 @@ function gainColor(value: number | null): string | undefined {
   return value >= 0 ? '#10b981' : '#ef4444';
 }
 
-export default function LotRow({ lot }: { lot: Lot }) {
+interface Props {
+  lot: Lot;
+  /** A paper book's lot (#431): shown, never edited, sold or deleted by hand,
+   * because the system sets every paper fill. */
+  readOnly?: boolean;
+}
+
+export default function LotRow({ lot, readOnly = false }: Props) {
   const [editing, setEditing] = useState(false);
   const [purchasePrice, setPurchasePrice] = useState(String(lot.purchase_price ?? ''));
   const [quantity, setQuantity] = useState(String(lot.quantity ?? ''));
@@ -130,50 +137,55 @@ export default function LotRow({ lot }: { lot: Lot }) {
         </TableCell>
         <TableCell>{lot.days_held ?? '—'}</TableCell>
         <TableCell>{formatDollarsPerDay(lot.dollars_per_day)}</TableCell>
-        <TableCell align="right">
-          {editing ? (
-            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-              <Tooltip title="Save">
-                <IconButton size="small" onClick={saveEdit} disabled={updateLot.isPending}>
-                  <CheckIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Cancel">
-                <IconButton size="small" onClick={() => setEditing(false)} disabled={updateLot.isPending}>
-                  <CloseIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          ) : (
-            <Stack direction="row" spacing={0.5} justifyContent="flex-end">
-              <Tooltip title="Edit lot">
-                <IconButton size="small" onClick={startEdit}>
-                  <EditIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Edit note">
-                <IconButton size="small" onClick={() => setEditingNote(true)}>
-                  <StickyNote2OutlinedIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Sell / close lot">
-                <IconButton size="small" onClick={() => setClosing(true)}>
-                  <SellIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Delete lot">
-                <IconButton size="small" onClick={() => setConfirmDelete(true)}>
-                  <DeleteIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          )}
-        </TableCell>
+        {/* The brokerage account inside the book — a field of the lot, never
+            a second kind of book (#431). */}
+        <TableCell>{lot.account || '—'}</TableCell>
+        {!readOnly && (
+          <TableCell align="right">
+            {editing ? (
+              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                <Tooltip title="Save">
+                  <IconButton size="small" onClick={saveEdit} disabled={updateLot.isPending}>
+                    <CheckIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Cancel">
+                  <IconButton size="small" onClick={() => setEditing(false)} disabled={updateLot.isPending}>
+                    <CloseIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            ) : (
+              <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+                <Tooltip title="Edit lot">
+                  <IconButton size="small" onClick={startEdit}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Edit note">
+                  <IconButton size="small" onClick={() => setEditingNote(true)}>
+                    <StickyNote2OutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Sell / close lot">
+                  <IconButton size="small" onClick={() => setClosing(true)}>
+                    <SellIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Delete lot">
+                  <IconButton size="small" onClick={() => setConfirmDelete(true)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Stack>
+            )}
+          </TableCell>
+        )}
       </TableRow>
 
       {updateLot.isError && editing && (
         <TableRow>
-          <TableCell colSpan={9}>
+          <TableCell colSpan={10}>
             <Typography variant="caption" sx={{ color: '#ef4444' }}>
               {(updateLot.error as Error).message}
             </Typography>

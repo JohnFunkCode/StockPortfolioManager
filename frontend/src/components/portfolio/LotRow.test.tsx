@@ -57,7 +57,7 @@ describe('LotRow', () => {
   });
 
   it('shows — rather than Invalid Date or N/A for a lot with no trade date', () => {
-    mount({ trade_date: null, days_held: 5, dollars_per_day: 1 });
+    mount({ trade_date: null, days_held: 5, dollars_per_day: 1, account: 'IRA' });
     expect(screen.getByText('—')).toBeInTheDocument();
     expect(screen.queryByText(/Invalid Date|N\/A/)).not.toBeInTheDocument();
   });
@@ -202,6 +202,32 @@ describe('LotRow', () => {
     await waitFor(() => {
       const call = api.calls.find(([url, init]) => url.includes('/api/portfolio/lots/1') && init?.method === 'DELETE');
       expect(call).toBeTruthy();
+    });
+  });
+
+  describe('books (#431)', () => {
+    function mountRow(lot: object, readOnly = false) {
+      mockApi([]);
+      renderWithProviders(
+        <Table>
+          <TableBody>
+            <LotRow lot={lotRow(lot)} readOnly={readOnly} />
+          </TableBody>
+        </Table>,
+      );
+    }
+
+    it("shows the lot's brokerage account as a field", () => {
+      mountRow({ account: 'Roth IRA' });
+      expect(screen.getByText('Roth IRA')).toBeInTheDocument();
+    });
+
+    it('offers no edit, note, sell or delete action on a paper lot', () => {
+      mountRow({ account: 'Roth IRA' }, true);
+      expect(screen.getByText('$30.00')).toBeInTheDocument();
+      for (const label of ['Edit lot', 'Edit note', 'Sell / close lot', 'Delete lot']) {
+        expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
+      }
     });
   });
 });

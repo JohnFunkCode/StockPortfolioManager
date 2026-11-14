@@ -7,10 +7,11 @@ import type {
   UpdateSalePayload,
 } from '../api/portfolioTypes';
 
-export function useSymbolRows(force = false) {
+/** `bookId` names one of the owner's books; null is the real book (#431). */
+export function useSymbolRows(force = false, bookId: number | null = null) {
   return useQuery({
-    queryKey: ['portfolio-symbols', force],
-    queryFn: () => portfolioApi.getSymbolRows(force),
+    queryKey: ['portfolio-symbols', force, bookId],
+    queryFn: () => portfolioApi.getSymbolRows(force, bookId),
     staleTime: 60 * 1000,
   });
 }
@@ -66,10 +67,10 @@ export function useClosePreview(lotId: number, shares: number) {
   });
 }
 
-export function useSales(symbol?: string) {
+export function useSales(symbol?: string, bookId: number | null = null) {
   return useQuery({
-    queryKey: ['portfolio-sales', symbol],
-    queryFn: () => portfolioApi.getSales(symbol),
+    queryKey: ['portfolio-sales', symbol, bookId],
+    queryFn: () => portfolioApi.getSales(symbol, bookId),
     staleTime: 60 * 1000,
   });
 }

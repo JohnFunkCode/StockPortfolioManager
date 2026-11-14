@@ -152,6 +152,34 @@ The tool-less analyst returns one JSON object with exactly these fields. This is
 
 Every cited evidence ID must exist in the collected bundle. Finding paths and lines must refer to collected source evidence, not arbitrary host paths. Extra fields requesting commands, credentials, new targets, policy changes, tool calls or publication actions are invalid. Trusted automation validates and renders this data into the human-readable report, without executing its contents. Incomplete evidence and unavailable execution must remain visible in the rendered review, even if the analyst omits them.
 
+### Complexity locations and unavailable units
+
+- Every `complexity` row must have a supported `file` and a positive integer `line`.
+  `null`, a guessed line, or line `1` used as a file-level placeholder is not an
+  alternative to location evidence. Missing metric values do not waive location validation.
+- A `Measured` row still requires exact matching trusted unit measurements and a
+  location supported by complete collected HEAD source or an authenticated whole-unit
+  source span accepted by trusted validation. A source excerpt, diff, CI log, or model
+  estimate cannot substitute for this measured-claim provenance.
+- An `Unverifiable` row may be included in `complexity` only when its location is
+  supported by complete collected source evidence or, when both metric values are
+  `null`, a complete immutable-comparison diff accepted by trusted validation.
+  Keep each unavailable metric `null`. A truncated source or diff does not provide
+  an accepted location, even when its retained prefix contains the proposed line.
+- When no accepted location is available, do **not** emit a located `complexity`
+  row for that unit. Instead, identify the affected file and each known unit (or
+  explicitly state that unit identities could not be determined) in `gaps` and in
+  the `detail` of a `verification` entry with `status: "Unverifiable"`. State whether
+  truncation, a missing source, a missing analyzer, or missing measurement binding
+  prevented verification. Cite existing relevant evidence IDs where available; do
+  not invent IDs. This representation records an incomplete complexity check, not
+  a measured zero, threshold compliance, complete changed-unit coverage, or a code finding.
+- Keep findings and measured claims strictly source- and provenance-bound. Do not
+  move an actionable finding or a claimed measurement into a gap to evade validation.
+  This guidance applies when constructing a new report; it does not authorize
+  deterministic automation to delete invalid rows, rewrite citations in a saved
+  response, publish an unvalidated artifact, or replay historical analysis.
+
 ## Report format
 
 ```text

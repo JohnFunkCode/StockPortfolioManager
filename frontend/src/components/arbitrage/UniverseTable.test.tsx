@@ -96,6 +96,8 @@ describe('UniverseTable', () => {
     expect(screen.getByText('Units of BTC-USD held')).toBeInTheDocument();
     expect(screen.getByText('843,775')).toBeInTheDocument();
     expect(screen.getByText('$16.5B')).toBeInTheDocument();
+    expect(screen.getByText('Annual senior cost')).toBeInTheDocument();
+    expect(screen.getByText('$854M')).toBeInTheDocument();
     expect(screen.getByText('350M')).toBeInTheDocument();
     expect(screen.getByText('10-Q Q1 FY2026 + The Block treasury tracker')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Hide details for MSTR' })).toBeInTheDocument();
@@ -107,6 +109,7 @@ describe('UniverseTable', () => {
     expect(screen.getByText('Roll yield decays the fund against spot.')).toBeInTheDocument();
     expect(screen.queryByTestId('universe-capital-USO')).toBeNull();
     expect(screen.queryByText('Senior claims')).toBeNull();
+    expect(screen.queryByText('Annual senior cost')).toBeNull();
   });
 
   it('says so when a pair has no recorded rationale', () => {
@@ -118,11 +121,14 @@ describe('UniverseTable', () => {
   it('dashes out capital figures the curator left blank', () => {
     renderWithProviders(
       <UniverseTable
-        entries={[entry({ holdings_units: null, senior_claims_usd: null, diluted_shares: null, source: null })]}
+        entries={[entry({
+          holdings_units: null, senior_claims_usd: null, annual_senior_cost_usd: null,
+          diluted_shares: null, source: null,
+        })]}
       />,
     );
     fireEvent.click(screen.getByText('MSTR'));
-    expect(screen.getAllByText('—')).toHaveLength(4);
+    expect(screen.getAllByText('—')).toHaveLength(5);
   });
 
   it('opens one row at a time', () => {

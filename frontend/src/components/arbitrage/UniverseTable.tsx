@@ -84,6 +84,14 @@ function Details({
             label="Senior claims"
             value={entry.senior_claims_usd == null ? '—' : `$${compact(entry.senior_claims_usd)}`}
           />
+          <Figure
+            label="Annual senior cost"
+            value={
+              entry.annual_senior_cost_usd == null
+                ? '—'
+                : `$${compact(entry.annual_senior_cost_usd)}`
+            }
+          />
           <Figure label="Diluted shares" value={compact(entry.diluted_shares)} />
           <Figure label="Source" value={entry.source ?? '—'} />
         </Stack>

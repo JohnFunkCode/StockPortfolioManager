@@ -558,7 +558,7 @@ def get_historical_drawdown(
 def get_stop_loss_analysis(
     symbol: str,
     cost_basis: float = 0.0,
-    shares: int = 0,
+    shares: float = 0.0,
     max_expirations: int = 4,
     confluence: str = "none",
 ) -> dict:
@@ -600,7 +600,8 @@ def get_stop_loss_analysis(
     Args:
         symbol:          Stock ticker symbol (e.g. 'AAPL')
         cost_basis:      Average cost per share (optional — enables P&L output)
-        shares:          Number of shares held (optional — enables total P&L output)
+        shares:          Number of shares held; may be fractional (optional — enables
+                         total P&L output)
         max_expirations: Options expirations to scan for gamma wall (default: 4)
         confluence:      'none' (default), 'stop' or 'full' — see above
     """

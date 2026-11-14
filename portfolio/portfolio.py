@@ -2,7 +2,7 @@ from typing import Optional, Dict, List
 
 from datetime import datetime
 import csv
-from portfolio.stock import Stock
+from portfolio.stock import Stock, parse_quantity
 from portfolio.money import Money
 from portfolio.metrics import Metrics, get_historical_metrics
 from portfolio.yfinance_gateway import get_latest_prices
@@ -144,7 +144,7 @@ class Portfolio:
                     name = row['name']
                     symbol = row['symbol']
                     purchase_price = float(row['purchase_price'])
-                    quantity = int(row['quantity'])
+                    quantity = parse_quantity(row['quantity'])
                     purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d').date()
 
                     # Parse optional fields

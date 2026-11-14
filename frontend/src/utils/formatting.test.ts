@@ -7,6 +7,7 @@ import {
   formatMarketCap,
   formatPercent,
   formatPercentRaw,
+  formatShares,
 } from './formatting';
 
 describe('formatting utils', () => {
@@ -22,6 +23,18 @@ describe('formatting utils', () => {
     expect(formatCurrency(1234.5, 'SEK')).not.toContain('$');
     // Empty/unknown falls back to dollars rather than throwing on a bad code.
     expect(formatCurrency(1234.5, '')).toBe('$1,234.50');
+  });
+
+  it('formatShares keeps the six decimals a lot is stored with', () => {
+    expect(formatShares(10)).toBe('10');
+    expect(formatShares(100)).toBe('100');
+    expect(formatShares(0.5)).toBe('0.5');
+    expect(formatShares(0.0625)).toBe('0.0625');
+    // The smallest storable lot must not read as zero shares.
+    expect(formatShares(0.000001)).toBe('0.000001');
+    expect(formatShares(12.345678)).toBe('12.345678');
+    expect(formatShares(0)).toBe('0');
+    expect(formatShares(null)).toBe('N/A');
   });
 
   it('formatPercent scales by 100', () => {

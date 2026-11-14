@@ -90,6 +90,7 @@ import {
   formatDate,
   formatMarketCap,
   formatPercentRaw,
+  SHARE_DECIMALS,
 } from '../../utils/formatting';
 
 const GREEN = '#10b981';
@@ -369,7 +370,7 @@ export default function WatchlistPage() {
       getSortComparator: nullsLast,
       renderCell: (p: GridRenderCellParams<WatchlistMineRow, number | null>) => (
         <Typography variant="body2" sx={{ color: p.value == null ? 'var(--qc-dim)' : undefined }}>
-          {p.value == null ? '—' : p.value.toLocaleString()}
+          {p.value == null ? '—' : p.value.toLocaleString(undefined, { maximumFractionDigits: SHARE_DECIMALS })}
         </Typography>
       ),
     },

@@ -9,6 +9,29 @@ from portfolio.yfinance_gateway import get_latest_prices
 Number = Union[int, float, Decimal]
 
 
+def parse_quantity(text) -> Decimal:
+    """A share count from CSV text. Fractional shares are valid, so this is a
+    ``Decimal``: ``int()`` rejected "0.5" outright. Raises ``ValueError`` on
+    anything that isn't a finite number, as ``int()`` did."""
+    try:
+        quantity = Decimal(str(text).strip())
+    except ArithmeticError:
+        raise ValueError(f"invalid quantity: {text!r}") from None
+    if not quantity.is_finite():
+        raise ValueError(f"invalid quantity: {text!r}")
+    return quantity
+
+
+def format_quantity(quantity) -> str:
+    """A share count for display, without the padding the database's
+    ``NUMERIC(18,6)`` gives it: ``10.000000`` reads "10" and ``0.062500``
+    reads "0.0625"."""
+    if quantity is None:
+        return ""
+    text = format(Decimal(str(quantity)), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
 class Stock:
     name: str
     symbol: str

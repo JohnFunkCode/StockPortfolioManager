@@ -168,9 +168,13 @@ export default function PortfolioPage() {
     setSearchParams(id === null ? {} : { book: String(id) }, { replace: true });
   const { data: booksData } = useBooks();
   const book = booksData?.books.find((b) => b.book_id === bookId);
-  // A named book the list doesn't know as real is treated as paper: the
-  // banner shows and nothing is editable.
-  const isPaper = bookId !== null && book?.kind !== 'real';
+  // A named book is editable only once the list says it is the real one, so
+  // nothing is editable while the list loads or after it fails.
+  const readOnly = bookId !== null && book?.kind !== 'real';
+  // It is called paper only once the list has loaded: a list that is loading
+  // or failed can't say what the book is. A book missing from a loaded list
+  // (an archived one, opened by id) is paper.
+  const isPaper = readOnly && booksData !== undefined;
 
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useSymbolRows(false, bookId);
 
@@ -225,7 +229,7 @@ export default function PortfolioPage() {
   };
 
   // Lot columns, plus Actions for a book that can be edited by hand.
-  const lotColSpan = COLUMNS.length + (isPaper ? 2 : 3);
+  const lotColSpan = COLUMNS.length + (readOnly ? 2 : 3);
 
   return (
     <Box>
@@ -247,7 +251,7 @@ export default function PortfolioPage() {
           </Button>
           {/* Add Lot is for the real book only: the system sets every paper
               fill (#431). */}
-          {!isPaper && (
+          {!readOnly && (
             <Button variant="contained" startIcon={<AddIcon />} onClick={() => setAddOpen(true)}>
               Add Lot
             </Button>
@@ -299,7 +303,7 @@ export default function PortfolioPage() {
                   ))}
                   <TableCell>MM Hedge Bias</TableCell>
                   {/* Harvest plans belong to real holdings. */}
-                  {!isPaper && <TableCell>Plan</TableCell>}
+                  {!readOnly && <TableCell>Plan</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -352,7 +356,7 @@ export default function PortfolioPage() {
                             '—'
                           )}
                         </TableCell>
-                        {!isPaper && (
+                        {!readOnly && (
                           <PlanCell
                             planId={row.active_plan_id}
                             onOpen={(id) => navigate(`/plans/${id}`)}
@@ -364,7 +368,7 @@ export default function PortfolioPage() {
                         <TableCell colSpan={lotColSpan} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
                           <Collapse in={isOpen} unmountOnExit>
                             <Box sx={{ pl: 6, pr: 2, py: 1 }}>
-                              <LotsTable lots={row.lots} readOnly={isPaper} />
+                              <LotsTable lots={row.lots} readOnly={readOnly} />
                             </Box>
                           </Collapse>
                         </TableCell>

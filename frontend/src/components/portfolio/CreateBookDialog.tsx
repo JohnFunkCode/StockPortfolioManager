@@ -26,18 +26,27 @@ interface Props {
 export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [cash, setCash] = useState('');
+  const [cashError, setCashError] = useState('');
   const createBook = useCreateBook();
 
   const close = () => {
     setName('');
     setCash('');
+    setCashError('');
     createBook.reset();
     onClose();
   };
 
   const submit = () => {
+    // A blank field is zero. Anything else must be a number: NaN would go out
+    // as JSON null and come back as a validation error nobody can read.
+    const startingCash = cash.trim() ? Number(cash) : 0;
+    if (!Number.isFinite(startingCash) || startingCash < 0) {
+      setCashError('Starting cash must be a number, zero or more.');
+      return;
+    }
     createBook.mutate(
-      { name: name.trim(), starting_cash: cash ? parseFloat(cash) : 0 },
+      { name: name.trim(), starting_cash: startingCash },
       {
         onSuccess: (book) => {
           close();
@@ -68,9 +77,14 @@ export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
             size="small"
             type="number"
             value={cash}
-            onChange={(e) => setCash(e.target.value)}
+            onChange={(e) => {
+              setCash(e.target.value);
+              setCashError('');
+            }}
             inputProps={{ min: 0, step: 0.01 }}
             placeholder="0"
+            error={Boolean(cashError)}
+            helperText={cashError || undefined}
           />
           {createBook.isError && (
             <Typography variant="caption" role="alert" sx={{ color: 'var(--qc-ink-red)' }}>

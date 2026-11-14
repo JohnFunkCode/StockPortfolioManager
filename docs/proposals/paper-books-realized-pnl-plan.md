@@ -345,6 +345,11 @@ Known before any code is written. Add to this list as the work finds more.
 - **An archived book is still readable by id** (1.2). Archiving takes it out of the selector
   (`GET /api/books` leaves it out unless `include_archived=true`), but `?book=<id>` on the page
   still opens it, read-only, with a banner that can't name it. There is no un-archive yet.
+- **"Read-only" and "paper" are two questions on the page** (1.2, #547 review). A named book is
+  editable only once the loaded list says it is the real one. It is called paper (the banner, the
+  empty-state text) only once the list has loaded. While the list loads, or after it fails, the
+  page shows no banner and no Add Lot. The first version asked one question and so called the
+  real book paper when it was opened by its own id and the list failed.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.

@@ -448,4 +448,42 @@ describe('PortfolioPage books (#431)', () => {
     await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
     expect(screen.getByRole('button', { name: 'Real' })).toBeInTheDocument();
   });
+
+  // A list that failed can't say what book 1 is, so the page doesn't call it
+  // paper. It stays read-only, because it can't say the book is real either.
+  it('does not call a named book paper when the book list fails', async () => {
+    mockApi([
+      ['/api/books', { __status: 500, error: 'boom' }],
+      [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Paper book/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Plan')).not.toBeInTheDocument();
+  });
+
+  it('treats the real book named by its own id as the real book', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL, PAPER] }],
+      [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(await screen.findByRole('button', { name: /Add Lot/i })).toBeInTheDocument();
+    expect(screen.getByText('Plan')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows the banner for a book the loaded list does not hold', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL] }],
+      [/\/api\/portfolio\/symbols\?book_id=7$/, { symbols: [symbolRow({ symbol: 'NVDA' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+    expect(await screen.findByRole('status')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Add Lot/i })).not.toBeInTheDocument();
+  });
 });

@@ -135,4 +135,31 @@ describe('BookSelector', () => {
     const post = api.calls.find(([, init]) => init?.method === 'POST');
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ name: 'Blank', starting_cash: 0 });
   });
+
+  // The number field blanks out text that isn't a number, so a negative
+  // value is the bad input a test can type.
+  it('refuses a negative starting cash without calling the server', async () => {
+    const value = '-5';
+    const { api, onSelect } = mount([REAL], null, [
+      [/\/api\/books$/, (_url: string, init?: RequestInit) =>
+        init?.method === 'POST' ? book(44, 'Bad') : { books: [REAL] }],
+    ] as never);
+    fireEvent.click(screen.getByRole('button', { name: /New paper book/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'Bad' } });
+    const cash = within(dialog).getByLabelText(/Starting cash/);
+    fireEvent.change(cash, { target: { value } });
+    expect(cash).toHaveValue(Number(value));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create book' }));
+
+    expect(await within(dialog).findByText('Starting cash must be a number, zero or more.')).toBeInTheDocument();
+    expect(api.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+    expect(onSelect).not.toHaveBeenCalled();
+
+    // Typing again clears the message, and a good value goes through.
+    fireEvent.change(cash, { target: { value: '100' } });
+    expect(within(dialog).queryByText(/must be a number/)).not.toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create book' }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(44));
+  });
 });

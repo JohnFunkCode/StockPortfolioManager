@@ -156,6 +156,55 @@
         "idx_arb_nav_latest": "CREATE INDEX idx_arb_nav_latest ON public.arb_nav_snapshots USING btree (security, as_of DESC)"
       }
     },
+    "books": {
+      "columns": {
+        "archived_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
+        "book_id": {
+          "default": "nextval('books_book_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "kind": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "name": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "starting_cash": {
+          "default": "0",
+          "nullable": false,
+          "type": "numeric(18,2)"
+        }
+      },
+      "constraints": {
+        "books_kind_check": "CHECK ((kind = ANY (ARRAY['real'::text, 'paper'::text])))",
+        "books_pkey": "PRIMARY KEY (book_id)",
+        "books_starting_cash_check": "CHECK ((starting_cash >= (0)::numeric))"
+      },
+      "indexes": {
+        "books_pkey": "CREATE UNIQUE INDEX books_pkey ON public.books USING btree (book_id)",
+        "ux_books_one_real_per_owner": "CREATE UNIQUE INDEX ux_books_one_real_per_owner ON public.books USING btree (owner) WHERE (kind = 'real'::text)",
+        "ux_books_owner_name": "CREATE UNIQUE INDEX ux_books_owner_name ON public.books USING btree (owner, name)"
+      }
+    },
     "chat_usage": {
       "columns": {
         "input_tokens": {
@@ -1334,6 +1383,11 @@
           "nullable": true,
           "type": "numeric(18,6)"
         },
+        "book_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
         "cost_basis_total": {
           "default": null,
           "nullable": true,
@@ -1446,11 +1500,13 @@
         }
       },
       "constraints": {
+        "positions_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
         "positions_parent_lot_id_fkey": "FOREIGN KEY (parent_lot_id) REFERENCES positions(position_id) ON DELETE SET NULL",
         "positions_pkey": "PRIMARY KEY (position_id)",
         "positions_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE"
       },
       "indexes": {
+        "idx_positions_book_status": "CREATE INDEX idx_positions_book_status ON public.positions USING btree (book_id, status)",
         "idx_positions_owner_status": "CREATE INDEX idx_positions_owner_status ON public.positions USING btree (owner, status)",
         "idx_positions_parent": "CREATE INDEX idx_positions_parent ON public.positions USING btree (parent_lot_id)",
         "positions_pkey": "CREATE UNIQUE INDEX positions_pkey ON public.positions USING btree (position_id)"

@@ -165,6 +165,45 @@ CREATE TABLE IF NOT EXISTS lot_sales (
 );
 CREATE INDEX IF NOT EXISTS idx_lot_sales_lot ON lot_sales(lot_id);
 
+-- V14 (#431, plan step 1.1): books. Mirrors db/migrations/V14__books.sql.
+-- A book is a named, owned container of positions -- one REAL book per owner
+-- (the partial unique index) and any number of PAPER books. positions.book_id
+-- says which book a lot is in, and lot_sales reaches its book through its lot.
+-- The backfill is mirrored too, unlike V8's data migration, because
+-- init_schema() also runs on create-mode databases that already hold position
+-- rows (a local or unit-test database), and SET NOT NULL would fail on them
+-- without it. Both statements are idempotent.
+CREATE TABLE IF NOT EXISTS books (
+    book_id       SERIAL PRIMARY KEY,
+    owner         TEXT          NOT NULL,
+    name          TEXT          NOT NULL,
+    kind          TEXT          NOT NULL CHECK (kind IN ('real', 'paper')),
+    starting_cash NUMERIC(18,2) NOT NULL DEFAULT 0 CHECK (starting_cash >= 0),
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    archived_at   TIMESTAMPTZ
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_books_one_real_per_owner
+    ON books(owner) WHERE kind = 'real';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_books_owner_name ON books(owner, name);
+
+ALTER TABLE positions
+    ADD COLUMN IF NOT EXISTS book_id INTEGER REFERENCES books(book_id);
+
+INSERT INTO books (owner, name, kind)
+SELECT DISTINCT p.owner, 'Real', 'real'
+FROM positions p
+ON CONFLICT (owner) WHERE kind = 'real' DO NOTHING;
+
+UPDATE positions p
+SET book_id = b.book_id
+FROM books b
+WHERE b.owner = p.owner
+  AND b.kind = 'real'
+  AND p.book_id IS NULL;
+
+ALTER TABLE positions ALTER COLUMN book_id SET NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_positions_book_status ON positions(book_id, status);
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

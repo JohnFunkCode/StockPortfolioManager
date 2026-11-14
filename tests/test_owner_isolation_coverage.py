@@ -71,6 +71,11 @@ SNAPSHOT = REPO / "db" / "schema_snapshot.json"
 
 # table -> the wrong-owner tests that prove its isolation: (test file, test name).
 OWNER_SCOPED = {
+    "books": [
+        ("tests/test_books_repository.py", "test_wrong_owner_reads_come_back_empty"),
+        ("tests/test_books_repository.py", "test_wrong_owner_mutations_change_nothing"),
+        ("tests/test_portfolio_repository.py", "test_another_owners_book_reads_nothing_and_takes_no_writes"),
+    ],
     "positions": [
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),
@@ -480,15 +485,20 @@ ALLOWED = {
     ("quantcore/db.py", "d984362a5e0c"): "_SCHEMA backfill: positions.status NULL -> default",
     ("quantcore/db.py", "d989b931450b"): "_SCHEMA backfill: positions.acquisition_type NULL -> default",
     ("quantcore/db.py", "76838b70090a"): "_SCHEMA backfill: positions.trade_date from purchase_date",
-    ("quantcore/repositories/portfolio_repository.py", "f5a609927c87"): (
-        "SELECT DISTINCT owner FROM positions (list_owners): the daily job's walk "
-        "over every owner's symbols for the options capture (main.py). Returns "
-        "owner names only, no position data."
+    # The V14 mirror (#431): every owner holding a position gets a real book and
+    # each position goes into its own owner's (b.owner = p.owner). All-owner by
+    # construction, idempotent, and nothing is read back.
+    ("quantcore/db.py", "c49b40516244"): "_SCHEMA backfill: one real book per owner holding a position",
+    ("quantcore/db.py", "2007bf9723aa"): "_SCHEMA backfill: positions.book_id NULL -> the owner's real book",
+    ("quantcore/repositories/portfolio_repository.py", "5dc86f601780"): (
+        "SQL_LIST_OWNERS (list_owners): the daily job's walk over every owner's "
+        "symbols for the options capture (main.py). Returns the names of owners "
+        "holding a position in a real book, no position data."
     ),
     ("quantcore/repositories/portfolio_repository.py", "871b12c740ba"): (
         "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "
-        "read the lot with SQL_GET_LOT, owner-scoped, on the same connection, and "
-        "raise ValueError if it isn't this owner's."
+        "read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
+        "connection, and raise ValueError if it isn't this owner's."
     ),
     ("quantcore/repositories/harvester_repository.py", "34e97f75474c"): (
         "INSERT INTO alerts (SQL_UPSERT_ALERT_FOR_RUNG): rung_id/instance_id come "

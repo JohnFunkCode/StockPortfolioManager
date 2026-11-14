@@ -7,6 +7,7 @@ from quantcore.db_safety import assert_not_production  # noqa: E402
 assert_not_production()
 
 from quantcore.db import get_connection  # noqa: E402
+from quantcore.repositories.books_repository import BooksRepository  # noqa: E402
 from quantcore.repositories.portfolio_repository import PortfolioRepository  # noqa: E402
 
 # Synthetic owner/symbol that won't collide with real positions in the
@@ -381,3 +382,185 @@ class PortfolioRepositorySaleNotesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+BOOK_OWNER = "zz_owner_books"
+OTHER_OWNER = "zz_owner_books_other"
+
+
+class PortfolioRepositoryBooksTest(unittest.TestCase):
+    """#431 step 1.1: every positions statement is restricted to one book, and
+    with no book named that book is the owner's real one. A paper lot is
+    therefore invisible to, and untouched by, every default call.
+    """
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+        self.books = BooksRepository()
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            for owner in (BOOK_OWNER, OTHER_OWNER):
+                conn.execute("DELETE FROM positions WHERE owner = %s", (owner,))
+                conn.execute("DELETE FROM books WHERE owner = %s", (owner,))
+            conn.commit()
+
+    def _row(self, **overrides):
+        row = {
+            "name": "Test Lot",
+            "symbol": SYMBOL,
+            "purchase_price": 10.0,
+            "quantity": 5,
+            "purchase_date": "2026-01-02",
+            "currency": "USD",
+        }
+        row.update(overrides)
+        return row
+
+    def _book_ids(self, owner):
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                "SELECT book_id FROM books WHERE owner = %s ORDER BY book_id", (owner,)
+            ).fetchall()
+        return [int(r["book_id"]) for r in rows]
+
+    def _seed(self):
+        """One real lot and one paper lot of the same symbol. Returns
+        (real_lot, paper_lot, paper_book)."""
+        real_lot = self.repo.add_position(BOOK_OWNER, self._row())
+        paper = self.books.create_paper_book(owner=BOOK_OWNER, name="Momentum", starting_cash=1000)
+        paper_lot = self.repo.add_position(BOOK_OWNER, self._row(quantity=7), book_id=paper)
+        return real_lot, paper_lot, paper
+
+    # ------------------------------------------------------------------
+    def test_the_real_book_is_created_once_by_the_first_write(self):
+        self.assertEqual(self.repo.list_positions(BOOK_OWNER), [])
+        self.assertEqual(self._book_ids(BOOK_OWNER), [], "a read must not create a book")
+
+        self.repo.add_position(BOOK_OWNER, self._row())
+        self.repo.add_position(BOOK_OWNER, self._row())
+
+        books = self.books.list_books(owner=BOOK_OWNER)
+        self.assertEqual([(b["kind"], b["name"]) for b in books], [("real", "Real")])
+
+    def test_default_reads_see_only_the_real_book(self):
+        real_lot, paper_lot, _ = self._seed()
+
+        self.assertEqual([p["lot_id"] for p in self.repo.list_positions(BOOK_OWNER)], [real_lot])
+        self.assertEqual(
+            [p["lot_id"] for p in self.repo.list_lots_for_symbol(BOOK_OWNER, SYMBOL, status=None)],
+            [real_lot],
+        )
+        self.assertEqual(self.repo.count_for_symbol(BOOK_OWNER, SYMBOL), 1)
+        self.assertIsNotNone(self.repo.get_lot(BOOK_OWNER, real_lot))
+        self.assertIsNone(self.repo.get_lot(BOOK_OWNER, paper_lot))
+
+    def test_a_named_book_reads_only_that_book(self):
+        real_lot, paper_lot, paper = self._seed()
+
+        self.assertEqual(
+            [p["lot_id"] for p in self.repo.list_positions(BOOK_OWNER, book_id=paper)], [paper_lot]
+        )
+        self.assertEqual(
+            [p["lot_id"] for p in self.repo.list_lots_for_symbol(BOOK_OWNER, SYMBOL, book_id=paper)],
+            [paper_lot],
+        )
+        self.assertEqual(self.repo.count_for_symbol(BOOK_OWNER, SYMBOL, book_id=paper), 1)
+        self.assertIsNotNone(self.repo.get_lot(BOOK_OWNER, paper_lot, book_id=paper))
+        self.assertIsNone(self.repo.get_lot(BOOK_OWNER, real_lot, book_id=paper))
+
+        # Naming the real book is the same as naming nothing.
+        real = self.books.ensure_real_book(owner=BOOK_OWNER)
+        self.assertEqual(
+            [p["lot_id"] for p in self.repo.list_positions(BOOK_OWNER, book_id=real)], [real_lot]
+        )
+
+    def test_default_mutations_leave_a_paper_book_alone(self):
+        _, paper_lot, paper = self._seed()
+
+        self.assertFalse(self.repo.update_lot(BOOK_OWNER, paper_lot, {"notes": "x"}))
+        self.assertFalse(self.repo.delete_lot(BOOK_OWNER, paper_lot))
+        with self.assertRaises(ValueError):
+            self.repo.insert_sale(
+                BOOK_OWNER, paper_lot, shares_sold=1, sale_price=12.0, sale_trade_date="2026-02-01",
+            )
+        with self.assertRaises(ValueError):
+            self.repo.close_lots(
+                BOOK_OWNER, [(paper_lot, Decimal("1"))], sale_price=12.0, sale_trade_date="2026-02-01",
+            )
+        # Removing the symbol and a CSV full-sync both act on the real book only.
+        self.assertEqual(self.repo.remove_position(BOOK_OWNER, SYMBOL), 1)
+        self.assertEqual(self.repo.replace_owner_positions(BOOK_OWNER, [self._row(quantity=2)]), 1)
+
+        untouched = self.repo.get_lot(BOOK_OWNER, paper_lot, book_id=paper)
+        self.assertEqual(untouched["quantity"], Decimal("7"))
+        self.assertEqual(untouched["status"], "OPEN")
+        self.assertIsNone(untouched["notes"])
+        self.assertEqual(self.repo.list_sales(BOOK_OWNER, book_id=paper), [])
+        self.assertEqual(len(self.repo.list_positions(BOOK_OWNER)), 1)
+
+    def test_sales_follow_their_lots_book(self):
+        real_lot, paper_lot, paper = self._seed()
+        self.repo.insert_sale(
+            BOOK_OWNER, real_lot, shares_sold=1, sale_price=12.0, sale_trade_date="2026-02-01",
+        )
+        paper_sale = self.repo.insert_sale(
+            BOOK_OWNER, paper_lot, shares_sold=2, sale_price=13.0, sale_trade_date="2026-02-02",
+            book_id=paper,
+        )
+
+        self.assertEqual([s["lot_id"] for s in self.repo.list_sales(BOOK_OWNER)], [real_lot])
+        self.assertEqual(
+            [s["sale_id"] for s in self.repo.list_sales(BOOK_OWNER, book_id=paper)], [paper_sale]
+        )
+        # A paper sale's note can't be edited through the real book.
+        self.assertFalse(self.repo.update_sale_notes(BOOK_OWNER, paper_sale, "x"))
+        self.assertTrue(self.repo.update_sale_notes(BOOK_OWNER, paper_sale, "x", book_id=paper))
+        self.assertEqual(self.repo.list_sales(BOOK_OWNER, book_id=paper)[0]["notes"], "x")
+
+    def test_partial_close_child_stays_in_its_parents_book(self):
+        _, paper_lot, paper = self._seed()
+
+        result = self.repo.close_lots(
+            BOOK_OWNER, [(paper_lot, Decimal("3"))], sale_price=12.0,
+            sale_trade_date="2026-02-01", book_id=paper,
+        )
+        child = result[0]["child_lot_id"]
+
+        self.assertEqual(
+            [p["lot_id"] for p in self.repo.list_positions(BOOK_OWNER, book_id=paper)], [child]
+        )
+        self.assertEqual(self.repo.get_lot(BOOK_OWNER, child, book_id=paper)["quantity"], Decimal("4"))
+        self.assertIsNone(self.repo.get_lot(BOOK_OWNER, child), "the remainder leaked into the real book")
+
+    def test_another_owners_book_reads_nothing_and_takes_no_writes(self):
+        _, paper_lot, paper = self._seed()
+
+        self.assertEqual(self.repo.list_positions(OTHER_OWNER, book_id=paper), [])
+        self.assertEqual(self.repo.list_lots_for_symbol(OTHER_OWNER, SYMBOL, book_id=paper), [])
+        self.assertEqual(self.repo.count_for_symbol(OTHER_OWNER, SYMBOL, book_id=paper), 0)
+        self.assertIsNone(self.repo.get_lot(OTHER_OWNER, paper_lot, book_id=paper))
+        self.assertEqual(self.repo.list_sales(OTHER_OWNER, book_id=paper), [])
+
+        self.assertFalse(self.repo.update_lot(OTHER_OWNER, paper_lot, {"notes": "x"}, book_id=paper))
+        self.assertFalse(self.repo.delete_lot(OTHER_OWNER, paper_lot, book_id=paper))
+        self.assertEqual(self.repo.remove_position(OTHER_OWNER, SYMBOL, book_id=paper), 0)
+        with self.assertRaises(ValueError):
+            self.repo.add_position(OTHER_OWNER, self._row(), book_id=paper)
+        with self.assertRaises(ValueError):
+            self.repo.replace_owner_positions(OTHER_OWNER, [], book_id=paper)
+
+        # Nothing was written for the other owner, not even a real book.
+        self.assertEqual(self._book_ids(OTHER_OWNER), [])
+        self.assertEqual(len(self.repo.list_positions(BOOK_OWNER, book_id=paper)), 1)
+
+    def test_list_owners_ignores_an_owner_with_only_paper_positions(self):
+        paper = self.books.create_paper_book(owner=OTHER_OWNER, name="Only paper")
+        self.repo.add_position(OTHER_OWNER, self._row(), book_id=paper)
+        self.repo.add_position(BOOK_OWNER, self._row())
+
+        owners = self.repo.list_owners()
+        self.assertIn(BOOK_OWNER, owners)
+        self.assertNotIn(OTHER_OWNER, owners)

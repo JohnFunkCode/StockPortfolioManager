@@ -346,13 +346,13 @@ The rest of `scripts/` is CI and deployment plumbing (`ci_*.sh`/`.py`, `lock_dep
 
 ## Database Structure
 
-One unified **QuantCore** PostgreSQL database (**24 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
+One unified **QuantCore** PostgreSQL database (**25 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
 
 | Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|
 | **Price Data** | `ohlcv`, `fetch_log` | `OhlcvRepository` | Shared OHLCV bar cache (daily + intraday intervals); yfinance fetch tracking |
 | **Harvester** | `symbols`, `plan_templates`, `plan_instances`, `plan_rungs`, `alerts` | `HarvesterPlanDB` | Owner-scoped harvest plans, rungs, and alerts |
-| **Positions & Watchlist** | `positions`, `lot_sales`, `watchlist` | `PortfolioRepository`, `WatchlistRepository` | Per-owner lots and recorded sales (with reasons); the global shared watchlist |
+| **Positions & Watchlist** | `books`, `positions`, `lot_sales`, `watchlist` | `BooksRepository`, `PortfolioRepository`, `WatchlistRepository` | Per-owner books (one real, any number of paper), the lots in them and recorded sales (with reasons); the global shared watchlist |
 | **Identity & Settings** | `owner_identities`, `user_settings` | `OwnerIdentityRepository`, `UserSettingsRepository` | Principal → portfolio-owner mapping; per-owner chat model |
 | **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `options_capture_claims`, `gamma_wall_history`, `gex_history`, `options_positions` | `OptionsStore`, `OptionsPositionStore` | Chain snapshots (ATM + full), daily-capture claims, gamma wall and signed-GEX history, active options positions |
 | **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `NewsStore`, `SentimentStore` | FinBERT-scored articles; aggregated sentiment summaries |

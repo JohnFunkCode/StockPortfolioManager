@@ -384,6 +384,24 @@ class TestFxDailyCloses(unittest.TestCase):
             closes, _ = self._closes(frame)
             self.assertEqual(closes, {})
 
+    def test_currency_code_is_upper_cased_and_trimmed(self):
+        self.assertEqual(gw_mod._currency_code(" eur "), "EUR")
+        for bad in ("", None, "EU", "EURO", "E1R"):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                gw_mod._currency_code(bad)
+
+    def test_daily_closes_keeps_good_closes_inside_the_range(self):
+        series = pd.Series(
+            [1.07, float("nan"), 0.0, 1.08, 1.10, 1.11],
+            index=pd.to_datetime([
+                "2026-03-01", "2026-03-03", "2026-03-04", "2026-03-06", "2026-03-09", "2026-03-10",
+            ]),
+        )
+        self.assertEqual(gw_mod._daily_closes(series, self.START, self.END), {
+            datetime.date(2026, 3, 6): 1.08, datetime.date(2026, 3, 9): 1.10,
+        })
+        self.assertEqual(gw_mod._daily_closes(series.iloc[:0], self.START, self.END), {})
+
     def test_refuses_anything_that_is_not_a_currency_code(self):
         for bad in ("", None, "EU", "EURO", "E1R", "EUR=X", "../", "ÉUR"):
             with self.subTest(bad=bad), patch.object(gw_mod.yf, "download") as download:

@@ -202,6 +202,28 @@ def _is_positive_finite(value) -> bool:
     return math.isfinite(number) and number > 0
 
 
+def _currency_code(currency) -> str:
+    """``currency`` as an upper-case three-letter code, or ``ValueError``. The
+    code becomes part of a symbol sent to Yahoo, so nothing else is let by."""
+    code = (currency or "").strip().upper()
+    if len(code) != 3 or not code.isascii() or not code.isalpha():
+        raise ValueError(f"not a currency code: {currency!r}")
+    return code
+
+
+def _daily_closes(
+    closes: pd.Series, start: datetime.date, end: datetime.date
+) -> dict[datetime.date, float]:
+    """``{date: close}`` for the positive finite closes dated ``start`` to
+    ``end`` inclusive. Any other row is left out."""
+    by_day: dict[datetime.date, float] = {}
+    for stamp, value in closes.items():
+        day = pd.Timestamp(stamp).date()
+        if start <= day <= end and _is_positive_finite(value):
+            by_day[day] = float(value)
+    return by_day
+
+
 def _flatten_columns(df: pd.DataFrame) -> pd.DataFrame:
     """yf.download returns MultiIndex columns in newer versions; flatten to
     field names whichever level holds them."""
@@ -306,9 +328,7 @@ class YFinanceGateway:
         substitutes 1.0. ``currency`` must be a three-letter code, because it
         becomes part of the symbol requested.
         """
-        code = (currency or "").strip().upper()
-        if len(code) != 3 or not code.isascii() or not code.isalpha():
-            raise ValueError(f"not a currency code: {currency!r}")
+        code = _currency_code(currency)
         # `end` is exclusive at Yahoo (see fetch_history), so ask one day past.
         last = end + datetime.timedelta(days=1)
         with _YF_DOWNLOAD_LOCK:
@@ -328,12 +348,7 @@ class YFinanceGateway:
         if "Close" not in df.columns:
             logger.warning("yfinance FX columns unexpected for %s: %s", code, list(df.columns))
             return {}
-        closes: dict[datetime.date, float] = {}
-        for stamp, value in df["Close"].items():
-            day = pd.Timestamp(stamp).date()
-            if start <= day <= end and _is_positive_finite(value):
-                closes[day] = float(value)
-        return closes
+        return _daily_closes(df["Close"], start, end)
 
     def close_thread_caches(self) -> None:
         """Close the *calling thread's* yfinance peewee cache DB connections.

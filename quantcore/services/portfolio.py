@@ -289,6 +289,22 @@ class PortfolioService:
     ) -> Optional[Decimal]:
         return rates.get((fx.normalize_currency(currency), fx.as_date(on)))
 
+    def _sale_fx_rates(
+        self,
+        symbol_lots: Sequence[Dict[str, Any]],
+        allocation: Sequence[Tuple[Any, Decimal]],
+        sale_trade_date: Any,
+    ) -> Dict[str, Decimal]:
+        """`{currency: USD per unit on the sale date}` for the currencies of
+        the lots a sale touches. A currency with no rate to be had is absent,
+        and so is USD."""
+        sold_ids = {allocated_id for allocated_id, _ in allocation}
+        rates = self._fx_rates(
+            (lot["currency"], sale_trade_date)
+            for lot in symbol_lots if lot["lot_id"] in sold_ids
+        )
+        return {currency: rate for (currency, _), rate in rates.items()}
+
     def _fx_rate(self, currency: Optional[str], on: Any) -> Optional[Decimal]:
         """The rate for one trade, or None (USD, or no rate to be had)."""
         return self._rate_from(self._fx_rates([(currency, on)]), currency, on)
@@ -798,18 +814,13 @@ class PortfolioService:
         if extra:
             raise ValueError(f"lot_notes references lot(s) not in this sale: {sorted(extra)}")
 
-        # The sale-date rate for each currency this sale touches, looked up
-        # before the transaction opens so no connection waits on the network.
-        sold_ids = {allocated_id for allocated_id, _ in allocation}
-        rates = self._fx_rates(
-            (lot["currency"], sale_trade_date)
-            for lot in symbol_lots if lot["lot_id"] in sold_ids
-        )
+        # Looked up before the transaction opens, so no connection waits on
+        # the network.
         allocations = self._repo.close_lots(
             owner, allocation, sale_price, sale_trade_date,
             fees=fees, allocation_method=method,
             notes=notes, lot_notes=cleaned_lot_notes or None,
-            fx_rates_at_sale={currency: rate for (currency, _), rate in rates.items()},
+            fx_rates_at_sale=self._sale_fx_rates(symbol_lots, allocation, sale_trade_date),
         )
         self._close_plan_if_flat(owner, anchor["symbol"], "last open lot closed")
         return {

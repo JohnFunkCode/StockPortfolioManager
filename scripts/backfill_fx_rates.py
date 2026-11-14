@@ -57,7 +57,7 @@ def _report(kind: str, key: str, date_key: str, rows: list, apply: bool) -> tupl
     return resolved, unresolved
 
 
-def main() -> int:
+def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--apply",
@@ -74,7 +74,29 @@ def main() -> int:
         action="store_true",
         help="Permit running against the production DB in .env (default: refuse).",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
+
+
+def _backfill(portfolio, owners: list, apply: bool) -> tuple[int, int]:
+    """Backfill each owner and print their rows; return (resolved, unresolved)
+    over all of them. An owner with nothing missing prints nothing."""
+    resolved = unresolved = 0
+    for owner in owners:
+        result = portfolio.backfill_fx_rates(owner, apply=apply)
+        if not result["lots"] and not result["sales"]:
+            continue
+        print(f"{owner}:")
+        for counts in (
+            _report("lot", "lot_id", "trade_date", result["lots"], apply),
+            _report("sale", "sale_id", "sale_trade_date", result["sales"], apply),
+        ):
+            resolved += counts[0]
+            unresolved += counts[1]
+    return resolved, unresolved
+
+
+def main() -> int:
+    args = _parse_args()
 
     if not args.allow_prod:
         from quantcore.db_safety import assert_not_production
@@ -84,19 +106,7 @@ def main() -> int:
 
     portfolio = get_services().portfolio
     owners = [args.owner] if args.owner else portfolio.list_owners()
-
-    resolved = unresolved = 0
-    for owner in owners:
-        result = portfolio.backfill_fx_rates(owner, apply=args.apply)
-        if not result["lots"] and not result["sales"]:
-            continue
-        print(f"{owner}:")
-        for counts in (
-            _report("lot", "lot_id", "trade_date", result["lots"], args.apply),
-            _report("sale", "sale_id", "sale_trade_date", result["sales"], args.apply),
-        ):
-            resolved += counts[0]
-            unresolved += counts[1]
+    resolved, unresolved = _backfill(portfolio, owners, args.apply)
 
     print(
         f"\n{len(owners)} owner(s) checked, {resolved} rate(s) "

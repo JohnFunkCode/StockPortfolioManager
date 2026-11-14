@@ -94,6 +94,24 @@ class BackfillScriptTest(unittest.TestCase):
         self.assertEqual(counts, (1, 0))
         self.assertIn("already had a rate, left lot 7", out.getvalue())
 
+    def test_backfill_totals_every_owner_and_prints_only_those_with_rows(self):
+        portfolio = FakePortfolio({
+            "john": {"lots": [LOT, UNRATED], "sales": [SALE]}, "sager": {}, "thomas": {"lots": [LOT]},
+        })
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            counts = backfill._backfill(portfolio, ["john", "sager", "thomas"], False)
+
+        self.assertEqual(counts, (3, 1))
+        self.assertEqual(portfolio.calls, [("john", False), ("sager", False), ("thomas", False)])
+        headers = [line for line in out.getvalue().splitlines() if line.endswith(":")]
+        self.assertEqual(headers, ["john:", "thomas:"])
+
+    def test_parse_args_defaults_to_a_dry_run_of_every_owner(self):
+        with patch("sys.argv", ["backfill_fx_rates.py"]):
+            args = backfill._parse_args()
+        self.assertEqual((args.apply, args.owner, args.allow_prod), (False, "", False))
+
     def test_refuses_production_unless_allowed(self):
         portfolio = FakePortfolio({})
         with patch("quantcore.db_safety.assert_not_production", side_effect=SystemExit(2)):

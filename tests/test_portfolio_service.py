@@ -1084,6 +1084,21 @@ class PortfolioServiceFxRatesTest(unittest.TestCase):
         (remainder,) = self.repo.list_positions(OWNER_A)
         self.assertEqual(self._purchase_rate(remainder["lot_id"]), Decimal("1.1"))
 
+    def test_sale_fx_rates_covers_only_the_lots_the_sale_touches(self):
+        lots = [
+            {"lot_id": 1, "currency": "EUR"},
+            {"lot_id": 2, "currency": "USD"},
+            {"lot_id": 3, "currency": "GBP"},     # open, but not in this sale
+            {"lot_id": 4, "currency": "CHF"},     # in the sale, no rate to be had
+        ]
+        allocation = [(1, Decimal("2")), (2, Decimal("1")), (4, Decimal("1"))]
+
+        rates = self.service._sale_fx_rates(lots, allocation, "2026-03-02")
+
+        self.assertEqual(rates, {"EUR": Decimal("1.1")})
+        self.assertEqual(sorted(c[0] for c in self.fx.calls), ["CHF", "EUR"])
+        self.assertEqual(self.service._sale_fx_rates(lots, [], "2026-03-02"), {})
+
     # ---- CSV import ----------------------------------------------------
     def test_import_makes_one_lookup_per_currency(self):
         with tempfile.TemporaryDirectory() as tmp:

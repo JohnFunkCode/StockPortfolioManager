@@ -21,6 +21,7 @@ describe('COMPONENT_REGISTRY', () => {
       'arbitrage_spread',
       'arbitrage_premium',
       'arbitrage_scan',
+      'arbitrage_universe',
       'arbitrage_discovery',
       'portfolio_table',
       'portfolio_allocation',
@@ -95,6 +96,11 @@ describe('COMPONENT_REGISTRY', () => {
     expect(validateDirective({ component: 'arbitrage_scan', props: {} }).ok).toBe(true);
     expect(
       validateDirective({ component: 'arbitrage_scan', props: { ticker: 'MSTR' } }).ok,
+    ).toBe(false);
+    // The curated list is one fixed file: nothing to address.
+    expect(validateDirective({ component: 'arbitrage_universe', props: {} }).ok).toBe(true);
+    expect(
+      validateDirective({ component: 'arbitrage_universe', props: { ticker: 'MSTR' } }).ok,
     ).toBe(false);
     // Discovery sweeps a list, so it takes symbols rather than a ticker.
     expect(

@@ -1,6 +1,6 @@
 # Curated arbitrage universe on the Arbitrage page (#415)
 
-**Status:** planned, not started. Issue [#415](https://github.com/JohnFunkCode/StockPortfolioManager/issues/415).
+**Status:** implemented 2026-11-13 in one PR; not yet merged or deployed. Issue [#415](https://github.com/JohnFunkCode/StockPortfolioManager/issues/415).
 Related: #388 (whole-watchlist pair-trading engine). Design of the scanner itself:
 [`docs/architecture/arbitrage.md`](../architecture/arbitrage.md).
 
@@ -165,4 +165,14 @@ No backend route, service, schema or MCP change is planned.
 
 ## Checkpoint log
 
-*(append as each step lands)*
+- **2026-11-13: steps 1–7 landed in one PR.** No backend route, service, schema or MCP change,
+  as planned. Checked in the dev server against a local api: the Universe tab listed all ten
+  pairs while the scan request was still pending, and "Open workup" opened MSTR's card.
+  - The capabilities-matrix counts moved to 59 of 111 reached, 52 left, 31 gaps, 18 components.
+  - "Units held" is labelled with the underlying's symbol (`Units of BTC-USD held`), not `BTC`
+    as in the mock-up: the universe has no unit name, only the yfinance symbol.
+  - The Sidekick card omits "Open workup". Chat has no pair detail to open, and a gesture there
+    would need the interaction registries.
+  - Gotcha: the page keeps `{security, kind}` for the selected pair rather than looking the row
+    up in the scan. A pair opened from the Universe tab may have no scan row (it errored, or the
+    scan hasn't returned), and `kind` decides whether the NAV premium chart is requested.

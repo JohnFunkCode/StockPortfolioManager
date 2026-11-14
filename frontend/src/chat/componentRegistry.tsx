@@ -15,6 +15,7 @@ import {
   SpreadHistoryCard,
   PremiumHistoryCard,
   ArbScanCard,
+  ArbUniverseCard,
   DiscoveryCard,
 } from '../components/chat/ArbitrageChartCards';
 import PortfolioTableCard from '../components/chat/PortfolioTableCard';
@@ -70,6 +71,8 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   arbitrage_premium: { component: PremiumHistoryCard, spec: TICKER_ONLY },
   // Universe-wide: no props at all.
   arbitrage_scan: { component: ArbScanCard, spec: {}, titled: false },
+  // The curated list itself, rationale included: no props for the same reason.
+  arbitrage_universe: { component: ArbUniverseCard, spec: {}, titled: false },
   arbitrage_discovery: { component: DiscoveryCard, spec: { symbols: 'string' } },
   // No props: always the caller's own portfolio via the browser's
   // authenticated session — never add an `owner` prop (decision #20).

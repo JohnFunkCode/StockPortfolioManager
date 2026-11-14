@@ -30,6 +30,16 @@ export function usePremiumHistory(security: string, days = 365) {
   });
 }
 
+export function useArbitrageUniverse() {
+  return useQuery({
+    queryKey: ['arbitrage-universe'],
+    queryFn: () => arbitrageApi.getUniverse(),
+    // A YAML read with no price fetches. It changes only when a reviewed edit
+    // to arb_universe.yaml deploys.
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
 export function useArbitrageScan(topN = 20, days = 365) {
   return useQuery({
     queryKey: ['arbitrage-scan', topN, days],

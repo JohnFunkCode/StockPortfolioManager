@@ -1,8 +1,10 @@
 /**
  * Arbitrage scanner client — GET /api/arbitrage/*.
  *
- * Only the single-pair workup is wired to the UI today; the scan and
- * discovery endpoints are driven from MCP and the sidekick's own tools.
+ * Every route here reaches the Arbitrage page: the scan and the curated
+ * universe as its two tabs, discovery as its sweep panel, and the single-pair
+ * workup (card, spread history, premium history) under a selected pair. The
+ * sidekick renders the same components through its own cards.
  */
 import { apiRequest } from './client';
 
@@ -154,6 +156,42 @@ export interface ScanResponse {
   errors: Array<{ security: string; error: string }>;
 }
 
+/**
+ * One curated link from arb_universe.yaml. The capital-structure fields are
+ * hand-maintained and only meaningful for `nav_vehicle` entries; the last
+ * three are computed server-side (ArbitrageService.get_universe).
+ *
+ * The type mirrors the whole response. `annual_senior_cost_usd` and
+ * `other_assets_usd` are carried but not rendered: the expanded row shows the
+ * four figures agreed in arbitrage-universe-ui-plan.md (units, senior claims,
+ * diluted shares, source). Showing more is a decision for that plan, not a
+ * gap in the table.
+ */
+export interface UniverseEntry {
+  security: string;
+  name: string;
+  kind: string;
+  underlying: string;
+  hedge_instrument: string | null;
+  convergence_mechanism: string;
+  holdings_units: number | null;
+  holdings_as_of: string | null;
+  senior_claims_usd: number | null;
+  annual_senior_cost_usd: number | null;
+  other_assets_usd: number | null;
+  diluted_shares: number | null;
+  source: string | null;
+  notes: string | null;
+  holdings_age_days: number | null;
+  holdings_stale: boolean;
+  hedge_available: boolean;
+}
+
+export interface UniverseResponse {
+  count: number;
+  entries: UniverseEntry[];
+}
+
 export interface TestedPair {
   security: string;
   underlying: string;
@@ -180,6 +218,8 @@ export interface DiscoveryResponse {
 }
 
 export const arbitrageApi = {
+  getUniverse: () => apiRequest<UniverseResponse>('/api/arbitrage/universe'),
+
   getPair: (security: string, days = 365) =>
     apiRequest<ArbitragePairResponse>(
       `/api/arbitrage/pairs/${encodeURIComponent(security)}?days=${days}`,

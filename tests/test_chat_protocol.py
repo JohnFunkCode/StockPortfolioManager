@@ -126,6 +126,13 @@ class TestValidateDirective(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("ticker", reason)
 
+    def test_universe_component_takes_no_props(self):
+        """The curated list is one fixed file, so there is nothing to address."""
+        self.assertTrue(validate_directive("arbitrage_universe", {})[0])
+        ok, reason = validate_directive("arbitrage_universe", {"ticker": "MSTR"})
+        self.assertFalse(ok)
+        self.assertIn("ticker", reason)
+
     def test_discovery_component_takes_symbols_not_ticker(self):
         self.assertTrue(validate_directive("arbitrage_discovery", {"symbols": "NEM,AEM"})[0])
         self.assertFalse(validate_directive("arbitrage_discovery", {"ticker": "NEM"})[0])

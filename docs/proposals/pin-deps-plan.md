@@ -23,7 +23,7 @@ base-only test run.
   | `requirements-ml.lock` | `requirements-ml.txt`, `-c` base lock | same | `Dockerfile.api`/`.news` |
   | `requirements-dev.lock` | `requirements-dev.txt`, `-c` base lock | same | `deploy.yml` `gate` |
   | `keyproxy/requirements.lock` | `keyproxy/requirements.txt` | same | `Dockerfile.keyproxy` |
-  | `requirements.lock` | `requirements.txt` | `--universal`, python >= 3.11 | local dev, the Pi |
+  | `requirements.lock` | `requirements.txt` | `--universal`, python >= 3.11.5 | local dev, the Pi |
 
   Modes: plain (re-lock, keeping pins that still satisfy the inputs), `--upgrade`, `--check`.
 - **Every install is `pip install --require-hashes -r <lock>`.** The Dockerfiles `COPY` only the
@@ -218,7 +218,9 @@ base-only test run.
     the run audited the >= 3.11.5 pin. Audit a marker branch on its own (`echo soupsieve==2.10 >
     f.txt; pip-audit --vulnerability-service osv --no-deps --disable-pip -r f.txt`). A floor in a
     `.txt` that some of the universal lock's Python range can't satisfy makes the universal compile
-    fail ("soupsieve>=4.0 depends on Python>=3.11.5"). Scope the floor with the same marker.
+    fail ("soupsieve>=4.0 depends on Python>=3.11.5"). #537 first scoped the floor with that
+    marker. That left 3.11.0–3.11.4 on soupsieve 2.10, which no release can fix, so the follow-up
+    raised the universal compile to `--python-version 3.11.5` and dropped the marker.
 
 ## Checkpoint log
 
@@ -242,4 +244,5 @@ base-only test run.
 | Audit gap 1: thresholds (2026-10-28) | `audit_npm.sh` audits the whole tree. `npm_audit_filter.py` fails runtime findings at moderate+ and warns on dev-only ones at high+, classed by the lock's flags (gotcha 17). End to end: on main's pre-#454 locks it fails on qs (`::error`, runtime moderate) and warns on the 4 dev-only undici highs; on #454's locks it exits 0. `tests/test_audit_npm.py` 17/17, adding runtime-moderate-fails, the dev warn/list cases, `devOptional` failing as runtime (review fix: 18/18; the reproduced lock with a synthetic moderate finding exits 1), only `"dev": true` demoting, one runtime install making a package runtime, a missing lock entry counting as runtime, and the script no longer passing `--omit`. |
 | Audit gap 2: Dependabot alerts (2026-10-28, enabled by John) | Turned on: dependency graph, Dependabot alerts, malware alerts. **Verified coverage:** GitHub's dependency graph parses both `package-lock.json` files, the `requirements*.txt` **inputs** and the workflows' Actions. It does **not** parse the `*.lock` files, so for Python it only sees our minimum versions, not the pins we install. pip-audit (`audit_deps.sh`) stays the only real Python signal; Dependabot covers npm and Actions. The first scan raised 8 npm alerts, all already found by our audit and fixed in #454: qs (runtime) and undici and @vitest/mocker (dev), with dev-only findings labelled `development` scope. That's the second signal gotcha 17 wanted. It raised 0 Python alerts. **Dependabot security updates should stay off:** within minutes they opened #455 and #456, duplicates of #454. For Python they would raise a `.txt` minimum without re-locking, which `lock_deps.sh --check` fails. Version updates stay ruled out (above). |
 | Daily audit failure (2026-11-13) | Run 43478294818 on main flagged dnspython 2.9.1 (CVE-2026-128089, via pydantic → email-validator) and soupsieve 3.0.4 (CVE-2026-126190, via yfinance → beautifulsoup4). Raised floors in base (`dnspython>=2.9.2`, `soupsieve>=4.0.0; python_full_version >= '3.11.5'`) and re-locked **without** `--upgrade`, so only those pins moved: dnspython 2.9.2 and soupsieve 4.1 in all four affected locks (keyproxy was clean). `--check` OK; `audit_deps.sh` clean on all 5 locks. **Open:** the universal lock's `soupsieve==2.10` branch for Python 3.11.0–3.11.4 is still vulnerable, and no fixed soupsieve supports those Pythons. Closing it means raising that lock's `--python-version` to 3.11.5, which is a supported-range decision left to John (gotcha 18). |
+| Universal lock to 3.11.5 (2026-11-13, John's call) | Closes #537's open item. `lock_deps.sh` compiles `requirements.lock` with `--python-version 3.11.5`, and the soupsieve floor lost its marker. Plain re-lock: the only lock change is the vulnerable `soupsieve==2.10 ; python_full_version < '3.11.5'` line disappearing, and the universal lock pins `soupsieve==4.1` unconditionally. The other four locks are unchanged. `--check` OK; `audit_deps.sh` clean on all 5 locks. Python 3.11.0–3.11.4 can no longer install `requirements.lock`; the containers (3.12) and CI are unaffected. |
 | Pi | **Deferred (John, 2026-10-05):** the Pi isn't in use. If it comes back: on a 64-bit Pi OS, `pip install --require-hashes -r requirements.lock`, then run the report script (gotcha 10). |

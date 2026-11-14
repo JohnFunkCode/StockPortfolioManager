@@ -13,7 +13,7 @@
 #   requirements-ml.lock       Dockerfile.api, Dockerfile.news           (base pins + torch stack)
 #   requirements-dev.lock      deploy.yml's gate job                     (base pins + report + dev)
 #   keyproxy/requirements.lock Dockerfile.keyproxy
-#   requirements.lock          local dev and the Pi (universal: any OS/arch, python >= 3.11)
+#   requirements.lock          local dev and the Pi (universal: any OS/arch, python >= 3.11.5)
 #
 # The container/CI locks target CPython 3.12 on x86_64 manylinux, which is what Cloud Build
 # and ubuntu-latest run. ml and dev are compiled with the base lock as a constraint, so a
@@ -71,8 +71,9 @@ TORCH=(--index-strategy unsafe-best-match --emit-index-url)
 "$UV" pip compile keyproxy/requirements.txt "${TARGET[@]}" "${COMMON[@]}" \
   -o keyproxy/requirements.lock
 # Universal: one lock with environment markers for macOS (dev), linux aarch64 (a 64-bit Pi)
-# and x86_64, from python 3.11 up.
-"$UV" pip compile requirements.txt --universal --python-version 3.11 \
+# and x86_64, from python 3.11.5 up: soupsieve 4 (the CVE-2026-126190 fix) needs 3.11.5, and
+# 3.11.0-3.11.4 could only get a vulnerable soupsieve (pin-deps-plan.md gotcha 18).
+"$UV" pip compile requirements.txt --universal --python-version 3.11.5 \
   "${TORCH[@]}" "${COMMON[@]}" -o requirements.lock
 
 if [[ "$MODE" == check ]]; then

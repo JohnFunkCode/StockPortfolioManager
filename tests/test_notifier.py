@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from notifier import Notifier
 from portfolio.metrics import Metrics
+from portfolio.money import Money
 from portfolio.portfolio import Portfolio
 from portfolio.stock import Stock
 
@@ -147,6 +148,75 @@ class NotifierMultiLotLossAlertTest(unittest.TestCase):
         description = loss_alerts[0]["embeds"][0]["description"]
         self.assertIn("2026-01-02", description)
         self.assertIn("2026-02-03", description)
+
+
+class NotifierSendLossAlertTest(unittest.TestCase):
+    """_send_loss_alert, called directly: the underwater-lot block extracted
+    from calculate_and_send_notifications (#431 plan step 1.4)."""
+
+    def _notifier(self, portfolio: Portfolio) -> tuple[Notifier, list]:
+        notifier = Notifier(portfolio)
+        sent: list = []
+        notifier.send_notifications = MagicMock(side_effect=sent.append)
+        return notifier, sent
+
+    def test_an_underwater_lot_sends_one_red_alert_naming_the_lot(self):
+        portfolio = Portfolio()
+        portfolio.add_stock(_lot("ZZLOSSTEST", "ZZ Loss Test", 50.0, 10, date(2026, 1, 2), 40.0))
+        portfolio.add_stock(_lot("ZZLOSSTEST", "ZZ Loss Test", 30.0, 5, date(2026, 2, 3), 40.0))
+        notifier, sent = self._notifier(portfolio)
+
+        notifier._send_loss_alert(portfolio.stocks["ZZLOSSTEST"])
+
+        [alert] = sent
+        self.assertIn("ZZLOSSTEST", alert["content"])
+        [embed] = alert["embeds"]
+        self.assertEqual(embed["title"], "ZZ Loss Test (ZZLOSSTEST) Loss Alert")
+        self.assertEqual(embed["color"], 16711680)
+        self.assertIn("Current Price: ", embed["description"])
+        self.assertIn("Purchased 2026-01-02 @ ", embed["description"])
+        self.assertIn(" x 10: -20.0% or ", embed["description"])
+        self.assertNotIn("2026-02-03", embed["description"])
+
+    def test_every_lot_is_given_the_symbols_current_price(self):
+        """The lots are separate objects from the symbol's aggregate; the
+        alert's loss figures are computed from the price set here."""
+        portfolio = Portfolio()
+        portfolio.add_stock(_lot("ZZLOSSTEST", "ZZ Loss Test", 50.0, 10, date(2026, 1, 2), 45.0))
+        portfolio.add_stock(_lot("ZZLOSSTEST", "ZZ Loss Test", 30.0, 5, date(2026, 2, 3), 45.0))
+        notifier, sent = self._notifier(portfolio)
+        stock = portfolio.stocks["ZZLOSSTEST"]
+        stock.current_price = Money(20, "USD")  # now below every lot
+
+        notifier._send_loss_alert(stock)
+
+        for lot in portfolio.lots["ZZLOSSTEST"]:
+            self.assertIs(lot.current_price, stock.current_price)
+        [alert] = sent
+        self.assertIn("2026-01-02", alert["embeds"][0]["description"])
+        self.assertIn("2026-02-03", alert["embeds"][0]["description"])
+
+    def test_no_current_price_sends_nothing(self):
+        portfolio = Portfolio()
+        portfolio.add_stock(_lot("ZZNOPRICE", "ZZ No Price", 50.0, 10, date(2026, 1, 2), 40.0))
+        notifier, sent = self._notifier(portfolio)
+        stock = portfolio.stocks["ZZNOPRICE"]
+        stock.current_price = None
+
+        notifier._send_loss_alert(stock)
+
+        self.assertEqual(sent, [])
+
+    def test_a_symbol_with_no_recorded_lots_is_judged_on_the_stock_itself(self):
+        portfolio = Portfolio()
+        notifier, sent = self._notifier(portfolio)
+        stock = _lot("ZZNOLOTS", "ZZ No Lots", 50.0, 10, date(2026, 1, 2), 40.0)
+
+        notifier._send_loss_alert(stock)
+
+        [alert] = sent
+        self.assertEqual(alert["embeds"][0]["title"], "ZZ No Lots (ZZNOLOTS) Loss Alert")
+        self.assertIn("Purchased 2026-01-02", alert["embeds"][0]["description"])
 
 
 if __name__ == "__main__":

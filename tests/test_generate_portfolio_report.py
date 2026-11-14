@@ -22,9 +22,14 @@ in the script still errors the run.
 import io
 import os
 import unittest
+from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
+
+from portfolio.metrics import Metrics
+from portfolio.stock import Stock
 
 # requirements-report.txt — installed by requirements-dev.txt (deploy.yml, where
 # these tests actually run and are measured for coverage) and by nothing lean.
@@ -162,6 +167,130 @@ class TemplateLocationTest(unittest.TestCase):
         )
         # The committed template is already there, so nothing regenerates it.
         write_template.assert_not_called()
+
+
+class ReportRowTest(unittest.TestCase):
+    """The row builders extracted from create_portfolio_html (#431 plan step
+    1.4). The extraction changed no behaviour, so these pin what the rows
+    already said, quirks included."""
+
+    AVERAGES_AND_RETURNS = (
+        "ten_day_moving_average", "thirty_day_moving_average",
+        "fifty_day_moving_average", "one_hundred_day_moving_average",
+        "two_hundred_day_moving_average", "five_day_return",
+        "thirty_day_return", "ninety_day_return", "ytd_return",
+        "one_year_return",
+    )
+
+    def _stock(self, current_price=40.0, **metrics):
+        stock = Stock(
+            name="ZZ Row Test", symbol="ZZROW", quantity=Decimal("2.500000"),
+            purchase_price=50.0, purchase_date=date.today() - timedelta(days=10),
+            current_price=current_price,
+        )
+        stock.metrics = Metrics(**metrics)
+        return stock
+
+    def test_a_portfolio_row_carries_the_holding_and_its_metrics(self):
+        stock = self._stock(
+            ten_day_moving_average=41.5, percent_change_today=1.25,
+            five_day_return=-2.0, one_year_return=12.0,
+        )
+        stock.earnings_date = date(2026, 12, 1)
+
+        row = report._portfolio_row(stock)
+
+        self.assertEqual(row["name"], "ZZ Row Test")
+        self.assertEqual(row["symbol"], "ZZROW")
+        self.assertEqual(row["purchase_price"], 50.0)
+        self.assertEqual(row["current_price"], 40.0)
+        self.assertEqual(row["quantity"], "2.5")
+        self.assertAlmostEqual(row["gain_loss"], -25.0)
+        self.assertAlmostEqual(float(row["gain_loss_pct"]), -20.0)
+        self.assertEqual(row["days_held"], 10)
+        self.assertAlmostEqual(row["dollars_per_day"], -2.5)
+        self.assertEqual(row["earnings_date"], "2026-12-01")
+        self.assertEqual(row["ten_day_moving_average"], 41.5)
+        self.assertEqual(row["percent_change_today"], 1.25)
+        self.assertEqual(row["five_day_return"], -2.0)
+        self.assertEqual(row["one_year_return"], 12.0)
+        self.assertEqual(
+            set(row),
+            {"name", "symbol", "purchase_price", "current_price", "quantity",
+             "gain_loss", "gain_loss_pct", "days_held", "dollars_per_day",
+             "earnings_date", "percent_change_today", *self.AVERAGES_AND_RETURNS},
+        )
+
+    def test_a_portfolio_row_without_a_price_says_not_available(self):
+        row = report._portfolio_row(self._stock(current_price=None))
+
+        for key in ("current_price", "gain_loss", "gain_loss_pct",
+                    "dollars_per_day", "earnings_date"):
+            self.assertEqual(row[key], "N/A", key)
+
+    def test_a_portfolio_row_keeps_a_zero_return_but_not_a_zero_change_today(self):
+        """The holdings table has always printed a zero return as 0 and a zero
+        change today as N/A."""
+        row = report._portfolio_row(
+            self._stock(five_day_return=0.0, percent_change_today=0.0)
+        )
+
+        self.assertEqual(row["five_day_return"], 0.0)
+        self.assertEqual(row["percent_change_today"], "N/A")
+
+    def test_a_portfolio_row_without_metrics_still_raises(self):
+        """percent_change_today is read without checking for metrics, so a
+        stock with none has always failed the report rather than print N/A."""
+        stock = self._stock()
+        stock.metrics = None
+
+        with self.assertRaises(AttributeError):
+            report._portfolio_row(stock)
+
+    def test_a_watchlist_row_carries_the_price_and_metrics(self):
+        stock = self._stock(
+            two_hundred_day_moving_average=38.0, percent_change_today=-0.5,
+            ytd_return=7.0,
+        )
+
+        row = report._watchlist_row(stock)
+
+        self.assertEqual(row["name"], "ZZ Row Test")
+        self.assertEqual(row["symbol"], "ZZROW")
+        self.assertEqual(row["current_price"], 40.0)
+        self.assertEqual(row["two_hundred_day_moving_average"], 38.0)
+        self.assertEqual(row["percent_change_today"], -0.5)
+        self.assertEqual(row["ytd_return"], 7.0)
+        self.assertEqual(
+            set(row),
+            {"name", "symbol", "current_price", "percent_change_today",
+             *self.AVERAGES_AND_RETURNS},
+        )
+
+    def test_a_watchlist_row_says_not_available_for_a_missing_or_zero_figure(self):
+        row = report._watchlist_row(
+            self._stock(current_price=None, five_day_return=0.0)
+        )
+
+        self.assertEqual(row["current_price"], "N/A")
+        self.assertEqual(row["five_day_return"], "N/A")   # zero
+        self.assertEqual(row["one_year_return"], "N/A")   # missing
+
+    def test_the_rows_reach_the_template(self):
+        held, watched = self._stock(), self._stock()
+        portfolio, watchlist = MagicMock(), MagicMock()
+        portfolio.list_stocks.return_value = [held]
+        watchlist.list_stocks.return_value = [watched]
+
+        with patch.object(report, "create_portfolio_charts", return_value=("img", 1, 2)), \
+                patch.object(report, "Environment") as env_cls, \
+                patch.object(report, "FileSystemLoader"):
+            render = env_cls.return_value.get_template.return_value.render
+            report.create_portfolio_html(portfolio=portfolio, watchlist=watchlist)
+
+        context = render.call_args.kwargs
+        self.assertEqual(context["stock_details"], [report._portfolio_row(held)])
+        self.assertEqual(context["watchlist_details"], [report._watchlist_row(watched)])
 
 
 if __name__ == "__main__":

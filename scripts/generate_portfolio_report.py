@@ -169,6 +169,84 @@ def create_portfolio_charts(portfolio):
 
     return chart_img, total_purchase, total_current
 
+NOT_AVAILABLE = "N/A"
+
+# The moving averages and period returns a report row shows, in column order.
+# A portfolio row reads them all the same way; percent_change_today is listed
+# apart because that row has always read it differently (see _portfolio_row).
+_AVERAGE_FIELDS = (
+    'ten_day_moving_average',
+    'thirty_day_moving_average',
+    'fifty_day_moving_average',
+    'one_hundred_day_moving_average',
+    'two_hundred_day_moving_average',
+)
+_RETURN_FIELDS = (
+    'five_day_return',
+    'thirty_day_return',
+    'ninety_day_return',
+    'ytd_return',
+    'one_year_return',
+)
+
+
+def _or_na(value):
+    """The value, or "N/A" when it is missing. A zero counts as missing, as it
+    always has in this report."""
+    return value if value else NOT_AVAILABLE
+
+
+def _amount_or_na(money):
+    """A Money as a float for the template, or "N/A" when there is none."""
+    return float(money.amount) if money else NOT_AVAILABLE
+
+
+def _percentage_or_na(value):
+    """A percentage, or "N/A" when it could not be computed. Zero is a value."""
+    return value if value is not None else NOT_AVAILABLE
+
+
+def _portfolio_row(stock):
+    """One row of the report's holdings table.
+
+    The averages and returns are "N/A" only when the stock has no metrics at
+    all, so a zero return prints as 0. percent_change_today is the exception:
+    it is "N/A" when zero too, and it is read without checking for metrics.
+    Both quirks predate this function and are kept (plan step 1.4 is a
+    refactor with no behaviour change).
+    """
+    metrics = stock.metrics
+    row = {
+        'name': stock.name,
+        'symbol': stock.symbol,
+        'purchase_price': float(stock.purchase_price.amount),
+        'current_price': _amount_or_na(stock.current_price),
+        'quantity': format_quantity(stock.quantity),
+        'gain_loss': _amount_or_na(stock.calculate_gain_loss()),
+        'gain_loss_pct': _percentage_or_na(stock.calculate_gain_loss_percentage()),
+        'days_held': (datetime.now().date() - stock.purchase_date).days,
+        'dollars_per_day': _amount_or_na(stock.get_dollars_per_day()),
+        'earnings_date': stock.earnings_date.strftime("%Y-%m-%d") if stock.earnings_date else NOT_AVAILABLE,
+        'percent_change_today': _or_na(stock.metrics.percent_change_today),
+    }
+    for field in _AVERAGE_FIELDS + _RETURN_FIELDS:
+        row[field] = getattr(metrics, field) if metrics else NOT_AVAILABLE
+    return row
+
+
+def _watchlist_row(stock):
+    """One row of the report's watchlist table. Every figure is "N/A" when it
+    is missing or zero."""
+    row = {
+        'name': stock.name,
+        'symbol': stock.symbol,
+        'current_price': _amount_or_na(stock.current_price),
+    }
+    for field in _AVERAGE_FIELDS + ('percent_change_today',) + _RETURN_FIELDS:
+        row[field] = _or_na(getattr(stock.metrics, field))
+    return row
+
+
 def create_portfolio_html(portfolio, watchlist):
     """Create HTML content for the portfolio using Jinja2 templates"""
     # Set up Jinja2 environment.
@@ -200,57 +278,8 @@ def create_portfolio_html(portfolio, watchlist):
     total_gain_loss_pct = portfolio.get_total_gain_loss_percentage()
     total_dollars_per_day = portfolio.get_total_dollars_per_day()
 
-    # Generate stock details
-    stock_details = []
-    for stock in portfolio.list_stocks():
-        gain_loss = stock.calculate_gain_loss()
-        gain_loss_pct = stock.calculate_gain_loss_percentage()
-        dollars_per_day = stock.get_dollars_per_day()
-
-
-        stock_details.append({
-            'name': stock.name,
-            'symbol': stock.symbol,
-            'purchase_price': float(stock.purchase_price.amount),
-            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'quantity': format_quantity(stock.quantity),
-            'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
-            'gain_loss_pct': gain_loss_pct if gain_loss_pct is not None else "N/A",
-            'days_held': (datetime.now().date() - stock.purchase_date).days,
-            'dollars_per_day': float(dollars_per_day.amount) if dollars_per_day else "N/A",
-            'earnings_date': stock.earnings_date.strftime("%Y-%m-%d") if stock.earnings_date else "N/A",
-            'ten_day_moving_average' : stock.metrics.ten_day_moving_average if stock.metrics else "N/A",
-            'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics else "N/A",
-            'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics else "N/A",
-            'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics else "N/A",
-            'two_hundred_day_moving_average' : stock.metrics.two_hundred_day_moving_average if stock.metrics else "N/A",
-            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
-            'five_day_return': stock.metrics.five_day_return if stock.metrics else "N/A",
-            'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics else "N/A",
-            'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics else "N/A",
-            'ytd_return': stock.metrics.ytd_return if stock.metrics else "N/A",
-            'one_year_return': stock.metrics.one_year_return if stock.metrics else "N/A"
-        })
-
-    #generate watchlist data
-    watchlist_details = []
-    for stock in watchlist.list_stocks():
-        watchlist_details.append({
-            'name': stock.name,
-            'symbol': stock.symbol,
-            'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'ten_day_moving_average': stock.metrics.ten_day_moving_average if stock.metrics.ten_day_moving_average else "N/A",
-            'thirty_day_moving_average': stock.metrics.thirty_day_moving_average if stock.metrics.thirty_day_moving_average else "N/A",
-            'fifty_day_moving_average': stock.metrics.fifty_day_moving_average if stock.metrics.fifty_day_moving_average else "N/A",
-            'one_hundred_day_moving_average': stock.metrics.one_hundred_day_moving_average if stock.metrics.one_hundred_day_moving_average else "N/A",
-            'two_hundred_day_moving_average': stock.metrics.two_hundred_day_moving_average if stock.metrics.two_hundred_day_moving_average else "N/A",
-            'percent_change_today': stock.metrics.percent_change_today if stock.metrics.percent_change_today else "N/A",
-            'five_day_return': stock.metrics.five_day_return if stock.metrics.five_day_return else "N/A",
-            'thirty_day_return': stock.metrics.thirty_day_return if stock.metrics.thirty_day_return else "N/A",
-            'ninety_day_return': stock.metrics.ninety_day_return if stock.metrics.ninety_day_return else "N/A",
-            'ytd_return': stock.metrics.ytd_return if stock.metrics.ytd_return else "N/A",
-            'one_year_return': stock.metrics.one_year_return if stock.metrics.one_year_return else "N/A"
-        })
+    stock_details = [_portfolio_row(stock) for stock in portfolio.list_stocks()]
+    watchlist_details = [_watchlist_row(stock) for stock in watchlist.list_stocks()]
 
     # Create charts
     chart_img, total_purchase, total_current = create_portfolio_charts(portfolio)

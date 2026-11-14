@@ -198,7 +198,7 @@ log when the PR merges.
   Confirm fractions survive the Add Lot and Close Lot dialogs, CSV import, and
   `get_symbol_lots` and the other MCP outputs; fix what doesn't. Harvester's whole-share columns
   are left for phase 4 and recorded here. What the audit found is in section 5.1.
-- [ ] **1.4 Complexity follow-up from the 1.3 review.**
+- [x] **1.4 Complexity follow-up from the 1.3 review.**
   A refactor with no behaviour change, in its own PR. The #548 review measured three functions
   that 1.3 touched by one line each as over or at the complexity threshold: `create_portfolio_html`
   in `scripts/generate_portfolio_report.py` (cyclomatic 32) and in `html_summary.py` (15), and
@@ -206,6 +206,7 @@ log when the PR merges.
   builder from both report functions, and the underwater-lot alert block from the notifier. The
   existing tests (`tests/test_generate_portfolio_report.py`, `tests/test_notifier.py`) must pass
   unchanged; add a direct test for each extracted helper. Nothing in milestone 2 depends on it.
+  What it measured is in section 5.2.
 
 #### 5.1 What the fractional-share audit found (1.3)
 
@@ -235,6 +236,25 @@ means six decimals in and six decimals back.
 `api/routers/rungs.py`; and the ladder search in `experiments/HarvesterExperiment.py`, which walks
 whole share counts from 1 to `max_s0`. A plan's share counts are whole numbers
 whatever the holding is. `positions.shares` is a dead `INTEGER` column that stays NULL for a fractional lot.
+
+#### 5.2 What the complexity follow-up measured (1.4)
+
+radon 6.0.1 for cyclomatic complexity and complexipy 9.0.0 for cognitive complexity, the review's
+goals being 10 and 15. Neither is a project dependency; both were run from a scratch virtualenv.
+
+| Unit | Cyclomatic | Cognitive |
+|---|---|---|
+| `create_portfolio_html` in `scripts/generate_portfolio_report.py` | 32 → 4 | 59 → 1 |
+| `create_portfolio_html` in `html_summary.py` | 15 → 10 | 18 → 7 |
+| `Notifier.calculate_and_send_notifications` | 17 → 10 | 22 → 13 |
+
+The new helpers: `_portfolio_row` (4, 4), `_watchlist_row` (2, 1), `_or_na`, `_amount_or_na` and
+`_percentage_or_na` (2, 1 each) in the report script; `_stock_row` (4, 3) and `_stock_row_html`
+(3, 3) in `html_summary.py`; `Notifier._send_loss_alert` (8, 6).
+
+The old and new report functions were also run side by side on 64 stocks (every mix of a missing
+price, a zero, positive or negative metric, an earnings date and a same-day purchase): the row
+dictionaries were equal and `html_summary.py`'s page was byte-identical.
 
 ### Milestone 2: realized P/L (#235)
 
@@ -398,6 +418,19 @@ Known before any code is written. Add to this list as the work finds more.
 - **`formatShares` is the only way a share count is shown** (1.3). Two components printed the raw
   number and one used `toLocaleString`, and each showed a different number of decimals. The
   Realized view (2.2) and the orders list (3.3) should use it from the start.
+- **Moving a block does not lower its complexity, only its address** (1.4). The plan said to
+  extract the per-stock row builder. Moved as it was, the report's row dictionary would have
+  taken its 17 conditional expressions with it and the helper would have measured about 18. The
+  rows are built from two tuples of field names and three one-line "or N/A" helpers instead.
+- **The report's "N/A" rules are not uniform, and the refactor kept them** (1.4). In the
+  holdings table a moving average or return is "N/A" only when the stock has no metrics, so a
+  zero prints as 0. `percent_change_today` is "N/A" at zero as well, and is read without checking
+  for metrics, so a stock with `metrics = None` raises. In the watchlist table every zero is
+  "N/A". `html_summary.py` raises on a stock with no current price, because "N/A" can't take the
+  `.2f` format. Each is pinned by a test now; none was changed, because 1.4 changes no behaviour.
+- **A test that draws with matplotlib must pick the Agg backend first** (1.4). On a Mac the
+  default backend starts a GUI application from inside the test run. CI is headless and never
+  shows it. `tests/test_html_summary.py` calls `matplotlib.use("Agg")` before importing the script.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -440,3 +473,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.2 Books API and the book selector | #547 | `BooksService`, `/api/books` (list, create, archive), `book_id` on the three portfolio read routes (404 for a book that isn't the owner's), the selector, the paper banner, the Account column. Lot writes stay real-only until 3.5 |
 | 2026-11-14 | 1.3 Fractional-share audit | #548 | Audit table in section 5.1. Fixed: `parseInt` in the Add Security dialog, share counts shown to 4 (or 3) decimals, sales and edits finer than six decimals, integer-only `shares` on the stop-loss route and MCP tool, `int()` in the legacy CSV readers, padded counts in the loss alert and report. Harvester's whole-share columns recorded for phase 4. The book work of milestone 1 is done |
 | 2026-11-14 | 1.3 review | #548 | Two regressions from the rounding change fixed (a blank quantity on a lot edit, a missing share count on a sale). The review's three complexity warnings predate the PR; they became step 1.4, a separate PR |
+| 2026-11-14 | 1.4 Complexity follow-up | #551 | No behaviour change. Row builders extracted from both `create_portfolio_html` functions and the underwater-lot block from the notifier; all three are now at or under the goals (section 5.2). A direct test for each helper, and `html_summary.py` has tests for the first time. Milestone 1 is done |

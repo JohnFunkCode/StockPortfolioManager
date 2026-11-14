@@ -22,7 +22,7 @@ paper book, and a `book_id` that isn't this owner's matches no rows.
 from __future__ import annotations
 
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
@@ -243,6 +243,42 @@ WHERE p.owner = :owner{symbol_clause}
         AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
                  THEN b.kind = 'real'
                  ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+ORDER BY ls.sale_trade_date, ls.sale_id;
+"""
+
+# Realized P/L (#235): each sale with the basis side of the lot it closed. The
+# window is two bound dates, both optional, so the period filter is in the
+# query and nothing is formatted into the SQL. A missing bound falls back to
+# the row's own date through COALESCE (the column is NOT NULL); an OR would
+# do the same, but the isolation scans refuse one in a WHERE clause. A sale
+# belongs to a period by its sale_trade_date, never by when the row was written.
+SQL_LIST_REALIZED_SALES = """
+SELECT
+    ls.sale_id            AS sale_id,
+    ls.lot_id             AS lot_id,
+    s.ticker              AS symbol,
+    ls.shares_sold        AS shares_sold,
+    ls.sale_price         AS sale_price,
+    ls.sale_trade_date    AS sale_trade_date,
+    ls.allocation_method  AS allocation_method,
+    ls.notes              AS notes,
+    p.purchase_price      AS purchase_price,
+    p.trade_date          AS trade_date,
+    p.currency            AS currency,
+    p.account             AS account,
+    p.fx_rate_at_purchase AS fx_rate_at_purchase
+FROM lot_sales ls
+JOIN positions p ON p.position_id = ls.lot_id
+JOIN symbols s ON s.symbol_id = p.symbol_id
+WHERE p.owner = :owner
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+  AND ls.sale_trade_date >= COALESCE(CAST(:start_date AS DATE), ls.sale_trade_date)
+  AND ls.sale_trade_date <= COALESCE(CAST(:end_date AS DATE), ls.sale_trade_date)
 ORDER BY ls.sale_trade_date, ls.sale_id;
 """
 
@@ -593,6 +629,52 @@ class PortfolioRepository:
                 "fees": _dec(r["fees"]),
                 "allocation_method": r["allocation_method"] or None,
                 "notes": r["notes"] or None,
+            }
+            for r in rows
+        ]
+
+    def list_realized_sales(
+        self,
+        owner: str,
+        *,
+        start_date: Optional[date] = None,
+        end_date: Optional[date] = None,
+        book_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """`owner`'s sales in one book, each with the purchase price, trade
+        date and currency of the lot it closed, oldest first (#235).
+
+        `start_date` and `end_date` bound `sale_trade_date`, both inclusive;
+        None leaves that side open. Only `lot_sales` rows count: the legacy
+        `positions.sale_price` / `sale_date` columns are not a source.
+
+        `fx_rate_at_sale` is always None for now. `lot_sales` gets that column
+        in plan step 2.3; until then a non-USD sale has no rate, and the maths
+        flags it and leaves it out of the totals.
+        """
+        with closing(get_connection()) as conn:
+            rows = conn.execute(SQL_LIST_REALIZED_SALES, {
+                "owner": owner,
+                "book_id": book_id,
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+            }).fetchall()
+        return [
+            {
+                "sale_id": int(r["sale_id"]),
+                "lot_id": int(r["lot_id"]),
+                "symbol": (r["symbol"] or "").strip().upper(),
+                "shares_sold": _dec(r["shares_sold"]),
+                "sale_price": _dec(r["sale_price"]),
+                "sale_trade_date": str(r["sale_trade_date"]),
+                "allocation_method": r["allocation_method"] or None,
+                "notes": r["notes"] or None,
+                "purchase_price": _dec(r["purchase_price"]),
+                "trade_date": str(r["trade_date"]) if r["trade_date"] else None,
+                "currency": (r["currency"] or "USD").strip().upper(),
+                "account": r["account"] or None,
+                "fx_rate_at_purchase": _dec(r["fx_rate_at_purchase"]),
+                "fx_rate_at_sale": None,
             }
             for r in rows
         ]

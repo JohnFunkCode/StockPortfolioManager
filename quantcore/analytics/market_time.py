@@ -232,3 +232,37 @@ def trading_days_after(start: datetime.date, end: datetime.date) -> int:
             count += 1
         day += datetime.timedelta(days=1)
     return count
+
+
+# The Realized view's period pulldown (#235): rolling windows of calendar days
+# ending today. None means no window ("All").
+ROLLING_WINDOW_DAYS: dict[str, int | None] = {
+    "month": 30,
+    "quarter": 90,
+    "year": 365,
+    "all": None,
+}
+
+
+def rolling_window(
+    period: str, today: datetime.date | None = None,
+) -> tuple[datetime.date | None, datetime.date | None]:
+    """The ``(start, end)`` dates of a rolling period, both inclusive.
+
+    ``end`` is today in market (Eastern) time and ``start`` is that many
+    **calendar** days before it, because the labels promise calendar time: a
+    sale exactly 30 days ago is still in "month". ``all`` is ``(None, None)``,
+    so it has no upper bound either and a sale dated ahead of today (a typing
+    mistake) shows there and in no window. An unknown period is a
+    ``ValueError``; it is never read as some default window.
+    """
+    try:
+        days = ROLLING_WINDOW_DAYS[period]
+    except (KeyError, TypeError):
+        raise ValueError(
+            f"period must be one of {', '.join(ROLLING_WINDOW_DAYS)}: {period!r}"
+        ) from None
+    if days is None:
+        return None, None
+    end = today or market_date()
+    return end - datetime.timedelta(days=days), end

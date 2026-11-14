@@ -300,7 +300,7 @@ a book is never deleted, because position rows point at it, and the real book ca
 | `POST /api/books` | create a paper book (`name` up to 60 characters, `starting_cash` zero or more). 422 for bad input or a name already used |
 | `POST /api/books/{book_id}/archive` | archive a paper book. 404 for a book that isn't the owner's, 422 for the real book; archiving twice is not an error |
 
-The portfolio reads `GET /api/portfolio/lots`, `/symbols` and `/sales` take an optional
+The portfolio reads `GET /api/portfolio/lots`, `/symbols`, `/sales` and `/realized` take an optional
 `book_id`. Without it they read the real book. With a book that isn't the owner's they answer
 404: `PortfolioService._require_book` looks the book up before reading, because the SQL alone
 would return an empty table. A paper book's rows carry no `active_plan_id`. The lot writes take
@@ -310,6 +310,40 @@ A book is **not** an account. `positions.account` is the brokerage account insid
 and a taxable account can both be in the real book).
 
 `starting_cash` is stored but nothing reads it yet. The cash ledger is step 3.1 of
+[`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
+
+### Realized P/L
+
+`GET /api/portfolio/realized?period=&book_id=` (#235) answers what the owner made and lost on the
+lots they closed, by symbol, for one book. It is `PortfolioService.realized_pnl`: two reads (the
+sales joined to their lots, and the book's open lots for the "still held" marker) and no network
+call. The maths is `portfolio_math.realized_pnl`.
+
+- **Only `lot_sales` rows count.** The legacy `positions.sale_price` / `sale_date` columns (the
+  `portfolio.csv` format) are not a source.
+- **Realized P/L is `shares_sold × (sale_price − purchase_price)`, gross of fees.** The fee columns
+  are not read, and `basis_adjustment` and `wash_sale_disallowed` are not applied.
+- **A sale belongs to a period by `sale_trade_date`**, never by when the row was written. `period`
+  is `month`, `quarter`, `year` (the default) or `all`: the last 30, 90 or 365 **calendar** days
+  ending today in market time, both ends included (`market_time.rolling_window`). Anything else
+  is a 422. The window is two bound dates in the query, so the totals are computed over the
+  filtered set on the server. `all` has no upper bound, so a sale dated ahead of today shows
+  there and in no window.
+- **A total is the sum of the rounded rows under it.** Each sale's cost basis and proceeds are
+  rounded to the cent and its P/L is their difference; a symbol's figures and the page totals add
+  those up. Rounding a sum of unrounded figures could differ from the rows on screen by a cent.
+- **USD only for now.** A non-USD sale is listed with its native figures and `fx_missing: true`,
+  has no USD figures, and is in no total; `fx_missing_count` says how many. A missing rate is
+  never read as 1.0. `lot_sales` has no `fx_rate_at_sale` column yet and nothing writes
+  `positions.fx_rate_at_purchase`: both arrive in plan step 2.3. A sale whose lot has no purchase
+  price is treated the same way (`basis_missing`).
+- **A symbol with no summable sale has `None` money figures and no bar**, not zeroes that would
+  read as "broke even", and sorts last. Symbols are otherwise ordered best realized P/L first.
+- The bar segments come from `allocation_segments`, as on the allocation chart: the base is the
+  cost basis of the shares closed and the gain or loss is the realized P/L, so the top of the bar
+  is the proceeds.
+
+Nothing in the UI calls the route yet; the Realized section is step 2.2 of
 [`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
 
 ### Positions

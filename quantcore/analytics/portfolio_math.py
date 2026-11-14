@@ -1,4 +1,5 @@
-"""Pure position-level math for the Portfolio page (issue #126 PR 4 Step 4.1).
+"""Pure position-level math for the Portfolio page (issue #126 PR 4 Step 4.1),
+and realized P/L on closed lots (#235).
 
 Decimal in, Decimal out. No I/O, no database, no network — every number here
 is a function of numbers already in hand. The Portfolio page never computes
@@ -284,3 +285,135 @@ def _allocate_manual(
             f"Manual allocation totals {total} shares, expected {shares_to_sell}"
         )
     return list(manual_allocation)
+
+
+# ---------------------------------------------------------------------------
+# Realized P/L (#235)
+# ---------------------------------------------------------------------------
+USD = "USD"
+
+
+def _fx_rates(sale: Dict[str, Any]) -> Optional[Tuple[Decimal, Decimal]]:
+    """``(purchase, sale)`` USD-per-unit rates for one sale, or None when a
+    non-USD sale is missing either. A USD sale is ``(1, 1)``; a missing rate is
+    never read as 1.0."""
+    if (sale.get("currency") or USD) == USD:
+        return Decimal("1"), Decimal("1")
+    purchase_rate = sale.get("fx_rate_at_purchase")
+    sale_rate = sale.get("fx_rate_at_sale")
+    if purchase_rate is None or sale_rate is None:
+        return None
+    return purchase_rate, sale_rate
+
+
+def realized_sale(sale: Dict[str, Any]) -> Dict[str, Any]:
+    """One recorded sale with its realized P/L, gross of fees (#235).
+
+    ``sale`` needs ``shares_sold`` and ``sale_price`` from its ``lot_sales``
+    row, and ``purchase_price`` and ``currency`` from the lot it closed.
+
+    The ``*_native`` figures are in the lot's currency. ``cost_basis``,
+    ``proceeds`` and ``realized_pnl`` are USD: basis at the purchase-date rate,
+    proceeds at the sale-date rate, so a currency move during the hold is part
+    of the result. Each is rounded to the cent, and ``realized_pnl`` is the
+    difference of the two rounded figures, so a row always adds up on screen.
+
+    Two kinds of sale get no USD figures and are left out of every total by
+    the callers below: ``basis_missing`` (the lot has no purchase price) and
+    ``fx_missing`` (a non-USD sale without both rates).
+    """
+    row = dict(sale)
+    shares = sale["shares_sold"]
+    purchase_price = sale.get("purchase_price")
+    rates = _fx_rates(sale)
+    row["basis_missing"] = purchase_price is None
+    row["fx_missing"] = rates is None
+    for key in ("cost_basis_native", "proceeds_native", "realized_pnl_native",
+                "cost_basis", "proceeds", "realized_pnl", "realized_pnl_pct"):
+        row[key] = None
+
+    row["proceeds_native"] = _money(shares * sale["sale_price"])
+    if purchase_price is None:
+        return row
+    row["cost_basis_native"] = _money(shares * purchase_price)
+    row["realized_pnl_native"] = row["proceeds_native"] - row["cost_basis_native"]
+    if rates is None:
+        return row
+
+    purchase_rate, sale_rate = rates
+    row["cost_basis"] = _money(shares * purchase_price * purchase_rate)
+    row["proceeds"] = _money(shares * sale["sale_price"] * sale_rate)
+    row["realized_pnl"] = row["proceeds"] - row["cost_basis"]
+    row["realized_pnl_pct"] = _realized_pct(row["realized_pnl"], row["cost_basis"])
+    return row
+
+
+def _realized_pct(realized: Decimal, cost_basis: Decimal) -> Optional[Decimal]:
+    return _pct(realized / cost_basis * 100) if cost_basis else None
+
+
+def _realized_totals(sales: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """Sum already-rounded sale rows, so a total always equals the rows under
+    it. A sale without USD figures is counted, never summed. With nothing to
+    sum the money figures are None, not a zero that reads as "broke even"."""
+    counted = [s for s in sales if s["realized_pnl"] is not None]
+    totals: Dict[str, Any] = {
+        "sale_count": len(sales),
+        "fx_missing_count": sum(1 for s in sales if s["fx_missing"]),
+        "basis_missing_count": sum(1 for s in sales if s["basis_missing"]),
+        "cost_basis": None, "proceeds": None,
+        "realized_pnl": None, "realized_pnl_pct": None,
+    }
+    if counted:
+        for key in ("cost_basis", "proceeds", "realized_pnl"):
+            totals[key] = sum((s[key] for s in counted), Decimal("0"))
+        totals["realized_pnl_pct"] = _realized_pct(totals["realized_pnl"], totals["cost_basis"])
+    return totals
+
+
+def _best_first(row: Dict[str, Any]) -> Tuple[bool, Decimal, str]:
+    """Sort key: highest realized P/L first, a symbol with no figure last."""
+    realized = row["realized_pnl"]
+    return (realized is None, -(realized or Decimal("0")), row["symbol"])
+
+
+def realized_pnl(
+    sales: Iterable[Dict[str, Any]], held_symbols: Iterable[str] = (),
+) -> Dict[str, Any]:
+    """Realized P/L by symbol for a set of recorded sales (#235).
+
+    ``sales`` is whatever the caller already filtered to (one owner, one book,
+    one period); this function reads no clock. ``held_symbols`` are the
+    symbols that still have an open lot, so a row can say it was a partial
+    exit (``still_held``).
+
+    Returns ``{"symbols": [...], "totals": {...}}``. Each symbol row has its
+    totals, the three bar segments from ``allocation_segments`` (base = cost
+    basis of the shares closed, gain or loss = realized P/L, so the top of the
+    bar is the proceeds), and its ``sales`` in the order given. Symbols are
+    ordered best realized P/L first. ``shares_closed`` counts every sale of
+    the symbol, including one left out of the money totals.
+    """
+    held = set(held_symbols)
+    by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+    for sale in sales:
+        by_symbol.setdefault(sale["symbol"], []).append(realized_sale(sale))
+
+    rows = []
+    for symbol, symbol_sales in by_symbol.items():
+        totals = _realized_totals(symbol_sales)
+        rows.append({
+            "symbol": symbol,
+            "still_held": symbol in held,
+            "shares_closed": sum((s["shares_sold"] for s in symbol_sales), Decimal("0")),
+            **totals,
+            **allocation_segments(totals["cost_basis"], totals["realized_pnl"]),
+            "sales": symbol_sales,
+        })
+    rows.sort(key=_best_first)
+
+    all_sales = [sale for row in rows for sale in row["sales"]]
+    return {
+        "symbols": rows,
+        "totals": {"symbol_count": len(rows), **_realized_totals(all_sales)},
+    }

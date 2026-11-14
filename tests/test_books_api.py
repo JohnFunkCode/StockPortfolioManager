@@ -208,11 +208,28 @@ class PortfolioServiceBookTest(unittest.TestCase):
         self.assertEqual(len(self.service.list_sales(OWNER, book_id=self.paper)), 1)
         self.assertEqual(len(self.service.list_sales(OWNER, SYMBOL.lower(), book_id=self.paper)), 1)
 
+    def test_realized_pnl_follows_the_named_book(self):
+        self.repo.close_lots(
+            OWNER, [(self.paper_lot, Decimal("2"))], Decimal("12"), "2026-02-01",
+            book_id=self.paper,
+        )
+        real = self.service.realized_pnl(OWNER, "all")
+        self.assertEqual(real["symbols"], [])
+        self.assertIsNone(real["totals"]["realized_pnl"])
+
+        paper = self.service.realized_pnl(OWNER, "all", book_id=self.paper)
+        (row,) = paper["symbols"]
+        self.assertEqual(row["realized_pnl"], Decimal("4.00"))  # 2 x (12 - 10)
+        # Five of the paper lot's seven shares are still open in that book.
+        self.assertTrue(row["still_held"])
+        self.assertEqual(self.service.realized_pnl(OTHER, "all")["symbols"], [])
+
     def test_a_book_that_is_not_the_owners_is_not_found(self):
         for call in (
             lambda: self.service.list_lots(OTHER, book_id=self.paper),
             lambda: self.service.symbol_rows(OTHER, book_id=self.paper),
             lambda: self.service.list_sales(OTHER, book_id=self.paper),
+            lambda: self.service.realized_pnl(OTHER, "all", book_id=self.paper),
             lambda: self.service.symbol_rows(OWNER, book_id=999_999_999),
         ):
             with self.assertRaises(BookNotFoundError):
@@ -345,12 +362,40 @@ class BooksRoutesTest(unittest.TestCase):
         sales = self.client.get("/api/portfolio/sales", params={"book_id": paper}).json()["sales"]
         self.assertEqual(len(sales), 1)
 
+    def test_realized_takes_a_book_and_is_owner_scoped(self):
+        repo = PortfolioRepository()
+        real_lot = repo.add_position(OWNER, _lot())
+        paper = self._create()["book_id"]
+        paper_lot = repo.add_position(OWNER, _lot(quantity=7), book_id=paper)
+        repo.close_lots(OWNER, [(real_lot, Decimal("5"))], Decimal("9"), "2026-02-01")
+        repo.close_lots(OWNER, [(paper_lot, Decimal("2"))], Decimal("12"), "2026-02-01", book_id=paper)
+
+        def realized(**params):
+            resp = self.client.get("/api/portfolio/realized", params={"period": "all", **params})
+            self.assertEqual(resp.status_code, 200, resp.text)
+            return resp.json()
+
+        real = realized()
+        self.assertEqual([s["lot_id"] for s in real["symbols"][0]["sales"]], [real_lot])
+        self.assertEqual(real["totals"]["realized_pnl"], -5.0)   # 5 x (9 - 10)
+        self.assertFalse(real["symbols"][0]["still_held"])
+
+        on_paper = realized(book_id=paper)
+        self.assertEqual([s["lot_id"] for s in on_paper["symbols"][0]["sales"]], [paper_lot])
+        self.assertEqual(on_paper["totals"]["realized_pnl"], 4.0)
+        self.assertTrue(on_paper["symbols"][0]["still_held"])
+
+        self._as(OTHER_IDENTITY)
+        other = realized()
+        self.assertEqual((other["symbols"], other["totals"]["sale_count"]), ([], 0))
+
     def test_a_book_that_is_not_the_owners_is_404_on_every_read(self):
         paper = self._create()["book_id"]
         PortfolioRepository().add_position(OWNER, _lot(), book_id=paper)
 
         self._as(OTHER_IDENTITY)
-        for path in ("/api/portfolio/lots", "/api/portfolio/symbols", "/api/portfolio/sales"):
+        for path in ("/api/portfolio/lots", "/api/portfolio/symbols", "/api/portfolio/sales",
+                     "/api/portfolio/realized"):
             for book_id in (paper, 999_999_999):
                 with self.subTest(path=path, book_id=book_id):
                     resp = self.client.get(path, params={"book_id": book_id})

@@ -83,6 +83,7 @@ OWNER_SCOPED = {
     ],
     "lot_sales": [
         ("tests/test_portfolio_repository.py", "test_update_sale_notes_is_owner_scoped"),
+        ("tests/test_portfolio_repository.py", "test_list_realized_sales_is_owner_scoped"),
         ("tests/test_api_smoke.py", "test_sales_are_owner_scoped"),
     ],
     "plan_instances": [

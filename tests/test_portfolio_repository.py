@@ -1,5 +1,6 @@
 import unittest
 from contextlib import closing
+from datetime import date
 from decimal import Decimal
 
 from quantcore.db_safety import assert_not_production  # noqa: E402
@@ -384,6 +385,99 @@ if __name__ == "__main__":
     unittest.main()
 
 
+class PortfolioRepositoryRealizedSalesTest(unittest.TestCase):
+    """#235 step 2.1: `list_realized_sales` returns each sale with the basis
+    side of its lot, bounded by `sale_trade_date`, for one owner."""
+
+    def setUp(self):
+        self._purge()
+        self.addCleanup(self._purge)
+        self.repo = PortfolioRepository()
+
+    def _purge(self):
+        with closing(get_connection()) as conn:
+            conn.execute("DELETE FROM positions WHERE owner = %s", (OWNER,))
+            conn.commit()
+
+    def _sold(self, sale_date, *, shares="2", **lot):
+        row = {
+            "name": "Test Lot", "symbol": SYMBOL, "purchase_price": 10.0, "quantity": 5,
+            "purchase_date": "2026-01-02", "currency": "USD",
+        }
+        row.update(lot)
+        lot_id = self.repo.add_position(OWNER, row)
+        (result,) = self.repo.close_lots(
+            OWNER, [(lot_id, Decimal(shares))], sale_price=Decimal("18.50"),
+            sale_trade_date=sale_date, allocation_method="FIFO", notes="why",
+        )
+        return lot_id, result["sale_id"]
+
+    def test_a_sale_carries_its_lots_basis(self):
+        lot_id, sale_id = self._sold("2026-03-01", account="IRA")
+
+        (sale,) = self.repo.list_realized_sales(OWNER)
+        self.assertEqual(sale, {
+            "sale_id": sale_id,
+            "lot_id": lot_id,
+            "symbol": SYMBOL,
+            "shares_sold": Decimal("2"),
+            "sale_price": Decimal("18.5"),
+            "sale_trade_date": "2026-03-01",
+            "allocation_method": "FIFO",
+            "notes": "why",
+            "purchase_price": Decimal("10"),
+            "trade_date": "2026-01-02",
+            "currency": "USD",
+            "account": "IRA",
+            "fx_rate_at_purchase": None,
+            "fx_rate_at_sale": None,
+        })
+
+    def test_a_partial_close_is_listed_once_against_the_closed_parent(self):
+        lot_id, _ = self._sold("2026-03-01", shares="2")
+
+        (sale,) = self.repo.list_realized_sales(OWNER)
+        self.assertEqual((sale["lot_id"], sale["shares_sold"]), (lot_id, Decimal("2")))
+        # The 3-share remainder is an open child lot, not a sale.
+        self.assertEqual([p["quantity"] for p in self.repo.list_positions(OWNER)], [Decimal("3")])
+
+    def test_the_window_bounds_the_sale_trade_date_inclusively(self):
+        for day in ("2026-02-28", "2026-03-01", "2026-03-15", "2026-03-31", "2026-04-01"):
+            self._sold(day)
+
+        def dates(**window):
+            return [s["sale_trade_date"] for s in self.repo.list_realized_sales(OWNER, **window)]
+
+        self.assertEqual(len(dates()), 5)
+        self.assertEqual(
+            dates(start_date=date(2026, 3, 1), end_date=date(2026, 3, 31)),
+            ["2026-03-01", "2026-03-15", "2026-03-31"],
+        )
+        self.assertEqual(dates(start_date=date(2026, 3, 31)), ["2026-03-31", "2026-04-01"])
+        self.assertEqual(dates(end_date=date(2026, 3, 1)), ["2026-02-28", "2026-03-01"])
+        self.assertEqual(dates(start_date=date(2027, 1, 1)), [])
+
+    def test_the_legacy_sale_columns_are_not_a_source(self):
+        # A CSV-imported row with sale_price / sale_date and no lot_sales row.
+        self.repo.add_position(OWNER, {
+            "name": "Legacy", "symbol": SYMBOL, "purchase_price": 10.0, "quantity": 5,
+            "purchase_date": "2026-01-02", "currency": "USD",
+            "sale_price": 20.0, "sale_date": "2026-02-01",
+        })
+        self.assertEqual(self.repo.list_realized_sales(OWNER), [])
+
+    def test_list_realized_sales_is_owner_scoped(self):
+        self._sold("2026-03-01")
+
+        self.assertEqual(len(self.repo.list_realized_sales(OWNER)), 1)
+        self.assertEqual(self.repo.list_realized_sales("zz_someone_else"), [])
+        self.assertEqual(
+            self.repo.list_realized_sales(
+                "zz_someone_else", start_date=date(2026, 1, 1), end_date=date(2026, 12, 31)),
+            [],
+        )
+
+
 BOOK_OWNER = "zz_owner_books"
 OTHER_OWNER = "zz_owner_books_other"
 
@@ -519,6 +613,24 @@ class PortfolioRepositoryBooksTest(unittest.TestCase):
         self.assertFalse(self.repo.update_sale_notes(BOOK_OWNER, paper_sale, "x"))
         self.assertTrue(self.repo.update_sale_notes(BOOK_OWNER, paper_sale, "x", book_id=paper))
         self.assertEqual(self.repo.list_sales(BOOK_OWNER, book_id=paper)[0]["notes"], "x")
+
+    def test_realized_sales_follow_their_lots_book(self):
+        real_lot, paper_lot, paper = self._seed()
+        self.repo.close_lots(BOOK_OWNER, [(real_lot, Decimal("1"))], Decimal("12"), "2026-02-01")
+        self.repo.close_lots(
+            BOOK_OWNER, [(paper_lot, Decimal("2"))], Decimal("13"), "2026-02-02", book_id=paper)
+
+        def lots(owner=BOOK_OWNER, **kwargs):
+            return [s["lot_id"] for s in self.repo.list_realized_sales(owner, **kwargs)]
+
+        self.assertEqual(lots(), [real_lot], "the default read reached a paper sale")
+        self.assertEqual(lots(book_id=paper), [paper_lot])
+        real = self.books.ensure_real_book(owner=BOOK_OWNER)
+        self.assertEqual(lots(book_id=real), [real_lot])
+        # Another owner naming this book reads nothing, and no book is made for them.
+        self.assertEqual(lots(OTHER_OWNER, book_id=paper), [])
+        self.assertEqual(lots(OTHER_OWNER), [])
+        self.assertEqual(self._book_ids(OTHER_OWNER), [])
 
     def test_partial_close_child_stays_in_its_parents_book(self):
         _, paper_lot, paper = self._seed()

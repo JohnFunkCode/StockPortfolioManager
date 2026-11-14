@@ -20,7 +20,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import portfolio_math
-from quantcore.analytics.market_time import market_date
+from quantcore.analytics.market_time import market_date, rolling_window
 from quantcore.repositories.books_repository import PAPER, BookNotFoundError
 from quantcore.repositories.portfolio_repository import PortfolioRepository
 
@@ -596,6 +596,34 @@ class PortfolioService:
         return self._repo.list_sales(
             owner, symbol.strip().upper() if symbol else None, book_id=book_id
         )
+
+    def realized_pnl(
+        self, owner: str, period: str = "year", *, book_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Realized P/L on `owner`'s recorded sales in one book, by symbol (#235).
+
+        `period` is `month`, `quarter`, `year` or `all`: a rolling window of
+        calendar days ending today in market time, applied to each sale's
+        trade date in the query. Anything else is a `ValueError`. `book_id`
+        names a book; None is the real book, and a book that isn't `owner`'s
+        raises `BookNotFoundError`.
+
+        Two reads and no network call: the sales, and the book's open lots
+        for the "still held" marker. Gross of fees, and no basis or wash-sale
+        adjustment is applied. The maths is `portfolio_math.realized_pnl`.
+        """
+        start, end = rolling_window(period)
+        self._require_book(owner, book_id)
+        sales = self._repo.list_realized_sales(
+            owner, start_date=start, end_date=end, book_id=book_id
+        )
+        held = {lot["symbol"] for lot in self._repo.list_positions(owner, book_id=book_id)}
+        return {
+            "period": period,
+            "start_date": start.isoformat() if start else None,
+            "end_date": end.isoformat() if end else None,
+            **portfolio_math.realized_pnl(sales, held),
+        }
 
     def update_sale_notes(self, owner: str, sale_id: int, notes: Optional[str]) -> bool:
         """Set or clear a sale's note. Returns False if no such sale for `owner`."""

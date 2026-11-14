@@ -64,6 +64,31 @@ class TestPortfolioAllocationDirective(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestRealizedPnlDirective(unittest.TestCase):
+    """#235. The realized card reads the caller's own sales, so it takes the
+    same no-props contract: no owner, no book and no period to name."""
+
+    def test_registered_with_no_props(self):
+        self.assertEqual(BACKEND_COMPONENT_REGISTRY["realized_pnl"], {})
+
+    def test_empty_props_accepted(self):
+        ok, reason = validate_directive("realized_pnl", {})
+        self.assertTrue(ok, reason)
+
+    def test_owner_book_and_period_props_rejected(self):
+        for prop, value in (("owner", "someone_else"), ("book_id", 7), ("period", "all")):
+            with self.subTest(prop=prop):
+                ok, reason = validate_directive("realized_pnl", {prop: value})
+                self.assertFalse(ok)
+                self.assertIn(prop, reason)
+
+    def test_described_to_the_model(self):
+        from quantcore.services.chat_tools import TOOL_SCHEMAS
+
+        show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
+        self.assertIn("'realized_pnl'", show["description"])
+
+
 class TestSymbolLotsDirective(unittest.TestCase):
     def test_registered_with_ticker_only(self):
         self.assertEqual(BACKEND_COMPONENT_REGISTRY["symbol_lots"], {"ticker": str})

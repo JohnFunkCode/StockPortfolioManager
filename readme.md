@@ -260,7 +260,7 @@ none ([why it's read at runtime](docs/architecture/quantui.md)).
 
 | Page | Route | Menu | What it shows |
 |------|-------|------|---------------|
-| Portfolio | `/` | My Positions | positions and lots, gain/loss, returns over 1d / 5d / 30d / 60d / YTD / 1y (1d is today's live change, with the pre-market or after-hours move beside it), lot and sale notes, and a chip linking each holding to its harvest plan |
+| Portfolio | `/` | My Positions | positions and lots, gain/loss, returns over 1d / 5d / 30d / 60d / YTD / 1y (1d is today's live change, with the pre-market or after-hours move beside it), lot and sale notes, and a chip linking each holding to its harvest plan. Below the holdings, a Realized section: what the closed lots made or lost by symbol over the last month, quarter or year or over everything, in US dollars and gross of fees, with a bar chart and each sale behind a symbol |
 | Plans | `/plans` | My Positions | harvest plans with status. A plan can only exist for a symbol you hold |
 | Harvester | `/harvester` | My Positions | ladder roll-ups: active plans, rungs hit, shares harvested |
 | Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns over the same six windows (a live 1d, refreshed on load and by the Refresh button), USD market caps, staleness, tags and news sentiment. Rows you hold carry a Held chip with your quantity and average price, and a Show filter narrows to them. Also hosts the technical screener, the sentiment dashboard and the options-snapshot refresh. It replaced the Securities page (#224); `/securities` redirects here |

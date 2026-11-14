@@ -25,6 +25,7 @@ describe('COMPONENT_REGISTRY', () => {
       'arbitrage_discovery',
       'portfolio_table',
       'portfolio_allocation',
+      'realized_pnl',
       'symbol_lots',
       'watchlist_fundamentals',
       'fundamentals_top',
@@ -72,6 +73,17 @@ describe('COMPONENT_REGISTRY', () => {
     expect(
       validateDirective({ component: 'portfolio_allocation', props: { ticker: 'INTC' } }).ok,
     ).toBe(false);
+  });
+
+  it('realized_pnl takes no props: no owner, no book and no period', () => {
+    // Mirrors test_chat_tools.py::TestRealizedPnlDirective (#235). The card
+    // reads the caller's own real book, and the period is its own view state.
+    expect(validateDirective({ component: 'realized_pnl', props: {} }).ok).toBe(true);
+    for (const props of [{ owner: 'someone_else' }, { book_id: 7 }, { period: 'all' }]) {
+      expect(validateDirective({ component: 'realized_pnl', props }).ok, JSON.stringify(props)).toBe(
+        false,
+      );
+    }
   });
 
   it('symbol_lots takes a ticker and rejects an owner prop', () => {

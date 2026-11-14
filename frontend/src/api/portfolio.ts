@@ -8,6 +8,8 @@ import type {
   DeleteLotResponse,
   Lot,
   PortfolioTotals,
+  RealizedPeriod,
+  RealizedResponse,
   Sale,
   SymbolRow,
   UpdateLotPayload,
@@ -67,6 +69,13 @@ export const portfolioApi = {
 
   getSales: (symbol?: string, bookId?: number | null) =>
     apiRequest<{ sales: Sale[] }>(`/api/portfolio/sales${readQuery({ symbol, bookId })}`),
+
+  /** Realized P/L by symbol over a rolling period (#235). The period is always
+   * sent; the book only when one is named. */
+  getRealized: (period: RealizedPeriod, bookId?: number | null) =>
+    apiRequest<RealizedResponse>(
+      `/api/portfolio/realized?period=${period}${bookId != null ? `&book_id=${bookId}` : ''}`
+    ),
 
   updateSale: (saleId: number, data: UpdateSalePayload) =>
     apiRequest<UpdateSaleResponse>(`/api/portfolio/sales/${saleId}`, {

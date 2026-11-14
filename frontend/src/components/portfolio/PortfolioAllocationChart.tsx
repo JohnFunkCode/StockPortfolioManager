@@ -11,6 +11,11 @@
  * computed by quantcore.analytics.portfolio_math.allocation_segments) — no
  * gain/loss math happens in this file (Rule 8.4). The only arithmetic here is
  * pixel scaling.
+ *
+ * The Realized view (#235) draws the same bars from the same segments, where
+ * the base is the cost basis of the shares sold and the top of the bar is the
+ * proceeds. `variant="realized"` changes the legend, the test ids and the
+ * order: the realized rows arrive best first and are drawn in that order.
  */
 import { useEffect, useMemo, useRef } from 'react';
 import * as d3 from 'd3';
@@ -18,10 +23,29 @@ import { Box, Stack, Typography } from '@mui/material';
 import { formatCurrency } from '../../utils/formatting';
 import type { SymbolRow } from '../../api/portfolioTypes';
 
+/** What the chart reads off a row. Holdings rows and realized rows both fit. */
+export type AllocationBar = Pick<SymbolRow, 'symbol' | 'bar_base' | 'bar_gain' | 'bar_loss'>;
+
 interface Props {
-  rows: SymbolRow[];
+  rows: AllocationBar[];
   height?: number;
+  variant?: 'allocation' | 'realized';
 }
+
+const VARIANTS = {
+  allocation: {
+    testId: 'portfolio-allocation-chart',
+    prefix: 'alloc',
+    legend: ['Cost Basis', 'Gain', 'Loss'],
+    bySize: true,
+  },
+  realized: {
+    testId: 'realized-pnl-chart',
+    prefix: 'realized',
+    legend: ['Cost basis of shares sold', 'Realized gain', 'Realized loss'],
+    bySize: false,
+  },
+} as const;
 
 const MARGIN = { top: 16, right: 16, bottom: 56, left: 72 };
 
@@ -39,26 +63,25 @@ const MIN_LABEL_PX = 14;
 // minus, which would not match).
 const money = (v: number) => formatCurrency(v);
 
-export default function PortfolioAllocationChart({ rows, height = 340 }: Props) {
+export default function PortfolioAllocationChart({ rows, height = 340, variant = 'allocation' }: Props) {
   const ref = useRef<SVGSVGElement>(null);
+  const { testId, prefix, legend, bySize } = VARIANTS[variant];
 
   // A symbol with no priced lot arrives with null segments — it has no value to
   // draw, and a zero-height bar would read as a worthless position rather than
   // an unknown one, so it is dropped. Biggest position first: the point of the
   // chart is relative size, which a sorted axis makes legible at a glance.
-  const drawable = useMemo(
-    () =>
-      rows
-        .filter((r) => r.bar_base != null && r.bar_gain != null && r.bar_loss != null)
-        .map((r) => ({
-          symbol: r.symbol,
-          base: r.bar_base as number,
-          gain: r.bar_gain as number,
-          loss: r.bar_loss as number,
-        }))
-        .sort((a, b) => b.base + b.gain + b.loss - (a.base + a.gain + a.loss)),
-    [rows],
-  );
+  const drawable = useMemo(() => {
+    const bars = rows
+      .filter((r) => r.bar_base != null && r.bar_gain != null && r.bar_loss != null)
+      .map((r) => ({
+        symbol: r.symbol,
+        base: r.bar_base as number,
+        gain: r.bar_gain as number,
+        loss: r.bar_loss as number,
+      }));
+    return bySize ? bars.sort((a, b) => b.base + b.gain + b.loss - (a.base + a.gain + a.loss)) : bars;
+  }, [rows, bySize]);
 
   useEffect(() => {
     if (!ref.current || drawable.length === 0) return;
@@ -116,7 +139,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
 
       // Cost basis, from zero.
       g.append('rect')
-        .attr('data-testid', `alloc-base-${d.symbol}`)
+        .attr('data-testid', `${prefix}-base-${d.symbol}`)
         .attr('x', x)
         .attr('y', yScale(d.base))
         .attr('width', bandWidth)
@@ -127,7 +150,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
       // Gain stacks above the cost basis.
       if (d.gain > 0) {
         g.append('rect')
-          .attr('data-testid', `alloc-gain-${d.symbol}`)
+          .attr('data-testid', `${prefix}-gain-${d.symbol}`)
           .attr('x', x)
           .attr('y', yScale(d.base + d.gain))
           .attr('width', bandWidth)
@@ -140,7 +163,7 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
       // exactly what the matplotlib bottom= bar with a negative height did.
       if (d.loss < 0) {
         g.append('rect')
-          .attr('data-testid', `alloc-loss-${d.symbol}`)
+          .attr('data-testid', `${prefix}-loss-${d.symbol}`)
           .attr('x', x)
           .attr('y', yScale(d.base))
           .attr('width', bandWidth)
@@ -167,16 +190,16 @@ export default function PortfolioAllocationChart({ rows, height = 340 }: Props) 
 
     g.selectAll('.domain').style('stroke', 'var(--qc-line)');
     g.selectAll('.tick line').style('stroke', 'var(--qc-line)');
-  }, [drawable, height]);
+  }, [drawable, height, prefix]);
 
   if (drawable.length === 0) return null;
 
   return (
-    <Box data-testid="portfolio-allocation-chart">
+    <Box data-testid={testId}>
       <Stack direction="row" spacing={3} sx={{ mb: 1, px: 1, flexWrap: 'wrap' }}>
-        <Typography variant="body2" sx={{ color: COLORS.base }}>■ Cost Basis</Typography>
-        <Typography variant="body2" sx={{ color: COLORS.gain }}>■ Gain</Typography>
-        <Typography variant="body2" sx={{ color: COLORS.loss }}>■ Loss</Typography>
+        <Typography variant="body2" sx={{ color: COLORS.base }}>■ {legend[0]}</Typography>
+        <Typography variant="body2" sx={{ color: COLORS.gain }}>■ {legend[1]}</Typography>
+        <Typography variant="body2" sx={{ color: COLORS.loss }}>■ {legend[2]}</Typography>
       </Stack>
       <svg ref={ref} style={{ width: '100%', display: 'block' }} />
     </Box>

@@ -3,7 +3,7 @@
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
 **Last Updated:** 2026-11-13
-**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 115 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 18 components | **CLI Tools:** 1 | **Daily Jobs:** 2
+**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 115 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 19 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.
 
@@ -15,7 +15,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 `frontend/src/api/*.ts`, traced through `frontend/src/hooks/` to the components that consume it. A
 client function with no component behind it counts as **not surfaced**, and so does a standalone
 endpoint whose data the UI only gets through an aggregate one. Of the 115 REST operations, the
-WebUI reaches **62** (counting the fetches Sidekick cards make themselves), leaving **53** with no
+WebUI reaches **63** (counting the fetches Sidekick cards make themselves), leaving **52** with no
 UI consumer — each one is listed, by reason, in the
 [WebUI consumer inventory](#appendix-rest-operations-with-no-webui-consumer) at the end. Everything
 listed here is fully built, tested, and reachable over REST today, so surfacing it is **frontend-only work**. Of the gap rows from the 2026-07-20 audit, only
@@ -52,8 +52,7 @@ Analysis tab and the Sidekick `stop_loss` card); the rest are still open.
 | **Volume profile** (POC, value area, HVN/LVN nodes) (issue #93) | `GET /api/securities/{ticker}/volume-profile` | Overlay/histogram on the Price & MAs chart |
 | **VWAP history** (multi-day series) | `GET /api/securities/{ticker}/vwap/history` | Chart overlay |
 | **On-demand news collection** (fetch + FinBERT + persist) | `POST /api/securities/{ticker}/news/collect` | A "refresh news" button (mirrors the existing options-snapshot refresh button) |
-| **Sale history + editing a sale's reason** (issue #266) | `GET /api/portfolio/sales`, `PATCH /api/portfolio/sales/{id}` | The client and hooks exist (`portfolioApi.getSales`/`updateSale`, `useSales`/`useUpdateSale`) but **no component calls them** — the realized-P/L view (#235) is the intended home |
-| **Realized P/L by symbol** (issue #235, backend only so far) | `GET /api/portfolio/realized?period=&book_id=` | The Realized section of the Portfolio page, with its period pulldown and bar chart: step 2.2 of [`paper-books-realized-pnl-plan.md`](proposals/paper-books-realized-pnl-plan.md). No client method or hook exists yet |
+| **Editing a sale's reason** (issue #266) | `PATCH /api/portfolio/sales/{id}` (and the standalone list, `GET /api/portfolio/sales`) | An edit control on a sale row in the Portfolio page's Realized section, which already lists each sale with its reason (#235). The client and hooks exist (`portfolioApi.getSales`/`updateSale`, `useSales`/`useUpdateSale`) but **no component calls them** |
 | **Portfolio CSV import** (full-sync per-owner) | `POST /api/portfolio/import` | Upload dialog on the Portfolio page — today it's the `scripts/import_portfolio.py` CLI only |
 | **Batch fundamental scoring** | `POST /api/securities/fundamentals/scores-batch` | An MCP/API convenience; not obviously a page |
 
@@ -73,7 +72,7 @@ Analysis tab (issue #93).
 | **MCP Tool** | Claude Code / AI clients via `.mcp.json` | Model Context Protocol | Prod Cloud Run wrappers (`https://quantcore-<svc>-…run.app/mcp`) or `*-local` compose stack | Thin HTTP gateway wrappers (`mcp_gateway/rest_client.py`) — every tool call becomes one REST request |
 | **REST Endpoint** | HTTP to the FastAPI tier | JSON over HTTP (OpenAPI at `/docs`) | `uvicorn api.main:app --port 5001`; prod `quantcore-api` (JWT-enforced) | The canonical surface — all business logic reachable here; enables WebUI, MCP, and external integrations |
 | **WebUI** | Browser (IAP-gated QuantUI on Cloud Run; `npm run dev` locally) | React SPA | Test/prod `quantui` services; Vite dev proxy locally | Declared once in `frontend/src/navigation.tsx`, grouped into two nav menus: **My Positions** (Portfolio, Plans, Harvester) and **Research** (Watchlist, Fundamentals, Arbitrage), plus a top-level Settings button. Drill-downs: Plan detail (`/plans/:id`) and Security detail (`/securities/:symbol`). The Securities page merged into Watchlist (#224) — `/securities` now redirects to `/watchlist` |
-| **Sidekick Chat** | Chat rail on every WebUI page | SSE via `POST /api/chat` → keyproxy → Anthropic (BYOK) | Same as WebUI | LLM with 13 data tools + `show_component` (renders 18 components inline). Tools dispatch **in-process to the services**, not over MCP |
+| **Sidekick Chat** | Chat rail on every WebUI page | SSE via `POST /api/chat` → keyproxy → Anthropic (BYOK) | Same as WebUI | LLM with 13 data tools + `show_component` (renders 19 components inline). Tools dispatch **in-process to the services**, not over MCP |
 | **CLI Tool** | `python fastMCPTest/options_analysis.py --flags` | argparse | N/A | Hybrid: also runs as the options-analysis MCP server |
 | **Daily Jobs / Scripts** | Cloud Run Jobs; `python script.py` | Direct execution | `main.py` (`quantcore-report`) and `news_job.py` (`quantcore-news`) run daily in prod | Notifications, captures, report generation, operational utilities |
 
@@ -84,9 +83,9 @@ Analysis tab (issue #93).
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 115 operations (62 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 115 operations (63 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
-| Sidekick chat tools | 13 + 18 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
+| Sidekick chat tools | 13 + 19 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
 | Daily Jobs | 2 | `main.py` (report Job: notifications, options capture, GEX, fundamentals warming), `news_job.py` (news Job: collection + FinBERT) |
 
@@ -262,9 +261,9 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | Per-symbol position rows (quantity, basis, current value, gain/loss, `active_plan_id`) | `get_portfolio` | `GET /api/portfolio/symbols` | Portfolio page | `portfolio_table` / `portfolio_allocation` cards | `main.py` (report) |
 | Portfolio totals (cost basis, current value, gain/loss $ and %, $/day) | `get_portfolio_summary` | `GET /api/portfolio/symbols` → `totals` | Portfolio page header | `get_portfolio_summary` (issue #208) | — |
 | Per-symbol lots (quantity, purchase price, date, gain/loss, and the reason it was bought) | `get_symbol_lots` | `GET /api/portfolio/lots` (filtered to the ticker by the caller); the UI reads lots nested in `GET /api/portfolio/symbols` | Portfolio page → symbol drill-down (via `/symbols`) | `get_symbol_lots` (issue #208), `symbol_lots` card | — |
-| **⚠ Recorded sales of a symbol, with the reason for each** (issue #266) | `get_symbol_sales` | `GET /api/portfolio/sales?symbol=` | **—** (hook exists, no component — #235) | `get_symbol_lots` (returns `sales` alongside `lots`) | — |
-| **⚠ Edit a sale's reason** (issue #266) | — | `PATCH /api/portfolio/sales/{id}` | **—** (hook exists, no component — #235) | — | — |
-| **⚠ Realized P/L by symbol over a rolling period, with each sale** (issue #235) | — | `GET /api/portfolio/realized?period=&book_id=` | **—** (the Realized section is plan step 2.2) | — | — |
+| Recorded sales of a symbol, with the reason for each (issue #266) | `get_symbol_sales` | `GET /api/portfolio/sales?symbol=`; the UI reads sales nested in `GET /api/portfolio/realized` | Portfolio page → Realized section → symbol drill-down (via `/realized`, so only sales inside the selected period) | `get_symbol_lots` (returns `sales` alongside `lots`), `realized_pnl` card | — |
+| **⚠ Edit a sale's reason** (issue #266) | — | `PATCH /api/portfolio/sales/{id}` | **—** (hook exists, no component) | — | — |
+| Realized P/L by symbol over a rolling period, with each sale (issue #235) | — | `GET /api/portfolio/realized?period=&book_id=` | Portfolio page → Realized section (period pulldown, bar chart, expandable sales), and the last year's figure in the summary strip | `realized_pnl` card (no data tool: the model shows the card and quotes no figure) | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / Security Detail remove action | — | — |
 | Lot lifecycle (create / edit / delete / close), with an optional reason on each purchase and sale (issue #266; `lot_notes` gives each lot of a multi-lot sale its own reason) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close`, `POST .../lots/{id}/close/preview` (read-only: which lots a sale would touch) | Portfolio page lot dialogs, lot-row note icon + Edit note | — | — |
@@ -285,7 +284,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | Capability | Surface | Notes |
 |---|---|---|
 | Conversational analysis (streaming, tool-using LLM) | `POST /api/chat` (SSE) → Sidekick rail on every page | **13 data tools:** `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`. They dispatch **in-process to the services** — Sidekick is not an MCP client, so a tool here is a separate design decision from the MCP tool of the same name |
-| Inline rendered components in chat | `show_component` directive | **18 components**, registered on both sides (`chat_tools.BACKEND_COMPONENT_REGISTRY` ↔ `frontend/src/chat/componentRegistry.tsx`, strict prop specs, extra props rejected): `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff` (interactive: strike select/reprice backchannel), `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
+| Inline rendered components in chat | `show_component` directive | **19 components**, registered on both sides (`chat_tools.BACKEND_COMPONENT_REGISTRY` ↔ `frontend/src/chat/componentRegistry.tsx`, strict prop specs, extra props rejected): `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff` (interactive: strike select/reprice backchannel), `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | Owner scoping for the portfolio tools | resolved at the route from the signed-in principal | No tool takes an `owner`; a model-supplied one is discarded at dispatch. An unlinked identity degrades to a recoverable per-tool error, **not** a 403 on the whole turn |
 | Per-user chat model (`claude-sonnet-5` default, `claude-opus-4-8`, `claude-fable-5`) | `GET`/`PUT /api/settings` → Settings page + Sidekick header quick-switch | One server-side source of truth (`user_settings`); a retired stored value falls back to the default |
 | BYOK key vault (add/rotate/unlock Anthropic key) | Settings page (`frontend/src/vault/`) | IndexedDB, passphrase PBKDF2 + AES-GCM; single-use envelope per turn |
@@ -380,7 +379,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 62 of 115 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 63 of 115 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation panel** — the most powerful synthesis endpoint, invisible in the UI (its stop-loss sibling shipped in #399).
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -394,22 +393,22 @@ The WebUI reaches 62 of 115 REST operations. It has kept pace with portfolio, wa
 1. Add a **Recommendation card** to Security Detail (`GET .../recommendation`), beside the stop-loss card — highest value-to-effort ratio in the codebase.
 2. Add a **Fundamentals tab** to Security Detail reusing the existing tab pattern (`.../fundamentals` fan-out already aggregates score/revenue/acceleration).
 3. Append a **Microstructure section** to the existing Signals tab (`.../microstructure` returns all three signals in one call).
-4. Wire the existing `useSales` / `useUpdateSale` hooks into a sale-history view (#235).
+4. Wire the existing `useUpdateSale` hook into the Realized section's sale rows, so a sale's reason can be edited where it is shown.
 5. Delete `html_summary.py` / `simple_text_summary.py` (superseded legacy reports), and the unused `useOHLCV` hook (also referenced by `frontend/src/hooks/useSecurities.test.tsx`, so the test changes with it).
 
 ---
 
 ## Appendix: REST operations with no WebUI consumer
 
-The 53 operations in `docs/openapi-surface.txt` that no production frontend component reaches
-(2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
+The 52 operations in `docs/openapi-surface.txt` that no production frontend component reaches
+(2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14 and left it the same day, with the Realized section). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
 `chatStream.ts`, keep only the ones whose client method has a non-test caller in `hooks/`,
 `components/` or `chat/`, and diff that set against the surface file. Three client methods look
 like coverage and aren't: `portfolioApi.getLots`, `rungsApi.list` and `rungsApi.get` have no
 callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 
-**Gaps — listed in the ⭐ section above (32):**
-`GET /api/options/screen-watchlist` · `GET /api/portfolio/realized` · `GET /api/portfolio/sales` ·
+**Gaps — listed in the ⭐ section above (31):**
+`GET /api/options/screen-watchlist` · `GET /api/portfolio/sales` ·
 `PATCH /api/portfolio/sales/{sale_id}` · `POST /api/portfolio/import` ·
 `POST /api/securities/fundamentals/scores-batch` · and under `/api/securities/{ticker}/`:
 `anchored-vwap`, `atr-bands`, `volume-profile`, `vwap/history`, `relative-strength`,
@@ -438,8 +437,10 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 
 ---
 
-**Document Version:** 2.5
-**Last Updated:** 2026-11-14 (#235 step 2.1: `GET /api/portfolio/realized` added with no UI yet. The counts also take in the three `/api/books` operations from #431 step 1.2, all reached by the Portfolio page's book selector, which this page had not counted: 62 of 115 operations reached, 53 left, 32 gaps)
+**Document Version:** 2.6
+**Last Updated:** 2026-11-14 (#235 step 2.2: the Realized section of the Portfolio page and the Sidekick `realized_pnl` card reach `GET /api/portfolio/realized`: 63 of 115 operations reached, 52 left, 31 gaps; 19 Sidekick components)
+
+**Earlier:** 2026-11-14 (#235 step 2.1: `GET /api/portfolio/realized` added with no UI yet. The counts also take in the three `/api/books` operations from #431 step 1.2, all reached by the Portfolio page's book selector, which this page had not counted: 62 of 115 operations reached, 53 left, 32 gaps)
 
 **Earlier:** 2026-11-13 (#415: the curated arbitrage universe is the Arbitrage page's Universe tab and the Sidekick `arbitrage_universe` card — 59 of 111 operations reached, 52 left, 31 gaps; 18 Sidekick components)
 **Earlier:** 2026-10-25 (#433: Score Changes rows carry a news verdict — `agrees` / `diverges` / `mixed` / `thin` / none — over each move's own window; no new route, counts unchanged)

@@ -22,7 +22,7 @@ import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
-import { useSymbolRows } from '../../hooks/usePortfolio';
+import { useRealized, useSymbolRows } from '../../hooks/usePortfolio';
 import { useBooks } from '../../hooks/useBooks';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
@@ -34,6 +34,8 @@ import LotRow from './LotRow';
 import AddLotDialog from './AddLotDialog';
 import BookSelector from './BookSelector';
 import PaperBookBanner from './PaperBookBanner';
+import BookSummaryStrip from './BookSummaryStrip';
+import RealizedPnl from './RealizedPnl';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { Lot, SymbolRow } from '../../api/portfolioTypes';
@@ -177,6 +179,10 @@ export default function PortfolioPage() {
   const isPaper = readOnly && booksData !== undefined;
 
   const { data, isLoading, error, refetch, isFetching, dataUpdatedAt } = useSymbolRows(false, bookId);
+  // The strip's realized figure is always the last year, whatever period the
+  // Realized section below is showing. That section opens on Year, so the two
+  // share one request until its period is changed.
+  const { data: realizedYear } = useRealized('year', bookId);
 
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -264,6 +270,13 @@ export default function PortfolioPage() {
       <BookSelector selectedBookId={bookId} onSelect={selectBook} />
       {isPaper && <PaperBookBanner book={book} onArchived={() => selectBook(null)} />}
 
+      <BookSummaryStrip holdings={data?.totals} realizedYear={realizedYear?.totals} />
+
+      {/* Each section loads and fails on its own: Holdings never waits for
+          the sections under it. */}
+      <Typography id="holdings" variant="h5" component="h2" sx={{ mb: 2, scrollMarginTop: 16 }}>
+        Holdings
+      </Typography>
       {isLoading ? (
         <LoadingSpinner />
       ) : error ? (
@@ -284,7 +297,7 @@ export default function PortfolioPage() {
           )}
 
           <Paper sx={{ overflowX: 'auto' }}>
-            <Table size="small">
+            <Table size="small" data-testid="holdings-table">
               <TableHead>
                 <TableRow>
                   <TableCell />
@@ -381,6 +394,12 @@ export default function PortfolioPage() {
           </Paper>
         </>
       )}
+
+      {/* A book with no open lots can still have sales, so this section does
+          not depend on the holdings above. */}
+      <Box id="realized" sx={{ mt: 4, scrollMarginTop: 16 }}>
+        <RealizedPnl bookId={bookId} />
+      </Box>
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />
 

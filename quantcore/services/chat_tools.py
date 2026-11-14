@@ -49,6 +49,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     "portfolio_table": {},
     # Same no-props rule as portfolio_table, for the same reason (issue #147).
     "portfolio_allocation": {},
+    # No props, same rule (#235): the caller's own real book. The period is the
+    # card's own view state, so the model cannot ask for one.
+    "realized_pnl": {},
     "symbol_lots": {"ticker": str},
     # No props: the watchlist is one global shared list (issue #83), so unlike
     # the portfolio components there is not even an owner to withhold.
@@ -517,6 +520,14 @@ TOOL_SCHEMAS: list[dict] = [
             "cut out of it — so relative position size and which positions are "
             "carrying the portfolio are visible at a glance (no props, same "
             "caller-only rule), "
+            "'realized_pnl' shows what the caller's closed lots made or lost: "
+            "realized profit and loss by symbol in US dollars, gross of fees, "
+            "with a chart, the individual sales behind each symbol, and a "
+            "period pulldown the user sets themselves (last 30, 90 or 365 days, "
+            "or everything; it opens on the last 365 days). Use it for 'what "
+            "have I made?' or 'what did I sell?'. No tool returns these figures, "
+            "so show the card and do not quote realized numbers of your own "
+            "(no props, same caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
             "their portfolio (requires ticker), "
             "'watchlist_fundamentals' shows the shared watchlist ranked by "
@@ -529,7 +540,7 @@ TOOL_SCHEMAS: list[dict] = [
             "'fundamentals_score_changes' shows which of those symbols' scores "
             "moved over the last 90 days and by how much, biggest improvements "
             "first, each with whether the news over that same window agrees, "
-            "diverges, is mixed, or is too thin to say (no props). All three portfolio "
+            "diverges, is mixed, or is too thin to say (no props). All four portfolio "
             "components are read-only — there is no component or tool for adding, "
             "editing, or closing a lot; tell the user to use the Portfolio page "
             "for that."

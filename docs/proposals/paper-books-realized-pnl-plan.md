@@ -73,6 +73,12 @@ PRs most:
 - Paper fills are permanent; a mistake is corrected with a visible reversing entry.
 - No combined total across real and paper books.
 - USD-listed symbols only for paper orders at first.
+- **A book is not an account.** `positions.account` stays as an account within a book: the
+  brokerage account for the real book, and later the mapped Alpaca paper account for a paper
+  book. The UI and the docs never use one word for the other (PRs 1.1 and 1.2).
+- Every trade records its `source` and a link to what prompted it, from the first row (PR 3.3),
+  so attribution works once automated triggers arrive (shown in PRs 4.3 and 5.3).
+- A delisted symbol in a paper book is closed by hand at the last good price (PR 3.5).
 
 ### Made on 2026-11-13 (John)
 
@@ -142,11 +148,26 @@ PRs most:
 No proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
 
+The proposals were numbered P1 to P13 while they were open. Each closed as a decision:
+
+| Proposal | Decision | | Proposal | Decision |
+|---|---|---|---|---|
+| P1 page structure | 7 | | P8 history start | 9 |
+| P2 book selector | 12 | | P9 Buy dialog | 16 |
+| P3 Compare books | 15 | | P10 scope of #221 | 10 |
+| P4 period control | 13 | | P11 seeding | 11 |
+| P5 realized sort | 14 | | P12 FX timing | 17 |
+| P6 checker cadence | 4 (5 and 6 came out of the same discussion) | | P13 MCP tools | 18 |
+| P7 negative cash | 8 | | | |
+
+Decisions 1 to 3 answered the first three scoping questions and had no P-number.
+
 ## 4. Mock-ups
 
 Shown in the planning sessions on 2026-11-13 and 2026-11-14 (not committed as images): the
 Portfolio page as tabs and as stacked sections; the Compare books view against SPY; the paper Buy
-dialog; the real book's cash ledger. John chose the stacked layout (decision 7) and the linked Compare books view (decision 15).
+dialog; the real book's cash ledger. John chose the stacked layout (decision 7) and the linked
+Compare books view (decision 15).
 
 What the stacked mock-up fixes for the build:
 
@@ -171,7 +192,8 @@ log when the PR merges.
   without restricting the book. `CLAUDE.md` gains the book rule beside the owner rule.
 - [ ] **1.2 Books API and the book selector.**
   `BooksService` and routes to list, create and archive paper books; `book_id` on the portfolio
-  routes; the selector (chips, with a "More" pulldown past five books) and the paper banner on the Portfolio page; Add Lot hidden for paper books.
+  routes; the selector (chips, with a "More" pulldown past five books) and the paper banner; a
+  lot's account shown as a field inside its book, never as a second kind of book on the Portfolio page; Add Lot hidden for paper books.
 - [ ] **1.3 Fractional-share audit.**
   Confirm fractions survive the Add Lot and Close Lot dialogs, CSV import, and
   `get_symbol_lots` and the other MCP outputs; fix what doesn't. Harvester's whole-share columns
@@ -203,9 +225,11 @@ log when the PR merges.
   Read `JohnFunkCode/alpaca_robot_trading_workflow_experiment` and #222; record in this document
   which ideas the orders design adopts and which it drops. No code.
 - [ ] **3.3 Orders and fills.**
-  `orders` table with an idempotency key and a `source` column; `OrdersService` with exactly-once
-  market fills at the current quote from `batch_quotes`; refusal on a stale quote, a halted
-  symbol, a non-USD symbol or not enough cash; off-hours orders queue; orders join the Cash and orders section with their status.
+  `orders` table with an idempotency key; `source` (manual, stop, harvester, evaluator, watch, AI)
+  and a link to what prompted the trade, on orders and on `lot_sales`, with existing sales
+  backfilled as manual; `OrdersService` with exactly-once market fills at the current quote from
+  `batch_quotes`; refusal on a stale quote, a halted symbol, a non-USD symbol or not enough cash;
+  off-hours orders queue; orders join the Cash and orders section with their status.
 - [ ] **3.4 Queued fills in the daily job.**
   A step that fills queued orders at their session's opening price, placed and budgeted under the
   daily job's ordering rules: clamped to the remaining budget, never raises, and alarms on what
@@ -213,7 +237,8 @@ log when the PR merges.
 - [ ] **3.5 Buy and sell on paper.**
   The Buy dialog on the Security page (no stop field yet); selling a paper position from the
   Portfolio page; seeding a paper book from the real book, on top of its starting cash (decision
-  11); `[PAPER]` Discord messages.
+  11); a manual close for a paper position whose symbol is delisted or can't be quoted, at the
+  last good price and marked as such; `[PAPER]` Discord messages.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -251,7 +276,8 @@ log when the PR merges.
   reports every day it could not value.
 - [ ] **5.3 Performance and Compare views.**
   `GET /api/books/performance`; the Performance section, the return-vs-SPY figure in the summary
-  strip, and the Compare books view against SPY; the
+  strip, and the Compare books view against SPY; attribution, as realized P/L by `source` for the
+  selected book; the
   dividend and split caveats on screen; a book-performance Sidekick card in both registries.
 - [ ] **5.4 Read access for Sidekick and MCP.**
   A read-only book tool in `READ_ONLY_TOOLS`; an MCP tool with its contract case and the tool
@@ -313,9 +339,10 @@ Known before any code is written. Add to this list as the work finds more.
 
 | Date | Step | PR | Notes |
 |---|---|---|---|
-| 2026-11-13 | Plan drafted | none yet | Scope, order and real-book cash decided; P1 to P13 open |
-| 2026-11-14 | Checker decided | none yet | Daily job, stop-level fills (replaces #431's close-fill rule), intraday noted as a later upgrade; P6 closed, the other twelve open |
-| 2026-11-14 | Layout decided | none yet | Stacked sections (decision 7); P1 closed, eleven open (P2 to P5, P7 to P13) |
-| 2026-11-14 | Seven proposals decided | none yet | Decisions 8 to 14. All of #221 is now in scope (milestone 4 grows to five PRs, 21 in total); seeding is on top of starting cash. Open: P3, P9, P12, P13 |
-| 2026-11-14 | Compare books placed | none yet | Linked view from Performance (decision 15). Open: P9, P12, P13 |
-| 2026-11-14 | Plan agreed | none yet | Decisions 16 to 18; no proposals open. Next: commit this document, then PR 1.1 |
+| 2026-11-13 | Plan drafted | none yet | Decisions 1 to 3 (scope, order, real-book cash); P1 to P13 open |
+| 2026-11-14 | Checker decided | none yet | Daily job, stop-level fills (replaces #431's close-fill rule), intraday noted as a later upgrade. Decisions 4 to 6; closes P6 |
+| 2026-11-14 | Layout decided | none yet | Stacked sections. Decision 7; closes P1 |
+| 2026-11-14 | Seven proposals decided | none yet | Decisions 8 to 14. All of #221 is now in scope (milestone 4 grows to five PRs, 20 in total); seeding is on top of starting cash. Closes P2, P4, P5, P7, P8, P10, P11 |
+| 2026-11-14 | Compare books placed | none yet | Linked view from Performance. Decision 15; closes P3 |
+| 2026-11-14 | Plan agreed | none yet | Decisions 16 to 18; closes P9, P12, P13, so none are open. Next: commit this document, then PR 1.1 |
+| 2026-11-14 | Review fixes | #545 | Count corrected to 20 PRs; homes given to #431's delisted-symbol, book-vs-account and attribution items; P-numbers mapped to decisions |

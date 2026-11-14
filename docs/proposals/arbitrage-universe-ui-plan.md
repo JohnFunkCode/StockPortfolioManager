@@ -36,8 +36,8 @@ What the code looked like on 2026-11-13, which narrows the issue as written:
   claims, diluted shares, source). They are what goes stale.
 - **The Scan tab names its errored pairs** instead of only counting them.
 
-The last three were recommendations John did not object to, not explicit answers; confirm them
-in review.
+John chose the placement on 2026-11-13 and confirmed the last three explicitly on 2026-11-14,
+after the #541 review asked for a yes on the NAV figures rather than silence.
 
 ## Mock-up
 
@@ -70,7 +70,7 @@ The expanded MSTR row holds:
 >
 > | Units held | Senior claims | Diluted shares | Source |
 > |---|---|---|---|
-> | 843,775 BTC | $16.5B | 350M | 10-Q Q1 FY2026 |
+> | 843,775 BTC | $16.5B | 350M | 10-Q Q1 FY2026 + The Block treasury tracker |
 >
 > Open workup →
 
@@ -128,7 +128,9 @@ pairs in context, is kept by the last decision above.
 
 1. **Client and hook.** `arbitrageApi.getUniverse()` and a `UniverseEntry` type in
    `frontend/src/api/arbitrage.ts`; `useArbitrageUniverse()` in `frontend/src/hooks/useArbitrage.ts`.
-   Fix that file's header comment, which still says only the single-pair workup is wired.
+   Rewrite the header comment of `frontend/src/api/arbitrage.ts`. It says only the single-pair
+   workup is wired to the UI, which is already wrong: the scan and discovery reach the page
+   today. It should describe the scan, discovery and universe wiring.
 2. **`UniverseTable`** in `frontend/src/components/arbitrage/`. It takes fetched data as a prop,
    like `ScanTable`. Colours through `var(--qc-*)` and `tint()` only.
 3. **`ArbUniverseCard`** in `frontend/src/components/chat/ArbitrageChartCards.tsx`: the

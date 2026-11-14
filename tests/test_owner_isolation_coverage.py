@@ -80,10 +80,12 @@ OWNER_SCOPED = {
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_delete_lot_is_owner_scoped"),
+        ("tests/test_portfolio_repository.py", "test_fx_backfill_is_owner_scoped"),
     ],
     "lot_sales": [
         ("tests/test_portfolio_repository.py", "test_update_sale_notes_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_list_realized_sales_is_owner_scoped"),
+        ("tests/test_portfolio_repository.py", "test_fx_backfill_is_owner_scoped"),
         ("tests/test_api_smoke.py", "test_sales_are_owner_scoped"),
     ],
     "plan_instances": [
@@ -496,7 +498,7 @@ ALLOWED = {
         "symbols for the options capture (main.py). Returns the names of owners "
         "holding a position in a real book, no position data."
     ),
-    ("quantcore/repositories/portfolio_repository.py", "871b12c740ba"): (
+    ("quantcore/repositories/portfolio_repository.py", "0c5b7928de4c"): (
         "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "
         "read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
         "connection, and raise ValueError if it isn't this owner's."

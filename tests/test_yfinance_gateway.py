@@ -5,6 +5,7 @@ serialization lock (yf.download shares module-global state and is not
 thread-safe — the July 2026 corruption vector), the MultiIndex column
 flattening, the fetch-window cap, and provider-internal cache cleanup.
 """
+import datetime
 import threading
 import time
 import unittest
@@ -319,6 +320,76 @@ class TestRateLimitRetry(unittest.TestCase):
         for name, (exc, expected) in cases.items():
             with self.subTest(name):
                 self.assertEqual(gw_mod.is_rate_limited(exc), expected)
+
+
+class TestFxDailyCloses(unittest.TestCase):
+    """#235 step 2.3: daily FX closes, USD per one unit of the currency."""
+
+    START = datetime.date(2026, 3, 2)
+    END = datetime.date(2026, 3, 9)
+
+    def setUp(self):
+        self.gateway = YFinanceGateway()
+
+    def _closes(self, frame, currency="EUR"):
+        with patch.object(gw_mod.yf, "download", return_value=frame) as download:
+            closes = self.gateway.fx_daily_closes(currency, self.START, self.END)
+        return closes, download
+
+    @staticmethod
+    def _frame(rows):
+        return pd.DataFrame({"Close": list(rows.values())}, index=pd.to_datetime(list(rows)))
+
+    def test_asks_yahoo_for_the_usd_pair_one_day_past_the_end(self):
+        closes, download = self._closes(self._frame({"2026-03-06": 1.08, "2026-03-09": 1.10}), "eur")
+
+        self.assertEqual(closes, {datetime.date(2026, 3, 6): 1.08, datetime.date(2026, 3, 9): 1.10})
+        (symbol,), kwargs = download.call_args
+        self.assertEqual(symbol, "EURUSD=X")
+        self.assertEqual((kwargs["start"], kwargs["end"]), ("2026-03-02", "2026-03-10"))
+        self.assertEqual(kwargs["interval"], "1d")
+        self.assertEqual(kwargs["timeout"], gw_mod.FX_TIMEOUT_SECONDS)
+
+    def test_download_runs_under_the_serialization_lock(self):
+        seen = {}
+
+        def fake_download(*args, **kwargs):
+            seen["locked"] = gw_mod._YF_DOWNLOAD_LOCK.locked()
+            return self._frame({"2026-03-06": 1.08})
+
+        with patch.object(gw_mod.yf, "download", side_effect=fake_download):
+            self.gateway.fx_daily_closes("EUR", self.START, self.END)
+        self.assertTrue(seen["locked"])
+        self.assertFalse(gw_mod._YF_DOWNLOAD_LOCK.locked())
+
+    def test_multiindex_columns_are_flattened(self):
+        frame = self._frame({"2026-03-06": 1.08})
+        frame.columns = pd.MultiIndex.from_tuples([("Close", "EURUSD=X")])
+        closes, _ = self._closes(frame)
+        self.assertEqual(closes, {datetime.date(2026, 3, 6): 1.08})
+
+    def test_bad_closes_and_days_outside_the_range_are_left_out(self):
+        closes, _ = self._closes(self._frame({
+            "2026-03-01": 1.07,            # before the range
+            "2026-03-03": float("nan"),
+            "2026-03-04": 0.0,
+            "2026-03-05": -1.0,
+            "2026-03-06": 1.08,
+            "2026-03-10": 1.11,            # after the range
+        }))
+        self.assertEqual(closes, {datetime.date(2026, 3, 6): 1.08})
+
+    def test_an_empty_or_unexpected_reply_is_no_closes(self):
+        for frame in (None, pd.DataFrame(), pd.DataFrame({"Open": [1.0]}, index=pd.to_datetime(["2026-03-06"]))):
+            closes, _ = self._closes(frame)
+            self.assertEqual(closes, {})
+
+    def test_refuses_anything_that_is_not_a_currency_code(self):
+        for bad in ("", None, "EU", "EURO", "E1R", "EUR=X", "../", "ÉUR"):
+            with self.subTest(bad=bad), patch.object(gw_mod.yf, "download") as download:
+                with self.assertRaises(ValueError):
+                    self.gateway.fx_daily_closes(bad, self.START, self.END)
+                download.assert_not_called()
 
 
 if __name__ == "__main__":

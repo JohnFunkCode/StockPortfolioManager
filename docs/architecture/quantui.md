@@ -71,7 +71,9 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   section and is not in the URL. The strip's "Realized, last year" is always the Year request,
   which the section shares until its period is changed. The chart is `PortfolioAllocationChart`
   with `variant="realized"`, which keeps the order the rows arrive in (best realized first)
-  where the allocation chart sorts by size. The same component with no props is the Sidekick
+  where the allocation chart sorts by size. A converted (non-USD) sale shows its dollar figure
+  with the figure in its own currency and both rates beneath it; one without rates shows the
+  native figure and a "no FX rate" chip. The same component with no props is the Sidekick
   `realized_pnl` card, which therefore always reads the real book.
 - **The Portfolio shows one book at a time** (#431). `BookSelector` draws a chip per book, the real
   book first, and puts the books past five under "More". The selected paper book is in the URL

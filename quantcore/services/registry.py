@@ -181,6 +181,7 @@ def get_services() -> Services:
         options=options,
         harvester_repository=harvester_repository,
         books_repository=books_repository,
+        fx_gateway=yfinance_gateway,
     )
     # The holding invariant (issue #147 Part H5) runs in both directions —
     # HarvesterService refuses to build a ladder for a symbol the owner does

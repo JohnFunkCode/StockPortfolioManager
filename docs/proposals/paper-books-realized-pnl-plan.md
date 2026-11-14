@@ -272,6 +272,16 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   Historical FX in `YFinanceGateway`; the prior-close rule in analytics;
   `lot_sales.fx_rate_at_sale`; rates captured when a lot is opened and closed; a backfill script
   for existing non-USD rows; the "no FX rate" flag and count. Closes #235.
+- [ ] **2.4 Complexity follow-up from the 2.1 review.**
+  A refactor with no behaviour change, in its own PR, as 1.4 was. The #552 review measured six
+  units that 2.1 did not change as over the cyclomatic goal of 10 (radon 6.0.1):
+  `portfolio_math.allocate` (12); `_row_to_dict` in `portfolio_repository.py` (14);
+  `_validate_lot_fields` (13) and `_normalize_row` (11) in `quantcore/services/portfolio.py`; and
+  `_child_ok` (15) and `_check_level` (12) in `tests/test_book_isolation_coverage.py`. Measure cognitive complexity too
+  before starting: complexipy failed on `quantcore/services/portfolio.py` and
+  `tests/test_book_isolation_coverage.py` in that review, so those scores are unknown. The
+  existing tests must pass unchanged; add a direct test for each extracted helper. Nothing in
+  2.2, 2.3 or milestone 3 depends on it, so it can be done at any point.
 
 #### 5.3 The realized payload (2.1), for the view in 2.2
 

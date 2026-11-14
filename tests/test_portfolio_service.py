@@ -710,6 +710,34 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
             self.service.close_lot(OWNER_A, lot_id, shares="lots", sale_price="15.00",
                                    sale_trade_date="2026-03-01")
 
+    def test_a_missing_or_blank_share_count_is_a_value_error(self):
+        # #548 review: _quantity reads a blank as None, which reached the
+        # allocator as a TypeError (a 500, not a 422).
+        lot_id = self._add(quantity="1")
+        for shares in (None, "", "nan", "inf"):
+            with self.subTest(shares=shares):
+                with self.assertRaises(ValueError):
+                    self.service.close_lot(OWNER_A, lot_id, shares=shares, sale_price="15.00",
+                                           sale_trade_date="2026-03-01")
+                with self.assertRaises(ValueError):
+                    self.service.preview_close(OWNER_A, lot_id, shares=shares)
+        with self.assertRaises(ValueError):
+            self.service.close_lot(
+                OWNER_A, lot_id, shares="0.5", sale_price="15.00",
+                sale_trade_date="2026-03-01", method="MANUAL", lots=[(lot_id, "")],
+            )
+        self.assertEqual(self.service.list_sales(OWNER_A, "ZZTEST"), [])
+
+    def test_update_lot_refuses_a_blank_quantity(self):
+        # #548 review: a blank rounded to None, skipped validation, and would
+        # have been written as NULL.
+        lot_id = self._add(quantity="1")
+        for quantity in ("", "nan", "abc"):
+            with self.subTest(quantity=quantity), self.assertRaises(ValueError):
+                self.service.update_lot(OWNER_A, lot_id, quantity=quantity)
+        [lot] = self.service.list_positions(OWNER_A)
+        self.assertEqual(lot["quantity"], Decimal("1"))
+
     def test_update_lot_rounds_a_quantity_to_six_decimals(self):
         lot_id = self._add(quantity="1")
         self.assertTrue(self.service.update_lot(OWNER_A, lot_id, quantity="0.0625004"))

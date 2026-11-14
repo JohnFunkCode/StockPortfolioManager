@@ -59,6 +59,19 @@ def _quantity(v) -> Optional[Decimal]:
     return Decimal(str(v)).quantize(Decimal("0.000001")) if v not in (None, "") else None
 
 
+def _share_count(v, name: str) -> Decimal:
+    """`_quantity` for a share count the caller must supply. `_quantity` reads
+    a blank as "no value", which is right for a CSV cell and wrong for a sale
+    or an edit: there a blank, `None` or a non-number is a `ValueError`."""
+    try:
+        count = _quantity(v)
+    except InvalidOperation:
+        count = None
+    if count is None or not count.is_finite():
+        raise ValueError(f"{name} is not a valid number: {v!r}")
+    return count
+
+
 def _clean_note(note: Any) -> Optional[str]:
     """Blank / whitespace-only notes are stored as NULL (issue #266)."""
     return (str(note).strip() if note is not None else "") or None
@@ -510,10 +523,7 @@ class PortfolioService:
         existing lot into the same unusable state add_position rejects.
         """
         if fields.get("quantity") is not None:
-            try:
-                fields = {**fields, "quantity": _quantity(fields["quantity"])}
-            except InvalidOperation:
-                raise ValueError(f"quantity is not a valid number: {fields['quantity']!r}")
+            fields = {**fields, "quantity": _share_count(fields["quantity"], "quantity")}
         _validate_lot_fields(fields, require_all=False)
         if "notes" in fields:
             fields = {**fields, "notes": _clean_note(fields["notes"])}
@@ -541,12 +551,9 @@ class PortfolioService:
         anchor = self._repo.get_lot(owner, lot_id)
         if anchor is None:
             raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
-        try:
-            shares = _quantity(shares)
-            if lots is not None:
-                lots = [(alloc_lot_id, _quantity(alloc)) for alloc_lot_id, alloc in lots]
-        except InvalidOperation:
-            raise ValueError("shares is not a valid number")
+        shares = _share_count(shares, "shares")
+        if lots is not None:
+            lots = [(alloc_lot_id, _share_count(alloc, "shares")) for alloc_lot_id, alloc in lots]
         symbol_lots = self._repo.list_lots_for_symbol(owner, anchor["symbol"], status="OPEN")
         allocation = portfolio_math.allocate(symbol_lots, shares, method, lots)
         return anchor, shares, symbol_lots, allocation

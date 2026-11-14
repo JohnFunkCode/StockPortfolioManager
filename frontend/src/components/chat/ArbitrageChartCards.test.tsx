@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 
 import {
   SpreadHistoryCard,
   PremiumHistoryCard,
   ArbScanCard,
+  ArbUniverseCard,
   DiscoveryCard,
 } from './ArbitrageChartCards';
 import { mockApi, renderWithProviders } from '../../testUtils';
@@ -93,6 +94,46 @@ describe('ArbScanCard', () => {
     expect(screen.getByText(/Scanning the curated universe/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('scan-table')).toBeInTheDocument());
     expect(screen.getByText('MSTR')).toBeInTheDocument();
+  });
+});
+
+describe('ArbUniverseCard', () => {
+  const UNIVERSE = {
+    count: 1,
+    entries: [{
+      security: 'MSTR', name: 'Strategy', kind: 'nav_vehicle', underlying: 'BTC-USD',
+      hedge_instrument: 'IBIT', convergence_mechanism: 'buyback', holdings_units: 843775,
+      holdings_as_of: '2026-07-14', senior_claims_usd: 16_500_000_000,
+      annual_senior_cost_usd: 854_000_000, other_assets_usd: 0, diluted_shares: 350_000_000,
+      source: '10-Q Q1 FY2026', notes: 'Converts plus four preferred series.',
+      holdings_age_days: 122, holdings_stale: true, hedge_available: true,
+    }],
+  };
+
+  it('fetches and renders the curated universe with no props', async () => {
+    mockApi([['/api/arbitrage/universe', UNIVERSE]]);
+    renderWithProviders(<ArbUniverseCard />);
+    expect(screen.getByText(/Loading the curated universe/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('universe-table')).toBeInTheDocument());
+    expect(screen.getByText('MSTR')).toBeInTheDocument();
+    expect(screen.getByText('122 days old')).toBeInTheDocument();
+  });
+
+  it('shows the rationale but no workup link in chat', async () => {
+    mockApi([['/api/arbitrage/universe', UNIVERSE]]);
+    renderWithProviders(<ArbUniverseCard />);
+    await waitFor(() => expect(screen.getByText('MSTR')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('MSTR'));
+    expect(screen.getByText('Converts plus four preferred series.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Open workup/ })).toBeNull();
+  });
+
+  it('shows an error alert when the request fails', async () => {
+    mockApi([['/api/arbitrage/universe', () => ({ __status: 500, error: 'boom' })]]);
+    renderWithProviders(<ArbUniverseCard />);
+    await waitFor(() =>
+      expect(screen.getByText(/Couldn't load the curated universe/i)).toBeInTheDocument(),
+    );
   });
 });
 

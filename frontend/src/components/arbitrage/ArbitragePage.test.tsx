@@ -48,12 +48,35 @@ const PREMIUM = {
   note: 'Approximation: today’s holdings applied to past prices.',
 };
 
+const UNIVERSE = {
+  count: 2,
+  entries: [
+    {
+      security: 'MSTR', name: 'Strategy', kind: 'nav_vehicle', underlying: 'BTC-USD',
+      hedge_instrument: 'IBIT', convergence_mechanism: 'buyback', holdings_units: 843775,
+      holdings_as_of: '2026-07-14', senior_claims_usd: 16_500_000_000,
+      annual_senior_cost_usd: 854_000_000, other_assets_usd: 0, diluted_shares: 350_000_000,
+      source: '10-Q Q1 FY2026', notes: 'Converts plus four preferred series.',
+      holdings_age_days: 122, holdings_stale: true, hedge_available: true,
+    },
+    {
+      security: 'UNG', name: 'United States Natural Gas Fund', kind: 'commodity_etf',
+      underlying: 'NG=F', hedge_instrument: null, convergence_mechanism: 'redemption',
+      holdings_units: null, holdings_as_of: null, senior_claims_usd: 0,
+      annual_senior_cost_usd: 0, other_assets_usd: 0, diluted_shares: null, source: null,
+      notes: 'Contango decay.', holdings_age_days: null, holdings_stale: false,
+      hedge_available: false,
+    },
+  ],
+};
+
 function arm(extra: Array<[string, unknown]> = []) {
   return mockApi([
     ...(extra as Array<[string, never]>),
     ['/spread-history', SPREAD],
     ['/premium-history', PREMIUM],
     ['/api/arbitrage/scan', SCAN],
+    ['/api/arbitrage/universe', UNIVERSE],
     ['/api/arbitrage/pairs/', { security: 'MSTR', error: 'stub' }],
     ['/api/arbitrage/discover', { count: 0, pairs: [], skipped: [], references: [], tested: [] }],
   ]);
@@ -84,6 +107,82 @@ describe('ArbitragePage', () => {
     arm([['/api/arbitrage/scan', { ...SCAN, errors: [{ security: 'BOOM', error: 'x' }] }]]);
     renderWithProviders(<ArbitragePage />);
     await waitFor(() => expect(screen.getByText('1 errored')).toBeInTheDocument());
+  });
+
+  it('names each errored pair and why it failed', async () => {
+    arm([['/api/arbitrage/scan', {
+      ...SCAN,
+      errors: [{ security: 'UNG', error: 'No price history for NG=F' }],
+    }]]);
+    renderWithProviders(<ArbitragePage />);
+    await waitFor(() => expect(screen.getByTestId('scan-errors')).toBeInTheDocument());
+    expect(screen.getByTestId('scan-errors')).toHaveTextContent('UNG: No price history for NG=F');
+  });
+
+  it('shows no error list when every pair scored', async () => {
+    arm();
+    renderWithProviders(<ArbitragePage />);
+    await waitFor(() => expect(screen.getByText('2 of 2 pairs')).toBeInTheDocument());
+    expect(screen.queryByTestId('scan-errors')).toBeNull();
+  });
+
+  it('opens on the Scan tab and counts the universe on the other', async () => {
+    arm();
+    renderWithProviders(<ArbitragePage />);
+    expect(screen.getByRole('tab', { name: 'Scan' })).toHaveAttribute('aria-selected', 'true');
+    await waitFor(() =>
+      expect(screen.getByRole('tab', { name: 'Universe · 2' })).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('universe-table')).toBeNull();
+  });
+
+  it('lists the curated universe while the scan is still running', async () => {
+    mockApi([
+      ['/api/arbitrage/scan', () => new Promise<object>(() => {})],
+      ['/api/arbitrage/universe', UNIVERSE],
+    ]);
+    renderWithProviders(<ArbitragePage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Universe/ }));
+    await waitFor(() => expect(screen.getByTestId('universe-table')).toBeInTheDocument());
+    expect(screen.getByText('UNG')).toBeInTheDocument();
+    expect(screen.getByText('122 days old')).toBeInTheDocument();
+    // The scan's own wait message belongs to the Scan tab.
+    expect(screen.queryByText(/Scanning the curated universe/i)).toBeNull();
+  });
+
+  it('lists the curated universe when the scan failed', async () => {
+    mockApi([
+      ['/api/arbitrage/scan', () => ({ __status: 500, error: 'scan blew up' })],
+      ['/api/arbitrage/universe', UNIVERSE],
+    ]);
+    renderWithProviders(<ArbitragePage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Universe/ }));
+    await waitFor(() => expect(screen.getByText('MSTR')).toBeInTheDocument());
+    expect(screen.queryByText(/scan blew up/i)).toBeNull();
+  });
+
+  it('surfaces a universe failure on its own tab', async () => {
+    mockApi([
+      ['/api/arbitrage/scan', SCAN],
+      ['/api/arbitrage/universe', () => ({ __status: 500, error: 'universe blew up' })],
+    ]);
+    renderWithProviders(<ArbitragePage />);
+    expect(screen.getByRole('tab', { name: 'Universe' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Universe' }));
+    await waitFor(() => expect(screen.getByText(/universe blew up/i)).toBeInTheDocument());
+  });
+
+  it('opens the workup for a pair the scan never returned', async () => {
+    // UNG is in the universe but not among the scan's rows.
+    arm();
+    renderWithProviders(<ArbitragePage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Universe/ }));
+    await waitFor(() => expect(screen.getByText('UNG')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('UNG'));
+    fireEvent.click(screen.getByRole('button', { name: /Open workup/ }));
+    await waitFor(() => expect(screen.getByTestId('spread-chart')).toBeInTheDocument());
+    // A commodity ETF has no NAV premium chart.
+    expect(screen.queryByTestId('premium-chart')).toBeNull();
   });
 
   it('opens the pair detail with a spread chart on row click', async () => {

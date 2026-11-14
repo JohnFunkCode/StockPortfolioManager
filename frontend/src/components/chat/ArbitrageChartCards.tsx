@@ -3,7 +3,7 @@
  *
  * The registry needs components that render from scalar props alone, while the
  * charts themselves take fetched data — these adapt one to the other, exactly
- * as PriceChartCard does for PriceChart. Keeping all four together makes the
+ * as PriceChartCard does for PriceChart. Keeping all five together makes the
  * shared loading/error shape obvious and hard to diverge.
  */
 import { Alert, Box, CircularProgress, Typography } from '@mui/material';
@@ -11,10 +11,12 @@ import SpreadChart from '../arbitrage/SpreadChart';
 import PremiumChart from '../arbitrage/PremiumChart';
 import ScanTable from '../arbitrage/ScanTable';
 import DiscoveryScatter from '../arbitrage/DiscoveryScatter';
+import UniverseTable from '../arbitrage/UniverseTable';
 import {
   useSpreadHistory,
   usePremiumHistory,
   useArbitrageScan,
+  useArbitrageUniverse,
   useDiscovery,
 } from '../../hooks/useArbitrage';
 
@@ -55,6 +57,14 @@ export function ArbScanCard() {
   if (error) return <Alert severity="error">Couldn&apos;t run the arbitrage scan.</Alert>;
   if (!data) return null;
   return <ScanTable rows={data.candidates} />;
+}
+
+export function ArbUniverseCard() {
+  const { data, isLoading, error } = useArbitrageUniverse();
+  if (isLoading) return <Loading label="Loading the curated universe…" />;
+  if (error) return <Alert severity="error">Couldn&apos;t load the curated universe.</Alert>;
+  if (!data) return null;
+  return <UniverseTable entries={data.entries} />;
 }
 
 export function DiscoveryCard({ symbols }: { symbols: string }) {

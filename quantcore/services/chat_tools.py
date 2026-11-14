@@ -40,6 +40,8 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     "arbitrage_premium": {"ticker": str},
     # No props: the scan covers the whole curated universe.
     "arbitrage_scan": {},
+    # No props: the curated list is one fixed file, not something to address.
+    "arbitrage_universe": {},
     "arbitrage_discovery": {"symbols": str},
     # No props: the card fetches the caller's own portfolio via the browser's
     # authenticated session. Never add an `owner` prop here — that would let
@@ -351,7 +353,9 @@ TOOL_SCHEMAS: list[dict] = [
             "List the curated security-to-underlying pairs the scanner tracks, "
             "with each one's family, hedge instrument, convergence mechanism, and "
             "whether its hand-maintained holdings figures have gone stale. Use "
-            "when the user asks what the scanner covers or why a symbol is absent."
+            "when the user asks what the scanner covers or why a symbol is absent. "
+            "To show the list itself, with each link's rationale, render "
+            "show_component('arbitrage_universe', {})."
         ),
         "input_schema": {"type": "object", "properties": {}, "required": []},
     },
@@ -499,6 +503,9 @@ TOOL_SCHEMAS: list[dict] = [
             "value over time (requires ticker; nav_vehicle securities only), "
             "'arbitrage_scan' shows the ranked scan table for the whole curated "
             "universe (no props), "
+            "'arbitrage_universe' lists every curated pair with its family, "
+            "hedge, convergence mechanism and holdings age; a row expands to "
+            "why the link exists (no props), "
             "'arbitrage_discovery' plots a cointegration sweep — correlation "
             "against test statistic, with near-misses visible against the "
             "critical-value line (requires symbols, comma-separated), "

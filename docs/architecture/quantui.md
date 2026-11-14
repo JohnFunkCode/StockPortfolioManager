@@ -76,6 +76,17 @@ The per-symbol drill-down keeps its `/securities/:symbol` URL (its Back button r
 `/watchlist`), and `GET /api/securities` — the old list route — is gone; `/api/securities/lookup`
 and every `/api/securities/{ticker}/*` route stay.
 
+The **Arbitrage page** (`/arbitrage`) has two tabs, each with its own request. **Scan** (the
+default) is the ranked table from `GET /api/arbitrage/scan` and names any pair whose workup
+errored. **Universe** (#415) is every curated link from `GET /api/arbitrage/universe`: a YAML read
+with no price fetches, so it answers "what is watched, and why" while a cold scan is still running
+or has failed. Its rows expand to the link's rationale and, for NAV vehicles, the hand-maintained
+capital figures. Selecting a pair on either tab opens the same workup below, so a pair whose scan
+errored is still reachable. The page is read-only: adding a pair is a reviewed change to
+`arb_universe.yaml`. Both tables are also Sidekick cards (`arbitrage_scan`,
+`arbitrage_universe`); the Universe card has no "Open workup" link because chat has no pair
+detail to open. Why tabs: [`arbitrage-universe-ui-plan.md`](../proposals/arbitrage-universe-ui-plan.md).
+
 The **Fundamentals page** (`/fundamentals`, issue #147 Part D) answers "what's good?" across the
 **tracked universe** — the shared watchlist plus *every* owner's positions, deliberately the same
 set `main.py` captures options for and warms fundamentals over. Five panels

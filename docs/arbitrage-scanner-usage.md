@@ -37,6 +37,11 @@ All four are on the **arbitrage** MCP server (`arbitrage-server`, port 6007 loca
 No parameters. Returns the ten curated pairs with their family, underlying, hedge
 instrument, convergence mechanism, and a staleness flag on the hand-maintained holdings.
 
+In QuantUI the same list is the **Universe** tab of the Arbitrage page. It loads without waiting
+for the scan. A row expands to the link's rationale (`notes`) and, for a NAV vehicle, its
+hand-maintained units, senior claims, diluted shares and source; "Open workup" opens the same
+card and charts a scan row does. Sidekick renders the list as the `arbitrage_universe` card.
+
 | Family | Pairs |
 |---|---|
 | `nav_vehicle` | MSTR·BTC-USD, GBTC·BTC-USD |

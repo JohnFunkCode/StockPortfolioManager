@@ -168,11 +168,10 @@ export interface ScanResponse {
  * hand-maintained and only meaningful for `nav_vehicle` entries; the last
  * three are computed server-side (ArbitrageService.get_universe).
  *
- * The type mirrors the whole response. `annual_senior_cost_usd` and
- * `other_assets_usd` are carried but not rendered: the expanded row shows the
- * four figures agreed in arbitrage-universe-ui-plan.md (units, senior claims,
- * diluted shares, source). Showing more is a decision for that plan, not a
- * gap in the table.
+ * The type mirrors the whole response. `other_assets_usd` is carried but not
+ * rendered: the expanded row shows the figures agreed in
+ * arbitrage-universe-ui-plan.md (units, senior claims, annual senior cost,
+ * diluted shares, source).
  */
 export interface UniverseEntry {
   security: string;

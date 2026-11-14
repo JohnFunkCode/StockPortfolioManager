@@ -33,7 +33,8 @@ What the code looked like on 2026-11-13, which narrows the issue as written:
 - **An expanded row links to the pair's workup**, the same card and charts a scan row opens. A
   pair is then reachable even when its scan errored.
 - **NAV vehicles show their hand-maintained inputs** in the expanded row (units held, senior
-  claims, diluted shares, source). They are what goes stale.
+  claims, annual senior cost, diluted shares, source). They are what goes stale. Annual senior
+  cost was added on 2026-11-14; see the checkpoint log.
 - **The Scan tab names its errored pairs** instead of only counting them.
 
 John chose the placement on 2026-11-13 and confirmed the last three explicitly on 2026-11-14,
@@ -176,3 +177,7 @@ No backend route, service, schema or MCP change is planned.
   - Gotcha: the page keeps `{security, kind}` for the selected pair rather than looking the row
     up in the scan. A pair opened from the Universe tab may have no scan row (it errored, or the
     scan hasn't returned), and `kind` decides whether the NAV premium chart is requested.
+- **2026-11-14: annual senior cost added to the expanded row** (follow-up PR). The #542 review
+  noted that `annual_senior_cost_usd` was fetched but not shown, and that it is the carry figure
+  a reader of a NAV vehicle most needs. John said yes. `other_assets_usd` stays unrendered: it
+  was not part of that decision.

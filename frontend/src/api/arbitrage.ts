@@ -129,6 +129,12 @@ export interface PremiumHistoryResponse {
   error?: string;
 }
 
+/**
+ * One flat row of `GET /api/arbitrage/scan?view=summary`
+ * (ArbitrageService.scan_summary). The default view returns full workups with
+ * none of these flat fields; tests/test_arbitrage_service.py keeps this
+ * interface and the summary row in step.
+ */
 export interface ScanRow {
   security: string;
   name?: string;
@@ -152,6 +158,7 @@ export interface ScanResponse {
   returned: number;
   candidates: ScanRow[];
   errors: Array<{ security: string; error: string }>;
+  note?: string;
 }
 
 export interface TestedPair {
@@ -196,7 +203,9 @@ export const arbitrageApi = {
     ),
 
   scan: (topN = 20, days = 365) =>
-    apiRequest<ScanResponse>(`/api/arbitrage/scan?top_n=${topN}&days=${days}`),
+    apiRequest<ScanResponse>(
+      `/api/arbitrage/scan?view=summary&top_n=${topN}&days=${days}`,
+    ),
 
   discover: (symbols: string, requireEconomicLink = true) =>
     apiRequest<DiscoveryResponse>(

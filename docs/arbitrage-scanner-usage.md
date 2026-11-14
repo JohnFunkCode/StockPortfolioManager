@@ -77,6 +77,10 @@ half-life, trend), `nav` (NAV vehicles only), `hedge`, and the score with its `f
 
 A pair that errors (bad symbol, no history) lands in `errors` rather than sinking the scan.
 
+On the REST route, `view=summary` returns one flat row per candidate (score, verdict, the net
+discount, convergence, hedge, what breaks it) in place of the full workup. QuantUI's Scan tab
+and the Sidekick's `scan_arbitrage` tool read that shape; the MCP tool returns full workups.
+
 ### 4. `discover_arbitrage_pairs` — find links you haven't declared
 
 > *"Sweep NEM, AEM, GOLD, FCX and SCCO against the commodity panel"*

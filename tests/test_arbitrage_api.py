@@ -70,6 +70,27 @@ class ArbitrageRouterTest(unittest.TestCase):
         self.assertEqual(kwargs["top_n"], 20)
         self.assertEqual(kwargs["days"], 365)
 
+    def test_scan_route_summary_view_calls_the_summary_projection(self):
+        """QuantUI's scan table reads the flat summary rows. The parameters
+        must reach scan_summary explicitly: its own top_n default is 10."""
+        resp = self.client.get("/api/arbitrage/scan?view=summary")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), PAYLOAD)
+        name, _, kwargs = self.last_call()
+        self.assertEqual(name, "scan_summary")
+        self.assertIsNone(kwargs["kinds"])
+        self.assertEqual(kwargs["top_n"], 20)
+        self.assertEqual(kwargs["days"], 365)
+
+    def test_scan_route_full_view_is_the_default_shape(self):
+        self.client.get("/api/arbitrage/scan?view=full")
+        self.assertEqual(self.last_call()[0], "scan")
+
+    def test_scan_route_rejects_an_unknown_view(self):
+        resp = self.client.get("/api/arbitrage/scan?view=compact")
+        self.assertEqual(resp.status_code, 422)
+        self.assertEqual(self.service.calls, [])
+
     def test_scan_route_splits_the_kinds_list(self):
         self.client.get("/api/arbitrage/scan?kinds=nav_vehicle,producer&top_n=3")
         _, _, kwargs = self.last_call()

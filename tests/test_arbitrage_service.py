@@ -362,6 +362,22 @@ class ScanSummaryTest(unittest.TestCase):
         self.assertEqual(scores, sorted(scores, reverse=True))
         self.assertEqual([e["security"] for e in summary["errors"]], ["BOOM"])
 
+    def test_rows_match_the_scan_table_type_in_the_front_end(self):
+        """QuantUI's ScanTable reads these rows through the `ScanRow` type. The
+        Scan tab once read full workups instead, which have none of the flat
+        fields, so every hedge showed as futures-only and every discount as
+        blank while the fixtures (written in the flat shape) kept passing."""
+        import pathlib
+        import re
+
+        source = (pathlib.Path(__file__).resolve().parent.parent
+                  / "frontend" / "src" / "api" / "arbitrage.ts").read_text()
+        body = re.search(r"export interface ScanRow \{(.*?)\n\}", source, re.S).group(1)
+        declared = set(re.findall(r"^\s*(\w+)\??:", body, re.M))
+        summary = build(self.entries, self.frames).scan_summary()
+        for row in summary["candidates"]:
+            self.assertEqual(set(row), declared)
+
     def test_note_tells_the_reader_the_discount_is_net(self):
         summary = build(self.entries, self.frames).scan_summary()
         self.assertIn("NET", summary["note"])

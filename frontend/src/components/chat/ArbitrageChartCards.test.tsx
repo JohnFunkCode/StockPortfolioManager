@@ -79,7 +79,7 @@ describe('PremiumHistoryCard', () => {
 
 describe('ArbScanCard', () => {
   it('renders the scan table', async () => {
-    mockApi([['/api/arbitrage/scan', {
+    const api = mockApi([['/api/arbitrage/scan', {
       scanned: 1, returned: 1, errors: [],
       candidates: [{
         security: 'MSTR', kind: 'nav_vehicle', underlying: 'BTC-USD', score: 9.7,
@@ -93,6 +93,10 @@ describe('ArbScanCard', () => {
     expect(screen.getByText(/Scanning the curated universe/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.getByTestId('scan-table')).toBeInTheDocument());
     expect(screen.getByText('MSTR')).toBeInTheDocument();
+    // The table reads flat summary rows; the default view returns full workups.
+    expect(api.calls[0][0]).toContain('view=summary');
+    expect(screen.getByText('IBIT')).toBeInTheDocument();
+    expect(screen.getByText('-16.92%')).toBeInTheDocument();
   });
 });
 

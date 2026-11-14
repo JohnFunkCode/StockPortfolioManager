@@ -2,6 +2,7 @@
 
   GET /api/arbitrage/universe            curated pair list + staleness flags
   GET /api/arbitrage/scan                ranked candidates across the universe
+                                         (view=summary: one flat row each)
   GET /api/arbitrage/pairs/{security}    full workup for one pair
   GET /api/arbitrage/discover            statistical sweep for unmapped links
 
@@ -16,7 +17,7 @@ count rather than failing.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -63,10 +64,21 @@ def scan(
     ),
     top_n: int = Query(20, ge=1, le=100),
     days: int = Query(365, ge=MIN_DAYS, le=MAX_DAYS),
+    view: Literal["full", "summary"] = Query(
+        "full",
+        description=(
+            "full: each candidate's complete workup (the MCP tool's shape). "
+            "summary: one flat row per candidate, the shape QuantUI's scan "
+            "table reads."
+        ),
+    ),
 ) -> QuantCoreJSONResponse:
-    return QuantCoreJSONResponse(
-        services().arbitrage.scan(kinds=_split(kinds), top_n=top_n, days=days)
-    )
+    # Still one service call: `view` only picks which projection. The table's
+    # flat fields (hedge_available, discount_pct, ...) exist only in the
+    # summary; reading them off a full workup shows every hedge as futures-only.
+    arbitrage = services().arbitrage
+    run = arbitrage.scan_summary if view == "summary" else arbitrage.scan
+    return QuantCoreJSONResponse(run(kinds=_split(kinds), top_n=top_n, days=days))
 
 
 @router.get("/discover")

@@ -30,6 +30,15 @@ wrapper `fastMCPTest/arbitrage_server.py` (`arbitrage-server`, port 6007 locally
 server, like the others. Expect most scans to return nothing above `watch` — that is the
 intended behaviour, not a bug.
 
+**The scan has two shapes, and a table must ask for the flat one.** `GET /api/arbitrage/scan`
+returns full workups by default (`ArbitrageService.scan`, what the MCP tool forwards);
+`view=summary` returns `scan_summary`'s flat rows, which QuantUI's `ScanTable` and the Sidekick
+tool read. Until 2026-11-13 the Scan tab fetched the default view and read the flat fields off it.
+None exist there, so every hedge rendered as `futures only` and every net discount as blank,
+while the vitest fixtures (hand-written in the flat shape) passed.
+`tests/test_arbitrage_service.py` now fails when `ScanRow` in `frontend/src/api/arbitrage.ts` and
+the summary row's keys differ.
+
 **Driving it:** [`docs/arbitrage-scanner-usage.md`](../../docs/arbitrage-scanner-usage.md) — example
 prompts per tool, how to read the `factors` breakdown, the MSTR worked example (gross vs net
 discount), and how to add a pair to `arb_universe.yaml`.

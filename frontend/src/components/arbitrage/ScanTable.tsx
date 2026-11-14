@@ -61,7 +61,9 @@ export default function ScanTable({ rows, onSelect }: Props) {
       width: 120,
       renderCell: (p: GridRenderCellParams<ScanRow, boolean>) =>
         p.value ? (
-          <Typography variant="body2">{p.row.hedge_instrument ?? '—'}</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', height: '100%' }}>
+            <Typography variant="body2">{p.row.hedge_instrument ?? '—'}</Typography>
+          </Box>
         ) : (
           <Chip size="small" label="futures only" color="warning" variant="outlined" />
         ),

@@ -366,17 +366,36 @@ class ScanSummaryTest(unittest.TestCase):
         """QuantUI's ScanTable reads these rows through the `ScanRow` type. The
         Scan tab once read full workups instead, which have none of the flat
         fields, so every hedge showed as futures-only and every discount as
-        blank while the fixtures (written in the flat shape) kept passing."""
+        blank while the fixtures (written in the flat shape) kept passing.
+        Checks both the field names and each value against its declared type."""
         import pathlib
         import re
 
         source = (pathlib.Path(__file__).resolve().parent.parent
                   / "frontend" / "src" / "api" / "arbitrage.ts").read_text()
         body = re.search(r"export interface ScanRow \{(.*?)\n\}", source, re.S).group(1)
-        declared = set(re.findall(r"^\s*(\w+)\??:", body, re.M))
+        declared = dict(re.findall(r"^\s*(\w+)\??:\s*([^;]+);", body, re.M))
+        python_types = {
+            "string": (str,),
+            "number": (int, float),
+            "boolean": (bool,),
+            "string[]": (list,),
+            "null": (type(None),),
+        }
         summary = build(self.entries, self.frames).scan_summary()
         for row in summary["candidates"]:
-            self.assertEqual(set(row), declared)
+            self.assertEqual(set(row), set(declared))
+            for field, ts_type in declared.items():
+                allowed = tuple(
+                    t for part in ts_type.split("|") for t in python_types[part.strip()]
+                )
+                value = row[field]
+                # bool is an int in Python; a flag where a number is declared
+                # is still a mismatch.
+                if isinstance(value, bool):
+                    self.assertIn(bool, allowed, f"{row['security']}.{field}")
+                self.assertIsInstance(value, allowed, f"{row['security']}.{field}")
+            self.assertTrue(all(isinstance(r, str) for r in row["breaks_on"]))
 
     def test_note_tells_the_reader_the_discount_is_net(self):
         summary = build(self.entries, self.frames).scan_summary()

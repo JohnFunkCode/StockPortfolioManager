@@ -3,6 +3,7 @@
 import csv
 from datetime import datetime
 from portfolio import portfolio as spm
+from portfolio.stock import format_quantity, parse_quantity
 from pathlib import Path
 
 
@@ -24,7 +25,7 @@ def read_stocks_from_csv(file_path):
                 name = row['name']
                 symbol = row['symbol']
                 purchase_price = float(row['purchase_price'])
-                quantity = int(row['quantity'])
+                quantity = parse_quantity(row['quantity'])
                 purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d').date()
 
                 # Parse optional fields
@@ -93,7 +94,7 @@ if __name__ == "__main__":
         print(f"\nStock: {stock.name} ({stock.symbol})")
         print(f"Purchase Price: {stock.purchase_price}")
         print(f"Current Price: {stock.current_price}")
-        print(f"Quantity: {stock.quantity}")
+        print(f"Quantity: {format_quantity(stock.quantity)}")
         print(f"Gain/Loss: {stock.calculate_gain_loss()}")
 
         gain_loss_pct = stock.calculate_gain_loss_percentage()

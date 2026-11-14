@@ -143,6 +143,16 @@ class PortfolioServiceTest(unittest.TestCase):
         self.assertEqual(first["source"], "portfolio")
         self.assertEqual(first["tags"], [])
 
+    def test_import_csv_keeps_fractional_quantities(self):
+        """Plan step 1.3 (#431): a CSV fraction lands at the stored six decimals."""
+        rows = [
+            {**self._sample_rows()[0], "quantity": "0.062501"},
+            {**self._sample_rows()[1], "quantity": "12.5"},
+        ]
+        self.assertEqual(self.service.import_csv(self._write_csv(rows), OWNER_A), 2)
+        held = {p["symbol"]: p["quantity"] for p in self.service.list_positions(OWNER_A)}
+        self.assertEqual(held, {"ZZTEST": Decimal("0.062501"), "ZZTST2": Decimal("12.5")})
+
     def test_import_csv_skips_empty_symbol_rows(self):
         rows = self._sample_rows() + [{"name": "Blank", "symbol": ""}]
         path = self._write_csv(rows)
@@ -653,6 +663,66 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         open_lots = self.service.list_positions(OWNER_A)
         self.assertEqual(len(open_lots), 1)
         self.assertEqual(open_lots[0]["quantity"], Decimal("2"))
+
+    # -- fractional shares (#431 plan step 1.3) -------------------------
+    def _sold(self, symbol="ZZTEST"):
+        return sum((s["shares_sold"] for s in self.service.list_sales(OWNER_A, symbol)), Decimal("0"))
+
+    def test_a_fractional_partial_close_conserves_the_shares(self):
+        lot_id = self._add(quantity="0.5")
+        self.service.close_lot(OWNER_A, lot_id, shares="0.125", sale_price="15.00",
+                               sale_trade_date="2026-03-01")
+        [remaining] = self.service.list_positions(OWNER_A)
+        self.assertEqual(remaining["quantity"], Decimal("0.375"))
+        self.assertEqual(self._sold(), Decimal("0.125"))
+
+    def test_a_sale_finer_than_six_decimals_is_rounded_once(self):
+        # Rounded by the column instead, 0.3333335 sold from one share stored
+        # 0.333334 sold and 0.666667 left: 1.000001 shares from a lot of 1.
+        lot_id = self._add(quantity="1")
+        preview = self.service.preview_close(OWNER_A, lot_id, shares="0.3333335")
+        self.assertEqual(preview["allocations"][0]["shares"], Decimal("0.333334"))
+        self.service.close_lot(OWNER_A, lot_id, shares="0.3333335", sale_price="15.00",
+                               sale_trade_date="2026-03-01")
+        [remaining] = self.service.list_positions(OWNER_A)
+        self.assertEqual(remaining["quantity"], Decimal("0.666666"))
+        self.assertEqual(self._sold() + remaining["quantity"], Decimal("1"))
+
+    def test_a_manual_allocation_is_rounded_the_same_way(self):
+        lot_id = self._add(quantity="1")
+        self.service.close_lot(
+            OWNER_A, lot_id, shares="0.3333335", sale_price="15.00",
+            sale_trade_date="2026-03-01", method="MANUAL", lots=[(lot_id, "0.3333335")],
+        )
+        [remaining] = self.service.list_positions(OWNER_A)
+        self.assertEqual(self._sold() + remaining["quantity"], Decimal("1"))
+
+    def test_a_sale_that_rounds_to_no_shares_is_refused(self):
+        lot_id = self._add(quantity="1")
+        with self.assertRaises(ValueError):
+            self.service.close_lot(OWNER_A, lot_id, shares="0.0000004", sale_price="15.00",
+                                   sale_trade_date="2026-03-01")
+        self.assertEqual(self.service.list_sales(OWNER_A, "ZZTEST"), [])
+
+    def test_a_sale_that_is_not_a_number_is_a_value_error(self):
+        lot_id = self._add(quantity="1")
+        with self.assertRaises(ValueError):
+            self.service.close_lot(OWNER_A, lot_id, shares="lots", sale_price="15.00",
+                                   sale_trade_date="2026-03-01")
+
+    def test_update_lot_rounds_a_quantity_to_six_decimals(self):
+        lot_id = self._add(quantity="1")
+        self.assertTrue(self.service.update_lot(OWNER_A, lot_id, quantity="0.0625004"))
+        [lot] = self.service.list_positions(OWNER_A)
+        self.assertEqual(lot["quantity"], Decimal("0.0625"))
+
+    def test_update_lot_refuses_a_quantity_that_rounds_to_zero(self):
+        # Positive as typed, so the old check passed it and the column stored 0.
+        lot_id = self._add(quantity="1")
+        with self.assertRaises(ValueError):
+            self.service.update_lot(OWNER_A, lot_id, quantity="0.0000004")
+        [lot] = self.service.list_positions(OWNER_A)
+        self.assertEqual(lot["quantity"], Decimal("1"))
 
     def test_close_lot_unknown_lot_raises(self):
         with self.assertRaises(ValueError):

@@ -3,6 +3,7 @@
 import csv
 from datetime import datetime
 from portfolio import portfolio as spm
+from portfolio.stock import format_quantity, parse_quantity
 from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,7 +30,7 @@ def read_stocks_from_csv(file_path):
                 name = row['name']
                 symbol = row['symbol']
                 purchase_price = float(row['purchase_price'])
-                quantity = int(row['quantity'])
+                quantity = parse_quantity(row['quantity'])
                 purchase_date = datetime.strptime(row['purchase_date'], '%Y-%m-%d').date()
 
                 # Parse optional fields
@@ -111,7 +112,7 @@ def create_portfolio_html(portfolio):
             'symbol': stock.symbol,
             'purchase_price': float(stock.purchase_price.amount),
             'current_price': float(stock.current_price.amount) if stock.current_price else "N/A",
-            'quantity': stock.quantity,
+            'quantity': format_quantity(stock.quantity),
             'gain_loss': float(gain_loss.amount) if gain_loss else "N/A",
             'gain_loss_pct': f"{gain_loss_pct:.2f}%" if gain_loss_pct is not None else "N/A"
         })

@@ -216,9 +216,7 @@ class RecommendationsService:
         )
         if held["avg_price"] is None:
             return 0.0, 0
-        quantity = held["quantity"]
-        shares = int(quantity) if quantity == int(quantity) else float(quantity)
-        return float(held["avg_price"]), shares
+        return float(held["avg_price"]), stops.share_count(held["quantity"])
 
     def _stop_tasks(self, sym: str, daoi: Callable[[], dict]) -> dict[str, Callable]:
         return {
@@ -266,7 +264,7 @@ class RecommendationsService:
         self,
         symbol: str,
         cost_basis: float = 0.0,
-        shares: int = 0,
+        shares: float = 0,
         max_expirations: int = 4,
         confluence: str = "none",
         owner: Optional[str] = None,
@@ -282,6 +280,7 @@ class RecommendationsService:
         if confluence not in CONFLUENCE_MODES:
             raise ValueError(f"confluence must be one of {', '.join(CONFLUENCE_MODES)}")
         sym = symbol.upper()
+        shares = stops.share_count(shares)
         position_source = "explicit" if cost_basis > 0 or shares > 0 else None
         if owner is not None and position_source is None:
             cost_basis, shares = self._held_position(owner, sym)

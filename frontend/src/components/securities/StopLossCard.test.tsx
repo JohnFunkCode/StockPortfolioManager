@@ -215,6 +215,12 @@ describe('StopLossCard', () => {
     }
   });
 
+  it('shows a fractional held position', async () => {
+    mockApi([['/stop-loss', response({ position: { ...HELD, shares: 0.5 }, position_source: 'lots' })]]);
+    renderWithProviders(<StopLossCard ticker="XYZ" />);
+    expect((await screen.findByTestId('stop-position')).textContent).toContain('0.5 sh @ $150.00');
+  });
+
   it('shows the Held chip and P&L at each stop for a held symbol', async () => {
     mockApi([['/stop-loss', response({ position: HELD, position_source: 'lots' })]]);
     renderWithProviders(<StopLossCard ticker="XYZ" />);

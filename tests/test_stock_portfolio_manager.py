@@ -9,6 +9,7 @@ import yaml
 from portfolio.money import Money
 from portfolio import portfolio as spm
 from portfolio import watch_list
+from portfolio.stock import format_quantity, parse_quantity
 
 
 class TestStockPortfolioManager(unittest.TestCase):
@@ -258,6 +259,44 @@ class TestReadStocksFromRecordsFractionalLots(unittest.TestCase):
         gain_loss = stock.calculate_gain_loss()
         # (100 - 133.33) * 0.0625 = -2.083125 -> quantized to cents by Money
         self.assertEqual(gain_loss.amount, Decimal("-2.08"))
+
+
+class TestQuantityText(unittest.TestCase):
+    """#431 plan step 1.3: share counts in and out of text."""
+
+    def test_parse_quantity_takes_fractions(self):
+        self.assertEqual(parse_quantity("0.0625"), Decimal("0.0625"))
+        self.assertEqual(parse_quantity(" 10 "), Decimal("10"))
+
+    def test_parse_quantity_raises_value_error_on_a_non_number(self):
+        for text in ("abc", "", "nan", "inf"):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                parse_quantity(text)
+
+    def test_format_quantity_drops_the_database_padding(self):
+        cases = {
+            Decimal("10.000000"): "10", Decimal("0.062500"): "0.0625",
+            Decimal("100"): "100", Decimal("1E+2"): "100", 10: "10", 0.5: "0.5",
+            Decimal("0.000001"): "0.000001", None: "",
+        }
+        for quantity, expected in cases.items():
+            with self.subTest(quantity=quantity):
+                self.assertEqual(format_quantity(quantity), expected)
+
+    def test_the_csv_reader_keeps_a_fractional_lot(self):
+        # int() raised on "0.5", which the reader swallowed into an empty portfolio.
+        fd, path = tempfile.mkstemp(suffix=".csv")
+        os.close(fd)
+        self.addCleanup(os.remove, path)
+        with open(path, "w") as fh:
+            fh.write("name,symbol,purchase_price,quantity,purchase_date,currency\n"
+                     "Frac Co,ZZFRAC,100.00,0.5,2026-01-02,USD\n")
+        portfolio = spm.Portfolio()
+        portfolio.read_stocks_from_csv(path)
+        lot = portfolio.get_stock("ZZFRAC")
+        self.assertEqual(lot.quantity, Decimal("0.5"))
+        lot.current_price = Money("110.00", "USD")
+        self.assertEqual(lot.calculate_gain_loss().amount, Decimal("5.00"))
 
 
 class TestWatchListReadStocksFromRecords(unittest.TestCase):

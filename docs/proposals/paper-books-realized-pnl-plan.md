@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Nothing is built.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 (books) is built; the checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -194,10 +194,39 @@ log when the PR merges.
   `BooksService` and routes to list, create and archive paper books; `book_id` on the portfolio
   routes; the selector (chips, with a "More" pulldown past five books) and the paper banner; a
   lot's account shown as a field inside its book, never as a second kind of book on the Portfolio page; Add Lot hidden for paper books.
-- [ ] **1.3 Fractional-share audit.**
+- [x] **1.3 Fractional-share audit.**
   Confirm fractions survive the Add Lot and Close Lot dialogs, CSV import, and
   `get_symbol_lots` and the other MCP outputs; fix what doesn't. Harvester's whole-share columns
-  are left for phase 4 and recorded here.
+  are left for phase 4 and recorded here. What the audit found is in section 5.1.
+
+#### 5.1 What the fractional-share audit found (1.3)
+
+Storage is `NUMERIC(18,6)` for `positions.quantity` and `lot_sales.shares_sold`, so "survives"
+means six decimals in and six decimals back.
+
+| Path | Result |
+|---|---|
+| Add Lot dialog, lot edit, Close Lot dialog | Already correct (`step: 'any'`, `parseFloat`). Now pinned by tests |
+| Add Security dialog, Portfolio tab | **Broken, fixed.** `parseInt` and `step: 1`: 2.5 shares were sent as 2, and 0.5 as 0, which the server refused |
+| Add to Portfolio on the Security page | Sent the fraction; the input had the browser's whole-number step. Now `step: 'any'` |
+| Share counts on screen (`formatShares`) | **Broken, fixed.** Four decimals for a six-decimal value: 0.00001 shares read "0" |
+| Watchlist Qty column | **Broken, fixed.** The default `toLocaleString` keeps three decimals: 0.0625 read "0.063" |
+| Stop card and Dashboard share counts | Printed the raw number. Now `formatShares` |
+| REST lot routes and `/portfolio/sales` | Correct: `Decimal` in, JSON number out |
+| A sale or lot edit finer than six decimals | **Broken, fixed.** The column rounded each side of a split on its own, so 0.3333335 sold from 1 share left 0.666667: 1.000001 shares in total. An edit to 0.0000004 passed the "positive" check and stored 0. The service now rounds once, first |
+| CSV import (`import_csv`) | Correct. Now pinned by a test |
+| Legacy CSV readers (`Portfolio.read_stocks_from_csv`, `html_summary.py`, `simple_text_summary.py`) | **Broken, fixed.** `int()` raised on "0.5" and the reader returned an empty portfolio |
+| `get_portfolio`, `get_symbol_lots`, `get_symbol_sales`, `get_portfolio_summary` (MCP) | Correct: the REST payload passes through. The contract cases now carry fractions |
+| Sidekick's lots tool and `SymbolLotsCard` | Correct (`_plain` gives a float; the card uses `formatShares`) |
+| `get_stop_loss_analysis` (MCP) and `GET /securities/{ticker}/stop-loss` | **Broken, fixed.** `shares` was an `int`, so the half share `get_symbol_lots` reports was a 422. `position=mine` already handled fractions |
+| Loss alert in Discord, the HTML report | Showed the column's padding ("x 10.000000"). Now trimmed |
+
+**Left whole-share, for phase 4:** `plan_instances.shares_initial`, `plan_rungs.shares_before`,
+`shares_sold_planned`, `shares_after_planned` and `shares_sold_actual` (all `INTEGER`);
+`ExecuteRungRequest.shares_sold` and the `int(...)` casts in `HarvesterService` and
+`api/routers/rungs.py`; and the ladder search in `experiments/HarvesterExperiment.py`, which walks
+whole share counts from 1 to `max_s0`. A plan's share counts are whole numbers
+whatever the holding is. `positions.shares` is a dead `INTEGER` column that stays NULL for a fractional lot.
 
 ### Milestone 2: realized P/L (#235)
 
@@ -350,6 +379,17 @@ Known before any code is written. Add to this list as the work finds more.
   empty-state text) only once the list has loaded. While the list loads, or after it fails, the
   page shows no banner and no Add Lot. The first version asked one question and so called the
   real book paper when it was opened by its own id and the list failed.
+- **Round a share count before the arithmetic, not after** (1.3). `NUMERIC(18,6)` rounds whatever
+  it is given, silently. A partial sale writes two numbers derived from one input (the shares sold
+  and the remainder), and rounding each on its own does not conserve the total. `_quantity` in
+  the portfolio service rounds the input once. Paper orders (3.3) and seeding (3.5) write lots
+  too and must go through the same function.
+- **A whole count stays an `int` in the stop-loss payload** (1.3). Making `shares` a float on the
+  route would have turned "10 shares" into "10.0 shares" in the summary and broken the golden
+  tests; `stops.share_count` converts it back.
+- **`formatShares` is the only way a share count is shown** (1.3). Two components printed the raw
+  number and one used `toLocaleString`, and each showed a different number of decimals. The
+  Realized view (2.2) and the orders list (3.3) should use it from the start.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -390,3 +430,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.1 Books schema | #546 | V14: `books`, `positions.book_id` (NOT NULL, backfilled). `BooksRepository`; every `PortfolioRepository` statement restricted to a book, real by default. `tests/test_book_isolation_coverage.py`. No route or UI change: nothing can create a paper book outside tests until 1.2 |
 | 2026-11-14 | Review fixes | #545 | Count corrected to 20 PRs; homes given to #431's delisted-symbol, book-vs-account and attribution items; P-numbers mapped to decisions |
 | 2026-11-14 | 1.2 Books API and the book selector | #547 | `BooksService`, `/api/books` (list, create, archive), `book_id` on the three portfolio read routes (404 for a book that isn't the owner's), the selector, the paper banner, the Account column. Lot writes stay real-only until 3.5 |
+| 2026-11-14 | 1.3 Fractional-share audit | this PR | Audit table in section 5.1. Fixed: `parseInt` in the Add Security dialog, share counts shown to 4 (or 3) decimals, sales and edits finer than six decimals, integer-only `shares` on the stop-loss route and MCP tool, `int()` in the legacy CSV readers, padded counts in the loss alert and report. Harvester's whole-share columns recorded for phase 4. Milestone 1 is complete |

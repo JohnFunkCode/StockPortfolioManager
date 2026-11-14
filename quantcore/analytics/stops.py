@@ -13,6 +13,7 @@ than that will false-trigger on one bad session.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 # Buffer below the primary support: tighter for options-defined levels,
@@ -102,10 +103,24 @@ def calibrate_trailing(
     return base_pct, "neutral"
 
 
+def share_count(shares) -> float:
+    """A share count as a plain number: an ``int`` when whole, else a ``float``.
+
+    Positions hold fractional shares, so a count arrives as a ``Decimal`` (from
+    the lots) or a ``float`` (from a caller). Whole counts stay ``int`` so the
+    payload and the summary say "10 shares", not "10.0". A count that isn't a
+    finite number is no count.
+    """
+    value = float(shares or 0)
+    if not math.isfinite(value):
+        return 0
+    return int(value) if value.is_integer() else value
+
+
 def position_pnl(
     price: float,
     cost_basis: float,
-    shares: int,
+    shares: float,
     technical_stop_price: float,
     trailing_stop_price: float,
 ) -> dict:
@@ -126,11 +141,11 @@ def position_pnl(
     }
 
 
-def _pnl_shares(shares: int) -> int:
+def _pnl_shares(shares: float) -> float:
     return shares if shares > 0 else 1
 
 
-def pnl_at_stop(stop_price: float, cost_basis: float, shares: int) -> float:
+def pnl_at_stop(stop_price: float, cost_basis: float, shares: float) -> float:
     """Position P&L if ``stop_price`` fills; per share with no share count."""
     return round((stop_price - cost_basis) * _pnl_shares(shares), 2)
 
@@ -192,7 +207,7 @@ def stop_summary(
     trailing_pct: float,
     trailing_stop_price: float,
     cost_basis: float,
-    shares: int,
+    shares: float,
     position: dict,
 ) -> str:
     trend = "uptrend" if above_vwap else "downtrend"

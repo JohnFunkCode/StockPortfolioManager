@@ -615,6 +615,15 @@ describe('WatchlistPage', () => {
       expect(screen.getByText('1 held')).toBeInTheDocument();
     });
 
+    it('shows a fractional holding to the stored precision', async () => {
+      // The default toLocaleString keeps three decimals: 0.0625 read "0.063".
+      await mount([[
+        '/api/watchlist/mine',
+        watchlistMine(ROWS.map((r) => (r.symbol === 'INTC' ? { ...r, held: true, quantity: 0.062501, avg_price: 28.4 } : r))),
+      ]]);
+      expect(inGrid().getByText('0.062501')).toBeInTheDocument();
+    });
+
     it('shows no held chip in the header when nothing is held', async () => {
       await mount();
       expect(screen.queryByText(/\d+ held/)).toBeNull();

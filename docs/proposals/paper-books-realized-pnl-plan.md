@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 (books) is built; the checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1's book work (1.1 to 1.3) is built; the checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -198,6 +198,14 @@ log when the PR merges.
   Confirm fractions survive the Add Lot and Close Lot dialogs, CSV import, and
   `get_symbol_lots` and the other MCP outputs; fix what doesn't. Harvester's whole-share columns
   are left for phase 4 and recorded here. What the audit found is in section 5.1.
+- [ ] **1.4 Complexity follow-up from the 1.3 review.**
+  A refactor with no behaviour change, in its own PR. The #548 review measured three functions
+  that 1.3 touched by one line each as over or at the complexity threshold: `create_portfolio_html`
+  in `scripts/generate_portfolio_report.py` (cyclomatic 32) and in `html_summary.py` (15), and
+  `Notifier.calculate_and_send_notifications` in `notifier.py` (17). Extract the per-stock row
+  builder from both report functions, and the underwater-lot alert block from the notifier. The
+  existing tests (`tests/test_generate_portfolio_report.py`, `tests/test_notifier.py`) must pass
+  unchanged; add a direct test for each extracted helper. Nothing in milestone 2 depends on it.
 
 #### 5.1 What the fractional-share audit found (1.3)
 
@@ -430,4 +438,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 1.1 Books schema | #546 | V14: `books`, `positions.book_id` (NOT NULL, backfilled). `BooksRepository`; every `PortfolioRepository` statement restricted to a book, real by default. `tests/test_book_isolation_coverage.py`. No route or UI change: nothing can create a paper book outside tests until 1.2 |
 | 2026-11-14 | Review fixes | #545 | Count corrected to 20 PRs; homes given to #431's delisted-symbol, book-vs-account and attribution items; P-numbers mapped to decisions |
 | 2026-11-14 | 1.2 Books API and the book selector | #547 | `BooksService`, `/api/books` (list, create, archive), `book_id` on the three portfolio read routes (404 for a book that isn't the owner's), the selector, the paper banner, the Account column. Lot writes stay real-only until 3.5 |
-| 2026-11-14 | 1.3 Fractional-share audit | #548 | Audit table in section 5.1. Fixed: `parseInt` in the Add Security dialog, share counts shown to 4 (or 3) decimals, sales and edits finer than six decimals, integer-only `shares` on the stop-loss route and MCP tool, `int()` in the legacy CSV readers, padded counts in the loss alert and report. Harvester's whole-share columns recorded for phase 4. Milestone 1 is complete |
+| 2026-11-14 | 1.3 Fractional-share audit | #548 | Audit table in section 5.1. Fixed: `parseInt` in the Add Security dialog, share counts shown to 4 (or 3) decimals, sales and edits finer than six decimals, integer-only `shares` on the stop-loss route and MCP tool, `int()` in the legacy CSV readers, padded counts in the loss alert and report. Harvester's whole-share columns recorded for phase 4. The book work of milestone 1 is done |
+| 2026-11-14 | 1.3 review | #548 | Two regressions from the rounding change fixed (a blank quantity on a lot edit, a missing share count on a sale). The review's three complexity warnings predate the PR; they became step 1.4, a separate PR |

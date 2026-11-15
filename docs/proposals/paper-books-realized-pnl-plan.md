@@ -385,7 +385,19 @@ But it exits 1 on that file, because it scores `_restricted_names` at 16, one ov
 (9.0.0 says 12; radon says cyclomatic 10). That exit status is the likely reason three reviews
 reported that complexipy "failed" on the file, though the review's preflight was not available
 to confirm it. `_restricted_names` was not changed by this step or by the review that listed the
-six units, so it is left as it is here and recorded as a candidate for a later refactor.
+six units, so it was left as it was in #556 and done in its own PR straight after:
+
+| Unit | Cyclomatic | complexipy 9.0.0 | complexipy 8.0.1 |
+|---|---|---|---|
+| `_restricted_names` | 10 → 4 | 12 → 0 | 16 → 2 |
+| `_is_book_subquery` | 4 → 5 | 2 → 3 | 3 → 3 |
+| `_alias_for` (new) | 4 | 4 | 4 |
+| `_book_qualifiers` (new) | 6 | 1 | 4 |
+
+`_is_book_subquery` gained one branch: it now answers False for a subquery the level doesn't
+hold, a check its one caller used to make. With that, 8.0.1 exits 0 on the file. The old and new
+scans were run side by side on the same 230 SQL literals and the fixtures, comparing
+`check_statement` on each statement and `_restricted_names` on each of its query levels.
 
 The old and new versions were also run side by side, the old ones loaded from `HEAD`: `allocate`
 on 20,000 generated lot sets (every method, an unknown one, closed and empty lots, over-sells and
@@ -687,3 +699,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 2.3 review | #555 | Three units this PR added or grew were in the complexity warning band (radon, goal 10): `close_lot` 12 → 8, `fx_daily_closes` 11 → 4, the backfill script's `main` 11 → 7. Extracted `_sale_fx_rates`, `_currency_code`, `_daily_closes`, `_backfill` and `_parse_args` (all 5 or under), each with a direct test. No behaviour change. They were fixed here, not left for 2.4, because 2.4 is for units a PR did not change |
 | 2026-11-14 | 2.4 Complexity follow-up | #556 | No behaviour change. The six units the #552 review measured are all at or under the goals (section 5.6): the sale order is a table and the draw its own function in `allocate`; the two row shapes are lists of fields over `_text`, `_or_none` and `_int_or_none`; the lot-field checks are `_require_positive` and `_require_iso_date`; the book scan's `_child_ok` and `_check_level` are split into four helpers. A direct test for each helper. Milestone 2 is done |
 | 2026-11-15 | 2.4 review | #556 | Approved, with two suggestions about the cognitive figures, both answered in section 5.6: the figures are now given for complexipy 9.0.0 and for 8.0.1 (the review's version), and the review's "failed on the test file" is traced to 8.0.1 scoring the unchanged `_restricted_names` at 16. No code change |
+| 2026-11-15 | `_restricted_names` follow-up | #557 | No behaviour change, test file only. The one unit complexipy 8.0.1 scored over the cognitive goal (16) is split into `_alias_for` and `_book_qualifiers`, each with a direct test (section 5.6). 8.0.1 now exits 0 on the book scan, so a review's preflight should be able to report its scores. Not a plan step: it came out of the #556 review |

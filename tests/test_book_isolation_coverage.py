@@ -174,33 +174,42 @@ def _names(scope, table: str) -> list:
 
 
 def _is_book_subquery(sub) -> bool:
-    """A subquery over ``books`` that binds its owner and picks the book."""
-    if "books" not in {t for t, _ in sub.refs()}:
+    """A subquery over ``books`` that binds its owner and picks the book.
+    None (a subquery the level doesn't hold) is not one."""
+    if sub is None or "books" not in {t for t, _ in sub.refs()}:
         return False
     region = sub.predicate_region()
     return bool(_RESTRICT.search(region)) and bool(_PICKS_BOOK.search(region))
 
 
-def _restricted_names(scope, own: set) -> set:
-    """Aliases of ``book_id`` tables that this level restricts to one book."""
-    refs = [(t, n) for t, n in scope.refs() if t in own]
-    names = {n for _, n in refs}
+def _alias_for(qual: Optional[str], aliases: list) -> Optional[str]:
+    """The alias a ``book_id`` restriction applies to, or None when it can't
+    be said. `aliases` are the level's ``book_id`` tables, one entry per
+    reference. Unqualified, the column is only attributable when there is
+    exactly one; qualified, the qualifier must be one of them."""
+    if qual is None:
+        return aliases[0] if len(aliases) == 1 else None
+    return qual if qual in aliases else None
+
+
+def _book_qualifiers(scope) -> list:
+    """The qualifier (None when unqualified) of every ``book_id`` this level
+    restricts to one book: ``book_id IN (<a book subquery>)`` and
+    ``book_id = <bound parameter>``."""
     region = scope.predicate_region()
     subs = {c.id: c for c in scope.children}
+    in_book = [
+        m.group(1)
+        for m in _IN_SUBQUERY.finditer(region)
+        if m.group(2) == "book_id" and _is_book_subquery(subs.get(int(m.group(3))))
+    ]
+    return in_book + [m.group(1) for m in _BOOK_EQ_PARAM.finditer(region)]
 
-    def target(qual):
-        if qual is None:
-            return refs[0][1] if len(refs) == 1 else None
-        return qual if qual in names else None
 
-    found = set()
-    for m in _IN_SUBQUERY.finditer(region):
-        sub = subs.get(int(m.group(3)))
-        if m.group(2) == "book_id" and sub is not None and _is_book_subquery(sub):
-            found.add(target(m.group(1)))
-    for m in _BOOK_EQ_PARAM.finditer(region):
-        found.add(target(m.group(1)))
-    return found - {None}
+def _restricted_names(scope, own: set) -> set:
+    """Aliases of ``book_id`` tables that this level restricts to one book."""
+    aliases = [n for t, n in scope.refs() if t in own]
+    return {_alias_for(qual, aliases) for qual in _book_qualifiers(scope)} - {None}
 
 
 def _joins_restricted_parent(name: str, parent_tables: set, scope, own: set) -> bool:
@@ -475,6 +484,58 @@ class ScannerHelperTests(unittest.TestCase):
         self.assertEqual(tables(qualified, "s"), [])
         # NOT IN keeps rows outside the subquery, so it restricts nothing.
         self.assertEqual(tables(one.replace("lot_id IN", "lot_id NOT IN"), "lot_sales"), [])
+
+    def test_alias_for(self):
+        self.assertEqual(_alias_for(None, ["positions"]), "positions")
+        self.assertEqual(_alias_for("p", ["p", "q"]), "p")
+        # Unqualified with two book tables: it can't be said whose column it is.
+        self.assertIsNone(_alias_for(None, ["p", "q"]))
+        # The same table twice counts as two (INSERT ... SELECT from itself).
+        self.assertIsNone(_alias_for(None, ["positions", "positions"]))
+        self.assertIsNone(_alias_for(None, []))
+        # A qualifier that names some other table restricts none of these.
+        self.assertIsNone(_alias_for("ls", ["p"]))
+
+    def test_book_qualifiers(self):
+        def quals(where):
+            return _book_qualifiers(_root("SELECT * FROM positions p WHERE " + where))
+
+        self.assertEqual(quals("p.book_id IN " + _BOOK_SUBQUERY), ["p"])
+        self.assertEqual(quals("book_id IN " + _BOOK_SUBQUERY), [None])
+        self.assertEqual(quals("p.book_id = :book_id"), ["p"])
+        self.assertEqual(quals("book_id = CAST(:book_id AS INTEGER)"), [None])
+        # Both forms at one level: the IN ones first.
+        self.assertEqual(
+            quals("q.book_id = :book_id AND p.book_id IN " + _BOOK_SUBQUERY), ["p", "q"]
+        )
+        # Not restrictions: another column, an inequality, a subquery that
+        # picks no book, and one that isn't over books at all.
+        self.assertEqual(quals("p.position_id IN " + _BOOK_SUBQUERY), [])
+        self.assertEqual(quals("p.book_id <> :book_id"), [])
+        self.assertEqual(quals("p.book_id IS NOT NULL"), [])
+        self.assertEqual(
+            quals("p.book_id IN (SELECT book_id FROM books WHERE owner = :owner)"), []
+        )
+        self.assertEqual(quals("p.book_id IN (SELECT position_id FROM lot_sales)"), [])
+
+    def test_restricted_names(self):
+        def names(sql):
+            return _restricted_names(_root(sql), _OWN)
+
+        two = "SELECT a.* FROM positions a JOIN positions b ON a.symbol_id = b.symbol_id WHERE "
+        self.assertEqual(names(two + "a.book_id IN " + _BOOK_SUBQUERY), {"a"})
+        self.assertEqual(
+            names(two + "a.book_id IN " + _BOOK_SUBQUERY + " AND b.book_id = :book_id"),
+            {"a", "b"},
+        )
+        self.assertEqual(names(two + "book_id = :book_id"), set())
+        self.assertEqual(names("SELECT * FROM positions WHERE book_id = :book_id"), {"positions"})
+        self.assertEqual(names("SELECT * FROM positions WHERE owner = :owner"), set())
+        # lot_sales has no book_id of its own, so it is never in the result.
+        self.assertEqual(names("SELECT * FROM lot_sales ls WHERE ls.book_id = :book_id"), set())
+
+    def test_is_book_subquery_takes_a_missing_subquery(self):
+        self.assertFalse(_is_book_subquery(None))
 
     def test_table_problems(self):
         def problems(sql):

@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1, the cash ledger, is built. Next is 3.2. Decisions 19 to 24 were made during the 3.1 build and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1, the cash ledger, is built, and 3.2, the prior-art review, is written up in section 5.8. Next is 3.3. Decisions 19 to 29 were made during the 3.1 build and the 3.2 review and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -174,6 +174,32 @@ where it is more than a small edit.
     its first figure is labelled "Holdings value", not "Book value". One book value that counts
     both is a server-side figure and arrives with the daily snapshots (5.1). Before 3.1 the plan
     expected the strip's book value to grow to include cash at this step.
+
+### Made on 2026-11-15, during the 3.2 review (Claude; John to confirm or change)
+
+These came out of reading the prior art (section 5.8). No code depends on them yet: 3.3 is where
+each is built, so changing one before 3.3 starts costs nothing.
+
+25. **`pending` means queued, and nothing else.** An order placed while the market is open is
+    filled or rejected in the same transaction that creates it. Only an order placed outside the
+    session is stored as pending. So a crash can never leave an in-hours order half done, and the
+    daily job never has to guess whether a pending order was meant for a quote or for an open.
+26. **A fill is all or nothing.** There is no partly filled order. The simulator has no order
+    book to run out of shares, and a partial fill would add a state that only a broker needs.
+27. **A queued order is for one session, and is rejected if it can't fill there.** It stores the
+    date of the session it is for (the next NYSE session, holidays skipped). It fills at that
+    session's opening price whenever the daily job gets to it, even days late. If the symbol has
+    no opening price for that session, the order is rejected with a reason; it does not roll to
+    the next day. Rolling it would fill at a price from a day the user never chose, and would hide
+    a halted symbol.
+28. **Cash and shares are checked when the order fills; the check at placement is a courtesy.**
+    Both are read again inside the fill transaction. A queued buy's cost isn't known until the
+    open, so it can be accepted in the evening and rejected the next day for too little cash. A
+    sell is refused at placement when it is for more than the shares held less the sells already
+    queued for that symbol.
+29. **A rejection stores a reason from a fixed list** (stale quote, no quote, non-USD symbol, not
+    enough cash, not enough shares, no opening price), never an exception's text. The list is
+    what the UI shows and what a test can pin, and exception text may not reach a caller.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -443,9 +469,9 @@ key order and error messages were equal in every case.
   closing a lot writes its buy or sell entry in the same transaction; a script that writes the
   entries for existing lots and sales; the Cash and orders section, showing cash entries. What
   was built, and what an operator still has to run, is in section 5.7.
-- [ ] **3.2 Review the prior art.**
+- [x] **3.2 Review the prior art.**
   Read `JohnFunkCode/alpaca_robot_trading_workflow_experiment` and #222; record in this document
-  which ideas the orders design adopts and which it drops. No code.
+  which ideas the orders design adopts and which it drops. No code. The record is section 5.8.
 - [ ] **3.3 Orders and fills.**
   `orders` table with an idempotency key; `source` (manual, stop, harvester, evaluator, watch, AI)
   and a link to what prompted the trade, on orders and on `lot_sales`, with existing sales
@@ -495,6 +521,77 @@ Left for later steps, on purpose:
 - **The strip has no single book value** (decision 24). That is 5.1.
 - **Sidekick can show the ledger but not reason about it**: no data tool, as with realized P/L.
   The read-only book tool is 5.4.
+
+#### 5.8 The prior art, and what the orders design takes from it (3.2)
+
+**What was read.** #222 in full, and every file of
+`JohnFunkCode/alpaca_robot_trading_workflow_experiment`: its one commit (`7ab1e6b`) plus the
+uncommitted changes in John's local clone, which add the clean-symbol check and a fill-quantity
+guard cited below. Nothing in that repository was changed.
+
+**What the experiment is.** A command-line loop that manages one long position in one symbol on
+an Alpaca paper account. It buys with a limit order that carries a fixed stop, swaps the fixed
+stop for a trailing stop once the trail would lock in a set profit, sells part at a price target,
+and puts the trail back on the rest. Alpaca holds the orders and fills them; the program is a
+state machine (nine states, one SQLite row per strategy) that polls, cancels, waits and
+reconciles. Most of its code exists because the broker is a second system that can change state
+while the program isn't looking.
+
+That is the main difference from #431. Here QuantCore is the only system: the order, the lot and
+the cash row are in one database. So the experiment's *aims* carry over and most of its
+*mechanisms* don't.
+
+**Adopted in the orders design (3.3 to 3.5):**
+
+| Idea in the prior art | What the orders design does with it |
+|---|---|
+| A small set of states with an explicit terminal set (`OrderStatus.is_terminal`) | `pending`, `filled`, `cancelled`, `rejected`. The last three are terminal and no statement moves an order out of one. Alpaca's other fourteen statuses are not copied |
+| Never leave state unknown after a crash. The experiment saves its record before and after every broker call | One transaction does it: the status change, the lot and the cash row commit together or not at all. An in-hours order never exists as pending (decision 25) |
+| Never assume a quantity; read the position again before every sell (safety rules 2 and 7) | The fill reads cash and shares held inside its own transaction (decision 28). The number checked at placement is not trusted at fill time |
+| No two full-size sells for one position at once (safety rule 9), and the clean-symbol check before a new workflow starts | A sell is refused at placement when it exceeds the shares held less the sells already queued. Buys are not limited to one per symbol: the idempotency key is what stops a double-click |
+| What was asked and what happened are stored apart (`entry_limit_price` and `actual_entry_price`) | An order keeps the request (shares or a dollar amount) and the fill (price, time, where the price came from, the quote's own time) in separate columns. A dollar buy's share count is worked out from the fill price and rounded once by `_quantity` |
+| The fill-quantity guard: a position that exists is not proof this order filled | The lot a fill writes carries its order's id. Nothing infers a fill from the holdings |
+| `last_error` on the record, with secrets redacted first | A reason from a fixed list on a rejected order (decision 29) |
+| A critical alert when a position is left unprotected | The 3.4 alarm: a queued order still pending after its session's daily job is the same kind of failure, and is reported from what the database holds |
+| Tests step the loop one cycle at a time (`--once`) with a fake gateway | The fill functions take `now` and the quotes as arguments, as `market_time` already does, so a test walks an order from the evening to the open with no clock and no Yahoo |
+| #222: a past price can't be filled honestly | No backdated paper fills. A seeded lot is priced by the same rule as an order (section 7) |
+| #222: market-on-open is the simplest honest order type | An off-hours order fills at its session's opening price (decision 27) |
+| #222: symbols Alpaca can't trade, and non-USD holdings, need a stated fallback | A non-USD symbol is rejected with its reason. The test is the quote's `currency`, the listing's own, which is the field the watchlist rule already uses |
+| #222: the outside call runs after the local write commits, and only logs on failure | The `[PAPER]` Discord message in 3.5 is sent after the fill commits. A webhook failure never undoes or fails a fill |
+
+**Dropped:**
+
+| Idea in the prior art | Why |
+|---|---|
+| Polling, the order-update stream, cancel-and-wait-for-terminal | There is no second system to wait for. A cancel is one `UPDATE … WHERE status = 'pending'` |
+| Reconciling against the broker on every start | Nothing to reconcile against until phase 5. #222's reconcile step, and its point that drift is the normal state, belong there |
+| Partial fills | Decision 26 |
+| Limit orders, and time-in-force (`GTC`, `DAY`) | Out of scope in #431. A queued order's one-session life (decision 27) is the only time-in-force there is |
+| The order with a stop attached (`OTO`) | No stop field until 4.3. See the first row of the next table |
+| One row per strategy, with a JSON config and four order-id columns | Orders are rows. What prompted one is its `source` and a link, not a column per kind of order |
+| "Let the broker run the stop; don't trigger it in application code" (the experiment's non-goal) | Reversed on purpose: #431 makes QuantCore the engine. What the experiment warned about still applies and is in the next table |
+| Registering credentials with a log redactor | The orders path holds no credential. The never-log policy already covers the rest |
+| Replaying existing positions into the mirror (#222's open question) | #222 itself calls starting from today the truthful option. Seeding (decision 11) does that |
+
+**Carried to later steps:**
+
+| For | What the prior art says |
+|---|---|
+| 4.3, the stop field in the Buy dialog | The experiment can only find its stop after the buy fills. The same order applies here: the stop row is written in the fill transaction. A queued order has no stop until it fills, and a rejected order never gets one |
+| 4.1 and 4.2, trailing stops | Alpaca forgets a trail's high-water mark when the order is cancelled and placed again. The `stops` row must hold its own level, so a partial sale leaves the trail where it was |
+| 4.2, the checker | With no broker holding the stop, a daily job that doesn't run means a stop that doesn't fire. The checker has to work through every closed bar since the one it last checked, not only the latest. That needs a "last bar checked" on each stop, which decision 4's wording ("the latest closed daily bar") doesn't ask for |
+| Milestone 4 or #221, as an idea only | The experiment's stop method: keep a fixed stop until a trail of `t` would sit at or above entry × (1 + locked profit), which is at price entry × (1 + locked profit) / (1 − `t`), then trail. Not in 4.1's scope. It could be one more `method` to compare on paper |
+| Phase 4, Harvester on paper books | The partial sale at a target is a Harvester rung. The experiment's guard against taking the same partial twice is what exactly-once fills give a rung |
+| Phase 5, Alpaca | The `TradingGateway` protocol and its fakes are the shape of the gateway #222 asks for. Per-owner account mapping is the account within a book. Its 18 statuses get mapped onto the four here, at the gateway |
+
+**What the current code offers 3.3, checked while reading:**
+
+- `Quote` (from `batch_quotes`) already has what the refusals need: `regular_price`,
+  `regular_time`, `regular_open`, `market_state`, `currency` and `exchange_tz`.
+- `lot_sales` has no `source` column and `positions` has `acquisition_type`, which defaults to
+  `BUY`. A seeded lot needs a value other than `BUY`, because only a `BUY` lot writes a cash row
+  (decision 22).
+- Three things in that code will mislead 3.3 if taken at face value. They are in section 7.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -752,6 +849,24 @@ Known before any code is written. Add to this list as the work finds more.
 - **The dev server could not be run against a local API from the agent session** (3.1). The
   sandbox refuses a write to `.claude/launch.json`, and the checked-in config starts only the
   front end. So the Cash section was verified by vitest and by the API tests, not in a browser.
+- **`is_market_open` does not know about holidays or early closes** (3.2, for 3.3). Its docstring
+  says so. On a holiday it answers True from 9:30 to 16:00, so an order placed then would be
+  treated as in-hours, find a stale quote and be refused, when #431 says it should queue. On a
+  half day the same happens after 13:00. Deciding "fill now or queue" needs `is_trading_day` as
+  well, or the quote's own `market_state`.
+- **"Stale" already means something else in the prices service** (3.2, for 3.3). A quote-cache
+  entry's `stale` flag and `quote_as_of` are about when QuantCore fetched it. A fill must be
+  refused on the age of the last trade, which is `Quote.regular_time`. A quote fetched one
+  second ago can carry a trade from yesterday.
+- **Yahoo's quote has no "halted" flag** (3.2, for 3.3). The plan lists a stale quote and a
+  halted symbol as two refusals. With the fields there are, they are one test: the market is
+  open and the last regular-session trade is older than the limit. The reason shown can't tell
+  them apart, and decision 29's list has one entry for both.
+- **A queued order must record its session when it is placed** (3.2, for 3.3 and 3.4). Worked out
+  later, on a job that runs a day late, "the next session" would be the wrong day. The opening
+  price for that session then has two possible sources: the stored daily bar, or
+  `Quote.regular_open` on the day itself. 3.4 has to pick one and say what happens when the job
+  runs after that day.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -804,3 +919,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-15 | `_restricted_names` follow-up | #557 | No behaviour change, test file only. The one unit complexipy 8.0.1 scored over the cognitive goal (16) is split into `_alias_for` and `_book_qualifiers`, each with a direct test (section 5.6). 8.0.1 now exits 0 on the book scan, so a review's preflight should be able to report its scores. Not a plan step: it came out of the #556 review |
 | 2026-11-15 | 3.1 Cash ledger | #558 | V16: `cash_entries`. A lot's buy row and a sale's sell row are derived in SQL and rewritten in the same transaction as every write that can change them; the owner enters the real book's opening balance, deposits and withdrawals; a new paper book opens with its starting cash. `analytics/cash.py`, `CashRepository`, `CashService`, four `/api/portfolio/cash` routes, the Cash and orders section, the strip's Cash figure, the Sidekick `cash_ledger` card, `scripts/backfill_cash_entries.py`. Decisions 19 to 24 were made in the build and are John's to confirm. The backfill is still to be run on each environment, and the real book needs its opening balance (section 5.7) |
 | 2026-11-15 | 3.1 review | #558 | Approved, with one suggestion: `CashLedgerCard`'s docstring cited "decision #20" for the no-props rule, which reads as this plan's decision 20 (no opening balance, no balance). The other chat cards mean #126's decision 20 by it. The comment now names the #235 `RealizedPnlCard` precedent and says which plan the number belongs to. Comment only, no code change |
+| 2026-11-15 | 3.2 Prior-art review | this PR | No code. Read #222 and the Alpaca experiment (its one commit and John's uncommitted local changes). Section 5.8 records what the orders design adopts, drops and carries to later steps. Decisions 25 to 29 (pending means queued, all-or-nothing fills, one-session queued orders, checks at fill time, fixed rejection reasons) are John's to confirm before 3.3. Four gotchas for 3.3 and 3.4 added to section 7 |

@@ -2,7 +2,8 @@
  * Self-fetching chat card for the Sidekick: the cash in the caller's own real
  * book (#431 step 3.1). No props ever: the ledger comes from the browser's
  * authenticated session, never from an `owner` or a book the model could name
- * (decision #20), so it is always the real book.
+ * (the rule `RealizedPnlCard` set for #235; it is #126's decision 20, not
+ * this plan's), so it is always the real book.
  *
  * Read-only: Sidekick tools change nothing, so the card shows the ledger and
  * leaves the entry forms to the Portfolio page. It is that page's Cash

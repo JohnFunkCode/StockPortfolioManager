@@ -210,6 +210,37 @@ WHERE b.owner = p.owner
 ALTER TABLE positions ALTER COLUMN book_id SET NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_positions_book_status ON positions(book_id, status);
 
+-- V16 (#431, plan step 3.1): the cash ledger. Mirrors
+-- db/migrations/V16__cash_entries.sql. One signed USD amount per row, positive
+-- when cash comes in. A buy or sell row is derived from its lot or sale and
+-- goes when that row goes. Its amount is NULL when a non-USD lot has no FX
+-- rate (never converted at 1.0). No backfill here -- existing lots and sales
+-- get their rows from scripts/backfill_cash_entries.py.
+CREATE TABLE IF NOT EXISTS cash_entries (
+    entry_id   SERIAL PRIMARY KEY,
+    owner      TEXT          NOT NULL,
+    book_id    INTEGER       NOT NULL REFERENCES books(book_id),
+    kind       TEXT          NOT NULL
+               CHECK (kind IN ('opening_balance', 'deposit', 'withdrawal', 'buy', 'sell')),
+    entry_date DATE          NOT NULL,
+    amount     NUMERIC(18,2),
+    lot_id     INTEGER       REFERENCES positions(position_id) ON DELETE CASCADE,
+    sale_id    INTEGER       REFERENCES lot_sales(sale_id) ON DELETE CASCADE,
+    notes      TEXT,
+    created_at TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT cash_entries_buy_has_lot CHECK ((kind = 'buy') = (lot_id IS NOT NULL)),
+    CONSTRAINT cash_entries_sell_has_sale CHECK ((kind = 'sell') = (sale_id IS NOT NULL)),
+    CONSTRAINT cash_entries_manual_has_amount
+        CHECK (amount IS NOT NULL OR kind IN ('buy', 'sell'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_entries_buy_lot
+    ON cash_entries(lot_id) WHERE kind = 'buy';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_entries_sell_sale
+    ON cash_entries(sale_id) WHERE kind = 'sell';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cash_entries_one_opening
+    ON cash_entries(book_id) WHERE kind = 'opening_balance';
+CREATE INDEX IF NOT EXISTS idx_cash_entries_book_date ON cash_entries(book_id, entry_date);
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

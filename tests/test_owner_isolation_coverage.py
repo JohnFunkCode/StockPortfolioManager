@@ -76,6 +76,11 @@ OWNER_SCOPED = {
         ("tests/test_books_repository.py", "test_wrong_owner_mutations_change_nothing"),
         ("tests/test_portfolio_repository.py", "test_another_owners_book_reads_nothing_and_takes_no_writes"),
     ],
+    "cash_entries": [
+        ("tests/test_cash_repository.py", "test_wrong_owner_reads_come_back_empty"),
+        ("tests/test_cash_repository.py", "test_wrong_owner_mutations_change_nothing"),
+        ("tests/test_cash_api.py", "test_owners_are_isolated"),
+    ],
     "positions": [
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),
@@ -497,6 +502,12 @@ ALLOWED = {
         "SQL_LIST_OWNERS (list_owners): the daily job's walk over every owner's "
         "symbols for the options capture (main.py). Returns the names of owners "
         "holding a position in a real book, no position data."
+    ),
+    ("quantcore/repositories/books_repository.py", "05e39cfccf3e"): (
+        "SQL_LIST_BOOK_OWNERS (list_owners): the cash backfill's walk over every "
+        "owner who has a book (scripts/backfill_cash_entries.py). Returns owner "
+        "names only, and each owner's rows are then written by statements bound "
+        "to that owner."
     ),
     ("quantcore/repositories/portfolio_repository.py", "0c5b7928de4c"): (
         "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "

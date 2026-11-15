@@ -26,6 +26,7 @@ import psycopg2
 import psycopg2.errors
 
 from quantcore.db import get_connection
+from quantcore.repositories.cash_entry_sql import write_opening_balance
 
 REAL = "real"
 PAPER = "paper"
@@ -57,6 +58,12 @@ SELECT book_id, owner, name, kind, starting_cash, created_at, archived_at
 FROM books
 WHERE owner = :owner
 ORDER BY CASE WHEN kind = 'real' THEN 0 ELSE 1 END, created_at, book_id;
+"""
+
+# Cross-owner on purpose: the cash backfill's walk over every owner who has a
+# book (#431 step 3.1). Owner names only.
+SQL_LIST_BOOK_OWNERS = """
+SELECT DISTINCT owner FROM books ORDER BY owner;
 """
 
 SQL_INSERT_PAPER_BOOK = """
@@ -138,8 +145,20 @@ class BooksRepository:
             rows = conn.execute(SQL_LIST_BOOKS, {"owner": owner}).fetchall()
         return [_row_to_dict(r) for r in rows]
 
-    def create_paper_book(self, *, owner: str, name: str, starting_cash: Any = 0) -> int:
+    def list_owners(self) -> List[str]:
+        """Every owner who has a book, real or paper."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(SQL_LIST_BOOK_OWNERS).fetchall()
+        return [r["owner"] for r in rows]
+
+    def create_paper_book(
+        self, *, owner: str, name: str, starting_cash: Any = 0, opened_on: Any = None
+    ) -> int:
         """Create a paper book. Returns its `book_id`.
+
+        With `opened_on` (a date), the book's starting cash is written to its
+        cash ledger as the opening balance on that date, in the same
+        transaction (#431 step 3.1). Without it no cash row is written.
 
         The owner's real book is created first if it is missing, so an owner
         with a paper book always has a real one for default reads to land on.
@@ -167,6 +186,10 @@ class BooksRepository:
                     {"owner": owner, "name": name, "starting_cash": cash},
                 )
                 book_id = int(cur.fetchone()["book_id"])
+                if opened_on is not None:
+                    write_opening_balance(
+                        conn, owner=owner, book_id=book_id, entry_date=opened_on, amount=cash
+                    )
                 conn.commit()
             except psycopg2.errors.UniqueViolation:
                 conn.rollback()

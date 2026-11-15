@@ -52,6 +52,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # No props, same rule (#235): the caller's own real book. The period is the
     # card's own view state, so the model cannot ask for one.
     "realized_pnl": {},
+    # No props, same rule (#431): the cash ledger of the caller's own real
+    # book. Read-only in the chat: the entry forms are the Portfolio page's.
+    "cash_ledger": {},
     "symbol_lots": {"ticker": str},
     # No props: the watchlist is one global shared list (issue #83), so unlike
     # the portfolio components there is not even an owner to withhold.
@@ -528,6 +531,14 @@ TOOL_SCHEMAS: list[dict] = [
             "have I made?' or 'what did I sell?'. No tool returns these figures, "
             "so show the card and do not quote realized numbers of your own "
             "(no props, same caller-only rule), "
+            "'cash_ledger' shows the cash in the caller's own real book: the "
+            "balance, the opening balance it runs from, and each deposit, "
+            "withdrawal, buy and sell since, newest first, in US dollars. Use "
+            "it for 'how much cash do I have?' or 'where did my cash go?'. It "
+            "is empty until the user has entered an opening balance on the "
+            "Portfolio page, and it cannot record anything. No tool returns "
+            "these figures, so show the card and do not quote a cash balance "
+            "of your own (no props, same caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
             "their portfolio (requires ticker), "
             "'watchlist_fundamentals' shows the shared watchlist ranked by "

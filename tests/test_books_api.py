@@ -48,6 +48,8 @@ def _purge():
     with closing(get_connection()) as conn:
         for owner in (OWNER, OTHER):
             conn.execute("DELETE FROM positions WHERE owner = %s", (owner,))
+            # A paper book made through the service has an opening cash row.
+            conn.execute("DELETE FROM cash_entries WHERE owner = %s", (owner,))
             conn.execute("DELETE FROM books WHERE owner = %s", (owner,))
         conn.execute("DELETE FROM symbols WHERE ticker = %s", (SYMBOL,))
         for identity in (IDENTITY, OTHER_IDENTITY):

@@ -49,11 +49,13 @@ from quantcore.repositories.books_repository import (  # noqa: F401  (BookNotFou
 )
 from quantcore.repositories.orders_repository import OrdersRepository, OrderTransaction
 
-# `orders.requested_amount` is NUMERIC(18,2) and the share columns
-# NUMERIC(18,6). Larger figures would overflow the column and surface as a
-# database error rather than as bad input.
+# The share columns are NUMERIC(18,6): twelve digits before the point, so the
+# largest count they hold is just under 1e12. A larger one would overflow the
+# column and surface as a database error rather than as bad input. The cap is
+# the largest whole number that fits. `orders.requested_amount` is
+# NUMERIC(18,2) and has room to spare.
 MAX_ORDER_AMOUNT = Decimal("1000000000000")
-MAX_ORDER_SHARES = Decimal("1000000000000")
+MAX_ORDER_SHARES = Decimal("999999999999")
 MAX_KEY_LENGTH = 100
 MAX_SOURCE_REF_LENGTH = 200
 
@@ -233,8 +235,10 @@ class OrdersService:
         `shares`. `replayed` is True when `idempotency_key` had already been
         used: nothing new happens and the first order is returned.
 
-        Raises `ValueError` for bad input, the real book or an archived one,
-        and `BookNotFoundError` for a book that isn't the owner's. A refusal
+        Raises `ValueError` for bad input (a dollar amount that would buy
+        more shares than an order can hold included), the real book or an
+        archived one, and `BookNotFoundError` for a book that isn't the
+        owner's. A refusal
         that depends on the market or the book's holdings is not an error: it
         is a stored order with status `rejected`.
         """
@@ -365,6 +369,10 @@ class OrdersService:
         if shares <= _ZERO:
             # A dollar amount too small to buy a millionth of a share.
             return None, orders_math.INSUFFICIENT_CASH
+        if shares > MAX_ORDER_SHARES:
+            # A large dollar amount at a sub-dollar price. Bad input, like a
+            # share count over the cap: nothing is stored, the order included.
+            raise ValueError("amount buys more shares than an order can hold")
         tx.buy({
             "symbol": order["symbol"],
             "name": order["symbol"],

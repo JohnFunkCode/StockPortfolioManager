@@ -69,15 +69,19 @@ describe('OrdersList', () => {
 
     expect(row(14).getByText('Sell 1.5 INTC')).toBeInTheDocument();
     expect(row(14).getByText('Pending')).toBeInTheDocument();
-    expect(row(14).getByText('Waiting for the open on Jun 16, 2026')).toBeInTheDocument();
+    expect(row(14).getByText('Waiting for the session of Jun 16, 2026')).toBeInTheDocument();
 
     expect(row(15).getByText('Rejected')).toBeInTheDocument();
     expect(row(15).getByText('not enough cash')).toBeInTheDocument();
 
     expect(row(16).getByText('Cancelled')).toBeInTheDocument();
+    expect(row(16).getByText('Withdrawn')).toBeInTheDocument();
     expect(row(17).getByText('2 @ $49.50, the opening price')).toBeInTheDocument();
 
-    expect(screen.getByText(/1 order placed outside market hours is waiting/)).toBeInTheDocument();
+    const waiting = screen.getByText(/1 order placed outside market hours is waiting for its session/);
+    // Nothing fills a queued order until plan step 3.4, and the page says so.
+    expect(waiting).toHaveTextContent(/Nothing fills a waiting order yet/);
+    expect(waiting).not.toHaveTextContent(/opening price/);
   });
 
   it('puts every rejection reason into words, and shows a code it does not know', async () => {

@@ -88,7 +88,8 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   request. One `GET /api/portfolio/orders` request: each order's session, what it asked for, a
   status chip and what became of it (the fill, the session it waits for, or the reason it was
   rejected), cut to the latest five. A filled order's money is in the cash entries above, so the
-  list shows no amounts. Cancel shows on a pending order when the page passes `canCancelOrders`,
+  list shows no amounts. While step 3.4 is unbuilt the page says that nothing fills a waiting
+  order yet. Cancel shows on a pending order when the page passes `canCancelOrders`,
   which it does for a paper book that isn't archived. `readOnly` is about what the owner types
   (lots and cash) and does not decide it. Nothing in the UI places an order yet: the Buy dialog
   is step 3.5.

@@ -74,13 +74,13 @@ function outcome(order: Order): string {
         order.price_source === 'session_open' ? ', the opening price' : ''
       }`;
     case 'pending':
-      return `Waiting for the open on ${formatDate(order.session_date)}`;
+      return `Waiting for the session of ${formatDate(order.session_date)}`;
     case 'rejected':
       return order.reject_reason
         ? (REJECT_REASONS[order.reject_reason] ?? order.reject_reason)
         : '';
     default:
-      return '';
+      return 'Withdrawn';
   }
 }
 
@@ -161,8 +161,9 @@ export default function OrdersList({ bookId, canCancel = false }: Props) {
         {data.pending_count > 0 && (
           <Alert severity="info" sx={{ mb: 2 }}>
             {orders(data.pending_count)} placed outside market hours{' '}
-            {data.pending_count === 1 ? 'is' : 'are'} waiting. Each fills at its session's opening
-            price, and shows here that evening.
+            {data.pending_count === 1 ? 'is' : 'are'} waiting for{' '}
+            {data.pending_count === 1 ? 'its' : 'their'} session. Nothing fills a waiting order
+            yet: until that is built it stays pending, and can be cancelled.
           </Alert>
         )}
         <Paper sx={{ overflowX: 'auto' }}>

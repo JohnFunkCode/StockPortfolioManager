@@ -33,6 +33,7 @@ from quantcore.repositories.portfolio_repository import PortfolioRepository  # n
 from quantcore.services.cash import CashService  # noqa: E402
 from quantcore.services.orders import (  # noqa: E402
     MAX_KEY_LENGTH,
+    MAX_ORDER_SHARES,
     OrderNotFoundError,
     OrdersService,
 )
@@ -424,6 +425,8 @@ class ValidationTest(_Base):
             ("finite", {"amount": "Infinity"}),
             ("not a valid number", {"shares": "ten"}),
             ("too large", {"shares": "1e13"}),
+            # The first whole count NUMERIC(18,6) can't hold.
+            ("too large", {"shares": "1000000000000"}),
             ("too large", {"amount": "1e13"}),
             ("valid ticker", {"symbol": ""}),
             ("valid ticker", {"symbol": "DROP TABLE"}),
@@ -436,6 +439,23 @@ class ValidationTest(_Base):
         for pattern, kwargs in cases:
             with self.subTest(kwargs=kwargs):
                 self._assert_refused(pattern, **kwargs)
+
+    def test_the_largest_share_count_the_column_holds_is_stored(self):
+        order = self.place(shares=MAX_ORDER_SHARES, now=EVENING)
+        self.assertEqual((order["status"], order["requested_shares"]), ("pending", MAX_ORDER_SHARES))
+
+    def test_a_dollar_buy_for_more_shares_than_fit_is_bad_input_and_stores_nothing(self):
+        big = self.books.create_paper_book(
+            owner=OWNER, name="Big", starting_cash="1000000000000", opened_on=OPENED_ON
+        )
+        self.gateway.quotes[SYMBOL] = quote(0.5)
+
+        with self.assertRaisesRegex(ValueError, "more shares than an order can hold"):
+            self.place(amount="1000000000000", book_id=big)
+
+        self.assertEqual(self.service.list_orders(owner=OWNER, book_id=big)["orders"], [])
+        self.assertEqual(self.lots.list_positions(OWNER, book_id=big), [])
+        self.assertEqual(self.balance(big), D("1000000000000.00"))
 
     def test_the_real_book_takes_no_orders(self):
         real = self.books.ensure_real_book(owner=OWNER)

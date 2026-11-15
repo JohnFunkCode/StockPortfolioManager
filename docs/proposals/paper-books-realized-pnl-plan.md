@@ -947,6 +947,17 @@ Known before any code is written. Add to this list as the work finds more.
   Load the committed snapshot from `git show HEAD:db/schema_snapshot.json` and drop every
   `*_not_null` constraint the new file has that the old one lacks. 176 rows this time. Keep the
   committed file's indent, or the whole file shows as changed.
+- **A symbol halted less than five minutes ago still fills** (3.3, #560 review, accepted). The
+  halt refusal is the last trade's age, so inside the five-minute window the order fills at the
+  price before the halt. Revisit if Yahoo ever exposes a halt flag.
+- **A cap one above what the column holds is no cap** (3.3, #560 review). `MAX_ORDER_SHARES` was
+  1e12, and `NUMERIC(18,6)` stops just short of it, so exactly 1e12 shares passed the check and
+  failed at the INSERT as a 500. A dollar buy's share count was not capped at all: a large
+  amount at a sub-dollar price overflowed the same column. Both are a 422 now.
+- **The page must not promise a step that isn't built** (3.3, #560 review). The pending notice
+  said a queued order fills at its session's opening price and shows that evening. That is 3.4.
+  It now says nothing fills a waiting order yet. **3.4 must put the promise back**, in
+  `OrdersList.tsx` and its test.
 - **The Orders list was not checked in a browser** (3.3), for the reason given under 3.1. It is
   covered by vitest and the API tests.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
@@ -1003,3 +1014,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-15 | 3.1 review | #558 | Approved, with one suggestion: `CashLedgerCard`'s docstring cited "decision #20" for the no-props rule, which reads as this plan's decision 20 (no opening balance, no balance). The other chat cards mean #126's decision 20 by it. The comment now names the #235 `RealizedPnlCard` precedent and says which plan the number belongs to. Comment only, no code change |
 | 2026-11-15 | 3.2 Prior-art review | #559 | No code. Read #222 and the Alpaca experiment (its one commit and John's uncommitted local changes). Section 5.8 records what the orders design adopts, drops and carries to later steps. Decisions 25 to 29 (pending means queued, all-or-nothing fills, one-session queued orders, checks at fill time, fixed rejection reasons) are John's to confirm before 3.3. Four gotchas for 3.3 and 3.4 added to section 7 |
 | 2026-11-15 | 3.3 Orders and fills | #560 | V17: `orders`, `positions.order_id`, `lot_sales.order_id`, `source` and `source_ref`. `analytics/orders.py` (fill, queue or reject), `OrdersRepository` with one locked transaction per fill, `OrdersService` (place, cancel, list; paper books only), three `/api/portfolio/orders` routes, and the Orders list in the Cash and orders section. In-hours orders fill at the live quote or are rejected with a fixed reason; off-hours orders queue for the next session and wait for 3.4. John confirmed decisions 25 to 29 before the build, and decision 30 (orders as their own list) once the PR was open. Nothing for an operator to run (section 5.9) |
+| 2026-11-15 | 3.3 review | #560 | Approved, with five suggestions. Fixed: the share cap is now the largest count the column holds and a dollar buy's computed share count is capped too (both a 422, were a 500); the pending notice no longer says queued orders fill, since 3.4 isn't built; a cancelled order's Result reads "Withdrawn". Accepted and written down: a symbol halted under five minutes ago still fills, and a fill at $100,000 or more loses its cents in the lot until `purchase_price` stops being `REAL` |

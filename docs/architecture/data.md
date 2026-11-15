@@ -417,7 +417,8 @@ The last three are final. The rules, and why each is there:
 - **A quote is too old when its last regular-session trade is** (`Quote.regular_time`, more than
   five minutes), whatever the time it was fetched. The quote comes straight from
   `batch_quotes`, never the price cache. Yahoo has no halted flag, so a halted symbol is refused
-  the same way.
+  the same way. That leaves a gap, accepted: a symbol halted less than five minutes ago still
+  fills, at its last price before the halt.
 - **USD-listed symbols only**, by the quote's own `currency`.
 - **A paper book has no margin.** A buy's lot and cash row are written first, the ledger is read
   on the same connection, and a balance below zero undoes the trade to a savepoint and rejects
@@ -429,7 +430,12 @@ The last three are final. The rules, and why each is there:
   it never costs more than the amount. A sell takes the oldest lots first.
 - **A fill price is rounded to the tick**: the cent at a dollar or more, a hundredth of a cent
   below it. `positions.purchase_price` is a `REAL` column and holds seven significant digits,
-  which is every price below $100,000 to the cent.
+  which is every price below $100,000 to the cent. At or above that the lot and its cash row
+  hold a rounded price and the order keeps the exact one. Accepted for paper books as they are.
+  The column has to change (a hand-applied migration) before a paper book holds such a symbol.
+- **A share count is capped at 999,999,999,999**, the largest whole number `NUMERIC(18,6)`
+  holds, whether it is asked for or worked out from a dollar amount. Over the cap is bad input
+  (a 422) and nothing is stored.
 - **A rejection is a stored order, not an error.** `reject_reason` is one of `stale_quote`,
   `no_quote`, `non_usd`, `insufficient_cash`, `insufficient_shares` and `no_open_price` (for
   step 3.4). A `CHECK` holds the list, and `tests/test_orders_analytics.py` fails if the code's

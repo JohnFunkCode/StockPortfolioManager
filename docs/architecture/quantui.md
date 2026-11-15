@@ -59,7 +59,7 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
 - **The Portfolio's holdings table** gets every column from its one `GET /api/portfolio/symbols`
   request.
 - **The Portfolio is one page of stacked sections** (#235, plan decision 7): a summary strip
-  (`BookSummaryStrip`), then Holdings, then Realized. Each section makes its own request and shows
+  (`BookSummaryStrip`), then Holdings, Realized, and Cash and orders. Each section makes its own request and shows
   its own loading and error state, so Holdings never waits for a section under it, and a book
   with no open lots still shows what it realized. The strip leaves out a figure it doesn't have
   (still loading, failed, or not built yet); it never shows a zero or a dash in its place. Its
@@ -75,6 +75,14 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   with the figure in its own currency and both rates beneath it; one without rates shows the
   native figure and a "no FX rate" chip. The same component with no props is the Sidekick
   `realized_pnl` card, which therefore always reads the real book.
+- **The Cash and orders section is `CashLedger`** (#431 step 3.1), fed by one
+  `GET /api/portfolio/cash` request: the balance, the totals by kind, and the entries newest first
+  with the server's running balance, cut to the latest five until "Show all entries". The forms
+  (opening balance, deposit or withdrawal, delete) show only for the real book, and not at all
+  when the component is `readOnly`. A book with no opening balance shows a prompt for one and no
+  figures. The strip shows the cash beside the holdings and adds nothing up: while cash is shown
+  its first figure is labelled "Holdings value", not "Book value". The same component, read-only
+  and with no props, is the Sidekick `cash_ledger` card. Orders join this section in step 3.3.
 - **The Portfolio shows one book at a time** (#431). `BookSelector` draws a chip per book, the real
   book first, and puts the books past five under "More". The selected paper book is in the URL
   (`?book=<id>`); no parameter means the real book, and the page then sends no `book_id`. The Real

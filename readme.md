@@ -195,6 +195,11 @@ when a non-USD lot is opened or closed. To fill rates that are missing (older ro
 recorded while Yahoo was unreachable), run `python scripts/backfill_fx_rates.py` (a dry run;
 `--apply` writes).
 
+Each book has a cash ledger. Opening or closing a lot writes its buy or sell entry; you enter the
+real book's opening balance, deposits and withdrawals on the Portfolio page. Lots and sales
+recorded before the ledger existed get their entries from
+`python scripts/backfill_cash_entries.py` (a dry run; `--apply` writes).
+
 ### Migrations (Flyway)
 
 Versioned SQL lives in `db/migrations/V*.sql`. Every schema change touches exactly **three**
@@ -243,6 +248,7 @@ authoritative endpoint list.** There are 115 routes, so the table below only gro
 | `recommendations.py` | `/api/securities/{ticker}/…` | trade recommendation, stop-loss analysis (opt-in `confluence=stop\|full` stop, `position=mine` from your own lots), relative strength, support confluence |
 | `arbitrage.py` | `/api/arbitrage/…` | universe, pair analysis, scan, discovery, spread history |
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
+| `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |

@@ -4,7 +4,13 @@ Pure functions, no database."""
 import unittest
 from decimal import Decimal
 
-from quantcore.analytics.cash import cash_ledger, signed_amount, to_cents
+from quantcore.analytics.cash import (
+    _totals_by_kind,
+    _with_running_balance,
+    cash_ledger,
+    signed_amount,
+    to_cents,
+)
 
 D = Decimal
 
@@ -124,6 +130,39 @@ class CashLedgerTest(unittest.TestCase):
         ledger = cash_ledger([OPENING, buy])
         self.assertEqual(ledger["entries"][0]["symbol"], "ZZ")
         self.assertEqual(buy, before)
+
+
+class RunningBalanceTest(unittest.TestCase):
+    def test_it_keeps_the_order_and_carries_the_balance(self):
+        rows = _with_running_balance([
+            _entry(1, "deposit", "2026-01-01", "10"),
+            _entry(2, "buy", "2026-01-02", None),
+            _entry(3, "buy", "2026-01-03", "-4"),
+        ])
+        self.assertEqual(
+            [(r["entry_id"], r["fx_missing"], r["balance_after"]) for r in rows],
+            [(1, False, D("10")), (2, True, D("10")), (3, False, D("6"))],
+        )
+
+    def test_nothing_in_nothing_out(self):
+        self.assertEqual(_with_running_balance([]), [])
+
+
+class TotalsByKindTest(unittest.TestCase):
+    def test_each_kind_is_summed_signed_and_the_opening_is_in_none(self):
+        totals = _totals_by_kind([
+            OPENING,
+            _entry(2, "deposit", "2026-01-11", "10"), _entry(3, "deposit", "2026-01-12", "5"),
+            _entry(4, "withdrawal", "2026-01-12", "-3"),
+            _entry(5, "buy", "2026-01-12", "-20"), _entry(6, "buy", "2026-01-12", None),
+            _entry(7, "sell", "2026-01-13", "8"),
+        ])
+        self.assertEqual(totals, {
+            "deposits": D("15"), "withdrawals": D("-3"), "bought": D("-20"), "sold": D("8"),
+        })
+
+    def test_a_kind_with_no_entries_is_zero(self):
+        self.assertEqual(set(_totals_by_kind([]).values()), {D("0")})
 
 
 class SignedAmountTest(unittest.TestCase):

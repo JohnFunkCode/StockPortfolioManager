@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import PortfolioPage from './PortfolioPage';
 import {
+  cashEntry,
+  cashLedger,
+  emptyCashLedger,
   lotRow,
   mockApi,
   portfolioTotals,
@@ -35,6 +38,9 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
     // The Realized section's own request (#235): no sales unless a test says so.
     ['/api/portfolio/realized', realizedResponse([])],
     ...routes,
+    // The Cash section's own request (#431): no opening balance unless a test
+    // says so. After `routes`, so a test's own cash route wins.
+    ['/api/portfolio/cash', emptyCashLedger()],
   ]);
   renderWithProviders(<PortfolioPage />);
   return api;
@@ -337,6 +343,7 @@ describe('PortfolioPage', () => {
         ([url]) =>
           url.includes('/api/portfolio/symbols') ||
           url.includes('/api/portfolio/realized') ||
+          url.includes('/api/portfolio/cash') ||
           url.includes('/api/books'),
       ),
     ).toBe(true);
@@ -504,7 +511,7 @@ describe('PortfolioPage books (#431)', () => {
   });
 
   describe('stacked sections (#235, decision 7)', () => {
-    it('shows the summary strip, then Holdings, then Realized', async () => {
+    it('shows the summary strip, then Holdings, Realized and Cash', async () => {
       mount();
       await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
 
@@ -514,10 +521,61 @@ describe('PortfolioPage books (#431)', () => {
       expect(strip.getByText('Unrealized')).toBeInTheDocument();
 
       const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-      expect(headings).toEqual(['Holdings', 'Realized']);
+      expect(headings).toEqual(['Holdings', 'Realized', 'Cash and orders']);
       // The jump links land on the sections.
       expect(document.getElementById('holdings')).toHaveTextContent('Holdings');
       expect(document.getElementById('realized')).toContainElement(screen.getByTestId('realized-pnl'));
+      expect(document.getElementById('cash')).toContainElement(screen.getByTestId('cash-ledger'));
+    });
+
+    it('puts the cash balance in the strip from the Cash section\'s own request', async () => {
+      const api = mount([['/api/portfolio/cash', cashLedger()]]);
+      await waitFor(() => expect(screen.getByTestId('cash-table')).toBeInTheDocument());
+
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.getByText('Cash')).toBeInTheDocument();
+      expect(strip.getByText('$1,250.00')).toBeInTheDocument();
+      // Shown beside the holdings, never added to them: the first figure is
+      // renamed so it can't be read as including the cash.
+      expect(strip.getByText('Holdings value')).toBeInTheDocument();
+      expect(strip.getByText('$630.00')).toBeInTheDocument();
+      expect(strip.queryByText('Book value')).toBeNull();
+      // One request serves the strip and the section.
+      expect(api.calls.filter(([url]) => url.includes('/api/portfolio/cash'))).toHaveLength(1);
+    });
+
+    it('keeps Holdings and Realized when the cash request fails', async () => {
+      mount([['/api/portfolio/cash', () => ({ __status: 500, error: 'boom' })]]);
+      await waitFor(() => expect(screen.getByText(/Couldn't load cash/)).toBeInTheDocument());
+      expect(holdings().getByText('INTC')).toBeInTheDocument();
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.queryByText('Cash')).toBeNull();
+      expect(strip.getByText('Book value')).toBeInTheDocument();
+    });
+
+    it('lets the real book take cash entries and a paper book none', async () => {
+      const REAL_BOOK = { book_id: 1, name: 'Real', kind: 'real', starting_cash: 0, created_at: '2026-11-01T00:00:00Z', archived_at: null };
+      const PAPER_BOOK = { book_id: 7, name: 'Momentum', kind: 'paper', starting_cash: 5000, created_at: '2026-11-02T00:00:00Z', archived_at: null };
+      const paperLedger = cashLedger(
+        [cashEntry({ entry_id: 9, kind: 'opening_balance', entry_date: '2026-11-02', amount: 5000, balance_after: 5000 })],
+        { book_kind: 'paper', balance: 5000, opening_balance: 5000, opening_date: '2026-11-02' },
+      );
+      const api = mockApi([
+        ['/api/books', { books: [REAL_BOOK, PAPER_BOOK] }],
+        [/\/api\/portfolio\/cash\?book_id=7$/, paperLedger],
+        [/\/api\/portfolio\/cash$/, cashLedger()],
+        ['/api/portfolio/symbols', { symbols: [], totals: null }],
+        ['/api/portfolio/realized', realizedResponse([])],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      await waitFor(() => expect(screen.getByTestId('cash-table')).toBeInTheDocument());
+      expect(screen.getByRole('button', { name: 'Add deposit or withdrawal' })).toBeInTheDocument();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Momentum' }));
+      await waitFor(() => expect(within(screen.getByTestId('cash-ledger')).getAllByText('$5,000.00').length).toBeGreaterThan(0));
+      expect(screen.queryByRole('button', { name: 'Add deposit or withdrawal' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Change opening balance' })).toBeNull();
+      expect(api.calls.map(([url]) => url)).toContain('/api/portfolio/cash?book_id=7');
     });
 
     it("puts the last year's realized P/L in the strip from the section's own request", async () => {

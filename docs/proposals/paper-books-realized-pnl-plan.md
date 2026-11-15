@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestones 1 and 2 are built, which closes #235. Next is milestone 3 (cash, orders and paper buys), starting at 3.1. The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1, the cash ledger, is built. Next is 3.2. Decisions 19 to 24 were made during the 3.1 build and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema has 24 tables.** This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (26 after step 3.1). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -145,7 +145,37 @@ PRs most:
 18. **AI read access arrives with Performance** (5.4): one read-only book tool for MCP and
     Sidekick. Until then no MCP tool can see a paper book and the tool count stays at 63.
 
-No proposals are open. A new question that comes up during the build is added here as a numbered
+### Made on 2026-11-15, during the 3.1 build (Claude; John to confirm or change)
+
+These came up while building the cash ledger. Each is what the code does now. None was asked
+first, so each is open to being overturned in review; the cost of changing it later is noted
+where it is more than a small edit.
+
+19. **The opening balance is the cash held at the start of its date.** An entry dated on or after
+    the opening date counts, and one dated before it does not. This follows decision 9 ("lots
+    opened earlier enter as holdings") and is what makes a paper book work: it opens with its
+    starting cash on the day it is made, and a buy the same day must count. What it costs: a
+    balance copied from a month-end statement is entered with the next day's date.
+20. **With no opening balance the real book shows no balance and no entries.** Its lots only take
+    cash out, so a sum of them would be a large negative number that means nothing. The section
+    asks for an opening balance and says how many entries are waiting for one.
+21. **Cash amounts are gross of fees**, the same as realized P/L. The stored fees can't be summed:
+    a sale across several lots repeats its fee on every `lot_sales` row, and the remainder of a
+    split copies its parent's. A fee can be entered as a withdrawal. Counting fees properly needs
+    the fee columns fixed first, which is its own issue.
+22. **A trade's cash row is derived from its lot or sale and stored, not typed and not computed at
+    read time.** Only a lot whose `acquisition_type` is `BUY` writes one (a transferred or, later,
+    a seeded lot cost no cash). A non-USD trade with no FX rate gets a row with no amount: flagged,
+    counted, and left out of the balance, never converted at 1.0.
+23. **A paper book's opening balance is its starting cash, written when the book is made**, and
+    the owner can't type into a paper ledger at all: no opening balance, deposit, withdrawal or
+    delete. The three write routes take no `book_id`.
+24. **The summary strip shows cash beside the holdings and adds nothing up.** While cash is shown,
+    its first figure is labelled "Holdings value", not "Book value". One book value that counts
+    both is a server-side figure and arrives with the daily snapshots (5.1). Before 3.1 the plan
+    expected the strip's book value to grow to include cash at this step.
+
+No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
 
 The proposals were numbered P1 to P13 while they were open. Each closed as a decision:
@@ -408,10 +438,11 @@ key order and error messages were equal in every case.
 
 ### Milestone 3: cash, orders and paper buys
 
-- [ ] **3.1 Cash ledger.**
+- [x] **3.1 Cash ledger.**
   `cash_entries` table; opening balance, deposit and withdrawal for the real book; opening and
   closing a lot writes its buy or sell entry in the same transaction; a script that writes the
-  entries for existing lots and sales; the Cash and orders section, showing cash entries.
+  entries for existing lots and sales; the Cash and orders section, showing cash entries. What
+  was built, and what an operator still has to run, is in section 5.7.
 - [ ] **3.2 Review the prior art.**
   Read `JohnFunkCode/alpaca_robot_trading_workflow_experiment` and #222; record in this document
   which ideas the orders design adopts and which it drops. No code.
@@ -430,6 +461,40 @@ key order and error messages were equal in every case.
   Portfolio page; seeding a paper book from the real book, on top of its starting cash (decision
   11); a manual close for a paper position whose symbol is delisted or can't be quoted, at the
   last good price and marked as such; `[PAPER]` Discord messages.
+
+#### 5.7 The cash ledger as built (3.1)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Table | `V16__cash_entries.sql`, `_SCHEMA`, the snapshot | `cash_entries`: `owner`, `book_id`, `kind`, `entry_date`, signed USD `amount NUMERIC(18,2)` (nullable), `lot_id`, `sale_id`, `notes`. One buy row per lot, one sell row per sale and one opening balance per book are unique partial indexes. Plain `CREATE`, so CI applies it. 26 tables |
+| Trade rows | `cash_entry_sql.py` | Two `INSERT ... SELECT` statements define a buy and a sell amount. `sync_lot_cash` deletes a lot's rows and runs them again, in the transaction of every write that can change them: add, edit, sale, close (both halves of a split), CSV replace, a filled FX rate |
+| Manual rows | `CashRepository`, `CashService` | Opening balance (replaced, never added to), deposit, withdrawal, delete of a deposit or withdrawal. Real book only |
+| Paper books | `BooksRepository.create_paper_book(opened_on=)` | The starting cash is written as the opening balance, dated today in market time, in the same transaction as the book |
+| The maths | `analytics/cash.py` | What counts (on or after the opening date), the running balance, totals by kind, the missing-rate count |
+| Routes | `api/routers/cash.py` | `GET /api/portfolio/cash?book_id=`, `PUT .../opening-balance`, `POST .../entries`, `DELETE .../entries/{entry_id}`. Each write answers with the ledger |
+| The view | `CashLedger.tsx`, `BookSummaryStrip` | The Cash and orders section: balance and totals, the latest five entries with "Show all entries", forms for the real book only, the below-zero warning, the "no FX rate" chip. The strip gains a Cash figure and a jump link |
+| Sidekick card | `cash_ledger`, no props | `CashLedgerCard` in both registries. Read-only, always the real book |
+| Backfill | `CashService.backfill`, `scripts/backfill_cash_entries.py` | Every book of every owner, dry run by default, adds only what is missing |
+
+The rules are in [`data.md`](../architecture/data.md#cash-ledger).
+
+**Still to run, by an operator, after this reaches each environment:**
+`python scripts/backfill_fx_rates.py` first if it has not been run (section 5.5), then
+`python scripts/backfill_cash_entries.py` (dry run), then `--apply`; for prod, through the proxy
+with `--allow-prod`. Until then lots and sales from before V16 have no cash rows, and a paper
+book made before V16 has no opening balance. Then John enters the real book's opening balance on
+the Portfolio page: until he does, the real book shows no cash balance.
+
+Left for later steps, on purpose:
+
+- **Orders are not in the section yet** (3.3), though it is already titled "Cash and orders".
+- **A paper book never refuses a buy it can't afford** yet. Nothing can buy in a paper book until
+  3.3, which owns the no-margin rule.
+- **No "return is unreliable while cash is negative" mark** (decision 8). There is no return
+  figure to mark until 5.3. The ledger reports `negative` and the section warns.
+- **The strip has no single book value** (decision 24). That is 5.1.
+- **Sidekick can show the ledger but not reason about it**: no data tool, as with realized P/L.
+  The read-only book tool is 5.4.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -650,6 +715,43 @@ Known before any code is written. Add to this list as the work finds more.
 - **A side-by-side comparison must not use `==` on the results** (2.4). `Decimal('NaN')` is not
   equal to itself, so the first run "failed" on two identical dicts. Comparing `repr()` fixed
   that and also checks the key order.
+- **`purchase_price` is a `REAL` column, and `REAL::NUMERIC` keeps six significant digits** (3.1).
+  A lot bought at 1234.567 came out of the first buy-row SQL as 1234.57 a share. Python never
+  sees this, because psycopg2 reads the column's text. The SQL now casts through `TEXT`
+  (`CAST(CAST(purchase_price AS TEXT) AS NUMERIC)`), and a test holds a 1,000-share lot to the
+  cent. Any later SQL that does arithmetic on `purchase_price` needs the same cast.
+- **A helper module, because two repositories need the same rows** (3.1). `PortfolioRepository`
+  writes the trade rows and `BooksRepository` the paper opening balance, while `CashRepository`
+  needs `BooksRepository.resolve_book_id`. Putting the shared SQL in `CashRepository` would have
+  been an import cycle, so it is in `cash_entry_sql.py`, which imports no repository.
+- **SQL on a book-scoped table can't live in `books_repository.py`** (3.1). The book scan's
+  signature check covers every public method of a module whose SQL touches a book-scoped table,
+  and `BooksRepository.get_book(owner, book_id)` rightly has a required `book_id`. One
+  `cash_entries` statement in that file would have failed it.
+- **A table with a foreign key to `books` breaks every test purge that deletes books** (3.1).
+  `cash_entries.book_id` has no cascade, because a book is never deleted. A test that makes a
+  paper book through `BooksService` now has an opening row, so its purge deletes
+  `cash_entries` before `books` (`tests/test_books_api.py` was the one existing suite affected).
+- **`Decimal.quantize` and Postgres `ROUND` disagree on a half cent** (3.1). Python's default
+  rounds 10.005 to 10.00; Postgres rounds it to 10.01. `analytics.cash.to_cents` rounds half up
+  so a typed amount and a derived one round the same way.
+- **A partial close can move a book's cash by a cent** (3.1, accepted). Each half of a split gets
+  its own buy row, each rounded to the cent, so the two can sum to a cent more or less than the
+  one row they replace. The alternative, giving the remainder whatever is left, would make the
+  backfill and a later edit of that lot disagree with the write path.
+- **A dry run that rolls back is exact, and costs no second set of SQL** (3.1). The cash backfill
+  runs its real INSERTs and rolls them back without `--apply`, so the counts it prints are the
+  rows an applied run writes. A separate counting query could have drifted from the INSERTs.
+- **One new cross-owner statement** (3.1): `SQL_LIST_BOOK_OWNERS`, the backfill's walk. 2.3's
+  backfill avoided one by using `list_owners()`, but that skips an owner who holds only paper
+  positions or only an empty paper book, and those are exactly the books that need an opening
+  row. It returns owner names only and has a reasoned entry in the owner scan's `ALLOWED`.
+- **The new section's request reaches every Portfolio page test** (3.1). `mount()` in
+  `PortfolioPage.test.tsx` gives it a default route placed after the test's own routes, because
+  `mockApi` takes the first match. The test that lists the page's requests gained the cash URL.
+- **The dev server could not be run against a local API from the agent session** (3.1). The
+  sandbox refuses a write to `.claude/launch.json`, and the checked-in config starts only the
+  front end. So the Cash section was verified by vitest and by the API tests, not in a browser.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -700,3 +802,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 2.4 Complexity follow-up | #556 | No behaviour change. The six units the #552 review measured are all at or under the goals (section 5.6): the sale order is a table and the draw its own function in `allocate`; the two row shapes are lists of fields over `_text`, `_or_none` and `_int_or_none`; the lot-field checks are `_require_positive` and `_require_iso_date`; the book scan's `_child_ok` and `_check_level` are split into four helpers. A direct test for each helper. Milestone 2 is done |
 | 2026-11-15 | 2.4 review | #556 | Approved, with two suggestions about the cognitive figures, both answered in section 5.6: the figures are now given for complexipy 9.0.0 and for 8.0.1 (the review's version), and the review's "failed on the test file" is traced to 8.0.1 scoring the unchanged `_restricted_names` at 16. No code change |
 | 2026-11-15 | `_restricted_names` follow-up | #557 | No behaviour change, test file only. The one unit complexipy 8.0.1 scored over the cognitive goal (16) is split into `_alias_for` and `_book_qualifiers`, each with a direct test (section 5.6). 8.0.1 now exits 0 on the book scan, so a review's preflight should be able to report its scores. Not a plan step: it came out of the #556 review |
+| 2026-11-15 | 3.1 Cash ledger | this PR | V16: `cash_entries`. A lot's buy row and a sale's sell row are derived in SQL and rewritten in the same transaction as every write that can change them; the owner enters the real book's opening balance, deposits and withdrawals; a new paper book opens with its starting cash. `analytics/cash.py`, `CashRepository`, `CashService`, four `/api/portfolio/cash` routes, the Cash and orders section, the strip's Cash figure, the Sidekick `cash_ledger` card, `scripts/backfill_cash_entries.py`. Decisions 19 to 24 were made in the build and are John's to confirm. The backfill is still to be run on each environment, and the real book needs its opening balance (section 5.7) |

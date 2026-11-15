@@ -515,6 +515,14 @@ class PortfolioRepository:
         })
         return int(cur.fetchone()["position_id"])
 
+    @staticmethod
+    def _sync_cash(conn, owner: str, lot_ids, *, book_id: Optional[int]) -> None:
+        """Rewrite the cash rows of each lot in `lot_ids` on `conn`. None is
+        skipped: a full close has no remainder lot."""
+        for lot_id in lot_ids:
+            if lot_id is not None:
+                sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
+
     def _apply_lot_fields(
         self, conn, owner: str, lot_id: int, fields: Dict[str, Any], *, book_id: Optional[int]
     ) -> int:
@@ -1016,9 +1024,7 @@ class PortfolioRepository:
 
                     # The sale's sell row, and the buy rows of both halves of
                     # a split: the parent now holds only the shares sold.
-                    sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
-                    if child_lot_id is not None:
-                        sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=child_lot_id)
+                    self._sync_cash(conn, owner, (lot_id, child_lot_id), book_id=book_id)
 
                     results.append({
                         "lot_id": lot_id,

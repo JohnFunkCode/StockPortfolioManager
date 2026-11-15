@@ -224,6 +224,17 @@ class TradeEntriesTest(_Base):
         # The purchase is still one outlay of 50, now on two rows.
         self.assertEqual(sum(by_lot.values()), D("-50.00"))
 
+    def test_sync_cash_rewrites_each_lot_named_and_skips_none(self):
+        first = self.lots.add_position(OWNER, _lot())
+        second = self.lots.add_position(OWNER, _lot(quantity=2))
+        with closing(get_connection()) as conn:
+            conn.execute("UPDATE cash_entries SET amount = -1 WHERE owner = %s", (OWNER,))
+            # A full close passes (lot, None): there is no remainder lot.
+            PortfolioRepository._sync_cash(conn, OWNER, (first, None), book_id=None)
+            conn.commit()
+        by_lot = {e["lot_id"]: e["amount"] for e in self._entries()}
+        self.assertEqual(by_lot, {first: D("-50.00"), second: D("-1.00")})
+
     def test_a_failed_close_leaves_the_ledger_as_it_was(self):
         lot = self.lots.add_position(OWNER, _lot())
         with self.assertRaises(ValueError):

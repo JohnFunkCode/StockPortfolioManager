@@ -707,6 +707,68 @@ export function stopLossResponse(overrides: Partial<StopLossResponse> = {}): Sto
   };
 }
 
+/** One entry of GET /api/portfolio/cash (#431): a 250.00 deposit. */
+export function cashEntry(overrides: object = {}) {
+  return {
+    entry_id: 2,
+    kind: 'deposit',
+    entry_date: '2026-02-01',
+    amount: 250,
+    fx_missing: false,
+    balance_after: 1250,
+    lot_id: null,
+    sale_id: null,
+    symbol: null,
+    shares: null,
+    price: null,
+    currency: null,
+    notes: null,
+    ...overrides,
+  };
+}
+
+/** A whole cash ledger for the real book: a 1,000.00 opening balance and one
+ * deposit by default. The totals are the fixture's own figures, not sums of
+ * `entries`: the page shows what the server sent. */
+export function cashLedger(
+  entries: object[] = [
+    cashEntry(),
+    cashEntry({ entry_id: 1, kind: 'opening_balance', entry_date: '2026-01-01', amount: 1000, balance_after: 1000 }),
+  ],
+  overrides: object = {},
+) {
+  return {
+    book_kind: 'real',
+    opening_date: '2026-01-01',
+    opening_balance: 1000,
+    balance: 1250,
+    negative: false,
+    entry_count: entries.length,
+    earlier_entry_count: 0,
+    fx_missing_count: 0,
+    deposits: 250,
+    withdrawals: 0,
+    bought: 0,
+    sold: 0,
+    entries,
+    ...overrides,
+  };
+}
+
+/** A ledger with no opening balance: no figures and nothing listed. */
+export function emptyCashLedger(overrides: object = {}) {
+  return cashLedger([], {
+    opening_date: null,
+    opening_balance: null,
+    balance: null,
+    deposits: null,
+    withdrawals: null,
+    bought: null,
+    sold: null,
+    ...overrides,
+  });
+}
+
 /** One sale of GET /api/portfolio/realized (#235): 5 INTC bought at 30, sold at 40. */
 export function realizedSale(overrides: object = {}) {
   return {

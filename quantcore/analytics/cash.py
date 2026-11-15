@@ -69,6 +69,30 @@ def _empty(earlier: int) -> Dict[str, Any]:
     }
 
 
+def _with_running_balance(counted: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Each entry, in the order given, with `fx_missing` and the balance once
+    it is applied. An entry with no amount leaves the balance where it was."""
+    balance = ZERO
+    shown = []
+    for row in counted:
+        amount = row["amount"]
+        if amount is not None:
+            balance += amount
+        shown.append({**row, "fx_missing": amount is None, "balance_after": balance})
+    return shown
+
+
+def _totals_by_kind(counted: List[Dict[str, Any]]) -> Dict[str, Decimal]:
+    """`deposits`, `withdrawals`, `bought` and `sold`: the signed sum of each
+    kind's amounts, zero for a kind with none. An opening balance is in none."""
+    totals = {key: ZERO for key in _TOTAL_KEYS.values()}
+    for row in counted:
+        key = _TOTAL_KEYS.get(row["kind"])
+        if key is not None and row["amount"] is not None:
+            totals[key] += row["amount"]
+    return totals
+
+
 def cash_ledger(entries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     """The ledger of one book, from all of its cash rows in any order.
 
@@ -91,16 +115,8 @@ def cash_ledger(entries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         return _empty(len(rows))
 
     counted = [row for row in rows if row["entry_date"] >= opening["entry_date"]]
-    totals = {key: ZERO for key in _TOTAL_KEYS.values()}
-    balance = ZERO
-    shown: List[Dict[str, Any]] = []
-    for row in counted:
-        amount = row["amount"]
-        if amount is not None:
-            balance += amount
-            if row["kind"] in _TOTAL_KEYS:
-                totals[_TOTAL_KEYS[row["kind"]]] += amount
-        shown.append({**row, "fx_missing": amount is None, "balance_after": balance})
+    shown = _with_running_balance(counted)
+    balance = shown[-1]["balance_after"]
 
     return {
         "opening_date": opening["entry_date"],
@@ -110,7 +126,7 @@ def cash_ledger(entries: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
         "entry_count": len(shown),
         "earlier_entry_count": len(rows) - len(counted),
         "fx_missing_count": sum(1 for row in shown if row["fx_missing"]),
-        **totals,
+        **_totals_by_kind(counted),
         "entries": shown[::-1],
     }
 

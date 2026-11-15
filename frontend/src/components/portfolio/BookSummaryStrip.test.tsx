@@ -29,6 +29,29 @@ describe('BookSummaryStrip', () => {
     const nav = within(screen.getByRole('navigation', { name: 'Portfolio sections' }));
     expect(nav.getByRole('link', { name: 'Holdings' })).toHaveAttribute('href', '#holdings');
     expect(nav.getByRole('link', { name: 'Realized' })).toHaveAttribute('href', '#realized');
+    expect(nav.getByRole('link', { name: 'Cash and orders' })).toHaveAttribute('href', '#cash');
+  });
+
+  it('shows cash beside the holdings, and renames them so the two are not confused', () => {
+    render(<BookSummaryStrip holdings={portfolioTotals()} cash={1250.5} />);
+    const strip = within(screen.getByTestId('book-summary-strip'));
+    expect(strip.getByText('Holdings value')).toBeInTheDocument();
+    expect(strip.getByText('$350.00')).toBeInTheDocument();
+    expect(strip.getByText('Cash')).toBeInTheDocument();
+    expect(strip.getByText('$1,250.50')).toBeInTheDocument();
+    expect(strip.queryByText('Book value')).toBeNull();
+    // No sum of the two is made here.
+    expect(strip.queryByText('$1,600.50')).toBeNull();
+  });
+
+  it('shows a zero or negative cash balance as a figure, and no cash it was not given', () => {
+    const { rerender } = render(<BookSummaryStrip cash={0} />);
+    expect(screen.getByText('$0.00')).toBeInTheDocument();
+    rerender(<BookSummaryStrip cash={-12.34} />);
+    expect(screen.getByText('-$12.34')).toBeInTheDocument();
+    rerender(<BookSummaryStrip holdings={portfolioTotals()} cash={null} />);
+    expect(screen.queryByText('Cash')).toBeNull();
+    expect(screen.getByText('Book value')).toBeInTheDocument();
   });
 
   it('leaves out a figure it does not have, with no zero or dash in its place', () => {

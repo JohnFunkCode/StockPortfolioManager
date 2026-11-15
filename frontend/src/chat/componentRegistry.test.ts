@@ -26,6 +26,7 @@ describe('COMPONENT_REGISTRY', () => {
       'portfolio_table',
       'portfolio_allocation',
       'realized_pnl',
+      'cash_ledger',
       'symbol_lots',
       'watchlist_fundamentals',
       'fundamentals_top',
@@ -81,6 +82,17 @@ describe('COMPONENT_REGISTRY', () => {
     expect(validateDirective({ component: 'realized_pnl', props: {} }).ok).toBe(true);
     for (const props of [{ owner: 'someone_else' }, { book_id: 7 }, { period: 'all' }]) {
       expect(validateDirective({ component: 'realized_pnl', props }).ok, JSON.stringify(props)).toBe(
+        false,
+      );
+    }
+  });
+
+  it('cash_ledger takes no props: no owner and no book', () => {
+    // Mirrors test_chat_tools.py::TestCashLedgerDirective (#431). The card
+    // reads the caller's own real book.
+    expect(validateDirective({ component: 'cash_ledger', props: {} }).ok).toBe(true);
+    for (const props of [{ owner: 'someone_else' }, { book_id: 7 }]) {
+      expect(validateDirective({ component: 'cash_ledger', props }).ok, JSON.stringify(props)).toBe(
         false,
       );
     }

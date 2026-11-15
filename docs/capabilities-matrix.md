@@ -3,7 +3,7 @@
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
 **Last Updated:** 2026-11-13
-**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 119 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 20 components | **CLI Tools:** 1 | **Daily Jobs:** 2
+**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 122 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 20 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.
 
@@ -14,8 +14,8 @@ This document is a comprehensive inventory of every user-facing capability in th
 **Re-audited 2026-10-22** against what the frontend actually calls: every `apiRequest` path in
 `frontend/src/api/*.ts`, traced through `frontend/src/hooks/` to the components that consume it. A
 client function with no component behind it counts as **not surfaced**, and so does a standalone
-endpoint whose data the UI only gets through an aggregate one. Of the 119 REST operations, the
-WebUI reaches **67** (counting the fetches Sidekick cards make themselves), leaving **52** with no
+endpoint whose data the UI only gets through an aggregate one. Of the 122 REST operations, the
+WebUI reaches **69** (counting the fetches Sidekick cards make themselves), leaving **53** with no
 UI consumer — each one is listed, by reason, in the
 [WebUI consumer inventory](#appendix-rest-operations-with-no-webui-consumer) at the end. Everything
 listed here is fully built, tested, and reachable over REST today, so surfacing it is **frontend-only work**. Of the gap rows from the 2026-07-20 audit, only
@@ -53,6 +53,7 @@ Analysis tab and the Sidekick `stop_loss` card); the rest are still open.
 | **VWAP history** (multi-day series) | `GET /api/securities/{ticker}/vwap/history` | Chart overlay |
 | **On-demand news collection** (fetch + FinBERT + persist) | `POST /api/securities/{ticker}/news/collect` | A "refresh news" button (mirrors the existing options-snapshot refresh button) |
 | **Editing a sale's reason** (issue #266) | `PATCH /api/portfolio/sales/{id}` (and the standalone list, `GET /api/portfolio/sales`) | An edit control on a sale row in the Portfolio page's Realized section, which already lists each sale with its reason (#235). The client and hooks exist (`portfolioApi.getSales`/`updateSale`, `useSales`/`useUpdateSale`) but **no component calls them** |
+| **Placing a paper order** (#431 step 3.3) | `POST /api/portfolio/orders` | The Buy dialog on the Security page and Sell on a paper position (plan step 3.5). Until then an order can only be placed over REST |
 | **Portfolio CSV import** (full-sync per-owner) | `POST /api/portfolio/import` | Upload dialog on the Portfolio page — today it's the `scripts/import_portfolio.py` CLI only |
 | **Batch fundamental scoring** | `POST /api/securities/fundamentals/scores-batch` | An MCP/API convenience; not obviously a page |
 
@@ -83,7 +84,7 @@ Analysis tab (issue #93).
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 119 operations (67 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 122 operations (69 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 20 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
@@ -265,6 +266,8 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | **⚠ Edit a sale's reason** (issue #266) | — | `PATCH /api/portfolio/sales/{id}` | **—** (hook exists, no component) | — | — |
 | Realized P/L by symbol over a rolling period, with each sale (issue #235) | — | `GET /api/portfolio/realized?period=&book_id=` | Portfolio page → Realized section (period pulldown, bar chart, expandable sales), and the last year's figure in the summary strip | `realized_pnl` card (no data tool: the model shows the card and quotes no figure) | — |
 | A book's cash: balance, opening balance, deposits, withdrawals, and the buy and sell entry of every lot and sale (#431 step 3.1) | — | `GET /api/portfolio/cash?book_id=`, `PUT /api/portfolio/cash/opening-balance`, `POST /api/portfolio/cash/entries`, `DELETE /api/portfolio/cash/entries/{entry_id}` | Portfolio page → Cash and orders section (entry forms for the real book only), and the cash figure in the summary strip | `cash_ledger` card, read-only (no data tool: the model shows the card and quotes no figure) | `scripts/backfill_cash_entries.py` (rows for lots and sales from before the ledger) |
+| A paper book's orders, each with its status and what became of it; cancel a pending one (#431 step 3.3) | — | `GET /api/portfolio/orders?book_id=`, `POST /api/portfolio/orders/{order_id}/cancel` | Portfolio page → Cash and orders section → Orders (paper books only) | — | — |
+| **⚠ Place a paper order** (#431 step 3.3) | — | `POST /api/portfolio/orders` | **—** (client method exists, no component until step 3.5) | — | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / Security Detail remove action | — | — |
 | Lot lifecycle (create / edit / delete / close), with an optional reason on each purchase and sale (issue #266; `lot_notes` gives each lot of a multi-lot sale its own reason) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close`, `POST .../lots/{id}/close/preview` (read-only: which lots a sale would touch) | Portfolio page lot dialogs, lot-row note icon + Edit note | — | — |
@@ -348,13 +351,13 @@ The rest of `scripts/` is CI and deployment plumbing (`ci_*.sh`/`.py`, `lock_dep
 
 ## Database Structure
 
-One unified **QuantCore** PostgreSQL database (**26 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
+One unified **QuantCore** PostgreSQL database (**27 tables**, `psycopg2` via `QUANTCORE_DB_DSN`). Deployed databases are migrated by Flyway (`db/migrations/`, run by the `quantcore-migrate` Job before each roll-out); every entry point calls `ensure_schema()`, which creates the schema only where Flyway is absent and otherwise verifies it against `db/schema_snapshot.json`. Services connect as the DML-only `quantcore_app` role. All access goes through `quantcore/db.get_connection()`; writers are the repositories in `quantcore/repositories/`.
 
 | Table Category | Tables | Primary Writers | Purpose |
 |---|---|---|---|
 | **Price Data** | `ohlcv`, `fetch_log` | `OhlcvRepository` | Shared OHLCV bar cache (daily + intraday intervals); yfinance fetch tracking |
 | **Harvester** | `symbols`, `plan_templates`, `plan_instances`, `plan_rungs`, `alerts` | `HarvesterPlanDB` | Owner-scoped harvest plans, rungs, and alerts |
-| **Positions & Watchlist** | `books`, `positions`, `lot_sales`, `cash_entries`, `watchlist` | `BooksRepository`, `PortfolioRepository`, `CashRepository`, `WatchlistRepository` | Per-owner books (one real, any number of paper), the lots in them, recorded sales (with reasons) and each book's cash ledger; the global shared watchlist |
+| **Positions & Watchlist** | `books`, `positions`, `lot_sales`, `cash_entries`, `orders`, `watchlist` | `BooksRepository`, `PortfolioRepository`, `CashRepository`, `OrdersRepository`, `WatchlistRepository` | Per-owner books (one real, any number of paper), the lots in them, recorded sales (with reasons), each book's cash ledger and a paper book's orders; the global shared watchlist |
 | **Identity & Settings** | `owner_identities`, `user_settings` | `OwnerIdentityRepository`, `UserSettingsRepository` | Principal → portfolio-owner mapping; per-owner chat model |
 | **Options** | `options_snapshots`, `options_expirations`, `options_contracts`, `options_capture_claims`, `gamma_wall_history`, `gex_history`, `options_positions` | `OptionsStore`, `OptionsPositionStore` | Chain snapshots (ATM + full), daily-capture claims, gamma wall and signed-GEX history, active options positions |
 | **News & Sentiment** | `news_articles`, `sentiment_snapshots` | `NewsStore`, `SentimentStore` | FinBERT-scored articles; aggregated sentiment summaries |
@@ -374,13 +377,13 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (119 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (122 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, portfolio lots, the merged Watchlist page (screener, sentiment, options refresh), cross-symbol fundamentals, arbitrage, and options analytics (IV rank, max pain, P/C history)** are all surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 67 of 119 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 69 of 122 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation panel** — the most powerful synthesis endpoint, invisible in the UI (its stop-loss sibling shipped in #399).
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -401,16 +404,17 @@ The WebUI reaches 67 of 119 REST operations. It has kept pace with portfolio, wa
 
 ## Appendix: REST operations with no WebUI consumer
 
-The 52 operations in `docs/openapi-surface.txt` that no production frontend component reaches
+The 53 operations in `docs/openapi-surface.txt` that no production frontend component reaches
 (2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14 and left it the same day, with the Realized section). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
 `chatStream.ts`, keep only the ones whose client method has a non-test caller in `hooks/`,
 `components/` or `chat/`, and diff that set against the surface file. Three client methods look
 like coverage and aren't: `portfolioApi.getLots`, `rungsApi.list` and `rungsApi.get` have no
 callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 
-**Gaps — listed in the ⭐ section above (31):**
+**Gaps — listed in the ⭐ section above (32):**
 `GET /api/options/screen-watchlist` · `GET /api/portfolio/sales` ·
 `PATCH /api/portfolio/sales/{sale_id}` · `POST /api/portfolio/import` ·
+`POST /api/portfolio/orders` ·
 `POST /api/securities/fundamentals/scores-batch` · and under `/api/securities/{ticker}/`:
 `anchored-vwap`, `atr-bands`, `volume-profile`, `vwap/history`, `relative-strength`,
 `relative-strength/history`, `recommendation`, `microstructure`, `short-interest`,
@@ -439,7 +443,9 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 ---
 
 **Document Version:** 2.6
-**Last Updated:** 2026-11-15 (#431 step 3.1: the cash ledger adds four `/api/portfolio/cash` operations, all reached by the Portfolio page's Cash and orders section, and the Sidekick `cash_ledger` card: 67 of 119 operations reached, 52 left, 31 gaps; 20 Sidekick components; 26 tables)
+**Last Updated:** 2026-11-15 (#431 step 3.3: paper orders add three `/api/portfolio/orders` operations. The list and cancel are reached by the Orders list in the Portfolio page's Cash and orders section; placing an order has no component until step 3.5 and is a new gap: 69 of 122 operations reached, 53 left, 32 gaps; 27 tables)
+
+**Earlier:** 2026-11-15 (#431 step 3.1: the cash ledger adds four `/api/portfolio/cash` operations, all reached by the Portfolio page's Cash and orders section, and the Sidekick `cash_ledger` card: 67 of 119 operations reached, 52 left, 31 gaps; 20 Sidekick components; 26 tables)
 
 **Earlier:** 2026-11-14 (#235 step 2.2: the Realized section of the Portfolio page and the Sidekick `realized_pnl` card reach `GET /api/portfolio/realized`: 63 of 115 operations reached, 52 left, 31 gaps; 19 Sidekick components)
 

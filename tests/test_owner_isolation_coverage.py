@@ -81,6 +81,11 @@ OWNER_SCOPED = {
         ("tests/test_cash_repository.py", "test_wrong_owner_mutations_change_nothing"),
         ("tests/test_cash_api.py", "test_owners_are_isolated"),
     ],
+    "orders": [
+        ("tests/test_orders_repository.py", "test_another_owner_reads_no_orders"),
+        ("tests/test_orders_repository.py", "test_wrong_owner_mutations_change_nothing"),
+        ("tests/test_orders_api.py", "test_another_owner_gets_a_404_for_every_route"),
+    ],
     "positions": [
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),
@@ -210,7 +215,8 @@ class InventoryTests(unittest.TestCase):
 
     def test_derivation_finds_the_child_tables(self):
         # Pins the FK walk: if this breaks, the inventory above is blind.
-        self.assertEqual(self.scoped["lot_sales"], {"positions"})
+        # A sale hangs off its lot, and (V17) may name the order that filled it.
+        self.assertEqual(self.scoped["lot_sales"], {"positions", "orders"})
         self.assertEqual(self.scoped["plan_rungs"], {"plan_instances"})
         self.assertIn("plan_instances", self.scoped["alerts"])
         self.assertEqual(self.scoped["options_positions"], set())
@@ -509,10 +515,11 @@ ALLOWED = {
         "names only, and each owner's rows are then written by statements bound "
         "to that owner."
     ),
-    ("quantcore/repositories/portfolio_repository.py", "0c5b7928de4c"): (
-        "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "
-        "read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
-        "connection, and raise ValueError if it isn't this owner's."
+    ("quantcore/repositories/portfolio_repository.py", "7f40e1e5c0f3"): (
+        "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots_on "
+        "first read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
+        "connection, and raise ValueError if it isn't this owner's. The order_id "
+        "it stores comes from an OrderTransaction, which is bound to one owner."
     ),
     ("quantcore/repositories/harvester_repository.py", "34e97f75474c"): (
         "INSERT INTO alerts (SQL_UPSERT_ALERT_FOR_RUNG): rung_id/instance_id come "

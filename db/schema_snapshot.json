@@ -555,6 +555,11 @@
           "nullable": true,
           "type": "text"
         },
+        "order_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
         "sale_id": {
           "default": "nextval('lot_sales_sale_id_seq'::regclass)",
           "nullable": false,
@@ -574,11 +579,23 @@
           "default": null,
           "nullable": false,
           "type": "numeric(18,6)"
+        },
+        "source": {
+          "default": "'manual'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "source_ref": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
         }
       },
       "constraints": {
         "lot_sales_lot_id_fkey": "FOREIGN KEY (lot_id) REFERENCES positions(position_id) ON DELETE CASCADE",
-        "lot_sales_pkey": "PRIMARY KEY (sale_id)"
+        "lot_sales_order_id_fkey": "FOREIGN KEY (order_id) REFERENCES orders(order_id)",
+        "lot_sales_pkey": "PRIMARY KEY (sale_id)",
+        "lot_sales_source_check": "CHECK ((source = ANY (ARRAY['manual'::text, 'stop'::text, 'harvester'::text, 'evaluator'::text, 'watch'::text, 'ai'::text])))"
       },
       "indexes": {
         "idx_lot_sales_lot": "CREATE INDEX idx_lot_sales_lot ON public.lot_sales USING btree (lot_id)",
@@ -1065,6 +1082,126 @@
         "options_snapshots_symbol_captured_at_key": "CREATE UNIQUE INDEX options_snapshots_symbol_captured_at_key ON public.options_snapshots USING btree (symbol, captured_at)"
       }
     },
+    "orders": {
+      "columns": {
+        "book_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "fill_price": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "filled_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "idempotency_key": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "order_id": {
+          "default": "nextval('orders_order_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "placed_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "price_source": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "quote_time": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
+        "reject_reason": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "requested_amount": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,2)"
+        },
+        "requested_shares": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "resolved_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
+        "session_date": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        },
+        "side": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "source": {
+          "default": "'manual'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "source_ref": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "status": {
+          "default": "'pending'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "orders_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "orders_filled_has_fill": "CHECK (((status = 'filled'::text) = ((fill_price IS NOT NULL) AND (filled_shares IS NOT NULL))))",
+        "orders_one_request": "CHECK (((requested_shares IS NULL) <> (requested_amount IS NULL)))",
+        "orders_pending_is_unresolved": "CHECK (((status = 'pending'::text) = (resolved_at IS NULL)))",
+        "orders_pkey": "PRIMARY KEY (order_id)",
+        "orders_positive_request": "CHECK ((COALESCE(requested_shares, requested_amount) > (0)::numeric))",
+        "orders_price_source_check": "CHECK ((price_source = ANY (ARRAY['quote'::text, 'session_open'::text])))",
+        "orders_reject_reason_check": "CHECK ((reject_reason = ANY (ARRAY['stale_quote'::text, 'no_quote'::text, 'non_usd'::text, 'insufficient_cash'::text, 'insufficient_shares'::text, 'no_open_price'::text])))",
+        "orders_rejected_has_reason": "CHECK (((status = 'rejected'::text) = (reject_reason IS NOT NULL)))",
+        "orders_sell_in_shares": "CHECK (((side = 'buy'::text) OR (requested_shares IS NOT NULL)))",
+        "orders_side_check": "CHECK ((side = ANY (ARRAY['buy'::text, 'sell'::text])))",
+        "orders_source_check": "CHECK ((source = ANY (ARRAY['manual'::text, 'stop'::text, 'harvester'::text, 'evaluator'::text, 'watch'::text, 'ai'::text])))",
+        "orders_status_check": "CHECK ((status = ANY (ARRAY['pending'::text, 'filled'::text, 'cancelled'::text, 'rejected'::text])))",
+        "orders_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)"
+      },
+      "indexes": {
+        "idx_orders_book_status": "CREATE INDEX idx_orders_book_status ON public.orders USING btree (book_id, status)",
+        "orders_pkey": "CREATE UNIQUE INDEX orders_pkey ON public.orders USING btree (order_id)",
+        "ux_orders_owner_key": "CREATE UNIQUE INDEX ux_orders_owner_key ON public.orders USING btree (owner, idempotency_key)"
+      }
+    },
     "owner_identities": {
       "columns": {
         "created_at": {
@@ -1509,6 +1646,11 @@
           "nullable": true,
           "type": "text"
         },
+        "order_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
         "owner": {
           "default": "'john'::text",
           "nullable": false,
@@ -1577,6 +1719,7 @@
       },
       "constraints": {
         "positions_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "positions_order_id_fkey": "FOREIGN KEY (order_id) REFERENCES orders(order_id)",
         "positions_parent_lot_id_fkey": "FOREIGN KEY (parent_lot_id) REFERENCES positions(position_id) ON DELETE SET NULL",
         "positions_pkey": "PRIMARY KEY (position_id)",
         "positions_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id) ON DELETE CASCADE"

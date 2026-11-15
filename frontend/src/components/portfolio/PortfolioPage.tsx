@@ -411,7 +411,13 @@ export default function PortfolioPage() {
 
       {/* A paper book, or one the list can't vouch for, gets no forms. */}
       <Box id="cash" sx={{ mt: 4, scrollMarginTop: 16 }}>
-        <CashLedger bookId={bookId} readOnly={readOnly} />
+        {/* A pending order can be withdrawn from a paper book that is still
+            open. `readOnly` is about what the owner types: lots and cash. */}
+        <CashLedger
+          bookId={bookId}
+          readOnly={readOnly}
+          canCancelOrders={isPaper && book != null && book.archived_at == null}
+        />
       </Box>
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />

@@ -200,6 +200,12 @@ real book's opening balance, deposits and withdrawals on the Portfolio page. Lot
 recorded before the ledger existed get their entries from
 `python scripts/backfill_cash_entries.py` (a dry run; `--apply` writes).
 
+A paper book trades through market orders, and QuantCore sets every fill: at the live quote while
+the market is open, at the next session's opening price for an order placed outside it. A buy the
+book's cash can't cover, a stale quote and a non-USD symbol are rejected, with the reason shown.
+Orders are listed in the Cash and orders section, where a pending one can be cancelled. Placing
+an order is REST-only until the Buy dialog is built.
+
 ### Migrations (Flyway)
 
 Versioned SQL lives in `db/migrations/V*.sql`. Every schema change touches exactly **three**
@@ -249,6 +255,7 @@ authoritative endpoint list.** There are 115 routes, so the table below only gro
 | `arbitrage.py` | `/api/arbitrage/…` | universe, pair analysis, scan, discovery, spread history |
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
+| `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one. The system sets every fill; the real book takes none |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |

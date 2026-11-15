@@ -67,6 +67,7 @@ from tests.test_owner_isolation_coverage import (
 
 _REPO_TESTS = "tests/test_portfolio_repository.py"
 _CASH_TESTS = "tests/test_cash_repository.py"
+_ORDER_TESTS = "tests/test_orders_repository.py"
 
 # table -> the tests that prove a statement on it stays inside one book.
 BOOK_SCOPED = {
@@ -75,6 +76,12 @@ BOOK_SCOPED = {
         (_CASH_TESTS, "test_a_named_book_reads_and_writes_only_that_book"),
         (_CASH_TESTS, "test_a_lot_named_in_the_wrong_book_writes_no_cash_row"),
         (_CASH_TESTS, "test_wrong_owner_mutations_change_nothing"),
+    ],
+    "orders": [
+        (_ORDER_TESTS, "test_default_reads_see_only_the_real_book"),
+        (_ORDER_TESTS, "test_a_named_book_reads_and_resolves_only_that_book"),
+        (_ORDER_TESTS, "test_a_key_used_in_another_of_the_owners_books_is_refused"),
+        (_ORDER_TESTS, "test_wrong_owner_mutations_change_nothing"),
     ],
     "positions": [
         (_REPO_TESTS, "test_default_reads_see_only_the_real_book"),
@@ -161,9 +168,13 @@ class InventoryTests(unittest.TestCase):
     def test_derivation(self):
         scoped = book_scoped_tables(self.tables)
         self.assertEqual(scoped["positions"], set())
-        self.assertEqual(scoped["lot_sales"], {"positions"})
+        # A sale reaches its book through its lot. V17's order_id makes
+        # orders a second book-scoped parent, which the scan accepts in the
+        # same way: a statement must tie the sale to one that is restricted.
+        self.assertEqual(scoped["lot_sales"], {"positions", "orders"})
         # It has foreign keys into both, but its own book_id is the restriction.
         self.assertEqual(scoped["cash_entries"], set())
+        self.assertEqual(scoped["orders"], set())
         self.assertNotIn("books", scoped)
         self.assertNotIn("plan_rungs", scoped)
 
@@ -331,8 +342,8 @@ ALLOWED = {
         "rather than to one book -- it is the cross-owner walk, and returns "
         "owner names only."
     ),
-    ("quantcore/repositories/portfolio_repository.py", "0c5b7928de4c"): (
-        "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots first "
+    ("quantcore/repositories/portfolio_repository.py", "7f40e1e5c0f3"): (
+        "INSERT INTO lot_sales (SQL_INSERT_SALE): insert_sale and close_lots_on first "
         "read the lot with SQL_GET_LOT, owner- and book-scoped, on the same "
         "connection, and raise ValueError if it isn't in that book."
     ),

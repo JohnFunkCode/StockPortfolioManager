@@ -21,6 +21,7 @@ GET    /api/portfolio  ->  get_portfolio_api_portfolio_get
 GET    /api/portfolio/cash  ->  get_cash_ledger_api_portfolio_cash_get
 GET    /api/portfolio/delta-exposure  ->  get_portfolio_delta_exposure_api_portfolio_delta_exposure_get
 GET    /api/portfolio/lots  ->  get_lots_api_portfolio_lots_get
+GET    /api/portfolio/orders  ->  list_orders_api_portfolio_orders_get
 GET    /api/portfolio/realized  ->  get_realized_api_portfolio_realized_get
 GET    /api/portfolio/sales  ->  get_sales_api_portfolio_sales_get
 GET    /api/portfolio/symbols  ->  get_symbol_rows_api_portfolio_symbols_get
@@ -108,6 +109,8 @@ POST   /api/portfolio/import  ->  import_portfolio_api_portfolio_import_post
 POST   /api/portfolio/lots  ->  create_lot_api_portfolio_lots_post
 POST   /api/portfolio/lots/{lot_id}/close  ->  close_lot_api_portfolio_lots__lot_id__close_post
 POST   /api/portfolio/lots/{lot_id}/close/preview  ->  preview_close_lot_api_portfolio_lots__lot_id__close_preview_post
+POST   /api/portfolio/orders  ->  place_order_api_portfolio_orders_post
+POST   /api/portfolio/orders/{order_id}/cancel  ->  cancel_order_api_portfolio_orders__order_id__cancel_post
 POST   /api/rungs/{rung_id}/achieve  ->  achieve_rung_api_rungs__rung_id__achieve_post
 POST   /api/rungs/{rung_id}/execute  ->  execute_rung_api_rungs__rung_id__execute_post
 POST   /api/securities/fundamentals/scores-batch  ->  get_fundamental_scores_batch_api_securities_fundamentals_scores_batch_post

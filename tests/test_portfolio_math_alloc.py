@@ -3,7 +3,12 @@ import unittest
 from datetime import date
 from decimal import Decimal
 
-from quantcore.analytics.portfolio_math import LotAllocationError, allocate
+from quantcore.analytics.portfolio_math import (
+    LotAllocationError,
+    _ordered_lots,
+    _take_in_order,
+    allocate,
+)
 
 
 def make_lots():
@@ -117,6 +122,63 @@ class TestOverSell(unittest.TestCase):
         lots[2]["status"] = "CLOSED"  # newest/cheapest lot no longer available
         with self.assertRaises(LotAllocationError):
             allocate(lots, Decimal("21"), "FIFO")
+
+
+class TestOrderedLots(unittest.TestCase):
+    """`_ordered_lots`: the order each automatic method draws in (plan step 2.4)."""
+
+    def _ids(self, lots, method):
+        return [lot["lot_id"] for lot in _ordered_lots(lots, method)]
+
+    def test_each_method_has_its_own_order(self):
+        lots = list(reversed(make_lots()))  # arrival order must not matter
+        self.assertEqual(self._ids(lots, "FIFO"), [1, 2, 3])
+        self.assertEqual(self._ids(lots, "LIFO"), [3, 2, 1])
+        self.assertEqual(self._ids(lots, "HIFO"), [2, 1, 3])
+
+    def test_a_tie_is_broken_by_lot_id(self):
+        lots = make_lots()
+        for lot in lots:
+            lot["trade_date"] = date(2026, 1, 1)
+            lot["purchase_price"] = Decimal("100.00")
+        self.assertEqual(self._ids(lots, "FIFO"), [1, 2, 3])
+        # Descending methods reverse the whole key, the lot id included.
+        self.assertEqual(self._ids(lots, "LIFO"), [3, 2, 1])
+        self.assertEqual(self._ids(lots, "HIFO"), [3, 2, 1])
+
+    def test_no_lots(self):
+        self.assertEqual(_ordered_lots([], "FIFO"), [])
+
+    def test_manual_has_no_order(self):
+        with self.assertRaises(KeyError):
+            _ordered_lots(make_lots(), "MANUAL")
+
+
+class TestTakeInOrder(unittest.TestCase):
+    """`_take_in_order`: drawing shares from lots already put in order."""
+
+    def test_draws_front_first_and_stops_when_filled(self):
+        self.assertEqual(
+            _take_in_order(make_lots(), Decimal("12.5")),
+            [(1, Decimal("10")), (2, Decimal("2.5"))],
+        )
+
+    def test_an_exact_fill_takes_nothing_from_the_next_lot(self):
+        self.assertEqual(_take_in_order(make_lots(), Decimal("10")), [(1, Decimal("10"))])
+
+    def test_an_empty_lot_is_skipped_not_listed(self):
+        lots = make_lots()
+        lots[0]["quantity"] = Decimal("0")
+        self.assertEqual(_take_in_order(lots, Decimal("4")), [(2, Decimal("4"))])
+
+    def test_too_few_shares_raises_with_what_was_available(self):
+        with self.assertRaises(LotAllocationError) as ctx:
+            _take_in_order(make_lots(), Decimal("31"))
+        self.assertIn("Cannot allocate 31 shares: only 30 available", str(ctx.exception))
+
+    def test_no_lots_raises(self):
+        with self.assertRaises(LotAllocationError):
+            _take_in_order([], Decimal("1"))
 
 
 if __name__ == "__main__":

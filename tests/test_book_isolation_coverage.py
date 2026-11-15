@@ -203,26 +203,61 @@ def _restricted_names(scope, own: set) -> set:
     return found - {None}
 
 
-def _child_ok(name: str, parent_tables: set, scope, own: set) -> bool:
+def _joins_restricted_parent(name: str, parent_tables: set, scope, own: set) -> bool:
+    """`name` is joined, at this level, to a parent this level restricts."""
     region = scope.predicate_region()
     done = _restricted_names(scope, own)
-    if any(_joined(name, n, region) for t, n in scope.refs() if t in parent_tables and n in done):
-        return True
+    return any(
+        _joined(name, n, region) for t, n in scope.refs() if t in parent_tables and n in done
+    )
+
+
+def _restricts_its_parents(sub, parent_tables: set, own: set) -> bool:
+    """A subquery that reads a parent table and restricts every alias of it."""
+    parents_here = {n for t, n in sub.refs() if t in parent_tables}
+    return bool(parents_here) and parents_here <= _restricted_names(sub, own)
+
+
+def _in_subqueries_on(name: str, scope) -> list:
+    """The subqueries of ``col IN (subquery)`` filters that apply to `name`:
+    qualified with it, or unqualified where it is the level's only table."""
     subs = {c.id: c for c in scope.children}
     single = len(scope.refs()) == 1
-    for m in _IN_SUBQUERY.finditer(region):
+    found = []
+    for m in _IN_SUBQUERY.finditer(scope.predicate_region()):
         qual, col = m.group(1), m.group(2)
-        sub = subs.get(int(m.group(3)))
         mine = qual == name if qual else (single and col != "not")
-        if mine and sub is not None:
-            parents_here = [n for t, n in sub.refs() if t in parent_tables]
-            if parents_here and set(parents_here) <= _restricted_names(sub, own):
-                return True
-    return False
+        if mine:
+            found.append(subs.get(int(m.group(3))))
+    return [sub for sub in found if sub is not None]
+
+
+def _child_ok(name: str, parent_tables: set, scope, own: set) -> bool:
+    if _joins_restricted_parent(name, parent_tables, scope, own):
+        return True
+    return any(
+        _restricts_its_parents(sub, parent_tables, own) for sub in _in_subqueries_on(name, scope)
+    )
+
+
+def _table_problems(tables, scope, scoped: dict) -> list:
+    """What is wrong with how this level treats each of `tables`. The level's
+    own INSERT target is checked as an INSERT, every other table as a read."""
+    own = {t for t, anc in scoped.items() if not anc}
+    insert = re.match(r"^\s*insert into (\w+)\s*\(([^)]*)\)", scope.text)
+    target = insert.group(1) if insert else None
+    problems = []
+    for table in sorted(tables):
+        if table == target:
+            problem = _insert_problem(table, insert.group(2), scoped)
+        else:
+            problem = _read_problem(table, scope, scoped, own)
+        if problem:
+            problems.append(problem)
+    return problems
 
 
 def _check_level(scope, scoped: dict) -> list:
-    own = {t for t, anc in scoped.items() if not anc}
     named = {t for t, _ in scope.refs() if t in scoped}
     if not named:
         return []
@@ -232,15 +267,7 @@ def _check_level(scope, scoped: dict) -> list:
     problems = []
     if re.search(r"\bor\b", region):
         problems.append("an OR in the WHERE clause can widen the book restriction")
-    insert = re.match(r"^\s*insert into (\w+)\s*\(([^)]*)\)", scope.text)
-    for table in sorted(named):
-        if insert and insert.group(1) == table:
-            problem = _insert_problem(table, insert.group(2), scoped)
-        else:
-            problem = _read_problem(table, scope, scoped, own)
-        if problem:
-            problems.append(problem)
-    return problems
+    return problems + _table_problems(named, scope, scoped)
 
 
 def _insert_problem(table: str, columns: str, scoped: dict) -> Optional[str]:
@@ -386,6 +413,94 @@ class ScannerFixtureTests(unittest.TestCase):
         for sql in MUST_ACCEPT:
             with self.subTest(sql=sql):
                 self.assertEqual(check_statement(sql, SCOPED_FIXTURE), [])
+
+
+def _root(sql: str):
+    return parse_scopes(normalize(sql))
+
+
+_OWN = {"positions"}
+_PARENTS = {"positions"}
+_JOINED = (
+    "SELECT ls.* FROM lot_sales ls JOIN positions p ON p.position_id = ls.lot_id "
+    "WHERE p.owner = :owner"
+)
+_PARENT_SUBQUERY = "SELECT position_id FROM positions WHERE owner = :owner"
+
+
+class ScannerHelperTests(unittest.TestCase):
+    """The pieces `_child_ok` and `_check_level` were split into (plan step 2.4)."""
+
+    def test_joins_restricted_parent(self):
+        ok = _root(_JOINED + " AND p.book_id IN " + _BOOK_SUBQUERY)
+        self.assertTrue(_joins_restricted_parent("ls", _PARENTS, ok, _OWN))
+        # Joined, but the parent is not restricted to a book.
+        self.assertFalse(_joins_restricted_parent("ls", _PARENTS, _root(_JOINED), _OWN))
+        # Restricted, but nothing joins the child to it.
+        loose = _root(
+            "SELECT ls.* FROM lot_sales ls, positions p WHERE p.book_id IN " + _BOOK_SUBQUERY
+        )
+        self.assertFalse(_joins_restricted_parent("ls", _PARENTS, loose, _OWN))
+
+    def test_restricts_its_parents(self):
+        def sub(where):
+            root = _root("SELECT * FROM lot_sales WHERE lot_id IN (" + where + ")")
+            return root.children[0]
+
+        self.assertTrue(
+            _restricts_its_parents(
+                sub(_PARENT_SUBQUERY + " AND book_id IN " + _BOOK_SUBQUERY), _PARENTS, _OWN
+            )
+        )
+        self.assertFalse(_restricts_its_parents(sub(_PARENT_SUBQUERY), _PARENTS, _OWN))
+        # A subquery that reads no parent table restricts nothing.
+        self.assertFalse(
+            _restricts_its_parents(sub("SELECT symbol_id FROM symbols"), _PARENTS, _OWN)
+        )
+
+    def test_in_subqueries_on(self):
+        def tables(sql, name):
+            return [[t for t, _ in sub.refs()] for sub in _in_subqueries_on(name, _root(sql))]
+
+        one = "SELECT * FROM lot_sales WHERE lot_id IN (" + _PARENT_SUBQUERY + ")"
+        self.assertEqual(tables(one, "lot_sales"), [["positions"]])
+        # Unqualified, with two tables at the level: it can't be said whose column it is.
+        two = (
+            "SELECT * FROM lot_sales ls JOIN symbols s ON s.symbol_id = ls.symbol_id "
+            "WHERE lot_id IN (" + _PARENT_SUBQUERY + ")"
+        )
+        self.assertEqual(tables(two, "ls"), [])
+        qualified = two.replace("WHERE lot_id IN", "WHERE ls.lot_id IN")
+        self.assertEqual(tables(qualified, "ls"), [["positions"]])
+        self.assertEqual(tables(qualified, "s"), [])
+        # NOT IN keeps rows outside the subquery, so it restricts nothing.
+        self.assertEqual(tables(one.replace("lot_id IN", "lot_id NOT IN"), "lot_sales"), [])
+
+    def test_table_problems(self):
+        def problems(sql):
+            root = _root(sql)
+            named = {t for t, _ in root.refs() if t in SCOPED_FIXTURE}
+            return _table_problems(named, root, SCOPED_FIXTURE)
+
+        self.assertEqual(
+            problems("INSERT INTO positions (owner, symbol_id) VALUES (:owner, :symbol_id)"),
+            ["INSERT into positions without a book_id column"],
+        )
+        self.assertEqual(
+            problems("INSERT INTO lot_sales (lot_id) VALUES (:lot_id)"),
+            ["INSERT into child table lot_sales: its book can't be bound here"],
+        )
+        # One problem per table, in table order; the INSERT target as an
+        # INSERT and the table it reads from as a read.
+        self.assertEqual(
+            problems(_JOINED),
+            [
+                "child table lot_sales not tied to a book restriction on positions",
+                "positions is not restricted to a book",
+            ],
+        )
+        self.assertEqual(problems(_JOINED + " AND p.book_id IN " + _BOOK_SUBQUERY), [])
+        self.assertEqual(_table_problems(set(), _root("SELECT 1"), SCOPED_FIXTURE), [])
 
 
 # --------------------------------------------------------------------------

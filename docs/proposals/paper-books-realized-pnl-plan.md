@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestone 1 is built and milestone 2 has its three feature steps (2.1, 2.2 and 2.3), which closes #235; the 2.4 refactor is left. The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14; all design questions decided (section 3). Milestones 1 and 2 are built, which closes #235. Next is milestone 3 (cash, orders and paper buys), starting at 3.1. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -274,7 +274,7 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   `lot_sales.fx_rate_at_sale`; rates captured when a lot is opened and closed; a backfill script
   for existing non-USD rows; the "no FX rate" flag and count. Closes #235. What was built, and
   what an operator still has to run, is in section 5.5.
-- [ ] **2.4 Complexity follow-up from the 2.1 review.**
+- [x] **2.4 Complexity follow-up from the 2.1 review.**
   A refactor with no behaviour change, in its own PR, as 1.4 was. The #552 review measured six
   units that 2.1 did not change as over the cyclomatic goal of 10 (radon 6.0.1):
   `portfolio_math.allocate` (12); `_row_to_dict` in `portfolio_repository.py` (14);
@@ -283,7 +283,8 @@ dictionaries were equal and `html_summary.py`'s page was byte-identical.
   before starting: complexipy failed on `quantcore/services/portfolio.py` and
   `tests/test_book_isolation_coverage.py` in that review, so those scores are unknown. The
   existing tests must pass unchanged; add a direct test for each extracted helper. Nothing in
-  2.2, 2.3 or milestone 3 depends on it, so it can be done at any point.
+  2.2, 2.3 or milestone 3 depends on it, so it can be done at any point. What it measured is in
+  section 5.6.
 
 #### 5.3 The realized payload (2.1), for the view in 2.2
 
@@ -337,6 +338,37 @@ The rules are in [`data.md`](../architecture/data.md#fx-rates).
 `python scripts/backfill_fx_rates.py` (dry run), then `--apply`; for prod, through the proxy with
 `--allow-prod`. Until then every existing non-USD sale keeps its "no FX rate" flag. Prod's
 positions were empty when this was written, so the prod run may find nothing.
+
+#### 5.6 What the complexity follow-up measured (2.4)
+
+radon 6.0.1 for cyclomatic complexity and complexipy 9.0.0 for cognitive complexity, the goals
+being 10 and 15, run from a scratch virtualenv as in 1.4. complexipy read all four files this
+time, so the two scores the #552 review could not get are in the table.
+
+| Unit | Cyclomatic | Cognitive |
+|---|---|---|
+| `portfolio_math.allocate` | 12 → 6 | 12 → 3 |
+| `_row_to_dict` in `portfolio_repository.py` | 14 → 1 | 13 → 0 |
+| `_validate_lot_fields` in `quantcore/services/portfolio.py` | 13 → 7 | 16 → 6 |
+| `_normalize_row` in `quantcore/services/portfolio.py` | 11 → 2 | 9 → 1 |
+| `_child_ok` in `tests/test_book_isolation_coverage.py` | 15 → 3 | 13 → 1 |
+| `_check_level` in `tests/test_book_isolation_coverage.py` | 12 → 6 | 10 → 3 |
+
+`_validate_lot_fields` was the only one over the cognitive goal (16).
+
+The new helpers, as (cyclomatic, cognitive): `_ordered_lots` (1, 0) and `_take_in_order` (4, 4)
+in `portfolio_math`; `_text` and `_or_none` (2, 1 each) in both the repository and the service,
+and `_int_or_none` (2, 1) in the repository; `_require_positive` (3, 2) and `_require_iso_date`
+(2, 1) in the service; `_joins_restricted_parent` (4, 1), `_restricts_its_parents` (4, 1),
+`_in_subqueries_on` (8, 6) and `_table_problems` (7, 7) in the book scan. No unit in the four
+files is above the cyclomatic goal now.
+
+The old and new versions were also run side by side, the old ones loaded from `HEAD`: `allocate`
+on 20,000 generated lot sets (every method, an unknown one, closed and empty lots, over-sells and
+bad manual pairs), `_row_to_dict` on 30,000 rows, `_normalize_row` on 40,000 raw dicts and
+`_validate_lot_fields` on the same dicts with and without `require_all`, and `check_statement` on
+all 230 SQL literals in the repository plus the scan's own accept and reject fixtures. Results,
+key order and error messages were equal in every case.
 
 ### Milestone 3: cash, orders and paper buys
 
@@ -563,6 +595,20 @@ Known before any code is written. Add to this list as the work finds more.
   were for the old currency, and the backfill only fills a NULL, so it would never have corrected
   them. `update_lot` clears them in the same transaction as the edit, and the service looks them
   up again afterwards. A trade-date edit needs none of this: it moves only the purchase rate.
+- **An existing test file gains tests without losing its claim to be unchanged** (2.4). The step
+  says the existing tests must pass unchanged, and asks for a direct test of each helper. The
+  existing test methods were run before any test was added and none was edited. The new cases are
+  new classes: appended to `tests/test_portfolio_math_alloc.py` and the book scan, and in a new
+  `tests/test_portfolio_row_helpers.py`, which needs no database.
+- **`_text` and `_or_none` exist twice, on purpose** (2.4): once in the repository and once in the
+  service. A service importing a repository's private names would be the worse trade for two
+  one-line functions. One test class runs the same cases against both copies.
+- **`_text` does not treat a blank string as empty** (2.4, kept). `(v or default).strip()` uses
+  the default only for NULL or `''`, so a currency stored as `'   '` reads as `''`, not `'USD'`.
+  That is what the code did before; a test pins it. Changing it would be a behaviour change.
+- **A side-by-side comparison must not use `==` on the results** (2.4). `Decimal('NaN')` is not
+  equal to itself, so the first run "failed" on two identical dicts. Comparing `repr()` fixed
+  that and also checks the key order.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -610,3 +656,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 2.2 Realized view | #554 | The Portfolio page is stacked sections: summary strip, Holdings, Realized. `RealizedPnl` (period pulldown, summary, chart, sortable table, expandable sales, "still held", the left-out count, the empty states, the fees line), `BookSummaryStrip`, `useRealized`, and the Sidekick `realized_pnl` card in both registries. No route or schema change. As built, and what was left: section 5.4 |
 | 2026-11-14 | 2.3 FX | #555 | V15: `lot_sales.fx_rate_at_sale`. `YFinanceGateway.fx_daily_closes`, `analytics/fx.py` (prior-close rule), rates captured on add, import, a date or currency edit and close, `scripts/backfill_fx_rates.py`, and the conversion line on a converted sale. A lookup that fails stores no rate and never fails the write. Closes #235. The backfill is still to be run on each environment (section 5.5) |
 | 2026-11-14 | 2.3 review | #555 | Three units this PR added or grew were in the complexity warning band (radon, goal 10): `close_lot` 12 → 8, `fx_daily_closes` 11 → 4, the backfill script's `main` 11 → 7. Extracted `_sale_fx_rates`, `_currency_code`, `_daily_closes`, `_backfill` and `_parse_args` (all 5 or under), each with a direct test. No behaviour change. They were fixed here, not left for 2.4, because 2.4 is for units a PR did not change |
+| 2026-11-14 | 2.4 Complexity follow-up | this PR | No behaviour change. The six units the #552 review measured are all at or under the goals (section 5.6): the sale order is a table and the draw its own function in `allocate`; the two row shapes are lists of fields over `_text`, `_or_none` and `_int_or_none`; the lot-field checks are `_require_positive` and `_require_iso_date`; the book scan's `_child_ok` and `_check_level` are split into four helpers. A direct test for each helper. Milestone 2 is done |

@@ -1,4 +1,5 @@
 DELETE /api/plans/{instance_id}  ->  delete_plan_api_plans__instance_id__delete
+DELETE /api/portfolio/cash/entries/{entry_id}  ->  delete_cash_entry_api_portfolio_cash_entries__entry_id__delete
 DELETE /api/portfolio/lots/{lot_id}  ->  delete_lot_api_portfolio_lots__lot_id__delete
 DELETE /api/portfolio/{ticker}  ->  remove_from_portfolio_api_portfolio__ticker__delete
 DELETE /api/watchlist/{ticker}  ->  remove_from_watchlist_api_watchlist__ticker__delete
@@ -17,6 +18,7 @@ GET    /api/plans  ->  list_plans_api_plans_get
 GET    /api/plans/{instance_id}  ->  get_plan_api_plans__instance_id__get
 GET    /api/plans/{instance_id}/rungs  ->  list_rungs_api_plans__instance_id__rungs_get
 GET    /api/portfolio  ->  get_portfolio_api_portfolio_get
+GET    /api/portfolio/cash  ->  get_cash_ledger_api_portfolio_cash_get
 GET    /api/portfolio/delta-exposure  ->  get_portfolio_delta_exposure_api_portfolio_delta_exposure_get
 GET    /api/portfolio/lots  ->  get_lots_api_portfolio_lots_get
 GET    /api/portfolio/realized  ->  get_realized_api_portfolio_realized_get
@@ -101,6 +103,7 @@ POST   /api/chat  ->  chat_api_chat_post
 POST   /api/keyproxy/validate  ->  validate_api_keyproxy_validate_post
 POST   /api/plans  ->  create_plan_api_plans_post
 POST   /api/portfolio  ->  add_to_portfolio_api_portfolio_post
+POST   /api/portfolio/cash/entries  ->  add_cash_entry_api_portfolio_cash_entries_post
 POST   /api/portfolio/import  ->  import_portfolio_api_portfolio_import_post
 POST   /api/portfolio/lots  ->  create_lot_api_portfolio_lots_post
 POST   /api/portfolio/lots/{lot_id}/close  ->  close_lot_api_portfolio_lots__lot_id__close_post
@@ -113,4 +116,5 @@ POST   /api/securities/{ticker}/news/collect  ->  collect_news_api_securities__t
 POST   /api/securities/{ticker}/options/history/backfill  ->  backfill_options_history_api_securities__ticker__options_history_backfill_post
 POST   /api/securities/{ticker}/options/vertical-spread  ->  price_vertical_spread_api_securities__ticker__options_vertical_spread_post
 POST   /api/watchlist  ->  add_to_watchlist_api_watchlist_post
+PUT    /api/portfolio/cash/opening-balance  ->  set_opening_balance_api_portfolio_cash_opening_balance_put
 PUT    /api/settings  ->  update_settings_api_settings_put

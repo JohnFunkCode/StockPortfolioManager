@@ -71,6 +71,7 @@ def create_app() -> FastAPI:
     from .routers import (
         arbitrage,
         books,
+        cash,
         chat,
         dashboard,
         fundamentals,
@@ -102,6 +103,9 @@ def create_app() -> FastAPI:
         rungs,
         symbols,
         dashboard,
+        # Before `portfolio`: its paths sit under /api/portfolio/, and FastAPI
+        # matches in declaration order.
+        cash,
         portfolio,
         books,
         prices,

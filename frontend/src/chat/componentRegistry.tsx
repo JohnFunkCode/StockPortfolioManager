@@ -21,6 +21,7 @@ import {
 import PortfolioTableCard from '../components/chat/PortfolioTableCard';
 import PortfolioAllocationCard from '../components/chat/PortfolioAllocationCard';
 import RealizedPnlCard from '../components/chat/RealizedPnlCard';
+import CashLedgerCard from '../components/chat/CashLedgerCard';
 import SymbolLotsCard from '../components/chat/SymbolLotsCard';
 import WatchlistFundamentalsCard from '../components/chat/WatchlistFundamentalsCard';
 import {
@@ -83,6 +84,9 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   // No props, same rule: the caller's own real book. The period is the card's
   // own view state, never a prop (#235).
   realized_pnl: { component: RealizedPnlCard, spec: {}, titled: false },
+  // No props, same rule: the cash ledger of the caller's own real book,
+  // read-only in the chat (#431).
+  cash_ledger: { component: CashLedgerCard, spec: {}, titled: false },
   // Carries its own "TICKER — Lots" heading, so no titled wrapper.
   symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
   // The watchlist is one global list — there is no symbol or owner to name.

@@ -7,6 +7,12 @@
  * A figure that is not known is left out, never shown as a zero or a dash
  * that reads as a value: its request is still loading or failed, or the part
  * of the plan that supplies it (return vs SPY, 5.3) is not built yet.
+ *
+ * Cash (3.1) is shown beside the holdings, not added to them: a sum made here
+ * would be a figure the server never computed (Rule 8.4). While cash is
+ * shown the first figure is called "Holdings value", because "Book value"
+ * next to a separate cash figure would read as if it included it. One book
+ * value that counts both comes with the daily snapshots (5.1).
  */
 import { Link, Paper, Stack, Typography } from '@mui/material';
 import { formatCurrency, formatPercentRaw } from '../../utils/formatting';
@@ -17,6 +23,8 @@ interface Props {
   holdings?: PortfolioTotals | null;
   /** The book's realized totals for the last year, when they have loaded. */
   realizedYear?: RealizedTotals | null;
+  /** The book's cash balance, when its ledger has loaded and has one. */
+  cash?: number | null;
 }
 
 /** The sections of the Portfolio page, in page order. The ids are the jump
@@ -24,6 +32,7 @@ interface Props {
 export const PORTFOLIO_SECTIONS = [
   { id: 'holdings', label: 'Holdings' },
   { id: 'realized', label: 'Realized' },
+  { id: 'cash', label: 'Cash and orders' },
 ] as const;
 
 function gainColor(value: number): string {
@@ -56,7 +65,7 @@ function Stat({
   );
 }
 
-export default function BookSummaryStrip({ holdings, realizedYear }: Props) {
+export default function BookSummaryStrip({ holdings, realizedYear, cash }: Props) {
   const value = holdings?.total_current_value;
   const unrealized = holdings?.total_gain_loss;
   const unrealizedPct = holdings?.total_gain_loss_pct;
@@ -73,7 +82,12 @@ export default function BookSummaryStrip({ holdings, realizedYear }: Props) {
         alignItems="flex-end"
       >
         <Stack direction="row" spacing={4} flexWrap="wrap" useFlexGap>
-          {value != null && <Stat label="Book value" value={formatCurrency(value)} />}
+          {value != null && (
+            <Stat label={cash != null ? 'Holdings value' : 'Book value'} value={formatCurrency(value)} />
+          )}
+          {cash != null && (
+            <Stat label="Cash" value={formatCurrency(cash)} color={cash < 0 ? '#ef4444' : undefined} />
+          )}
           {unrealized != null && (
             <Stat
               label="Unrealized"

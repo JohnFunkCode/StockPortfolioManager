@@ -24,6 +24,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useRealized, useSymbolRows } from '../../hooks/usePortfolio';
 import { useBooks } from '../../hooks/useBooks';
+import { useCashLedger } from '../../hooks/useCash';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import OneDayChange, { compareOneDay } from '../common/OneDayChange';
@@ -36,6 +37,7 @@ import BookSelector from './BookSelector';
 import PaperBookBanner from './PaperBookBanner';
 import BookSummaryStrip from './BookSummaryStrip';
 import RealizedPnl from './RealizedPnl';
+import CashLedger from './CashLedger';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { Lot, SymbolRow } from '../../api/portfolioTypes';
@@ -183,6 +185,8 @@ export default function PortfolioPage() {
   // Realized section below is showing. That section opens on Year, so the two
   // share one request until its period is changed.
   const { data: realizedYear } = useRealized('year', bookId);
+  // The same query the Cash section below makes, so this is not a second request.
+  const { data: cash } = useCashLedger(bookId);
 
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -270,7 +274,11 @@ export default function PortfolioPage() {
       <BookSelector selectedBookId={bookId} onSelect={selectBook} />
       {isPaper && <PaperBookBanner book={book} onArchived={() => selectBook(null)} />}
 
-      <BookSummaryStrip holdings={data?.totals} realizedYear={realizedYear?.totals} />
+      <BookSummaryStrip
+        holdings={data?.totals}
+        realizedYear={realizedYear?.totals}
+        cash={cash?.balance}
+      />
 
       {/* Each section loads and fails on its own: Holdings never waits for
           the sections under it. */}
@@ -399,6 +407,11 @@ export default function PortfolioPage() {
           not depend on the holdings above. */}
       <Box id="realized" sx={{ mt: 4, scrollMarginTop: 16 }}>
         <RealizedPnl bookId={bookId} />
+      </Box>
+
+      {/* A paper book, or one the list can't vouch for, gets no forms. */}
+      <Box id="cash" sx={{ mt: 4, scrollMarginTop: 16 }}>
+        <CashLedger bookId={bookId} readOnly={readOnly} />
       </Box>
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />

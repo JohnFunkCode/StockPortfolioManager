@@ -205,6 +205,77 @@
         "ux_books_owner_name": "CREATE UNIQUE INDEX ux_books_owner_name ON public.books USING btree (owner, name)"
       }
     },
+    "cash_entries": {
+      "columns": {
+        "amount": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,2)"
+        },
+        "book_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "entry_date": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        },
+        "entry_id": {
+          "default": "nextval('cash_entries_entry_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "kind": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "lot_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        },
+        "notes": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "sale_id": {
+          "default": null,
+          "nullable": true,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "cash_entries_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "cash_entries_buy_has_lot": "CHECK (((kind = 'buy'::text) = (lot_id IS NOT NULL)))",
+        "cash_entries_kind_check": "CHECK ((kind = ANY (ARRAY['opening_balance'::text, 'deposit'::text, 'withdrawal'::text, 'buy'::text, 'sell'::text])))",
+        "cash_entries_lot_id_fkey": "FOREIGN KEY (lot_id) REFERENCES positions(position_id) ON DELETE CASCADE",
+        "cash_entries_manual_has_amount": "CHECK (((amount IS NOT NULL) OR (kind = ANY (ARRAY['buy'::text, 'sell'::text]))))",
+        "cash_entries_pkey": "PRIMARY KEY (entry_id)",
+        "cash_entries_sale_id_fkey": "FOREIGN KEY (sale_id) REFERENCES lot_sales(sale_id) ON DELETE CASCADE",
+        "cash_entries_sell_has_sale": "CHECK (((kind = 'sell'::text) = (sale_id IS NOT NULL)))"
+      },
+      "indexes": {
+        "cash_entries_pkey": "CREATE UNIQUE INDEX cash_entries_pkey ON public.cash_entries USING btree (entry_id)",
+        "idx_cash_entries_book_date": "CREATE INDEX idx_cash_entries_book_date ON public.cash_entries USING btree (book_id, entry_date)",
+        "ux_cash_entries_buy_lot": "CREATE UNIQUE INDEX ux_cash_entries_buy_lot ON public.cash_entries USING btree (lot_id) WHERE (kind = 'buy'::text)",
+        "ux_cash_entries_one_opening": "CREATE UNIQUE INDEX ux_cash_entries_one_opening ON public.cash_entries USING btree (book_id) WHERE (kind = 'opening_balance'::text)",
+        "ux_cash_entries_sell_sale": "CREATE UNIQUE INDEX ux_cash_entries_sell_sale ON public.cash_entries USING btree (sale_id) WHERE (kind = 'sell'::text)"
+      }
+    },
     "chat_usage": {
       "columns": {
         "input_tokens": {

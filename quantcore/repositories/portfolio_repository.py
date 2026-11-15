@@ -17,6 +17,11 @@ None means the owner's REAL book: the restriction is the same literal subquery
 in every statement, so a caller that says nothing can never read or change a
 paper book, and a `book_id` that isn't this owner's matches no rows.
 `tests/test_book_isolation_coverage.py` fails on a statement without it.
+
+Every write that can change what a lot cost or a sale brought in rewrites
+that lot's rows in the cash ledger before it commits (#431 step 3.1,
+`cash_entry_sql.sync_lot_cash`). A deleted lot takes its rows with it through
+the foreign keys.
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
+from quantcore.repositories.cash_entry_sql import insert_trade_entries, sync_lot_cash
 
 MUTABLE_LOT_COLUMNS = {
     "name", "purchase_price", "quantity", "purchase_date", "currency",
@@ -359,7 +365,8 @@ WHERE owner = :owner
       WHERE b.owner = :owner
         AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
                  THEN b.kind = 'real'
-                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+RETURNING position_id AS lot_id;
 """
 
 SQL_FILL_SALE_FX_RATE = """
@@ -374,7 +381,8 @@ WHERE sale_id = :sale_id
             WHERE b.owner = :owner
               AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
                        THEN b.kind = 'real'
-                       ELSE b.book_id = CAST(:book_id AS INTEGER) END));
+                       ELSE b.book_id = CAST(:book_id AS INTEGER) END))
+RETURNING lot_id;
 """
 
 # A lot whose currency was corrected: its sales' rates were for the old
@@ -507,6 +515,14 @@ class PortfolioRepository:
         })
         return int(cur.fetchone()["position_id"])
 
+    @staticmethod
+    def _sync_cash(conn, owner: str, lot_ids, *, book_id: Optional[int]) -> None:
+        """Rewrite the cash rows of each lot in `lot_ids` on `conn`. None is
+        skipped: a full close has no remainder lot."""
+        for lot_id in lot_ids:
+            if lot_id is not None:
+                sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
+
     def _apply_lot_fields(
         self, conn, owner: str, lot_id: int, fields: Dict[str, Any], *, book_id: Optional[int]
     ) -> int:
@@ -596,6 +612,9 @@ class PortfolioRepository:
         `rows` into it, atomically. The owner's other books are untouched, so a
         CSV import (the real book) never wipes a paper book.
 
+        The book's buy and sell cash rows are replaced with the lots: the old
+        ones go with their lots, and each new lot writes its own.
+
         Returns the number of rows inserted.
         """
         with closing(get_connection()) as conn:
@@ -604,6 +623,9 @@ class PortfolioRepository:
                 conn.execute(SQL_DELETE_OWNER_POSITIONS, {"owner": owner, "book_id": book})
                 for row in rows:
                     self._insert_position(conn, owner, row, book_id=book)
+                # The old lots took their cash rows with them. One pass
+                # writes the new ones.
+                insert_trade_entries(conn, owner=owner, book_id=book)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -615,6 +637,7 @@ class PortfolioRepository:
     ) -> int:
         """Insert a single lot. Every call creates a new lot (issue #126 Step 3.2)
         — the old owner/symbol/date upsert is gone. Returns the new `lot_id`.
+        The lot's buy row goes into the book's cash ledger with it.
 
         Raises `ValueError` for a `book_id` that isn't this owner's.
         """
@@ -622,6 +645,7 @@ class PortfolioRepository:
             try:
                 book = resolve_book_id(conn, owner=owner, book_id=book_id)
                 lot_id = self._insert_position(conn, owner, row, book_id=book)
+                sync_lot_cash(conn, owner=owner, book_id=book, lot_id=lot_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -655,7 +679,7 @@ class PortfolioRepository:
 
         A change of `currency` also clears the sale-date FX rate of every sale
         of the lot, in the same transaction: those rates were for the old
-        currency (#235).
+        currency (#235). The lot's cash rows are rewritten to match the edit.
         """
         with closing(get_connection()) as conn:
             try:
@@ -665,6 +689,8 @@ class PortfolioRepository:
                         SQL_CLEAR_LOT_SALE_FX_RATES,
                         {"owner": owner, "lot_id": lot_id, "book_id": book_id},
                     )
+                if updated:
+                    sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -722,6 +748,7 @@ class PortfolioRepository:
                     "fx_rate_at_sale": fx_rate_at_sale,
                 })
                 sale_id = int(cur.fetchone()["sale_id"])
+                sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -863,14 +890,21 @@ class PortfolioRepository:
 
     @staticmethod
     def _fill_fx_rate(sql: str, params: Dict[str, Any]) -> bool:
+        """Run one of the two fill statements, which return the lot they
+        touched. A filled rate gives that lot's cash rows an amount."""
         with closing(get_connection()) as conn:
             try:
-                filled = conn.execute(sql, params).rowcount
+                row = conn.execute(sql, params).fetchone()
+                if row is not None:
+                    sync_lot_cash(
+                        conn, owner=params["owner"], book_id=params["book_id"],
+                        lot_id=int(row["lot_id"]),
+                    )
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
-        return filled > 0
+        return row is not None
 
     def update_sale_notes(
         self, owner: str, sale_id: int, notes: Optional[str], *, book_id: Optional[int] = None
@@ -928,6 +962,9 @@ class PortfolioRepository:
         (#235). Each `lot_sales` row stores the rate for its lot's currency,
         or NULL when the mapping has none (always the case for a USD lot). The
         remainder lot of a split keeps its parent's purchase-date rate.
+
+        Each sale writes its sell row to the book's cash ledger, and a split
+        rewrites the buy row of each half, all in the same transaction.
         """
         results: List[Dict[str, Any]] = []
         with closing(get_connection()) as conn:
@@ -984,6 +1021,10 @@ class PortfolioRepository:
                         "quantity": shares,
                         "status": "CLOSED",
                     }, book_id=book_id)
+
+                    # The sale's sell row, and the buy rows of both halves of
+                    # a split: the parent now holds only the shares sold.
+                    self._sync_cash(conn, owner, (lot_id, child_lot_id), book_id=book_id)
 
                     results.append({
                         "lot_id": lot_id,

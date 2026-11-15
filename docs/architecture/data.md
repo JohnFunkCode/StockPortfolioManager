@@ -7,8 +7,8 @@
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 25 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 26 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -309,8 +309,77 @@ no book and act on the real book only; paper orders are step 3.5.
 A book is **not** an account. `positions.account` is the brokerage account inside a book (an IRA
 and a taxable account can both be in the real book).
 
-`starting_cash` is stored but nothing reads it yet. The cash ledger is step 3.1 of
-[`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
+`starting_cash` is a paper book's opening balance in its cash ledger (below). The plan and its
+checkpoint log are [`paper-books-realized-pnl-plan.md`](../proposals/paper-books-realized-pnl-plan.md).
+
+### Cash ledger
+
+A book holds cash as well as positions. `cash_entries` (V16, #431 step 3.1) is its ledger: one
+signed USD amount per row, positive when cash comes in. It carries `owner` and `book_id`, like
+`positions`, so every statement binds both.
+
+| Kind | Written by | Amount |
+|---|---|---|
+| `opening_balance` | the owner, for the real book; the system, for a paper book (its `starting_cash`, dated the day it is made) | the cash held at the start of `entry_date`. One per book; setting it again replaces it |
+| `deposit`, `withdrawal` | the owner, real book only | positive, negative |
+| `buy` | every write to a lot | `-(purchase_price × quantity)`, one row per lot |
+| `sell` | every sale | `sale_price × shares_sold`, one row per `lot_sales` row |
+
+Rules to keep:
+
+- **A buy or sell row is derived from its lot or sale, in SQL, and rewritten in the same
+  transaction as every write that can change it.** `cash_entry_sql.sync_lot_cash` deletes the
+  lot's rows and runs the two `INSERT ... SELECT` statements again: after a new lot, a lot edit, a
+  sale, a split (both halves), and a filled FX rate. Those two statements are the only definition
+  of a trade's cash amount. The write path, the CSV import and the backfill all run them, so they
+  can't disagree. A deleted lot takes its rows with it through `ON DELETE CASCADE`.
+- **A new write path for a lot or a sale calls `sync_lot_cash` before it commits**, the way it goes
+  through `_quantity` and the FX capture.
+- **Amounts are gross of fees**, like realized P/L. The fee columns can't be summed: a sale across
+  several lots repeats its fee on each row, and the remainder of a split copies its parent's.
+- **A missing FX rate is no amount, never 1.0.** A non-USD lot is converted at the rate stored
+  with the trade. Without one the row's `amount` is NULL: it is flagged, counted in
+  `fx_missing_count`, and left out of the balance. Filling the rate later gives it its amount.
+- **Only a lot whose `acquisition_type` is `BUY` writes a buy row.** A lot that arrived another
+  way cost no cash. A lot with no trade date, price or quantity writes none either.
+- **A ledger starts at its opening balance.** That is the cash held at the *start* of the opening
+  date, so an entry dated on or after it counts and one dated before it is neither listed nor
+  counted (`earlier_entry_count` says how many). Lots opened earlier are holdings, not purchases
+  (plan decision 9). With no opening balance there is no balance and nothing is listed: a book's
+  lots only take cash out, so a sum of them alone would be a large negative number that means
+  nothing.
+- **The real book is never refused a fact** (plan decision 8). A buy or withdrawal larger than the
+  cash is saved and the ledger reports `negative`. A paper book refusing a buy it can't afford is
+  the orders step (3.3).
+- **Only the real book takes what the owner types.** `CashService` refuses an opening balance, a
+  deposit or a withdrawal for a paper book, and the three write routes take no `book_id` at all.
+  Only a deposit or withdrawal can be deleted; an opening balance is replaced.
+- **`purchase_price` is a `REAL` column, so the SQL casts it through `TEXT`.** Cast straight to
+  `NUMERIC`, Postgres keeps six significant digits (1234.567 becomes 1234.57), and the ledger
+  would disagree with the price the lot shows.
+- **The balance is the sum of the amounts shown.** Each row is rounded to the cent where it is
+  stored (a half away from zero, in SQL and in `analytics.cash.to_cents` alike), so the total
+  reconciles with the rows on screen. The cost of that: a partial close rounds each half of the
+  split on its own, so it can move the book's cash by a cent.
+
+The maths (`analytics/cash.py`) decides what counts and the running balance; `CashRepository` is
+the SQL; `CashService` validates what the owner types. Served by `api/routers/cash.py`:
+
+| Route | What it does |
+|---|---|
+| `GET /api/portfolio/cash?book_id=` | the ledger: opening balance, balance, totals by kind, entries newest first with a running balance. 404 for a book that isn't the owner's. Never creates a book |
+| `PUT /api/portfolio/cash/opening-balance` | set the real book's opening balance (`date`, `amount`, which may be negative) |
+| `POST /api/portfolio/cash/entries` | record a `deposit` or `withdrawal` in the real book. `amount` is positive; the kind gives its sign |
+| `DELETE /api/portfolio/cash/entries/{entry_id}` | remove a deposit or withdrawal. 404 for anything else |
+
+Each write answers with the ledger. Bad input is a 422.
+
+**`scripts/backfill_cash_entries.py`** writes the rows that lots, sales and paper books from
+before V16 lack. It is `CashService.backfill` per owner, every book. Dry run by default: it runs
+the same statements and rolls them back, so its counts are exactly what `--apply` would write.
+It only adds a missing row, never changes one, and makes no network call. Run
+`backfill_fx_rates.py` first, so fewer rows are written without an amount. It does not set a
+real book's opening balance: the owner enters that on the Portfolio page.
 
 ### Realized P/L
 

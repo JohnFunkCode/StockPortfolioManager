@@ -22,6 +22,7 @@ from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.arbitrage_repository import ArbitrageRepository
 from quantcore.repositories.books_repository import BooksRepository
+from quantcore.repositories.cash_repository import CashRepository
 from quantcore.repositories.chat_usage_repository import ChatUsageRepository
 from quantcore.repositories.fundamentals_repository import FundamentalsRepository
 from quantcore.repositories.harvester_repository import HarvesterPlanDB
@@ -36,6 +37,7 @@ from quantcore.repositories.user_settings_repository import UserSettingsReposito
 from quantcore.repositories.watchlist_repository import WatchlistRepository
 from quantcore.services.arbitrage import ArbitrageService
 from quantcore.services.books import BooksService
+from quantcore.services.cash import CashService
 from quantcore.services.chat_budget import MAX_OUTPUT_TOKENS, SidekickBudget
 from quantcore.services.fundamentals import FundamentalsService
 from quantcore.services.chat import (
@@ -78,6 +80,7 @@ class Services:
     harvester_repository: HarvesterPlanDB
     portfolio_repository: PortfolioRepository
     books_repository: BooksRepository
+    cash_repository: CashRepository
     watchlist_repository: WatchlistRepository
     user_settings_repository: UserSettingsRepository
     arbitrage_repository: ArbitrageRepository
@@ -92,6 +95,7 @@ class Services:
     harvester: HarvesterService
     portfolio: PortfolioService
     books: BooksService
+    cash: CashService
     watchlist: WatchlistService
     recommendations: RecommendationsService
     arbitrage: ArbitrageService
@@ -113,6 +117,7 @@ def get_services() -> Services:
     harvester_repository = HarvesterPlanDB()
     portfolio_repository = PortfolioRepository()
     books_repository = BooksRepository()
+    cash_repository = CashRepository()
     watchlist_repository = WatchlistRepository()
     user_settings_repository = UserSettingsRepository()
     arbitrage_repository = ArbitrageRepository()
@@ -279,6 +284,7 @@ def get_services() -> Services:
         harvester_repository=harvester_repository,
         portfolio_repository=portfolio_repository,
         books_repository=books_repository,
+        cash_repository=cash_repository,
         watchlist_repository=watchlist_repository,
         user_settings_repository=user_settings_repository,
         arbitrage_repository=arbitrage_repository,
@@ -299,6 +305,7 @@ def get_services() -> Services:
         harvester=harvester,
         portfolio=portfolio,
         books=BooksService(books_repository),
+        cash=CashService(cash_repository, books_repository),
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

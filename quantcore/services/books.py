@@ -17,6 +17,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any, Dict, List
 
+from quantcore.analytics.market_time import market_date
 from quantcore.repositories.books_repository import (  # noqa: F401  (BookNotFoundError re-exported for routes)
     REAL,
     BookNotFoundError,
@@ -51,7 +52,8 @@ class BooksService:
 
         Raises `ValueError` for a name that is empty, too long or already used
         by this owner, and for a starting cash that is negative, not a finite
-        number, or too large to store.
+        number, or too large to store. The starting cash is also the opening
+        balance of the book's cash ledger.
         """
         name = (name or "").strip()
         if len(name) > MAX_BOOK_NAME_LENGTH:
@@ -62,7 +64,11 @@ class BooksService:
             too_large = False  # not a number: the repository says so
         if too_large:
             raise ValueError("starting cash is too large")
-        book_id = self._repo.create_paper_book(owner=owner, name=name, starting_cash=starting_cash)
+        # Its starting cash opens the book's cash ledger, dated today in market
+        # time, so a trade made the same day counts against it.
+        book_id = self._repo.create_paper_book(
+            owner=owner, name=name, starting_cash=starting_cash, opened_on=market_date()
+        )
         return _public(self._repo.get_book(owner=owner, book_id=book_id))
 
     def archive_book(self, *, owner: str, book_id: int) -> Dict[str, Any]:

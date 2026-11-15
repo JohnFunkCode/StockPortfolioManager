@@ -66,9 +66,16 @@ from tests.test_owner_isolation_coverage import (
 # --------------------------------------------------------------------------
 
 _REPO_TESTS = "tests/test_portfolio_repository.py"
+_CASH_TESTS = "tests/test_cash_repository.py"
 
 # table -> the tests that prove a statement on it stays inside one book.
 BOOK_SCOPED = {
+    "cash_entries": [
+        (_CASH_TESTS, "test_default_reads_and_writes_stay_in_the_real_book"),
+        (_CASH_TESTS, "test_a_named_book_reads_and_writes_only_that_book"),
+        (_CASH_TESTS, "test_a_lot_named_in_the_wrong_book_writes_no_cash_row"),
+        (_CASH_TESTS, "test_wrong_owner_mutations_change_nothing"),
+    ],
     "positions": [
         (_REPO_TESTS, "test_default_reads_see_only_the_real_book"),
         (_REPO_TESTS, "test_a_named_book_reads_only_that_book"),
@@ -155,6 +162,8 @@ class InventoryTests(unittest.TestCase):
         scoped = book_scoped_tables(self.tables)
         self.assertEqual(scoped["positions"], set())
         self.assertEqual(scoped["lot_sales"], {"positions"})
+        # It has foreign keys into both, but its own book_id is the restriction.
+        self.assertEqual(scoped["cash_entries"], set())
         self.assertNotIn("books", scoped)
         self.assertNotIn("plan_rungs", scoped)
 

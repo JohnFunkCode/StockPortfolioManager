@@ -23,6 +23,8 @@ function invalidatePortfolio(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ['portfolio-sales'] });
   // A close adds a sale, and an edited or deleted lot changes a sale's basis.
   qc.invalidateQueries({ queryKey: ['portfolio-realized'] });
+  // Every lot write rewrites that lot's buy and sell rows in the cash ledger.
+  qc.invalidateQueries({ queryKey: ['portfolio-cash'] });
 }
 
 export function useCreateLot() {

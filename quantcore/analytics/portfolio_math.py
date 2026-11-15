@@ -228,23 +228,36 @@ def allocate(
     if method == MANUAL:
         return _allocate_manual(open_lots, shares_to_sell, manual_allocation)
 
-    if method == FIFO:
-        ordered = sorted(open_lots.values(), key=lambda lot: (lot["trade_date"], lot["lot_id"]))
-    elif method == LIFO:
-        ordered = sorted(open_lots.values(), key=lambda lot: (lot["trade_date"], lot["lot_id"]), reverse=True)
-    else:  # HIFO
-        ordered = sorted(open_lots.values(), key=lambda lot: (lot["purchase_price"], lot["lot_id"]), reverse=True)
+    return _take_in_order(_ordered_lots(open_lots.values(), method), shares_to_sell)
 
+
+# method -> (the lot field a sale is ordered by, newest/highest first?). The
+# lot id breaks a tie, so the order never depends on how the lots arrived.
+_SALE_ORDER = {
+    FIFO: ("trade_date", False),
+    LIFO: ("trade_date", True),
+    HIFO: ("purchase_price", True),
+}
+
+
+def _ordered_lots(lots: Iterable[Dict[str, Any]], method: str) -> List[Dict[str, Any]]:
+    """`lots` in the order a FIFO, LIFO or HIFO sale draws from them."""
+    field, descending = _SALE_ORDER[method]
+    return sorted(lots, key=lambda lot: (lot[field], lot["lot_id"]), reverse=descending)
+
+
+def _take_in_order(
+    ordered: Sequence[Dict[str, Any]], shares_to_sell: Decimal
+) -> List[Tuple[Any, Decimal]]:
+    """Draw `shares_to_sell` from `ordered`, front first, skipping an empty
+    lot. Raises when the lots hold fewer shares than that."""
     allocation: List[Tuple[Any, Decimal]] = []
     remaining = shares_to_sell
     for lot in ordered:
-        if remaining <= 0:
-            break
         take = min(remaining, lot["quantity"])
-        if take <= 0:
-            continue
-        allocation.append((lot["lot_id"], take))
-        remaining -= take
+        if take > 0:
+            allocation.append((lot["lot_id"], take))
+            remaining -= take
 
     if remaining > 0:
         raise LotAllocationError(

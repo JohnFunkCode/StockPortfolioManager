@@ -77,6 +77,39 @@ def _clean_note(note: Any) -> Optional[str]:
     return (str(note).strip() if note is not None else "") or None
 
 
+def _text(v, default: str = "") -> str:
+    """A text field trimmed, with `default` standing in for a missing or
+    empty one."""
+    return (v or default).strip()
+
+
+def _or_none(v):
+    """A field whose empty value ('' as well as a missing one) is None."""
+    return v or None
+
+
+_REQUIRED_LOT_FIELDS = ("purchase_price", "quantity", "trade_date")
+_POSITIVE_LOT_FIELDS = ("purchase_price", "quantity")
+
+
+def _require_positive(value: Any, name: str) -> None:
+    """`value` must read as a number above zero; `name` is for the message."""
+    try:
+        number = Decimal(str(value))
+    except InvalidOperation:
+        raise ValueError(f"{name} is not a valid number: {value!r}")
+    if number <= 0:
+        raise ValueError(f"{name} must be positive")
+
+
+def _require_iso_date(value: Any, name: str) -> None:
+    """`value` must read as an ISO date; `name` is for the message."""
+    try:
+        date.fromisoformat(str(value))
+    except ValueError:
+        raise ValueError(f"{name} is not a valid date: {value!r}")
+
+
 def _validate_lot_fields(row: Dict[str, Any], *, require_all: bool) -> None:
     """Shared invariant for lot writes: price and quantity must be positive
     and trade_date must be a valid ISO date. ``require_all`` additionally
@@ -91,32 +124,14 @@ def _validate_lot_fields(row: Dict[str, Any], *, require_all: bool) -> None:
     may still hand in a raw string) — comparing an un-coerced str with ``<=``
     raises TypeError instead of the ValueError callers expect from here.
     """
-    purchase_price = row.get("purchase_price")
-    quantity = row.get("quantity")
-    trade_date = row.get("trade_date")
-
-    if require_all and (purchase_price is None or quantity is None or trade_date is None):
+    if require_all and any(row.get(name) is None for name in _REQUIRED_LOT_FIELDS):
         raise ValueError("purchase_price, quantity, and trade_date are required")
 
-    if purchase_price is not None:
-        try:
-            purchase_price = Decimal(str(purchase_price))
-        except InvalidOperation:
-            raise ValueError(f"purchase_price is not a valid number: {purchase_price!r}")
-        if purchase_price <= 0:
-            raise ValueError("purchase_price must be positive")
-    if quantity is not None:
-        try:
-            quantity = Decimal(str(quantity))
-        except InvalidOperation:
-            raise ValueError(f"quantity is not a valid number: {quantity!r}")
-        if quantity <= 0:
-            raise ValueError("quantity must be positive")
-    if trade_date is not None:
-        try:
-            date.fromisoformat(str(trade_date))
-        except ValueError:
-            raise ValueError(f"trade_date is not a valid date: {trade_date!r}")
+    for name in _POSITIVE_LOT_FIELDS:
+        if row.get(name) is not None:
+            _require_positive(row[name], name)
+    if row.get("trade_date") is not None:
+        _require_iso_date(row["trade_date"], "trade_date")
 
 
 def _normalize_row(raw: Dict[str, Any]) -> Dict[str, Any]:
@@ -125,20 +140,21 @@ def _normalize_row(raw: Dict[str, Any]) -> Dict[str, Any]:
     `trade_date` is the lot's real identity; `purchase_date` is a deprecated
     alias accepted for backward compatibility (issue #126 Step 3.3).
     """
+    purchase_date = _or_none(raw.get("purchase_date"))
     return {
-        "name": (raw.get("name") or "").strip(),
-        "symbol": (raw.get("symbol") or "").strip().upper(),
+        "name": _text(raw.get("name")),
+        "symbol": _text(raw.get("symbol")).upper(),
         "purchase_price": _money(raw.get("purchase_price")),
         "quantity": _quantity(raw.get("quantity")),
-        "purchase_date": (raw.get("purchase_date") or None),
-        "trade_date": (raw.get("trade_date") or raw.get("purchase_date") or None),
-        "currency": (raw.get("currency") or "USD").strip().upper(),
+        "purchase_date": purchase_date,
+        "trade_date": _or_none(raw.get("trade_date")) or purchase_date,
+        "currency": _text(raw.get("currency"), "USD").upper(),
         "sale_price": _money(raw.get("sale_price")),
-        "sale_date": (raw.get("sale_date") or None),
+        "sale_date": _or_none(raw.get("sale_date")),
         "fees": _money(raw.get("fees")),
-        "acquisition_type": (raw.get("acquisition_type") or None),
-        "account": (raw.get("account") or None),
-        "notes": (raw.get("notes") or None),
+        "acquisition_type": _or_none(raw.get("acquisition_type")),
+        "account": _or_none(raw.get("account")),
+        "notes": _or_none(raw.get("notes")),
     }
 
 

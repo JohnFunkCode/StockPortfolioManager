@@ -402,6 +402,20 @@ def _dec(v) -> Optional[Decimal]:
     return Decimal(str(v)) if v is not None else None
 
 
+def _text(v, default: str = "") -> str:
+    """A text column trimmed, with `default` standing in for NULL or ''."""
+    return (v or default).strip()
+
+
+def _or_none(v):
+    """A column whose empty value ('' as well as NULL) is reported as None."""
+    return v or None
+
+
+def _int_or_none(v) -> Optional[int]:
+    return int(v) if v is not None else None
+
+
 def _row_to_dict(row) -> Dict[str, Any]:
     """Map a positions row to the CSV-parity dict shape the REST layer expects.
 
@@ -409,24 +423,24 @@ def _row_to_dict(row) -> Dict[str, Any]:
     lot-identity fields from V4 (issue #126 Step 3.2).
     """
     return {
-        "name": (row["name"] or "").strip() if row["name"] is not None else "",
-        "symbol": (row["symbol"] or "").strip().upper(),
+        "name": _text(row["name"]),
+        "symbol": _text(row["symbol"]).upper(),
         "purchase_price": _dec(row["purchase_price"]),
         "quantity": _dec(row["quantity"]),
-        "purchase_date": row["purchase_date"] or None,
-        "currency": (row["currency"] or "USD").strip().upper(),
+        "purchase_date": _or_none(row["purchase_date"]),
+        "currency": _text(row["currency"], "USD").upper(),
         "sale_price": _dec(row["sale_price"]),
-        "sale_date": row["sale_date"] or None,
+        "sale_date": _or_none(row["sale_date"]),
         "source": "portfolio",
         "tags": [],
-        "lot_id": int(row["position_id"]) if row["position_id"] is not None else None,
-        "status": row["status"] or None,
-        "parent_lot_id": int(row["parent_lot_id"]) if row["parent_lot_id"] is not None else None,
-        "trade_date": row["trade_date"] or None,
+        "lot_id": _int_or_none(row["position_id"]),
+        "status": _or_none(row["status"]),
+        "parent_lot_id": _int_or_none(row["parent_lot_id"]),
+        "trade_date": _or_none(row["trade_date"]),
         "fees": _dec(row["fees"]),
-        "acquisition_type": row["acquisition_type"] or None,
-        "account": row["account"] or None,
-        "notes": row["notes"] or None,
+        "acquisition_type": _or_none(row["acquisition_type"]),
+        "account": _or_none(row["account"]),
+        "notes": _or_none(row["notes"]),
     }
 
 

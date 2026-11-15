@@ -363,6 +363,30 @@ and `_int_or_none` (2, 1) in the repository; `_require_positive` (3, 2) and `_re
 `_in_subqueries_on` (8, 6) and `_table_problems` (7, 7) in the book scan. No unit in the four
 files is above the cyclomatic goal now.
 
+**The cognitive figures depend on the complexipy version** (#556 review). The table above is
+9.0.0. The review's preflight runs 8.0.1, which scores some units differently, so both were
+measured on the same code:
+
+| Unit | complexipy 9.0.0 | complexipy 8.0.1 |
+|---|---|---|
+| `allocate` | 3 | 5 |
+| `_child_ok` | 1 (was 13) | 2 (was 20) |
+| `_check_level` | 3 (was 10) | 5 (was 14) |
+| `_joins_restricted_parent`, `_restricts_its_parents` | 1 each | 3 each |
+| `_in_subqueries_on` | 6 | 9 |
+| `_table_problems` | 7 | 9 |
+| `_text` (both copies) | 1 | 0 |
+
+`_row_to_dict`, `_validate_lot_fields`, `_normalize_row` and the other helpers score the same in
+both. Every unit this step changed or added is within the goal of 15 under either version.
+
+8.0.1 does read `tests/test_book_isolation_coverage.py`: it prints a score for every unit in it.
+But it exits 1 on that file, because it scores `_restricted_names` at 16, one over the goal
+(9.0.0 says 12; radon says cyclomatic 10). That exit status is the likely reason three reviews
+reported that complexipy "failed" on the file, though the review's preflight was not available
+to confirm it. `_restricted_names` was not changed by this step or by the review that listed the
+six units, so it is left as it is here and recorded as a candidate for a later refactor.
+
 The old and new versions were also run side by side, the old ones loaded from `HEAD`: `allocate`
 on 20,000 generated lot sets (every method, an unknown one, closed and empty lots, over-sells and
 bad manual pairs), `_row_to_dict` on 30,000 rows, `_normalize_row` on 40,000 raw dicts and
@@ -606,6 +630,11 @@ Known before any code is written. Add to this list as the work finds more.
 - **`_text` does not treat a blank string as empty** (2.4, kept). `(v or default).strip()` uses
   the default only for NULL or `''`, so a currency stored as `'   '` reads as `''`, not `'USD'`.
   That is what the code did before; a test pins it. Changing it would be a behaviour change.
+- **Quote the analyzer's version with every complexity figure** (2.4, #556 review). complexipy
+  8.0.1 and 9.0.0 disagree by up to 7 points on the same function (the old `_child_ok` is 20 in
+  one and 13 in the other), so a figure without its version can't be checked by anyone else.
+  And "the tool failed on this file" may mean it exited 1 because one unit is over its
+  threshold, not that it could not read the file. Look at the output before the exit status.
 - **A side-by-side comparison must not use `==` on the results** (2.4). `Decimal('NaN')` is not
   equal to itself, so the first run "failed" on two identical dicts. Comparing `repr()` fixed
   that and also checks the key order.
@@ -657,3 +686,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-14 | 2.3 FX | #555 | V15: `lot_sales.fx_rate_at_sale`. `YFinanceGateway.fx_daily_closes`, `analytics/fx.py` (prior-close rule), rates captured on add, import, a date or currency edit and close, `scripts/backfill_fx_rates.py`, and the conversion line on a converted sale. A lookup that fails stores no rate and never fails the write. Closes #235. The backfill is still to be run on each environment (section 5.5) |
 | 2026-11-14 | 2.3 review | #555 | Three units this PR added or grew were in the complexity warning band (radon, goal 10): `close_lot` 12 → 8, `fx_daily_closes` 11 → 4, the backfill script's `main` 11 → 7. Extracted `_sale_fx_rates`, `_currency_code`, `_daily_closes`, `_backfill` and `_parse_args` (all 5 or under), each with a direct test. No behaviour change. They were fixed here, not left for 2.4, because 2.4 is for units a PR did not change |
 | 2026-11-14 | 2.4 Complexity follow-up | #556 | No behaviour change. The six units the #552 review measured are all at or under the goals (section 5.6): the sale order is a table and the draw its own function in `allocate`; the two row shapes are lists of fields over `_text`, `_or_none` and `_int_or_none`; the lot-field checks are `_require_positive` and `_require_iso_date`; the book scan's `_child_ok` and `_check_level` are split into four helpers. A direct test for each helper. Milestone 2 is done |
+| 2026-11-15 | 2.4 review | #556 | Approved, with two suggestions about the cognitive figures, both answered in section 5.6: the figures are now given for complexipy 9.0.0 and for 8.0.1 (the review's version), and the review's "failed on the test file" is traced to 8.0.1 scoring the unchanged `_restricted_names` at 16. No code change |

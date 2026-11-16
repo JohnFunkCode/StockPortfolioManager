@@ -170,6 +170,8 @@ class TestReaderPolicy(unittest.TestCase):
         # A paper fill's price: a forming bar's open is a live quote's (#431 3.4).
         ("quantcore/services/prices.py", "session_open"),
         ("quantcore/services/prices.py", "last_close"),
+        # A stop is reached by a finished bar's low, never a forming one's (#431 4.2).
+        ("quantcore/services/prices.py", "closed_bars_since"),
         ("quantcore/services/options_screening.py", "fetch_bollinger_bands"),
         ("quantcore/services/options_screening.py", "fetch_iv_analysis"),
         ("quantcore/services/options_screening.py", "_run_cached"),

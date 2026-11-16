@@ -53,10 +53,12 @@ REJECTED = "rejected"
 # An order in one of these never changes again.
 TERMINAL_STATUSES = (FILLED, CANCELLED, REJECTED)
 
-# What prompted a trade. Only `manual` has a writer today; the rest are here
-# so the first automated trade needs no schema change.
+# What prompted a trade. `manual` is the owner's own order and `stop` a sale
+# the bar-close checker made (plan step 4.2). The rest have no writer yet;
+# they are here so the first such trade needs no schema change.
 MANUAL = "manual"
-SOURCES = (MANUAL, "stop", "harvester", "evaluator", "watch", "ai")
+STOP = "stop"
+SOURCES = (MANUAL, STOP, "harvester", "evaluator", "watch", "ai")
 
 STALE_QUOTE = "stale_quote"
 NO_QUOTE = "no_quote"
@@ -69,7 +71,9 @@ REJECT_REASONS = (
 )
 
 # Where a fill's price came from. A manual close has neither: its price is the
-# last good one on record, and the order's kind says so.
+# last good one on record, and the order's kind says so. Nor has a stop's sale
+# at its level, whose order has the source `stop`; one that filled at the open
+# because the stock opened under the stop is `session_open`.
 PRICE_FROM_QUOTE = "quote"
 PRICE_FROM_SESSION_OPEN = "session_open"
 

@@ -4,7 +4,9 @@ step 4.1).
 A stop is set on a symbol in one of an owner's books. It is `active` while it
 is live; `triggered`, `cancelled`, `replaced` and `closed` are final, and no
 statement here moves a stop out of one: every change of status is
-`UPDATE ... WHERE status = 'active'`.
+`UPDATE ... WHERE status = 'active'`. The statements a trade's transaction
+also runs (triggering a stop with its sale, closing the stop of a symbol that
+went flat) are in `stop_sql`.
 
 A book has at most one active stop per symbol (a unique partial index).
 Setting a stop on a symbol that has one replaces it: the old row becomes
@@ -34,6 +36,12 @@ from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.orders_repository import SQL_LOCK_BOOK
 from quantcore.repositories.portfolio_repository import PortfolioRepository
+from quantcore.repositories.stop_sql import (  # noqa: F401  (SQL_RESOLVE_STOP re-exported)
+    SQL_RESOLVE_STOP,
+    close_flat_stops_on,
+    resolve_stop_on,
+    trigger_stop_on,
+)
 
 SQL_LIST_STOPS = """
 SELECT
@@ -52,7 +60,11 @@ SELECT
     st.source_ref      AS source_ref,
     st.status          AS status,
     st.created_at      AS created_at,
-    st.resolved_at     AS resolved_at
+    st.resolved_at     AS resolved_at,
+    st.last_bar_checked  AS last_bar_checked,
+    st.triggered_session AS triggered_session,
+    st.trigger_price     AS trigger_price,
+    st.alerted_at        AS alerted_at
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -82,7 +94,11 @@ SELECT
     st.source_ref      AS source_ref,
     st.status          AS status,
     st.created_at      AS created_at,
-    st.resolved_at     AS resolved_at
+    st.resolved_at     AS resolved_at,
+    st.last_bar_checked  AS last_bar_checked,
+    st.triggered_session AS triggered_session,
+    st.trigger_price     AS trigger_price,
+    st.alerted_at        AS alerted_at
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -126,15 +142,34 @@ WHERE owner = :owner
 RETURNING stop_id;
 """
 
-# The one statement that takes a stop out of `active` by its id. It matches
-# no row for a stop that is already final.
-SQL_RESOLVE_STOP = """
+# The checker tested the stop against closed bars and it held. The stop stays
+# active: this records the newest bar tested and, for a trailing stop, the
+# mark and level those bars raised it to.
+SQL_RECORD_CHECK = """
 UPDATE stops
-SET status = :status,
-    resolved_at = :resolved_at
+SET last_bar_checked = :last_bar_checked,
+    stop_level = :stop_level,
+    high_water_mark = :high_water_mark
 WHERE owner = :owner
   AND stop_id = :stop_id
   AND status = 'active'
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
+"""
+
+# The breach alert for a triggered stop went out. Only once: a stop that has
+# been alerted for matches no row.
+SQL_MARK_ALERTED = """
+UPDATE stops
+SET alerted_at = :alerted_at
+WHERE owner = :owner
+  AND stop_id = :stop_id
+  AND status = 'triggered'
+  AND alerted_at IS NULL
   AND book_id IN (
       SELECT b.book_id FROM books b
       WHERE b.owner = :owner
@@ -171,6 +206,10 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "status": row["status"],
         "created_at": row["created_at"],
         "resolved_at": row["resolved_at"],
+        "last_bar_checked": row["last_bar_checked"],
+        "triggered_session": row["triggered_session"],
+        "trigger_price": _dec(row["trigger_price"]),
+        "alerted_at": row["alerted_at"],
     }
 
 
@@ -266,13 +305,102 @@ class StopsRepository:
         nothing, when the stop is not active or is not in this owner's book."""
         with closing(get_connection()) as conn:
             try:
-                cur = conn.execute(SQL_RESOLVE_STOP, {
-                    "owner": owner, "stop_id": stop_id, "status": status,
-                    "resolved_at": resolved_at, "book_id": book_id,
-                })
-                resolved = cur.rowcount
+                resolved = resolve_stop_on(
+                    conn, owner=owner, stop_id=stop_id, status=status,
+                    resolved_at=resolved_at, book_id=book_id,
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
-        return resolved == 1
+        return resolved
+
+    # ------------------------------------------------------------------
+    # The bar-close checker (plan step 4.2)
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _write(sql: str, params: Dict[str, Any]) -> int:
+        """Run one statement in its own transaction. Returns the row count."""
+        with closing(get_connection()) as conn:
+            try:
+                changed = conn.execute(sql, params).rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return changed
+
+    def record_check(
+        self,
+        *,
+        owner: str,
+        stop_id: int,
+        last_bar_checked: Any,
+        stop_level: Any,
+        high_water_mark: Any,
+        book_id: Optional[int] = None,
+    ) -> bool:
+        """Record that an active stop held through the bars up to
+        `last_bar_checked`, with the level and mark they left it at. Returns
+        False, and changes nothing, when the stop is not active or is not in
+        this owner's book."""
+        return self._write(SQL_RECORD_CHECK, {
+            "owner": owner, "stop_id": stop_id, "last_bar_checked": last_bar_checked,
+            "stop_level": stop_level, "high_water_mark": high_water_mark, "book_id": book_id,
+        }) == 1
+
+    def trigger_stop(
+        self,
+        *,
+        owner: str,
+        stop_id: int,
+        stop_level: Any,
+        high_water_mark: Any,
+        triggered_session: Any,
+        trigger_price: Any,
+        resolved_at: Any,
+        book_id: Optional[int] = None,
+    ) -> bool:
+        """Mark an active stop `triggered`, on its own: what a real book's
+        stop does, where nothing is sold. A paper book's stop is triggered in
+        its sale's transaction (`OrderTransaction.trigger_stop`). Returns
+        False, and changes nothing, when the stop is not active or is not in
+        this owner's book."""
+        with closing(get_connection()) as conn:
+            try:
+                triggered = trigger_stop_on(
+                    conn, owner=owner, stop_id=stop_id, stop_level=stop_level,
+                    high_water_mark=high_water_mark, triggered_session=triggered_session,
+                    trigger_price=trigger_price, resolved_at=resolved_at, book_id=book_id,
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return triggered
+
+    def close_flat_stops(
+        self, *, owner: str, resolved_at: Any, book_id: Optional[int] = None
+    ) -> int:
+        """Close every active stop of one book whose symbol the book no
+        longer holds an OPEN lot of. Returns how many were closed."""
+        with closing(get_connection()) as conn:
+            try:
+                closed = close_flat_stops_on(
+                    conn, owner=owner, resolved_at=resolved_at, book_id=book_id
+                )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return closed
+
+    def mark_alerted(
+        self, *, owner: str, stop_id: int, alerted_at: Any, book_id: Optional[int] = None
+    ) -> bool:
+        """Record that a triggered stop's breach alert went out. Returns
+        False, and changes nothing, for a stop that isn't triggered, has
+        already been alerted for, or is not in this owner's book."""
+        return self._write(SQL_MARK_ALERTED, {
+            "owner": owner, "stop_id": stop_id, "alerted_at": alerted_at, "book_id": book_id,
+        }) == 1

@@ -344,6 +344,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_stops_one_active
     ON stops(book_id, symbol_id) WHERE status = 'active';
 CREATE INDEX IF NOT EXISTS idx_stops_book_status ON stops(book_id, status);
 
+-- V20 (#431 phase 2 and #221, plan step 4.2): what the bar-close checker
+-- records on a stop. Mirrors db/migrations/V20__stop_checks.sql. The checker
+-- tests every closed daily bar after last_bar_checked. A triggered stop
+-- stores the session and the price it was reached at. alerted_at is when a
+-- real-book stop's breach alert went out.
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS last_bar_checked  DATE,
+  ADD COLUMN IF NOT EXISTS triggered_session DATE,
+  ADD COLUMN IF NOT EXISTS alerted_at        TIMESTAMPTZ;
+
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS trigger_price NUMERIC(18,6)
+      CONSTRAINT stops_triggered_has_trigger
+      CHECK ((status = 'triggered')
+             = (trigger_price IS NOT NULL AND triggered_session IS NOT NULL));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

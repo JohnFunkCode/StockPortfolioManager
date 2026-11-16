@@ -19,11 +19,13 @@ export const REJECT_REASONS: Record<RejectReason, string> = {
 export const UNQUOTED_REASONS: RejectReason[] = ['no_quote', 'stale_quote'];
 
 /** "Buy 5 INTC", or "Buy $500.00 of INTC" for a dollar order. A seed copies
- * a real holding in; a manual close sells a position that has no quote. */
+ * a real holding in; a manual close sells a position that has no quote; a
+ * stop's sale is one the daily check made when a closed bar reached the stop. */
 export function request(order: Order): string {
   const shares = formatShares(order.requested_shares);
   if (order.kind === 'seed') return `Copy ${shares} ${order.symbol} from the real book`;
   if (order.kind === 'manual_close') return `Close ${shares} ${order.symbol} by hand`;
+  if (order.source === 'stop') return `Sell ${shares} ${order.symbol}, by its stop`;
   const verb = order.side === 'buy' ? 'Buy' : 'Sell';
   if (order.requested_shares != null) return `${verb} ${shares} ${order.symbol}`;
   return `${verb} ${formatCurrency(order.requested_amount)} of ${order.symbol}`;
@@ -35,6 +37,13 @@ function priceNote(order: Order): string {
     return order.quote_time
       ? `, the last price on record, from ${formatDate(order.quote_time.slice(0, 10))}`
       : ', the last price on record';
+  }
+  if (order.source === 'stop') {
+    // A stop's sale fills at its level, or at the open when the stock
+    // opened below the level.
+    return order.price_source === 'session_open'
+      ? ', the opening price, below its stop'
+      : ', its stop level';
   }
   const open = order.price_source === 'session_open' ? ', the opening price' : '';
   return order.kind === 'seed' ? `${open}, at no cost` : open;

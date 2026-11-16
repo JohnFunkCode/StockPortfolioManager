@@ -1,9 +1,22 @@
-"""StopsService — stored stops (#431 phase 2, #221; plan step 4.1).
+"""StopsService — stored stops (#431 phase 2, #221; plan steps 4.1 and 4.2).
 
 A stop is the owner's decision to get out of a holding at a level. This
-service records it, lists it and takes it off. Nothing here watches a price:
-the bar-close checker that tests a stop against closed bars, alerts for a
-real book and sells for a paper one is plan step 4.2.
+service records it, lists it, takes it off, and checks it: the daily job
+tests every active stop against the closed daily bars it has not seen
+(`due_stops`, `check_stop`).
+
+- **The checker reads closed bars only**, starting with the first session
+  that opens after the stop was set, and works through every bar since the
+  last one it tested. A night the job missed is made up on the next run.
+- **A trailing stop's mark rises to a bar's high and never falls.**
+- **A bar whose low reached the level triggers the stop.** In a real book
+  that is a record and an alert: nothing is sold. In a paper book the whole
+  position is sold at the level, or at the open when the stock opened under
+  it, in the transaction that marks the stop `triggered`
+  (`OrdersService.sell_for_stop`).
+- **A stop is closed when its position goes flat** (`close_flat_stops`, and
+  the sale's own transaction).
+- **An archived book's stops are not checked.**
 
 - **A stop is set on a symbol in one book, not on a lot.** Lots bought later
   are covered by the same stop.
@@ -38,7 +51,7 @@ from __future__ import annotations
 import datetime
 import re
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from quantcore.analytics import market_time
 from quantcore.analytics import stored_stops as stops_math
@@ -54,6 +67,13 @@ from quantcore.repositories.stops_repository import StopsRepository
 # column and surface as a database error rather than as bad input.
 MAX_STOP_LEVEL = Decimal("1000000000")
 MAX_SOURCE_REF_LENGTH = 200
+
+# What `check_stop` says became of a stop.
+TRIGGERED = "triggered"   # a bar reached it
+CHECKED = "checked"       # tested against new bars, and it held
+WAITING = "waiting"       # no new closed bar to test it against
+SKIPPED = "skipped"       # no longer active, or its holding is gone
+CHECK_OUTCOMES = (TRIGGERED, CHECKED, WAITING, SKIPPED)
 
 _SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,14}$")
 _ZERO = Decimal("0")
@@ -119,13 +139,21 @@ def _one_of(value: Any, allowed, name: str) -> str:
 
 class StopsService:
     def __init__(
-        self, stops_repository: StopsRepository, books_repository: BooksRepository, prices
+        self,
+        stops_repository: StopsRepository,
+        books_repository: BooksRepository,
+        prices,
+        orders,
     ) -> None:
         self._repo = stops_repository
         self._books_repo = books_repository
         # PricesService.last_close: the newest stored closed daily bar. Zero
-        # network, so setting a stop never waits on Yahoo.
+        # network, so setting a stop never waits on Yahoo. The checker reads
+        # `closed_bars_since`, which fetches when a symbol's bars are behind.
         self._prices = prices
+        # OrdersService.sell_for_stop: the sale a paper book's stop causes.
+        # Required, so no service exists that can check a stop and not act on it.
+        self._orders = orders
 
     # ------------------------------------------------------------------
     # Books
@@ -263,3 +291,165 @@ class StopsService:
                 f"only an active stop can be cancelled: this one is {current['status']}"
             )
         return self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id)
+
+    # ------------------------------------------------------------------
+    # The bar-close checker (the daily job, plan step 4.2)
+    # ------------------------------------------------------------------
+    def _live_books(self) -> Iterator[Tuple[str, Dict[str, Any]]]:
+        """Every owner's books that are not archived, as `(owner, book)`.
+        Walked owner by owner, so every statement after it is bound to one
+        owner and one book."""
+        for owner in self._books_repo.list_owners():
+            for book in self._books_repo.list_books(owner=owner):
+                if book["archived_at"] is None:
+                    yield owner, book
+
+    def close_flat_stops(self, *, now: Optional[datetime.datetime] = None) -> int:
+        """Close every active stop whose book no longer holds its symbol, in
+        every book that isn't archived. Returns how many were closed.
+
+        A sale closes a flat symbol's stop in its own transaction. This is
+        for the ways a holding can go that are not a sale (a deleted lot, an
+        import that replaces the book), and for a stop set in the moment its
+        last lot was sold. Zero network calls.
+        """
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        return sum(
+            self._repo.close_flat_stops(owner=owner, resolved_at=now, book_id=book["book_id"])
+            for owner, book in self._live_books()
+        )
+
+    def due_stops(self, *, today: datetime.date) -> List[Dict[str, Any]]:
+        """Every owner's active stops that have not been tested against the
+        bar of the market date `today`: what the daily job has to check, and
+        what its alarm counts.
+
+        Each is `owner`, `book_id`, `stop_id`, `symbol` and
+        `last_bar_checked`. A stop whose first session is still to come is
+        not due, and nor is one in an archived book. Zero network calls.
+        """
+        due: List[Dict[str, Any]] = []
+        for owner, book in self._live_books():
+            for stop in self._repo.list_stops(owner=owner, book_id=book["book_id"]):
+                if stop["status"] != stops_math.ACTIVE:
+                    continue
+                if not stops_math.is_due(stop["created_at"], stop["last_bar_checked"], today):
+                    continue
+                due.append({
+                    "owner": owner,
+                    "book_id": stop["book_id"],
+                    "stop_id": stop["stop_id"],
+                    "symbol": stop["symbol"],
+                    "last_bar_checked": stop["last_bar_checked"],
+                })
+        return sorted(due, key=lambda s: (s["symbol"], s["stop_id"]))
+
+    def check_stop(
+        self,
+        *,
+        owner: str,
+        stop_id: int,
+        book_id: Optional[int] = None,
+        today: Optional[datetime.date] = None,
+        now: Optional[datetime.datetime] = None,
+    ) -> Dict[str, Any]:
+        """Test one stop against the closed daily bars it has not seen, and
+        return it as it now is, with `outcome` (one of `CHECK_OUTCOMES`).
+
+        - No new closed bar: `waiting`, and nothing is written.
+        - The bars held: the newest one is recorded, with a trailing stop's
+          raised mark and level. `checked`.
+        - A bar's low reached the level: `triggered`. A real book's stop is
+          marked and nothing is sold. A paper book's position is sold at the
+          trigger price and the stop marked in the same transaction.
+        - A stop that is not active, or stopped being while this ran:
+          `skipped`. Running the job twice triggers nothing twice.
+
+        Raises `StopNotFoundError` for a stop that isn't in this owner's book
+        and `BookNotFoundError` for a book that isn't the owner's. An error
+        from the price fetch propagates, and the stop is left as it was.
+        """
+        book = self._book(owner, book_id)
+        stop = self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id)
+        if stop is None:
+            raise StopNotFoundError(f"stop {stop_id} not found")
+        if stop["status"] != stops_math.ACTIVE:
+            return {**stop, "outcome": SKIPPED}
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        today = today or market_time.market_date(now)
+
+        # The bars are read, and fetched if they have to be, before any lock.
+        check = stops_math.check_stop(
+            kind=stop["kind"], stop_level=stop["stop_level"], trail_pct=stop["trail_pct"],
+            high_water_mark=stop["high_water_mark"], bars=self._new_bars(stop, today),
+        )
+        if check.last_bar is None:
+            return {**stop, "outcome": WAITING}
+        if check.trigger is None:
+            done, outcome = self._repo.record_check(
+                owner=owner, stop_id=stop_id, last_bar_checked=check.last_bar,
+                stop_level=check.stop_level, high_water_mark=check.high_water_mark,
+                book_id=book_id,
+            ), CHECKED
+        else:
+            paper = book is not None and book["kind"] != REAL
+            done, outcome = self._trigger(stop, check, owner, book_id, now, paper=paper), TRIGGERED
+        current = self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id)
+        return {**current, "outcome": outcome if done else SKIPPED}
+
+    def _new_bars(self, stop: Dict[str, Any], today: datetime.date) -> List[Dict[str, Any]]:
+        """The closed daily bars `stop` has not been tested against, through
+        `today`, oldest first. No read at all when none can exist yet."""
+        since = stops_math.next_bar_date(stop["created_at"], stop["last_bar_checked"])
+        if since > today:
+            return []
+        return [
+            bar for bar in self._prices.closed_bars_since(stop["symbol"], since)
+            if since <= bar["session"] <= today
+        ]
+
+    def _trigger(
+        self, stop: Dict[str, Any], check: stops_math.StopCheck, owner: str,
+        book_id: Optional[int], now: datetime.datetime, *, paper: bool,
+    ) -> bool:
+        """Carry out a stop that a bar reached: sell the position in a paper
+        book, mark the stop in a real one. False when the stop was no longer
+        active, or (a paper book) nothing was left to sell."""
+        trigger = check.trigger
+        if paper:
+            return self._orders.sell_for_stop(
+                owner=owner, book_id=book_id, stop_id=stop["stop_id"], symbol=stop["symbol"],
+                session=trigger.session, price=trigger.price,
+                stop_level=check.stop_level, high_water_mark=check.high_water_mark, now=now,
+            ) is not None
+        return self._repo.trigger_stop(
+            owner=owner, stop_id=stop["stop_id"], stop_level=check.stop_level,
+            high_water_mark=check.high_water_mark, triggered_session=trigger.session,
+            trigger_price=trigger.price, resolved_at=now, book_id=book_id,
+        )
+
+    # ------------------------------------------------------------------
+    # The breach alert for a real book (plan step 4.2)
+    # ------------------------------------------------------------------
+    def unalerted_triggers(self, *, owner: str) -> List[Dict[str, Any]]:
+        """The triggered stops of `owner`'s real book whose breach alert has
+        not gone out, oldest trigger first. A paper book's triggered stop is
+        not here: its sale is reported with the day's paper fills. One query,
+        zero network calls, and no book is created."""
+        owed = [
+            stop for stop in self._repo.list_stops(owner=owner)
+            if stop["status"] == stops_math.TRIGGERED and stop["alerted_at"] is None
+        ]
+        return sorted(owed, key=lambda s: (s["triggered_session"], s["stop_id"]))
+
+    def mark_alerted(
+        self, *, owner: str, stop_ids: List[int], now: Optional[datetime.datetime] = None
+    ) -> int:
+        """Record that the breach alert went out for these stops of `owner`'s
+        real book. Returns how many were marked: one already marked, or not a
+        triggered stop of that book, is not counted."""
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        return sum(
+            1 for stop_id in stop_ids
+            if self._repo.mark_alerted(owner=owner, stop_id=stop_id, alerted_at=now)
+        )

@@ -29,6 +29,15 @@ const CLOSED_BY_HAND = order({
   fill_price: 3.2, price_source: null, quote_time: '2026-06-10T00:00:00Z',
 });
 
+const STOPPED_OUT = order({
+  order_id: 20, side: 'sell', source: 'stop', source_ref: 'stop:4', requested_shares: 5,
+  filled_shares: 5, fill_price: 45, price_source: null,
+});
+const STOPPED_AT_THE_OPEN = order({
+  order_id: 21, side: 'sell', source: 'stop', source_ref: 'stop:5', requested_shares: 5,
+  filled_shares: 5, fill_price: 43.5, price_source: 'session_open',
+});
+
 function mount(response: object, props: object = {}) {
   const api = mockApi([
     [/\/orders\/\d+\/cancel/, { ...PENDING, status: 'cancelled' }],
@@ -67,6 +76,14 @@ describe('OrdersList', () => {
     expect(row(18).getByText('5 @ $50.00, at no cost')).toBeInTheDocument();
     expect(row(19).getByText('Close 5 INTC by hand')).toBeInTheDocument();
     expect(row(19).getByText('5 @ $3.20, the last price on record, from Jun 10, 2026')).toBeInTheDocument();
+  });
+
+  it("says a stop's sale was the stop's, and where its price came from", async () => {
+    mount(ordersResponse([STOPPED_AT_THE_OPEN, STOPPED_OUT]));
+    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+    expect(row(20).getByText('Sell 5 INTC, by its stop')).toBeInTheDocument();
+    expect(row(20).getByText('5 @ $45.00, its stop level')).toBeInTheDocument();
+    expect(row(21).getByText('5 @ $43.50, the opening price, below its stop')).toBeInTheDocument();
   });
 
   it('shows what each order asked for and what became of it', async () => {

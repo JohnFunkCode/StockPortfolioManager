@@ -1800,6 +1800,11 @@
     },
     "stops": {
       "columns": {
+        "alerted_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
         "as_of": {
           "default": null,
           "nullable": false,
@@ -1824,6 +1829,11 @@
           "default": null,
           "nullable": false,
           "type": "text"
+        },
+        "last_bar_checked": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
         },
         "method": {
           "default": "'manual'::text",
@@ -1884,6 +1894,16 @@
           "default": null,
           "nullable": true,
           "type": "numeric(7,4)"
+        },
+        "trigger_price": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "triggered_session": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
         }
       },
       "constraints": {
@@ -1898,7 +1918,8 @@
         "stops_stop_level_check": "CHECK ((stop_level > (0)::numeric))",
         "stops_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)",
         "stops_trail_pct_check": "CHECK (((trail_pct > (0)::numeric) AND (trail_pct < (100)::numeric)))",
-        "stops_trailing_has_trail": "CHECK (((kind = 'trailing'::text) = ((trail_pct IS NOT NULL) AND (high_water_mark IS NOT NULL))))"
+        "stops_trailing_has_trail": "CHECK (((kind = 'trailing'::text) = ((trail_pct IS NOT NULL) AND (high_water_mark IS NOT NULL))))",
+        "stops_triggered_has_trigger": "CHECK (((status = 'triggered'::text) = ((trigger_price IS NOT NULL) AND (triggered_session IS NOT NULL))))"
       },
       "indexes": {
         "idx_stops_book_status": "CREATE INDEX idx_stops_book_status ON public.stops USING btree (book_id, status)",

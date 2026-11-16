@@ -23,6 +23,12 @@ const CANCELLED = order({
 });
 const AT_THE_OPEN = order({ order_id: 17, price_source: 'session_open', fill_price: 49.5 });
 
+const SEEDED = order({ order_id: 18, kind: 'seed', requested_shares: 5, filled_shares: 5 });
+const CLOSED_BY_HAND = order({
+  order_id: 19, kind: 'manual_close', side: 'sell', requested_shares: 5, filled_shares: 5,
+  fill_price: 3.2, price_source: null, quote_time: '2026-06-10T00:00:00Z',
+});
+
 function mount(response: object, props: object = {}) {
   const api = mockApi([
     [/\/orders\/\d+\/cancel/, { ...PENDING, status: 'cancelled' }],
@@ -52,6 +58,15 @@ describe('OrdersList', () => {
     expect(await screen.findByText('No orders in this book yet.')).toBeInTheDocument();
     expect(api.calls.map(([url]) => url)).toEqual(['/api/portfolio/orders?book_id=7']);
     expect(screen.queryByTestId('orders-table')).toBeNull();
+  });
+
+  it('says a seed is a copy at no cost and a manual close used the last price on record', async () => {
+    mount(ordersResponse([CLOSED_BY_HAND, SEEDED]));
+    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+    expect(row(18).getByText('Copy 5 INTC from the real book')).toBeInTheDocument();
+    expect(row(18).getByText('5 @ $50.00, at no cost')).toBeInTheDocument();
+    expect(row(19).getByText('Close 5 INTC by hand')).toBeInTheDocument();
+    expect(row(19).getByText('5 @ $3.20, the last price on record, from Jun 10, 2026')).toBeInTheDocument();
   });
 
   it('shows what each order asked for and what became of it', async () => {

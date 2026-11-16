@@ -38,6 +38,8 @@ import PaperBookBanner from './PaperBookBanner';
 import BookSummaryStrip from './BookSummaryStrip';
 import RealizedPnl from './RealizedPnl';
 import CashLedger from './CashLedger';
+import PaperOrderDialog from './PaperOrderDialog';
+import SeedEmptyBook from './SeedEmptyBook';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { Lot, SymbolRow } from '../../api/portfolioTypes';
@@ -196,6 +198,11 @@ export default function PortfolioPage() {
   // null keeps the dialog shut.
   const [planSymbol, setPlanSymbol] = useState<string | null>(null);
 
+  // A paper book that is still open trades through orders (#431 step 3.5).
+  const tradable = isPaper && book != null && book.archived_at == null;
+  // The paper position whose Sell was clicked; null keeps the dialog shut.
+  const [selling, setSelling] = useState<SymbolRow | null>(null);
+
   const rows = data?.symbols ?? [];
 
   const sorted = useMemo<SymbolRow[]>(() => {
@@ -239,7 +246,8 @@ export default function PortfolioPage() {
   };
 
   // Lot columns, plus Actions for a book that can be edited by hand.
-  const lotColSpan = COLUMNS.length + (readOnly ? 2 : 3);
+  // A tradable paper book has a Sell column where the real book has Plan.
+  const lotColSpan = COLUMNS.length + (readOnly && !tradable ? 2 : 3);
 
   return (
     <Box>
@@ -290,7 +298,9 @@ export default function PortfolioPage() {
       ) : error ? (
         <ErrorAlert message={(error as Error).message} />
       ) : rows.length === 0 ? (
-        <EmptyPortfolio paper={isPaper} />
+        <EmptyPortfolio paper={isPaper}>
+          {tradable && bookId !== null && <SeedEmptyBook bookId={bookId} />}
+        </EmptyPortfolio>
       ) : (
         <>
           {data?.totals && <PortfolioSummary totals={data.totals} />}
@@ -325,6 +335,7 @@ export default function PortfolioPage() {
                   <TableCell>MM Hedge Bias</TableCell>
                   {/* Harvest plans belong to real holdings. */}
                   {!readOnly && <TableCell>Plan</TableCell>}
+                  {tradable && <TableCell />}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -384,6 +395,18 @@ export default function PortfolioPage() {
                             onCreate={() => setPlanSymbol(row.symbol)}
                           />
                         )}
+                        {tradable && (
+                          <TableCell align="right">
+                            <Button
+                              size="small"
+                              color="inherit"
+                              aria-label={`Sell ${row.symbol}`}
+                              onClick={() => setSelling(row)}
+                            >
+                              Sell
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                       <TableRow>
                         <TableCell colSpan={lotColSpan} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
@@ -416,11 +439,22 @@ export default function PortfolioPage() {
         <CashLedger
           bookId={bookId}
           readOnly={readOnly}
-          canCancelOrders={isPaper && book != null && book.archived_at == null}
+          canCancelOrders={tradable}
         />
       </Box>
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />
+
+      {selling && book && (
+        <PaperOrderDialog
+          symbol={selling.symbol}
+          side="sell"
+          books={[book]}
+          heldShares={selling.total_quantity}
+          unpriced={selling.total_current_value == null}
+          onClose={() => setSelling(null)}
+        />
+      )}
 
       <CreatePlanDialog
         open={planSymbol !== null}

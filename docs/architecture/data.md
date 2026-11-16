@@ -482,8 +482,38 @@ orchestrates. Served by `api/routers/orders.py`:
 | `GET /api/portfolio/orders?book_id=` | a book's orders, newest first, and how many are pending. The real book has none and is not looked up. 404 for a book that isn't the owner's |
 | `POST /api/portfolio/orders` | place a market order in a paper book: `book_id`, `symbol`, `side`, `shares` or (a buy) `amount`, `idempotency_key`. 201 with the order as it now is, 200 for a repeated key, 422 for bad input or the real book |
 | `POST /api/portfolio/orders/{order_id}/cancel?book_id=` | withdraw a pending order. 422 for one that is no longer pending |
+| `POST /api/portfolio/orders/seed` | copy the real book's open holdings into a paper book that has had no orders: `book_id`. 201 with one order per symbol and the counts. 422 for the real book, an archived book, a book with orders or an empty real book |
+| `POST /api/portfolio/orders/manual-close` | sell a paper book's whole position in a symbol that can't be quoted: `book_id`, `symbol`, `idempotency_key`. 201, 200 for a repeated key, 422 when the symbol has a quote, the book holds none or no price is on record |
 
 No route takes a price, a date or a `source`.
+
+**An order has a kind** (`orders.kind`, V18, step 3.5). `market` is a buy or sell that moves
+cash. The other two exist so that every paper lot and sale still comes from an order:
+
+- **`seed` copies a real holding into a new paper book** (`OrdersService.seed_book`). One buy
+  order per real-book symbol, for the shares held across its open lots. It is priced like any
+  order: the quote in market hours, the next session's open otherwise, so an off-hours seed
+  waits in the same queue and is filled by the same job step. Its lot is
+  `acquisition_type = 'SEED'`, and only `BUY` writes a cash row, so a seed costs nothing and
+  is never rejected for cash. Selling a seeded lot moves cash like any sale.
+  - Only a book that has had no orders can be seeded, and the whole seed is one transaction:
+    a failure part way leaves the book unseeded.
+  - The real book is read and never changed. A holding that can't be priced (no quote, a
+    non-USD symbol) is a rejected order with its reason. A symbol an order can't name is
+    returned under `skipped`.
+- **`manual_close` sells a position that can't be quoted** (`OrdersService.close_unquoted`),
+  a delisted symbol for one. It is allowed only when `analytics.orders.unquotable` says so:
+  no quote, or a last regular trade three or more sessions old. A symbol with a live quote is
+  refused and sold with an ordinary order.
+  - The price is the close of the newest stored closed daily bar
+    (`PricesService.last_close`, no network), or the quote's last regular trade when no bar
+    is stored. With neither, the close is refused.
+  - It fills at once, for the whole position, dated today. `price_source` is NULL,
+    `quote_time` is when the price is from, and each sale row's note says it was closed by
+    hand and from which date.
+
+A `CHECK` (`orders_kind_rule`) holds the three kinds and their shapes: a seed is a buy for a
+share count, a manual close is a sell.
 
 ### Realized P/L
 

@@ -160,6 +160,7 @@ Create a `.env` in the repo root. It is git-ignored; never commit credentials.
 | `QUANTCORE_RATE_LIMIT_MODE`, `_PER_MIN`, `_BURST` | optional: the api's per-user request limit, `shadow` (log only, the default), `enforce` (429) or `off`. Never applies with `AUTH_DISABLED`. See [rate-limiting-g2-plan.md](docs/proposals/rate-limiting-g2-plan.md) |
 | `SIDEKICK_BUDGET_MODE`, `SIDEKICK_DAILY_TOKEN_BUDGET` | optional: the daily per-user Sidekick token budget, `shadow` (record and log only, the default), `enforce` (stop the turn) or `off`, and its system limit (default 2,000,000). Users may set a lower limit in Settings. See [rate-limiting-g2-plan.md](docs/proposals/rate-limiting-g2-plan.md) |
 | `DISCORD_WEBHOOK_URL` | where alerts are posted |
+| `PAPER_DISCORD_WEBHOOK_URL` | optional: a separate webhook for the daily `[PAPER]` fills message. Without it that message goes to `DISCORD_WEBHOOK_URL` |
 | `BUCKET_NAME`, `BUCKET_KEY` | optional: S3 upload target for the legacy HTML report |
 | `CLOUDSQL_CONNECTION_NAME`, `CLOUDSQL_PORT`, `CLOUDSQL_QUOTA_PROJECT` | optional: Cloud SQL Auth Proxy target (and a `CLOUDSQL_TEST_*` trio for the test instance) |
 
@@ -203,8 +204,12 @@ recorded before the ledger existed get their entries from
 A paper book trades through market orders, and QuantCore sets every fill: at the live quote while
 the market is open, at the next session's opening price for an order placed outside it. A buy the
 book's cash can't cover, a stale quote and a non-USD symbol are rejected, with the reason shown.
-Orders are listed in the Cash and orders section, where a pending one can be cancelled. Placing
-an order is REST-only until the Buy dialog is built.
+Orders are listed in the Cash and orders section, where a pending one can be cancelled. Buy
+from a security's page ("Buy on paper", shown once you have a paper book) and sell from the
+symbol's row in the paper book. A new paper book can start as a copy of your real holdings, at
+current prices and at no cost to its starting cash. A position whose symbol can no longer be
+quoted, a delisted one for example, can be closed at the last price on record. The daily job
+posts the day's fills in your paper books to Discord, marked `[PAPER]`.
 
 ### Migrations (Flyway)
 
@@ -255,7 +260,7 @@ authoritative endpoint list.** There are 115 routes, so the table below only gro
 | `arbitrage.py` | `/api/arbitrage/…` | universe, pair analysis, scan, discovery, spread history |
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
-| `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one. The system sets every fill; the real book takes none |
+| `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |

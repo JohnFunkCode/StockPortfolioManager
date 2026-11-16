@@ -391,6 +391,27 @@ class PricesService:
             "latest_bar": bars.index[-1].date(),
         }
 
+    def last_close(self, symbol: str) -> dict:
+        """The close of ``symbol``'s newest stored closed daily bar.
+
+        Returns ``{"close": float | None, "as_of": datetime | None}``, both
+        None when no closed bar is stored. ``as_of`` is the bar's own
+        timestamp (midnight UTC of its session date).
+
+        Closed bars only, and **zero network calls**: this prices the manual
+        close of a symbol that can no longer be quoted (#431 step 3.5), so a
+        fetch would find nothing, and a forming bar is not a last good price.
+        A database error propagates to the caller.
+        """
+        rows = self._ohlcv.daily_bars_for_symbols([symbol.upper()], include_open=False)
+        if not rows:
+            return {"close": None, "as_of": None}
+        last = rows[-1]  # ordered by ts ascending
+        return {
+            "close": float(last["close"]),
+            "as_of": datetime.datetime.fromtimestamp(last["ts"], tz=datetime.timezone.utc),
+        }
+
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.
 

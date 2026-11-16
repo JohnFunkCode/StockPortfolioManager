@@ -13,6 +13,12 @@ system sets every fill; the owner never types a price.
   `pending` through one `UPDATE ... WHERE status = 'pending'`, in the same
   transaction as its lot or sale rows and their cash rows.
 - Placing the same `idempotency_key` twice returns the first order.
+- **A seed is an order that costs no cash** (`seed_book`, plan step 3.5): one
+  per symbol the real book holds, priced, queued, filled and rejected by the
+  rules above. Only a paper book that has never had an order can be seeded.
+- **A position whose symbol can't be quoted is closed by hand**
+  (`close_unquoted`), in one filled order at the last good price on record.
+  The owner still types no price, and a symbol that has a quote is refused.
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -62,6 +68,9 @@ MAX_ORDER_AMOUNT = Decimal("1000000000000")
 MAX_ORDER_SHARES = Decimal("999999999999")
 MAX_KEY_LENGTH = 100
 MAX_SOURCE_REF_LENGTH = 200
+
+# What a manual close writes on its sale rows, with the date the price is from.
+MANUAL_CLOSE_NOTE = "Closed by hand at the last good price, from {as_of}: no quote"
 
 # A paper sale takes the oldest lots first. The owner picks no lots: the
 # system sets every part of a paper fill.
@@ -155,6 +164,30 @@ def _public(order: Dict[str, Any], *, replayed: bool = False) -> Dict[str, Any]:
 
 def _held(lots: List[Dict[str, Any]]) -> Decimal:
     return sum((lot["quantity"] for lot in lots), _ZERO)
+
+
+def _quote_facts(quote) -> Dict[str, Any]:
+    """A live quote, or None, as the facts `analytics.orders` asks for."""
+    if quote is None:
+        return {
+            "has_quote": False, "currency": None, "market_state": None,
+            "regular_price": None, "regular_time": None,
+        }
+    return {
+        "has_quote": True,
+        "currency": quote.currency,
+        "market_state": quote.market_state,
+        "regular_price": quote.regular_price,
+        "regular_time": quote.regular_time,
+    }
+
+
+def _tally(orders: List[Dict[str, Any]]) -> Dict[str, int]:
+    """How many of `orders` are in each of the three states a new order can be in."""
+    return {
+        status: sum(1 for order in orders if order["status"] == status)
+        for status in (orders_math.FILLED, orders_math.PENDING, orders_math.REJECTED)
+    }
 
 
 class OrdersService:
@@ -284,19 +317,170 @@ class OrdersService:
 
     def _quote_facts(self, symbol: str) -> Dict[str, Any]:
         """One live quote for `symbol`, as the facts `placement` asks for."""
-        quote = self._gateway.batch_quotes([symbol]).get(symbol)
-        if quote is None:
-            return {
-                "has_quote": False, "currency": None, "market_state": None,
-                "regular_price": None, "regular_time": None,
-            }
-        return {
-            "has_quote": True,
-            "currency": quote.currency,
-            "market_state": quote.market_state,
-            "regular_price": quote.regular_price,
-            "regular_time": quote.regular_time,
+        return _quote_facts(self._gateway.batch_quotes([symbol]).get(symbol))
+
+    # ------------------------------------------------------------------
+    # Seeding (plan step 3.5)
+    # ------------------------------------------------------------------
+    def seed_book(
+        self, *, owner: str, book_id: Optional[int] = None,
+        now: Optional[datetime.datetime] = None,
+    ) -> Dict[str, Any]:
+        """Copy the real book's open holdings into a new paper book, on top of
+        its starting cash, and return what became of each.
+
+        One `seed` order per symbol the real book holds, for the shares held.
+        Each is priced by the rule a buy is: the live quote in market hours,
+        the next session's opening price otherwise (it queues, and the daily
+        job fills it). A seed costs no cash. A holding that can't be priced or
+        isn't in US dollars is a rejected order with its reason, and a symbol
+        an order can't name is listed under `skipped`.
+
+        The whole seed is one transaction. Raises `ValueError` for the real
+        book, an archived book, a book that has ever had an order, and a real
+        book with nothing to copy; `BookNotFoundError` for a book that isn't
+        the owner's.
+        """
+        self._paper_book(owner, book_id)
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        # The real book: no book is named, which is what `None` reads.
+        holdings = orders_math.seed_quantities(self._repo.open_lots(owner=owner))
+        wanted = {
+            symbol: shares for symbol, shares in holdings.items()
+            if _SYMBOL.match(symbol) and shares <= MAX_ORDER_SHARES
         }
+        if not wanted:
+            raise ValueError("the real book holds nothing to copy")
+        # Every quote is asked for before the book is locked.
+        quotes = self._gateway.batch_quotes(list(wanted))
+
+        with self._repo.transaction(owner=owner, book_id=book_id) as tx:
+            if tx.order_count() > 0:
+                raise ValueError("only a book that has had no orders can be seeded")
+            placed = []
+            for symbol, shares in wanted.items():
+                plan = orders_math.placement(now=now, **_quote_facts(quotes.get(symbol)))
+                order, _ = tx.insert({
+                    "kind": orders_math.SEED,
+                    "side": orders_math.BUY,
+                    "requested_shares": shares,
+                    "requested_amount": None,
+                    "symbol": symbol,
+                    "source": orders_math.MANUAL,
+                    "source_ref": None,
+                    "idempotency_key": f"seed:{book_id}:{symbol}",
+                    "session_date": plan.session_date,
+                    "placed_at": now,
+                })
+                self._act(tx, order, plan, now)
+                placed.append(_public(tx.get(order["order_id"])))
+        return {
+            "book_id": book_id,
+            **_tally(placed),
+            "skipped": sorted(set(holdings) - set(wanted)),
+            "orders": placed,
+        }
+
+    # ------------------------------------------------------------------
+    # Closing a position that can't be quoted (plan step 3.5)
+    # ------------------------------------------------------------------
+    def close_unquoted(
+        self,
+        *,
+        owner: str,
+        symbol: Any,
+        idempotency_key: Any,
+        book_id: Optional[int] = None,
+        now: Optional[datetime.datetime] = None,
+    ) -> Dict[str, Any]:
+        """Sell a paper book's whole position in a symbol that can no longer
+        be quoted, at the last good price on record, and return the order.
+
+        The order is a `manual_close`, filled as it is made. Its price is the
+        close of the symbol's newest stored daily bar, or failing that the
+        last trade its quote still carries; `quote_time` says when that price
+        is from, and every sale row carries a note saying so. The owner types
+        no price. `replayed` is True when `idempotency_key` had been used.
+
+        Raises `ValueError` for bad input, the real book or an archived one, a
+        symbol that still has a quote (sell it with an order), a symbol the
+        book doesn't hold, and one with no price on record;
+        `BookNotFoundError` for a book that isn't the owner's.
+        """
+        symbol = _symbol(symbol)
+        key = _key(idempotency_key)
+        self._paper_book(owner, book_id)
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        today = market_time.market_date(now)
+
+        earlier = self._repo.get_order_by_key(owner=owner, idempotency_key=key, book_id=book_id)
+        if earlier is not None:
+            return _public(earlier, replayed=True)
+
+        # The quote and the stored bar are read before the book is locked.
+        quote = _quote_facts(self._gateway.batch_quotes([symbol]).get(symbol))
+        if not orders_math.unquotable(
+            today=today, has_quote=quote["has_quote"], currency=quote["currency"],
+            regular_price=quote["regular_price"], regular_time=quote["regular_time"],
+        ):
+            raise ValueError(f"{symbol} has a quote: sell it with an order")
+        bar = self._prices.last_close(symbol)
+        last = orders_math.last_good_price(
+            bar_close=bar["close"], bar_time=bar["as_of"],
+            quote_price=quote["regular_price"], quote_time=quote["regular_time"],
+        )
+        if last is None:
+            raise ValueError(f"there is no price on record for {symbol}")
+
+        with self._repo.transaction(owner=owner, book_id=book_id) as tx:
+            shares = _held(tx.open_lots(symbol))
+            if shares <= _ZERO:
+                raise ValueError(f"this book holds no {symbol}")
+            order, created = tx.insert({
+                "kind": orders_math.MANUAL_CLOSE,
+                "side": orders_math.SELL,
+                "requested_shares": shares,
+                "requested_amount": None,
+                "symbol": symbol,
+                "source": orders_math.MANUAL,
+                "source_ref": None,
+                "idempotency_key": key,
+                "session_date": today,
+                "placed_at": now,
+            })
+            if not created:
+                return _public(order, replayed=True)
+            self._fill(
+                tx, order, price=last.price, price_source=None, quote_time=last.as_of, now=now,
+                sale_notes=MANUAL_CLOSE_NOTE.format(as_of=last.session.isoformat()),
+            )
+            return _public(tx.get(order["order_id"]))
+
+    # ------------------------------------------------------------------
+    # What filled (the daily job's Discord message, plan step 3.5)
+    # ------------------------------------------------------------------
+    def fills_on(self, *, owner: str, day: datetime.date) -> List[Dict[str, Any]]:
+        """Every order filled in one of `owner`'s paper books on the market
+        date `day`, in the order they filled, each with its `book_name`.
+
+        Archived books are included: a queued order can fill in one. One
+        query a book, zero network calls.
+        """
+        start = market_time.ET.localize(datetime.datetime.combine(day, datetime.time.min))
+        end = market_time.ET.localize(
+            datetime.datetime.combine(day + datetime.timedelta(days=1), datetime.time.min)
+        )
+        fills: List[Dict[str, Any]] = []
+        for book in self._books_repo.list_books(owner=owner):
+            if book["kind"] == REAL:
+                continue
+            fills.extend(
+                {**_public(order), "book_name": book["name"]}
+                for order in self._repo.list_filled_orders(
+                    owner=owner, start=start, end=end, book_id=book["book_id"]
+                )
+            )
+        return sorted(fills, key=lambda o: (o["resolved_at"], o["order_id"]))
 
     def _act(
         self, tx: OrderTransaction, order: Dict[str, Any], plan: orders_math.Placement,
@@ -346,12 +530,15 @@ class OrdersService:
         order: Dict[str, Any],
         *,
         price: Decimal,
-        price_source: str,
+        price_source: Optional[str],
         quote_time: Optional[datetime.datetime],
         now: datetime.datetime,
+        sale_notes: Optional[str] = None,
     ) -> None:
         """Fill a pending order at `price` on its transaction, or reject it
         when the book can't cover it. The trade's date is the order's session.
+        `price_source` is None for a manual close only, which is also the
+        only fill that writes `sale_notes` on its sale rows.
 
         The trade's rows are written first and the order is marked last, so
         the cash check reads the ledger as it will be. A trade the book can't
@@ -361,7 +548,7 @@ class OrdersService:
         if order["side"] == orders_math.BUY:
             shares, reason = self._buy(tx, order, price)
         else:
-            shares, reason = self._sell(tx, order, price)
+            shares, reason = self._sell(tx, order, price, sale_notes)
         if reason is not None:
             tx.undo_trade()
             self._reject(tx, order, reason, now)
@@ -394,15 +581,21 @@ class OrdersService:
             "purchase_date": order["session_date"],
             "trade_date": order["session_date"],
             "currency": "USD",
-            "acquisition_type": "BUY",
+            # A seeded lot is not a BUY, so it writes no cash row.
+            "acquisition_type": orders_math.lot_acquisition_type(order["kind"]),
             "order_id": order["order_id"],
         })
+        if not orders_math.moves_cash(order["kind"]):
+            return shares, None
         balance = cash_math.cash_ledger(tx.cash_entries())["balance"]
         if not orders_math.can_afford(balance):
             return None, orders_math.INSUFFICIENT_CASH
         return shares, None
 
-    def _sell(self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal):
+    def _sell(
+        self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal,
+        notes: Optional[str] = None,
+    ):
         """Write a sell's sale rows, oldest lots first. Returns
         `(shares, None)`, or `(None, reason)` when the book doesn't hold them."""
         shares = order["requested_shares"]
@@ -413,6 +606,7 @@ class OrdersService:
         tx.sell(
             allocation, price, order["session_date"], allocation_method=SELL_METHOD,
             source=order["source"], source_ref=order["source_ref"], order_id=order["order_id"],
+            notes=notes,
         )
         return shares, None
 

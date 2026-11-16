@@ -25,6 +25,11 @@ The rules (plan decisions 25 to 29):
   whatever night the daily job gets to it (`queued_fill`, plan step 3.4). With
   no such bar it is rejected once that is known to be final, and waits a
   night otherwise.
+- **A seed is priced like a buy and costs no cash** (`seed_quantities`, plan
+  step 3.5). It copies a real holding into a new paper book.
+- **A position is closed by hand only when its symbol can't be quoted**
+  (`unquotable`), and then at the last good price on record
+  (`last_good_price`), never at one the owner types.
 """
 
 from __future__ import annotations
@@ -63,9 +68,28 @@ REJECT_REASONS = (
     STALE_QUOTE, NO_QUOTE, NON_USD, INSUFFICIENT_CASH, INSUFFICIENT_SHARES, NO_OPEN_PRICE,
 )
 
-# Where a fill's price came from.
+# Where a fill's price came from. A manual close has neither: its price is the
+# last good one on record, and the order's kind says so.
 PRICE_FROM_QUOTE = "quote"
 PRICE_FROM_SESSION_OPEN = "session_open"
+
+# What kind of order it is. A market order is a buy or a sell that moves cash.
+# A seed copies one real holding into a new paper book and moves none. A
+# manual close sells a whole position whose symbol can no longer be quoted.
+MARKET = "market"
+SEED = "seed"
+MANUAL_CLOSE = "manual_close"
+KINDS = (MARKET, SEED, MANUAL_CLOSE)
+
+# `positions.acquisition_type` of the lot each kind of buy fills. Only a BUY
+# lot writes a cash row, which is what makes a seed free.
+LOT_BOUGHT = "BUY"
+LOT_SEEDED = "SEED"
+
+# A symbol whose last regular-session trade is this many sessions old, or
+# older, can be closed by hand. The same wait a queued order gives a missing
+# bar before it is rejected.
+UNQUOTABLE_AFTER_SESSIONS = 3
 
 FILL = "fill"
 QUEUE = "queue"
@@ -226,8 +250,8 @@ class QueuedFill:
 
 
 def _usable_open(open_price) -> Optional[Decimal]:
-    """A daily bar's open as a fill price, or None when it is missing, not a
-    number, or not above zero."""
+    """A stored or quoted price as a fill price, or None when it is missing,
+    not a number, or not above zero."""
     if open_price is None:
         return None
     value = Decimal(str(open_price))
@@ -293,6 +317,94 @@ def can_afford(balance: Optional[Decimal]) -> bool:
     balance) can't afford anything.
     """
     return balance is not None and balance >= 0
+
+
+def lot_acquisition_type(kind: str) -> str:
+    """The `acquisition_type` of the lot a buy of this kind fills."""
+    return LOT_SEEDED if kind == SEED else LOT_BOUGHT
+
+
+def moves_cash(kind: str) -> bool:
+    """Whether a buy of this kind is paid for from the book's cash. A seed is
+    not: it puts a holding in the book on top of its starting cash."""
+    return kind != SEED
+
+
+def seed_quantities(lots) -> dict:
+    """The shares of each symbol a seed copies: the open lots' quantities
+    added up by symbol, rounded once to six decimals. A symbol whose total is
+    not above zero is left out.
+
+    `lots` are dicts with `symbol` and `quantity`.
+    """
+    totals: dict = {}
+    for lot in lots:
+        symbol = str(lot["symbol"]).strip().upper()
+        totals[symbol] = totals.get(symbol, Decimal("0")) + Decimal(str(lot["quantity"]))
+    rounded = {symbol: total.quantize(_SHARE_STEP) for symbol, total in totals.items()}
+    return {symbol: shares for symbol, shares in sorted(rounded.items()) if shares > 0}
+
+
+def unquotable(
+    *,
+    today: datetime.date,
+    has_quote: bool,
+    currency: Optional[str],
+    regular_price: Optional[float],
+    regular_time: Optional[int],
+    after_sessions: int = UNQUOTABLE_AFTER_SESSIONS,
+) -> bool:
+    """Whether a symbol can no longer be sold with an order, so its position
+    may be closed by hand.
+
+    True when there is no quote, or one with no currency, no price or no trade
+    time (a delisted symbol), and when the last regular-session trade is
+    `after_sessions` or more NYSE sessions before `today` (a symbol that has
+    stopped trading but is still listed). `regular_time` is epoch seconds.
+    """
+    if not has_quote or not (currency or "").strip():
+        return True
+    if regular_price is None or regular_price <= 0 or regular_time is None:
+        return True
+    traded = datetime.datetime.fromtimestamp(regular_time, tz=datetime.timezone.utc)
+    return market_time.trading_days_after(market_time.market_date(traded), today) >= after_sessions
+
+
+@dataclass(frozen=True)
+class LastGoodPrice:
+    """The price a manual close fills at, the time it is from, and the
+    session that time belongs to."""
+
+    price: Decimal
+    as_of: datetime.datetime
+    session: datetime.date
+
+
+def last_good_price(
+    *,
+    bar_close,
+    bar_time: Optional[datetime.datetime],
+    quote_price: Optional[float],
+    quote_time: Optional[int],
+) -> Optional[LastGoodPrice]:
+    """The last good price on record for a symbol that can't be quoted, or
+    None when there is none.
+
+    The close of its newest stored closed daily bar when there is one.
+    Otherwise the last regular-session trade the quote still carries
+    (`quote_time` is epoch seconds). Rounded by `fill_price`. `bar_time` is
+    timezone-aware.
+    """
+    close = _usable_open(bar_close)
+    if close is not None and bar_time is not None:
+        # A daily bar is stamped midnight UTC of its session's date, so the
+        # session is the UTC date, not the Eastern one.
+        return LastGoodPrice(close, bar_time, bar_time.astimezone(datetime.timezone.utc).date())
+    traded = _usable_open(quote_price)
+    if traded is not None and quote_time is not None:
+        as_of = datetime.datetime.fromtimestamp(quote_time, tz=datetime.timezone.utc)
+        return LastGoodPrice(traded, as_of, market_time.market_date(as_of))
+    return None
 
 
 def sellable_shares(held: Decimal, queued_sells: Decimal) -> Decimal:

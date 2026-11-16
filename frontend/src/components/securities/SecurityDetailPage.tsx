@@ -31,8 +31,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ScienceOutlinedIcon from '@mui/icons-material/ScienceOutlined';
 import { useTechnicals, useOptionsLatest, useOptionsHistory, useOptionsAnalytics, useIVRank, useEarnings, useBackfillOptionsHistory, useSecurities, useAddSecurity, useRemoveFromPortfolio, useRemoveFromWatchlist, useStopLoss } from '../../hooks/useSecurities';
 import { useWatchlistMine } from '../../hooks/useWatchlist';
+import { useBooks } from '../../hooks/useBooks';
+import PaperOrderDialog from '../portfolio/PaperOrderDialog';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
 import StopLossCard from './StopLossCard';
@@ -499,6 +502,10 @@ export default function SecurityDetailPage() {
   // the shared watchlist, and `held` says it is also a position. The portfolio
   // read covers a held symbol that is off the watchlist, which /mine excludes.
   const { data: mineData } = useWatchlistMine();
+  // The owner's open paper books (the list leaves archived ones out).
+  const { data: booksData } = useBooks();
+  const paperBooks = (booksData?.books ?? []).filter((b) => b.kind === 'paper');
+  const [paperBuyOpen, setPaperBuyOpen] = useState(false);
   const { data: portfolioData } = useSecurities('portfolio');
   const watchRow = mineData?.rows.find((r) => r.symbol === ticker);
   const heldRow = portfolioData?.securities.find((s) => s.symbol === ticker);
@@ -604,6 +611,19 @@ export default function SecurityDetailPage() {
 
         <Box sx={{ flex: 1 }} />
 
+        {/* A paper buy (#431): offered only to an owner with a paper book.
+            The real book takes no orders; a real trade is an Add Lot. */}
+        {paperBooks.length > 0 && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<ScienceOutlinedIcon />}
+            onClick={() => setPaperBuyOpen(true)}
+          >
+            Buy on paper
+          </Button>
+        )}
+
         {/* Portfolio actions */}
         {source === 'watchlist' && (
           <Button
@@ -643,6 +663,15 @@ export default function SecurityDetailPage() {
       </Stack>
 
       {techError && <ErrorAlert message={(techError as Error).message} />}
+
+      {paperBuyOpen && (
+        <PaperOrderDialog
+          symbol={ticker}
+          side="buy"
+          books={paperBooks}
+          onClose={() => setPaperBuyOpen(false)}
+        />
+      )}
 
       {/* Add to Portfolio dialog */}
       <Dialog open={addPortfolioOpen} onClose={() => setAddPortfolioOpen(false)} maxWidth="xs" fullWidth>

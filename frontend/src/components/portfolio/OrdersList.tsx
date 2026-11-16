@@ -27,8 +27,9 @@ import {
   Typography,
 } from '@mui/material';
 import { useCancelOrder, useOrders } from '../../hooks/useOrders';
-import { formatCurrency, formatDate, formatShares } from '../../utils/formatting';
-import type { Order, RejectReason } from '../../api/orders';
+import { formatDate } from '../../utils/formatting';
+import { outcome, request } from './orderWords';
+import type { Order } from '../../api/orders';
 
 interface Props {
   bookId: number;
@@ -39,15 +40,6 @@ interface Props {
 /** How many orders show before "Show all orders". */
 export const RECENT_ORDERS = 5;
 
-const REJECT_REASONS: Record<RejectReason, string> = {
-  stale_quote: 'no recent trade to price it from',
-  no_quote: 'no quote for this symbol',
-  non_usd: 'not a US-dollar symbol',
-  insufficient_cash: 'not enough cash',
-  insufficient_shares: 'not enough shares',
-  no_open_price: 'no opening price that session',
-};
-
 type Hue = 'green' | 'red' | 'amber' | 'blue';
 
 const STATUS: Record<Order['status'], { label: string; hue: Hue }> = {
@@ -56,33 +48,6 @@ const STATUS: Record<Order['status'], { label: string; hue: Hue }> = {
   rejected: { label: 'Rejected', hue: 'red' },
   cancelled: { label: 'Cancelled', hue: 'amber' },
 };
-
-/** "Buy 5 INTC", or "Buy $500.00 of INTC" for a dollar order. */
-function request(order: Order): string {
-  const verb = order.side === 'buy' ? 'Buy' : 'Sell';
-  if (order.requested_shares != null) {
-    return `${verb} ${formatShares(order.requested_shares)} ${order.symbol}`;
-  }
-  return `${verb} ${formatCurrency(order.requested_amount)} of ${order.symbol}`;
-}
-
-/** What became of the order, in words. */
-function outcome(order: Order): string {
-  switch (order.status) {
-    case 'filled':
-      return `${formatShares(order.filled_shares)} @ ${formatCurrency(order.fill_price)}${
-        order.price_source === 'session_open' ? ', the opening price' : ''
-      }`;
-    case 'pending':
-      return `Waiting for the session of ${formatDate(order.session_date)}`;
-    case 'rejected':
-      return order.reject_reason
-        ? (REJECT_REASONS[order.reject_reason] ?? order.reject_reason)
-        : '';
-    default:
-      return 'Withdrawn';
-  }
-}
 
 function OrderRow({ order, bookId, canCancel }: { order: Order; bookId: number; canCancel: boolean }) {
   const cancel = useCancelOrder(bookId);

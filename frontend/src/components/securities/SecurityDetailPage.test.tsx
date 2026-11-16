@@ -45,6 +45,7 @@ function armAll(overrides: Record<string, unknown> = {}) {
     [/\/api\/portfolio(\?|$)/, {
       securities: source === 'watchlist' ? [] : [securityRow('INTC', { source: 'portfolio' })],
     }],
+    ['/api/books', { books: overrides.books ?? [] }],
     // Must precede the catch-all, which would otherwise swallow the DELETE.
     ['/api/watchlist/INTC', overrides.watchlistDelete ?? { symbol: 'INTC', removed: true }],
     // Signals tab endpoints + LivePrice + catch-all.
@@ -290,6 +291,28 @@ describe('SecurityDetailPage', () => {
     renderPage();
     await screen.findByText('Remove from Portfolio');
     expect(screen.queryByText('Remove from Watchlist')).not.toBeInTheDocument();
+  });
+
+  it('offers no paper buy to an owner with no paper book (#431)', async () => {
+    const api = armAll();
+    renderPage();
+    await waitFor(() => expect(api.calls.some(([url]) => url.includes('/api/books'))).toBe(true));
+    expect(await screen.findByText('INTC')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Buy on paper' })).toBeNull();
+  });
+
+  it('buys on paper in a paper book, never the real one (#431)', async () => {
+    const book = (book_id: number, name: string, kind: string) => ({
+      book_id, name, kind, starting_cash: 0, created_at: '2026-11-01T00:00:00Z', archived_at: null,
+    });
+    armAll({ books: [book(1, 'Real', 'real'), book(7, 'Momentum', 'paper')] });
+    renderPage();
+    fireEvent.click(await screen.findByRole('button', { name: 'Buy on paper' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Buy INTC on paper' })).toBeInTheDocument();
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'Paper book' }));
+    const options = within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(options.map((o) => o.textContent)).toEqual(['Momentum']);
   });
 
   it('Back returns to the merged Watchlist page (#224)', async () => {

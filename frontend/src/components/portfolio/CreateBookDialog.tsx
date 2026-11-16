@@ -1,15 +1,18 @@
 import { useState } from 'react';
 import {
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  FormControlLabel,
   Stack,
   TextField,
   Typography,
 } from '@mui/material';
 import { useCreateBook } from '../../hooks/useBooks';
+import { useSeedBook } from '../../hooks/useOrders';
 import type { Book } from '../../api/books';
 
 /** Matches MAX_BOOK_NAME_LENGTH in quantcore/services/books.py. The server
@@ -27,14 +30,28 @@ export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [cash, setCash] = useState('');
   const [cashError, setCashError] = useState('');
+  // Start the book with a copy of the real book's holdings (decision 11).
+  const [seed, setSeed] = useState(false);
+  // Set once the book is saved but its holdings could not be copied.
+  const [unseeded, setUnseeded] = useState<Book | null>(null);
   const createBook = useCreateBook();
+  const seedBook = useSeedBook();
+  const busy = createBook.isPending || seedBook.isPending;
 
   const close = () => {
     setName('');
     setCash('');
     setCashError('');
+    setSeed(false);
+    setUnseeded(null);
     createBook.reset();
+    seedBook.reset();
     onClose();
+  };
+
+  const finish = (book: Book) => {
+    close();
+    onCreated(book);
   };
 
   const submit = () => {
@@ -49,15 +66,23 @@ export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
       { name: name.trim(), starting_cash: startingCash },
       {
         onSuccess: (book) => {
-          close();
-          onCreated(book);
+          if (!seed) {
+            finish(book);
+            return;
+          }
+          // The book exists either way. A failed copy keeps the dialog open
+          // to say so, and the empty book offers the copy again.
+          seedBook.mutate(book.book_id, {
+            onSuccess: () => finish(book),
+            onError: () => setUnseeded(book),
+          });
         },
       },
     );
   };
 
   return (
-    <Dialog open={open} onClose={close} maxWidth="xs" fullWidth>
+    <Dialog open={open} onClose={busy ? undefined : () => (unseeded ? finish(unseeded) : close())} maxWidth="xs" fullWidth>
       <DialogTitle>New paper book</DialogTitle>
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
@@ -86,6 +111,31 @@ export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
             error={Boolean(cashError)}
             helperText={cashError || undefined}
           />
+          <FormControlLabel
+            control={
+              <Checkbox
+                size="small"
+                checked={seed}
+                onChange={(e) => setSeed(e.target.checked)}
+                disabled={busy || unseeded !== null}
+              />
+            }
+            label="Start with a copy of my real holdings"
+          />
+          {seed && (
+            <Typography variant="caption" color="text.secondary">
+              Each holding is copied at its current price, at no cost, on top of the starting
+              cash. When the market is closed the copies arrive at the next session's opening
+              price.
+            </Typography>
+          )}
+          {unseeded && (
+            <Typography variant="caption" role="alert" sx={{ color: 'var(--qc-ink-red)' }}>
+              The book was created, but its holdings were not copied:{' '}
+              {(seedBook.error as Error | null)?.message ?? 'the copy failed'}. Open the book to
+              try again.
+            </Typography>
+          )}
           {createBook.isError && (
             <Typography variant="caption" role="alert" sx={{ color: 'var(--qc-ink-red)' }}>
               {(createBook.error as Error).message}
@@ -94,16 +144,20 @@ export default function CreateBookDialog({ open, onClose, onCreated }: Props) {
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
-        <Button onClick={close} disabled={createBook.isPending}>
-          Cancel
-        </Button>
-        <Button
-          variant="contained"
-          onClick={submit}
-          disabled={createBook.isPending || !name.trim()}
-        >
-          {createBook.isPending ? 'Saving…' : 'Create book'}
-        </Button>
+        {unseeded ? (
+          <Button variant="contained" onClick={() => finish(unseeded)}>
+            Open the book
+          </Button>
+        ) : (
+          <>
+            <Button onClick={close} disabled={busy}>
+              Cancel
+            </Button>
+            <Button variant="contained" onClick={submit} disabled={busy || !name.trim()}>
+              {createBook.isPending ? 'Saving…' : seedBook.isPending ? 'Copying holdings…' : 'Create book'}
+            </Button>
+          </>
+        )}
       </DialogActions>
     </Dialog>
   );

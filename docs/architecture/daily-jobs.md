@@ -246,6 +246,22 @@ The job exits immediately on NYSE-closed days (`is_trading_day`), notifications 
   when the walk fails. One bad order degrades one row, and the log names the exception's class
   only.
 
+**The day's paper fills.** Straight after that step, `report_paper_fills` sends one Discord
+message marked `[PAPER]` listing the paper fills resolved on today's market date
+(`OrdersService.fills_on`): the ones the step just made and the ones made at a live quote during
+the day (#431, plan step 3.5).
+
+- **Whose:** the job owner's paper books only (`notifier.owner`). Books are private and the
+  channel is shared, so another owner's fills are never posted. An archived book's fills count.
+- **What:** each fill's book, side, shares, symbol and price, up to 20 lines
+  (`PAPER_FILLS_MESSAGE_LINES`), with the full count in the title. A day with no fills sends
+  nothing.
+- **Where:** `PAPER_DISCORD_WEBHOOK_URL` when it is set, otherwise `DISCORD_WEBHOOK_URL`.
+- **Why here and not from the api:** the api service has no Discord webhook. A fill made in
+  market hours therefore reaches Discord that evening.
+- It never raises, and it logs the exception class only. It is a report, not an alarm: a failure
+  loses the message and nothing else, since the fills are in the database and on the page.
+
 **News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
 `Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image
 must not carry — and so a slow scoring pass cannot delay the notifications. Per-symbol try/except,

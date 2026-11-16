@@ -195,6 +195,86 @@ class FillNumbersTest(unittest.TestCase):
         )
 
 
+class SeedTest(unittest.TestCase):
+    def test_quantities_add_up_by_symbol_and_round_once(self):
+        lots = [
+            {"symbol": "bbb", "quantity": D("1.0000004")},
+            {"symbol": "BBB", "quantity": D("1.0000004")},
+            {"symbol": "AAA", "quantity": 3},
+            {"symbol": "ZERO", "quantity": D("0.0000001")},
+        ]
+        # 2.0000008 rounds to 2.000001: each lot rounded first would give 2.
+        self.assertEqual(om.seed_quantities(lots), {"AAA": D("3"), "BBB": D("2.000001")})
+        self.assertEqual(list(om.seed_quantities(lots)), ["AAA", "BBB"])
+        self.assertEqual(om.seed_quantities([]), {})
+
+    def test_a_seed_fills_a_lot_that_is_not_a_buy_and_moves_no_cash(self):
+        self.assertEqual(om.lot_acquisition_type(om.SEED), "SEED")
+        self.assertEqual(om.lot_acquisition_type(om.MARKET), "BUY")
+        self.assertFalse(om.moves_cash(om.SEED))
+        self.assertTrue(om.moves_cash(om.MARKET))
+        self.assertEqual(om.KINDS, ("market", "seed", "manual_close"))
+
+
+class UnquotableTest(unittest.TestCase):
+    TODAY = datetime.date(2026, 6, 15)  # a Monday
+
+    def ask(self, **overrides):
+        traded = ET.localize(datetime.datetime(2026, 6, 15, 10, 0))
+        facts = {
+            "today": self.TODAY, "has_quote": True, "currency": "USD", "regular_price": 5.0,
+            "regular_time": int(traded.timestamp()),
+        }
+        return om.unquotable(**{**facts, **overrides})
+
+    def at(self, year, month, day):
+        return int(ET.localize(datetime.datetime(year, month, day, 15, 59)).timestamp())
+
+    def test_a_symbol_that_traded_today_can_be_sold_with_an_order(self):
+        self.assertFalse(self.ask())
+
+    def test_no_quote_no_currency_no_price_or_no_trade_time_is_unquotable(self):
+        self.assertTrue(self.ask(has_quote=False))
+        self.assertTrue(self.ask(currency=None))
+        self.assertTrue(self.ask(currency="  "))
+        self.assertTrue(self.ask(regular_price=None))
+        self.assertTrue(self.ask(regular_price=0))
+        self.assertTrue(self.ask(regular_time=None))
+
+    def test_a_last_trade_three_sessions_old_is_unquotable_and_two_is_not(self):
+        # Sessions after Wed 10 June: Thu, Fri, Mon. After Thu 11 June: Fri, Mon.
+        self.assertTrue(self.ask(regular_time=self.at(2026, 6, 10)))
+        self.assertFalse(self.ask(regular_time=self.at(2026, 6, 11)))
+        # A weekend adds no sessions: Friday's trade read on Sunday is 0 old.
+        self.assertFalse(self.ask(today=datetime.date(2026, 6, 14),
+                                  regular_time=self.at(2026, 6, 12)))
+        self.assertEqual(om.UNQUOTABLE_AFTER_SESSIONS, om.QUEUED_FILL_GIVE_UP_SESSIONS)
+
+
+class LastGoodPriceTest(unittest.TestCase):
+    BAR = datetime.datetime(2026, 6, 5, tzinfo=datetime.timezone.utc)
+    TRADE = int(ET.localize(datetime.datetime(2026, 6, 8, 15, 0)).timestamp())
+
+    def test_the_stored_close_comes_first_and_its_session_is_the_utc_date(self):
+        last = om.last_good_price(
+            bar_close=12.3456, bar_time=self.BAR, quote_price=7.5, quote_time=self.TRADE)
+        self.assertEqual((last.price, last.as_of, last.session),
+                         (D("12.35"), self.BAR, datetime.date(2026, 6, 5)))
+
+    def test_with_no_bar_it_is_the_quotes_last_trade_on_its_market_date(self):
+        last = om.last_good_price(
+            bar_close=None, bar_time=None, quote_price=0.12345, quote_time=self.TRADE)
+        self.assertEqual((last.price, last.session), (D("0.1235"), datetime.date(2026, 6, 8)))
+        self.assertEqual(int(last.as_of.timestamp()), self.TRADE)
+
+    def test_nothing_usable_is_no_price(self):
+        for bar_close in (None, 0, float("nan")):
+            self.assertIsNone(om.last_good_price(
+                bar_close=bar_close, bar_time=self.BAR, quote_price=None, quote_time=None))
+        self.assertIsNone(om.last_good_price(
+            bar_close=None, bar_time=None, quote_price=7.5, quote_time=None))
+
+
 if __name__ == "__main__":
     unittest.main()
 

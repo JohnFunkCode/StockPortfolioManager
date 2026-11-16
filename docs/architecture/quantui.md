@@ -88,18 +88,34 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   request. One `GET /api/portfolio/orders` request: each order's session, what it asked for, a
   status chip and what became of it (the fill, the session it waits for, or the reason it was
   rejected), cut to the latest five. A filled order's money is in the cash entries above, so the
-  list shows no amounts. While step 3.4 is unbuilt the page says that nothing fills a waiting
-  order yet. Cancel shows on a pending order when the page passes `canCancelOrders`,
-  which it does for a paper book that isn't archived. `readOnly` is about what the owner types
-  (lots and cash) and does not decide it. Nothing in the UI places an order yet: the Buy dialog
-  is step 3.5.
+  list shows no amounts. The pending notice says a queued order fills at its session's opening
+  price and shows that evening. Cancel shows on a pending order when the page passes
+  `canCancelOrders`, which it does for a paper book that isn't archived. `readOnly` is about
+  what the owner types (lots and cash) and does not decide it. The words for an order are in
+  `orderWords.ts`, shared with the order dialog: a seed reads as a copy at no cost, and a
+  manual close names the last price on record.
+- **Buying and selling on paper is `PaperOrderDialog`** (#431 step 3.5). It is a form, so it is
+  not a registered Sidekick component. "Buy on paper" is on the Security page, only for an
+  owner with an open paper book: it picks the book, takes shares or dollars and shows the
+  book's cash. Sell is on a paper book's symbol row, never on a lot, because an order sells
+  the oldest lot first; the share count is the row's `total_quantity`, which the server adds
+  up. The dialog sends no price and no date, and ends by saying what the server did: filled,
+  queued for a session, or rejected with its reason. A retry after a network error repeats the
+  idempotency key, and a try after an answer sends a new one. When a sell is rejected for
+  want of a quote, or the position has no current price, the dialog offers to close the whole
+  position at the last price on record; the server decides whether that is allowed.
+- **A paper book can start as a copy of the real holdings** (#431 step 3.5). The New paper
+  book dialog has a checkbox that calls the seed route after the create. If the copy fails
+  the book still exists, the dialog says so, and the empty book shows `SeedEmptyBook`: a
+  "Copy my real holdings" button, drawn only while the book has had no orders.
 - **The Portfolio shows one book at a time** (#431). `BookSelector` draws a chip per book, the real
   book first, and puts the books past five under "More". The selected paper book is in the URL
   (`?book=<id>`); no parameter means the real book, and the page then sends no `book_id`. The Real
   chip is always drawn, and the selector and banner sit outside the table's loading and error
   states, so a failed book list or a book that won't load never blocks the page. A paper book
   gets `PaperBookBanner` ("Simulated positions. Nothing here is a real holding."), no Add Lot, no
-  Plan column and no lot actions: the system sets every paper fill. A lot's brokerage account is
+  Plan column and no lot actions: the system sets every paper fill. An open paper book has a
+  Sell button on each symbol row instead. A lot's brokerage account is
   the Account column of the lot table, in every book; it is never a second kind of book.
 - **The Watchlist** makes a second request, `GET /api/watchlist/quotes` (`useWatchlistQuotes`), and
   merges it onto the `/watchlist/mine` rows by symbol. The table doesn't wait for it and doesn't

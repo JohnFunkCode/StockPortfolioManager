@@ -75,6 +75,8 @@ QUEUED_FILLS_BUDGET_SECONDS_ENV = "QUEUED_FILLS_BUDGET_SECONDS"
 # the options capture, which can't be redone on a later night.
 DEFAULT_QUEUED_FILLS_BUDGET_SECONDS = 120.0
 QUEUED_FILLS_ALERT_SYMBOLS = 10
+# How many fills the day's [PAPER] message lists before "and N more".
+PAPER_FILLS_MESSAGE_LINES = 20
 
 OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV = "OHLCV_CLOSEOUT_BUDGET_SECONDS"
 DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS = 300.0
@@ -619,6 +621,30 @@ def run_queued_fills(orders, notifier, budget_seconds=None, clock=time.monotonic
         print(f"ERROR: queued-orders check failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def report_paper_fills(orders, notifier, owner, today=None) -> int:
+    """Send the day's paper fills to Discord, marked ``[PAPER]`` (#431 step 3.5).
+
+    One message for every order that filled today in ``owner``'s paper books:
+    the in-hours fills the API made during the session and the queued fills
+    this job has just made. It reads what is in the database, so it reports
+    only fills that committed. Only ``owner``'s: the job's webhook is theirs,
+    and a book is private to its owner. Returns the number of fills reported.
+    **Never raises**: a fill is already final, and a dead webhook or a failed
+    read must not fail the job.
+    """
+    try:
+        day = today or market_date()
+        fills = orders.fills_on(owner=owner, day=day)
+        if not fills:
+            return 0
+        print(f"Reporting {len(fills)} paper fill(s) for {day}.")
+        notifier.send_paper_fills(fills[:PAPER_FILLS_MESSAGE_LINES], len(fills), day.isoformat())
+        return len(fills)
+    except Exception as exc:  # noqa: BLE001 — a report on fills must not fail the job
+        print(f"ERROR: paper fills report failed: {type(exc).__name__}", file=sys.stderr)
+        return 0
+
+
 def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     """Alarm — loudly — when the watchlist table comes back empty (issue #83).
 
@@ -960,6 +986,9 @@ if __name__ == "__main__":
             _env_float(QUEUED_FILLS_BUDGET_SECONDS_ENV,
                        DEFAULT_QUEUED_FILLS_BUDGET_SECONDS), job_started),
     )
+
+    # The day's paper fills, in-hours and queued, as one [PAPER] message.
+    report_paper_fills(get_services().orders, notifier, notifier.owner)
 
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps

@@ -1104,6 +1104,11 @@
           "nullable": false,
           "type": "text"
         },
+        "kind": {
+          "default": "'market'::text",
+          "nullable": false,
+          "type": "text"
+        },
         "order_id": {
           "default": "nextval('orders_order_id_seq'::regclass)",
           "nullable": false,
@@ -1183,6 +1188,7 @@
       "constraints": {
         "orders_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
         "orders_filled_has_fill": "CHECK (((status = 'filled'::text) = ((fill_price IS NOT NULL) AND (filled_shares IS NOT NULL))))",
+        "orders_kind_rule": "CHECK (((kind = 'market'::text) OR ((kind = 'seed'::text) AND (side = 'buy'::text) AND (requested_shares IS NOT NULL)) OR ((kind = 'manual_close'::text) AND (side = 'sell'::text))))",
         "orders_one_request": "CHECK (((requested_shares IS NULL) <> (requested_amount IS NULL)))",
         "orders_pending_is_unresolved": "CHECK (((status = 'pending'::text) = (resolved_at IS NULL)))",
         "orders_pkey": "PRIMARY KEY (order_id)",

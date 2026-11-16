@@ -297,6 +297,8 @@ class SymbolRowResponse(BaseModel):
     mm_hedge_bias_captured_at: Optional[Any] = None
     # Stacked allocation bar (issue #147 Part A). bar_loss is negative — see
     # quantcore.analytics.portfolio_math.allocation_segments.
+    # The shares held across every open lot, priced or not.
+    total_quantity: Optional[Decimal] = None
     bar_base: Optional[Decimal] = None
     bar_gain: Optional[Decimal] = None
     bar_loss: Optional[Decimal] = None

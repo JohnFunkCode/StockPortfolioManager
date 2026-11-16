@@ -98,6 +98,47 @@ describe('BookSelector', () => {
     expect(JSON.parse(String(post?.[1]?.body))).toEqual({ name: 'Momentum', starting_cash: 2500.5 });
   });
 
+  it('copies the real holdings into the new book when asked', async () => {
+    const { api, onSelect } = mount([REAL], null, [
+      ['/api/portfolio/orders/seed', { book_id: 42, filled: 1, pending: 0, rejected: 0, skipped: [], orders: [] }],
+      [/\/api\/books$/, (_url: string, init?: RequestInit) =>
+        init?.method === 'POST' ? book(42, 'Copy') : { books: [REAL] }],
+    ] as never);
+    fireEvent.click(screen.getByRole('button', { name: /New paper book/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'Copy' } });
+    fireEvent.click(within(dialog).getByLabelText('Start with a copy of my real holdings'));
+    expect(within(dialog).getByText(/at no cost, on top of the starting\s+cash/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create book' }));
+
+    await waitFor(() => expect(onSelect).toHaveBeenCalledWith(42));
+    const posts = api.calls.filter(([, init]) => init?.method === 'POST');
+    expect(posts.map(([url]) => url)).toEqual(['/api/books', '/api/portfolio/orders/seed']);
+    expect(JSON.parse(String(posts[1][1]?.body))).toEqual({ book_id: 42 });
+  });
+
+  it('says when the book was created but its holdings were not copied', async () => {
+    const { onSelect } = mount([REAL], null, [
+      ['/api/portfolio/orders/seed', { __status: 422, error: 'the real book holds nothing to copy' }],
+      [/\/api\/books$/, (_url: string, init?: RequestInit) =>
+        init?.method === 'POST' ? book(42, 'Copy') : { books: [REAL] }],
+    ] as never);
+    fireEvent.click(screen.getByRole('button', { name: /New paper book/i }));
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.change(within(dialog).getByLabelText(/Name/), { target: { value: 'Copy' } });
+    fireEvent.click(within(dialog).getByLabelText('Start with a copy of my real holdings'));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create book' }));
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('The book was created, but its holdings were not copied');
+    expect(alert).toHaveTextContent('the real book holds nothing to copy');
+    // The book exists, so there is no Cancel and no second Create.
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(within(dialog).queryByRole('button', { name: 'Create book' })).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Open the book' }));
+    expect(onSelect).toHaveBeenCalledWith(42);
+  });
+
   it('shows why a book could not be created and keeps the dialog open', async () => {
     const { onSelect } = mount([REAL], null, [
       [/\/api\/books$/, (_url: string, init?: RequestInit) =>

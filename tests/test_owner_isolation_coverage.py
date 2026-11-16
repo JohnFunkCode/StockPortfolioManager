@@ -86,6 +86,12 @@ OWNER_SCOPED = {
         ("tests/test_orders_repository.py", "test_wrong_owner_mutations_change_nothing"),
         ("tests/test_orders_api.py", "test_another_owner_gets_a_404_for_every_route"),
     ],
+    "stops": [
+        ("tests/test_stops_repository.py", "test_another_owner_reads_no_stops"),
+        ("tests/test_stops_repository.py", "test_wrong_owner_mutations_change_nothing"),
+        ("tests/test_stops_repository.py", "test_another_owners_stop_on_the_same_symbol_is_not_replaced"),
+        ("tests/test_stops_api.py", "test_another_owner_reaches_nothing_by_any_route"),
+    ],
     "positions": [
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),

@@ -86,6 +86,7 @@ def create_app() -> FastAPI:
         rungs,
         sentiment,
         settings,
+        stops,
         symbols,
         system,
     )
@@ -108,6 +109,7 @@ def create_app() -> FastAPI:
         # matches in declaration order.
         cash,
         orders,
+        stops,
         portfolio,
         books,
         prices,

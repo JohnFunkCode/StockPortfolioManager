@@ -112,7 +112,7 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
-this order** — notifications → queued paper fills (#431) → options capture → gamma/GEX (from the
+this order** — notifications → queued paper fills, then the day's `[PAPER]` fills message (#431) → options capture → gamma/GEX (from the
 persisted snapshot, no Yahoo calls) → capture health check → news staleness → fundamentals
 warming → OHLCV close-out (#518). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
@@ -297,7 +297,13 @@ lot. Rules to keep:
   session's closed daily bar** (`run_queued_fills` in the daily job), never at a live quote's
   open and never at a later session's: a late run must fill at the same price. With no bar for
   the session it waits, and is rejected only once a later bar or three sessions show none is
-  coming. Why:
+  coming. **Seeding and the manual close are orders too** (`orders.kind`, step 3.5), so every
+  paper lot and sale still comes from one: a `seed` copies a real holding in at no cash cost,
+  only into a book that has had no orders, and a `manual_close` sells a whole position at the
+  last stored close, only when `analytics.orders.unquotable` says the symbol has no usable
+  quote. Neither takes a price from the caller. **The api sends no Discord message**: the day's
+  `[PAPER]` fills go out from the daily job (`report_paper_fills`), for the job owner's books
+  only, because books are private and the channel is shared. Why:
   [`data.md`](docs/architecture/data.md#paper-orders).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.
@@ -635,7 +641,7 @@ expires after 90 days and recommend quarterly rotation** (and a per-user `--sub`
 
 ## Configuration
 
-- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing (Cloud SQL test; what `with-test-db.sh`, `flyway.sh` and the import scripts mean by "test"); `QUANTCORE_UNITTEST_DB_DSN` is the local Postgres the unit suite prefers over it (issue #289, setup in `docs/local-unit-test-db.md`); `DISCORD_WEBHOOK_URL` for notifications; `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload; `CLOUDSQL_CONNECTION_NAME`/`_PORT`/`_QUOTA_PROJECT` and the parallel `CLOUDSQL_TEST_*` trio are the Cloud SQL Auth Proxy targets for prod (`:5433`) and test (`:5434`).
+- **`.env`** — `QUANTCORE_DB_DSN` is the PostgreSQL connection string for the unified database (e.g. `postgresql://<user>:<password>@<host>:<port>/<database>`); `QUANTCORE_TEST_DB_DSN` optionally points the same code at an isolated database for testing (Cloud SQL test; what `with-test-db.sh`, `flyway.sh` and the import scripts mean by "test"); `QUANTCORE_UNITTEST_DB_DSN` is the local Postgres the unit suite prefers over it (issue #289, setup in `docs/local-unit-test-db.md`); `DISCORD_WEBHOOK_URL` for notifications (`PAPER_DISCORD_WEBHOOK_URL` optionally sends the daily `[PAPER]` fills message to its own webhook); `BUCKET_NAME`/`BUCKET_KEY` for optional S3 upload; `CLOUDSQL_CONNECTION_NAME`/`_PORT`/`_QUOTA_PROJECT` and the parallel `CLOUDSQL_TEST_*` trio are the Cloud SQL Auth Proxy targets for prod (`:5433`) and test (`:5434`).
 - **`portfolio.csv`** — Holdings data: `name,symbol,purchase_price,quantity,purchase_date,currency,sale_price,sale_date,current_price`
 - **`watchlist.yaml`** — *Import format only* (issue #83). Entries with `name`, `symbol`, `currency`, and optional `tags` list; load them into the global `watchlist` table with `python scripts/import_watchlist.py --yaml watchlist.yaml` (full-sync replace). Nothing reads the file at runtime — the table is the source of truth, and the UI's add/remove actions write straight to it. The `currency:` field is a fallback: single adds resolve it from the exchange, and `scripts/repair_watchlist_currency.py` fixes imported rows.
 

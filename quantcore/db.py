@@ -296,6 +296,17 @@ ALTER TABLE lot_sales
       CHECK (source IN ('manual', 'stop', 'harvester', 'evaluator', 'watch', 'ai')),
   ADD COLUMN IF NOT EXISTS source_ref TEXT;
 
+-- V18 (#431, plan step 3.5): what kind of order a paper order is. Mirrors
+-- db/migrations/V18__order_kind.sql. A 'seed' copies a real holding into a new
+-- paper book and costs no cash. A 'manual_close' sells a position whose symbol
+-- can no longer be quoted, at the last good price on record.
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'market'
+      CONSTRAINT orders_kind_rule
+      CHECK (kind = 'market'
+             OR (kind = 'seed' AND side = 'buy' AND requested_shares IS NOT NULL)
+             OR (kind = 'manual_close' AND side = 'sell'));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

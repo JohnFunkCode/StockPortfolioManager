@@ -1,10 +1,18 @@
+import type { ReactNode } from 'react';
 import { Box, Typography } from '@mui/material';
 
 /** Friendly empty-state for a provisioned owner with zero positions — rendered
  * inside the normal Layout, distinct from RestrictedAccess (a 403). Must never
  * fire on a network error or 500; only on a successful, empty response.
- * `paper` is the same state for a paper book (#431), which has no Add Lot. */
-export default function EmptyPortfolio({ paper = false }: { paper?: boolean }) {
+ * `paper` is the same state for a paper book (#431), which has no Add Lot.
+ * `children` sits under the copy: a paper book's way to get its first holdings. */
+export default function EmptyPortfolio({
+  paper = false,
+  children,
+}: {
+  paper?: boolean;
+  children?: ReactNode;
+}) {
   return (
     <Box sx={{ textAlign: 'center', mt: 8 }}>
       <Typography variant="h5" gutterBottom>
@@ -15,6 +23,7 @@ export default function EmptyPortfolio({ paper = false }: { paper?: boolean }) {
           ? 'It holds no simulated positions yet.'
           : 'Add your first position to start tracking gains, losses, and Harvester plans.'}
       </Typography>
+      {children}
     </Box>
   );
 }

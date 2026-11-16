@@ -1,8 +1,8 @@
 /** Endpoint-shape tests for ordersApi: URL, method and body. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ordersApi } from './orders';
-import { mockApi, order, ordersResponse } from '../testUtils';
+import { newIdempotencyKey, ordersApi } from './orders';
+import { mockApi, order, ordersResponse, seedResult } from '../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -25,5 +25,23 @@ describe('ordersApi', () => {
       book_id: 7, symbol: 'INTC', side: 'buy', amount: 500, idempotency_key: 'k1',
     });
     expect(api.calls[2][1]?.body).toBeUndefined();
+  });
+
+  it('seeds a book and closes a position by hand, sending no price', async () => {
+    const api = mockApi([
+      ['/api/portfolio/orders/seed', seedResult()],
+      ['/api/portfolio/orders/manual-close', order({ kind: 'manual_close' })],
+    ]);
+    await ordersApi.seed(7);
+    await ordersApi.manualClose({ book_id: 7, symbol: 'INTC', idempotency_key: 'k2' });
+
+    expect(api.calls.map(([url, init]) => [url, init?.method, JSON.parse(String(init?.body))])).toEqual([
+      ['/api/portfolio/orders/seed', 'POST', { book_id: 7 }],
+      ['/api/portfolio/orders/manual-close', 'POST', { book_id: 7, symbol: 'INTC', idempotency_key: 'k2' }],
+    ]);
+  });
+
+  it('makes a new idempotency key each time', () => {
+    expect(newIdempotencyKey()).not.toBe(newIdempotencyKey());
   });
 });

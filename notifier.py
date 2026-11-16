@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 import os
 import sys
 from pathlib import Path
@@ -26,6 +27,30 @@ from quantcore.repositories.options_position_repository import (
     ALERT_EXPIRATION_7D,
     ALERT_PROFIT_TARGET,
 )
+
+_PAPER_FILL_VERBS = {
+    ("market", "buy"): "bought",
+    ("market", "sell"): "sold",
+    ("seed", "buy"): "seeded",
+    ("manual_close", "sell"): "closed by hand",
+}
+_PAPER_PRICE_NOTES = {
+    "session_open": ", the opening price",
+    None: ", the last good price",
+}
+
+
+def _paper_fill_line(fill: dict) -> str:
+    """One paper fill in words: the book, what happened, and at what price."""
+    verb = _PAPER_FILL_VERBS.get((fill.get("kind"), fill.get("side")), fill.get("side"))
+    price = Decimal(str(fill["fill_price"]))
+    # Sub-dollar prices fill to a hundredth of a cent.
+    shown = f"${price:,.4f}" if price < 1 else f"${price:,.2f}"
+    return (
+        f"{fill['book_name']}: {verb} {format_quantity(fill['filled_shares'])} "
+        f"{fill['symbol']} at {shown}{_PAPER_PRICE_NOTES.get(fill.get('price_source'), '')}"
+    )
+
 
 class Notifier:
     def __init__(
@@ -557,6 +582,34 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_paper_fills(self, fills: list, fill_count: int, day: str) -> None:
+        """Report the day's paper fills (#431), marked ``[PAPER]``.
+
+        ``fills`` are filled orders with their ``book_name``, at most the
+        number the message lists; ``fill_count`` is how many there were. Sent
+        to ``PAPER_DISCORD_WEBHOOK_URL`` when that is set, otherwise to the
+        usual webhook.
+        """
+        lines = [f"- {_paper_fill_line(fill)}" for fill in fills]
+        if fill_count > len(fills):
+            lines.append(f"- and {fill_count - len(fills)} more")
+        embed = {
+            "content": f"[PAPER] Fills: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"[PAPER] {fill_count} paper fill(s) on {day}",
+                    "description": (
+                        "\n".join(lines)
+                        + "\nSimulated trades in paper books. No real order was placed."
+                    ),
+                    "color": 3447003,
+                }
+            ]
+        }
+        self.send_notifications(
+            embed, webhook_url=os.environ.get("PAPER_DISCORD_WEBHOOK_URL") or None
+        )
+
     def send_news_stale_alert(self, age_hours, ceiling_hours: float) -> None:
         """Alarm, raised from the daily report Job, that no news has landed lately.
 
@@ -580,7 +633,7 @@ class Notifier:
         }
         self.send_notifications(embed)
 
-    def send_notifications(self, embed):
+    def send_notifications(self, embed, webhook_url=None):
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 
         log_path = 'notification.log'
@@ -596,10 +649,11 @@ class Notifier:
 
         with open(log_path, 'a', encoding='utf-8') as log_file:
             log_file.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} - {notification_log_msg}\n")
-        if not self.discord_webhook_url:
+        webhook_url = webhook_url or self.discord_webhook_url
+        if not webhook_url:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Discord webhook URL not set. Skipping notification.')
             return
-        results = requests.post(self.discord_webhook_url, json=embed)
+        results = requests.post(webhook_url, json=embed)
         if 200 <= results.status_code < 300:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Notification sent successfully.')
         else:

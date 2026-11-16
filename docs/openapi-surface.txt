@@ -110,6 +110,8 @@ POST   /api/portfolio/lots  ->  create_lot_api_portfolio_lots_post
 POST   /api/portfolio/lots/{lot_id}/close  ->  close_lot_api_portfolio_lots__lot_id__close_post
 POST   /api/portfolio/lots/{lot_id}/close/preview  ->  preview_close_lot_api_portfolio_lots__lot_id__close_preview_post
 POST   /api/portfolio/orders  ->  place_order_api_portfolio_orders_post
+POST   /api/portfolio/orders/manual-close  ->  close_unquoted_api_portfolio_orders_manual_close_post
+POST   /api/portfolio/orders/seed  ->  seed_book_api_portfolio_orders_seed_post
 POST   /api/portfolio/orders/{order_id}/cancel  ->  cancel_order_api_portfolio_orders__order_id__cancel_post
 POST   /api/rungs/{rung_id}/achieve  ->  achieve_rung_api_rungs__rung_id__achieve_post
 POST   /api/rungs/{rung_id}/execute  ->  execute_rung_api_rungs__rung_id__execute_post

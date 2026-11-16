@@ -372,6 +372,7 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         self.assertEqual(zztest["total_investment"], Decimal("110.00"))
         self.assertEqual(zztest["total_current_value"], Decimal("150.00"))
         self.assertEqual(zztest["total_gain_loss"], Decimal("40.00"))
+        self.assertEqual(zztest["total_quantity"], Decimal("10"))
 
     def test_symbol_rows_carry_the_allocation_bar_segments(self):
         """Issue #147 Part A: the chart consumes the same response the page
@@ -391,6 +392,8 @@ class PortfolioServiceLotLifecycleTest(unittest.TestCase):
         # bar must be absent instead, or the chart draws a flat bar that reads
         # as a worthless position rather than an unknown one.
         self.assertEqual(row["total_investment"], Decimal("0.00"))
+        # The share count needs no price: an unpriced position can be sold.
+        self.assertEqual(row["total_quantity"], Decimal("1"))
         self.assertIsNone(row["bar_base"])
         self.assertIsNone(row["bar_gain"])
         self.assertIsNone(row["bar_loss"])

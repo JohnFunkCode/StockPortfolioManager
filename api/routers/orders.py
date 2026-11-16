@@ -3,6 +3,8 @@
   GET   /api/portfolio/orders                    a book's orders
   POST  /api/portfolio/orders                    place a market order in a paper book
   POST  /api/portfolio/orders/{order_id}/cancel  withdraw a queued order
+  POST  /api/portfolio/orders/seed               copy the real holdings into a new paper book
+  POST  /api/portfolio/orders/manual-close       close a position that can't be quoted
 
 Exactly one service call deep. The owner comes from the authenticated
 principal (``require_owner``); there is no ``?owner=``. A book that isn't the
@@ -11,6 +13,8 @@ owner's answers 404.
 Orders are for paper books only: the real book is refused with a 422, because
 a real trade is recorded with Add Lot. The system sets every fill, so no route
 takes a price or a date, and a placed order's ``source`` is always ``manual``.
+That holds for a manual close too: its price is the last good one on record,
+and a symbol that still has a quote is refused with a 422.
 
 A refusal that depends on the market or on what the book holds (a stale
 quote, a non-USD symbol, too little cash) is not an error response. The order
@@ -28,7 +32,14 @@ from quantcore.services.orders import BookNotFoundError, OrderNotFoundError
 from ..auth import require_owner
 from ..deps import route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
-from ..schemas.orders import Order, OrdersResponse, PlaceOrderRequest
+from ..schemas.orders import (
+    ManualCloseRequest,
+    Order,
+    OrdersResponse,
+    PlaceOrderRequest,
+    SeedBookRequest,
+    SeedBookResponse,
+)
 
 router = APIRouter(prefix="/api/portfolio/orders", tags=["orders"])
 
@@ -75,3 +86,34 @@ def cancel_order(
     except ValueError as exc:
         return route_error_plain(str(exc), 422)
     return QuantCoreJSONResponse(order)
+
+
+@router.post("/seed", response_model=SeedBookResponse, status_code=201)
+def seed_book(body: SeedBookRequest, owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
+    """Copy the real book's open holdings into a paper book that has had no
+    orders, on top of its starting cash. One seed order per symbol."""
+    try:
+        seeded = services().orders.seed_book(owner=owner, book_id=body.book_id)
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 422)
+    return QuantCoreJSONResponse(seeded, status_code=201)
+
+
+@router.post("/manual-close", response_model=Order, status_code=201)
+def close_unquoted(
+    body: ManualCloseRequest, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    """Close a whole position whose symbol can't be quoted, at the last good
+    price. 201 with the filled order; 200 when the key had been used before."""
+    try:
+        order = services().orders.close_unquoted(
+            owner=owner, book_id=body.book_id, symbol=body.symbol,
+            idempotency_key=body.idempotency_key,
+        )
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
+    except ValueError as exc:
+        return route_error_plain(str(exc), 422)
+    return QuantCoreJSONResponse(order, status_code=200 if order["replayed"] else 201)

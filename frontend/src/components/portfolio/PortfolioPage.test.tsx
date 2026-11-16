@@ -435,6 +435,55 @@ describe('PortfolioPage books (#431)', () => {
     expect(screen.queryByRole('button', { name: /Cancel order/ })).toBeNull();
   });
 
+  it('sells a paper position through an order, with the shares the server counted', async () => {
+    const api = mockApi([
+      ['/api/books', { books: [REAL, PAPER] }],
+      [/\/api\/portfolio\/symbols/, { symbols: [symbolRow({ symbol: 'NVDA', total_quantity: 12.5 })], totals }],
+      ['/api/portfolio/realized', realizedResponse([])],
+      ['/api/portfolio/cash', cashLedger(undefined, { book_kind: 'paper' })],
+      [/\/api\/portfolio\/orders$/, order({ symbol: 'NVDA', side: 'sell', requested_shares: 12.5, filled_shares: 12.5 })],
+      ['/api/portfolio/orders', ordersResponse([])],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    fireEvent.click(await screen.findByRole('button', { name: 'Sell NVDA' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Sell NVDA on paper' })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/^Shares/)).toHaveValue(12.5);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sell' }));
+    expect(await within(dialog).findByTestId('order-result')).toHaveTextContent('Sold NVDA');
+    const post = api.calls.find(([, init]) => init?.method === 'POST');
+    expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({ book_id: 7, symbol: 'NVDA', side: 'sell', shares: 12.5 });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
+
+  it('has no Sell in the real book or in an archived paper book', async () => {
+    mountBooks();
+    await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^Sell / })).toBeNull();
+  });
+
+  it('has no Sell in an archived paper book', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL, { ...PAPER, archived_at: '2026-11-14T00:00:00Z' }] }],
+      [/\/api\/portfolio\/symbols/, { symbols: [symbolRow({ symbol: 'NVDA' })], totals }],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /^Sell / })).toBeNull();
+  });
+
+  it('offers to copy the real holdings into an empty paper book with no orders', async () => {
+    mockApi([
+      ['/api/books', { books: [REAL, PAPER] }],
+      [/\/api\/portfolio\/symbols/, { symbols: [], totals }],
+      ['/api/portfolio/orders', ordersResponse([])],
+    ]);
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    expect(await screen.findByRole('button', { name: 'Copy my real holdings' })).toBeInTheDocument();
+  });
+
   it('keeps the Account column and the lot actions in the real book', async () => {
     mountBooks();
     await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());

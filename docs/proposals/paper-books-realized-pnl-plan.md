@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills) and 3.4 (queued fills in the daily job) are built. Next is 3.5. Decisions 19 to 24 were made during the 3.1 build, and 31 to 34 during the 3.4 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Next is 4.1. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build and 35 to 41 during the 3.5 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -123,7 +123,7 @@ PRs most:
     alert is the warning the evening before a likely breach.
 11. **A seeded paper book gets its holdings on top of its starting cash.** The book opens with the
     real book's current holdings plus the full starting cash, so its opening value is cash plus
-    holdings. Seeding is therefore not an order: see the gotcha in section 7.
+    holdings. Seeding is therefore not an order: see the gotcha in section 7. (As built in 3.5 a seed is stored as an order that costs no cash: decision 36.)
 12. **Book selector: chips, then a dropdown.** One chip per book, real first, while there are five
     or fewer; the rest collapse into a "More" pulldown.
 13. **Realized and Performance keep separate period controls.** A paper book two months old would
@@ -236,6 +236,50 @@ review.
     book was open. The page shows no Cancel in an archived book, so nothing else would take it
     out of `pending`, and the alarm would fire every night. The alternative, cancelling a
     book's queued orders when it is archived, is a change to archiving and was left alone.
+
+### Made on 2026-11-16, during the 3.5 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review.
+
+35. **An order has a kind: `market`, `seed` or `manual_close`** (`orders.kind`, V18). The column
+    is added with a default, so CI applies the migration. The alternative was a new value in
+    `source` or `price_source`, and widening either `CHECK` means dropping a constraint, which
+    the migrate Job refuses. What it costs: one more column to read when asking what an order
+    was.
+36. **A seed is stored as an order.** This changes decision 11's wording ("seeding is therefore
+    not an order"), not its substance: a seed is still not a purchase, costs no cash and is on
+    top of the starting cash. One `seed` buy order is written per real-book symbol, for the
+    shares held across its open lots. It is priced by the same rule as any order (the quote in
+    market hours, the next session's open otherwise) and fills a lot with
+    `acquisition_type = 'SEED'`, which writes no cash row. The reason: a seed asked for outside
+    market hours has to wait for a price, and the order queue already gives a session, an
+    exactly-once fill and the alarm. What it costs: a seeded book's Orders list starts with one
+    row per holding, and a holding that can't be priced (no quote, a non-USD symbol) is a
+    rejected order and is left out of the book.
+37. **Only a paper book that has had no orders can be seeded, and the whole seed is one
+    transaction.** A second seed would double the holdings. The seed is its own route, which the
+    New paper book dialog calls after the create, so a failed copy leaves an empty book that
+    offers the copy again. What it costs: a book can't be topped up from the real book later.
+38. **A symbol can be closed by hand when it has no quote, or its last regular trade is three or
+    more sessions old** (`UNQUOTABLE_AFTER_SESSIONS`). The price is the close of the newest
+    stored closed daily bar, or the quote's last regular trade when no bar is stored. The owner
+    types no price, and the whole position is closed. The trade is dated today. What it costs: a
+    symbol halted for a day or two can't be closed by hand, and the price is the last one
+    QuantCore stored, which may be older than the last one the market printed.
+39. **A manual close is marked by its kind and a note, not by `price_source`.** `price_source`
+    stays NULL (decision 35's reason), `quote_time` holds when the price is from, and each sale
+    row carries the note "Closed by hand at the last good price, from <date>: no quote".
+40. **`[PAPER]` fills go to Discord as one message from the daily job, for the job owner's
+    books only.** The api service has no Discord webhook, and giving it one is a secret and
+    inventory change in both projects. So the job reads the day's fills after the queued-fills
+    step and sends one message, capped at 20 lines. It covers John's paper books only: books are
+    private and the channel is shared. `PAPER_DISCORD_WEBHOOK_URL` sends it to its own webhook.
+    What it costs: a fill made in market hours reaches Discord that evening, and another owner's
+    fills are never posted.
+41. **Selling on paper is by symbol, not by lot.** An order sells shares oldest lot first, so
+    the Sell button is on the symbol's row and a paper lot still has no actions. The Buy button
+    on the Security page shows only for an owner with an open paper book.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -519,11 +563,12 @@ key order and error messages were equal in every case.
   A step that fills queued orders at their session's opening price, placed and budgeted under the
   daily job's ordering rules: clamped to the remaining budget, never raises, and alarms on what
   actually landed. What was built, and what was left for later steps, is in section 5.10.
-- [ ] **3.5 Buy and sell on paper.**
+- [x] **3.5 Buy and sell on paper.**
   The Buy dialog on the Security page (no stop field yet); selling a paper position from the
   Portfolio page; seeding a paper book from the real book, on top of its starting cash (decision
   11); a manual close for a paper position whose symbol is delisted or can't be quoted, at the
-  last good price and marked as such; `[PAPER]` Discord messages.
+  last good price and marked as such; `[PAPER]` Discord messages. What was built, and what
+  was left for later steps, is in section 5.11.
 
 #### 5.7 The cash ledger as built (3.1)
 
@@ -709,6 +754,37 @@ Left for later steps, on purpose:
   not its budget.
 - **A seeded lot's price** (3.5) follows the same rule as an order (section 7): a seed made
   outside market hours needs the next session's open, which is what `session_open` reads.
+
+#### 5.11 Buy and sell on paper as built (3.5)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The schema | V18 `orders.kind`, `orders_kind_rule` | `market`, `seed` (a buy for a share count) or `manual_close` (a sell). Additive, mirrored in `_SCHEMA` and the snapshot. The table count stays 27 |
+| The rules | `analytics.orders`: `lot_acquisition_type`, `moves_cash`, `seed_quantities`, `unquotable`, `last_good_price` | Pure. A seed's lot is `SEED` and moves no cash; a symbol is unquotable with no quote or a last trade three sessions old |
+| The price of a manual close | `PricesService.last_close` | The newest stored closed daily bar. Zero network. Listed in `TestReaderPolicy` as a closed-only reader |
+| The service | `OrdersService.seed_book`, `close_unquoted`, `fills_on` | Paper books only, like `place` |
+| The routes | `POST /api/portfolio/orders/seed`, `POST /api/portfolio/orders/manual-close` | Neither takes a price, a share count or an owner |
+| The Discord message | `main.report_paper_fills`, `Notifier.send_paper_fills` | After `run_queued_fills`. Never raises. Nothing is sent on a day with no fills |
+| Buy | `PaperOrderDialog`, opened from "Buy on paper" on the Security page | Paper book picker, shares or dollars, the book's cash. No stop field (4.3) |
+| Sell | `PaperOrderDialog`, opened from Sell on a paper symbol row | The share count comes from the row's `total_quantity`, which the server adds up |
+| Manual close | The same dialog | Offered when a sell is rejected `no_quote` or `stale_quote`, or at once for a position with no current price. The server decides |
+| Seeding | A checkbox in `CreateBookDialog`; `SeedEmptyBook` on an empty paper book with no orders | The dialog chains create then seed |
+| The Orders list | `orderWords.ts` | A seed reads "Copy 5 INTC from the real book … at no cost"; a manual close names the last price on record and its date |
+
+The dialog ends by saying what the server did: filled, queued for a session, or rejected with
+its reason. A retry after a network error repeats the idempotency key. A try after the server
+answered is a new order.
+
+**Nothing for an operator to run.** V18 is applied by CI. `PAPER_DISCORD_WEBHOOK_URL` is
+optional; without it the message goes to `DISCORD_WEBHOOK_URL`.
+
+Left for later steps, on purpose:
+
+- **No stop field in the Buy dialog** (4.3).
+- **Performance must count seeded holdings in a book's opening value** (5.1), or the first day
+  shows a false gain. A seeded lot is `acquisition_type = 'SEED'` and its order is `kind = 'seed'`.
+- **No Sidekick or MCP access to orders** (decision 18, step 5.4). The tool count stays 63.
+- **Not tried in a browser against a live server.** The front end is covered by vitest only.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -1055,6 +1131,20 @@ Known before any code is written. Add to this list as the work finds more.
   the backstop, and it rolls the lot back.
 - **A lot read through `PortfolioRepository` does not return its `order_id`** (3.4). The test
   that checks a filled lot names its order reads the column directly.
+- **A multi-column `CHECK` written inside `ADD COLUMN` gets the name `orders_check`** (3.5).
+  Postgres names it for the table, not the column, so the snapshot showed a constraint nobody
+  would recognise. V18 names it (`CONSTRAINT orders_kind_rule`).
+- **A daily bar's timestamp is midnight UTC, so its session is the UTC date** (3.5). Converting
+  it to Eastern time gives the day before. `LastGoodPrice.session` carries the right date for
+  the manual-close note.
+- **The fills message is its own function, not part of `run_queued_fills`** (3.5). The tests for
+  that step assert the exact calls it makes, in order.
+- **A seeded lot has no `source` of its own** (3.5). The older gotcha below says it needs one.
+  It has a kind instead (decision 35): the order is `kind = 'seed'` with `source = 'manual'`.
+- **The Portfolio's symbol rows now carry `total_quantity`** (3.5). The Sell dialog needed the
+  shares held, and adding lots up in the page would be display maths in the front end.
+- **A try after a rejected order must send a new idempotency key** (3.5). With the old key the
+  server replays the rejection, and the dialog would show the same refusal for ever.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1112,3 +1202,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-15 | 3.3 review | #560 | Approved, with five suggestions. Fixed: the share cap is now the largest count the column holds and a dollar buy's computed share count is capped too (both a 422, were a 500); the pending notice no longer says queued orders fill, since 3.4 isn't built; a cancelled order's Result reads "Withdrawn". Accepted and written down: a symbol halted under five minutes ago still fills, and a fill at $100,000 or more loses its cents in the lot until `purchase_price` stops being `REAL` |
 | 2026-11-15 | 3.4 Queued fills in the daily job | #561 | No schema change. `analytics.orders.queued_fill` (fill, reject or wait), `PricesService.session_open` (the open of the session's closed daily bar), `OrdersRepository.list_due_orders`, `OrdersService.queued_orders` and `fill_queued_order`, and the job step `run_queued_fills` with its alarm, second in `main.py`'s order behind `QUEUED_FILLS_BUDGET_SECONDS` (120). The Orders list promises the fill again. Decisions 31 to 34 (bar open as the price, wait up to three sessions before rejecting, the step's place and budget, archived books still fill) were made in the build and are John's to confirm. Not run against Yahoo (section 7). Nothing for an operator to run (section 5.10) |
 | 2026-11-15 | 3.4 review | #561 | Approved, with one suggestion. Fixed: `OrdersService` now requires its `prices` argument. It was optional, and a service built without it failed with an `AttributeError` on its first queued fill. Confirmed as intended: the alarm fires on the first night an order waits for its bar. The review also noted that no test pins the step's place in `__main__`; that is still read from the code |
+| 2026-11-16 | 3.5 Buy and sell on paper | #562 | V18: `orders.kind` (`market`, `seed`, `manual_close`). `OrdersService.seed_book`, `close_unquoted` and `fills_on`, `PricesService.last_close`, two routes (`/orders/seed`, `/orders/manual-close`), and the job's `[PAPER]` fills message after the queued fills. In the UI: `PaperOrderDialog` (Buy on paper on the Security page, Sell on a paper symbol row, the manual close), seeding from the New paper book dialog and from an empty book, and the Orders list's wording for the two new kinds. Symbol rows carry `total_quantity`. Decisions 35 to 41 (the kind column, a seed as an order, seed once, what counts as unquotable and its price, the manual-close mark, the evening fills message for John's books, selling by symbol) were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.11) |
+| 2026-11-16 | 3.5 review | #562 | Changes requested, two findings. Fixed: a manual close is now refused while a sell of the symbol is queued (it sold every share, so the queued sell would have been rejected at its session with nothing saying why); and the symbol rows' share total moved to `portfolio_math.total_quantity`, which puts `symbol_rows` back inside the complexity goal and gives the no-quantity case a test. The review did not re-run the suites and could not measure the front end's complexity |

@@ -53,7 +53,8 @@ SELECT
     o.fill_price       AS fill_price,
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
-    o.reject_reason    AS reject_reason
+    o.reject_reason    AS reject_reason,
+    o.kind             AS kind
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -85,7 +86,8 @@ SELECT
     o.fill_price       AS fill_price,
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
-    o.reject_reason    AS reject_reason
+    o.reject_reason    AS reject_reason,
+    o.kind             AS kind
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -117,7 +119,8 @@ SELECT
     o.fill_price       AS fill_price,
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
-    o.reject_reason    AS reject_reason
+    o.reject_reason    AS reject_reason,
+    o.kind             AS kind
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -151,7 +154,8 @@ SELECT
     o.fill_price       AS fill_price,
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
-    o.reject_reason    AS reject_reason
+    o.reject_reason    AS reject_reason,
+    o.kind             AS kind
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -164,6 +168,58 @@ WHERE o.owner = :owner
                  THEN b.kind = 'real'
                  ELSE b.book_id = CAST(:book_id AS INTEGER) END)
 ORDER BY o.session_date, o.placed_at, o.order_id;
+"""
+
+# One book's orders filled in `[:start, :end)`, in the order they filled: what
+# the daily job reports to Discord.
+SQL_LIST_FILLED_ORDERS = """
+SELECT
+    o.order_id         AS order_id,
+    o.book_id          AS book_id,
+    s.ticker           AS symbol,
+    o.side             AS side,
+    o.requested_shares AS requested_shares,
+    o.requested_amount AS requested_amount,
+    o.status           AS status,
+    o.source           AS source,
+    o.source_ref       AS source_ref,
+    o.idempotency_key  AS idempotency_key,
+    o.session_date     AS session_date,
+    o.placed_at        AS placed_at,
+    o.resolved_at      AS resolved_at,
+    o.filled_shares    AS filled_shares,
+    o.fill_price       AS fill_price,
+    o.price_source     AS price_source,
+    o.quote_time       AS quote_time,
+    o.reject_reason    AS reject_reason,
+    o.kind             AS kind
+FROM orders o
+JOIN symbols s ON s.symbol_id = o.symbol_id
+WHERE o.owner = :owner
+  AND o.status = 'filled'
+  AND o.resolved_at >= :start
+  AND o.resolved_at < :end
+  AND o.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+ORDER BY o.resolved_at, o.order_id;
+"""
+
+# How many orders a book has ever had, of any status. A paper lot is written
+# only by an order's fill, so a book with none is untouched.
+SQL_COUNT_ORDERS = """
+SELECT COUNT(*) AS orders
+FROM orders o
+WHERE o.owner = :owner
+  AND o.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
 # The lock a fill holds: one book's row, so two fills in one book can't both
@@ -185,11 +241,11 @@ ON CONFLICT(ticker) DO NOTHING;
 SQL_INSERT_ORDER = """
 INSERT INTO orders (
     owner, book_id, symbol_id, side, requested_shares, requested_amount,
-    source, source_ref, idempotency_key, session_date, placed_at
+    source, source_ref, idempotency_key, session_date, placed_at, kind
 ) VALUES (
     :owner, :book_id, (SELECT symbol_id FROM symbols WHERE ticker = :ticker), :side,
     :requested_shares, :requested_amount,
-    :source, :source_ref, :idempotency_key, :session_date, :placed_at
+    :source, :source_ref, :idempotency_key, :session_date, :placed_at, :kind
 )
 ON CONFLICT (owner, idempotency_key) DO NOTHING
 RETURNING order_id;
@@ -264,6 +320,7 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "price_source": row["price_source"],
         "quote_time": row["quote_time"],
         "reject_reason": row["reject_reason"],
+        "kind": row["kind"],
     }
 
 
@@ -307,6 +364,7 @@ class OrderTransaction:
             idempotency_key=order["idempotency_key"],
             session_date=order["session_date"],
             placed_at=order["placed_at"],
+            kind=order.get("kind", "market"),
         )).fetchone()
         if row is not None:
             return self.get(int(row["order_id"])), True
@@ -369,18 +427,25 @@ class OrderTransaction:
         source: str,
         source_ref: Optional[str],
         order_id: int,
+        notes: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Write the sale rows a sell fills, close or split their lots, and
-        write the cash rows. Raises `ValueError` when a lot can't cover it."""
+        write the cash rows. `notes` goes on every sale row. Raises
+        `ValueError` when a lot can't cover it."""
         return self._lots.close_lots_on(
             self._conn, self._owner, list(allocation), sale_price, sale_trade_date,
-            allocation_method=allocation_method, book_id=self._book,
+            allocation_method=allocation_method, notes=notes, book_id=self._book,
             source=source, source_ref=source_ref, order_id=order_id,
         )
 
     def open_lots(self, symbol: str) -> List[Dict[str, Any]]:
         """The book's OPEN lots of `symbol`, as this transaction sees them."""
         return self._lots.open_lots_on(self._conn, self._owner, symbol, book_id=self._book)
+
+    def order_count(self) -> int:
+        """How many orders the book has ever had, of any status."""
+        row = self._conn.execute(SQL_COUNT_ORDERS, self._scope()).fetchone()
+        return int(row["orders"])
 
     def cash_entries(self) -> List[Dict[str, Any]]:
         """The book's cash rows, as this transaction sees them."""
@@ -419,6 +484,20 @@ class OrdersRepository:
                 SQL_LIST_DUE_ORDERS, {"owner": owner, "through": through, "book_id": book_id}
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
+
+    def list_filled_orders(
+        self, *, owner: str, start: Any, end: Any, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """One book's orders filled in `[start, end)`, in the order they filled."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(SQL_LIST_FILLED_ORDERS, {
+                "owner": owner, "start": start, "end": end, "book_id": book_id,
+            }).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def open_lots(self, *, owner: str, book_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Every OPEN lot of one book: what a seed copies from the real book."""
+        return self._lots.list_positions(owner, book_id=book_id)
 
     def get_order(
         self, *, owner: str, order_id: int, book_id: Optional[int] = None

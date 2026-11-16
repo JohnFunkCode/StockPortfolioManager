@@ -27,6 +27,8 @@ export interface Lot {
 export interface SymbolRow {
   symbol: string;
   lots: Lot[];
+  /** Shares held across every open lot, priced or not. Server-computed. */
+  total_quantity: number | null;
   total_investment: number | null;
   total_current_value: number | null;
   total_gain_loss: number | null;

@@ -363,6 +363,7 @@ export function symbolRow(overrides: object = {}) {
   return {
     symbol: 'INTC',
     lots: [lotRow()],
+    total_quantity: 10,
     total_investment: 300,
     total_current_value: 350,
     total_gain_loss: 50,
@@ -862,7 +863,21 @@ export function order(overrides: object = {}) {
     price_source: 'quote',
     quote_time: '2026-06-15T14:59:50Z',
     reject_reason: null,
+    kind: 'market',
     replayed: false,
+    ...overrides,
+  };
+}
+
+/** What POST /api/portfolio/orders/seed answers: one seed order, filled. */
+export function seedResult(overrides: object = {}) {
+  return {
+    book_id: 7,
+    filled: 1,
+    pending: 0,
+    rejected: 0,
+    skipped: [],
+    orders: [order({ kind: 'seed' })],
     ...overrides,
   };
 }

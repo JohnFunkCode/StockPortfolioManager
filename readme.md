@@ -214,9 +214,11 @@ posts the day's fills in your paper books to Discord, marked `[PAPER]`.
 A stop can be recorded on any holding, in the real book or a paper one: a fixed price, or a
 trailing percentage below a high-water mark that starts at the last close
 (`POST /api/portfolio/stops`). A holding has one active stop at a time, and setting another
-replaces it. Each stop keeps how its level was chosen. For now a stop is a record only: nothing
-checks it against prices and no page shows it yet, and QuantCore never places an order at a
-broker.
+replaces it. Each stop keeps how its level was chosen. The daily job tests every active stop
+against the day's closed price bars. When a bar's low reaches a stop in the real book you get a
+Discord alert, and nothing is sold: QuantCore never places an order at a broker. In a paper book
+the position is sold, at the stop's level or at the opening price when the stock opened below it.
+A trailing stop rises with each new high and never falls. No page shows a stop yet.
 
 ### Migrations (Flyway)
 
@@ -268,7 +270,7 @@ authoritative endpoint list.** There are 128 routes, so the table below only gro
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
-| `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), set a fixed or trailing stop on a holding, cancel an active one. A record only: nothing acts on a stop yet |
+| `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), set a fixed or trailing stop on a holding, cancel an active one. The daily job checks them; no route does |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |
@@ -359,10 +361,14 @@ it runs these steps, in order:
 1. price the positions and the watchlist
 2. send Discord notifications
 3. raise an alarm if the watchlist table is empty
-4. the capture tail: capture full options chains, record GEX, then check capture health
-5. raise an alarm if the news is stale
-6. warm the fundamentals cache, then raise an alarm if coverage is stale
-7. close out the day's daily price bars, then raise an alarm if any earlier day's bar is still open
+4. fill the paper orders queued for a session that has opened, then raise an alarm if any is
+   still waiting
+5. test every stored stop against the closed price bars it hasn't seen, then raise an alarm if
+   any went untested; post the day's paper fills and the real book's stops that were reached
+6. the capture tail: capture full options chains, record GEX, then check capture health
+7. raise an alarm if the news is stale
+8. warm the fundamentals cache, then raise an alarm if coverage is stale
+9. close out the day's daily price bars, then raise an alarm if any earlier day's bar is still open
 
 The cheap, high-value side effects land first. Every later stage is wrapped so it cannot fail a run
 whose alerts already went out, and each one is backed by an alarm that re-reads what actually
@@ -381,6 +387,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | 0.80 |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | 168 |
 | `QUEUED_FILLS_BUDGET_SECONDS` | 120 |
+| `STOP_CHECK_BUDGET_SECONDS` | 120 |
 | `OHLCV_CLOSEOUT_BUDGET_SECONDS` | 300 |
 | `NEWS_STALE_MAX_AGE_HOURS` | 120 |
 

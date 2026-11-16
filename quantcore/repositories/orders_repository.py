@@ -33,6 +33,7 @@ from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.cash_repository import list_entries_on
 from quantcore.repositories.portfolio_repository import PortfolioRepository
+from quantcore.repositories.stop_sql import resolve_stop_on, trigger_stop_on
 
 SQL_LIST_ORDERS = """
 SELECT
@@ -441,6 +442,34 @@ class OrderTransaction:
     def open_lots(self, symbol: str) -> List[Dict[str, Any]]:
         """The book's OPEN lots of `symbol`, as this transaction sees them."""
         return self._lots.open_lots_on(self._conn, self._owner, symbol, book_id=self._book)
+
+    def trigger_stop(
+        self,
+        stop_id: int,
+        *,
+        stop_level: Any,
+        high_water_mark: Any,
+        triggered_session: Any,
+        trigger_price: Any,
+        resolved_at: Any,
+    ) -> bool:
+        """Mark one of the book's active stops `triggered`, in this
+        transaction, so the stop and the sale it causes land together (plan
+        step 4.2). Returns False, and changes nothing, when it is not active."""
+        return trigger_stop_on(
+            self._conn, owner=self._owner, book_id=self._book, stop_id=stop_id,
+            stop_level=stop_level, high_water_mark=high_water_mark,
+            triggered_session=triggered_session, trigger_price=trigger_price,
+            resolved_at=resolved_at,
+        )
+
+    def close_stop(self, stop_id: int, *, resolved_at: Any) -> bool:
+        """Mark one of the book's active stops `closed`: the holding it was
+        set on is gone. Returns False when it is not active."""
+        return resolve_stop_on(
+            self._conn, owner=self._owner, book_id=self._book, stop_id=stop_id,
+            status="closed", resolved_at=resolved_at,
+        )
 
     def order_count(self) -> int:
         """How many orders the book has ever had, of any status."""

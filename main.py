@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The daily QuantCore job: notifications, queued paper fills, options capture, GEX, news check, fundamentals warming, OHLCV close-out.
+"""The daily QuantCore job: notifications, queued paper fills, stop checks, options capture, GEX, news check, fundamentals warming, OHLCV close-out.
 
 Runs as the ``quantcore-report`` Cloud Run Job on Cloud Scheduler, and locally
 as ``python main.py``. It no longer builds the HTML report — that moved to
@@ -8,7 +8,8 @@ as ``python main.py``. It no longer builds the HTML report — that moved to
 
 The step order is an isolation property, not an accident. The cheap,
 high-value work runs first (Discord notifications and the Harvester rung
-checks, then the fills of queued paper orders, #431), then the options-chain
+checks, then the fills of queued paper orders and the check of every stored
+stop against the closed bars, #431 and #221), then the options-chain
 capture that keeps the open-interest history
 accumulating, then gamma/GEX computed from the chain the capture just
 persisted (no second Yahoo fetch, #373), the capture health check, the news
@@ -77,6 +78,15 @@ DEFAULT_QUEUED_FILLS_BUDGET_SECONDS = 120.0
 QUEUED_FILLS_ALERT_SYMBOLS = 10
 # How many fills the day's [PAPER] message lists before "and N more".
 PAPER_FILLS_MESSAGE_LINES = 20
+
+STOP_CHECK_BUDGET_SECONDS_ENV = "STOP_CHECK_BUDGET_SECONDS"
+# A check is a few queries, plus one history download for a symbol whose
+# newest closed bar isn't stored yet. Its own budget, not the queued fills':
+# a slow fill must not leave the stops unchecked.
+DEFAULT_STOP_CHECK_BUDGET_SECONDS = 120.0
+STOP_CHECK_ALERT_SYMBOLS = 10
+# How many stops the breach alert lists before "and N more".
+STOP_ALERT_MESSAGE_LINES = 20
 
 OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV = "OHLCV_CLOSEOUT_BUDGET_SECONDS"
 DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS = 300.0
@@ -645,6 +655,127 @@ def report_paper_fills(orders, notifier, owner, today=None) -> int:
         return 0
 
 
+def check_stops(stops, budget_seconds=None, clock=time.monotonic, today=None) -> dict:
+    """Test every active stop against the closed bars it hasn't seen (#431, #221).
+
+    ``StopsService`` holds the rules (which stops are due, what a bar does to
+    one, alert or sell); this walks them under a wall-clock budget. Stops
+    whose holding is gone are closed first. One bad stop degrades one row.
+    ``waiting`` counts stops with no new closed bar; ``skipped`` those that
+    stopped being active between the listing and the check.
+
+    The summary is what the loop saw. Whether stops are still unchecked is
+    ``alert_if_stops_unchecked``'s question, and it asks the database.
+    """
+    budget = (_env_float(STOP_CHECK_BUDGET_SECONDS_ENV, DEFAULT_STOP_CHECK_BUDGET_SECONDS)
+              if budget_seconds is None else budget_seconds)
+    today = today or market_date()
+    closed = stops.close_flat_stops()
+    due = stops.due_stops(today=today)
+    print(f"Checking {len(due)} stop(s), budget {budget:.0f}s...")
+
+    started = clock()
+    summary = {"due": len(due), "closed_flat": closed, "attempted": 0, "triggered": 0,
+               "checked": 0, "waiting": 0, "skipped": 0, "failed": 0}
+    for stop in due:
+        if clock() - started >= budget:
+            break
+        summary["attempted"] += 1
+        try:
+            result = stops.check_stop(
+                owner=stop["owner"], book_id=stop["book_id"],
+                stop_id=stop["stop_id"], today=today)
+            outcome = result["outcome"]
+            summary[outcome if outcome in summary else "skipped"] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad stop must not stop the walk
+            summary["failed"] += 1
+            print(f"  stop {stop['stop_id']} ({stop['symbol']}): check failed "
+                  f"({type(exc).__name__})")
+
+    summary["elapsed_seconds"] = clock() - started
+    summary["budget_exhausted"] = summary["attempted"] < summary["due"]
+    print(f"Stop checks: {summary['triggered']} triggered, {summary['checked']} held, "
+          f"{summary['waiting']} waiting, {summary['skipped']} skipped, "
+          f"{summary['failed']} failed, {summary['due'] - summary['attempted']} "
+          f"not attempted, {closed} closed with their holding gone, "
+          f"{summary['elapsed_seconds']:.0f}s.")
+    return summary
+
+
+def alert_if_stops_unchecked(stops, notifier, today=None) -> bool:
+    """Alarm when an active stop has not been tested against today's bar.
+
+    Reads what is in the database after the checks, not the loop's summary, so
+    it also catches a step that ran out of budget, a symbol whose bar never
+    arrived, and a check that reported success and didn't commit. A stop that
+    can't be checked can't fire, so this fires the first night. Names symbols
+    and sessions, never an owner.
+    """
+    left = stops.due_stops(today=today or market_date())
+    if not left:
+        return False
+    symbols = sorted({s["symbol"] for s in left})
+    sample = symbols[:STOP_CHECK_ALERT_SYMBOLS]
+    checked = [s["last_bar_checked"] for s in left]
+    oldest = None if any(c is None for c in checked) else min(checked).isoformat()
+    print(f"ERROR: {len(left)} active stop(s) were not tested against today's bar, "
+          f"across {len(symbols)} symbol(s), e.g. {', '.join(sample)}; oldest check "
+          f"{oldest or 'never'}.", file=sys.stderr)
+    try:
+        notifier.send_unchecked_stops_alert(len(left), sample, len(symbols), oldest)
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        print(f"  (failed to send the unchecked-stops alert: {type(exc).__name__})",
+              file=sys.stderr)
+    return True
+
+
+def run_stop_checks(stops, notifier, budget_seconds=None, clock=time.monotonic,
+                    today=None) -> None:
+    """Check the stored stops, then alarm on any left unchecked. Never raises.
+
+    Runs straight after the queued fills (#431 step 4.2), and has to: a
+    queued order fills at its session's open, before anything that session's
+    bar did to a stop. A stop it doesn't reach tonight is tested against the
+    same bars on a later night. The alarm runs even when the checks raise.
+    """
+    today = today or market_date()
+    try:
+        check_stops(stops, budget_seconds=budget_seconds, clock=clock, today=today)
+    except Exception as exc:  # noqa: BLE001 — a tail step must not fail the job
+        print(f"ERROR: stop checks failed: {type(exc).__name__}", file=sys.stderr)
+    try:
+        alert_if_stops_unchecked(stops, notifier, today=today)
+    except Exception as exc:  # noqa: BLE001 — a check on the step must not fail the job
+        print(f"ERROR: unchecked-stops check failed: {type(exc).__name__}", file=sys.stderr)
+
+
+def report_triggered_stops(stops, notifier, owner, today=None) -> int:
+    """Alert that closed bars reached stops in ``owner``'s real book (#431, #221).
+
+    One message for every triggered real-book stop whose alert has not gone
+    out, whichever night it was triggered: it reads what is in the database,
+    and a stop is marked alerted only after Discord took the message. So a
+    failed send is made up on the next run, and a sent one is never repeated.
+    Only ``owner``'s: the job's webhook is theirs. A paper book's stop is
+    reported by its sale, in the day's ``[PAPER]`` fills. Returns the number
+    of stops reported. **Never raises.**
+    """
+    try:
+        owed = stops.unalerted_triggers(owner=owner)
+        if not owed:
+            return 0
+        day = (today or market_date()).isoformat()
+        print(f"Reporting {len(owed)} stop(s) reached in the real book.")
+        if not notifier.send_stop_alert(owed[:STOP_ALERT_MESSAGE_LINES], len(owed), day):
+            print("ERROR: the stop alert was not sent; it stays owed.", file=sys.stderr)
+            return 0
+        stops.mark_alerted(owner=owner, stop_ids=[s["stop_id"] for s in owed])
+        return len(owed)
+    except Exception as exc:  # noqa: BLE001 — an alert must not fail the job
+        print(f"ERROR: stop alert failed: {type(exc).__name__}", file=sys.stderr)
+        return 0
+
+
 def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     """Alarm — loudly — when the watchlist table comes back empty (issue #83).
 
@@ -987,8 +1118,20 @@ if __name__ == "__main__":
                        DEFAULT_QUEUED_FILLS_BUDGET_SECONDS), job_started),
     )
 
-    # The day's paper fills, in-hours and queued, as one [PAPER] message.
+    # Every stored stop against the closed bars it hasn't seen (#431, #221).
+    # After the queued fills: an order fills at its session's open, before
+    # that session's bar can reach a stop.
+    run_stop_checks(
+        get_services().stops, notifier,
+        budget_seconds=_remaining_budget(
+            _env_float(STOP_CHECK_BUDGET_SECONDS_ENV,
+                       DEFAULT_STOP_CHECK_BUDGET_SECONDS), job_started),
+    )
+
+    # The day's paper fills, in-hours, queued and stop sales, as one [PAPER]
+    # message, then the real book's stops that were reached.
     report_paper_fills(get_services().orders, notifier, notifier.owner)
+    report_triggered_stops(get_services().stops, notifier, notifier.owner)
 
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps

@@ -38,18 +38,40 @@ _PAPER_PRICE_NOTES = {
     "session_open": ", the opening price",
     None: ", the last good price",
 }
+# A sale a stop made: at its level, or at the open when the stock opened below it.
+_PAPER_STOP_PRICE_NOTES = {
+    "session_open": ", the opening price, below its stop",
+    None: ", its stop level",
+}
+
+
+def _money(value) -> str:
+    """A price in dollars. Sub-dollar prices are kept to a hundredth of a cent."""
+    price = Decimal(str(value))
+    return f"${price:,.4f}" if price < 1 else f"${price:,.2f}"
 
 
 def _paper_fill_line(fill: dict) -> str:
     """One paper fill in words: the book, what happened, and at what price."""
     verb = _PAPER_FILL_VERBS.get((fill.get("kind"), fill.get("side")), fill.get("side"))
-    price = Decimal(str(fill["fill_price"]))
-    # Sub-dollar prices fill to a hundredth of a cent.
-    shown = f"${price:,.4f}" if price < 1 else f"${price:,.2f}"
+    notes = _PAPER_PRICE_NOTES
+    if fill.get("source") == "stop":
+        verb, notes = "sold by its stop", _PAPER_STOP_PRICE_NOTES
     return (
         f"{fill['book_name']}: {verb} {format_quantity(fill['filled_shares'])} "
-        f"{fill['symbol']} at {shown}{_PAPER_PRICE_NOTES.get(fill.get('price_source'), '')}"
+        f"{fill['symbol']} at {_money(fill['fill_price'])}{notes.get(fill.get('price_source'), '')}"
     )
+
+
+def _stop_alert_line(stop: dict) -> str:
+    """One real-book stop that a closed bar reached, in words."""
+    level = _money(stop["stop_level"])
+    kind = f"trailing {stop['trail_pct'].normalize():f}%" if stop["kind"] == "trailing" else "fixed"
+    if stop["trigger_price"] < stop["stop_level"]:
+        what = f"opened at {_money(stop['trigger_price'])}, below its stop at {level}"
+    else:
+        what = f"traded down to its stop at {level}"
+    return f"{stop['symbol']}: {what} ({kind}) on {stop['triggered_session']}"
 
 
 class Notifier:
@@ -582,6 +604,63 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_unchecked_stops_alert(
+        self, stop_count: int, symbols: list, symbol_count: int, oldest_check
+    ) -> None:
+        """Alarm that active stops were not tested against today's bar by the
+        daily job's stop check (#431, #221). ``symbols`` is a sample;
+        ``oldest_check`` is the oldest last-tested session among them, or None
+        when one has never been tested. No owner is named: the channel is shared."""
+        sample = ", ".join(symbols)
+        more = f" and {symbol_count - len(symbols)} more" if symbol_count > len(symbols) else ""
+        oldest = (f"The longest-unchecked was last tested against the {oldest_check} bar."
+                  if oldest_check else "At least one has never been tested.")
+        embed = {
+            "content": f"Stops Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": "Stops were not checked against today's bar",
+                    "description": (
+                        f"- {stop_count} active stop(s) were not tested against today's "
+                        f"closed bar, across {symbol_count} symbol(s): {sample}{more}.\n"
+                        f"- {oldest}\n"
+                        "- A stop that isn't checked can't fire. Each is tested against "
+                        "every bar it missed on the next run that finds them."
+                    ),
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
+    def send_stop_alert(self, stops: list, stop_count: int, day: str) -> bool:
+        """Alert that closed bars reached stops in the real book (#431, #221).
+
+        ``stops`` are triggered stops, at most the number the message lists;
+        ``stop_count`` is how many there were. Nothing was sold: a real-book
+        stop is a record. Returns False when the message did not go out (no
+        webhook is set, or Discord refused it), so the caller can leave the
+        alert owed.
+        """
+        lines = [f"- {_stop_alert_line(stop)}" for stop in stops]
+        if stop_count > len(stops):
+            lines.append(f"- and {stop_count - len(stops)} more")
+        embed = {
+            "content": f"Stop Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"{stop_count} stop(s) reached, reported {day}",
+                    "description": (
+                        "\n".join(lines)
+                        + "\nChecked against closed daily bars. Nothing was sold: sell at "
+                        "your broker, then record the sale."
+                    ),
+                    "color": 16711680,
+                }
+            ]
+        }
+        return self.send_notifications(embed) is not False
+
     def send_paper_fills(self, fills: list, fill_count: int, day: str) -> None:
         """Report the day's paper fills (#431), marked ``[PAPER]``.
 
@@ -652,9 +731,14 @@ class Notifier:
         webhook_url = webhook_url or self.discord_webhook_url
         if not webhook_url:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Discord webhook URL not set. Skipping notification.')
-            return
+            # Nothing was sent, so a caller that tracks delivery must not
+            # count this one as delivered.
+            return False
         results = requests.post(webhook_url, json=embed)
         if 200 <= results.status_code < 300:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Notification sent successfully.')
-        else:
-            print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Failed to send notification. Status code: {results.status_code}, Response: {results.text}')
+            return True
+        print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Failed to send notification. Status code: {results.status_code}, Response: {results.text}')
+        # Discord answered and refused. Only a skipped duplicate returns None:
+        # that message went out earlier.
+        return False

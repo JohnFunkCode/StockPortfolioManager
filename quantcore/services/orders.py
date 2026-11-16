@@ -19,6 +19,10 @@ system sets every fill; the owner never types a price.
 - **A position whose symbol can't be quoted is closed by hand**
   (`close_unquoted`), in one filled order at the last good price on record.
   The owner still types no price, and a symbol that has a quote is refused.
+- **A stop that a closed bar reached sells the whole position** (`sell_for_stop`,
+  plan step 4.2), at the price the checker worked out: the stop's level, or
+  the session's open when the stock opened under it. The stop is marked
+  `triggered` in the sale's transaction, so neither exists without the other.
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -71,6 +75,10 @@ MAX_SOURCE_REF_LENGTH = 200
 
 # What a manual close writes on its sale rows, with the date the price is from.
 MANUAL_CLOSE_NOTE = "Closed by hand at the last good price, from {as_of}: no quote"
+
+# What a stop's sale writes on its sale rows.
+STOP_SALE_NOTE = "Sold by its stop at {level}"
+STOP_GAP_SALE_NOTE = "Sold by its stop at {level}: opened below it, so filled at the open"
 
 # A paper sale takes the oldest lots first. The owner picks no lots: the
 # system sets every part of a paper fill.
@@ -180,6 +188,24 @@ def _quote_facts(quote) -> Dict[str, Any]:
         "regular_price": quote.regular_price,
         "regular_time": quote.regular_time,
     }
+
+
+def _opened_by(lots: List[Dict[str, Any]], session: datetime.date) -> List[Dict[str, Any]]:
+    """The lots opened on or before `session`. A lot's `trade_date` is a date
+    and its `purchase_date` text, so both are compared as ISO dates."""
+    through = session.isoformat()
+    return [
+        lot for lot in lots
+        if str(lot["trade_date"] or lot["purchase_date"] or "")[:10] <= through
+    ]
+
+
+def _stop_sale_terms(price: Decimal, stop_level: Decimal):
+    """A stop sale's `price_source` and the note on its sale rows. A price
+    under the level means the stock opened below it and filled at the open."""
+    if price < stop_level:
+        return orders_math.PRICE_FROM_SESSION_OPEN, STOP_GAP_SALE_NOTE.format(level=stop_level)
+    return None, STOP_SALE_NOTE.format(level=stop_level)
 
 
 def _tally(orders: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -543,11 +569,14 @@ class OrdersService:
         quote_time: Optional[datetime.datetime],
         now: datetime.datetime,
         sale_notes: Optional[str] = None,
+        lots: Optional[List[Dict[str, Any]]] = None,
     ) -> None:
         """Fill a pending order at `price` on its transaction, or reject it
         when the book can't cover it. The trade's date is the order's session.
-        `price_source` is None for a manual close only, which is also the
-        only fill that writes `sale_notes` on its sale rows.
+        `price_source` is None for a manual close and for a stop's sale at its
+        level, which are also the only fills that write `sale_notes` on their
+        sale rows. `lots` limits a sell to those lots (a stop's sale); without
+        it a sell draws on every OPEN lot of the symbol.
 
         The trade's rows are written first and the order is marked last, so
         the cash check reads the ledger as it will be. A trade the book can't
@@ -557,7 +586,7 @@ class OrdersService:
         if order["side"] == orders_math.BUY:
             shares, reason = self._buy(tx, order, price)
         else:
-            shares, reason = self._sell(tx, order, price, sale_notes)
+            shares, reason = self._sell(tx, order, price, sale_notes, lots)
         if reason is not None:
             tx.undo_trade()
             self._reject(tx, order, reason, now)
@@ -604,12 +633,15 @@ class OrdersService:
     def _sell(
         self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal,
         notes: Optional[str] = None,
+        lots: Optional[List[Dict[str, Any]]] = None,
     ):
         """Write a sell's sale rows, oldest lots first. Returns
         `(shares, None)`, or `(None, reason)` when the book doesn't hold them."""
         shares = order["requested_shares"]
+        if lots is None:
+            lots = tx.open_lots(order["symbol"])
         try:
-            allocation = portfolio_math.allocate(tx.open_lots(order["symbol"]), shares, SELL_METHOD)
+            allocation = portfolio_math.allocate(lots, shares, SELL_METHOD)
         except portfolio_math.LotAllocationError:
             return None, orders_math.INSUFFICIENT_SHARES
         tx.sell(
@@ -618,6 +650,85 @@ class OrdersService:
             notes=notes,
         )
         return shares, None
+
+    # ------------------------------------------------------------------
+    # A stop's sale (the bar-close checker, plan step 4.2)
+    # ------------------------------------------------------------------
+    def sell_for_stop(
+        self,
+        *,
+        owner: str,
+        stop_id: int,
+        symbol: str,
+        session: datetime.date,
+        price: Decimal,
+        stop_level: Decimal,
+        high_water_mark: Optional[Decimal],
+        book_id: Optional[int] = None,
+        now: Optional[datetime.datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Sell a paper book's whole position in `symbol` because a closed
+        bar reached its stop, and mark the stop `triggered`, in one
+        transaction. Returns the filled order, or None when nothing was sold.
+
+        `session` is the bar that reached the stop and `price` what it was
+        reached at (`analytics.stored_stops.trigger_for`): the sale is dated
+        that session and fills at that price. `stop_level` and
+        `high_water_mark` are the terms the stop was reached with.
+
+        Only lots opened on or before `session` are sold. A lot bought after
+        it (a late run that fills a later session's queued buy first) was
+        never under this stop, and stays. With no such lot the stop is
+        marked `closed` and nothing is sold. A stop that is no longer active
+        once the book is locked changes nothing.
+
+        The book may be archived by the time this runs: the checker walks
+        only books that are not, and a stop reached before the book was
+        archived is still carried out. Raises `ValueError` for the real book
+        and `BookNotFoundError` for a book that isn't the owner's.
+        """
+        book = self._book(owner, book_id)
+        if book is None or book["kind"] == REAL:
+            raise ValueError("a stop sells only in a paper book: a real book's stop is an alert")
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+
+        with self._repo.transaction(owner=owner, book_id=book_id) as tx:
+            lots = _opened_by(tx.open_lots(symbol), session)
+            if not lots:
+                tx.close_stop(stop_id, resolved_at=now)
+                return None
+            # The stop first: the sale below leaves the book flat, and a flat
+            # symbol's active stop is closed by the sale's own transaction.
+            if not tx.trigger_stop(
+                stop_id, stop_level=stop_level, high_water_mark=high_water_mark,
+                triggered_session=session, trigger_price=price, resolved_at=now,
+            ):
+                return None
+            order, created = tx.insert({
+                "kind": orders_math.MARKET,
+                "side": orders_math.SELL,
+                "requested_shares": _held(lots),
+                "requested_amount": None,
+                "symbol": symbol,
+                "source": orders_math.STOP,
+                "source_ref": f"stop:{stop_id}",
+                "idempotency_key": f"stop:{stop_id}",
+                "session_date": session,
+                "placed_at": now,
+            })
+            if not created:
+                raise RuntimeError("this stop already has an order")
+            price_source, note = _stop_sale_terms(price, stop_level)
+            self._fill(
+                tx, order, price=price, price_source=price_source, quote_time=None, now=now,
+                sale_notes=note, lots=lots,
+            )
+            sale = tx.get(order["order_id"])
+            if sale["status"] != orders_math.FILLED:
+                # Raising undoes the stop's change with the rest: a stop is
+                # never triggered in a paper book without its sale.
+                raise RuntimeError("the stop's sale did not fill")
+            return _public(sale)
 
     # ------------------------------------------------------------------
     # Queued fills (the daily job, plan step 3.4)

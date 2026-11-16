@@ -469,8 +469,9 @@ The last three are final. The rules, and why each is there:
   `pending`.
 
 **Where a trade came from.** `orders.source` and `lot_sales.source` are one of `manual`, `stop`,
-`harvester`, `evaluator`, `watch` and `ai`, with `source_ref` pointing at what prompted it. Only
-`manual` has a writer today. Every sale from before V17 is `manual`. The lot a buy fills
+`harvester`, `evaluator`, `watch` and `ai`, with `source_ref` pointing at what prompted it.
+`manual` is the owner's own order and `stop` a sale the stop checker made (`source_ref` is
+`stop:<stop_id>`); the others have no writer yet. Every sale from before V17 is `manual`. The lot a buy fills
 (`positions.order_id`) and the sale rows a sell fills (`lot_sales.order_id`) name their order,
 and the remainder lot of a split keeps the order that bought its parent.
 
@@ -520,10 +521,10 @@ share count, a manual close is a sell.
 
 ### Stored stops
 
-A stop is the owner's decision to get out of a holding at a level (`stops`, V19, #431 phase 2
-and #221, plan step 4.1). The table records the decision. **Nothing reads it to act yet**: the
-checker that tests a stop against closed bars, alerts for a real book and sells for a paper one
-is plan step 4.2. Nothing here places an order at a broker.
+A stop is the owner's decision to get out of a holding at a level (`stops`, V19 and V20, #431
+phase 2 and #221, plan steps 4.1 and 4.2). The table records the decision, and the daily job
+tests it against closed bars ([the stop checker](#the-stop-checker), below). Nothing here places
+an order at a broker.
 
 - **A stop is set on a symbol in one book, not on a lot.** Lots bought later are covered by the
   same stop. Both kinds of book take stops.
@@ -535,13 +536,13 @@ is plan step 4.2. Nothing here places an order at a broker.
   what was set, how, and what became of it is the record that says which stop method works.
 - **A stop needs a holding.** `StopsRepository.set_stop` reads the book's OPEN lots of the
   symbol on its own connection and raises `SymbolNotHeldError` (a 422) when there are none.
-  A stop is not yet closed when its position goes flat. That is step 4.2.
+  When the position goes flat the stop is marked `closed`.
 - **Fixed or trailing.** A fixed stop is a price. A trailing stop is `trail_pct` percent below
   `high_water_mark`, and `stop_level` holds the level worked out from the two, so no reader has
-  to. The mark starts at the last close. The checker will raise it and never lower it.
+  to. The mark starts at the last close. The checker raises it and never lowers it.
 - **A stop sits below the last close**, which is the newest stored closed daily bar's
-  (`PricesService.last_close`, zero network). It is the price the checker will test against, so
-  a stop at or above it would be broken by the bar it was set on. With no stored close a fixed
+  (`PricesService.last_close`, zero network). The checker tests against closed bars too, so
+  a stop at or above the last close would be reached by the next bar almost by definition. With no stored close a fixed
   stop is taken as typed and a trailing stop is refused. The owner types no high-water mark.
 - **A level is rounded to the market's tick** (`analytics.orders.fill_price`), so a stop and the
   fill it later causes can be compared exactly.
@@ -567,6 +568,60 @@ is plan step 4.2. Nothing here places an order at a broker.
 
 No UI reaches these routes yet (plan steps 4.3 and 4.5), and no MCP tool or Sidekick tool reads
 a stop (step 5.4).
+
+#### The stop checker
+
+The daily job tests every active stop against closed daily bars
+([daily-jobs.md](daily-jobs.md#stop-checks) has the step). The rules are
+`analytics.stored_stops.check_stop`; `StopsService.check_stop` gathers the bars and writes the
+outcome. Four columns from V20 hold what it finds: `last_bar_checked`, `triggered_session`,
+`trigger_price` and `alerted_at`.
+
+- **Closed bars only.** A forming bar's low is not final. A stop reached by it could be
+  un-reached by the finished bar.
+- **The first bar tested is the first session that opens after the stop was set**
+  (`first_session`). The bar that was already trading when the stop was set is never tested:
+  its low may be from before the stop existed, and a paper fill at that price would be a trade
+  at a price the stop never saw. What it costs: a stop set at 11:00 and crossed at 14:00 is not
+  caught that evening. The next bar catches it, usually as an open under the level.
+- **Every bar since `last_bar_checked` is tested, oldest first.** A night the job missed is
+  made up on the next run, and the stop is triggered on the bar that reached it, not on the
+  night it was noticed.
+- **A bar reaches a stop when its low is at or under the level.** A close back above the level
+  doesn't undo it: a real stop order fills when price touches it.
+- **The price is the level, or the open when the stock opened under the level** (plan
+  decision 5). `trigger_price` holds it, and `trigger_price < stop_level` is how a reader
+  tells a gap.
+- **A trailing stop's mark rises to a bar's high, after that bar is tested.** A daily bar
+  doesn't say whether its high or its low came first, so a bar is tested against the level it
+  started with. A bar whose high lifts the level above its own low is settled by the next bar.
+  The level never falls.
+- **Real books alert, paper books act.** A real book's stop is marked `triggered` and nothing
+  is sold. A paper book's whole position in the symbol is sold by `OrdersService.sell_for_stop`:
+  one `market` sell order with `source = 'stop'`, `source_ref = 'stop:<id>'` and the
+  idempotency key `stop:<id>`, dated the bar's session. Its `price_source` is `session_open`
+  for a gap and NULL at the level (a new value would widen a `CHECK`, which the migrate Job
+  refuses). Each sale row carries a note saying a stop sold it.
+- **The stop and its sale commit together.** The stop is marked `triggered` first, on the
+  order's transaction, then the sale is written. If the sale fails, both roll back and the stop
+  is still active for the next run. A stop that stopped being active once the book is locked
+  sells nothing.
+- **Only lots opened on or before the bar's session are sold.** On a late run a later
+  session's queued buy has already filled; that lot was never under the stop and stays.
+- **A queued sell of the same symbol is left alone.** It is rejected `insufficient_shares` at
+  its session if the stop sold the shares first.
+- **`triggered` is final.** A real-book stop that was reached is done even if the owner keeps
+  the holding. A new stop is a new row.
+- **The breach alert is owed until Discord takes it** (`alerted_at`), is sent once, and covers
+  the job owner's real book only.
+- **A stop is closed when its position goes flat.** `PortfolioRepository.close_lots_on` runs
+  `stop_sql.close_flat_stops_on` in the sale's own transaction, for a real sale and a paper one
+  alike, and every checker run does the same for each live book. The second covers a deleted
+  lot, an import, and a stop set in the moment its last lot was sold: setting a stop and a
+  real-book sale don't share a lock.
+- **An archived book's stops are not checked.** They stay `active` and nothing reads them.
+- **A split looks like a fall** (#391). Nothing adjusts a stop for one, so a 2-for-1 split
+  triggers every stop on the symbol.
 
 ### Realized P/L
 

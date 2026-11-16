@@ -112,12 +112,12 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
-this order** — notifications → queued paper fills, then the day's `[PAPER]` fills message (#431) → options capture → gamma/GEX (from the
+this order** — notifications → queued paper fills → stop checks, then the day's `[PAPER]` fills message and the real book's stop alert (#431, #221) → options capture → gamma/GEX (from the
 persisted snapshot, no Yahoo calls) → capture health check → news staleness → fundamentals
 warming → OHLCV close-out (#518). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
 
-- The warming pass, the capture tail, the queued paper fills and the OHLCV close-out are each
+- The warming pass, the capture tail, the queued paper fills, the stop checks and the OHLCV close-out are each
   wrapped in an outer `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
   made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
   halves.
@@ -128,7 +128,8 @@ effects land before anything that can run long. Rules to keep:
 - Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
-  `GEX_RECORD_BUDGET_SECONDS`, `QUEUED_FILLS_BUDGET_SECONDS`, `OHLCV_CLOSEOUT_BUDGET_SECONDS`,
+  `GEX_RECORD_BUDGET_SECONDS`, `QUEUED_FILLS_BUDGET_SECONDS`, `STOP_CHECK_BUDGET_SECONDS`,
+  `OHLCV_CLOSEOUT_BUDGET_SECONDS`,
   `NEWS_*`) fall back to the default on an unparseable value — a typo
   must not silently disarm an alarm.
 - The job exits 0 on NYSE-closed days (`is_trading_day`), notifications included.
@@ -312,9 +313,21 @@ lot. Rules to keep:
   symbol the book holds an OPEN lot of, and its level sits below the last stored close
   (`PricesService.last_close`, zero network; don't add a live quote there). A trailing stop
   stores the level worked out from its percentage and high-water mark, and the owner types no
-  mark. No route takes a `source` or a status. `method` has no `CHECK` on purpose. Nothing
-  acts on a stop yet: the checker is step 4.2. Why:
+  mark. No route takes a `source` or a status. `method` has no `CHECK` on purpose. Why:
   [`data.md`](docs/architecture/data.md#stored-stops).
+- **The daily job checks every active stop against closed daily bars, and only the job does**
+  (`run_stop_checks`, step 4.2). It runs **after the queued fills**: an order fills at its
+  session's open, before that session's bar can reach a stop. A stop is tested from the first
+  session that opens after it was set, through every closed bar since `last_bar_checked`, so
+  a missed night is made up; don't test only the latest bar, or a forming one. A bar whose
+  low reached the level triggers the stop, at the level or at the open when the stock opened
+  under it. **A real book's stop only alerts; a paper book's sells the whole position**
+  (`OrdersService.sell_for_stop`), and the stop is marked `triggered` in the sale's
+  transaction: never one without the other. The breach alert is sent once
+  (`stops.alerted_at`, marked only after Discord took it) and for the job owner's real book
+  only. A sale that leaves a symbol flat closes its stop in the same transaction
+  (`stop_sql.close_flat_stops_on`), and every checker run closes the rest. An archived
+  book's stops are not checked. Why: [`data.md`](docs/architecture/data.md#the-stop-checker).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.
 - `tests/test_book_isolation_coverage.py` enforces the first two the way the owner test does
@@ -344,8 +357,8 @@ Table list, why the writers disagree, and the SQLite migration script:
 Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and FastAPI routes (`api/routers/*`, app assembled in `api/main.py`) are thin adapters that are **exactly one service call deep**.
 
 - **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination), `AnthropicGateway` + `KeyproxyGateway` (the Sidekick/BYOK hops, with `keyproxy_fake.py` for tests). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`. **Live quotes come from `YFinanceGateway.batch_quotes`** (Yahoo's v7 batch endpoint, 100 symbols per request; #518): `yf.download` with many tickers is one request *per ticker*, so don't route quotes back through it. `batch_quotes` uses `yfinance.data.YfData`, the one yfinance internal in use, imported at module level so a release that moves it fails CI rather than prod; `tests/test_yfinance_batch_quotes.py` pins its signature. Details: [`docs/architecture/data.md`](docs/architecture/data.md#live-quotes).
-- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `BooksRepository`, `CashRepository` (with `cash_entry_sql.py`, the rows a lot or sale writes), `OrdersRepository`, `StopsRepository`, `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
-- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups, allocation-bar segments, realized P/L on recorded sales), `returns.py` (close-to-close trailing/YTD/1-year returns and market-cap currency normalization — the single correct copy; the five columns in `portfolio/metrics.py` are the legacy report script's and disagree, deliberately), `market_time.py` (session and trading-day arithmetic, the Realized view's rolling windows), `cash.py` (which cash entries count, and the running balance), `orders.py` (whether a paper order fills, queues or is rejected, and a fill's price and share count), `stored_stops.py` (the terms of a stop the owner sets: a fixed level, or a trailing level from its percentage and high-water mark; not to be confused with `stops.py`, which *places* a stop), `fx.py` (which daily close rates a trade date: the prior-close rule), `levels.py` (support-confluence clustering, method weights, zone scoring and stop-zone marking), `stops.py` (technical/trailing/confluence stop placement, short-interest calibration, drawdown replay, P&L at stop — the services only *gather* their inputs, so one gather can feed several computations; #399, [`stop-loss-card-plan.md`](docs/proposals/stop-loss-card-plan.md)).
+- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `BooksRepository`, `CashRepository` (with `cash_entry_sql.py`, the rows a lot or sale writes), `OrdersRepository`, `StopsRepository` (with `stop_sql.py`, the stop statements a trade's transaction runs), `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
+- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups, allocation-bar segments, realized P/L on recorded sales), `returns.py` (close-to-close trailing/YTD/1-year returns and market-cap currency normalization — the single correct copy; the five columns in `portfolio/metrics.py` are the legacy report script's and disagree, deliberately), `market_time.py` (session and trading-day arithmetic, the Realized view's rolling windows), `cash.py` (which cash entries count, and the running balance), `orders.py` (whether a paper order fills, queues or is rejected, and a fill's price and share count), `stored_stops.py` (the terms of a stop the owner sets: a fixed level, or a trailing level from its percentage and high-water mark, and what a run of closed bars does to one; not to be confused with `stops.py`, which *places* a stop), `fx.py` (which daily close rates a trade date: the prior-close rule), `levels.py` (support-confluence clustering, method weights, zone scoring and stop-zone marking), `stops.py` (technical/trailing/confluence stop placement, short-interest calibration, drawdown replay, P&L at stop — the services only *gather* their inputs, so one gather can feed several computations; #399, [`stop-loss-card-plan.md`](docs/proposals/stop-loss-card-plan.md)).
 - **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsContractsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `BooksService`, `CashService`, `OrdersService`, `StopsService`, `WatchlistService`, `SettingsService`, `IdentityService`, `ChatService` (+ `chat_tools.py`, `chat_fake.py`), `ArbitrageService`, `RecommendationsService` (composes the other services).
 - **Every Sidekick model call is admitted by the daily token budget** (G2, #461;
   `quantcore/services/chat_budget.py`). Reserve the call's worst case *before* it — an atomic

@@ -6,7 +6,7 @@ verbatim; these models document the surface and validate requests.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import List, Literal, Optional
 
@@ -40,6 +40,16 @@ class Stop(BaseModel):
     created_at: datetime
     # When it stopped being active. None while it is.
     resolved_at: Optional[datetime] = None
+    # The session of the newest closed daily bar the checker has tested the
+    # stop against. None until its first check.
+    last_bar_checked: Optional[date] = None
+    # For a triggered stop: the session of the bar that reached it, and the
+    # price it was reached at (its level, or that session's open when the
+    # stock opened below the level).
+    triggered_session: Optional[date] = None
+    trigger_price: Optional[Decimal] = None
+    # When a real-book stop's breach alert went out.
+    alerted_at: Optional[datetime] = None
     # On the answer to a new stop: the stop it took over from, if any.
     replaced_stop_id: Optional[int] = None
 

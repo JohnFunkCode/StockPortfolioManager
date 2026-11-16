@@ -20,14 +20,26 @@ The rules:
 - **A level is rounded to the market's tick**, the same rule a fill price
   uses, so a stop and the fill it later causes can be compared exactly.
 - **Only an active stop is live.** Every other status is final.
+- **A stop is tested against closed daily bars, starting with the first
+  session that opens after it was set** (`first_session`, `check_stop`; plan
+  step 4.2). A bar that was already trading when the stop was set is not
+  tested: its low may be from before the stop existed.
+- **A bar reaches a stop when its low is at or under the level.** The stop
+  is then reached at its level, or at the bar's open when the stock opened
+  under the level (plan decision 5).
+- **A trailing stop's mark rises to a bar's high, after that bar is
+  tested.** A daily bar doesn't say whether its high or its low came first,
+  so a bar is tested against the level it started with.
 """
 
 from __future__ import annotations
 
+import datetime
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Optional
+from typing import Any, Iterable, Mapping, Optional
 
+from quantcore.analytics import market_time
 from quantcore.analytics.orders import fill_price
 
 FIXED = "fixed"
@@ -131,3 +143,113 @@ def stop_terms(
     if stop_level is not None:
         raise ValueError("a trailing stop takes a trail_pct, not a stop_level: its level is worked out")
     return _trailing_terms(trail_pct, reference)
+
+
+# --------------------------------------------------------------------------
+# Checking a stop against closed daily bars (plan step 4.2)
+# --------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class Trigger:
+    """The bar that reached a stop. `price` is what it was reached at: the
+    `level`, or the bar's open when the stock opened under it (`gapped`)."""
+
+    session: datetime.date
+    price: Decimal
+    level: Decimal
+    gapped: bool
+
+
+@dataclass(frozen=True)
+class StopCheck:
+    """A stop after a run of bars. `last_bar` is the session of the newest
+    bar tested, or None when none was. `stop_level` and `high_water_mark` are
+    the terms after those bars: for a triggered stop, the ones it was reached
+    with. `trigger` is None while the stop holds."""
+
+    stop_level: Decimal
+    high_water_mark: Optional[Decimal]
+    last_bar: Optional[datetime.date]
+    trigger: Optional[Trigger] = None
+
+
+def first_session(created_at: datetime.datetime) -> datetime.date:
+    """The first session a stop is tested against: the first one to open
+    after it was set. `created_at` is timezone-aware.
+
+    A stop set before 9:30 ET on a trading day is tested against that day's
+    bar. One set during the session or after it starts with the next
+    session's bar.
+    """
+    return market_time.upcoming_session(created_at)
+
+
+def next_bar_date(
+    created_at: datetime.datetime, last_bar_checked: Optional[datetime.date]
+) -> datetime.date:
+    """The earliest session whose bar a stop still has to be tested against."""
+    first = first_session(created_at)
+    if last_bar_checked is None:
+        return first
+    return max(first, last_bar_checked + datetime.timedelta(days=1))
+
+
+def is_due(
+    created_at: datetime.datetime,
+    last_bar_checked: Optional[datetime.date],
+    today: datetime.date,
+) -> bool:
+    """Whether a stop is owed a check on the market date `today`: its first
+    session has come and today's bar hasn't been tested."""
+    return next_bar_date(created_at, last_bar_checked) <= today
+
+
+def _price(value: Any) -> Optional[Decimal]:
+    """A bar's price as a Decimal, or None when it is missing, not a number
+    or not above zero."""
+    if value is None:
+        return None
+    number = Decimal(str(value))
+    return number if number.is_finite() and number > _ZERO else None
+
+
+def trigger_for(session: datetime.date, level: Decimal, open_price: Decimal) -> Trigger:
+    """What a bar that reached `level` did to the stop. The stop is reached
+    at its level, or at the open when the stock opened under it."""
+    opened = fill_price(open_price)
+    if opened < level:
+        return Trigger(session=session, price=opened, level=level, gapped=True)
+    return Trigger(session=session, price=level, level=level, gapped=False)
+
+
+def check_stop(
+    *,
+    kind: str,
+    stop_level: Decimal,
+    trail_pct: Optional[Decimal],
+    high_water_mark: Optional[Decimal],
+    bars: Iterable[Mapping[str, Any]],
+) -> StopCheck:
+    """Test a stop against closed daily bars, oldest first.
+
+    Each bar has `session`, `open`, `high` and `low`. The caller passes only
+    the bars the stop has not been tested against. A bar with a missing or
+    non-positive price is left out.
+
+    - A bar whose low is at or under the level reaches the stop, and the walk
+      ends there (`trigger_for` gives the price).
+    - Otherwise, for a trailing stop, a high above the mark raises the mark
+      and the level with it. The level never falls.
+    """
+    level, mark, last_bar = stop_level, high_water_mark, None
+    for bar in bars:
+        opened, high, low = _price(bar["open"]), _price(bar["high"]), _price(bar["low"])
+        if opened is None or high is None or low is None:
+            continue
+        last_bar = bar["session"]
+        if low <= level:
+            return StopCheck(level, mark, last_bar, trigger_for(last_bar, level, opened))
+        if kind == TRAILING and fill_price(high) > mark:
+            mark = fill_price(high)
+            level = max(level, trailing_level(mark, trail_pct))
+    return StopCheck(level, mark, last_bar)

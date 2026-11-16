@@ -10,7 +10,7 @@ import datetime
 import unittest
 from contextlib import closing
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from quantcore.db_safety import assert_not_production  # noqa: E402
 
@@ -84,7 +84,7 @@ class _Base(unittest.TestCase):
         self.lots = PortfolioRepository()
         self.repo = StopsRepository(self.lots)
         self.prices = StubPrices()
-        self.service = StopsService(self.repo, self.books, self.prices)
+        self.service = StopsService(self.repo, self.books, self.prices, Mock())
         # A real holding and a paper holding of the same symbol.
         self.lots.add_position(OWNER, lot(SYMBOL))
         self.paper = self.books.create_paper_book(owner=OWNER, name="Paper", starting_cash=0)
@@ -253,11 +253,11 @@ class CancelStopTest(_Base):
         resolve = self.service._repo.resolve_stop
 
         def raced(**kwargs):
-            resolve(**{**kwargs, "status": "triggered"})
+            resolve(**{**kwargs, "status": "closed"})
             return resolve(**kwargs)
 
         with patch.object(self.service._repo, "resolve_stop", side_effect=raced):
-            with self.assertRaisesRegex(ValueError, "this one is triggered"):
+            with self.assertRaisesRegex(ValueError, "this one is closed"):
                 self.service.cancel_stop(owner=OWNER, stop_id=stop["stop_id"], now=LATER)
 
     def test_cancel_cannot_reach_another_book_or_owner(self):

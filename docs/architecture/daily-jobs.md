@@ -10,9 +10,10 @@ spelling; the work did not). It loads John's positions and the shared watchlist 
 (via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`),
 fetches prices/metrics, and then runs **in this order, which is a deliberate isolation property**
 — the cheap, high-value side effects land before anything that can run long: notifications →
-queued paper fills → options capture → gamma/GEX (from the snapshot) → capture health check →
-news staleness → fundamentals warming → OHLCV close-out. The steps that carry the weight (queued
-paper fills, which run between 1 and 2, have their own section below):
+queued paper fills → stop checks → options capture → gamma/GEX (from the snapshot) → capture
+health check → news staleness → fundamentals warming → OHLCV close-out. The steps that carry the
+weight (queued paper fills and the stop checks, which run in that order between 1 and 2, have
+their own sections below):
 
 1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
    `alert_if_watchlist_empty()`.
@@ -49,6 +50,7 @@ paper fills, which run between 1 and 2, have their own section below):
    | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | `168` | alarm above this oldest age |
    | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
    | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
+   | `STOP_CHECK_BUDGET_SECONDS` | `120` | wall-clock budget for the stop checks; also clamped to the task deadline |
    | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the *optionable* universe's chains landed today (symbols with no listed options are excluded) |
    | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed, or of the capture's attempts were captured only partially |
    | `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` | `0.25` | alarm when more than this fraction of the universe returned no options chain |
@@ -261,6 +263,64 @@ the day (#431, plan step 3.5).
   market hours therefore reaches Discord that evening.
 - It never raises, and it logs the exception class only. It is a report, not an alarm: a failure
   loses the message and nothing else, since the fills are in the database and on the page.
+- It is sent after the stop checks below, so a sale a stop made that evening is in it.
+
+### Stop checks
+
+`run_stop_checks(get_services().stops, notifier, …)` runs straight after the queued fills (#431
+phase 2 and #221, plan step 4.2). It tests every active stored stop
+([data.md](data.md#the-stop-checker)) against closed daily bars. Nothing else checks a stop:
+with no broker holding it, a stop the job doesn't test doesn't fire.
+
+- **Flat stops first** (`StopsService.close_flat_stops`): an active stop whose book no longer
+  holds its symbol is marked `closed`. A sale does this in its own transaction; the pass is for
+  a holding that went some other way (a deleted lot, an import).
+- **Which stops** (`StopsService.due_stops`): every owner's `active` stops in books that are
+  not archived, whose first session has come and whose `last_bar_checked` is before today's
+  market date. The walk goes owner by owner and book by book, so each query is bound to one
+  owner and one book.
+- **The bars** (`PricesService.closed_bars_since`): the symbol's **closed** daily bars from the
+  first one the stop hasn't been tested against. It reads through
+  `get_history(include_open=False)`, so a symbol whose newest closed bar is behind costs one
+  history download and one already stored costs no Yahoo call. Every bar since the last check is
+  walked, oldest first, so a night the job missed is made up.
+- **The outcome** (`analytics.stored_stops.check_stop`, then `StopsService.check_stop`):
+  - no new closed bar: left as it is (`waiting`);
+  - the bars held: `last_bar_checked` is recorded, with a trailing stop's raised mark and level;
+  - a bar's low reached the level: the stop is `triggered`, at its level, or at that bar's open
+    when the stock opened under the level. A **real** book's stop is marked and nothing is sold.
+    A **paper** book's whole position is sold at that price, dated that bar's session, in the
+    transaction that marks the stop (`OrdersService.sell_for_stop`).
+- **Why after the queued fills.** A queued order fills at its session's open, which comes
+  before anything that session's bar did to a stop. Run the other way round, a stop reached on
+  the day a queued buy filled would sell before the buy existed.
+- **Budget:** `STOP_CHECK_BUDGET_SECONDS` (default `120`), its own and not the queued fills',
+  clamped to what is left of the task deadline and falling back to the default on an
+  unparseable value.
+- **Alarm:** after the walk, `alert_if_stops_unchecked` asks the database for the due stops
+  again. If any is still untested against today's bar it sends one Discord alarm
+  (`send_unchecked_stops_alert`) with the count, up to 10 symbols and the oldest bar any of
+  them was last tested against. It names no owner. It fires the first night, and every night
+  for a stop on a symbol that has stopped trading, until the stop is cancelled or the position
+  closed.
+- It never raises: the checks and the alarm each have their own guard, so the alarm still runs
+  when the walk fails. One bad stop degrades one row, and the log names the exception's class
+  only.
+
+**The real book's stops that were reached.** After the `[PAPER]` fills message,
+`report_triggered_stops` sends one Discord alert listing the job owner's real-book stops that
+are `triggered` and not yet alerted for (`StopsService.unalerted_triggers`): each symbol, its
+level, whether it traded down to the level or opened under it, and the bar's date.
+
+- **Once, and not lost.** A stop is marked (`stops.alerted_at`) only after Discord took the
+  message. A send that raises, is refused, or has no webhook to go to leaves it owed, and the
+  next run sends it. A run
+  repeated the same evening sends nothing twice.
+- **Whose:** the job owner's real book only, for the reason the fills message gives. Another
+  owner's stops are still checked and marked; they are not posted.
+- **A paper book's stop is not in it.** Its sale is in the `[PAPER]` fills message, worded as a
+  stop's.
+- It says nothing was sold. It never raises.
 
 **News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
 `Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image

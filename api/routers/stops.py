@@ -8,11 +8,11 @@ Exactly one service call deep. The owner comes from the authenticated
 principal (``require_owner``); there is no ``?owner=``. Without a ``book_id``
 a route acts on the real book, and a book that isn't the owner's answers 404.
 
-A stop here is a record. Nothing on these routes places an order at a broker,
-and nothing watches the price yet: the checker is a later step. No route
-takes a ``source``, so a caller can't say an automated trigger set a stop,
-and none takes a status: a stop leaves ``active`` only by being cancelled,
-replaced by a new one, or (later) by the checker.
+A stop here is a record. Nothing on these routes places an order at a broker
+or checks a price: the daily job tests each active stop against closed daily
+bars (plan step 4.2). No route takes a ``source``, so a caller can't say an
+automated trigger set a stop, and none takes a status: a stop leaves
+``active`` only by being cancelled, replaced by a new one, or by the checker.
 """
 
 from __future__ import annotations

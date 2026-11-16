@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes) is built. Next is 4.2. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build and 42 to 47 during the 4.1 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes) and 4.2 (the bar-close checker) are built. Next is 4.3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build and 48 to 55 during the 4.2 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2 adds columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -318,6 +318,59 @@ review. A change to a column or a `CHECK` after rows exist is a hand-applied mig
     `stop_level` is worked out from `trail_pct` and `high_water_mark` when it is set (and, in
     4.2, when the mark rises). Section 5.8 asks for this. The rounding is a fill price's, so a
     stop and the fill it causes compare exactly.
+
+### Made on 2026-11-16, during the 4.2 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review. 48, 50 and 51 change what a paper book's results mean or what John is told, so they
+are the ones worth a look before 4.3 puts stops on the page.
+
+48. **A stop is first tested against the first session that opens after it was set.** This
+    narrows decision 44's "the checker settles it that evening". A stop set at 11:00 is not
+    tested against that day's bar, whose low may be from 10:00, before the stop existed. A
+    paper fill at the level would then be a sale at a price the stop never saw (section 5.8:
+    a past price can't be filled honestly). A stop set before 9:30 on a trading day is tested
+    against that day's bar. What it costs: a stop set in the session and crossed later the same
+    day is not caught that evening. The next bar catches it, and when the price is still under
+    the level that is a fill at the open, below the stop. For the real book it is an alert one
+    evening later.
+49. **A trailing stop's mark rises to a bar's high, and the bar is tested first against the
+    level it started with.** A daily bar doesn't say whether its high or its low came first.
+    Testing the low against the level raised by the same bar's high would trigger stops that
+    a real trailing order would not have. What it costs: a bar that ran up and then fell
+    through its own raised level is settled by the next bar, at that bar's open if it opens
+    under the level. The mark starts at a close (decision 44) and rises on highs.
+50. **A stop's sale is a `market` sell order with `source = 'stop'`, for the whole position.**
+    `source_ref` and the idempotency key are both `stop:<id>`, so a stop can cause one order
+    and no more. `price_source` is `session_open` when the stock opened under the level and
+    NULL at the level: a `stop_level` value would widen a `CHECK` (decision 35's reason). The
+    sale rows carry a note. Only lots opened on or before the bar's session are sold, so a
+    late run can't sell a lot at a date before it was bought. A queued sell of the same symbol
+    is left alone and is rejected `insufficient_shares` at its session. What it costs: a
+    reader tells a stop sale at its level from a manual close by the order's source and kind,
+    not by `price_source`.
+51. **A real book's stop that was reached is `triggered` and final, and John is told once.**
+    Nothing is sold and nothing is recorded as sold. The alert is one Discord message for the
+    job owner's real book only (decision 40's reason), owed until Discord accepts it
+    (`stops.alerted_at`) and never repeated. What it costs: a holding John decides to keep
+    after its stop was reached has no stop until he sets another, and another owner's
+    real-book stop is marked with no message until the page shows stops (4.3).
+52. **The checker runs third, straight after the queued fills, with its own 120-second
+    budget** (`STOP_CHECK_BUDGET_SECONDS`). After the fills because a queued order fills at
+    its session's open, before that session's bar can reach a stop. Its own budget, as 5.10
+    asked. What it costs: up to another 120 seconds in front of the options capture.
+53. **The alarm fires for any active stop not tested against today's bar**, the first night.
+    A stop that isn't checked can't fire, so there is no grace period. What it costs: a stop
+    on a symbol that has stopped trading alarms every night until it is cancelled or the
+    position is closed. A queued order gives up after three sessions (decision 32); a stop
+    has nothing to give up to.
+54. **An archived book's stops are not checked.** A queued order in an archived book still
+    fills (decision 34) because it is for one session. A stop is open-ended, and a book that
+    kept selling after it was archived would not be archived. They stay `active` and unread.
+55. **A stop is closed when its position goes flat, in the sale's own transaction and on every
+    checker run.** `close_lots_on` is the one place a real sale and a paper sale both pass
+    through. The checker run covers a deleted lot, an import, and the race section 7 names.
+    Until the run, a stop on a lot that was deleted (not sold) is still `active`.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -830,12 +883,12 @@ Left for later steps, on purpose:
   `stops` table (owner, book, symbol or lot, fixed or trailing, level, method, source, status);
   `StopsService` and routes; owner and book isolation tests. What was built, and what was left
   for later steps, is in section 5.12.
-- [ ] **4.2 Bar-close checker.**
+- [x] **4.2 Bar-close checker.**
   A daily-job step over closed bars only (`include_open=False`): ratchet trailing levels, detect
   breaches (the bar's low reached the level), alert for real books with dedup across runs, and for
   paper books place a sell that fills at the stop level, or at the open when the stock opened
   below the stop (decision 5). A stop closes when its position goes flat. Updates #431's text to
-  match the new fill rule.
+  match the new fill rule. What was built, and what was left for later steps, is in section 5.13.
 - [ ] **4.3 Stops in the UI.**
   The stop field in the Buy dialog, with the stop card's suggestion loaded only when the field is
   opened; the stop shown on holdings and lot rows; the source of a stop-driven sale shown in the
@@ -877,6 +930,52 @@ Left for later steps, on purpose:
 - **No UI** (4.3, 4.5). The three routes are a gap in the capabilities matrix.
 - **`triggered` has no writer**, and nothing writes an `alerts` row for a stop (4.2, 4.4).
 - **Only `manual` is written as a source.**
+- **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
+
+#### 5.13 The bar-close checker as built (4.2)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The schema | `V20__stop_checks.sql`, `_SCHEMA`, the snapshot | `stops.last_bar_checked`, `triggered_session`, `trigger_price`, `alerted_at`, and `stops_triggered_has_trigger`: a triggered stop has a session and a price, and no other stop has. `ADD COLUMN` only, so CI applies it. The table count stays 28 |
+| The rules | `analytics.stored_stops`: `first_session`, `next_bar_date`, `is_due`, `check_stop`, `trigger_for` | Pure. A run of bars in, the stop's terms and (when reached) the bar and the price out |
+| The bars | `PricesService.closed_bars_since` | Closed daily bars from a date, through `get_history(include_open=False)`. Listed in `TestReaderPolicy` |
+| Statements a trade runs | `repositories/stop_sql.py` | `trigger_stop_on`, `resolve_stop_on`, `close_flat_stops_on`, on the caller's connection. Its own module because `OrdersRepository` and `PortfolioRepository` need them and `StopsRepository` needs both |
+| The rows | `StopsRepository.record_check`, `trigger_stop`, `close_flat_stops`, `mark_alerted` | Each bound to an owner and a book. No new `ALLOWED` entry in either scan |
+| The service | `StopsService.close_flat_stops`, `due_stops`, `check_stop`, `unalerted_triggers`, `mark_alerted` | `StopsService` now takes `OrdersService` (the registry passes it) |
+| A paper stop's sale | `OrdersService.sell_for_stop`, `OrderTransaction.trigger_stop` and `close_stop` | The stop's status and the sale in one transaction, with the book locked |
+| Closing a flat stop | `PortfolioRepository.close_lots_on` | Every sale, real or paper |
+| The step | `main.py`: `check_stops`, `alert_if_stops_unchecked`, `run_stop_checks`, `report_triggered_stops` | Third in the job. `STOP_CHECK_BUDGET_SECONDS`, default 120 |
+| The messages | `Notifier.send_stop_alert`, `send_unchecked_stops_alert`; `_paper_fill_line` | `send_notifications` now answers False when a message did not go out: Discord refused it, or no webhook is set |
+| The page | `orderWords.ts` | A stop's sale reads "Sell 5 INTC, by its stop" and "its stop level" or "the opening price, below its stop" |
+
+The rules are in [`data.md`](../architecture/data.md#the-stop-checker) and the step in
+[`daily-jobs.md`](../architecture/daily-jobs.md#stop-checks). #431's text now gives the fill
+rule of decision 5.
+
+How the daily job's rules came out:
+
+| Rule | In the code |
+|---|---|
+| Clamped to the remaining budget | `_remaining_budget(STOP_CHECK_BUDGET_SECONDS…)` at the call in `__main__`; the walk checks the clock before each stop |
+| Never raises | `run_stop_checks` guards the checks and the alarm apart. `report_triggered_stops` has its own guard. One stop's failure is counted and the walk goes on |
+| Alarms on what landed | `alert_if_stops_unchecked` calls `due_stops` again after the walk. The breach alert reads `triggered` rows, not the walk's summary |
+| An unparseable setting falls back | `_env_float`, as for every other budget |
+
+**Nothing for an operator to run.** V20 is applied by CI and needs no backfill.
+`STOP_CHECK_BUDGET_SECONDS` is optional. No stop exists on test or prod unless someone set one
+through the REST route since #563.
+
+Left for later steps, on purpose:
+
+- **No UI** (4.3, 4.5). A triggered stop, its trigger price and the bar are on the
+  `GET /api/portfolio/stops?include_inactive=true` answer and nowhere on a page.
+- **The source of a stop-driven sale is stored and worded in the Orders list, but not shown in
+  the Realized view** (4.3).
+- **No approach alert** (4.4). It belongs in `check_stops`, with its own dedup column.
+- **No "exists at a broker" field** (4.5).
+- **Another owner's real-book stop is marked and not announced** (decision 51) until 4.3.
+- **Not run against Yahoo.** The bar read is `get_history`, the one 3.4 uses; the tests stub
+  the fetch.
 - **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
 
 ### Milestone 5: performance (#431 phase 3)
@@ -1231,6 +1330,32 @@ Known before any code is written. Add to this list as the work finds more.
   `QUANTCORE_DB_DSN` is the prod proxy, which is not running in an agent session. Both were
   run with `QUANTCORE_DB_DSN` set to the local unit-test DSN, and `check_openapi_snapshot.py`
   also needs `PYTHONPATH=.`. The Postgres 18 strip (3.3) dropped 188 rows this time.
+- **A semicolon in a `_SCHEMA` comment breaks startup** (4.2). `init_schema` splits the DDL on
+  `;`, so a comment that contains one leaves an empty statement and every entry point fails
+  with "can't execute an empty query". The migration file is not split that way, so only the
+  mirror shows it.
+- **A stop can no longer be marked `triggered` through `resolve_stop`** (4.2).
+  `stops_triggered_has_trigger` needs the bar and the price, which only `trigger_stop_on`
+  writes. Two 4.1 tests used `triggered` as "any final status" and now use `closed`.
+- **A paper stop is marked before its sale is written, not after** (4.2). The sale leaves the
+  symbol flat, and `close_lots_on` closes a flat symbol's active stop in the same transaction.
+  Marked afterwards, the stop would already be `closed` and the `triggered` update would
+  match nothing.
+- **`stops_repository` can't be imported by `orders_repository`** (4.2). It imports
+  `SQL_LOCK_BOOK` from there. The statements both need are in `stop_sql.py`, as the cash rows
+  are in `cash_entry_sql.py`.
+- **The daily walk covers every owner in the database, test owners included** (4.2). A test
+  that runs `run_stop_checks` on real services filters `due_stops` to its own owner, as the
+  3.4 test does, or another suite's leftover stop changes its counts.
+- **A lot's `trade_date` is a date and its `purchase_date` is text** (4.2). `sell_for_stop`
+  compares the first ten characters of whichever is set with the session's ISO date.
+- **`send_notifications` writes `notification.log` before it posts** (4.2). Locally, a message
+  Discord refused, or one with no webhook to go to, is then skipped as a duplicate on the next
+  try and looks sent. On Cloud Run the file starts empty each run, so the breach alert's retry
+  works there.
+- **A stop's snapshot rows were added by hand** (4.2). Four columns and one constraint, in the
+  shape `check_schema_snapshot.py` writes, which avoids the Postgres 18 strip (3.3, 4.1).
+  `tests/test_schema_parity.py` and the snapshot check both pass on it.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1292,3 +1417,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-16 | 3.5 review | #562 | Changes requested, two findings. Fixed: a manual close is now refused while a sell of the symbol is queued (it sold every share, so the queued sell would have been rejected at its session with nothing saying why); and the symbol rows' share total moved to `portfolio_math.total_quantity`, which puts `symbol_rows` back inside the complexity goal and gives the no-quantity case a test. The review did not re-run the suites and could not measure the front end's complexity |
 | 2026-11-16 | 4.1 Stops table, service and routes | #563 | V19: `stops`. `analytics/stored_stops.py` (a fixed or trailing stop's terms), `StopsRepository` (set with replace, in one locked transaction; one conditional `UPDATE` out of `active`), `StopsService` (list, set, cancel; either kind of book) and three `/api/portfolio/stops` routes. A stop is on a symbol in a book, needs an OPEN lot, and sits below the last stored close. Owner and book isolation tests are mapped in both coverage tests. Decisions 42 to 47 were made in the build and are John's to confirm. No UI, and nothing checks a stop until 4.2. Nothing for an operator to run (section 5.12) |
 | 2026-11-16 | 4.1 review | #563 | Two suggestions, both taken. A refused cancel re-reads the stop before naming its status, so a stop resolved between the read and the `UPDATE` is not reported as `active`. The readme's route count was stale (115) and is now 128; the capabilities matrix said 127 because it had never counted `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches: now 73 of 128 reached, 55 left, with a row for it. |
+| 2026-11-16 | 4.2 Bar-close checker | #564 | V20: `stops.last_bar_checked`, `triggered_session`, `trigger_price` and `alerted_at`. `analytics.stored_stops.check_stop` (a run of closed bars against a stop), `PricesService.closed_bars_since`, `stop_sql.py`, `StopsService.due_stops` and `check_stop`, `OrdersService.sell_for_stop`, and the job step `run_stop_checks` with its alarm, third in `main.py`'s order behind `STOP_CHECK_BUDGET_SECONDS` (120), then `report_triggered_stops`. A trailing stop rises with each bar's high; a bar whose low reached the level triggers the stop at the level, or at the open for a gap; a real book alerts once and a paper book sells the position in the same transaction; a flat position closes its stop. #431's fill rule is updated. Decisions 48 to 55 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.13) |
+| 2026-11-16 | 4.2 review | #564 | Approved, with one suggestion, taken. `send_notifications` returned None with no webhook set, which `send_stop_alert` counted as sent, so a real-book breach alert would have been marked delivered without going anywhere. It now returns False there, and only a skipped duplicate returns None. The deployed job has its webhook, so nothing was lost. The review did not re-run the suites and could not measure cognitive complexity for `notifier.py`, `prices.py` or the front end |

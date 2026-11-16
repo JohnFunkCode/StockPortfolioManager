@@ -159,10 +159,10 @@ class StopRowsTest(_Base):
             owner=OWNER, stop_id=stop["stop_id"], status=status, resolved_at=LATER
         )
 
-        self.assertTrue(resolve("triggered"))
+        self.assertTrue(resolve("closed"))
         self.assertFalse(resolve("cancelled"))
         stored = self.repo.get_stop(owner=OWNER, stop_id=stop["stop_id"])
-        self.assertEqual((stored["status"], stored["resolved_at"]), ("triggered", LATER))
+        self.assertEqual((stored["status"], stored["resolved_at"]), ("closed", LATER))
 
     def test_a_symbol_can_have_a_new_stop_after_its_last_one_ended(self):
         first = self.repo.set_stop(owner=OWNER, stop=fixed())

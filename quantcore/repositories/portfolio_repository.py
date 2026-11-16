@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.cash_entry_sql import insert_trade_entries, sync_lot_cash
+from quantcore.repositories.stop_sql import close_flat_stops_on
 
 # What prompted a sale (`lot_sales.source`, #431 step 3.3). A sale the owner
 # records is manual. A paper order passes its own source through.
@@ -1109,4 +1110,10 @@ class PortfolioRepository:
                 "child_lot_id": child_lot_id,
                 "notes": sale_notes,
             })
+        if results:
+            # A sale that leaves the book with no OPEN lot of a symbol closes
+            # that symbol's stop, in the sale's own transaction (#431 step 4.2).
+            close_flat_stops_on(
+                conn, owner=owner, resolved_at=datetime.now(timezone.utc), book_id=book_id
+            )
         return results

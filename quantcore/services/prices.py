@@ -391,6 +391,32 @@ class PricesService:
             "latest_bar": bars.index[-1].date(),
         }
 
+    def closed_bars_since(self, symbol: str, since: datetime.date) -> list[dict]:
+        """``symbol``'s closed daily bars dated ``since`` or later, oldest first.
+
+        Each is ``{"session": date, "open", "high", "low", "close"}``. What
+        the bar-close stop checker tests a stop against (#431 step 4.2).
+
+        Closed bars only: a forming bar's low is not final, and a stop must
+        not be reached by a price that the finished bar no longer shows. The
+        read goes through ``get_history``, so it fetches only when the symbol
+        is cold or its newest closed bar is behind. A fetch error propagates
+        to the caller.
+        """
+        days = max((_utc_date(int(time.time())) - since).days, 0) + SESSION_OPEN_PAD_DAYS
+        bars = self.get_history(symbol, "1d", days, include_open=False)
+        return [
+            {
+                "session": stamp.date(),
+                "open": float(row["Open"]),
+                "high": float(row["High"]),
+                "low": float(row["Low"]),
+                "close": float(row["Close"]),
+            }
+            for stamp, row in bars.iterrows()
+            if stamp.date() >= since
+        ]
+
     def last_close(self, symbol: str) -> dict:
         """The close of ``symbol``'s newest stored closed daily bar.
 

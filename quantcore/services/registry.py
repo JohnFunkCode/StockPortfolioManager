@@ -283,6 +283,7 @@ def get_services() -> Services:
         keyproxy = KeyProxyService(gateway=FakeKeyProxyGateway())
     else:
         keyproxy = KeyProxyService()
+    orders = OrdersService(orders_repository, books_repository, yfinance_gateway, prices)
     return Services(
         yfinance_gateway=yfinance_gateway,
         polygon_gateway=polygon_gateway,
@@ -319,8 +320,8 @@ def get_services() -> Services:
         portfolio=portfolio,
         books=BooksService(books_repository),
         cash=CashService(cash_repository, books_repository),
-        orders=OrdersService(orders_repository, books_repository, yfinance_gateway, prices),
-        stops=StopsService(stops_repository, books_repository, prices),
+        orders=orders,
+        stops=StopsService(stops_repository, books_repository, prices, orders),
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

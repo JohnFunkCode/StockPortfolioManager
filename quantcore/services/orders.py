@@ -163,12 +163,13 @@ class OrdersService:
         orders_repository: OrdersRepository,
         books_repository: BooksRepository,
         yfinance_gateway,
-        prices=None,
+        prices,
     ) -> None:
         self._repo = orders_repository
         self._books_repo = books_repository
         # PricesService.session_open: the opening price a queued order fills
-        # at. Only the daily job's fill needs it.
+        # at. Only the daily job's fill uses it, but it is required, so no
+        # service exists that can place a queued order and not fill one.
         self._prices = prices
         # YFinanceGateway.batch_quotes: one live quote for the order's symbol,
         # asked for at the moment the order is placed. Never the price cache,

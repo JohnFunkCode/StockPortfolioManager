@@ -14,8 +14,8 @@ This document is a comprehensive inventory of every user-facing capability in th
 **Re-audited 2026-10-22** against what the frontend actually calls: every `apiRequest` path in
 `frontend/src/api/*.ts`, traced through `frontend/src/hooks/` to the components that consume it. A
 client function with no component behind it counts as **not surfaced**, and so does a standalone
-endpoint whose data the UI only gets through an aggregate one. Of the 127 REST operations, the
-WebUI reaches **72** (counting the fetches Sidekick cards make themselves), leaving **55** with no
+endpoint whose data the UI only gets through an aggregate one. Of the 128 REST operations, the
+WebUI reaches **73** (counting the fetches Sidekick cards make themselves), leaving **55** with no
 UI consumer — each one is listed, by reason, in the
 [WebUI consumer inventory](#appendix-rest-operations-with-no-webui-consumer) at the end. Everything
 listed here is fully built, tested, and reachable over REST today, so surfacing it is **frontend-only work**. Of the gap rows from the 2026-07-20 audit, only
@@ -84,7 +84,7 @@ Analysis tab (issue #93).
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 122 operations (69 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 128 operations (73 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 20 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
@@ -275,6 +275,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | **⚠ Bulk CSV import (full-sync per owner)** | — | `POST /api/portfolio/import` | **—** | — | `scripts/import_portfolio.py --csv portfolio.csv --owner john` |
 | View / add watchlist (currency resolved server-side) | `list_watchlist`, `add_to_watchlist` | `GET`/`POST /api/watchlist` | AddSecurityDialog on the Watchlist page (POST only — the page lists rows from `/mine`) | — | `scripts/import_watchlist.py` |
 | Merged watchlist rows: returns, fundamentals, news, plus the caller's quantity/avg price (7 queries, 0 network calls) (#224) | — | `GET /api/watchlist/mine` | **Watchlist page**; Security Detail | — | — |
+| Live quotes for the watchlist's symbols (Yahoo's batch endpoint; the only route that fetches them) (#518) | — | `GET /api/watchlist/quotes` | **Watchlist page** (price and 1d columns) | — | — |
 | Watchlist returns + fundamentals ranking (6 queries, 0 network calls) | — | `GET /api/watchlist/fundamentals` | — (the page moved to `/mine` in #224) | `watchlist_fundamentals` card | `scripts/generate_watchlist_fundamentals_report.py` |
 | Remove from watchlist (**UI-only by design** — the MCP seam has no `delete` verb, so no agent can drop symbols off a shared list) | — | `DELETE /api/watchlist/{ticker}` | Watchlist page / Security Detail | — | — |
 | Retag a watchlist entry (replaces the tag set, does not merge) | — | `PATCH /api/watchlist/{ticker}` | Watchlist page chips + tag filter | — | — |
@@ -384,7 +385,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 72 of 127 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 73 of 128 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation panel** — the most powerful synthesis endpoint, invisible in the UI (its stop-loss sibling shipped in #399).
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -444,7 +445,7 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 ---
 
 **Document Version:** 2.6
-**Last Updated:** 2026-11-16 (#431 step 4.1: stored stops add three `/api/portfolio/stops` operations (list, set, cancel). No component reaches them until steps 4.3 and 4.5, so they are a new gap: 72 of 127 operations reached, 55 left, 34 gaps; 28 tables)
+**Last Updated:** 2026-11-16 (#431 step 4.1: stored stops add three `/api/portfolio/stops` operations (list, set, cancel). No component reaches them until steps 4.3 and 4.5, so they are a new gap: 73 of 128 operations reached, 55 left, 34 gaps; 28 tables. The totals also count `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches and this matrix had left out since it was added, so they now agree with `docs/openapi-surface.txt`)
 
 **Earlier:** 2026-11-16 (#431 step 3.5: buying and selling on paper adds two operations, `/api/portfolio/orders/seed` and `/manual-close`. Both, and placing an order, are reached by the order dialog and the New paper book dialog, so the 3.3 gap closes: 72 of 124 operations reached, 52 left, 31 gaps; 27 tables)
 

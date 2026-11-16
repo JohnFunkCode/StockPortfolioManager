@@ -256,5 +256,10 @@ class StopsService:
             owner=owner, stop_id=stop_id, status=stops_math.CANCELLED,
             resolved_at=now, book_id=book_id,
         ):
-            raise ValueError(f"only an active stop can be cancelled: this one is {stop['status']}")
+            # Read again: the status that refused the cancel may have been
+            # written after the read above.
+            current = self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id) or stop
+            raise ValueError(
+                f"only an active stop can be cancelled: this one is {current['status']}"
+            )
         return self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id)

@@ -252,7 +252,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 115 routes, so the table below only groups them.
+authoritative endpoint list.** There are 128 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|

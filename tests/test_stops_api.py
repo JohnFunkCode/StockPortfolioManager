@@ -246,6 +246,20 @@ class CancelStopTest(_Base):
         with self.assertRaisesRegex(ValueError, "this one is cancelled"):
             self.service.cancel_stop(owner=OWNER, stop_id=stop["stop_id"], now=LATER)
 
+    def test_a_refused_cancel_names_the_status_the_stop_ended_in(self):
+        # The stop is resolved by something else between the read and the
+        # conditional UPDATE: the message names what it is now, not "active".
+        stop = self.set_stop()
+        resolve = self.service._repo.resolve_stop
+
+        def raced(**kwargs):
+            resolve(**{**kwargs, "status": "triggered"})
+            return resolve(**kwargs)
+
+        with patch.object(self.service._repo, "resolve_stop", side_effect=raced):
+            with self.assertRaisesRegex(ValueError, "this one is triggered"):
+                self.service.cancel_stop(owner=OWNER, stop_id=stop["stop_id"], now=LATER)
+
     def test_cancel_cannot_reach_another_book_or_owner(self):
         stop = self.set_stop(book_id=self.paper)
         for owner, book in ((OWNER, None), (OTHER, None)):

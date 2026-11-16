@@ -135,6 +135,14 @@ def _row_to_dict(row) -> Dict[str, Any]:
     }
 
 
+def list_entries_on(conn, *, owner: str, book_id: Optional[int]) -> List[Dict[str, Any]]:
+    """Every cash row of one book as `conn`'s transaction sees it, oldest
+    first. A paper order's fill reads the ledger this way, with its own buy
+    row already written, before it decides whether the book can afford it."""
+    rows = conn.execute(SQL_LIST_ENTRIES, {"owner": owner, "book_id": book_id}).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 class CashRepository:
     """SQL persistence for a book's cash ledger, scoped by owner and by book.
 
@@ -145,8 +153,7 @@ class CashRepository:
         """Every cash row of one book, oldest first. A buy or sell row carries
         the `symbol`, `shares`, `price` and `currency` of its lot or sale."""
         with closing(get_connection()) as conn:
-            rows = conn.execute(SQL_LIST_ENTRIES, {"owner": owner, "book_id": book_id}).fetchall()
-        return [_row_to_dict(r) for r in rows]
+            return list_entries_on(conn, owner=owner, book_id=book_id)
 
     def set_opening_balance(
         self,

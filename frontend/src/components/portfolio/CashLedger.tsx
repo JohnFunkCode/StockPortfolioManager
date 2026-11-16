@@ -9,8 +9,9 @@
  * Self-contained: `bookId` names a book and null is the real book. The
  * Portfolio page mounts it as its Cash and orders section, and the Sidekick's
  * `cash_ledger` card mounts it `readOnly`. The forms show only for the real
- * book: a paper book's cash moves through its orders, which a later step adds
- * to this section.
+ * book: a paper book's cash moves through its orders, which are listed under
+ * its entries (`OrdersList`, step 3.3). The real book has no orders, so no
+ * orders request is made for it.
  */
 import { useState } from 'react';
 import {
@@ -41,6 +42,7 @@ import {
 } from '../../hooks/useCash';
 import { formatCurrency, formatDate, formatShares } from '../../utils/formatting';
 import type { CashEntry, CashLedger as Ledger } from '../../api/cash';
+import OrdersList from './OrdersList';
 
 interface Props {
   /** One of the caller's books; null or absent is the real book. */
@@ -48,6 +50,8 @@ interface Props {
   title?: string;
   /** No forms and no delete, whatever the book is. */
   readOnly?: boolean;
+  /** Show Cancel on a paper book's pending orders. */
+  canCancelOrders?: boolean;
 }
 
 /** How many entries show before "Show all entries". */
@@ -350,7 +354,12 @@ function LedgerBody({ ledger, readOnly }: { ledger: Ledger; readOnly: boolean })
   );
 }
 
-export default function CashLedger({ bookId = null, title = 'Cash and orders', readOnly = false }: Props) {
+export default function CashLedger({
+  bookId = null,
+  title = 'Cash and orders',
+  readOnly = false,
+  canCancelOrders = false,
+}: Props) {
   const { data, isLoading, error } = useCashLedger(bookId);
 
   return (
@@ -364,7 +373,12 @@ export default function CashLedger({ bookId = null, title = 'Cash and orders', r
       ) : error || !data ? (
         <Alert severity="error">Couldn't load cash: {(error as Error | null)?.message ?? 'no data'}</Alert>
       ) : (
-        <LedgerBody ledger={data} readOnly={readOnly} />
+        <>
+          <LedgerBody ledger={data} readOnly={readOnly} />
+          {bookId != null && data.book_kind === 'paper' && (
+            <OrdersList bookId={bookId} canCancel={canCancelOrders} />
+          )}
+        </>
       )}
     </Box>
   );

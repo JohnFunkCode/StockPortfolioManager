@@ -78,6 +78,7 @@ def create_app() -> FastAPI:
         keyproxy,
         microstructure,
         options,
+        orders,
         plans,
         portfolio,
         prices,
@@ -106,6 +107,7 @@ def create_app() -> FastAPI:
         # Before `portfolio`: its paths sit under /api/portfolio/, and FastAPI
         # matches in declaration order.
         cash,
+        orders,
         portfolio,
         books,
         prices,

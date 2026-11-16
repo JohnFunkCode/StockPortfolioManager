@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1, the cash ledger, is built, and 3.2, the prior-art review, is written up in section 5.8. Next is 3.3. Decisions 19 to 29 were made during the 3.1 build and the 3.2 review and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review) and 3.3 (orders and fills) are built. Next is 3.4. Decisions 19 to 24 were made during the 3.1 build and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (26 after step 3.1). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -175,10 +175,10 @@ where it is more than a small edit.
     both is a server-side figure and arrives with the daily snapshots (5.1). Before 3.1 the plan
     expected the strip's book value to grow to include cash at this step.
 
-### Made on 2026-11-15, during the 3.2 review (Claude; John to confirm or change)
+### Made on 2026-11-15, during the 3.2 review (Claude; confirmed by John the same day)
 
-These came out of reading the prior art (section 5.8). No code depends on them yet: 3.3 is where
-each is built, so changing one before 3.3 starts costs nothing.
+These came out of reading the prior art (section 5.8). John confirmed all five when he said to
+start 3.3, which builds each of them.
 
 25. **`pending` means queued, and nothing else.** An order placed while the market is open is
     filled or rejected in the same transaction that creates it. Only an order placed outside the
@@ -200,6 +200,14 @@ each is built, so changing one before 3.3 starts costs nothing.
 29. **A rejection stores a reason from a fixed list** (stale quote, no quote, non-USD symbol, not
     enough cash, not enough shares, no opening price), never an exception's text. The list is
     what the UI shows and what a test can pin, and exception text may not reach a caller.
+
+### Made on 2026-11-15, during the 3.3 build (Claude; confirmed by John the same day)
+
+30. **Orders are their own list under the cash entries, not rows in the same list.** Section 4's
+    mock-up has one list. A filled order already appears there as its buy or sell entry, so one
+    list would show every fill twice or need a rule for hiding one of the two. The Orders list
+    shows what was asked for and what became of it, and no amounts. Changing it later is a
+    front-end change only.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -472,12 +480,13 @@ key order and error messages were equal in every case.
 - [x] **3.2 Review the prior art.**
   Read `JohnFunkCode/alpaca_robot_trading_workflow_experiment` and #222; record in this document
   which ideas the orders design adopts and which it drops. No code. The record is section 5.8.
-- [ ] **3.3 Orders and fills.**
+- [x] **3.3 Orders and fills.**
   `orders` table with an idempotency key; `source` (manual, stop, harvester, evaluator, watch, AI)
   and a link to what prompted the trade, on orders and on `lot_sales`, with existing sales
   backfilled as manual; `OrdersService` with exactly-once market fills at the current quote from
   `batch_quotes`; refusal on a stale quote, a halted symbol, a non-USD symbol or not enough cash;
-  off-hours orders queue; orders join the Cash and orders section with their status.
+  off-hours orders queue; orders join the Cash and orders section with their status. What was
+  built, and what was left for later steps, is in section 5.9.
 - [ ] **3.4 Queued fills in the daily job.**
   A step that fills queued orders at their session's opening price, placed and budgeted under the
   daily job's ordering rules: clamped to the remaining budget, never raises, and alarms on what
@@ -592,6 +601,46 @@ the cash row are in one database. So the experiment's *aims* carry over and most
   `BUY`. A seeded lot needs a value other than `BUY`, because only a `BUY` lot writes a cash row
   (decision 22).
 - Three things in that code will mislead 3.3 if taken at face value. They are in section 7.
+
+#### 5.9 Orders and fills as built (3.3)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Table and columns | `V17__orders.sql`, `_SCHEMA`, the snapshot | `orders`, with `CHECK`s for the status, side, source, price-source and reject-reason lists and for what each status must carry. `positions.order_id`; `lot_sales.order_id`, `source` (default `manual`, which is the backfill) and `source_ref`. Plain `CREATE` and `ADD COLUMN`, so CI applies it. 27 tables |
+| The rules | `analytics/orders.py`, `market_time.next_trading_day` and `upcoming_session` | `placement` answers fill, queue or reject from the clock, the calendar and the quote. Also the fill price's rounding, a dollar buy's share count, and the no-margin test |
+| The rows | `OrdersRepository`, `OrderTransaction` | `transaction()` gives the service one connection with the book's row locked. Reads, the insert with its `ON CONFLICT`, the one `UPDATE … WHERE status = 'pending'`, a savepoint for a trade that has to be undone |
+| Shared lot writes | `PortfolioRepository.add_lot_on`, `close_lots_on`, `open_lots_on` | The bodies of `add_position` and `close_lots`, on the caller's connection with no commit. The two public methods now call them, so a recorded trade and a filled order write a lot the same way |
+| The service | `OrdersService` | `place_order`, `cancel_order`, `list_orders`. Paper books only. The quote is fetched before the transaction opens |
+| Routes | `api/routers/orders.py` | `GET /api/portfolio/orders?book_id=`, `POST /api/portfolio/orders`, `POST .../{order_id}/cancel?book_id=`. A rejected order is a 201 with its reason, a repeated key a 200 |
+| The view | `OrdersList.tsx`, inside `CashLedger` | Paper books only: session, request, status chip, result, latest five, Cancel on a pending order in a book that isn't archived (decision 30) |
+
+The rules are in [`data.md`](../architecture/data.md#paper-orders).
+
+How decisions 25 to 29 came out in code:
+
+| Decision | In the code |
+|---|---|
+| 25, pending means queued | `OrdersService._act`: a FILL placement fills or rejects before the transaction commits. Only a QUEUE placement leaves the row pending |
+| 26, all or nothing | No partial state exists. A sell that the lots can't cover raises in `allocate` and is rejected |
+| 27, one session | `orders.session_date`, set at placement by `upcoming_session`. The fill's trade date is that date. `no_open_price` is in the list for 3.4 |
+| 28, checked at fill | `_buy` reads the ledger after writing the lot; `_sell` allocates from the lots as the transaction sees them. `_placement_refusal` is the courtesy check |
+| 29, fixed reasons | `REJECT_REASONS`, a `CHECK` on the column, and a test that compares the two |
+
+**Nothing for an operator to run.** V17 needs no backfill: the column default marks every
+existing sale `manual`, and no order exists yet.
+
+Left for later steps, on purpose:
+
+- **A queued order is not filled by anything yet** (3.4). It stays pending and can be cancelled.
+  Nothing in the UI places an order until 3.5, so only a REST caller can queue one before then.
+- **No Buy dialog and no Sell on a paper position** (3.5). `ordersApi.place` exists with no
+  caller, and the capabilities matrix lists it as a gap.
+- **No `[PAPER]` Discord message** (3.5).
+- **Only `manual` is written as a source.** The route always sends it. The other five values
+  have no writer until stops (4.2), Harvester on paper books and the phase 4 triggers.
+- **A sale's source is stored but not shown.** It joins the Realized view's expanded row in 4.3.
+- **No Sidekick or MCP access to orders** (decision 18, step 5.4). The tool count stays 63.
+- **A seeded lot's `acquisition_type`** (3.5). Only `BUY` writes a cash row.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -867,6 +916,50 @@ Known before any code is written. Add to this list as the work finds more.
   price for that session then has two possible sources: the stored daily bar, or
   `Quote.regular_open` on the day itself. 3.4 has to pick one and say what happens when the job
   runs after that day.
+- **A quote still in pre-market after 9:30 is refused, not queued** (3.3). The clock and the
+  calendar say open and Yahoo's `market_state` says `PRE`, which happens for a moment at the
+  open. Queued, the order would go to tomorrow's open. Rejected as `stale_quote`, the owner can
+  place it again a minute later. Only a state that says the session is over (`POST`,
+  `POSTPOST`, `CLOSED`) queues an order while the clock says open: that is the half day.
+- **Cash is checked to the cent, so a buy can cost a fraction of a cent more than the book
+  holds** (3.3, accepted). 20.000001 shares at $50.00 is $1,000.00005, which is $1,000.00 in the
+  ledger, and fills against $1,000.00 of cash. The check reads the ledger's own rows, so it
+  can't disagree with the balance shown.
+- **A fill price of $100,000 or more can lose its cents in the lot** (3.3, not fixed).
+  `positions.purchase_price` is `REAL`, seven significant digits. The order keeps the exact
+  price in `fill_price`; the lot and its cash row use what the column stored. One US listing
+  trades up there. Fixing it is a column change (`ALTER … TYPE`, a hand-applied migration).
+- **A new foreign key makes a new parent in the isolation scans** (3.3). `lot_sales.order_id`
+  made `orders` a second per-owner and book-scoped parent of `lot_sales`, and both scans'
+  derivation tests pin the parent set. The scans' rules were not loosened: a `lot_sales`
+  statement still has to be tied to a parent that is restricted.
+- **The scans read one SQL literal at a time** (3.3). The order queries first shared their
+  column list through string concatenation, which left the scans looking at a fragment that
+  starts with `FROM` and is not classified as a statement at all. They are written out in full.
+- **The pre-check for a repeated key is a saving, not the guarantee** (3.3). `place_order` looks
+  the key up before it asks for a quote, so a repeat costs no Yahoo call. Two requests that
+  arrive together both pass that look-up. The insert's `ON CONFLICT DO NOTHING`, behind the
+  book lock, is what makes the second one a replay; a test patches the look-up away to prove it.
+- **A test that deletes `symbols` rows must delete `orders` first** (3.3). `orders.symbol_id` has
+  no cascade, like `orders.book_id`. `tests/test_orders_repository.purge` has the order:
+  positions, cash entries, orders, books, then symbols.
+- **Stripping the Postgres 18 rows from a regenerated snapshot is a few lines of script** (3.3).
+  Load the committed snapshot from `git show HEAD:db/schema_snapshot.json` and drop every
+  `*_not_null` constraint the new file has that the old one lacks. 176 rows this time. Keep the
+  committed file's indent, or the whole file shows as changed.
+- **A symbol halted less than five minutes ago still fills** (3.3, #560 review, accepted). The
+  halt refusal is the last trade's age, so inside the five-minute window the order fills at the
+  price before the halt. Revisit if Yahoo ever exposes a halt flag.
+- **A cap one above what the column holds is no cap** (3.3, #560 review). `MAX_ORDER_SHARES` was
+  1e12, and `NUMERIC(18,6)` stops just short of it, so exactly 1e12 shares passed the check and
+  failed at the INSERT as a 500. A dollar buy's share count was not capped at all: a large
+  amount at a sub-dollar price overflowed the same column. Both are a 422 now.
+- **The page must not promise a step that isn't built** (3.3, #560 review). The pending notice
+  said a queued order fills at its session's opening price and shows that evening. That is 3.4.
+  It now says nothing fills a waiting order yet. **3.4 must put the promise back**, in
+  `OrdersList.tsx` and its test.
+- **The Orders list was not checked in a browser** (3.3), for the reason given under 3.1. It is
+  covered by vitest and the API tests.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -920,3 +1013,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-15 | 3.1 Cash ledger | #558 | V16: `cash_entries`. A lot's buy row and a sale's sell row are derived in SQL and rewritten in the same transaction as every write that can change them; the owner enters the real book's opening balance, deposits and withdrawals; a new paper book opens with its starting cash. `analytics/cash.py`, `CashRepository`, `CashService`, four `/api/portfolio/cash` routes, the Cash and orders section, the strip's Cash figure, the Sidekick `cash_ledger` card, `scripts/backfill_cash_entries.py`. Decisions 19 to 24 were made in the build and are John's to confirm. The backfill is still to be run on each environment, and the real book needs its opening balance (section 5.7) |
 | 2026-11-15 | 3.1 review | #558 | Approved, with one suggestion: `CashLedgerCard`'s docstring cited "decision #20" for the no-props rule, which reads as this plan's decision 20 (no opening balance, no balance). The other chat cards mean #126's decision 20 by it. The comment now names the #235 `RealizedPnlCard` precedent and says which plan the number belongs to. Comment only, no code change |
 | 2026-11-15 | 3.2 Prior-art review | #559 | No code. Read #222 and the Alpaca experiment (its one commit and John's uncommitted local changes). Section 5.8 records what the orders design adopts, drops and carries to later steps. Decisions 25 to 29 (pending means queued, all-or-nothing fills, one-session queued orders, checks at fill time, fixed rejection reasons) are John's to confirm before 3.3. Four gotchas for 3.3 and 3.4 added to section 7 |
+| 2026-11-15 | 3.3 Orders and fills | #560 | V17: `orders`, `positions.order_id`, `lot_sales.order_id`, `source` and `source_ref`. `analytics/orders.py` (fill, queue or reject), `OrdersRepository` with one locked transaction per fill, `OrdersService` (place, cancel, list; paper books only), three `/api/portfolio/orders` routes, and the Orders list in the Cash and orders section. In-hours orders fill at the live quote or are rejected with a fixed reason; off-hours orders queue for the next session and wait for 3.4. John confirmed decisions 25 to 29 before the build, and decision 30 (orders as their own list) once the PR was open. Nothing for an operator to run (section 5.9) |
+| 2026-11-15 | 3.3 review | #560 | Approved, with five suggestions. Fixed: the share cap is now the largest count the column holds and a dollar buy's computed share count is capped too (both a 422, were a 500); the pending notice no longer says queued orders fill, since 3.4 isn't built; a cancelled order's Result reads "Withdrawn". Accepted and written down: a symbol halted under five minutes ago still fills, and a fill at $100,000 or more loses its cents in the lot until `purchase_price` stops being `REAL` |

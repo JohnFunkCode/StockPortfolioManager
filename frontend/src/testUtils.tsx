@@ -841,3 +841,33 @@ export function realizedResponse(symbols: object[] = [realizedSymbol()], overrid
     ...overrides,
   };
 }
+
+/** One order of GET /api/portfolio/orders (#431): a filled buy of 2 INTC. */
+export function order(overrides: object = {}) {
+  return {
+    order_id: 12,
+    book_id: 7,
+    symbol: 'INTC',
+    side: 'buy',
+    requested_shares: 2,
+    requested_amount: null,
+    status: 'filled',
+    source: 'manual',
+    source_ref: null,
+    session_date: '2026-06-15',
+    placed_at: '2026-06-15T15:00:00Z',
+    resolved_at: '2026-06-15T15:00:00Z',
+    filled_shares: 2,
+    fill_price: 50,
+    price_source: 'quote',
+    quote_time: '2026-06-15T14:59:50Z',
+    reject_reason: null,
+    replayed: false,
+    ...overrides,
+  };
+}
+
+/** A paper book's orders. `pending_count` is the fixture's own figure. */
+export function ordersResponse(orders: object[] = [order()], overrides: object = {}) {
+  return { book_kind: 'paper', pending_count: 0, orders, ...overrides };
+}

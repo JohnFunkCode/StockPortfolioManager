@@ -7,8 +7,8 @@
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 26 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 27 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/orders/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -380,6 +380,83 @@ the same statements and rolls them back, so its counts are exactly what `--apply
 It only adds a missing row, never changes one, and makes no network call. Run
 `backfill_fx_rates.py` first, so fewer rows are written without an amount. It does not set a
 real book's opening balance: the owner enters that on the Portfolio page.
+
+### Paper orders
+
+A paper book trades through orders (`orders`, V17, #431 step 3.3). An order is a request to buy
+or sell at the market; the system sets the fill, and the owner never types a price or a date.
+The real book takes no orders: a real trade is recorded with Add Lot, at what the broker gave.
+
+| Status | Meaning |
+|---|---|
+| `pending` | queued for `session_date`, and nothing else |
+| `filled` | `fill_price`, `filled_shares`, `price_source`, `quote_time` and `resolved_at` are set |
+| `cancelled` | the owner withdrew a pending order |
+| `rejected` | `reject_reason` says why |
+
+The last three are final. The rules, and why each is there:
+
+- **An order placed while the market is open is filled or rejected in the transaction that
+  creates it.** It is never left pending, so a crash can't leave one half done and the daily job
+  never has to guess what a pending order was waiting for. `pending` means queued.
+- **An order placed outside the session is queued for one session**: the next to open
+  (`market_time.upcoming_session`, which knows the holidays). The daily job fills it at that
+  session's opening price (step 3.4, not built yet: until then a queued order stays pending and
+  can be cancelled).
+- **A fill happens exactly once.** The only statement that takes an order out of `pending` is
+  `UPDATE … WHERE status = 'pending'`. It runs on the same connection as the fill's other rows:
+  the lot (a buy) or the `lot_sales` rows (a sell), and their cash rows. They commit together or
+  not at all. `OrdersRepository.transaction` locks the book's row first, so two fills in one
+  book run one after the other.
+- **Placing the same `idempotency_key` twice returns the first order.** The key is unique per
+  owner. A repeat is answered before a quote is fetched, and the insert's own
+  `ON CONFLICT DO NOTHING` catches two requests that arrive together.
+- **"Open" is three tests** (`analytics.orders.placement`): the clock says 9:30 to 16:00 ET, the
+  day is an NYSE trading day, and the quote's `market_state` doesn't say the session is over.
+  `is_market_open` alone is wrong on a holiday, and on a half day after 13:00.
+- **A quote is too old when its last regular-session trade is** (`Quote.regular_time`, more than
+  five minutes), whatever the time it was fetched. The quote comes straight from
+  `batch_quotes`, never the price cache. Yahoo has no halted flag, so a halted symbol is refused
+  the same way. That leaves a gap, accepted: a symbol halted less than five minutes ago still
+  fills, at its last price before the halt.
+- **USD-listed symbols only**, by the quote's own `currency`.
+- **A paper book has no margin.** A buy's lot and cash row are written first, the ledger is read
+  on the same connection, and a balance below zero undoes the trade to a savepoint and rejects
+  the order. The check therefore reads exactly what the ledger will show.
+- **Cash and shares are checked when the order fills.** At placement a sell is refused when it
+  is for more than the shares held less those promised to queued sells, and a dollar buy when
+  it is for more than the cash. A queued buy in shares is not checked: its cost isn't known.
+- **A fill is all or nothing.** A dollar buy's share count is rounded down to six decimals, so
+  it never costs more than the amount. A sell takes the oldest lots first.
+- **A fill price is rounded to the tick**: the cent at a dollar or more, a hundredth of a cent
+  below it. `positions.purchase_price` is a `REAL` column and holds seven significant digits,
+  which is every price below $100,000 to the cent. At or above that the lot and its cash row
+  hold a rounded price and the order keeps the exact one. Accepted for paper books as they are.
+  The column has to change (a hand-applied migration) before a paper book holds such a symbol.
+- **A share count is capped at 999,999,999,999**, the largest whole number `NUMERIC(18,6)`
+  holds, whether it is asked for or worked out from a dollar amount. Over the cap is bad input
+  (a 422) and nothing is stored.
+- **A rejection is a stored order, not an error.** `reject_reason` is one of `stale_quote`,
+  `no_quote`, `non_usd`, `insufficient_cash`, `insufficient_shares` and `no_open_price` (for
+  step 3.4). A `CHECK` holds the list, and `tests/test_orders_analytics.py` fails if the code's
+  list and the schema's differ.
+
+**Where a trade came from.** `orders.source` and `lot_sales.source` are one of `manual`, `stop`,
+`harvester`, `evaluator`, `watch` and `ai`, with `source_ref` pointing at what prompted it. Only
+`manual` has a writer today. Every sale from before V17 is `manual`. The lot a buy fills
+(`positions.order_id`) and the sale rows a sell fills (`lot_sales.order_id`) name their order,
+and the remainder lot of a split keeps the order that bought its parent.
+
+`analytics/orders.py` decides; `OrdersRepository` is the SQL; `OrdersService` validates and
+orchestrates. Served by `api/routers/orders.py`:
+
+| Route | What it does |
+|---|---|
+| `GET /api/portfolio/orders?book_id=` | a book's orders, newest first, and how many are pending. The real book has none and is not looked up. 404 for a book that isn't the owner's |
+| `POST /api/portfolio/orders` | place a market order in a paper book: `book_id`, `symbol`, `side`, `shares` or (a buy) `amount`, `idempotency_key`. 201 with the order as it now is, 200 for a repeated key, 422 for bad input or the real book |
+| `POST /api/portfolio/orders/{order_id}/cancel?book_id=` | withdraw a pending order. 422 for one that is no longer pending |
+
+No route takes a price, a date or a `source`.
 
 ### Realized P/L
 

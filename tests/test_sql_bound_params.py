@@ -77,7 +77,7 @@ ALLOWED = {
         _BY_BOOL,
     ("quantcore/repositories/portfolio_repository.py", "_apply_lot_fields", "set_clause"):
         "column names checked against MUTABLE_LOT_COLUMNS just above; values are bound",
-    ("quantcore/repositories/portfolio_repository.py", "list_lots_for_symbol",
+    ("quantcore/repositories/portfolio_repository.py", "_lots_for_symbol",
      "'' if status is None else '\\n  AND p.status = :status'"):
         "a literal clause picked by `status is None`; the status is bound",
     ("quantcore/repositories/portfolio_repository.py", "list_sales",

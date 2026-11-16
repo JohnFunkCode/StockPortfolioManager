@@ -7,6 +7,8 @@ import {
   emptyCashLedger,
   lotRow,
   mockApi,
+  order,
+  ordersResponse,
   portfolioTotals,
   realizedResponse,
   realizedSymbol,
@@ -410,6 +412,27 @@ describe('PortfolioPage books (#431)', () => {
     expect(screen.getByText('Sim')).toBeInTheDocument();
     expect(screen.queryByText('Actions')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Edit lot')).not.toBeInTheDocument();
+  });
+
+  it("lets a pending order be cancelled in an open paper book, and not in an archived one", async () => {
+    const pending = order({ order_id: 14, status: 'pending', filled_shares: null, fill_price: null });
+    const routes = (paper: object): Array<[string | RegExp, object]> => [
+      ['/api/books', { books: [REAL, paper] }],
+      [/\/api\/portfolio\/symbols/, { symbols: [], totals }],
+      ['/api/portfolio/realized', realizedResponse([])],
+      ['/api/portfolio/cash', cashLedger(undefined, { book_kind: 'paper' })],
+      ['/api/portfolio/orders', ordersResponse([pending], { pending_count: 1 })],
+    ];
+    mockApi(routes(PAPER));
+    const { unmount } = renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    expect(await screen.findByRole('button', { name: /Cancel order/ })).toBeInTheDocument();
+    unmount();
+    vi.unstubAllGlobals();
+
+    mockApi(routes({ ...PAPER, archived_at: '2026-11-14T00:00:00Z' }));
+    renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
+    expect(await screen.findByTestId('order-14')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Cancel order/ })).toBeNull();
   });
 
   it('keeps the Account column and the lot actions in the real book', async () => {

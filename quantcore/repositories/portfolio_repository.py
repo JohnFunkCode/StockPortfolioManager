@@ -35,6 +35,10 @@ from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.cash_entry_sql import insert_trade_entries, sync_lot_cash
 
+# What prompted a sale (`lot_sales.source`, #431 step 3.3). A sale the owner
+# records is manual. A paper order passes its own source through.
+MANUAL_SOURCE = "manual"
+
 MUTABLE_LOT_COLUMNS = {
     "name", "purchase_price", "quantity", "purchase_date", "currency",
     "sale_price", "sale_date", "status", "parent_lot_id", "trade_date",
@@ -134,13 +138,13 @@ INSERT INTO positions (
     purchase_price, quantity, purchase_date, currency, sale_price, sale_date,
     opened_at, entry_price, shares, cost_basis_total,
     status, parent_lot_id, trade_date, fees, acquisition_type, account, notes,
-    fx_rate_at_purchase
+    fx_rate_at_purchase, order_id
 ) VALUES (
     :owner, :book_id, :symbol_id, :name,
     :purchase_price, :quantity, :purchase_date, :currency, :sale_price, :sale_date,
     :opened_at, :entry_price, :shares, :cost_basis_total,
     :status, :parent_lot_id, :trade_date, :fees, :acquisition_type, :account, :notes,
-    :fx_rate_at_purchase
+    :fx_rate_at_purchase, :order_id
 )
 RETURNING position_id;
 """
@@ -164,7 +168,8 @@ SELECT
     p.account        AS account,
     p.notes          AS notes,
     p.book_id        AS book_id,
-    p.fx_rate_at_purchase AS fx_rate_at_purchase
+    p.fx_rate_at_purchase AS fx_rate_at_purchase,
+    p.order_id       AS order_id
 FROM positions p
 JOIN symbols s ON s.symbol_id = p.symbol_id
 WHERE p.owner = :owner
@@ -223,10 +228,10 @@ ORDER BY p.trade_date, p.position_id;
 SQL_INSERT_SALE = """
 INSERT INTO lot_sales (
     lot_id, shares_sold, sale_price, sale_trade_date, fees, allocation_method, notes,
-    fx_rate_at_sale
+    fx_rate_at_sale, order_id, source, source_ref
 ) VALUES (
     :lot_id, :shares_sold, :sale_price, :sale_trade_date, :fees, :allocation_method, :notes,
-    :fx_rate_at_sale
+    :fx_rate_at_sale, :order_id, :source, :source_ref
 )
 RETURNING sale_id;
 """
@@ -511,6 +516,9 @@ class PortfolioRepository:
             "account": row.get("account"),
             "notes": row.get("notes"),
             "fx_rate_at_purchase": row.get("fx_rate_at_purchase"),
+            # The paper order that bought this lot (#431 step 3.3). None for a
+            # lot the owner recorded.
+            "order_id": row.get("order_id"),
             **legacy,
         })
         return int(cur.fetchone()["position_id"])
@@ -592,15 +600,21 @@ class PortfolioRepository:
         *, book_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """List every lot of `ticker` for `owner`. `status=None` returns all statuses."""
+        with closing(get_connection()) as conn:
+            return self._lots_for_symbol(conn, owner, ticker, status, book_id=book_id)
+
+    @staticmethod
+    def _lots_for_symbol(
+        conn, owner: str, ticker: str, status: Optional[str], *, book_id: Optional[int]
+    ) -> List[Dict[str, Any]]:
+        """`list_lots_for_symbol` on an open `conn`."""
         sql = SQL_LIST_LOTS_FOR_SYMBOL.format(
             status_clause="" if status is None else "\n  AND p.status = :status"
         )
         params = {"owner": owner, "ticker": ticker.strip().upper(), "book_id": book_id}
         if status is not None:
             params["status"] = status
-        with closing(get_connection()) as conn:
-            rows = conn.execute(sql, params).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        return [_row_to_dict(r) for r in conn.execute(sql, params).fetchall()]
 
     # ------------------------------------------------------------------
     # Writes
@@ -643,14 +657,31 @@ class PortfolioRepository:
         """
         with closing(get_connection()) as conn:
             try:
-                book = resolve_book_id(conn, owner=owner, book_id=book_id)
-                lot_id = self._insert_position(conn, owner, row, book_id=book)
-                sync_lot_cash(conn, owner=owner, book_id=book, lot_id=lot_id)
+                lot_id = self.add_lot_on(conn, owner, row, book_id=book_id)
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
         return lot_id
+
+    def add_lot_on(
+        self, conn, owner: str, row: Dict[str, Any], *, book_id: Optional[int] = None
+    ) -> int:
+        """`add_position` on the caller's connection, with no commit: the lot
+        and its buy row join whatever transaction `conn` is in. A paper order's
+        fill uses it so the order, the lot and the cash row land together
+        (#431 step 3.3). Returns the new `lot_id`."""
+        book = resolve_book_id(conn, owner=owner, book_id=book_id)
+        lot_id = self._insert_position(conn, owner, row, book_id=book)
+        sync_lot_cash(conn, owner=owner, book_id=book, lot_id=lot_id)
+        return lot_id
+
+    def open_lots_on(
+        self, conn, owner: str, ticker: str, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """The OPEN lots of `ticker` as `conn`'s transaction sees them, oldest
+        first. What a fill allocates a sale across."""
+        return self._lots_for_symbol(conn, owner, ticker, "OPEN", book_id=book_id)
 
     def remove_position(
         self, owner: str, ticker: str, *, book_id: Optional[int] = None
@@ -746,6 +777,9 @@ class PortfolioRepository:
                     "allocation_method": allocation_method,
                     "notes": notes,
                     "fx_rate_at_sale": fx_rate_at_sale,
+                    "order_id": None,
+                    "source": MANUAL_SOURCE,
+                    "source_ref": None,
                 })
                 sale_id = int(cur.fetchone()["sale_id"])
                 sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
@@ -966,76 +1000,113 @@ class PortfolioRepository:
         Each sale writes its sell row to the book's cash ledger, and a split
         rewrites the buy row of each half, all in the same transaction.
         """
-        results: List[Dict[str, Any]] = []
         with closing(get_connection()) as conn:
             try:
-                for lot_id, shares in allocation:
-                    row = conn.execute(
-                        SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
-                    ).fetchone()
-                    if row is None:
-                        raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
-                    lot = _row_to_dict(row)
-                    if lot["status"] != "OPEN":
-                        raise ValueError(f"lot {lot_id} is not open")
-                    if shares > lot["quantity"]:
-                        raise ValueError(
-                            f"lot {lot_id}: cannot sell {shares} shares, only "
-                            f"{lot['quantity']} open"
-                        )
-
-                    sale_notes = (lot_notes or {}).get(lot_id, notes)
-                    cur = conn.execute(SQL_INSERT_SALE, {
-                        "lot_id": lot_id,
-                        "shares_sold": shares,
-                        "sale_price": sale_price,
-                        "sale_trade_date": sale_trade_date,
-                        "fees": fees,
-                        "allocation_method": allocation_method,
-                        "notes": sale_notes,
-                        "fx_rate_at_sale": (fx_rates_at_sale or {}).get(lot["currency"]),
-                    })
-                    sale_id = int(cur.fetchone()["sale_id"])
-
-                    child_lot_id = None
-                    if shares < lot["quantity"]:
-                        remainder = lot["quantity"] - shares
-                        child_lot_id = self._insert_position(conn, owner, {
-                            "symbol": lot["symbol"],
-                            "name": lot["name"],
-                            "purchase_price": lot["purchase_price"],
-                            "quantity": remainder,
-                            "purchase_date": lot["purchase_date"],
-                            "trade_date": lot["trade_date"],
-                            "currency": lot["currency"],
-                            "status": "OPEN",
-                            "parent_lot_id": lot_id,
-                            "fees": lot["fees"],
-                            "acquisition_type": lot["acquisition_type"],
-                            "account": lot["account"],
-                            "notes": lot["notes"],
-                            "fx_rate_at_purchase": row["fx_rate_at_purchase"],
-                        }, book_id=int(row["book_id"]))
-
-                    self._apply_lot_fields(conn, owner, lot_id, {
-                        "quantity": shares,
-                        "status": "CLOSED",
-                    }, book_id=book_id)
-
-                    # The sale's sell row, and the buy rows of both halves of
-                    # a split: the parent now holds only the shares sold.
-                    self._sync_cash(conn, owner, (lot_id, child_lot_id), book_id=book_id)
-
-                    results.append({
-                        "lot_id": lot_id,
-                        "sale_id": sale_id,
-                        "shares_sold": shares,
-                        "child_lot_id": child_lot_id,
-                        "notes": sale_notes,
-                    })
-
+                results = self.close_lots_on(
+                    conn, owner, allocation, sale_price, sale_trade_date,
+                    fees=fees, allocation_method=allocation_method, notes=notes,
+                    lot_notes=lot_notes, fx_rates_at_sale=fx_rates_at_sale, book_id=book_id,
+                )
                 conn.commit()
             except Exception:
                 conn.rollback()
                 raise
+        return results
+
+    def close_lots_on(
+        self,
+        conn,
+        owner: str,
+        allocation: List[Tuple[int, Any]],
+        sale_price: Any,
+        sale_trade_date: str,
+        fees: Any = None,
+        allocation_method: Optional[str] = None,
+        notes: Optional[str] = None,
+        lot_notes: Optional[Mapping[int, str]] = None,
+        *,
+        fx_rates_at_sale: Optional[Mapping[str, Any]] = None,
+        book_id: Optional[int] = None,
+        source: str = MANUAL_SOURCE,
+        source_ref: Optional[str] = None,
+        order_id: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """`close_lots` on the caller's connection, with no commit. A paper
+        order's fill uses it so the order, its sale rows and their cash rows
+        land together (#431 step 3.3).
+
+        `source`, `source_ref` and `order_id` are written to every `lot_sales`
+        row: what prompted the sale, a pointer to it, and the order that
+        filled it. A sale the owner records is `manual` with neither. The
+        remainder lot of a split keeps the order that bought its parent.
+        """
+        results: List[Dict[str, Any]] = []
+        for lot_id, shares in allocation:
+            row = conn.execute(
+                SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"lot {lot_id} not found for owner {owner!r}")
+            lot = _row_to_dict(row)
+            if lot["status"] != "OPEN":
+                raise ValueError(f"lot {lot_id} is not open")
+            if shares > lot["quantity"]:
+                raise ValueError(
+                    f"lot {lot_id}: cannot sell {shares} shares, only "
+                    f"{lot['quantity']} open"
+                )
+
+            sale_notes = (lot_notes or {}).get(lot_id, notes)
+            cur = conn.execute(SQL_INSERT_SALE, {
+                "lot_id": lot_id,
+                "shares_sold": shares,
+                "sale_price": sale_price,
+                "sale_trade_date": sale_trade_date,
+                "fees": fees,
+                "allocation_method": allocation_method,
+                "notes": sale_notes,
+                "fx_rate_at_sale": (fx_rates_at_sale or {}).get(lot["currency"]),
+                "order_id": order_id,
+                "source": source,
+                "source_ref": source_ref,
+            })
+            sale_id = int(cur.fetchone()["sale_id"])
+
+            child_lot_id = None
+            if shares < lot["quantity"]:
+                remainder = lot["quantity"] - shares
+                child_lot_id = self._insert_position(conn, owner, {
+                    "symbol": lot["symbol"],
+                    "name": lot["name"],
+                    "purchase_price": lot["purchase_price"],
+                    "quantity": remainder,
+                    "purchase_date": lot["purchase_date"],
+                    "trade_date": lot["trade_date"],
+                    "currency": lot["currency"],
+                    "status": "OPEN",
+                    "parent_lot_id": lot_id,
+                    "fees": lot["fees"],
+                    "acquisition_type": lot["acquisition_type"],
+                    "account": lot["account"],
+                    "notes": lot["notes"],
+                    "fx_rate_at_purchase": row["fx_rate_at_purchase"],
+                    "order_id": row["order_id"],
+                }, book_id=int(row["book_id"]))
+
+            self._apply_lot_fields(conn, owner, lot_id, {
+                "quantity": shares,
+                "status": "CLOSED",
+            }, book_id=book_id)
+
+            # The sale's sell row, and the buy rows of both halves of
+            # a split: the parent now holds only the shares sold.
+            self._sync_cash(conn, owner, (lot_id, child_lot_id), book_id=book_id)
+
+            results.append({
+                "lot_id": lot_id,
+                "sale_id": sale_id,
+                "shares_sold": shares,
+                "child_lot_id": child_lot_id,
+                "notes": sale_notes,
+            })
         return results

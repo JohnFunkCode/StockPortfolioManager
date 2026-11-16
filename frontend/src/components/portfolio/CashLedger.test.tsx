@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import CashLedger, { RECENT_ENTRIES } from './CashLedger';
-import { cashEntry, cashLedger, emptyCashLedger, mockApi, renderWithProviders } from '../../testUtils';
+import {
+  cashEntry, cashLedger, emptyCashLedger, mockApi, order, ordersResponse, renderWithProviders,
+} from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -243,6 +245,40 @@ describe('CashLedger', () => {
       await waitFor(() => expect(screen.getByTestId('cash-table')).toBeInTheDocument());
       expect(api.calls[0][0]).toBe('/api/portfolio/cash?book_id=7');
       expect(screen.queryByRole('button', { name: /deposit|opening balance|Delete/i })).toBeNull();
+    });
+
+    it("lists a paper book's orders under its entries, with Cancel only when allowed", async () => {
+      const pending = order({ order_id: 14, status: 'pending', filled_shares: null, fill_price: null });
+      const routes: Array<[string, object]> = [
+        ['/api/portfolio/cash', cashLedger([OPENING], { book_kind: 'paper' })],
+        ['/api/portfolio/orders', ordersResponse([pending], { pending_count: 1 })],
+      ];
+      const api = mockApi(routes);
+      const { unmount } = renderWithProviders(<CashLedger bookId={7} readOnly />);
+      expect(await screen.findByTestId('order-14')).toBeInTheDocument();
+      expect(api.calls.map(([url]) => url)).toEqual([
+        '/api/portfolio/cash?book_id=7',
+        '/api/portfolio/orders?book_id=7',
+      ]);
+      expect(screen.queryByRole('button', { name: /Cancel order/ })).toBeNull();
+      unmount();
+
+      mockApi(routes);
+      renderWithProviders(<CashLedger bookId={7} readOnly canCancelOrders />);
+      expect(await screen.findByRole('button', { name: /Cancel order/ })).toBeInTheDocument();
+    });
+
+    it('asks for no orders for the real book, named or not', async () => {
+      const api = mount(cashLedger([OPENING]));
+      await waitFor(() => expect(screen.getByTestId('cash-table')).toBeInTheDocument());
+      expect(api.calls.map(([url]) => url)).toEqual(['/api/portfolio/cash']);
+      expect(screen.queryByTestId('orders-list')).toBeNull();
+      vi.unstubAllGlobals();
+
+      const named = mockApi([['/api/portfolio/cash', cashLedger([OPENING])]]);
+      renderWithProviders(<CashLedger bookId={1} />);
+      await waitFor(() => expect(screen.getAllByTestId('cash-table')).toHaveLength(2));
+      expect(named.calls.map(([url]) => url)).toEqual(['/api/portfolio/cash?book_id=1']);
     });
 
     it('is read-only when told to be, even for the real book', async () => {

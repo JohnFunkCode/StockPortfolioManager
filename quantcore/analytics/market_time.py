@@ -218,6 +218,28 @@ def is_trading_day(day: datetime.date | None = None) -> bool:
     return day.weekday() < 5 and day not in nyse_holidays(day.year)
 
 
+def next_trading_day(after: datetime.date) -> datetime.date:
+    """The first NYSE trading day strictly after ``after``."""
+    day = after + datetime.timedelta(days=1)
+    while not is_trading_day(day):
+        day += datetime.timedelta(days=1)
+    return day
+
+
+def upcoming_session(now: datetime.datetime | None = None) -> datetime.date:
+    """The next regular session still to open: today when today is a trading
+    day and it is before 9:30 ET, otherwise the next trading day.
+
+    The session an order placed outside market hours is queued for (#431).
+    Holiday-aware, unlike ``is_market_open``.
+    """
+    current = _now_et(now)
+    today = current.date()
+    if is_trading_day(today) and current.time() < _OPEN:
+        return today
+    return next_trading_day(today)
+
+
 def trading_days_after(start: datetime.date, end: datetime.date) -> int:
     """How many NYSE trading days fall in ``(start, end]`` — 0 when ``end <= start``.
 

@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Next is 4.1. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build and 35 to 41 during the 3.5 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes) is built. Next is 4.2. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build and 42 to 47 during the 4.1 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -280,6 +280,44 @@ review.
 41. **Selling on paper is by symbol, not by lot.** An order sells shares oldest lot first, so
     the Sell button is on the symbol's row and a paper lot still has no actions. The Buy button
     on the Security page shows only for an owner with an open paper book.
+
+### Made on 2026-11-16, during the 4.1 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review. A change to a column or a `CHECK` after rows exist is a hand-applied migration, so 42,
+43 and 46 are the ones worth settling before 4.2.
+
+42. **A stop is set on a symbol in one book, not on a lot.** The checklist said "symbol or lot".
+    #221 decided symbol ("lots added later inherit it"), and a paper sell is by symbol too
+    (decision 41). One active stop per book and symbol is a unique index. What it costs: two
+    lots of one symbol can't have different stops.
+43. **Setting a stop on a symbol that has one replaces it, and the old row is kept.** A stop has
+    five statuses: `active`, `triggered`, `cancelled`, `replaced` and `closed` (the position
+    went flat). Only `active` is live and the rest are final. There is no edit: a new level is
+    a new row, so the history of what was set stays whole. What it costs: a symbol whose stop
+    is revised often collects rows.
+44. **A stop must sit below the last stored close, and a trailing stop starts from it.** The
+    reference is the newest closed daily bar QuantCore holds, read with no network call, not a
+    live quote. It is the price the checker (decision 4) will test the stop against. The close
+    is a trailing stop's first high-water mark, and the owner types no mark. With no stored
+    close a fixed stop is taken as typed and a trailing stop is refused. What it costs: during
+    the session the price may already be under a stop that is still above yesterday's close,
+    or the other way round. The checker settles it that evening.
+45. **Every stop stores where its level came from, and `method` has no `CHECK`.** The columns
+    are `method`, `proposed_level`, `stop_level`, `reference_price` and `as_of` (#221's
+    provenance list, plus the close it was set against). The service checks `method` against
+    a list in `analytics.stored_stops`. A database `CHECK` would make each new method to
+    compare a hand-applied migration (decision 35's reason). `source` does have one, and its
+    list is a trade's without `stop`.
+46. **4.1 stores a stop for either kind of book and nothing acts on it.** The table has no
+    column yet for "exists at a broker" (4.5) or "last bar checked" (4.2, section 5.8). Both
+    are additive, and each belongs with the code that reads it. A stop is not closed when its
+    position goes flat until 4.2, as the checklist says. Until then a stop can outlive its
+    holding, and nothing reads it.
+47. **The level is stored on the row for both kinds, rounded to the tick.** A trailing stop's
+    `stop_level` is worked out from `trail_pct` and `high_water_mark` when it is set (and, in
+    4.2, when the mark rises). Section 5.8 asks for this. The rounding is a fill price's, so a
+    stop and the fill it causes compare exactly.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -788,9 +826,10 @@ Left for later steps, on purpose:
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
-- [ ] **4.1 Stops table and service.**
+- [x] **4.1 Stops table and service.**
   `stops` table (owner, book, symbol or lot, fixed or trailing, level, method, source, status);
-  `StopsService` and routes; owner and book isolation tests.
+  `StopsService` and routes; owner and book isolation tests. What was built, and what was left
+  for later steps, is in section 5.12.
 - [ ] **4.2 Bar-close checker.**
   A daily-job step over closed bars only (`include_open=False`): ratchet trailing levels, detect
   breaches (the bar's low reached the level), alert for real books with dedup across runs, and for
@@ -810,6 +849,35 @@ Left for later steps, on purpose:
   outside broker (price, and optionally quantity, order type and brokerage), or create one from
   the stop card's recommendation with its reasoning. Both write the same row; a field records
   whether the order exists at a broker. Real books only for mirroring. Closes #221.
+
+#### 5.12 The stops table, service and routes as built (4.1)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The table | `V19__stops.sql`, `_SCHEMA`, the snapshot | `stops`: `owner`, `book_id`, `symbol_id`, `kind`, `stop_level`, `trail_pct`, `high_water_mark`, `method`, `proposed_level`, `reference_price`, `as_of`, `source`, `source_ref`, `status`, `created_at`, `resolved_at`. `CHECK`s for the kind, source and status lists and for what each kind and status must carry. `ux_stops_one_active` is the one-active-stop rule. Plain `CREATE`, so CI applies it. 28 tables |
+| The rules | `analytics/stored_stops.py` | Pure. `stop_terms` gives a fixed or trailing stop's stored terms or says what is wrong; `trailing_level`; the kind, status, method and source lists. Not `analytics/stops.py`, which places a stop for the stop-loss card |
+| The rows | `StopsRepository` | `list_stops`, `get_stop`, `set_stop` (book resolved and locked, an OPEN lot required, the active stop replaced, the new one inserted, all in one transaction), `resolve_stop` (the one way out of `active` by id) |
+| The service | `StopsService` | `list_stops`, `set_stop`, `cancel_stop`. Either kind of book. Takes `PricesService` for `last_close` |
+| The routes | `api/routers/stops.py` | `GET /api/portfolio/stops?book_id=&include_inactive=`, `POST /api/portfolio/stops`, `POST .../{stop_id}/cancel?book_id=`. No route takes a source or a status |
+| Isolation | `tests/test_stops_repository.py` (`IsolationTest`), `tests/test_stops_api.py` | `stops` is mapped in `OWNER_SCOPED` and `BOOK_SCOPED`. No `ALLOWED` entry in either scan |
+
+The rules are in [`data.md`](../architecture/data.md#stored-stops). How decisions 42 to 47
+came out is the table above; the decisions say what each costs.
+
+**Nothing for an operator to run.** V19 is applied by CI and needs no backfill: no stop exists.
+
+Left for later steps, on purpose:
+
+- **Nothing checks a stop** (4.2). No ratchet, no breach, no alert, no paper sale. A stored
+  stop is a record until then.
+- **A stop is not closed when its position goes flat** (4.2). `closed` is in the status list
+  and `resolve_stop` can write it. Nothing calls it yet.
+- **No "last bar checked" column** (4.2, section 5.8), and **no "exists at a broker" field**
+  or the mirror's quantity, order type and brokerage (4.5).
+- **No UI** (4.3, 4.5). The three routes are a gap in the capabilities matrix.
+- **`triggered` has no writer**, and nothing writes an `alerts` row for a stop (4.2, 4.4).
+- **Only `manual` is written as a source.**
+- **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
 
 ### Milestone 5: performance (#431 phase 3)
 
@@ -1145,6 +1213,24 @@ Known before any code is written. Add to this list as the work finds more.
   shares held, and adding lots up in the page would be display maths in the front end.
 - **A try after a rejected order must send a new idempotency key** (3.5). With the old key the
   server replays the rejection, and the dialog would show the same refusal for ever.
+- **A test that deletes `books` or `symbols` rows must delete `stops` first** (4.1). Both
+  foreign keys are without a cascade, like the ones on `orders`.
+  `tests/test_stops_repository.purge` deletes the stops and then calls the orders purge.
+- **Setting a stop and closing a lot don't share a lock** (4.1, for 4.2). `set_stop` locks the
+  book's row and then reads the OPEN lots. A real-book close takes no book lock, so a stop can
+  be set in the moment its last lot closes. The close-when-flat step in 4.2 has to tolerate a
+  stop that appears just after it looked, for example by closing stops for flat symbols on
+  every checker run and not only on the closing write.
+- **`analytics/stops.py` was already taken** (4.1). It places a stop for the stop-loss card.
+  The stored-stop rules are in `analytics/stored_stops.py`, and the service module is
+  `services/stops.py` because no service had the name.
+- **A stop's method list and the request model's `Literal` are two copies** (4.1).
+  `SetStopRequest.method` lists the four methods so the OpenAPI document shows them, and the
+  service checks `analytics.stored_stops.METHODS`. A new method is added in both.
+- **The snapshot and OpenAPI scripts need a database the sandbox can reach** (4.1). `.env`'s
+  `QUANTCORE_DB_DSN` is the prod proxy, which is not running in an agent session. Both were
+  run with `QUANTCORE_DB_DSN` set to the local unit-test DSN, and `check_openapi_snapshot.py`
+  also needs `PYTHONPATH=.`. The Postgres 18 strip (3.3) dropped 188 rows this time.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1204,3 +1290,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-15 | 3.4 review | #561 | Approved, with one suggestion. Fixed: `OrdersService` now requires its `prices` argument. It was optional, and a service built without it failed with an `AttributeError` on its first queued fill. Confirmed as intended: the alarm fires on the first night an order waits for its bar. The review also noted that no test pins the step's place in `__main__`; that is still read from the code |
 | 2026-11-16 | 3.5 Buy and sell on paper | #562 | V18: `orders.kind` (`market`, `seed`, `manual_close`). `OrdersService.seed_book`, `close_unquoted` and `fills_on`, `PricesService.last_close`, two routes (`/orders/seed`, `/orders/manual-close`), and the job's `[PAPER]` fills message after the queued fills. In the UI: `PaperOrderDialog` (Buy on paper on the Security page, Sell on a paper symbol row, the manual close), seeding from the New paper book dialog and from an empty book, and the Orders list's wording for the two new kinds. Symbol rows carry `total_quantity`. Decisions 35 to 41 (the kind column, a seed as an order, seed once, what counts as unquotable and its price, the manual-close mark, the evening fills message for John's books, selling by symbol) were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.11) |
 | 2026-11-16 | 3.5 review | #562 | Changes requested, two findings. Fixed: a manual close is now refused while a sell of the symbol is queued (it sold every share, so the queued sell would have been rejected at its session with nothing saying why); and the symbol rows' share total moved to `portfolio_math.total_quantity`, which puts `symbol_rows` back inside the complexity goal and gives the no-quantity case a test. The review did not re-run the suites and could not measure the front end's complexity |
+| 2026-11-16 | 4.1 Stops table, service and routes | #563 | V19: `stops`. `analytics/stored_stops.py` (a fixed or trailing stop's terms), `StopsRepository` (set with replace, in one locked transaction; one conditional `UPDATE` out of `active`), `StopsService` (list, set, cancel; either kind of book) and three `/api/portfolio/stops` routes. A stop is on a symbol in a book, needs an OPEN lot, and sits below the last stored close. Owner and book isolation tests are mapped in both coverage tests. Decisions 42 to 47 were made in the build and are John's to confirm. No UI, and nothing checks a stop until 4.2. Nothing for an operator to run (section 5.12) |
+| 2026-11-16 | 4.1 review | #563 | Two suggestions, both taken. A refused cancel re-reads the stop before naming its status, so a stop resolved between the read and the `UPDATE` is not reported as `active`. The readme's route count was stale (115) and is now 128; the capabilities matrix said 127 because it had never counted `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches: now 73 of 128 reached, 55 left, with a row for it. |

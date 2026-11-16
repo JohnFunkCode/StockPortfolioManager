@@ -7,8 +7,8 @@
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 27 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/orders/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 28 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/orders/stops/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -517,6 +517,56 @@ cash. The other two exist so that every paper lot and sale still comes from an o
 
 A `CHECK` (`orders_kind_rule`) holds the three kinds and their shapes: a seed is a buy for a
 share count, a manual close is a sell.
+
+### Stored stops
+
+A stop is the owner's decision to get out of a holding at a level (`stops`, V19, #431 phase 2
+and #221, plan step 4.1). The table records the decision. **Nothing reads it to act yet**: the
+checker that tests a stop against closed bars, alerts for a real book and sells for a paper one
+is plan step 4.2. Nothing here places an order at a broker.
+
+- **A stop is set on a symbol in one book, not on a lot.** Lots bought later are covered by the
+  same stop. Both kinds of book take stops.
+- **One active stop per symbol per book**, held by a unique partial index
+  (`ux_stops_one_active`). Setting another replaces it in one transaction, with the book's row
+  locked: the old row becomes `replaced` and the new one is inserted.
+- **Only `active` is live.** `triggered`, `cancelled`, `replaced` and `closed` are final, and a
+  stop leaves `active` only through `UPDATE … WHERE status = 'active'`. A stop is never deleted:
+  what was set, how, and what became of it is the record that says which stop method works.
+- **A stop needs a holding.** `StopsRepository.set_stop` reads the book's OPEN lots of the
+  symbol on its own connection and raises `SymbolNotHeldError` (a 422) when there are none.
+  A stop is not yet closed when its position goes flat. That is step 4.2.
+- **Fixed or trailing.** A fixed stop is a price. A trailing stop is `trail_pct` percent below
+  `high_water_mark`, and `stop_level` holds the level worked out from the two, so no reader has
+  to. The mark starts at the last close. The checker will raise it and never lower it.
+- **A stop sits below the last close**, which is the newest stored closed daily bar's
+  (`PricesService.last_close`, zero network). It is the price the checker will test against, so
+  a stop at or above it would be broken by the bar it was set on. With no stored close a fixed
+  stop is taken as typed and a trailing stop is refused. The owner types no high-water mark.
+- **A level is rounded to the market's tick** (`analytics.orders.fill_price`), so a stop and the
+  fill it later causes can be compared exactly.
+- **Every stop records where its level came from**: `method` (`manual`, `technical`, `trailing`
+  or `confluence`, the stop-loss card's three candidates), `proposed_level` (what the analysis
+  suggested), `stop_level` (what was saved), `reference_price` (the close it was set against)
+  and `as_of` (that close's date). `method` has no `CHECK`, on purpose: widening a `CHECK` is a
+  dropped constraint, which the migrate Job refuses, and new methods to compare are expected.
+  `StopsService` checks it against `analytics.stored_stops.METHODS`.
+- **`source` says what set the stop**: `manual`, `harvester`, `evaluator`, `watch` or `ai`, with
+  `source_ref`. It is a trade's source list without `stop`. Only `manual` has a writer, and no
+  route takes a source.
+- **An archived book takes no new stop.** One it already has can still be cancelled.
+
+`analytics/stored_stops.py` works out a stop's terms; `StopsRepository` is the SQL;
+`StopsService` validates and orchestrates. Served by `api/routers/stops.py`:
+
+| Route | What it does |
+|---|---|
+| `GET /api/portfolio/stops?book_id=&include_inactive=` | a book's active stops, newest first, and how many are active. `include_inactive=true` adds the ones that ended. Without `book_id`, the real book. The read creates no book. 404 for a book that isn't the owner's |
+| `POST /api/portfolio/stops` | set the stop on a holding: `symbol`, `kind`, `stop_level` (fixed) or `trail_pct` (trailing), and optionally `method`, `proposed_level`, `book_id`. 201 with the stop, whose `replaced_stop_id` names the one it took over from. 422 for a symbol the book doesn't hold, a level at or above the last close, or an archived book |
+| `POST /api/portfolio/stops/{stop_id}/cancel?book_id=` | take an active stop off. 404 for a stop that isn't in that book, 422 for one that is no longer active |
+
+No UI reaches these routes yet (plan steps 4.3 and 4.5), and no MCP tool or Sidekick tool reads
+a stop (step 5.4).
 
 ### Realized P/L
 

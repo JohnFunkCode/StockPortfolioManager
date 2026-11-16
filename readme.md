@@ -211,6 +211,13 @@ current prices and at no cost to its starting cash. A position whose symbol can 
 quoted, a delisted one for example, can be closed at the last price on record. The daily job
 posts the day's fills in your paper books to Discord, marked `[PAPER]`.
 
+A stop can be recorded on any holding, in the real book or a paper one: a fixed price, or a
+trailing percentage below a high-water mark that starts at the last close
+(`POST /api/portfolio/stops`). A holding has one active stop at a time, and setting another
+replaces it. Each stop keeps how its level was chosen. For now a stop is a record only: nothing
+checks it against prices and no page shows it yet, and QuantCore never places an order at a
+broker.
+
 ### Migrations (Flyway)
 
 Versioned SQL lives in `db/migrations/V*.sql`. Every schema change touches exactly **three**
@@ -245,7 +252,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 115 routes, so the table below only groups them.
+authoritative endpoint list.** There are 128 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|
@@ -261,6 +268,7 @@ authoritative endpoint list.** There are 115 routes, so the table below only gro
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
+| `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), set a fixed or trailing stop on a holding, cancel an active one. A record only: nothing acts on a stop yet |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |

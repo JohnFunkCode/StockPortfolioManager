@@ -1798,6 +1798,114 @@
         "sentiment_snapshots_pkey": "CREATE UNIQUE INDEX sentiment_snapshots_pkey ON public.sentiment_snapshots USING btree (id)"
       }
     },
+    "stops": {
+      "columns": {
+        "as_of": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        },
+        "book_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "created_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "high_water_mark": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "kind": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "method": {
+          "default": "'manual'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "proposed_level": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "reference_price": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "resolved_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
+        "source": {
+          "default": "'manual'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "source_ref": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "status": {
+          "default": "'active'::text",
+          "nullable": false,
+          "type": "text"
+        },
+        "stop_id": {
+          "default": "nextval('stops_stop_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "stop_level": {
+          "default": null,
+          "nullable": false,
+          "type": "numeric(18,6)"
+        },
+        "symbol_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "trail_pct": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(7,4)"
+        }
+      },
+      "constraints": {
+        "stops_active_is_unresolved": "CHECK (((status = 'active'::text) = (resolved_at IS NULL)))",
+        "stops_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "stops_fixed_has_no_trail": "CHECK (((kind = 'trailing'::text) OR ((trail_pct IS NULL) AND (high_water_mark IS NULL))))",
+        "stops_high_water_mark_check": "CHECK ((high_water_mark > (0)::numeric))",
+        "stops_kind_check": "CHECK ((kind = ANY (ARRAY['fixed'::text, 'trailing'::text])))",
+        "stops_pkey": "PRIMARY KEY (stop_id)",
+        "stops_source_check": "CHECK ((source = ANY (ARRAY['manual'::text, 'harvester'::text, 'evaluator'::text, 'watch'::text, 'ai'::text])))",
+        "stops_status_check": "CHECK ((status = ANY (ARRAY['active'::text, 'triggered'::text, 'cancelled'::text, 'replaced'::text, 'closed'::text])))",
+        "stops_stop_level_check": "CHECK ((stop_level > (0)::numeric))",
+        "stops_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)",
+        "stops_trail_pct_check": "CHECK (((trail_pct > (0)::numeric) AND (trail_pct < (100)::numeric)))",
+        "stops_trailing_has_trail": "CHECK (((kind = 'trailing'::text) = ((trail_pct IS NOT NULL) AND (high_water_mark IS NOT NULL))))"
+      },
+      "indexes": {
+        "idx_stops_book_status": "CREATE INDEX idx_stops_book_status ON public.stops USING btree (book_id, status)",
+        "stops_pkey": "CREATE UNIQUE INDEX stops_pkey ON public.stops USING btree (stop_id)",
+        "ux_stops_one_active": "CREATE UNIQUE INDEX ux_stops_one_active ON public.stops USING btree (book_id, symbol_id) WHERE (status = 'active'::text)"
+      }
+    },
     "symbols": {
       "columns": {
         "created_at": {

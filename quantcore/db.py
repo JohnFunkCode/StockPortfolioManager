@@ -307,6 +307,43 @@ ALTER TABLE orders
              OR (kind = 'seed' AND side = 'buy' AND requested_shares IS NOT NULL)
              OR (kind = 'manual_close' AND side = 'sell'));
 
+-- V19 (#431 phase 2 and #221, plan step 4.1): stored stops. Mirrors
+-- db/migrations/V19__stops.sql. A stop is set on a symbol in one book. Only
+-- 'active' is live, with at most one per book and symbol, and the other four
+-- statuses are final. A trailing stop stores the level worked out from its
+-- percentage and high-water mark. method has no CHECK on purpose.
+CREATE TABLE IF NOT EXISTS stops (
+    stop_id         SERIAL PRIMARY KEY,
+    owner           TEXT          NOT NULL,
+    book_id         INTEGER       NOT NULL REFERENCES books(book_id),
+    symbol_id       INTEGER       NOT NULL REFERENCES symbols(symbol_id),
+    kind            TEXT          NOT NULL CHECK (kind IN ('fixed', 'trailing')),
+    stop_level      NUMERIC(18,6) NOT NULL CHECK (stop_level > 0),
+    trail_pct       NUMERIC(7,4)  CHECK (trail_pct > 0 AND trail_pct < 100),
+    high_water_mark NUMERIC(18,6) CHECK (high_water_mark > 0),
+    method          TEXT          NOT NULL DEFAULT 'manual',
+    proposed_level  NUMERIC(18,6),
+    reference_price NUMERIC(18,6),
+    as_of           DATE          NOT NULL,
+    source          TEXT          NOT NULL DEFAULT 'manual'
+                    CHECK (source IN ('manual', 'harvester', 'evaluator', 'watch', 'ai')),
+    source_ref      TEXT,
+    status          TEXT          NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'triggered', 'cancelled', 'replaced', 'closed')),
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    resolved_at     TIMESTAMPTZ,
+    CONSTRAINT stops_trailing_has_trail
+        CHECK ((kind = 'trailing') = (trail_pct IS NOT NULL AND high_water_mark IS NOT NULL)),
+    CONSTRAINT stops_fixed_has_no_trail
+        CHECK (kind = 'trailing' OR (trail_pct IS NULL AND high_water_mark IS NULL)),
+    CONSTRAINT stops_active_is_unresolved
+        CHECK ((status = 'active') = (resolved_at IS NULL))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_stops_one_active
+    ON stops(book_id, symbol_id) WHERE status = 'active';
+CREATE INDEX IF NOT EXISTS idx_stops_book_status ON stops(book_id, status);
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

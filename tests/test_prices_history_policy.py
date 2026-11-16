@@ -167,6 +167,8 @@ class TestReaderPolicy(unittest.TestCase):
         ("quantcore/services/prices.py", "get_obv"),
         ("quantcore/services/prices.py", "get_volume_profile"),
         ("quantcore/services/prices.py", "screen_securities"),
+        # A paper fill's price: a forming bar's open is a live quote's (#431 3.4).
+        ("quantcore/services/prices.py", "session_open"),
         ("quantcore/services/options_screening.py", "fetch_bollinger_bands"),
         ("quantcore/services/options_screening.py", "fetch_iv_analysis"),
         ("quantcore/services/options_screening.py", "_run_cached"),

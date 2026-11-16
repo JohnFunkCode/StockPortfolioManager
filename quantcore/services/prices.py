@@ -76,6 +76,10 @@ OPEN_BAR_MAX_AGE_SECONDS = 300
 # (#518): enough to span a long weekend, short enough to be a cheap download.
 CLOSEOUT_MIN_DAYS = 10
 
+# Days read on either side of the session whose open a queued paper order
+# fills at (#431 step 3.4): enough to see a later bar across a long weekend.
+SESSION_OPEN_PAD_DAYS = 10
+
 
 def _utc_date(ts: int) -> datetime.date:
     """The UTC date of a bar's ``ts``, the date every bar check here uses."""
@@ -356,6 +360,36 @@ class PricesService:
         midnight = datetime.datetime.combine(
             today, datetime.time(0), tzinfo=datetime.timezone.utc)
         return self._ohlcv.open_daily_bars_before(int(midnight.timestamp()))
+
+    # ------------------------------------------------------------------
+    # A session's opening price (#431 step 3.4): what a queued paper order
+    # fills at. OrdersService asks; the fill rule is analytics.orders.
+    # ------------------------------------------------------------------
+
+    def session_open(self, symbol: str, session: datetime.date) -> dict:
+        """The open of ``symbol``'s closed daily bar for ``session``.
+
+        Returns ``{"open": float | None, "latest_bar": date | None}``:
+        ``open`` is None when no closed bar is dated ``session``, and
+        ``latest_bar`` is the date of the newest closed daily bar read (None
+        when there are none), which tells a day the symbol didn't trade from
+        history that hasn't arrived.
+
+        Closed bars only: a forming bar's open comes from a live quote, and
+        the stored open can still change when the session's bar is fetched.
+        The read goes through ``get_history``, so it fetches only when the
+        symbol is cold or its newest closed bar is behind, and a cold symbol
+        gets its full warm window. A fetch error propagates to the caller.
+        """
+        days = max((_utc_date(int(time.time())) - session).days, 0) + SESSION_OPEN_PAD_DAYS
+        bars = self.get_history(symbol, "1d", days, include_open=False)
+        if bars.empty:
+            return {"open": None, "latest_bar": None}
+        on_session = bars[[stamp.date() == session for stamp in bars.index]]
+        return {
+            "open": float(on_session["Open"].iloc[-1]) if not on_session.empty else None,
+            "latest_bar": bars.index[-1].date(),
+        }
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.

@@ -530,6 +530,33 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_queued_orders_alert(
+        self, order_count: int, symbols: list, symbol_count: int, oldest_session: str
+    ) -> None:
+        """Alarm that paper orders whose session has come are still pending
+        after the daily job's fill step (#431). ``symbols`` is a sample. No
+        owner is named: the channel is shared."""
+        sample = ", ".join(symbols)
+        more = f" and {symbol_count - len(symbols)} more" if symbol_count > len(symbols) else ""
+        embed = {
+            "content": f"[PAPER] Orders Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": "Queued paper orders were not filled",
+                    "description": (
+                        f"- {order_count} queued paper order(s) are still pending after "
+                        f"the fill step, across {symbol_count} symbol(s): {sample}{more}.\n"
+                        f"- The oldest was queued for the {oldest_session} session.\n"
+                        "- An order waits when its session's daily bar hasn't arrived, and "
+                        "is rejected after three sessions without one. Each fills at its "
+                        "own session's open on the next run that finds the bar."
+                    ),
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_news_stale_alert(self, age_hours, ceiling_hours: float) -> None:
         """Alarm, raised from the daily report Job, that no news has landed lately.
 

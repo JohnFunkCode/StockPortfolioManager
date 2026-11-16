@@ -162,8 +162,9 @@ export default function OrdersList({ bookId, canCancel = false }: Props) {
           <Alert severity="info" sx={{ mb: 2 }}>
             {orders(data.pending_count)} placed outside market hours{' '}
             {data.pending_count === 1 ? 'is' : 'are'} waiting for{' '}
-            {data.pending_count === 1 ? 'its' : 'their'} session. Nothing fills a waiting order
-            yet: until that is built it stays pending, and can be cancelled.
+            {data.pending_count === 1 ? 'its' : 'their'} session. Each fills at that session's
+            opening price, and shows here that evening, after the close. Until then it can be
+            cancelled.
           </Alert>
         )}
         <Paper sx={{ overflowX: 'auto' }}>

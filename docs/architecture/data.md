@@ -401,8 +401,8 @@ The last three are final. The rules, and why each is there:
   never has to guess what a pending order was waiting for. `pending` means queued.
 - **An order placed outside the session is queued for one session**: the next to open
   (`market_time.upcoming_session`, which knows the holidays). The daily job fills it at that
-  session's opening price (step 3.4, not built yet: until then a queued order stays pending and
-  can be cancelled).
+  session's opening price, after the close: see *Queued fills* below. Until then it can be
+  cancelled.
 - **A fill happens exactly once.** The only statement that takes an order out of `pending` is
   `UPDATE … WHERE status = 'pending'`. It runs on the same connection as the fill's other rows:
   the lot (a buy) or the `lot_sales` rows (a sell), and their cash rows. They commit together or
@@ -437,9 +437,36 @@ The last three are final. The rules, and why each is there:
   holds, whether it is asked for or worked out from a dollar amount. Over the cap is bad input
   (a 422) and nothing is stored.
 - **A rejection is a stored order, not an error.** `reject_reason` is one of `stale_quote`,
-  `no_quote`, `non_usd`, `insufficient_cash`, `insufficient_shares` and `no_open_price` (for
-  step 3.4). A `CHECK` holds the list, and `tests/test_orders_analytics.py` fails if the code's
+  `no_quote`, `non_usd`, `insufficient_cash`, `insufficient_shares` and `no_open_price` (a
+  queued order whose session has no opening price). A `CHECK` holds the list, and `tests/test_orders_analytics.py` fails if the code's
   list and the schema's differ.
+
+**Queued fills** (step 3.4). The daily job fills a queued order once its session has come
+(`OrdersService.queued_orders` and `fill_queued_order`; the step is in
+[daily-jobs.md](daily-jobs.md#queued-paper-fills)). The rules, and why each is there:
+
+- **The price is the open of the session's closed daily bar** (`PricesService.session_open`),
+  not `Quote.regular_open`. A quote only has today's open, so a job that ran a day late would
+  have nothing to fill at. A stored bar is keyed by its date, so the order fills at the same
+  price on whatever night it is reached.
+- **Closed bars only.** Today's forming bar is written from a live quote, and its open can
+  differ from the one in the day's history. The job runs after the close, when the session's
+  bar is stored `CLOSED`.
+- **`price_source` is `session_open` and `quote_time` is NULL.** The trade is dated the
+  session; `resolved_at` is when the job got to it.
+- **No bar is not always "no opening price"** (`analytics.orders.queued_fill`). A closed bar
+  dated after the session shows the symbol's history has moved past that day, and the order is
+  rejected `no_open_price`. With no later bar the history may only be late (a failed or empty
+  fetch looks the same), so the order waits, for at most three sessions, and is then rejected.
+  It never rolls to a later session's open.
+- **The price is fetched before the book is locked, and the order is read again under the
+  lock.** An order cancelled while Yahoo was answering is not filled. `_fill` also raises when
+  its `UPDATE … WHERE status = 'pending'` matches no row, which rolls the trade's rows back.
+- **Orders in one book fill in the order they were placed**, each in its own transaction. A
+  queued sell placed before a queued buy pays for it; the other way round, the buy is rejected.
+- **An archived book's queued orders still fill.** The order was accepted before the book was
+  archived, and the page shows no Cancel there, so nothing else would ever take it out of
+  `pending`.
 
 **Where a trade came from.** `orders.source` and `lot_sales.source` are one of `manual`, `stop`,
 `harvester`, `evaluator`, `watch` and `ai`, with `source_ref` pointing at what prompted it. Only

@@ -112,13 +112,13 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
-this order** — notifications → options capture → gamma/GEX (from the persisted snapshot, no
-Yahoo calls) → capture health check → news staleness → fundamentals warming → OHLCV close-out
-(#518). The order is a deliberate isolation property: the cheap, high-value side
+this order** — notifications → queued paper fills (#431) → options capture → gamma/GEX (from the
+persisted snapshot, no Yahoo calls) → capture health check → news staleness → fundamentals
+warming → OHLCV close-out (#518). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
 
-- The warming pass, the capture tail and the OHLCV close-out are each wrapped in an outer
-  `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
+- The warming pass, the capture tail, the queued paper fills and the OHLCV close-out are each
+  wrapped in an outer `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
   made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
   halves.
 - **The GEX step reads the snapshot the capture just persisted** (`record_gex_from_snapshot`) —
@@ -128,7 +128,8 @@ effects land before anything that can run long. Rules to keep:
 - Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
-  `GEX_RECORD_BUDGET_SECONDS`, `OHLCV_CLOSEOUT_BUDGET_SECONDS`, `NEWS_*`) fall back to the default on an unparseable value — a typo
+  `GEX_RECORD_BUDGET_SECONDS`, `QUEUED_FILLS_BUDGET_SECONDS`, `OHLCV_CLOSEOUT_BUDGET_SECONDS`,
+  `NEWS_*`) fall back to the default on an unparseable value — a typo
   must not silently disarm an alarm.
 - The job exits 0 on NYSE-closed days (`is_trading_day`), notifications included.
 - The fundamentals batch endpoint takes at most 25 unique symbols (422 otherwise); larger universes
@@ -292,7 +293,11 @@ lot. Rules to keep:
   row). Don't add a second path out of `pending`, a route that takes a price or a date, or a
   fill that commits in two steps. A refusal that depends on the market or the holdings is a
   stored `rejected` order with a reason from `analytics.orders.REJECT_REASONS`, never an error
-  and never free text. A paper book has no margin. Why:
+  and never free text. A paper book has no margin. **A queued order fills at the open of its
+  session's closed daily bar** (`run_queued_fills` in the daily job), never at a live quote's
+  open and never at a later session's: a late run must fill at the same price. With no bar for
+  the session it waits, and is rejected only once a later bar or three sessions show none is
+  coming. Why:
   [`data.md`](docs/architecture/data.md#paper-orders).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.

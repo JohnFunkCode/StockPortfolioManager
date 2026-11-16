@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The daily QuantCore job: notifications, options capture, GEX, news check, fundamentals warming, OHLCV close-out.
+"""The daily QuantCore job: notifications, queued paper fills, options capture, GEX, news check, fundamentals warming, OHLCV close-out.
 
 Runs as the ``quantcore-report`` Cloud Run Job on Cloud Scheduler, and locally
 as ``python main.py``. It no longer builds the HTML report — that moved to
@@ -8,7 +8,8 @@ as ``python main.py``. It no longer builds the HTML report — that moved to
 
 The step order is an isolation property, not an accident. The cheap,
 high-value work runs first (Discord notifications and the Harvester rung
-checks), then the options-chain capture that keeps the open-interest history
+checks, then the fills of queued paper orders, #431), then the options-chain
+capture that keeps the open-interest history
 accumulating, then gamma/GEX computed from the chain the capture just
 persisted (no second Yahoo fetch, #373), the capture health check, the news
 staleness check, the fundamentals warmer, and last the OHLCV close-out (#518). Each tail step
@@ -67,6 +68,13 @@ DEFAULT_GEX_BUDGET_SECONDS = 300.0
 DEFAULT_CAPTURE_COVERAGE_FLOOR = 0.90  # alarm when fewer of the universe's chains landed
 DEFAULT_CAPTURE_FAILURE_CEILING = 0.50  # alarm when more of a step's attempts failed
 DEFAULT_CAPTURE_NO_OPTIONS_CEILING = 0.25  # alarm when more of the universe listed no options
+
+QUEUED_FILLS_BUDGET_SECONDS_ENV = "QUEUED_FILLS_BUDGET_SECONDS"
+# A fill is a few queries, plus one history download for a symbol whose
+# session bar isn't stored yet. Small on purpose: the step stands in front of
+# the options capture, which can't be redone on a later night.
+DEFAULT_QUEUED_FILLS_BUDGET_SECONDS = 120.0
+QUEUED_FILLS_ALERT_SYMBOLS = 10
 
 OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV = "OHLCV_CLOSEOUT_BUDGET_SECONDS"
 DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS = 300.0
@@ -518,6 +526,99 @@ def run_capture_tail(symbols, services, notifier, job_started,
         print(f"ERROR: options capture tail failed: {exc}", file=sys.stderr)
 
 
+def fill_queued_orders(orders, budget_seconds=None, clock=time.monotonic,
+                       today=None) -> dict:
+    """Fill the paper orders queued for a session on or before today (#431).
+
+    ``OrdersService`` holds the rules (which orders are due, the opening price,
+    fill or reject); this walks them under a wall-clock budget. One bad order
+    degrades one row. ``waiting`` counts orders left pending because their
+    session's opening price hasn't arrived; ``skipped`` those that were
+    cancelled between the listing and the fill.
+
+    The summary is what the loop saw. Whether orders are still queued is
+    ``alert_if_orders_still_queued``'s question, and it asks the database.
+    """
+    budget = (_env_float(QUEUED_FILLS_BUDGET_SECONDS_ENV,
+                         DEFAULT_QUEUED_FILLS_BUDGET_SECONDS)
+              if budget_seconds is None else budget_seconds)
+    today = today or market_date()
+    due = orders.queued_orders(today=today)
+    print(f"Filling {len(due)} queued paper order(s), budget {budget:.0f}s...")
+
+    started = clock()
+    summary = {"due": len(due), "attempted": 0, "filled": 0, "rejected": 0,
+               "waiting": 0, "skipped": 0, "failed": 0}
+    outcome = {"filled": "filled", "rejected": "rejected", "pending": "waiting"}
+    for order in due:
+        if clock() - started >= budget:
+            break
+        summary["attempted"] += 1
+        try:
+            result = orders.fill_queued_order(
+                owner=order["owner"], book_id=order["book_id"],
+                order_id=order["order_id"], today=today)
+            summary[outcome.get(result["status"], "skipped")] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad order must not stop the walk
+            summary["failed"] += 1
+            print(f"  order {order['order_id']} ({order['symbol']}): fill failed "
+                  f"({type(exc).__name__})")
+
+    summary["elapsed_seconds"] = clock() - started
+    summary["budget_exhausted"] = summary["attempted"] < summary["due"]
+    print(f"Queued fills: {summary['filled']} filled, {summary['rejected']} rejected, "
+          f"{summary['waiting']} waiting, {summary['skipped']} skipped, "
+          f"{summary['failed']} failed, {summary['due'] - summary['attempted']} "
+          f"not attempted, {summary['elapsed_seconds']:.0f}s.")
+    return summary
+
+
+def alert_if_orders_still_queued(orders, notifier, today=None) -> bool:
+    """Alarm when a paper order whose session has come is still pending.
+
+    Reads what is in the database after the fills, not the loop's summary, so
+    it also catches a step that ran out of budget, an order whose price never
+    arrived, and a fill that reported success and didn't commit. An order
+    queued for a later session is not counted. Names symbols and sessions,
+    never an owner.
+    """
+    left = orders.queued_orders(today=today or market_date())
+    if not left:
+        return False
+    symbols = sorted({o["symbol"] for o in left})
+    sample = symbols[:QUEUED_FILLS_ALERT_SYMBOLS]
+    oldest = min(o["session_date"] for o in left)
+    print(f"ERROR: {len(left)} queued paper order(s) are still pending after the fill "
+          f"step, across {len(symbols)} symbol(s), e.g. {', '.join(sample)}; oldest "
+          f"session {oldest}.", file=sys.stderr)
+    try:
+        notifier.send_queued_orders_alert(len(left), sample, len(symbols), oldest)
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        print(f"  (failed to send the queued-orders alert: {type(exc).__name__})",
+              file=sys.stderr)
+    return True
+
+
+def run_queued_fills(orders, notifier, budget_seconds=None, clock=time.monotonic,
+                     today=None) -> None:
+    """Fill queued paper orders, then alarm on any left pending. Never raises.
+
+    Runs straight after the notifications (#431 step 3.4): it is cheap, and a
+    fill is something an owner looks for that evening. An order it doesn't
+    reach tonight fills at the same price on a later night, because the price
+    is its own session's open. The alarm runs even when the fills raise.
+    """
+    today = today or market_date()
+    try:
+        fill_queued_orders(orders, budget_seconds=budget_seconds, clock=clock, today=today)
+    except Exception as exc:  # noqa: BLE001 — a tail step must not fail the job
+        print(f"ERROR: queued paper fills failed: {type(exc).__name__}", file=sys.stderr)
+    try:
+        alert_if_orders_still_queued(orders, notifier, today=today)
+    except Exception as exc:  # noqa: BLE001 — a check on the step must not fail the job
+        print(f"ERROR: queued-orders check failed: {type(exc).__name__}", file=sys.stderr)
+
+
 def alert_if_watchlist_empty(watchlist, portfolio, notifier) -> bool:
     """Alarm — loudly — when the watchlist table comes back empty (issue #83).
 
@@ -850,6 +951,15 @@ if __name__ == "__main__":
     notifier.calculate_and_send_notifications()
 
     alert_if_watchlist_empty(watchlist, portfolio, notifier)
+
+    # Paper orders queued for a session that has now opened fill at that
+    # session's opening price (#431). Cheap, so it goes ahead of the capture.
+    run_queued_fills(
+        get_services().orders, notifier,
+        budget_seconds=_remaining_budget(
+            _env_float(QUEUED_FILLS_BUDGET_SECONDS_ENV,
+                       DEFAULT_QUEUED_FILLS_BUDGET_SECONDS), job_started),
+    )
 
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps

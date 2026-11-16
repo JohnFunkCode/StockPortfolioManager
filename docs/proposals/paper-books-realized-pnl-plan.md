@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review) and 3.3 (orders and fills) are built. Next is 3.4. Decisions 19 to 24 were made during the 3.1 build and are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills) and 3.4 (queued fills in the daily job) are built. Next is 3.5. Decisions 19 to 24 were made during the 3.1 build, and 31 to 34 during the 3.4 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -208,6 +208,34 @@ start 3.3, which builds each of them.
     list would show every fill twice or need a rule for hiding one of the two. The Orders list
     shows what was asked for and what became of it, and no amounts. Changing it later is a
     front-end change only.
+
+### Made on 2026-11-15, during the 3.4 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review.
+
+31. **A queued order fills at the open of its session's closed daily bar**, not at
+    `Quote.regular_open`. Section 7 left this for 3.4 to pick. A quote only carries today's
+    open, so it can't serve decision 27's "even days late". A stored bar is keyed by its date,
+    so the price does not depend on the night the job ran. What it costs: the price is Yahoo's
+    daily-history open, which can differ by a cent or two from the first trade a quote showed
+    that morning.
+32. **With no bar for its session, an order waits before it is rejected.** Decision 27 says an
+    order with no opening price is rejected. Taken literally on the first night, one failed or
+    empty Yahoo reply would reject every queued order. So: a closed bar dated after the session
+    is proof the symbol did not trade that day, and the order is rejected at once; with no later
+    bar it waits, and is rejected on the run three sessions after its own. It still never rolls
+    to another session's open. What it costs: a symbol halted all day, or delisted, shows as
+    pending for up to three more sessions, with the alarm firing each night.
+33. **The step runs second, straight after the notifications, with a 120-second budget.** It is
+    a few queries an order, and a fill is something an owner looks for that evening. It could
+    have gone last, since a missed fill is made up on any later night at the same price. It was
+    put early because the last steps get whatever time is left, which on a slow night is one
+    second. What it costs: up to 120 seconds taken from in front of the options capture.
+34. **A queued order in a book archived since still fills.** The order was accepted while the
+    book was open. The page shows no Cancel in an archived book, so nothing else would take it
+    out of `pending`, and the alarm would fire every night. The alternative, cancelling a
+    book's queued orders when it is archived, is a change to archiving and was left alone.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -487,10 +515,10 @@ key order and error messages were equal in every case.
   `batch_quotes`; refusal on a stale quote, a halted symbol, a non-USD symbol or not enough cash;
   off-hours orders queue; orders join the Cash and orders section with their status. What was
   built, and what was left for later steps, is in section 5.9.
-- [ ] **3.4 Queued fills in the daily job.**
+- [x] **3.4 Queued fills in the daily job.**
   A step that fills queued orders at their session's opening price, placed and budgeted under the
   daily job's ordering rules: clamped to the remaining budget, never raises, and alarms on what
-  actually landed.
+  actually landed. What was built, and what was left for later steps, is in section 5.10.
 - [ ] **3.5 Buy and sell on paper.**
   The Buy dialog on the Security page (no stop field yet); selling a paper position from the
   Portfolio page; seeding a paper book from the real book, on top of its starting cash (decision
@@ -641,6 +669,46 @@ Left for later steps, on purpose:
 - **A sale's source is stored but not shown.** It joins the Realized view's expanded row in 4.3.
 - **No Sidekick or MCP access to orders** (decision 18, step 5.4). The tool count stays 63.
 - **A seeded lot's `acquisition_type`** (3.5). Only `BUY` writes a cash row.
+
+#### 5.10 Queued fills as built (3.4)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The rule | `analytics.orders.queued_fill`, `QueuedFill`, `QUEUED_FILL_GIVE_UP_SESSIONS` | Fill, reject or wait, from the session, today's market date, the session bar's open and the date of the newest closed bar. Pure |
+| The price | `PricesService.session_open` | The open of the closed daily bar dated the session, read through `get_history(include_open=False)`. Listed in `TestReaderPolicy` as a closed-only reader |
+| The rows | `OrdersRepository.list_due_orders`, `SQL_LIST_DUE_ORDERS` | One book's pending orders with `session_date <= :through`, oldest session first. Bound to an owner and a book like every other order query, so no `ALLOWED` entry |
+| The service | `OrdersService.queued_orders`, `fill_queued_order` | The walk over every owner's paper books, and one order's fill. `OrdersService` now takes `PricesService` (the registry passes it) |
+| The step | `main.py`: `fill_queued_orders`, `alert_if_orders_still_queued`, `run_queued_fills` | Second in the job, after the notifications. `QUEUED_FILLS_BUDGET_SECONDS`, default 120 |
+| The alarm | `Notifier.send_queued_orders_alert` | Marked `[PAPER]`. Count, up to 10 symbols, the oldest session. No owner |
+| The page | `OrdersList.tsx` | The pending notice says again that a queued order fills at its session's opening price and shows that evening (taken out in the #560 review until this step) |
+
+No schema change: `price_source = 'session_open'` and `reject_reason = 'no_open_price'` were
+both in V17. The table count stays 27. The rules are in
+[`data.md`](../architecture/data.md#paper-orders) and the step in
+[`daily-jobs.md`](../architecture/daily-jobs.md#queued-paper-fills).
+
+How the daily job's rules came out:
+
+| Rule | In the code |
+|---|---|
+| Clamped to the remaining budget | `_remaining_budget(QUEUED_FILLS_BUDGET_SECONDS…)` at the call in `__main__`; the walk checks the clock before each order |
+| Never raises | `run_queued_fills` guards the fills and the alarm apart, so the alarm runs when the walk fails. One order's failure is counted and the walk goes on |
+| Alarms on what landed | `alert_if_orders_still_queued` calls `queued_orders` again after the walk. It does not read the walk's summary |
+| An unparseable setting falls back | `_env_float`, as for every other budget |
+
+**Nothing for an operator to run.** `QUEUED_FILLS_BUDGET_SECONDS` is optional. No order is
+queued on test or prod unless someone placed one through the REST route since #560.
+
+Left for later steps, on purpose:
+
+- **No `[PAPER]` message for a fill** (3.5). Only the alarm is sent.
+- **Nothing in the UI places an order yet** (3.5), so the step has work only for an order placed
+  through the REST route.
+- **Stops are not checked in this step** (4.2). Decision 4's one run after the close does two
+  things; this is the first. 4.2 adds the second beside it and should share its guard pattern,
+  not its budget.
+- **A seeded lot's price** (3.5) follows the same rule as an order (section 7): a seed made
+  outside market hours needs the next session's open, which is what `session_open` reads.
 
 ### Milestone 4: stops (#431 phase 2, and all of #221)
 
@@ -960,6 +1028,33 @@ Known before any code is written. Add to this list as the work finds more.
   `OrdersList.tsx` and its test.
 - **The Orders list was not checked in a browser** (3.3), for the reason given under 3.1. It is
   covered by vitest and the API tests.
+- **The fill step was not run against Yahoo** (3.4). Every test stubs the history fetch. That
+  Yahoo's daily history already holds the day's bar at 17:00 ET is taken from the OHLCV
+  close-out, which makes the same fetch later in the same job and stores those bars `CLOSED`.
+  If it turns out not to hold, the cost is the alarm that night and the fill on the next run,
+  at the same price. Watch the first night an order is queued on test.
+- **The alarm fires the first night an order waits** (3.4), not only when it gives up. A due
+  order that is still pending after the step is a fill that did not happen, whatever the cause.
+- **`session_open` works out its window from the real date, not the caller's `today`** (3.4).
+  `get_bars` cuts its window from the clock, so a window sized from a test's pretend "today"
+  would miss a session months back. It is the session's age in real days plus ten.
+- **A symbol nobody has looked at costs a full history download** (3.4). `session_open` reads
+  through `get_history`, which warms 730 days for a symbol with no bars. That is on purpose: a
+  short window stored for a cold symbol stops `get_history` warming it later (the close-out
+  leaves such symbols out for the same reason). It happens once per symbol.
+- **Each order for a symbol whose fetch came back empty fetches again** (3.4). `get_history`
+  only stops fetching once the bar is stored. Ten queued orders on a delisted symbol are ten
+  downloads a night for three nights. The budget bounds it; a per-run memo was left out.
+- **The job's budgets now add up to more than its timeout** (3.4): 120 + 600 + 300 + 900
+  seconds against 1,800. They did before, counting the close-out's 300. `_remaining_budget` is
+  what keeps a late step inside the deadline.
+- **`_fill` now raises when its order is not pending** (3.4). In 3.3 the order had just been
+  inserted in the same transaction, so the `UPDATE`'s row count was not checked. A queued fill
+  reads the order earlier, and a fill that wrote a lot and then matched no order would be a lot
+  with no order. `fill_queued_order` reads the order again under the lock first; the raise is
+  the backstop, and it rolls the lot back.
+- **A lot read through `PortfolioRepository` does not return its `order_id`** (3.4). The test
+  that checks a filled lot names its order reads the column directly.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.

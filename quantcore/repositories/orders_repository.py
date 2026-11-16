@@ -130,6 +130,42 @@ WHERE o.owner = :owner
                  ELSE b.book_id = CAST(:book_id AS INTEGER) END);
 """
 
+# One book's queued orders whose session has come, in the order the daily job
+# fills them: the oldest session first, then the order they were placed in.
+SQL_LIST_DUE_ORDERS = """
+SELECT
+    o.order_id         AS order_id,
+    o.book_id          AS book_id,
+    s.ticker           AS symbol,
+    o.side             AS side,
+    o.requested_shares AS requested_shares,
+    o.requested_amount AS requested_amount,
+    o.status           AS status,
+    o.source           AS source,
+    o.source_ref       AS source_ref,
+    o.idempotency_key  AS idempotency_key,
+    o.session_date     AS session_date,
+    o.placed_at        AS placed_at,
+    o.resolved_at      AS resolved_at,
+    o.filled_shares    AS filled_shares,
+    o.fill_price       AS fill_price,
+    o.price_source     AS price_source,
+    o.quote_time       AS quote_time,
+    o.reject_reason    AS reject_reason
+FROM orders o
+JOIN symbols s ON s.symbol_id = o.symbol_id
+WHERE o.owner = :owner
+  AND o.status = 'pending'
+  AND o.session_date <= :through
+  AND o.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+ORDER BY o.session_date, o.placed_at, o.order_id;
+"""
+
 # The lock a fill holds: one book's row, so two fills in one book can't both
 # read the cash balance before either has written its buy.
 SQL_LOCK_BOOK = """
@@ -371,6 +407,17 @@ class OrdersRepository:
         """Every order of one book, newest first."""
         with closing(get_connection()) as conn:
             rows = conn.execute(SQL_LIST_ORDERS, {"owner": owner, "book_id": book_id}).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
+    def list_due_orders(
+        self, *, owner: str, through: Any, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """One book's pending orders queued for a session on or before
+        `through`, the oldest session first, then in the order placed."""
+        with closing(get_connection()) as conn:
+            rows = conn.execute(
+                SQL_LIST_DUE_ORDERS, {"owner": owner, "through": through, "book_id": book_id}
+            ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
     def get_order(

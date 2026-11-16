@@ -404,7 +404,8 @@ class OrdersService:
 
         Raises `ValueError` for bad input, the real book or an archived one, a
         symbol that still has a quote (sell it with an order), a symbol the
-        book doesn't hold, and one with no price on record;
+        book doesn't hold, one with no price on record, and one with a sell
+        still queued (cancel it first);
         `BookNotFoundError` for a book that isn't the owner's.
         """
         symbol = _symbol(symbol)
@@ -450,6 +451,14 @@ class OrdersService:
             })
             if not created:
                 return _public(order, replayed=True)
+            # A queued sell has been promised some of these shares. Closing
+            # them all would leave it to be rejected at its session, with
+            # nothing saying why. Raising here undoes the insert above.
+            if tx.queued_sell_shares(symbol, excluding_order_id=order["order_id"]) > _ZERO:
+                raise ValueError(
+                    f"a sell of {symbol} is waiting for its session: cancel it before "
+                    "closing the position"
+                )
             self._fill(
                 tx, order, price=last.price, price_source=None, quote_time=last.as_of, now=now,
                 sale_notes=MANUAL_CLOSE_NOTE.format(as_of=last.session.isoformat()),

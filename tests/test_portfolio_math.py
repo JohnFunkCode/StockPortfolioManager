@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from quantcore.analytics.portfolio_math import (
+    total_quantity,
     allocation_segments,
     dollars_per_day,
     days_held,
@@ -281,3 +282,16 @@ class TestPositionRollup(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTotalQuantity(unittest.TestCase):
+    def test_adds_every_lot_priced_or_not(self):
+        lots = [{"quantity": Decimal("1.5"), "current_price": None}, {"quantity": Decimal("2")}]
+        self.assertEqual(total_quantity(lots), Decimal("3.5"))
+
+    def test_a_lot_with_no_quantity_counts_as_none(self):
+        lots = [{"quantity": None}, {}, {"quantity": Decimal("4")}]
+        self.assertEqual(total_quantity(lots), Decimal("4"))
+
+    def test_no_lots_is_zero(self):
+        self.assertEqual(total_quantity([]), Decimal("0"))

@@ -430,3 +430,11 @@ def realized_pnl(
         "symbols": rows,
         "totals": {"symbol_count": len(rows), **_realized_totals(all_sales)},
     }
+
+
+def total_quantity(lots: Iterable[Dict[str, Any]]) -> Decimal:
+    """The shares held across `lots`, priced or not. A lot with no quantity
+    counts as none."""
+    return sum(
+        (lot["quantity"] for lot in lots if lot.get("quantity") is not None), Decimal("0")
+    )

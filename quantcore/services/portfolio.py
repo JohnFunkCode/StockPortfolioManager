@@ -603,10 +603,7 @@ class PortfolioService:
                 "lots": symbol_lots,
                 # Every open lot, priced or not: what a paper sell of the
                 # whole position asks for (#431), so the page adds nothing up.
-                "total_quantity": sum(
-                    (lot["quantity"] for lot in symbol_lots if lot["quantity"] is not None),
-                    Decimal("0"),
-                ),
+                "total_quantity": portfolio_math.total_quantity(symbol_lots),
                 **totals,
                 # The allocation chart's segments are a function of numbers
                 # already in `totals`, so they cost nothing extra here and save

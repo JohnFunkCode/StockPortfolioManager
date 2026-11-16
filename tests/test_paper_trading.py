@@ -360,6 +360,34 @@ class CloseUnquotedTest(_Base):
         orders = self.service.list_orders(owner=OWNER, book_id=self.book)["orders"]
         self.assertEqual([o["kind"] for o in orders], ["market", "market"])
 
+    def test_a_queued_sell_blocks_the_close_until_it_is_cancelled_or_fills(self):
+        """A manual close sells every share, so it would leave a queued sell
+        to be rejected at its session with nothing saying why."""
+        self.store_last_bar()
+        self.gateway.quotes[FIRST] = quote(50.0, now=EVENING, age=4 * 3600, state="POST")
+        queued = self.service.place_order(
+            owner=OWNER, book_id=self.book, symbol=FIRST, side="sell", shares=2,
+            idempotency_key="queued-sell", now=EVENING)
+        self.assertEqual(queued["status"], "pending")
+        del self.gateway.quotes[FIRST]
+
+        with self.assertRaisesRegex(ValueError, "waiting for its session"):
+            self.close()
+        # Nothing was stored or sold: the refusal undid the order it had made.
+        orders = self.service.list_orders(owner=OWNER, book_id=self.book)["orders"]
+        self.assertNotIn("manual_close", [o["kind"] for o in orders])
+        self.assertEqual(sum(lot["quantity"] for lot in self.paper_lots(FIRST)), D("5"))
+
+        # The queued sell is untouched and still fills at its session's open.
+        OhlcvRepository().store_bars(FIRST, "1d", daily_bars({MONDAY: 49.5, TUESDAY: 51.2}))
+        filled = self.service.fill_queued_order(
+            owner=OWNER, order_id=queued["order_id"], book_id=self.book, today=TUESDAY)
+        self.assertEqual((filled["status"], filled["filled_shares"]), ("filled", D("2")))
+
+        # With no sell waiting, the rest of the position can be closed.
+        closed = self.close(key="close-after")
+        self.assertEqual((closed["status"], closed["filled_shares"]), ("filled", D("3")))
+
     def test_a_repeated_key_closes_nothing_twice(self):
         self.store_last_bar()
         first = self.close()

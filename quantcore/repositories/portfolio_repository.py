@@ -284,7 +284,10 @@ SELECT
     p.currency            AS currency,
     p.account             AS account,
     p.fx_rate_at_purchase AS fx_rate_at_purchase,
-    ls.fx_rate_at_sale    AS fx_rate_at_sale
+    ls.fx_rate_at_sale    AS fx_rate_at_sale,
+    ls.source             AS source,
+    ls.source_ref         AS source_ref,
+    ls.order_id           AS order_id
 FROM lot_sales ls
 JOIN positions p ON p.position_id = ls.lot_id
 JOIN symbols s ON s.symbol_id = p.symbol_id
@@ -860,6 +863,11 @@ class PortfolioRepository:
                 "account": r["account"] or None,
                 "fx_rate_at_purchase": _dec(r["fx_rate_at_purchase"]),
                 "fx_rate_at_sale": _dec(r["fx_rate_at_sale"]),
+                # What prompted the sale (manual, stop, ...), a pointer to it,
+                # and the paper order that made it, when one did.
+                "source": r["source"],
+                "source_ref": r["source_ref"] or None,
+                "order_id": int(r["order_id"]) if r["order_id"] is not None else None,
             }
             for r in rows
         ]

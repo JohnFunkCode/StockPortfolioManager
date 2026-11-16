@@ -431,6 +431,10 @@ class PortfolioRepositoryRealizedSalesTest(unittest.TestCase):
             "account": "IRA",
             "fx_rate_at_purchase": None,
             "fx_rate_at_sale": None,
+            # A sale recorded by hand: no order made it (plan step 4.3).
+            "source": "manual",
+            "source_ref": None,
+            "order_id": None,
         })
 
     def test_a_partial_close_is_listed_once_against_the_closed_parent(self):

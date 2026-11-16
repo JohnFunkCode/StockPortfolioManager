@@ -36,6 +36,7 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useRealized } from '../../hooks/usePortfolio';
 import PortfolioAllocationChart from './PortfolioAllocationChart';
 import { formatCurrency, formatDate, formatPercentRaw, formatShares } from '../../utils/formatting';
+import { SALE_SOURCES } from './stopWords';
 import type {
   RealizedPeriod,
   RealizedResponse,
@@ -153,6 +154,23 @@ function Conversion({ sale }: { sale: RealizedSale }) {
   );
 }
 
+/** What prompted the sale (#431 step 4.3). A stop's sale is marked, because
+ * nobody chose that moment: the daily check sold when a closed bar reached
+ * the stop. */
+function SaleSource({ sale }: { sale: RealizedSale }) {
+  const label = SALE_SOURCES[sale.source] ?? sale.source;
+  if (sale.source !== 'stop') return <>{label}</>;
+  return (
+    <Tooltip title="Sold by the position's stop: a closed daily bar reached the stop level.">
+      <Chip
+        size="small"
+        label={label}
+        sx={{ bgcolor: 'var(--qc-tint-amber)', color: 'var(--qc-ink-amber)' }}
+      />
+    </Tooltip>
+  );
+}
+
 function SalesTable({ row }: { row: RealizedSymbolRow }) {
   return (
     <Box sx={{ pl: 6, pr: 2, py: 1 }}>
@@ -170,6 +188,7 @@ function SalesTable({ row }: { row: RealizedSymbolRow }) {
             <TableCell align="right">Sale Price</TableCell>
             <TableCell align="right">Realized $</TableCell>
             <TableCell align="right">Realized %</TableCell>
+            <TableCell>Source</TableCell>
             <TableCell>Note</TableCell>
           </TableRow>
         </TableHead>
@@ -187,6 +206,9 @@ function SalesTable({ row }: { row: RealizedSymbolRow }) {
               </TableCell>
               <TableCell align="right" sx={{ color: gainColor(sale.realized_pnl_pct) }}>
                 {sale.realized_pnl_pct == null ? '—' : formatPercentRaw(sale.realized_pnl_pct)}
+              </TableCell>
+              <TableCell data-testid={`realized-sale-source-${sale.sale_id}`}>
+                <SaleSource sale={sale} />
               </TableCell>
               <TableCell sx={{ maxWidth: 280, whiteSpace: 'pre-wrap' }}>{sale.notes ?? ''}</TableCell>
             </TableRow>

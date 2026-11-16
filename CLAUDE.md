@@ -315,6 +315,12 @@ lot. Rules to keep:
   stores the level worked out from its percentage and high-water mark, and the owner types no
   mark. No route takes a `source` or a status. `method` has no `CHECK` on purpose. Why:
   [`data.md`](docs/architecture/data.md#stored-stops).
+- **A paper buy's stop is written by its fill, never before** (`orders.stop_*`, step 4.3). The
+  order holds what was asked; `OrdersService._attach_stop` writes the `stops` row on the fill's
+  transaction, against the fill price. A queued buy has no stop until it fills, and a rejected
+  or cancelled one never gets one. A fixed level at or above the fill price is a 422 in market
+  hours and `stop_set = false` on a queued fill, not a rejection. Why:
+  [`data.md`](docs/architecture/data.md#a-stop-on-a-buy).
 - **The daily job checks every active stop against closed daily bars, and only the job does**
   (`run_stop_checks`, step 4.2). It runs **after the queued fills**: an order fills at its
   session's open, before that session's bar can reach a stop. A stop is tested from the first

@@ -31,6 +31,8 @@ function invalidateBook(qc: ReturnType<typeof useQueryClient>) {
     'portfolio-sales',
     'portfolio-realized',
     'portfolio-cash',
+    // A buy can set a stop, and a sale that leaves a symbol flat closes one.
+    'portfolio-stops',
   ]) {
     qc.invalidateQueries({ queryKey: [key] });
   }

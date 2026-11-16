@@ -120,7 +120,13 @@ export function useSupportConfluence(ticker: string, enabled = true) {
 // (same tolerance and zone count as useSupportConfluence's defaults), so it
 // seeds that query: the Technical Analysis tab gets both panels from one
 // request instead of gathering the 14 level sources twice (#399).
-export function useStopLoss(ticker: string, confluence: StopLossConfluence = 'stop') {
+// `enabled` lets a caller hold the request until it is wanted: the paper Buy
+// dialog asks only once its stop field is opened (#431 step 4.3).
+export function useStopLoss(
+  ticker: string,
+  confluence: StopLossConfluence = 'stop',
+  enabled = true,
+) {
   const qc = useQueryClient();
   return useQuery({
     queryKey: ['stop-loss', ticker, confluence],
@@ -129,7 +135,7 @@ export function useStopLoss(ticker: string, confluence: StopLossConfluence = 'st
       if (result.confluence) qc.setQueryData(['support-confluence', ticker], result.confluence);
       return result;
     },
-    enabled: !!ticker,
+    enabled: !!ticker && enabled,
     staleTime: 15 * 60 * 1000,
   });
 }

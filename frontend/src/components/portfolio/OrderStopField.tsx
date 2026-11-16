@@ -1,0 +1,140 @@
+/**
+ * OrderStopField — the stop a paper buy asks for (#431 step 4.3).
+ *
+ * Part of the Buy form, not a display of analysis: it collects a level or a
+ * trailing percentage. The stop card's three candidates are offered as
+ * buttons that fill the field. That request is made only when this field is
+ * mounted, which is when the owner opens it, so a buy with no stop never
+ * pays for the analysis. Every suggested figure is the server's.
+ */
+import { Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { useStopLoss } from '../../hooks/useSecurities';
+import { formatCurrency } from '../../utils/formatting';
+import type { OrderStopPayload } from '../../api/orders';
+import type { StopLossResponse } from '../../api/securitiesTypes';
+
+/** The stop as the form holds it. `method` and `proposed` remember which of
+ * the card's candidates filled the field, if one did: the figure can then be
+ * edited, and the stop records both what was suggested and what was saved. */
+export interface StopDraft {
+  kind: 'fixed' | 'trailing';
+  value: string;
+  method: OrderStopPayload['method'];
+  proposed: number | null;
+}
+
+export const EMPTY_STOP: StopDraft = { kind: 'fixed', value: '', method: 'manual', proposed: null };
+
+/** The payload for a draft, or the reason it can't be sent. */
+export function stopPayload(draft: StopDraft): { stop: OrderStopPayload } | { error: string } {
+  const number = Number(draft.value);
+  const fixed = draft.kind === 'fixed';
+  if (!draft.value.trim() || !Number.isFinite(number) || number <= 0) {
+    return { error: fixed ? 'The stop level must be more than zero.' : 'The trail must be more than zero percent.' };
+  }
+  if (!fixed && number >= 100) return { error: 'The trail must be less than 100 percent.' };
+  return {
+    stop: {
+      kind: draft.kind,
+      ...(fixed ? { stop_level: number } : { trail_pct: number }),
+      method: draft.method,
+      ...(draft.proposed != null ? { proposed_level: draft.proposed } : {}),
+    },
+  };
+}
+
+interface Suggestion extends StopDraft {
+  label: string;
+}
+
+/** The stop card's candidates, as drafts. The confluence stop is there only
+ * when a zone qualified. */
+function suggestions(stops: StopLossResponse['stops']): Suggestion[] {
+  const found: Suggestion[] = [
+    {
+      label: `Technical ${formatCurrency(stops.technical_stop)}`,
+      kind: 'fixed', value: String(stops.technical_stop), method: 'technical',
+      proposed: stops.technical_stop,
+    },
+    {
+      label: `Trailing ${stops.trailing_stop_pct}%`,
+      kind: 'trailing', value: String(stops.trailing_stop_pct), method: 'trailing',
+      proposed: stops.trailing_stop_price,
+    },
+  ];
+  if (stops.confluence_stop) {
+    found.push({
+      label: `Confluence ${formatCurrency(stops.confluence_stop.stop)}`,
+      kind: 'fixed', value: String(stops.confluence_stop.stop), method: 'confluence',
+      proposed: stops.confluence_stop.stop,
+    });
+  }
+  return found;
+}
+
+interface Props {
+  symbol: string;
+  draft: StopDraft;
+  onChange: (draft: StopDraft) => void;
+}
+
+export default function OrderStopField({ symbol, draft, onChange }: Props) {
+  const card = useStopLoss(symbol, 'stop');
+  const fixed = draft.kind === 'fixed';
+
+  return (
+    <Stack spacing={1.5} data-testid="order-stop">
+      <ToggleButtonGroup
+        size="small"
+        exclusive
+        value={draft.kind}
+        onChange={(_, next) => {
+          // A new kind is a new stop: the old figure means nothing in it.
+          if (next) onChange({ ...EMPTY_STOP, kind: next });
+        }}
+        aria-label="Stop kind"
+      >
+        <ToggleButton value="fixed">Fixed level</ToggleButton>
+        <ToggleButton value="trailing">Trailing</ToggleButton>
+      </ToggleButtonGroup>
+      <TextField
+        label={fixed ? 'Stop level' : 'Trail percent'}
+        size="small"
+        type="number"
+        value={draft.value}
+        onChange={(e) => onChange({ ...draft, value: e.target.value })}
+        inputProps={{ min: 0, step: fixed ? 0.01 : 0.1 }}
+      />
+      {card.isLoading ? (
+        <Typography variant="caption" color="text.secondary">
+          Loading the stop card&apos;s suggestions…
+        </Typography>
+      ) : card.error || !card.data ? (
+        <Typography variant="caption" color="text.secondary">
+          The stop card&apos;s suggestions could not be loaded. A figure can still be typed.
+        </Typography>
+      ) : (
+        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+          <Typography variant="caption" color="text.secondary">From the stop card:</Typography>
+          {suggestions(card.data.stops).map(({ label, ...suggested }) => (
+            <Button
+              key={suggested.method}
+              size="small"
+              variant={draft.method === suggested.method ? 'contained' : 'outlined'}
+              onClick={() => onChange(suggested)}
+            >
+              {label}
+            </Button>
+          ))}
+        </Stack>
+      )}
+      <Typography variant="caption" color="text.secondary">
+        {fixed
+          ? 'The stop is set when the buy fills, and must be below the price it fills at.'
+          : 'The stop is set when the buy fills, and trails this far below the highest price since, starting from the fill price.'}{' '}
+        The daily check tests it against each closed daily bar, starting with the next session,
+        and sells the whole position when a bar reaches it.
+      </Typography>
+    </Stack>
+  );
+}

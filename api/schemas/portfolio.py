@@ -418,6 +418,12 @@ class RealizedSale(BaseModel):
     basis_missing: bool = False
     allocation_method: Optional[str] = None
     notes: Optional[str] = None
+    # What prompted the sale: manual, stop, harvester, evaluator, watch or
+    # ai. `stop` is a paper book's stop selling the position.
+    source: str = "manual"
+    source_ref: Optional[str] = None
+    # The paper order that made the sale. None for a sale recorded by hand.
+    order_id: Optional[int] = None
 
 
 class RealizedTotals(BaseModel):

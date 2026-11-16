@@ -519,6 +519,38 @@ cash. The other two exist so that every paper lot and sale still comes from an o
 A `CHECK` (`orders_kind_rule`) holds the three kinds and their shapes: a seed is a buy for a
 share count, a manual close is a sell.
 
+#### A stop on a buy
+
+A `market` buy can ask for a stop (V21, #431 plan step 4.3): `stop` on
+`POST /api/portfolio/orders`, with `kind`, `stop_level` (fixed) or `trail_pct` (trailing),
+`method` and `proposed_level`. The order keeps what was asked in `stop_kind`, `stop_level`,
+`stop_trail_pct`, `stop_method` and `stop_proposed_level`. `analytics.stored_stops` has the
+rules (`requested_stop`, `order_stop_terms`).
+
+- **The stop row is written by the fill, in the fill's transaction**
+  (`OrdersService._attach_stop`, `stop_sql.set_stop_on`). The lot, its cash row, the stop and
+  the order's status commit together. A queued buy has no stop until it fills. A rejected or
+  cancelled order never gets one.
+- **The stop is set against the fill price.** That price is its `reference_price`, a trailing
+  stop's first high-water mark, and the price a fixed level must be under. A stop set by hand
+  uses the last stored close for all three ([stored stops](#stored-stops)); a buy has a better
+  figure, the price the position was opened at.
+- **A fixed level at or above the fill price is no stop.** In market hours the fill price is
+  known before anything is stored, so the request is a 422 and no order exists. A queued buy
+  can only be checked at the open: it fills, no stop is written, and `stop_set` is `false`.
+  It is not rejected, because that needs a reject reason the `CHECK` doesn't have, and
+  widening a `CHECK` is a dropped constraint.
+- **`stop_set` says what became of the request**: `true` once the fill wrote the stop, `false`
+  for the case above, NULL before the fill and on an order that asked for none.
+- **The stop is dated the moment of the fill**, so the checker first tests it against the next
+  session to open. Its `source` is `manual` and its `source_ref` is `order:<order_id>`.
+- **It replaces the stop the symbol already has in the book.** A buy with no stop leaves that
+  stop alone, and the new lot is under it.
+- `orders_stop_rule` holds the shapes: only a `market` buy carries a stop, a fixed one has a
+  level and no percentage, a trailing one a percentage and no level, and `stop_set` is set only
+  on a filled order. Each comparison in it is guarded with `IS NOT NULL`: a `CHECK` passes when
+  its expression is NULL.
+
 ### Stored stops
 
 A stop is the owner's decision to get out of a holding at a level (`stops`, V19 and V20, #431
@@ -566,8 +598,10 @@ an order at a broker.
 | `POST /api/portfolio/stops` | set the stop on a holding: `symbol`, `kind`, `stop_level` (fixed) or `trail_pct` (trailing), and optionally `method`, `proposed_level`, `book_id`. 201 with the stop, whose `replaced_stop_id` names the one it took over from. 422 for a symbol the book doesn't hold, a level at or above the last close, or an archived book |
 | `POST /api/portfolio/stops/{stop_id}/cancel?book_id=` | take an active stop off. 404 for a stop that isn't in that book, 422 for one that is no longer active |
 
-No UI reaches these routes yet (plan steps 4.3 and 4.5), and no MCP tool or Sidekick tool reads
-a stop (step 5.4).
+The Portfolio page reads the list route, with `include_inactive=true`, and shows each holding
+its stop (plan step 4.3). No component sets or cancels a stop through these routes yet: the
+stop panel is step 4.5, and until then the page sets a stop only [with a paper
+buy](#a-stop-on-a-buy). No MCP tool or Sidekick tool reads a stop (step 5.4).
 
 #### The stop checker
 
@@ -651,6 +685,9 @@ call. The maths is `portfolio_math.realized_pnl`.
   native figures and `fx_missing: true`, has no USD figures, and is in no total;
   `fx_missing_count` says how many. A sale whose lot has no purchase price is treated the same
   way (`basis_missing`). How the rates get onto the rows: [FX rates](#fx-rates).
+- **Each sale says what prompted it**: `source` (`manual`, or `stop` for a paper book's stop
+  selling the position), `source_ref` and `order_id`, the paper order that made it. They are
+  shown, and no total is split by them yet (plan step 5.3).
 - **A symbol with no summable sale has `None` money figures and no bar**, not zeroes that would
   read as "broke even", and sorts last. Symbols are otherwise ordered best realized P/L first.
 - The bar segments come from `allocation_segments`, as on the allocation chart: the base is the

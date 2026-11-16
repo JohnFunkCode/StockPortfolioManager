@@ -27,8 +27,33 @@ export function request(order: Order): string {
   if (order.kind === 'manual_close') return `Close ${shares} ${order.symbol} by hand`;
   if (order.source === 'stop') return `Sell ${shares} ${order.symbol}, by its stop`;
   const verb = order.side === 'buy' ? 'Buy' : 'Sell';
-  if (order.requested_shares != null) return `${verb} ${shares} ${order.symbol}`;
-  return `${verb} ${formatCurrency(order.requested_amount)} of ${order.symbol}`;
+  const what =
+    order.requested_shares != null
+      ? `${verb} ${shares} ${order.symbol}`
+      : `${verb} ${formatCurrency(order.requested_amount)} of ${order.symbol}`;
+  return `${what}${stopAsked(order)}`;
+}
+
+/** ", with a stop at $45.00" or ", with a stop trailing 8%": what a buy asked
+ * for. Empty for an order that asked for no stop. */
+function stopAsked(order: Order): string {
+  if (order.stop_kind === 'fixed') return `, with a stop at ${formatCurrency(order.stop_level)}`;
+  if (order.stop_kind === 'trailing') return `, with a stop trailing ${Number(order.stop_trail_pct)}%`;
+  return '';
+}
+
+/** What became of the stop a buy asked for, as a sentence. Empty for an
+ * order that asked for none, or was rejected or withdrawn: it never gets one. */
+export function stopOutcome(order: Order): string {
+  if (order.stop_kind == null) return '';
+  if (order.status === 'pending') return 'Its stop is set when the order fills.';
+  if (order.status !== 'filled') return '';
+  if (order.stop_set === false) {
+    return 'Its stop was not set: the order filled at or below the stop level. The position has no stop.';
+  }
+  return order.stop_kind === 'fixed'
+    ? `Its stop is set at ${formatCurrency(order.stop_level)}.`
+    : `Its stop is set, trailing ${Number(order.stop_trail_pct)}% below the fill price.`;
 }
 
 /** Where a fill's price came from, as a trailing phrase. */
@@ -53,7 +78,9 @@ function priceNote(order: Order): string {
 export function outcome(order: Order): string {
   switch (order.status) {
     case 'filled':
-      return `${formatShares(order.filled_shares)} @ ${formatCurrency(order.fill_price)}${priceNote(order)}`;
+      return `${formatShares(order.filled_shares)} @ ${formatCurrency(order.fill_price)}${priceNote(order)}${
+        order.stop_set === false ? '. Stop not set: filled at or below it' : ''
+      }`;
     case 'pending':
       return `Waiting for the session of ${formatDate(order.session_date)}`;
     case 'rejected':

@@ -23,6 +23,13 @@ system sets every fill; the owner never types a price.
   plan step 4.2), at the price the checker worked out: the stop's level, or
   the session's open when the stock opened under it. The stop is marked
   `triggered` in the sale's transaction, so neither exists without the other.
+- **A buy can ask for a stop** (`place_order`'s `stop_*` arguments, plan step
+  4.3). The stop row is written when the buy fills, in the fill's
+  transaction, against the fill price. A queued buy has no stop until it
+  fills, and a rejected or cancelled one never gets one. A fixed level at or
+  above the fill price can't be a stop: in market hours the order is refused
+  as bad input before anything is stored, and a queued buy that opens at or
+  under its level fills with no stop and says so (`stop_set` False).
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -56,6 +63,7 @@ from quantcore.analytics import cash as cash_math
 from quantcore.analytics import market_time
 from quantcore.analytics import orders as orders_math
 from quantcore.analytics import portfolio_math
+from quantcore.analytics import stored_stops as stops_math
 from quantcore.repositories.books_repository import (  # noqa: F401  (BookNotFoundError re-exported for routes)
     REAL,
     BookNotFoundError,
@@ -161,6 +169,53 @@ def _request(side: Any, shares: Any, amount: Any) -> Dict[str, Any]:
         "requested_shares": _shares(shares) if shares is not None else None,
         "requested_amount": _amount(amount) if amount is not None else None,
     }
+
+
+_NO_STOP: Dict[str, Any] = {
+    "stop_kind": None, "stop_level": None, "stop_trail_pct": None,
+    "stop_method": None, "stop_proposed_level": None,
+}
+
+
+def _stop_request(
+    side: str, kind: Any, level: Any, trail_pct: Any, method: Any, proposed_level: Any
+) -> Dict[str, Any]:
+    """The stop a buy asks for, as the order's five `stop_*` columns: all
+    None when no `kind` is given. Raises `ValueError` for a stop on a sell,
+    for stop terms sent with no kind, and for terms that are wrong."""
+    if kind is None:
+        if any(v is not None for v in (level, trail_pct, proposed_level)):
+            raise ValueError("a stop needs a kind: fixed or trailing")
+        return dict(_NO_STOP)
+    if side != orders_math.BUY:
+        raise ValueError("only a buy can carry a stop")
+    asked = stops_math.requested_stop(
+        kind,
+        stop_level=None if level is None else _number(level, "stop_level"),
+        trail_pct=None if trail_pct is None else _number(trail_pct, "trail_pct"),
+        method=stops_math.MANUAL if method is None else method,
+        proposed_level=(
+            None if proposed_level is None else _number(proposed_level, "proposed_level")
+        ),
+    )
+    return {
+        "stop_kind": asked.kind,
+        "stop_level": asked.stop_level,
+        "stop_trail_pct": asked.trail_pct,
+        "stop_method": asked.method,
+        "stop_proposed_level": asked.proposed_level,
+    }
+
+
+def _stop_terms(order: Dict[str, Any], price: Decimal) -> Optional[stops_math.StopTerms]:
+    """The terms of the stop `order` asked for, were it to fill at `price`.
+    None when it asked for none, or none can be set at that price."""
+    if order["stop_kind"] is None:
+        return None
+    return stops_math.order_stop_terms(
+        order["stop_kind"], stop_level=order["stop_level"],
+        trail_pct=order["stop_trail_pct"], fill=price,
+    )
 
 
 def _public(order: Dict[str, Any], *, replayed: bool = False) -> Dict[str, Any]:
@@ -293,6 +348,11 @@ class OrdersService:
         amount: Any = None,
         source: str = orders_math.MANUAL,
         source_ref: Any = None,
+        stop_kind: Any = None,
+        stop_level: Any = None,
+        stop_trail_pct: Any = None,
+        stop_method: Any = None,
+        stop_proposed_level: Any = None,
         book_id: Optional[int] = None,
         now: Optional[datetime.datetime] = None,
     ) -> Dict[str, Any]:
@@ -303,10 +363,18 @@ class OrdersService:
         `shares`. `replayed` is True when `idempotency_key` had already been
         used: nothing new happens and the first order is returned.
 
+        A buy may ask for a stop: `stop_kind` with a `stop_level` (fixed) or
+        a `stop_trail_pct` (trailing, percent below a mark that starts at the
+        fill price), and how the level was chosen (`stop_method`,
+        `stop_proposed_level`). The stop is written when the buy fills, and
+        `stop_set` on the order then says whether it was: False means the buy
+        filled at or under the fixed level it asked for, so it has no stop.
+
         Raises `ValueError` for bad input (a dollar amount that would buy
-        more shares than an order can hold included), the real book or an
-        archived one, and `BookNotFoundError` for a book that isn't the
-        owner's. A refusal
+        more shares than an order can hold included, and a fixed stop at or
+        above the price an order placed in market hours fills at), the real
+        book or an archived one, and `BookNotFoundError` for a book that isn't
+        the owner's. A refusal
         that depends on the market or the book's holdings is not an error: it
         is a stored order with status `rejected`.
         """
@@ -316,6 +384,10 @@ class OrdersService:
         if source not in orders_math.SOURCES:
             raise ValueError(f"source must be one of {', '.join(orders_math.SOURCES)}")
         ref = _source_ref(source_ref)
+        stop = _stop_request(
+            request["side"], stop_kind, stop_level, stop_trail_pct, stop_method,
+            stop_proposed_level,
+        )
         self._paper_book(owner, book_id)
         now = now or datetime.datetime.now(tz=datetime.timezone.utc)
 
@@ -325,10 +397,20 @@ class OrdersService:
             return _public(earlier, replayed=True)
 
         plan = orders_math.placement(now=now, **self._quote_facts(symbol))
+        # The price is already known for an order that fills now, so a stop
+        # that can't sit under it is bad input: nothing is stored.
+        if (
+            plan.action == orders_math.FILL and stop["stop_kind"] is not None
+            and _stop_terms(stop, plan.price) is None
+        ):
+            raise ValueError(
+                f"the stop must be below the price the order fills at, which is {plan.price}"
+            )
 
         with self._repo.transaction(owner=owner, book_id=book_id) as tx:
             order, created = tx.insert({
                 **request,
+                **stop,
                 "symbol": symbol,
                 "source": source,
                 "source_ref": ref,
@@ -581,6 +663,8 @@ class OrdersService:
         The trade's rows are written first and the order is marked last, so
         the cash check reads the ledger as it will be. A trade the book can't
         cover is undone to the savepoint and the order is rejected instead.
+        A buy that asked for a stop gets it here, once the buy is known to
+        stand, so the lot and its stop land together or not at all.
         """
         tx.savepoint()
         if order["side"] == orders_math.BUY:
@@ -594,11 +678,48 @@ class OrdersService:
         resolved = tx.resolve(
             order["order_id"], orders_math.FILLED, resolved_at=now, filled_shares=shares,
             fill_price=price, price_source=price_source, quote_time=quote_time,
+            stop_set=self._attach_stop(tx, order, price, now),
         )
         if not resolved:
             # The trade's rows are already written. Raising rolls them back
             # with the transaction: an order that wasn't pending fills nothing.
             raise RuntimeError("order is no longer pending")
+
+    def _attach_stop(
+        self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal,
+        now: datetime.datetime,
+    ) -> Optional[bool]:
+        """Write the stop a filled buy asked for (plan step 4.3). None when
+        it asked for none, True when the stop was written, and False when no
+        stop can be set at this fill price: a queued buy that opened at or
+        under its fixed level. The buy still stands, with no stop.
+
+        The stop is set against the fill: `price` is its reference and a
+        trailing stop's first high-water mark, and `now` is when it was set,
+        so the checker first tests it against the next session to open. It
+        replaces the stop the symbol already has in this book, as any new
+        stop does.
+        """
+        if order["stop_kind"] is None:
+            return None
+        terms = _stop_terms(order, price)
+        if terms is None:
+            return False
+        tx.set_stop({
+            "symbol": order["symbol"],
+            "kind": terms.kind,
+            "stop_level": terms.stop_level,
+            "trail_pct": terms.trail_pct,
+            "high_water_mark": terms.high_water_mark,
+            "method": order["stop_method"],
+            "proposed_level": order["stop_proposed_level"],
+            "reference_price": price,
+            "as_of": order["session_date"],
+            "source": stops_math.MANUAL,
+            "source_ref": f"order:{order['order_id']}",
+            "created_at": now,
+        })
+        return True
 
     def _buy(self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal):
         """Write a buy's lot. Returns `(shares, None)`, or `(None, reason)`

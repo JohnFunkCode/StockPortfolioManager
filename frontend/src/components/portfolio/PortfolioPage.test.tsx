@@ -13,6 +13,8 @@ import {
   realizedResponse,
   realizedSymbol,
   renderWithProviders,
+  stopRow,
+  stopsResponse,
   symbolRow,
 } from '../../testUtils';
 
@@ -43,6 +45,8 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
     // The Cash section's own request (#431): no opening balance unless a test
     // says so. After `routes`, so a test's own cash route wins.
     ['/api/portfolio/cash', emptyCashLedger()],
+    // The book's stops (#431 step 4.3): none unless a test says so.
+    ['/api/portfolio/stops', stopsResponse([])],
   ]);
   renderWithProviders(<PortfolioPage />);
   return api;
@@ -346,6 +350,7 @@ describe('PortfolioPage', () => {
           url.includes('/api/portfolio/symbols') ||
           url.includes('/api/portfolio/realized') ||
           url.includes('/api/portfolio/cash') ||
+          url.includes('/api/portfolio/stops') ||
           url.includes('/api/books'),
       ),
     ).toBe(true);
@@ -757,6 +762,86 @@ describe('PortfolioPage books (#431)', () => {
       expect(realized.map(([url]) => url)).toEqual([
         expect.stringContaining('period=year&book_id=7'),
       ]);
+    });
+  });
+
+  describe('stops (#431 step 4.3)', () => {
+    const held = (symbol: string, trade_date = '2026-01-02') =>
+      symbolRow({ symbol, lots: [lotRow({ lot_id: symbol === 'INTC' ? 1 : 2, symbol, trade_date })] });
+    // Its own mock: the stops shown depend on the lots, so each test names both.
+    const mountStops = (stops: object, intcBought?: string) => {
+      const api = mockApi([
+        ['/api/portfolio/symbols', { symbols: [held('INTC', intcBought), held('AAPL')], totals: portfolioTotals() }],
+        ['/api/books', { books: [] }],
+        ['/api/portfolio/realized', realizedResponse([])],
+        ['/api/portfolio/cash', emptyCashLedger()],
+        ['/api/portfolio/stops', stops],
+      ]);
+      renderWithProviders(<PortfolioPage />);
+      return api;
+    };
+    const stopCell = (symbol: string) => screen.getByTestId(`stop-${symbol}`);
+
+    it('asks for the real book\'s stops, the reached ones included, and shows each on its holding', async () => {
+      const api = mountStops(stopsResponse([
+          stopRow({ stop_id: 4, symbol: 'AAPL', kind: 'trailing', stop_level: 184, trail_pct: 8, high_water_mark: 200 }),
+          stopRow({ stop_id: 3, symbol: 'INTC', stop_level: 45 }),
+        ]));
+      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
+      expect(stopCell('AAPL')).toHaveTextContent('$184.00');
+      expect(stopCell('AAPL')).toHaveTextContent('trails 8%');
+      expect(within(screen.getByTestId('holdings-table')).getByText('Stop')).toBeInTheDocument();
+
+      const stops = api.calls.map(([url]) => url).filter((url) => url.includes('/api/portfolio/stops'));
+      expect(stops).toEqual(['/api/portfolio/stops?include_inactive=true']);
+    });
+
+    it('shows a dash for a holding with no stop, and before the stops arrive', async () => {
+      mountStops(stopsResponse([stopRow({ symbol: 'INTC' })]));
+      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
+      expect(stopCell('AAPL')).toHaveTextContent('—');
+    });
+
+    it('keeps the holdings when the stops fail to load', async () => {
+      mountStops({ __status: 500, error: 'boom' });
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      expect(stopCell('INTC')).toHaveTextContent('—');
+    });
+
+    it('says a stop was reached while the holding is still open', async () => {
+      mountStops(stopsResponse([
+          stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
+        ]));
+      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('Reached $44.10'));
+    });
+
+    it('does not show a reached stop on a position bought after it', async () => {
+      mountStops(stopsResponse([
+          stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
+        ]), '2026-07-01');
+      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByText(/Reached/)).toBeNull());
+      expect(stopCell('INTC')).toHaveTextContent('—');
+    });
+
+    it('shows only the newest stop of a symbol, and none that was cancelled', async () => {
+      mountStops(stopsResponse([
+          stopRow({ stop_id: 9, symbol: 'INTC', stop_level: 47 }),
+          stopRow({ stop_id: 8, symbol: 'INTC', stop_level: 45, status: 'replaced' }),
+          stopRow({ stop_id: 7, symbol: 'AAPL', status: 'cancelled' }),
+          stopRow({ stop_id: 6, symbol: 'AAPL', stop_level: 150, status: 'replaced' }),
+        ]));
+      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$47.00'));
+      expect(stopCell('AAPL')).toHaveTextContent('—');
+    });
+
+    it('puts the symbol\'s stop on each of its lots', async () => {
+      mountStops(stopsResponse([stopRow({ symbol: 'INTC' })]));
+      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
+      const rows = holdings().getAllByRole('row');
+      const intc = rows.find((row) => within(row).queryByText('INTC'));
+      fireEvent.click(within(intc as HTMLElement).getAllByRole('button')[0]);
+      expect(await screen.findByTestId('lot-stop-1')).toHaveTextContent('$45.00');
     });
   });
 });

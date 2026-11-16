@@ -367,6 +367,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `FUNDAMENTALS_WARM_BUDGET_SECONDS` | 900 (and it always stops 60 s before the deadline) |
 | `FUNDAMENTALS_STALE_COVERAGE_FLOOR` | 0.80 |
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | 168 |
+| `QUEUED_FILLS_BUDGET_SECONDS` | 120 |
 | `OHLCV_CLOSEOUT_BUDGET_SECONDS` | 300 |
 | `NEWS_STALE_MAX_AGE_HOURS` | 120 |
 

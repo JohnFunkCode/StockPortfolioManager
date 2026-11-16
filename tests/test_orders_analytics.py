@@ -197,3 +197,66 @@ class FillNumbersTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class QueuedFillTest(unittest.TestCase):
+    """`queued_fill`: what the daily job does with an order queued for a
+    session (plan step 3.4)."""
+
+    SESSION = datetime.date(2026, 6, 16)  # a Tuesday
+
+    def decide(self, today=None, open_price=None, latest_bar=None, **kwargs):
+        return om.queued_fill(
+            session=self.SESSION, today=today or self.SESSION, open_price=open_price,
+            latest_bar=latest_bar, **kwargs,
+        )
+
+    def test_fills_at_the_sessions_open_rounded_like_any_fill(self):
+        decision = self.decide(open_price=51.2372, latest_bar=self.SESSION)
+        self.assertEqual((decision.action, decision.price, decision.reason),
+                         (om.FILL, D("51.24"), None))
+        self.assertEqual(self.decide(open_price=0.12345).price, D("0.1235"))
+
+    def test_the_price_is_the_same_however_late_the_job_runs(self):
+        late = self.decide(today=datetime.date(2026, 7, 20), open_price=51.2372,
+                           latest_bar=datetime.date(2026, 7, 17))
+        self.assertEqual((late.action, late.price), (om.FILL, D("51.24")))
+
+    def test_a_session_still_to_come_waits_whatever_it_is_given(self):
+        early = self.decide(today=datetime.date(2026, 6, 15), open_price=50.0,
+                            latest_bar=datetime.date(2026, 6, 15))
+        self.assertEqual(early, om.QueuedFill(om.WAIT))
+
+    def test_no_bar_yet_waits(self):
+        for latest in (None, datetime.date(2026, 6, 15), self.SESSION):
+            with self.subTest(latest=latest):
+                self.assertEqual(self.decide(latest_bar=latest).action, om.WAIT)
+
+    def test_a_later_bar_without_the_sessions_is_rejected_at_once(self):
+        decision = self.decide(today=datetime.date(2026, 6, 17),
+                               latest_bar=datetime.date(2026, 6, 17))
+        self.assertEqual((decision.action, decision.reason, decision.price),
+                         (om.REJECT, om.NO_OPEN_PRICE, None))
+
+    def test_gives_up_after_three_sessions_counted_on_the_nyse_calendar(self):
+        # Wed 17 and Thu 18 are sessions; Fri 19 is Juneteenth; Mon 22 is the third.
+        for today, action in (
+            (datetime.date(2026, 6, 17), om.WAIT),
+            (datetime.date(2026, 6, 18), om.WAIT),
+            (datetime.date(2026, 6, 19), om.WAIT),
+            (datetime.date(2026, 6, 21), om.WAIT),
+            (datetime.date(2026, 6, 22), om.REJECT),
+        ):
+            with self.subTest(today=today):
+                self.assertEqual(self.decide(today=today).action, action)
+        self.assertEqual(
+            self.decide(today=datetime.date(2026, 6, 17), give_up_sessions=1).reason,
+            om.NO_OPEN_PRICE)
+
+    def test_an_open_that_is_not_a_price_is_no_open(self):
+        for bad in (0, 0.0, -1.5, float("nan"), float("inf"), 0.00001):
+            with self.subTest(open_price=bad):
+                self.assertEqual(self.decide(open_price=bad).action, om.WAIT)
+                rejected = self.decide(open_price=bad, today=datetime.date(2026, 6, 17),
+                                       latest_bar=datetime.date(2026, 6, 17))
+                self.assertEqual(rejected.reason, om.NO_OPEN_PRICE)

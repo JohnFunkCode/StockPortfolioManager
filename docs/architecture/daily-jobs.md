@@ -10,8 +10,9 @@ spelling; the work did not). It loads John's positions and the shared watchlist 
 (via `get_services().portfolio` / `.watchlist` — never from `portfolio.csv` or `watchlist.yaml`),
 fetches prices/metrics, and then runs **in this order, which is a deliberate isolation property**
 — the cheap, high-value side effects land before anything that can run long: notifications →
-options capture → gamma/GEX (from the snapshot) → capture health check → news staleness →
-fundamentals warming → OHLCV close-out. The four steps that carry the weight:
+queued paper fills → options capture → gamma/GEX (from the snapshot) → capture health check →
+news staleness → fundamentals warming → OHLCV close-out. The steps that carry the weight (queued
+paper fills, which run between 1 and 2, have their own section below):
 
 1. **Notifications** — `Notifier(portfolio).calculate_and_send_notifications()`, plus
    `alert_if_watchlist_empty()`.
@@ -199,11 +200,51 @@ fundamentals warming → OHLCV close-out. The four steps that carry the weight:
      leftover bar on first read anyway
      ([data.md](data.md#when-a-forming-bar-is-re-fetched)). An options chain can't be re-captured
      and the fundamentals warmer has its own alarm, so the close-out is the step that gives way.
-     The earlier budgets already add up to the task timeout (600 + 300 + 900 s), so on a night
-     every step spends its whole budget the close-out gets one second and one symbol.
+     The earlier budgets already add up to more than the task timeout (120 + 600 + 300 + 900 s),
+     so on a night every step spends its whole budget the close-out gets one second and one
+     symbol.
    - Like the other tail steps it never raises, and it does nothing on an NYSE-closed day.
 
 The job exits immediately on NYSE-closed days (`is_trading_day`), notifications included.
+
+### Queued paper fills
+
+`run_queued_fills(get_services().orders, notifier, …)` runs straight after the notifications
+(#431, plan step 3.4). A paper order placed outside market hours is queued for one session
+([data.md](data.md#paper-orders)); this step fills each one whose session has come.
+
+- **Which orders** (`OrdersService.queued_orders`): every owner's `pending` orders with
+  `session_date` on or before today's market date, the oldest session first, then in the order
+  placed. The walk goes owner by owner and paper book by paper book, so each query is bound to
+  one owner and one book. An archived book is included.
+- **The price** (`PricesService.session_open`): the open of the symbol's **closed** daily bar
+  for the order's session. It reads through `get_history(include_open=False)`, so a symbol
+  whose newest closed bar is behind costs one history download, and a symbol with no history
+  gets its full warm window. A symbol whose bar is already stored costs no Yahoo call.
+- **The outcome** (`analytics.orders.queued_fill`, then `OrdersService.fill_queued_order`):
+  - a bar for the session: **filled** at its open, with the trade dated the session. Cash and
+    shares are checked in the fill's transaction, so the order can still be rejected
+    `insufficient_cash` or `insufficient_shares`;
+  - no bar for the session and a closed bar dated after it: **rejected** `no_open_price`. The
+    symbol did not trade that day;
+  - no bar for the session and none after it: left **pending** for the next run. An empty or
+    failed fetch looks the same as a halted symbol, so one night's gap rejects nothing. On the
+    run three sessions after the order's own (`QUEUED_FILL_GIVE_UP_SESSIONS`) it is rejected
+    `no_open_price`.
+- **A late run fills at the same price.** The price belongs to the order's session, not to the
+  night the job ran. A run that was missed, or ran out of budget, costs a delay and nothing else.
+- **Budget:** `QUEUED_FILLS_BUDGET_SECONDS` (default `120`), clamped to what is left of the task
+  deadline and falling back to the default on an unparseable value.
+- **Alarm:** after the walk, `alert_if_orders_still_queued` asks the database for the due orders
+  again. If any is still pending it sends one Discord alarm (`send_queued_orders_alert`, marked
+  `[PAPER]`) with the count, up to 10 symbols and the oldest session. It names no owner. An
+  order waiting its first night for a bar alarms too: that night's fill did not happen.
+- **Why second.** It is cheap (a few queries an order) and a fill is something an owner looks
+  for that evening. It is ahead of the options capture, which can't be redone, so its budget is
+  small and each order is tried once.
+- It never raises: the fills and the alarm each have their own guard, so the alarm still runs
+  when the walk fails. One bad order degrades one row, and the log names the exception's class
+  only.
 
 **News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
 `Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image

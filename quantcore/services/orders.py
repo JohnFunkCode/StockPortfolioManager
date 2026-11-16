@@ -6,7 +6,9 @@ system sets every fill; the owner never types a price.
 - Placed while the market is open, an order fills at the current quote or is
   rejected, in the transaction that creates it. It is never left pending.
 - Placed outside the session, it is queued for the next one. The daily job
-  fills it at that session's opening price (plan step 3.4).
+  fills it at that session's opening price (`queued_orders` and
+  `fill_queued_order`, plan step 3.4): the open of the session's closed daily
+  bar, on whatever night the job gets to it.
 - A fill is all or nothing, and happens exactly once: the order leaves
   `pending` through one `UPDATE ... WHERE status = 'pending'`, in the same
   transaction as its lot or sale rows and their cash rows.
@@ -26,7 +28,8 @@ Rules kept here (CLAUDE.md, "Unified Database"):
 - **Cash and shares are checked when the order fills.** What is checked when
   a queued order is placed is a courtesy.
 - **The quote is fetched before the transaction opens**, so no connection and
-  no book lock waits on the network.
+  no book lock waits on the network. So is a queued order's opening price,
+  and the order is read again once the lock is held.
 
 What to do with an order is `analytics.orders`. The rows are
 `OrdersRepository`'s.
@@ -40,6 +43,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from quantcore.analytics import cash as cash_math
+from quantcore.analytics import market_time
 from quantcore.analytics import orders as orders_math
 from quantcore.analytics import portfolio_math
 from quantcore.repositories.books_repository import (  # noqa: F401  (BookNotFoundError re-exported for routes)
@@ -159,9 +163,14 @@ class OrdersService:
         orders_repository: OrdersRepository,
         books_repository: BooksRepository,
         yfinance_gateway,
+        prices,
     ) -> None:
         self._repo = orders_repository
         self._books_repo = books_repository
+        # PricesService.session_open: the opening price a queued order fills
+        # at. Only the daily job's fill uses it, but it is required, so no
+        # service exists that can place a queued order and not fill one.
+        self._prices = prices
         # YFinanceGateway.batch_quotes: one live quote for the order's symbol,
         # asked for at the moment the order is placed. Never the price cache,
         # whose entries can be minutes old.
@@ -357,10 +366,14 @@ class OrdersService:
             tx.undo_trade()
             self._reject(tx, order, reason, now)
             return
-        tx.resolve(
+        resolved = tx.resolve(
             order["order_id"], orders_math.FILLED, resolved_at=now, filled_shares=shares,
             fill_price=price, price_source=price_source, quote_time=quote_time,
         )
+        if not resolved:
+            # The trade's rows are already written. Raising rolls them back
+            # with the transaction: an order that wasn't pending fills nothing.
+            raise RuntimeError("order is no longer pending")
 
     def _buy(self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal):
         """Write a buy's lot. Returns `(shares, None)`, or `(None, reason)`
@@ -402,6 +415,100 @@ class OrdersService:
             source=order["source"], source_ref=order["source_ref"], order_id=order["order_id"],
         )
         return shares, None
+
+    # ------------------------------------------------------------------
+    # Queued fills (the daily job, plan step 3.4)
+    # ------------------------------------------------------------------
+    def queued_orders(self, *, today: datetime.date) -> List[Dict[str, Any]]:
+        """Every owner's pending orders queued for a session on or before
+        `today`: what the daily job has to fill, and what its alarm counts.
+
+        Each is `owner`, `book_id`, `order_id`, `symbol` and `session_date`.
+        Walked owner by owner and book by book, so every statement is bound
+        to one owner and one book. An archived book is included: an order
+        accepted before the book was archived is still carried out, or it
+        would stay pending for good. Zero network calls.
+        """
+        due: List[Dict[str, Any]] = []
+        for owner in self._books_repo.list_owners():
+            for book in self._books_repo.list_books(owner=owner):
+                if book["kind"] == REAL:
+                    continue
+                due.extend(
+                    {
+                        "owner": owner,
+                        "book_id": order["book_id"],
+                        "order_id": order["order_id"],
+                        "symbol": order["symbol"],
+                        "session_date": order["session_date"],
+                    }
+                    for order in self._repo.list_due_orders(
+                        owner=owner, through=today, book_id=book["book_id"]
+                    )
+                )
+        return sorted(due, key=lambda o: (o["session_date"], o["order_id"]))
+
+    def _order_in_book(self, owner: str, order_id: int, book_id: Optional[int]) -> Dict[str, Any]:
+        """One order of a named book. Raises `OrderNotFoundError` when no book
+        is named (the real book holds no orders) or the order isn't in it,
+        and `BookNotFoundError` for a book that isn't `owner`'s."""
+        if self._book(owner, book_id) is None:
+            raise OrderNotFoundError(f"order {order_id} not found")
+        order = self._repo.get_order(owner=owner, order_id=order_id, book_id=book_id)
+        if order is None:
+            raise OrderNotFoundError(f"order {order_id} not found")
+        return order
+
+    def fill_queued_order(
+        self,
+        *,
+        owner: str,
+        order_id: int,
+        book_id: Optional[int] = None,
+        today: Optional[datetime.date] = None,
+        now: Optional[datetime.datetime] = None,
+    ) -> Dict[str, Any]:
+        """Carry out one queued order and return it as it now is: `filled` at
+        its session's opening price, `rejected` (no opening price, or the
+        book can't cover it), or still `pending` when the price hasn't
+        arrived and may yet (`analytics.orders.queued_fill`).
+
+        An order that is no longer pending is returned unchanged, so running
+        the job twice fills nothing twice. Raises `OrderNotFoundError` for an
+        order that isn't in this owner's book and `BookNotFoundError` for a
+        book that isn't the owner's. An error from the price fetch propagates,
+        and the order stays pending.
+        """
+        order = self._order_in_book(owner, order_id, book_id)
+        if order["status"] != orders_math.PENDING:
+            return _public(order)
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        session = datetime.date.fromisoformat(order["session_date"])
+        today = today or market_time.market_date(now)
+        if session > today:
+            return _public(order)
+
+        # The price is read, and fetched if it has to be, before the book is locked.
+        bar = self._prices.session_open(order["symbol"], session)
+        decision = orders_math.queued_fill(
+            session=session, today=today, open_price=bar["open"], latest_bar=bar["latest_bar"],
+        )
+        if decision.action == orders_math.WAIT:
+            return _public(order)
+
+        with self._repo.transaction(owner=owner, book_id=book_id) as tx:
+            # Read again under the lock: it may have been cancelled meanwhile.
+            current = tx.get(order_id)
+            if current["status"] != orders_math.PENDING:
+                return _public(current)
+            if decision.action == orders_math.REJECT:
+                self._reject(tx, current, decision.reason, now)
+            else:
+                self._fill(
+                    tx, current, price=decision.price,
+                    price_source=orders_math.PRICE_FROM_SESSION_OPEN, quote_time=None, now=now,
+                )
+            return _public(tx.get(order_id))
 
     # ------------------------------------------------------------------
     # Cancelling

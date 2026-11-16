@@ -313,7 +313,7 @@ def get_services() -> Services:
         portfolio=portfolio,
         books=BooksService(books_repository),
         cash=CashService(cash_repository, books_repository),
-        orders=OrdersService(orders_repository, books_repository, yfinance_gateway),
+        orders=OrdersService(orders_repository, books_repository, yfinance_gateway, prices),
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

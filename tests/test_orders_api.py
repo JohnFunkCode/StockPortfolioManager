@@ -79,6 +79,14 @@ class StubGateway:
         return {s: self.quotes.get(s) for s in symbols}
 
 
+class NoPrices:
+    """Stands in for `PricesService`: nothing here fills a queued order, so a
+    read of a session's open is a test reaching the wrong path."""
+
+    def session_open(self, symbol, session):
+        raise AssertionError("these tests never fill a queued order")
+
+
 def _purge():
     purge((OWNER, OTHER), (SYMBOL, "ZZNOTHELD"))
     with closing(get_connection()) as conn:
@@ -96,7 +104,7 @@ class _Base(unittest.TestCase):
         self.cash = CashService(CashRepository(), self.books)
         self.repo = OrdersRepository(self.lots)
         self.gateway = StubGateway()
-        self.service = OrdersService(self.repo, self.books, self.gateway)
+        self.service = OrdersService(self.repo, self.books, self.gateway, NoPrices())
         self.book = self.books.create_paper_book(
             owner=OWNER, name="Paper", starting_cash=1000, opened_on=OPENED_ON
         )

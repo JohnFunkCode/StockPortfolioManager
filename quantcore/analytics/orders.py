@@ -21,6 +21,10 @@ The rules (plan decisions 25 to 29):
 - **A rejection carries a reason from `REJECT_REASONS`**, never free text.
 - **A dollar buy never spends more than it asked for**: its share count is
   rounded down to the six decimals the database stores.
+- **A queued order fills at the open of its session's closed daily bar**, on
+  whatever night the daily job gets to it (`queued_fill`, plan step 3.4). With
+  no such bar it is rejected once that is known to be final, and waits a
+  night otherwise.
 """
 
 from __future__ import annotations
@@ -66,6 +70,13 @@ PRICE_FROM_SESSION_OPEN = "session_open"
 FILL = "fill"
 QUEUE = "queue"
 REJECT = "reject"
+# A queued order the daily job leaves pending for another night.
+WAIT = "wait"
+
+# How many sessions after its own a queued order still waits for an opening
+# price that hasn't arrived. On the run this many sessions later it is
+# rejected `no_open_price`, so no order stays pending for good.
+QUEUED_FILL_GIVE_UP_SESSIONS = 3
 
 # A quote whose last regular-session trade is older than this is not filled
 # against. The same five minutes the price cache allows a forming bar.
@@ -202,6 +213,66 @@ def placement(
         price=fill_price(regular_price),
         quote_time=datetime.datetime.fromtimestamp(regular_time, tz=datetime.timezone.utc),
     )
+
+
+@dataclass(frozen=True)
+class QueuedFill:
+    """What the daily job does with a queued order. `action` is FILL, REJECT
+    or WAIT; `price` is set for FILL only, `reason` for REJECT only."""
+
+    action: str
+    price: Optional[Decimal] = None
+    reason: Optional[str] = None
+
+
+def _usable_open(open_price) -> Optional[Decimal]:
+    """A daily bar's open as a fill price, or None when it is missing, not a
+    number, or not above zero."""
+    if open_price is None:
+        return None
+    value = Decimal(str(open_price))
+    if not value.is_finite() or value <= 0:
+        return None
+    price = fill_price(value)
+    return price if price > 0 else None
+
+
+def queued_fill(
+    *,
+    session: datetime.date,
+    today: datetime.date,
+    open_price,
+    latest_bar: Optional[datetime.date],
+    give_up_sessions: int = QUEUED_FILL_GIVE_UP_SESSIONS,
+) -> QueuedFill:
+    """Fill, reject or keep waiting on an order queued for `session`.
+
+    `open_price` is the open of the symbol's closed daily bar for `session`,
+    or None when there is no such bar. `latest_bar` is the date of its newest
+    closed daily bar, or None. `today` is the market date of the run.
+
+    - A session still to come: wait. Its bar can't exist yet.
+    - A usable open: fill at it, rounded by `fill_price`. The price is the
+      same on whatever night the order is reached.
+    - No open, and a closed bar dated after the session: rejected
+      `no_open_price`. The symbol's history has moved past that day without
+      it (a symbol halted all day), so no bar is coming.
+    - No open and no later bar: the history hasn't arrived, which a failed or
+      empty fetch looks like too. Wait, until the session is
+      `give_up_sessions` sessions old, then reject `no_open_price`.
+
+    An order never rolls to a later session's open (plan decision 27).
+    """
+    if session > today:
+        return QueuedFill(WAIT)
+    price = _usable_open(open_price)
+    if price is not None:
+        return QueuedFill(FILL, price=price)
+    if latest_bar is not None and latest_bar > session:
+        return QueuedFill(REJECT, reason=NO_OPEN_PRICE)
+    if market_time.trading_days_after(session, today) >= give_up_sessions:
+        return QueuedFill(REJECT, reason=NO_OPEN_PRICE)
+    return QueuedFill(WAIT)
 
 
 def buy_shares(

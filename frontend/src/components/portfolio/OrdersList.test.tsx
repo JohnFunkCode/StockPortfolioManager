@@ -79,9 +79,10 @@ describe('OrdersList', () => {
     expect(row(17).getByText('2 @ $49.50, the opening price')).toBeInTheDocument();
 
     const waiting = screen.getByText(/1 order placed outside market hours is waiting for its session/);
-    // Nothing fills a queued order until plan step 3.4, and the page says so.
-    expect(waiting).toHaveTextContent(/Nothing fills a waiting order yet/);
-    expect(waiting).not.toHaveTextContent(/opening price/);
+    // The daily job fills a queued order after the close (plan step 3.4).
+    expect(waiting).toHaveTextContent(/Each fills at that session's opening price/);
+    expect(waiting).toHaveTextContent(/shows here that evening, after the close/);
+    expect(waiting).toHaveTextContent(/Until then it can be cancelled/);
   });
 
   it('puts every rejection reason into words, and shows a code it does not know', async () => {

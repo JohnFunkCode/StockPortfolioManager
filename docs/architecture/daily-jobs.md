@@ -313,7 +313,8 @@ are `triggered` and not yet alerted for (`StopsService.unalerted_triggers`): eac
 level, whether it traded down to the level or opened under it, and the bar's date.
 
 - **Once, and not lost.** A stop is marked (`stops.alerted_at`) only after Discord took the
-  message. A send that raises or is refused leaves it owed, and the next run sends it. A run
+  message. A send that raises, is refused, or has no webhook to go to leaves it owed, and the
+  next run sends it. A run
   repeated the same evening sends nothing twice.
 - **Whose:** the job owner's real book only, for the reason the fills message gives. Another
   owner's stops are still checked and marked; they are not posted.

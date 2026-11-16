@@ -638,8 +638,9 @@ class Notifier:
 
         ``stops`` are triggered stops, at most the number the message lists;
         ``stop_count`` is how many there were. Nothing was sold: a real-book
-        stop is a record. Returns False when Discord refused the message, so
-        the caller can leave the alert owed.
+        stop is a record. Returns False when the message did not go out (no
+        webhook is set, or Discord refused it), so the caller can leave the
+        alert owed.
         """
         lines = [f"- {_stop_alert_line(stop)}" for stop in stops]
         if stop_count > len(stops):
@@ -730,12 +731,14 @@ class Notifier:
         webhook_url = webhook_url or self.discord_webhook_url
         if not webhook_url:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Discord webhook URL not set. Skipping notification.')
-            return
+            # Nothing was sent, so a caller that tracks delivery must not
+            # count this one as delivered.
+            return False
         results = requests.post(webhook_url, json=embed)
         if 200 <= results.status_code < 300:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Notification sent successfully.')
             return True
         print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Failed to send notification. Status code: {results.status_code}, Response: {results.text}')
-        # False only here: Discord answered and refused. A skipped duplicate
-        # and a missing webhook return None, as before.
+        # Discord answered and refused. Only a skipped duplicate returns None:
+        # that message went out earlier.
         return False

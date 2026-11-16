@@ -975,11 +975,12 @@ class NotifierStopMessagesTest(unittest.TestCase):
         self.assertIn("Nothing was sold", embed["description"])
         self.assertNotIn("[PAPER]", self.sent[0]["content"])
 
-    def test_breach_alert_reports_a_refusal_and_only_a_refusal(self):
+    def test_breach_alert_is_unsent_only_when_the_send_says_so(self):
         self.answer = False
         self.assertFalse(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
-        self.answer = True
-        self.assertTrue(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
+        for sent in (True, None):  # None: a duplicate that went out earlier
+            self.answer = sent
+            self.assertTrue(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
 
     def test_unchecked_alarm_names_the_count_sample_and_oldest_check(self):
         self.notifier.send_unchecked_stops_alert(12, ["AAA", "BBB"], 5, "2026-06-12")
@@ -1010,20 +1011,36 @@ class NotifierStopMessagesTest(unittest.TestCase):
 
 
 class SendNotificationsAnswerTest(unittest.TestCase):
-    def send(self, status):
+    def send(self, status, webhook="https://discord.invalid/hook", logged=""):
         notifier = Notifier.__new__(Notifier)
-        notifier.discord_webhook_url = "https://discord.invalid/hook"
+        notifier.discord_webhook_url = webhook
         embed = {"embeds": [{"title": f"zz stop check answer {status}"}]}
-        with mock.patch("notifier.os.path.exists", return_value=False), \
-                mock.patch("builtins.open", mock.mock_open()), \
+        with mock.patch("notifier.os.path.exists", return_value=bool(logged)), \
+                mock.patch("builtins.open", mock.mock_open(read_data=logged)), \
                 mock.patch("notifier.requests.post") as post:
             post.return_value.status_code = status
             post.return_value.text = ""
+            self.posts = post
             return notifier.send_notifications(embed)
 
     def test_true_when_discord_took_it_and_false_when_it_refused(self):
         self.assertIs(self.send(204), True)
         self.assertIs(self.send(500), False)
+
+    def test_false_when_there_is_no_webhook_to_send_it_to(self):
+        self.assertIs(self.send(204, webhook=None), False)
+        self.posts.assert_not_called()
+
+    def test_none_only_for_a_duplicate_that_already_went_out(self):
+        self.assertIsNone(self.send(204, logged="zz stop check answer 204"))
+        self.posts.assert_not_called()
+
+    def test_a_breach_alert_with_no_webhook_is_not_counted_as_sent(self):
+        notifier = Notifier.__new__(Notifier)
+        notifier.discord_webhook_url = None
+        with mock.patch("notifier.os.path.exists", return_value=False), \
+                mock.patch("builtins.open", mock.mock_open()):
+            self.assertFalse(notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
 
 
 # --------------------------------------------------------------------------

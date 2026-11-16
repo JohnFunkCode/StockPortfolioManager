@@ -945,7 +945,7 @@ Left for later steps, on purpose:
 | A paper stop's sale | `OrdersService.sell_for_stop`, `OrderTransaction.trigger_stop` and `close_stop` | The stop's status and the sale in one transaction, with the book locked |
 | Closing a flat stop | `PortfolioRepository.close_lots_on` | Every sale, real or paper |
 | The step | `main.py`: `check_stops`, `alert_if_stops_unchecked`, `run_stop_checks`, `report_triggered_stops` | Third in the job. `STOP_CHECK_BUDGET_SECONDS`, default 120 |
-| The messages | `Notifier.send_stop_alert`, `send_unchecked_stops_alert`; `_paper_fill_line` | `send_notifications` now answers False when Discord refused a message |
+| The messages | `Notifier.send_stop_alert`, `send_unchecked_stops_alert`; `_paper_fill_line` | `send_notifications` now answers False when a message did not go out: Discord refused it, or no webhook is set |
 | The page | `orderWords.ts` | A stop's sale reads "Sell 5 INTC, by its stop" and "its stop level" or "the opening price, below its stop" |
 
 The rules are in [`data.md`](../architecture/data.md#the-stop-checker) and the step in
@@ -1350,8 +1350,9 @@ Known before any code is written. Add to this list as the work finds more.
 - **A lot's `trade_date` is a date and its `purchase_date` is text** (4.2). `sell_for_stop`
   compares the first ten characters of whichever is set with the session's ISO date.
 - **`send_notifications` writes `notification.log` before it posts** (4.2). Locally, a message
-  Discord refused is then skipped as a duplicate on the next try and looks sent. On Cloud Run
-  the file starts empty each run, so the breach alert's retry works there.
+  Discord refused, or one with no webhook to go to, is then skipped as a duplicate on the next
+  try and looks sent. On Cloud Run the file starts empty each run, so the breach alert's retry
+  works there.
 - **A stop's snapshot rows were added by hand** (4.2). Four columns and one constraint, in the
   shape `check_schema_snapshot.py` writes, which avoids the Postgres 18 strip (3.3, 4.1).
   `tests/test_schema_parity.py` and the snapshot check both pass on it.
@@ -1417,3 +1418,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-16 | 4.1 Stops table, service and routes | #563 | V19: `stops`. `analytics/stored_stops.py` (a fixed or trailing stop's terms), `StopsRepository` (set with replace, in one locked transaction; one conditional `UPDATE` out of `active`), `StopsService` (list, set, cancel; either kind of book) and three `/api/portfolio/stops` routes. A stop is on a symbol in a book, needs an OPEN lot, and sits below the last stored close. Owner and book isolation tests are mapped in both coverage tests. Decisions 42 to 47 were made in the build and are John's to confirm. No UI, and nothing checks a stop until 4.2. Nothing for an operator to run (section 5.12) |
 | 2026-11-16 | 4.1 review | #563 | Two suggestions, both taken. A refused cancel re-reads the stop before naming its status, so a stop resolved between the read and the `UPDATE` is not reported as `active`. The readme's route count was stale (115) and is now 128; the capabilities matrix said 127 because it had never counted `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches: now 73 of 128 reached, 55 left, with a row for it. |
 | 2026-11-16 | 4.2 Bar-close checker | #564 | V20: `stops.last_bar_checked`, `triggered_session`, `trigger_price` and `alerted_at`. `analytics.stored_stops.check_stop` (a run of closed bars against a stop), `PricesService.closed_bars_since`, `stop_sql.py`, `StopsService.due_stops` and `check_stop`, `OrdersService.sell_for_stop`, and the job step `run_stop_checks` with its alarm, third in `main.py`'s order behind `STOP_CHECK_BUDGET_SECONDS` (120), then `report_triggered_stops`. A trailing stop rises with each bar's high; a bar whose low reached the level triggers the stop at the level, or at the open for a gap; a real book alerts once and a paper book sells the position in the same transaction; a flat position closes its stop. #431's fill rule is updated. Decisions 48 to 55 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.13) |
+| 2026-11-16 | 4.2 review | #564 | Approved, with one suggestion, taken. `send_notifications` returned None with no webhook set, which `send_stop_alert` counted as sent, so a real-book breach alert would have been marked delivered without going anywhere. It now returns False there, and only a skipped duplicate returns None. The deployed job has its webhook, so nothing was lost. The review did not re-run the suites and could not measure cognitive complexity for `notifier.py`, `prices.py` or the front end |

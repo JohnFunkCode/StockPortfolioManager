@@ -767,7 +767,7 @@ def report_triggered_stops(stops, notifier, owner, today=None) -> int:
         day = (today or market_date()).isoformat()
         print(f"Reporting {len(owed)} stop(s) reached in the real book.")
         if not notifier.send_stop_alert(owed[:STOP_ALERT_MESSAGE_LINES], len(owed), day):
-            print("ERROR: the stop alert was refused; it stays owed.", file=sys.stderr)
+            print("ERROR: the stop alert was not sent; it stays owed.", file=sys.stderr)
             return 0
         stops.mark_alerted(owner=owner, stop_ids=[s["stop_id"] for s in owed])
         return len(owed)

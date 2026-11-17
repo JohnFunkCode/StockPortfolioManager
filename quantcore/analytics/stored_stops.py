@@ -38,6 +38,11 @@ The rules:
 - **A trailing stop's mark rises to a bar's high, after that bar is
   tested.** A daily bar doesn't say whether its high or its low came first,
   so a bar is tested against the level it started with.
+- **A stop that held is close when the bar closed within a number of ATRs
+  of its level** (`approach`; plan step 4.4). The ATR is a 14-session Wilder
+  ATR as of that bar, and the number is `STOP_APPROACH_ATR_MULTIPLE`, read
+  by the daily job. Too little history to measure an ATR is no answer, not
+  a "far".
 """
 
 from __future__ import annotations
@@ -47,7 +52,10 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Iterable, Mapping, Optional
 
+import pandas as pd
+
 from quantcore.analytics import market_time
+from quantcore.analytics.indicators import atr_series
 from quantcore.analytics.orders import fill_price
 
 FIXED = "fixed"
@@ -407,3 +415,88 @@ def check_stop(
             mark = fill_price(high)
             level = max(level, trailing_level(mark, trail_pct))
     return StopCheck(level, mark, last_bar)
+
+
+# --------------------------------------------------------------------------
+# Close to the stop: the approach alert (plan step 4.4)
+# --------------------------------------------------------------------------
+
+# The ATR the approach distance is measured in: Wilder's, over 14 sessions,
+# the stop-loss card's period. It needs one bar more than its period to have
+# a true range for each, and it is seeded from the first one, so the read
+# behind it covers about three months of sessions.
+APPROACH_ATR_PERIOD = 14
+APPROACH_MIN_BARS = APPROACH_ATR_PERIOD + 1
+APPROACH_LOOKBACK_DAYS = 90
+# How many ATRs above its level a close may be and count as close to the
+# stop, when STOP_APPROACH_ATR_MULTIPLE is not set (or not a positive number).
+DEFAULT_APPROACH_ATR_MULTIPLE = Decimal("1")
+
+_ATR_STEP = Decimal("0.000001")
+_DISTANCE_STEP = Decimal("0.1")
+
+
+@dataclass(frozen=True)
+class Approach:
+    """How a held stop's newest bar closed against its level. `near` is
+    whether the close was within the approach distance; `atr` is the one the
+    distance was measured in, as of `session`."""
+
+    session: datetime.date
+    close: Decimal
+    atr: Decimal
+    near: bool
+
+
+def _usable(bar: Mapping[str, Any]) -> bool:
+    return all(_price(bar.get(k)) is not None for k in ("open", "high", "low", "close"))
+
+
+def _atr(window: Iterable[Mapping[str, Any]]) -> Optional[Decimal]:
+    """The `APPROACH_ATR_PERIOD` Wilder ATR as of the last of `window`'s
+    usable bars, or None when it comes out zero (a symbol that hasn't moved)."""
+    frame = pd.DataFrame({k: [float(b[k]) for b in window] for k in ("high", "low", "close")})
+    atr = Decimal(str(float(
+        atr_series(frame["high"], frame["low"], frame["close"], APPROACH_ATR_PERIOD).iloc[-1]
+    ))).quantize(_ATR_STEP, rounding=ROUND_HALF_UP)
+    return atr if atr > _ZERO else None
+
+
+def approach(
+    *,
+    bars: Iterable[Mapping[str, Any]],
+    last_bar: Optional[datetime.date],
+    stop_level: Decimal,
+    multiple: Decimal = DEFAULT_APPROACH_ATR_MULTIPLE,
+) -> Optional[Approach]:
+    """Whether a stop that held through `last_bar` closed close to its level.
+
+    `bars` are closed daily bars, oldest first, reaching back far enough for
+    the ATR; only those up to `last_bar` count. The newest usable one must be
+    `last_bar` itself: the approach is about the bar the stop was just tested
+    against. `stop_level` is the level after that bar (a trailing stop's
+    raised one).
+
+    A close is near when it is no more than `multiple` ATRs above the level.
+    None when it can't be judged: no bar was tested, `last_bar` is missing or
+    has a bad price, or there are fewer than `APPROACH_MIN_BARS` usable bars.
+    A caller leaves what it recorded before as it was.
+    """
+    if last_bar is None:
+        return None
+    window = [b for b in bars if b["session"] <= last_bar and _usable(b)]
+    if len(window) < APPROACH_MIN_BARS or window[-1]["session"] != last_bar:
+        return None
+    atr = _atr(window)
+    if atr is None:
+        return None
+    close = fill_price(_price(window[-1]["close"]))
+    return Approach(
+        session=last_bar, close=close, atr=atr, near=close - stop_level <= multiple * atr
+    )
+
+
+def atr_distance(close: Decimal, stop_level: Decimal, atr: Decimal) -> Decimal:
+    """How many ATRs `close` was above `stop_level`, to one decimal place:
+    what the approach alert tells the owner."""
+    return ((close - stop_level) / atr).quantize(_DISTANCE_STEP, rounding=ROUND_HALF_UP)

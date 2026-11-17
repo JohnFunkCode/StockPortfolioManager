@@ -1,4 +1,4 @@
-"""StopsService — stored stops (#431 phase 2, #221; plan steps 4.1 and 4.2).
+"""StopsService — stored stops (#431 phase 2, #221; plan steps 4.1, 4.2 and 4.4).
 
 A stop is the owner's decision to get out of a holding at a level. This
 service records it, lists it, takes it off, and checks it: the daily job
@@ -19,6 +19,12 @@ tests every active stop against the closed daily bars it has not seen
 - **A stop is closed when its position goes flat** (`close_flat_stops`, and
   the sale's own transaction).
 - **An archived book's stops are not checked.**
+- **A stop that held is checked for being close**: its newest bar's close
+  within a number of ATRs of the level is recorded on the stop
+  (`stops.approached_session`), and cleared when a later close is further
+  away. The daily job tells the owner once per approach, for the real book
+  (`unalerted_approaches`, plan step 4.4). The bars the ATR needs come from
+  the same read as the bars the stop is tested against.
 
 - **A stop is set on a symbol in one book, not on a lot.** Lots bought later
   are covered by the same stop.
@@ -390,13 +396,16 @@ class StopsService:
         book_id: Optional[int] = None,
         today: Optional[datetime.date] = None,
         now: Optional[datetime.datetime] = None,
+        approach_atr_multiple: Optional[Decimal] = None,
     ) -> Dict[str, Any]:
         """Test one stop against the closed daily bars it has not seen, and
         return it as it now is, with `outcome` (one of `CHECK_OUTCOMES`).
 
         - No new closed bar: `waiting`, and nothing is written.
         - The bars held: the newest one is recorded, with a trailing stop's
-          raised mark and level. `checked`.
+          raised mark and level, and whether it closed within
+          `approach_atr_multiple` ATRs of the level (the default when None).
+          `checked`.
         - A bar's low reached the level: `triggered`. A real book's stop is
           marked and nothing is sold. A paper book's position is sold at the
           trigger price and the stop marked in the same transaction.
@@ -417,9 +426,10 @@ class StopsService:
         today = today or market_time.market_date(now)
 
         # The bars are read, and fetched if they have to be, before any lock.
+        history, new_bars = self._bars(stop, today)
         check = stops_math.check_stop(
             kind=stop["kind"], stop_level=stop["stop_level"], trail_pct=stop["trail_pct"],
-            high_water_mark=stop["high_water_mark"], bars=self._new_bars(stop, today),
+            high_water_mark=stop["high_water_mark"], bars=new_bars,
         )
         if check.last_bar is None:
             return {**stop, "outcome": WAITING}
@@ -427,7 +437,7 @@ class StopsService:
             done, outcome = self._repo.record_check(
                 owner=owner, stop_id=stop_id, last_bar_checked=check.last_bar,
                 stop_level=check.stop_level, high_water_mark=check.high_water_mark,
-                book_id=book_id,
+                book_id=book_id, **self._approach(history, check, approach_atr_multiple),
             ), CHECKED
         else:
             paper = book is not None and book["kind"] != REAL
@@ -435,18 +445,46 @@ class StopsService:
         current = self._repo.get_stop(owner=owner, stop_id=stop_id, book_id=book_id)
         return {**current, "outcome": outcome if done else SKIPPED}
 
-    def _new_bars(self, stop: Dict[str, Any], today: datetime.date) -> List[Dict[str, Any]]:
-        """The closed daily bars `stop` has not been tested against, through
-        `today`, oldest first. No read at all when none can exist yet."""
+    def _bars(
+        self, stop: Dict[str, Any], today: datetime.date
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """`stop`'s closed daily bars through `today`, oldest first, as
+        `(history, new)`: `new` are the ones it has not been tested against,
+        and `history` reaches back far enough for the approach's ATR too. One
+        read. No read at all when no new bar can exist yet."""
         since = stops_math.next_bar_date(
             stop["created_at"], stop["last_bar_checked"], live_from=stop["first_session"]
         )
         if since > today:
-            return []
-        return [
-            bar for bar in self._prices.closed_bars_since(stop["symbol"], since)
-            if since <= bar["session"] <= today
+            return [], []
+        start = min(since, today - datetime.timedelta(days=stops_math.APPROACH_LOOKBACK_DAYS))
+        history = [
+            bar for bar in self._prices.closed_bars_since(stop["symbol"], start)
+            if bar["session"] <= today
         ]
+        return history, [bar for bar in history if bar["session"] >= since]
+
+    @staticmethod
+    def _approach(
+        history: List[Dict[str, Any]],
+        check: stops_math.StopCheck,
+        multiple: Optional[Decimal],
+    ) -> Dict[str, Any]:
+        """The approach columns `record_check` takes for a stop that held:
+        unknown (left as they were) when the ATR can't be measured, else the
+        newest bar's session, close and ATR when it closed near the level,
+        and all None when it didn't."""
+        found = stops_math.approach(
+            bars=history, last_bar=check.last_bar, stop_level=check.stop_level,
+            multiple=multiple if multiple is not None
+            else stops_math.DEFAULT_APPROACH_ATR_MULTIPLE,
+        )
+        if found is None:
+            return {"approach_known": False}
+        if not found.near:
+            return {"approach_known": True}
+        return {"approach_known": True, "approached_session": found.session,
+                "approach_close": found.close, "approach_atr": found.atr}
 
     def _trigger(
         self, stop: Dict[str, Any], check: stops_math.StopCheck, owner: str,
@@ -492,4 +530,35 @@ class StopsService:
         return sum(
             1 for stop_id in stop_ids
             if self._repo.mark_alerted(owner=owner, stop_id=stop_id, alerted_at=now)
+        )
+
+    # ------------------------------------------------------------------
+    # The approach alert for a real book (plan step 4.4)
+    # ------------------------------------------------------------------
+    def unalerted_approaches(self, *, owner: str) -> List[Dict[str, Any]]:
+        """The active stops of `owner`'s real book whose newest checked bar
+        closed near the level and whose approach alert has not gone out,
+        nearest first, each with `atr_distance` (how many ATRs above its level
+        that close was). A paper book's stop is not here: it sells by itself.
+        One query, zero network calls, and no book is created."""
+        owed = [
+            {**stop, "atr_distance": stops_math.atr_distance(
+                stop["approach_close"], stop["stop_level"], stop["approach_atr"])}
+            for stop in self._repo.list_stops(owner=owner)
+            if stop["status"] == stops_math.ACTIVE
+            and stop["approached_session"] is not None
+            and stop["approach_alerted_at"] is None
+        ]
+        return sorted(owed, key=lambda s: (s["atr_distance"], s["symbol"], s["stop_id"]))
+
+    def mark_approach_alerted(
+        self, *, owner: str, stop_ids: List[int], now: Optional[datetime.datetime] = None
+    ) -> int:
+        """Record that the approach alert went out for these stops of
+        `owner`'s real book. Returns how many were marked: one already
+        marked since it came near, or not near, is not counted."""
+        now = now or datetime.datetime.now(tz=datetime.timezone.utc)
+        return sum(
+            1 for stop_id in stop_ids
+            if self._repo.mark_approach_alerted(owner=owner, stop_id=stop_id, alerted_at=now)
         )

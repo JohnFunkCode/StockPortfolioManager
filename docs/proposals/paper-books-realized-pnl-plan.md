@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI) and 4.4 (approach alerts) are built. Next is 4.5. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; 68 to 73 were made during the 4.4 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -463,6 +463,41 @@ John answered each question that had no norm to follow. Four change the code.
     61's "no Cancel until 4.5". A control beside the stop asks first, then calls the cancel
     route. It is offered in every book, an archived one included, and never on a stop that
     was reached. Setting a stop on a holding is still 4.5.
+
+### Made on 2026-11-17, during the 4.4 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first. 69 and 71 decide when John hears and
+when he doesn't, so they are the ones worth a look.
+
+68. **Close means the newest bar tested closed within one ATR above the level.** The ATR is a
+    14-session Wilder ATR as of that bar (the stop-loss card's period), the level is the one
+    after that bar (a trailing stop's raised one), and one is `STOP_APPROACH_ATR_MULTIPLE`'s
+    default. Measured on the close, as the step says, not the low: a low within the distance
+    that closed well above it is a stock that tested the area and left. What it costs: a
+    default nobody has tuned yet. On a stock with a 2% daily range it is a close within about
+    2% of the stop.
+69. **Once per approach, re-armed when a close moves away.** A stop that stays close is
+    announced once. A close further than the distance clears the record and the mark, and
+    the next close inside it is announced again. There is no band between the two. What it
+    costs: a stock that closes just inside, just outside and just inside again is announced
+    twice in three days. A wider band to leave than to enter would stop that, at the price of
+    a second setting.
+70. **The real book only, the job owner's only.** A paper book's approach is recorded on its
+    stop and not sent: the stop sells by itself, and there is nothing for John to do. Another
+    owner's is recorded and not sent, for decision 40's reason.
+71. **Too little history is no answer.** Under 15 usable bars (a new listing, or a symbol
+    with gaps) the ATR can't be measured, and the check leaves the approach as it was rather
+    than calling it far. What it costs: a stop on a symbol listed under three weeks ago is
+    never announced as close.
+72. **One read per stop.** The bars the stop is tested against and the bars the ATR needs come
+    from one `closed_bars_since`, which now starts 90 days back. Only the bars after the last
+    one checked are tested. What it costs: a longer read from the stored history on every
+    check. It fetches no more from Yahoo: `get_history` fetches when the newest closed bar is
+    behind, which the shorter read did too.
+73. **The approach alert goes after the breach alert, in its own message.** A stop reached
+    tonight is in the breach alert and not in this one (a triggered stop is not active). Its
+    own message, because the two ask different things of John: one says sell at the broker,
+    the other says look. Nearest first.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -985,10 +1020,11 @@ Left for later steps, on purpose:
   The stop field in the Buy dialog, with the stop card's suggestion loaded only when the field is
   opened; the stop shown on holdings and lot rows; the source of a stop-driven sale shown in the
   Realized view. What was built, and what was left for later steps, is in section 5.14.
-- [ ] **4.4 Approach alerts.**
+- [x] **4.4 Approach alerts.**
   A Discord alert when a holding closes within an ATR-relative distance of its stop, in the same
   checker step, deduplicated across runs so a stop that stays close alerts once. The distance is
-  an env var with a documented default that falls back on an unparseable value.
+  an env var with a documented default that falls back on an unparseable value. What was built,
+  and what was left for later steps, is in section 5.17.
 - [ ] **4.5 The stop panel, with broker mirroring.**
   #221's one panel with two entry paths on the Security page: mirror a stop already placed at an
   outside broker (price, and optionally quantity, order type and brokerage), or create one from
@@ -1171,6 +1207,34 @@ V21 and V22 are applied by the same command if CI has not already applied them.
 
 Left for later steps: setting a stop on a holding (4.5), the approach alert (4.4), and a page
 for a book's stop history (the list route is reached by no component again).
+
+#### 5.17 Approach alerts as built (4.4)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The schema | `V25__stop_approach.sql`, `_SCHEMA`, the snapshot | `stops.approached_session`, `approach_close`, `approach_atr`, `approach_alerted_at`, and `stops_approach_rule`: the first three are set together, and the mark needs an approach. Each side is an `IS NULL` test, so the rule can't come out NULL (the 4.3 gotcha). `ADD COLUMN` only, so CI applies it. The table count stays 28 |
+| The rule | `analytics.stored_stops.approach`, `_atr`, `atr_distance` | Pure. The bars and the level in; the session, close, ATR and whether it is near out, or None when it can't be judged |
+| The read | `StopsService._bars` | One `closed_bars_since` from 90 days back, split into the history and the bars not yet tested (decision 72) |
+| The record | `StopsService._approach`, `StopsRepository.record_check` | The check that held writes the approach in the same `UPDATE`. `approach_known` false leaves the four columns; a far close sets them to NULL |
+| What is owed | `StopsService.unalerted_approaches`, `mark_approach_alerted`; `StopsRepository.mark_approach_alerted` | Real book, active, close, not yet marked. Nearest first. Owner and book bound as on every stop statement, so no new `ALLOWED` entry in either scan |
+| The step | `main.py`: `approach_atr_multiple`, `report_approaching_stops` | The walk reads the setting once and passes it to every check. The alert goes after the breach alert. `STOP_APPROACH_ATR_MULTIPLE`, default 1, falls back on an unparseable or non-positive value |
+| The message | `Notifier.send_stop_approach_alert`, `_stop_approach_line` | "INTC: closed at $20.60 on 2026-06-16, 0.6 ATR above its stop at $20.00 (fixed)". Says the stops have not been reached |
+| The tests | `tests/test_stop_approach.py` | The rule, the rows and their rule, wrong owner and wrong book, the service, the step, the setting and the message. Two tests in `tests/test_stop_checks.py` now expect the longer read |
+
+The rules are in [`data.md`](../architecture/data.md#the-stop-checker) and the step in
+[`daily-jobs.md`](../architecture/daily-jobs.md#stop-checks).
+
+**Nothing for an operator to run.** V25 is applied by CI and needs no backfill: every stop
+starts with no approach and gets one on its next check. `STOP_APPROACH_ATR_MULTIPLE` is
+optional.
+
+Left for later steps, on purpose:
+
+- **No page shows that a holding is close to its stop.** The four columns are on the stop
+  routes' answers. The Stop cell could mark it; that is UI work for 4.5 or later.
+- **Not run against Yahoo.** The read is the one 4.2 uses, with a longer window; the tests
+  stub it.
+- **No band between leaving and coming back** (decision 69).
 
 ### Milestone 5: performance (#431 phase 3)
 
@@ -1541,6 +1605,10 @@ Known before any code is written. Add to this list as the work finds more.
 - **The daily walk covers every owner in the database, test owners included** (4.2). A test
   that runs `run_stop_checks` on real services filters `due_stops` to its own owner, as the
   3.4 test does, or another suite's leftover stop changes its counts.
+- **A "close to the stop" bar in a test must keep its low above the level** (4.4). The first
+  draft of the nearest-first test put a stop at 91 under a bar whose low was 91: the stop
+  was reached, not approached, and the test found one approach where it expected two. An
+  approach is only ever recorded on a stop that held.
 - **A lot's `trade_date` is a date and its `purchase_date` is text** (4.2). `sell_for_stop`
   compares the first ten characters of whichever is set with the session's ISO date.
 - **`send_notifications` writes `notification.log` before it posts** (4.2). Locally, a message
@@ -1640,3 +1708,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | John's decisions 64 to 67 | #567 | John answered the six questions of section 5.15. Built: a queued buy that opens at or under its stop is rejected `stop_not_below_fill` (V23, **applied by hand**: it replaces a `CHECK`); `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, picked on the server; the Portfolio page can take an active stop off; and the Buy dialog warns when a stop will replace one the symbol has. Decision 57 for an in-hours fill and decision 62 stand. 129 routes (section 5.16) |
 | 2026-11-17 | Decision 63 review | #566 | Approved, with one suggestion, taken. A reached stop's tooltip said "Nothing was sold: a real book's stop is an alert" whatever the book. It is only reachable for the real book today, but `StopCell` and `stopDetail` are generic, so they now take the book's kind and say a paper book's position was sold. The review did not run the suites and could not measure the front end's complexity |
 | 2026-11-17 | Decisions 64 to 67 review | #567 | Two reviews. Guppy found that V21's `orders_stop_rule` let through a requested stop with `stop_kind` NULL: `stop_kind = 'fixed'` is NULL there, the branch came out NULL, and a `CHECK` passes on NULL. The same trap as the 4.3 gotcha in section 7, missed on the column the branches compare: a comparison on a nullable column needs its `IS NOT NULL`. V24 replaces the rule with `stop_kind IS NOT NULL` in that branch (**applied by hand**, with V23), mirrored in `_SCHEMA` and the snapshot, with two database cases. Clippy approved with three suggestions: the capabilities matrix header still said 122 operations and 2026-11-13 (fixed); V21's header comment still describes `stop_set` FALSE, but V21 is applied, so it is left and `data.md` holds the right wording; and the V23 operator step, now V23 and V24. Neither review ran the suites. |
+| 2026-11-17 | 4.4 Approach alerts | #PR | V25: `stops.approached_session`, `approach_close`, `approach_atr`, `approach_alerted_at`. `analytics.stored_stops.approach` (a close within `STOP_APPROACH_ATR_MULTIPLE`, default 1, of a 14-session ATR above the level), recorded by the check that held, from one read reaching back 90 days; `StopsService.unalerted_approaches` and `mark_approach_alerted`; the job's `report_approaching_stops` after the breach alert, once per approach and real book only. Decisions 68 to 73 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.17) |

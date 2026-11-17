@@ -62,6 +62,11 @@ JOB_NOW = ET.localize(datetime.datetime(2026, 6, 16, 17, 5))
 LAST_CLOSE = datetime.datetime(2026, 6, 12, tzinfo=datetime.timezone.utc)
 
 
+def LOOKBACK_FROM(today):  # noqa: N802 — reads as the constant it stands for
+    """Where a check's one read starts: far enough back for the ATR."""
+    return today - datetime.timedelta(days=sm.APPROACH_LOOKBACK_DAYS)
+
+
 def bar(session, open_, high, low, close=None):
     return {"session": session, "open": open_, "high": high, "low": low,
             "close": close if close is not None else open_}
@@ -475,7 +480,9 @@ class CheckStopServiceTest(_Base):
         result = self.check(stop)
 
         self.assertEqual((result["outcome"], result["last_bar_checked"]), ("checked", TUESDAY))
-        self.assertEqual(self.prices.calls, [(SYMBOL, TUESDAY)])
+        # One read, reaching back for the approach's ATR (plan step 4.4):
+        # Monday's low of 50 is in it and was not tested.
+        self.assertEqual(self.prices.calls, [(SYMBOL, LOOKBACK_FROM(TUESDAY))])
 
     def test_no_new_bar_waits_and_writes_nothing(self):
         stop = self.set_stop()
@@ -513,13 +520,17 @@ class CheckStopServiceTest(_Base):
             (result["outcome"], result["triggered_session"], result["trigger_price"]),
             ("triggered", WEDNESDAY, D("90.000000")))
 
-    def test_a_second_run_asks_only_for_bars_after_the_last_one_checked(self):
+    def test_a_second_run_tests_only_bars_after_the_last_one_checked(self):
         stop = self.set_stop()
         self.prices.bars[SYMBOL] = [bar(TUESDAY, 95, 96, 94)]
         self.check(stop)
-        self.prices.bars[SYMBOL].append(bar(WEDNESDAY, 95, 96, 94))
-        self.check(stop, today=WEDNESDAY)
-        self.assertEqual(self.prices.calls, [(SYMBOL, TUESDAY), (SYMBOL, WEDNESDAY)])
+        # Tuesday's bar is read again, for the ATR, but not tested again: a
+        # low under the level there now would trigger the stop.
+        self.prices.bars[SYMBOL] = [bar(TUESDAY, 95, 96, 50), bar(WEDNESDAY, 95, 96, 94)]
+        result = self.check(stop, today=WEDNESDAY)
+        self.assertEqual((result["outcome"], result["last_bar_checked"]), ("checked", WEDNESDAY))
+        self.assertEqual(self.prices.calls, [(SYMBOL, LOOKBACK_FROM(TUESDAY)),
+                                             (SYMBOL, LOOKBACK_FROM(WEDNESDAY))])
 
     def test_a_real_book_stop_is_marked_and_nothing_is_sold(self):
         stop = self.set_stop()
@@ -776,7 +787,7 @@ def fake_stops(queue=None, outcomes=(), left=None, fail=()):
     stops.close_flat_stops.return_value = 0
     results = iter(outcomes or ["checked"] * len(queue))
 
-    def check(*, owner, book_id, stop_id, today):
+    def check(*, owner, book_id, stop_id, today, approach_atr_multiple):
         if stop_id in fail:
             raise RuntimeError("secret detail")
         return {"stop_id": stop_id, "outcome": next(results)}
@@ -803,7 +814,8 @@ class CheckStopsWalkTest(unittest.TestCase):
         self.assertEqual(
             [c[0] for c in stops.method_calls[:2]], ["close_flat_stops", "due_stops"])
         stops.check_stop.assert_any_call(
-            owner="secret-owner-0", book_id=7, stop_id=1, today=TUESDAY)
+            owner="secret-owner-0", book_id=7, stop_id=1, today=TUESDAY,
+            approach_atr_multiple=D("1.0"))
         # A failure names the stop and the exception's class, never its text
         # or an owner.
         out = " ".join(str(c) for c in printed.call_args_list)

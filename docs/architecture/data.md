@@ -674,6 +674,21 @@ outcome. Four columns from V20 hold what it finds: `last_bar_checked`, `triggere
   the holding. A new stop is a new row.
 - **The breach alert is owed until Discord takes it** (`alerted_at`), is sent once, and covers
   the job owner's real book only.
+- **A stop that held is checked for being close** (plan step 4.4, V25). When the newest bar
+  tested closed no more than `STOP_APPROACH_ATR_MULTIPLE` (default 1) ATRs above the level, its
+  session, close and ATR are recorded (`approached_session`, `approach_close`,
+  `approach_atr`); a close further away sets all three to NULL. The ATR is a 14-session Wilder
+  ATR as of that bar (`analytics.stored_stops.approach`), from the same read as the bars the
+  stop is tested against, which reaches back 90 days for it. The level is the one after that
+  bar, so a trailing stop is measured from its raised level. Too little history (under 15
+  usable bars) is no answer: the columns are left as they were, never read as "far". A rule
+  (`stops_approach_rule`) keeps the three together.
+- **The approach alert is owed until Discord takes it, once per approach**
+  (`approach_alerted_at`). A stop that stays close is announced once; a close that moves away
+  clears the mark with the approach, so the next approach is announced again. A close that
+  goes back and forth across the distance is announced each time it comes back. Real book,
+  job owner only, like the breach alert. A paper book's approach is recorded and not sent:
+  its stop sells by itself.
 - **A stop is closed when its position goes flat.** `PortfolioRepository.close_lots_on` runs
   `stop_sql.close_flat_stops_on` in the sale's own transaction, for a real sale and a paper one
   alike, and every checker run does the same for each live book. The second covers a deleted

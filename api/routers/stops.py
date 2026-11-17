@@ -1,6 +1,7 @@
 """Stored stop routes (#431 phase 2, #221; plan step 4.1).
 
   GET   /api/portfolio/stops                   a book's stops
+  GET   /api/portfolio/stops/holdings          the one stop each holding shows
   POST  /api/portfolio/stops                   set the stop on a holding
   POST  /api/portfolio/stops/{stop_id}/cancel  take an active stop off
 
@@ -26,7 +27,7 @@ from quantcore.services.stops import BookNotFoundError, StopNotFoundError
 from ..auth import require_owner
 from ..deps import route_error_plain, services
 from ..json_response import QuantCoreJSONResponse
-from ..schemas.stops import SetStopRequest, Stop, StopsResponse
+from ..schemas.stops import HoldingStopsResponse, SetStopRequest, Stop, StopsResponse
 
 router = APIRouter(prefix="/api/portfolio/stops", tags=["stops"])
 
@@ -43,6 +44,19 @@ def list_stops(
         stops = services().stops.list_stops(
             owner=owner, book_id=book_id, include_inactive=include_inactive
         )
+    except BookNotFoundError as exc:
+        return route_error_plain(str(exc), 404)
+    return QuantCoreJSONResponse(stops)
+
+
+@router.get("/holdings", response_model=HoldingStopsResponse)
+def holding_stops(
+    book_id: Optional[int] = None, owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    """The stop each of a book's holdings shows: its live stop, or one a bar
+    reached while the holding was already open. One a symbol at most."""
+    try:
+        stops = services().stops.holding_stops(owner=owner, book_id=book_id)
     except BookNotFoundError as exc:
         return route_error_plain(str(exc), 404)
     return QuantCoreJSONResponse(stops)

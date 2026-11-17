@@ -67,6 +67,15 @@ class StopsResponse(BaseModel):
     stops: List[Stop]
 
 
+class HoldingStopsResponse(BaseModel):
+    """GET /api/portfolio/stops/holdings: the stop each holding shows."""
+
+    book_kind: str
+    # One a symbol at most, in symbol order: the symbol's live stop, or one a
+    # bar reached while the holding was already open.
+    stops: List[Stop]
+
+
 class SetStopRequest(BaseModel):
     """The stop for one holding. A fixed stop gives `stop_level`; a trailing
     stop gives `trail_pct`, never both. Without `book_id`, the real book.

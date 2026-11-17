@@ -61,9 +61,8 @@ function resultText(order: Order): string {
   const stop = stopOutcome(order);
   if (order.status === 'filled') {
     const verb = order.kind === 'manual_close' ? 'Closed' : order.side === 'buy' ? 'Bought' : 'Sold';
-    // `outcome` already says when the stop was not set.
     const filled = `${verb} ${order.symbol}: ${outcome(order)}.`;
-    return stop && order.stop_set !== false ? `${filled} ${stop}` : filled;
+    return stop ? `${filled} ${stop}` : filled;
   }
   if (order.status === 'pending') {
     return `Queued. The market is closed, so this order waits for the session of ${formatDate(
@@ -240,6 +239,7 @@ export default function PaperOrderDialog({
               {buying && stopOpen && (
                 <OrderStopField
                   symbol={symbol}
+                  bookId={bookId === '' ? null : bookId}
                   draft={stop}
                   onChange={(next) => {
                     setStop(next);

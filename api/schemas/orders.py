@@ -39,7 +39,8 @@ class Order(BaseModel):
     # The time of the trade, or the daily bar, the fill price came from.
     quote_time: Optional[datetime] = None
     # stale_quote, no_quote, non_usd, insufficient_cash, insufficient_shares
-    # or no_open_price. Set only on a rejected order.
+    # no_open_price or stop_not_below_fill (a queued buy whose opening price
+    # left no room for the stop it asked for). Set only on a rejected order.
     reject_reason: Optional[str] = None
     # market (a buy or sell that moves cash), seed (a real holding copied
     # into a new paper book, at no cost) or manual_close (a position sold at
@@ -54,9 +55,9 @@ class Order(BaseModel):
     # manual, or the stop card's candidate the level came from.
     stop_method: Optional[str] = None
     stop_proposed_level: Optional[Decimal] = None
-    # True once the fill wrote the stop. False when the buy filled at or
-    # under the fixed level it asked for, so it has no stop. None until the
-    # order fills.
+    # True once the fill wrote the stop. None until the order fills, and on
+    # an order that asked for none. (False is no longer written: a buy whose
+    # fill leaves no room for its stop is rejected.)
     stop_set: Optional[bool] = None
     # True when the request repeated an idempotency key: nothing new happened.
     replayed: bool = False

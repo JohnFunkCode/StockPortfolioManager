@@ -1,45 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { SALE_SOURCES, stopDetail, stopsBySymbol, trailPercent } from './stopWords';
-import { lotRow, stopRow } from '../../testUtils';
+import { SALE_SOURCES, stopDetail, trailPercent } from './stopWords';
+import { stopRow } from '../../testUtils';
 import type { Stop } from '../../api/stops';
-import type { Lot } from '../../api/portfolioTypes';
 
 const stop = (overrides: object = {}) => stopRow(overrides) as unknown as Stop;
-const lots = (trade_date: string | null = '2026-01-02') => [lotRow({ trade_date }) as unknown as Lot];
-
-describe('stopsBySymbol', () => {
-  it('shows a held symbol its active stop', () => {
-    const shown = stopsBySymbol([stop({ stop_id: 3 })], { INTC: lots() });
-    expect(shown.INTC.stop_id).toBe(3);
-  });
-
-  it('reads only the newest stop of a symbol', () => {
-    const shown = stopsBySymbol(
-      [stop({ stop_id: 9, status: 'cancelled' }), stop({ stop_id: 8 })],
-      { INTC: lots() },
-    );
-    expect(shown).toEqual({});
-  });
-
-  it('shows no stop for a symbol the book does not hold', () => {
-    expect(stopsBySymbol([stop()], {})).toEqual({});
-    expect(stopsBySymbol([stop()], { INTC: [] })).toEqual({});
-  });
-
-  it('shows a reached stop only to a lot opened on or before its bar', () => {
-    const reached = stop({ status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44 });
-    expect(stopsBySymbol([reached], { INTC: lots('2026-06-16') }).INTC).toBe(reached);
-    expect(stopsBySymbol([reached], { INTC: lots('2026-06-17') })).toEqual({});
-    expect(stopsBySymbol([reached], { INTC: lots(null) })).toEqual({});
-  });
-
-  it('shows no stop that was replaced, closed or cancelled', () => {
-    for (const status of ['replaced', 'closed', 'cancelled']) {
-      expect(stopsBySymbol([stop({ status })], { INTC: lots() })).toEqual({});
-    }
-  });
-});
 
 describe('stopDetail', () => {
   it('says how a fixed stop was chosen and that it has not been checked', () => {

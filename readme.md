@@ -220,10 +220,12 @@ Discord alert, and nothing is sold: QuantCore never places an order at a broker.
 the position is sold, at the stop's level or at the opening price when the stock opened below it.
 A paper buy can carry a stop ("Add a stop" in the Buy dialog, with the stop card's suggestions):
 it is set when the buy fills, against the fill price, and for a buy that fills at the open it
-is live that same day. The Portfolio page shows each holding's
+is live that same day. A buy that opens at or below the stop it asked for is rejected, so no
+position is opened without its stop, and a stop set this way replaces the one the holding
+already has (the dialog says so first). A stop can be taken off from the Portfolio page. The Portfolio page shows each holding's
 stop, and the Realized section says which sales a stop made.
-A trailing stop rises with each new high and never falls. No page sets or cancels a stop on a
-holding yet: until the stop panel is built, a stop is set from a page only with a paper buy.
+A trailing stop rises with each new high and never falls. Until the stop panel is built, a
+stop is set from a page only with a paper buy.
 
 ### Migrations (Flyway)
 
@@ -259,7 +261,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 128 routes, so the table below only groups them.
+authoritative endpoint list.** There are 129 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|
@@ -275,7 +277,7 @@ authoritative endpoint list.** There are 128 routes, so the table below only gro
 | `plans.py`, `rungs.py`, `symbols.py`, `dashboard.py` | `/api/plans`, `/api/rungs`, `/api/symbols`, `/api/dashboard` | the Harvester |
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
-| `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), set a fixed or trailing stop on a holding, cancel an active one. The daily job checks them; no route does |
+| `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), the one stop each holding shows (`/holdings`), set a fixed or trailing stop on a holding, cancel an active one. The daily job checks them; no route does |
 | `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |

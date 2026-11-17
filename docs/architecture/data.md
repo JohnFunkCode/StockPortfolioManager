@@ -537,13 +537,18 @@ rules (`requested_stop`, `order_stop_terms`).
   figure, the price the position was opened at.
 - **A fixed level at or above the fill price is no stop.** In market hours the fill price is
   known before anything is stored, so the request is a 422 and no order exists. A queued buy
-  can only be checked at the open: it fills, no stop is written, and `stop_set` is `false`.
-  It is not rejected, because that needs a reject reason the `CHECK` doesn't have, and
-  widening a `CHECK` is a dropped constraint. A trailing stop is treated the same way when
-  its percentage is too small to give a price below the fill (0.0001% under $50.00 rounds
-  back to $50.00), and the message then says the trail is too small.
-- **`stop_set` says what became of the request**: `true` once the fill wrote the stop, `false`
-  for the case above, NULL before the fill and on an order that asked for none.
+  can only be checked at the open: when it opens at or under its level the buy is **rejected**
+  with the reason `stop_not_below_fill`, and nothing is written. No position opens without
+  the stop it was asked for (John's decision, 2026-11-17). The stop is checked before the
+  cash. A trailing stop is treated the same way when its percentage is too small to give a
+  price below the fill (0.0001% under $50.00 rounds back to $50.00).
+- **The reason needed a hand-applied migration** (V23). `reject_reason` has a `CHECK`, and
+  widening one means replacing the constraint, which the migrate Job refuses. V24, applied the
+  same way, makes `orders_stop_rule` require `stop_kind` on a requested stop: V21's rule came
+  out NULL, which a `CHECK` passes, for a whole fixed or trailing stop with no kind.
+- **`stop_set` says what became of the request**: `true` once the fill wrote the stop, NULL
+  before the fill and on an order that asked for none. `false` is allowed by the column and
+  no longer written.
 - **A buy that fills at its session's open has a stop that is live from that session**
   (`stops.first_session`, V22). The checker tests it against that day's own bar, so a low
   under the level sells the position the day it was bought, and a fill recorded days late is
@@ -609,10 +614,19 @@ an order at a broker.
 | `POST /api/portfolio/stops` | set the stop on a holding: `symbol`, `kind`, `stop_level` (fixed) or `trail_pct` (trailing), and optionally `method`, `proposed_level`, `book_id`. 201 with the stop, whose `replaced_stop_id` names the one it took over from. 422 for a symbol the book doesn't hold, a level at or above the last close, or an archived book |
 | `POST /api/portfolio/stops/{stop_id}/cancel?book_id=` | take an active stop off. 404 for a stop that isn't in that book, 422 for one that is no longer active |
 
-The Portfolio page reads the list route, with `include_inactive=true`, and shows each holding
-its stop (plan step 4.3). No component sets or cancels a stop through these routes yet: the
-stop panel is step 4.5, and until then the page sets a stop only [with a paper
-buy](#a-stop-on-a-buy). No MCP tool or Sidekick tool reads a stop (step 5.4).
+| `GET /api/portfolio/stops/holdings?book_id=` | the one stop each holding shows, in symbol order: the symbol's newest stop when it is active, or was reached while a lot was already open. 404 for a book that isn't the owner's |
+
+**The server picks the stop a holding shows** (`analytics.stored_stops.holding_stops`,
+`StopsService.holding_stops`; John's decision, 2026-11-17). Only a symbol's newest stop is
+looked at, so a cancelled, replaced or closed one shows nothing whatever came before it. A
+stop a bar reached is shown only when a lot was opened on or before that bar's session: a
+position bought back later was never under it. The read is two queries, makes no network
+call and creates no book.
+
+The Portfolio page reads the holdings route and can take an active stop off through the cancel
+route, in any book (plan step 4.3 and decision 67). No component sets a stop through
+`POST /api/portfolio/stops` yet: the stop panel is step 4.5, and until then the page sets a stop
+only [with a paper buy](#a-stop-on-a-buy). No MCP tool or Sidekick tool reads a stop (step 5.4).
 
 #### The stop checker
 

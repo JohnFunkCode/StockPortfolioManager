@@ -23,12 +23,14 @@ from quantcore.analytics import stored_stops as stops_math  # noqa: E402
 from quantcore.analytics.market_time import ET  # noqa: E402
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.books_repository import BooksRepository  # noqa: E402
+from quantcore.repositories.cash_repository import CashRepository  # noqa: E402
 from quantcore.repositories.orders_repository import OrdersRepository  # noqa: E402
 from quantcore.repositories.owner_identity_repository import (  # noqa: E402
     OwnerIdentityRepository,
 )
 from quantcore.repositories.portfolio_repository import PortfolioRepository  # noqa: E402
 from quantcore.repositories.stops_repository import StopsRepository  # noqa: E402
+from quantcore.services.cash import CashService  # noqa: E402
 from quantcore.services.orders import OrdersService  # noqa: E402
 from quantcore.services.stops import StopsService  # noqa: E402
 
@@ -336,20 +338,33 @@ class StopOnAQueuedBuyTest(_Base):
         (stop,) = self.all_stops()
         self.assertEqual((stop["high_water_mark"], stop["stop_level"]), (D("51"), D("45.9")))
 
-    def test_a_buy_that_opens_at_or_under_its_level_fills_with_no_stop_and_says_so(self):
+    def test_a_buy_that_opens_at_or_under_its_level_is_rejected_and_opens_no_position(self):
+        # Decision 64: no position without the stop it was asked for.
         for opened in (45.0, 40.0):
             with self.subTest(open=opened):
                 self.prices.open = opened
-                filled = self.fill(self.queue(shares=1, stop_kind="fixed", stop_level="45"))
-                self.assertEqual((filled["status"], filled["stop_set"]), ("filled", False))
+                rejected = self.fill(self.queue(shares=1, stop_kind="fixed", stop_level="45"))
+                self.assertEqual(
+                    (rejected["status"], rejected["reject_reason"], rejected["stop_set"],
+                     rejected["filled_shares"]),
+                    ("rejected", "stop_not_below_fill", None, None))
         self.assertEqual(self.all_stops(), [])
+        self.assertEqual(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book), [])
         self.assertEqual(
-            len(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book)), 2)
+            CashService(CashRepository(), self.books).ledger(
+                owner=OWNER, book_id=self.book)["balance"], D("1000.00"))
 
-    def test_a_queued_trail_too_small_to_give_a_level_fills_with_no_stop(self):
-        filled = self.fill(self.queue(stop_kind="trailing", stop_trail_pct="0.0001"))
-        self.assertEqual((filled["status"], filled["stop_set"]), ("filled", False))
+    def test_the_stop_is_checked_before_the_cash(self):
+        self.prices.open = 40.0
+        rejected = self.fill(self.queue(shares=500, stop_kind="fixed", stop_level="45"))
+        self.assertEqual(rejected["reject_reason"], "stop_not_below_fill")
+
+    def test_a_queued_trail_too_small_to_give_a_level_is_rejected(self):
+        rejected = self.fill(self.queue(stop_kind="trailing", stop_trail_pct="0.0001"))
+        self.assertEqual((rejected["status"], rejected["reject_reason"]),
+                         ("rejected", "stop_not_below_fill"))
         self.assertEqual(self.all_stops(), [])
+        self.assertEqual(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book), [])
 
     def test_a_cancelled_order_never_gets_its_stop(self):
         order = self.queue(stop_kind="fixed", stop_level="45")
@@ -509,6 +524,10 @@ class DatabaseRuleTest(_Base):
             dict(stop_kind="trailing", stop_trail_pct=100, stop_method="manual"),
             dict(stop_kind="fixed", stop_level=45),
             dict(stop_level=45),
+            # A whole stop but for its kind (V24, the #567 review): V21's rule
+            # came out NULL here, and a CHECK passes on NULL.
+            dict(stop_level=45, stop_method="manual"),
+            dict(stop_trail_pct=8, stop_method="trailing"),
             dict(stop_set=True),
             # Whether the stop was set is only known once the order has filled.
             dict(stop_kind="fixed", stop_level=45, stop_method="manual", stop_set=True),

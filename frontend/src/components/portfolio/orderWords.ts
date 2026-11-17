@@ -13,6 +13,7 @@ export const REJECT_REASONS: Record<RejectReason, string> = {
   insufficient_cash: 'not enough cash',
   insufficient_shares: 'not enough shares',
   no_open_price: 'no opening price that session',
+  stop_not_below_fill: 'it opened at or below the stop it asked for, so no position was opened',
 };
 
 /** A sell rejected for one of these may be a position that can't be quoted. */
@@ -42,22 +43,12 @@ function stopAsked(order: Order): string {
   return '';
 }
 
-/** "stop not set: …", for a filled buy whose stop could not be written. A
- * fixed stop gave a level the fill was not above. A trailing stop gave no
- * level: its percentage was too small to reach a price below the fill. */
-function stopNotSet(order: Order): string {
-  return order.stop_kind === 'trailing'
-    ? 'stop not set: the trail is too small to give a price below the fill'
-    : 'stop not set: filled at or below it';
-}
-
 /** What became of the stop a buy asked for, as a sentence. Empty for an
  * order that asked for none, or was rejected or withdrawn: it never gets one. */
 export function stopOutcome(order: Order): string {
   if (order.stop_kind == null) return '';
   if (order.status === 'pending') return 'Its stop is set when the order fills.';
   if (order.status !== 'filled') return '';
-  if (order.stop_set === false) return `Its ${stopNotSet(order)}. The position has no stop.`;
   return order.stop_kind === 'fixed'
     ? `Its stop is set at ${formatCurrency(order.stop_level)}.`
     : `Its stop is set, trailing ${Number(order.stop_trail_pct)}% below the fill price.`;
@@ -85,9 +76,7 @@ function priceNote(order: Order): string {
 export function outcome(order: Order): string {
   switch (order.status) {
     case 'filled':
-      return `${formatShares(order.filled_shares)} @ ${formatCurrency(order.fill_price)}${priceNote(order)}${
-        order.stop_set === false ? `. S${stopNotSet(order).slice(1)}` : ''
-      }`;
+      return `${formatShares(order.filled_shares)} @ ${formatCurrency(order.fill_price)}${priceNote(order)}`;
     case 'pending':
       return `Waiting for the session of ${formatDate(order.session_date)}`;
     case 'rejected':

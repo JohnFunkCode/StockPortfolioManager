@@ -245,6 +245,48 @@ def order_stop_terms(
 
 
 # --------------------------------------------------------------------------
+# The stop a holding shows (plan decision 66)
+# --------------------------------------------------------------------------
+
+def _shown(stop: Mapping[str, Any], opened: Iterable[datetime.date]) -> bool:
+    """Whether a symbol's newest stop is the one its holding shows: it is
+    live, or a bar reached it while one of the lots was already open."""
+    if stop["status"] == ACTIVE:
+        return True
+    if stop["status"] != TRIGGERED or stop["triggered_session"] is None:
+        return False
+    return any(day <= stop["triggered_session"] for day in opened)
+
+
+def holding_stops(
+    stops: Iterable[Mapping[str, Any]],
+    opened_by_symbol: Mapping[str, Iterable[datetime.date]],
+) -> list:
+    """The one stop each held symbol shows, in symbol order.
+
+    `stops` is a book's stops, newest first. `opened_by_symbol` gives, for
+    each symbol the book holds, the dates its OPEN lots were opened.
+
+    - Only a symbol's newest stop is looked at. One that was cancelled,
+      replaced or closed shows nothing, whatever came before it.
+    - An active stop is shown.
+    - A stop that a bar reached is shown only when a lot was opened on or
+      before that bar's session: the holding it was reached on is still
+      there. A position bought back later was never under that stop.
+    - A symbol the book doesn't hold shows nothing.
+    """
+    shown, seen = [], set()
+    for stop in stops:
+        symbol = stop["symbol"]
+        if symbol in seen:
+            continue
+        seen.add(symbol)
+        if symbol in opened_by_symbol and _shown(stop, opened_by_symbol[symbol]):
+            shown.append(stop)
+    return sorted(shown, key=lambda s: s["symbol"])
+
+
+# --------------------------------------------------------------------------
 # Checking a stop against closed daily bars (plan step 4.2)
 # --------------------------------------------------------------------------
 

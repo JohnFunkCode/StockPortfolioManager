@@ -13,8 +13,8 @@ import {
   realizedResponse,
   realizedSymbol,
   renderWithProviders,
+  holdingStops,
   stopRow,
-  stopsResponse,
   symbolRow,
 } from '../../testUtils';
 
@@ -46,7 +46,7 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
     // says so. After `routes`, so a test's own cash route wins.
     ['/api/portfolio/cash', emptyCashLedger()],
     // The book's stops (#431 step 4.3): none unless a test says so.
-    ['/api/portfolio/stops', stopsResponse([])],
+    ['/api/portfolio/stops', holdingStops([])],
   ]);
   renderWithProviders(<PortfolioPage />);
   return api;
@@ -766,12 +766,14 @@ describe('PortfolioPage books (#431)', () => {
   });
 
   describe('stops (#431 step 4.3)', () => {
-    const held = (symbol: string, trade_date = '2026-01-02') =>
-      symbolRow({ symbol, lots: [lotRow({ lot_id: symbol === 'INTC' ? 1 : 2, symbol, trade_date })] });
-    // Its own mock: the stops shown depend on the lots, so each test names both.
-    const mountStops = (stops: object, intcBought?: string) => {
+    const held = (symbol: string) =>
+      symbolRow({ symbol, lots: [lotRow({ lot_id: symbol === 'INTC' ? 1 : 2, symbol })] });
+    // Its own mock: the server picks which stop a holding shows (decision
+    // 66), so each test names the answer of the holdings route.
+    const mountStops = (stops: object, extra: Array<[string | RegExp, object]> = []) => {
       const api = mockApi([
-        ['/api/portfolio/symbols', { symbols: [held('INTC', intcBought), held('AAPL')], totals: portfolioTotals() }],
+        ...extra,
+        ['/api/portfolio/symbols', { symbols: [held('INTC'), held('AAPL')], totals: portfolioTotals() }],
         ['/api/books', { books: [] }],
         ['/api/portfolio/realized', realizedResponse([])],
         ['/api/portfolio/cash', emptyCashLedger()],
@@ -781,23 +783,24 @@ describe('PortfolioPage books (#431)', () => {
       return api;
     };
     const stopCell = (symbol: string) => screen.getByTestId(`stop-${symbol}`);
+    const stopCalls = (api: { calls: Array<[string, RequestInit | undefined]> }) =>
+      api.calls.filter(([url]) => url.includes('/api/portfolio/stops'));
 
-    it('asks for the real book\'s stops, the reached ones included, and shows each on its holding', async () => {
-      const api = mountStops(stopsResponse([
-          stopRow({ stop_id: 4, symbol: 'AAPL', kind: 'trailing', stop_level: 184, trail_pct: 8, high_water_mark: 200 }),
-          stopRow({ stop_id: 3, symbol: 'INTC', stop_level: 45 }),
-        ]));
+    it('asks the server for one stop a holding and shows each on its row', async () => {
+      const api = mountStops(holdingStops([
+        stopRow({ stop_id: 4, symbol: 'AAPL', kind: 'trailing', stop_level: 184, trail_pct: 8, high_water_mark: 200 }),
+        stopRow({ stop_id: 3, symbol: 'INTC', stop_level: 45 }),
+      ]));
       await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
       expect(stopCell('AAPL')).toHaveTextContent('$184.00');
       expect(stopCell('AAPL')).toHaveTextContent('trails 8%');
       expect(within(screen.getByTestId('holdings-table')).getByText('Stop')).toBeInTheDocument();
-
-      const stops = api.calls.map(([url]) => url).filter((url) => url.includes('/api/portfolio/stops'));
-      expect(stops).toEqual(['/api/portfolio/stops?include_inactive=true']);
+      // One read, of the holdings route, with no book id for the real book.
+      expect(stopCalls(api).map(([url]) => url)).toEqual(['/api/portfolio/stops/holdings']);
     });
 
-    it('shows a dash for a holding with no stop, and before the stops arrive', async () => {
-      mountStops(stopsResponse([stopRow({ symbol: 'INTC' })]));
+    it('shows a dash for a holding the server sent no stop for', async () => {
+      mountStops(holdingStops([stopRow({ symbol: 'INTC' })]));
       await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
       expect(stopCell('AAPL')).toHaveTextContent('—');
     });
@@ -808,40 +811,64 @@ describe('PortfolioPage books (#431)', () => {
       expect(stopCell('INTC')).toHaveTextContent('—');
     });
 
-    it('says a stop was reached while the holding is still open', async () => {
-      mountStops(stopsResponse([
-          stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
-        ]));
+    it('says a stop was reached, and offers no way to take that one off', async () => {
+      mountStops(holdingStops([
+        stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
+      ]));
       await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('Reached $44.10'));
+      expect(screen.queryByRole('button', { name: 'Take the stop off INTC' })).toBeNull();
     });
 
-    it('does not show a reached stop on a position bought after it', async () => {
-      mountStops(stopsResponse([
-          stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
-        ]), '2026-07-01');
-      await waitFor(() => expect(holdings().getByText('INTC')).toBeInTheDocument());
-      await waitFor(() => expect(screen.queryByText(/Reached/)).toBeNull());
-      expect(stopCell('INTC')).toHaveTextContent('—');
-    });
-
-    it('shows only the newest stop of a symbol, and none that was cancelled', async () => {
-      mountStops(stopsResponse([
-          stopRow({ stop_id: 9, symbol: 'INTC', stop_level: 47 }),
-          stopRow({ stop_id: 8, symbol: 'INTC', stop_level: 45, status: 'replaced' }),
-          stopRow({ stop_id: 7, symbol: 'AAPL', status: 'cancelled' }),
-          stopRow({ stop_id: 6, symbol: 'AAPL', stop_level: 150, status: 'replaced' }),
-        ]));
-      await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$47.00'));
-      expect(stopCell('AAPL')).toHaveTextContent('—');
-    });
-
-    it('puts the symbol\'s stop on each of its lots', async () => {
-      mountStops(stopsResponse([stopRow({ symbol: 'INTC' })]));
+    it("puts the symbol's stop on each of its lots", async () => {
+      mountStops(holdingStops([stopRow({ symbol: 'INTC' })]));
       await waitFor(() => expect(stopCell('INTC')).toHaveTextContent('$45.00'));
       const rows = holdings().getAllByRole('row');
       const intc = rows.find((row) => within(row).queryByText('INTC'));
       fireEvent.click(within(intc as HTMLElement).getAllByRole('button')[0]);
       expect(await screen.findByTestId('lot-stop-1')).toHaveTextContent('$45.00');
+    });
+
+    describe('taking a stop off (decision 67)', () => {
+      const ONE = holdingStops([stopRow({ stop_id: 3, symbol: 'INTC' })]);
+
+      it('asks first, then cancels the stop and reads the stops again', async () => {
+        const api = mountStops(ONE, [[/\/stops\/3\/cancel/, stopRow({ status: 'cancelled' })]]);
+        fireEvent.click(await screen.findByRole('button', { name: 'Take the stop off INTC' }));
+        const dialog = within(screen.getByRole('dialog'));
+        expect(dialog.getByText(/Take the stop at \$45\.00 off INTC\?/)).toBeInTheDocument();
+        expect(dialog.getByText(/will then have no stop/)).toBeInTheDocument();
+        // Nothing is sent until it is confirmed.
+        expect(api.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+
+        const before = stopCalls(api).length;
+        fireEvent.click(dialog.getByRole('button', { name: 'Take it off' }));
+
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        const posts = api.calls.filter(([, init]) => init?.method === 'POST');
+        expect(posts.map(([url]) => url)).toEqual(['/api/portfolio/stops/3/cancel']);
+        await waitFor(() => expect(stopCalls(api).length).toBeGreaterThan(before + 1));
+      });
+
+      it('changes nothing when the question is dismissed', async () => {
+        const api = mountStops(ONE);
+        fireEvent.click(await screen.findByRole('button', { name: 'Take the stop off INTC' }));
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+        expect(api.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
+        expect(stopCell('INTC')).toHaveTextContent('$45.00');
+      });
+
+      it('says why when the server refuses, and keeps the question open', async () => {
+        mountStops(ONE, [[
+          /\/stops\/3\/cancel/,
+          { __status: 422, error: 'only an active stop can be cancelled: this one is triggered' },
+        ]]);
+        fireEvent.click(await screen.findByRole('button', { name: 'Take the stop off INTC' }));
+        fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Take it off' }));
+        expect(
+          await screen.findByText(/The stop was not taken off: only an active stop can be cancelled/),
+        ).toBeInTheDocument();
+      });
     });
   });
 });

@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, and 63 after comparing those with other systems (section 5.15); they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -433,8 +433,36 @@ One decision changed:
     whether its low came before the fill. What it costs: a paper buy at the open can be sold
     by its stop the same day, which the 4.3 build did not do, and one more column on `stops`.
 
-Where no norm was found, the decision stands as built until John decides. Those are listed in
-section 5.15.
+Where no norm was found, the decision stood as built until John decided. He did the same
+day: the next block.
+
+### Made on 2026-11-17 (John), on the six questions of section 5.15
+
+John answered each question that had no norm to follow. Four change the code.
+
+- **57 stands for a fill in market hours.** Its stop is first tested against the next
+  session to open. A daily bar can't say whether its low came before the fill.
+- **62 stands.** Every sale shows its source.
+
+64. **A queued buy that opens at or under the stop it asked for is rejected.** This replaces
+    decision 58's "fills with no stop". The reason is `stop_not_below_fill`, and no position
+    is opened without its stop. The stop is checked before the cash. A trailing stop too
+    small to give a price under the open is rejected the same way. In market hours the
+    request is still a 422 with nothing stored. What it costs: V23 widens the
+    `reject_reason` `CHECK`, which the migrate Job refuses, so an operator applies it by
+    hand on test and on prod before the roll-out. `orders.stop_set` is now only ever NULL or
+    true.
+65. **A buy's stop still replaces the one its symbol has, and the dialog says so first.**
+    Decision 59 with a warning. The stop field reads the book's holding stops when it is
+    opened and names the stop that will be replaced.
+66. **The server picks the stop a holding shows.** This replaces decision 60.
+    `GET /api/portfolio/stops/holdings` answers one stop a symbol at most
+    (`analytics.stored_stops.holding_stops`), and the page no longer downloads a book's stop
+    history or compares dates. What it costs: one more route (129).
+67. **A live stop can be taken off from the Portfolio page now.** This replaces decision
+    61's "no Cancel until 4.5". A control beside the stop asks first, then calls the cancel
+    route. It is offered in every book, an archived one included, and never on a stop that
+    was reached. Setting a stop on a holding is still 4.5.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1101,7 +1129,9 @@ in search results. Nothing was tested against a live account.
 | 60, 61, 62 | Nothing found | Open, below |
 | Decision 5, the fill price | QuantConnect: `min(open, stop)`. backtrader and TradingView: the open when price gaps through | Already in line |
 
-**Open, for John to decide.** Each stands as built until then.
+**Open, for John to decide.** John answered all six on 2026-11-17: 1, keep; 2, reject the
+buy (decision 64); 3, replace with a warning (65); 4, move it server-side now (66); 5, add
+Cancel now (67); 6, keep. The questions as they were put:
 
 1. **57, a buy filled in market hours.** A broker's stop is live from the fill. A daily bar
    can't say whether its low came before the fill, so the stop is first tested the next
@@ -1119,6 +1149,26 @@ in search results. Nothing was tested against a live account.
    choice is whether to add Cancel to the Stop cell first.
 6. **62, the Source column.** As built every sale shows its source. The choice is whether to
    show it only when it is not `manual`.
+
+#### 5.16 John's four changes as built (decisions 64 to 67)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The reject reason | `V23__reject_stop_not_below_fill.sql`, `_SCHEMA`, the snapshot; `analytics.orders.STOP_NOT_BELOW_FILL` | **Applied by hand.** The migration replaces `orders_reject_reason_check`, and the migrate Job refuses a `DROP`. `_SCHEMA` lists the value in `CREATE TABLE` and repeats the replacement for a database made before V23 |
+| The rejection | `OrdersService._fill` | The stop's terms are worked out before anything is written. No terms, no trade: the order is rejected and the lot, cash row and stop are never written. `_attach_stop` now only writes |
+| The stop a holding shows | `analytics.stored_stops.holding_stops`, `StopsService.holding_stops`, `StopsRepository.open_lots`, `GET /api/portfolio/stops/holdings` | Two queries. Owner and book are bound as on every other stop read, so no new `ALLOWED` entry |
+| The page | `useHoldingStops`, `PortfolioPage` | `stopWords.stopsBySymbol` is gone |
+| Taking a stop off | `stopsApi.cancel`, `useCancelStop`, a control in the Stop cell, `ConfirmDialog` | Only on an active stop. A refusal from the server is shown in the question, which stays open |
+| The warning | `OrderStopField` | Reads the chosen book's holding stops once the field is opened |
+| The words | `orderWords.ts` | "it opened at or below the stop it asked for, so no position was opened". The "Stop not set" wording is gone with the case it described |
+
+**For an operator, before the roll-out:** V23 must be applied by hand on each database.
+`./scripts/flyway.sh migrate` for test, then re-run the deploy workflow, which will have
+stopped at the migrate step. `./scripts/flyway.sh --prod migrate` before the prod promotion.
+V21 and V22 are applied by the same command if CI has not already applied them.
+
+Left for later steps: setting a stop on a holding (4.5), the approach alert (4.4), and a page
+for a book's stop history (the list route is reached by no component again).
 
 ### Milestone 5: performance (#431 phase 3)
 
@@ -1583,3 +1633,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-16 | 4.3 Stops in the UI | #565 | V21: `orders.stop_kind`, `stop_level`, `stop_trail_pct`, `stop_method`, `stop_proposed_level` and `stop_set`. A paper buy can ask for a fixed or trailing stop (`analytics.stored_stops.requested_stop`, `order_stop_terms`); the stop row is written in the fill's transaction against the fill price (`stop_sql.set_stop_on`, `OrdersService._attach_stop`). In the UI: "Add a stop" in the Buy dialog with the stop card's candidates loaded only when it is opened (`OrderStopField`), a Stop column on holdings and lot rows (`useStops`, `StopCell`), and a Source column on each sale in the Realized view. Decisions 56 to 62 were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.14) |
 | 2026-11-16 | 4.3 review | #565 | Approved, with four suggestions, all taken. The readme's "No page shows a stop yet" was stale and now says no page sets or cancels one on a holding. A trailing stop whose percentage is too small to give a price below the fill got the fixed stop's wording ("below the price", "filled at or below it") though the owner gave no level: the 422 and the page now say the trail is too small. `_stop_request` let a `stop_method` through with no kind, and now refuses it like the other stop terms. `list_realized_sales` had reached cyclomatic 12 with the three new fields, so its row mapping is `_realized_sale_row`, over the helpers the other row shapes use. The review did not run the suites and could not measure the front end's complexity |
 | 2026-11-17 | Decisions 56 to 62 against other systems | #566 | Not a plan step: John asked for the 4.3 decisions to be compared with market-leading systems and aligned. Section 5.15 records what was found. One change, decision 63: V22 `stops.first_session`, so the stop of a buy that fills at a session's open is tested against that session's own bar, as a broker's attached stop is live once its entry fills. Six questions with no norm to follow are listed there for John |
+| 2026-11-17 | John's decisions 64 to 67 | this PR | John answered the six questions of section 5.15. Built: a queued buy that opens at or under its stop is rejected `stop_not_below_fill` (V23, **applied by hand**: it replaces a `CHECK`); `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, picked on the server; the Portfolio page can take an active stop off; and the Buy dialog warns when a stop will replace one the symbol has. Decision 57 for an in-hours fill and decision 62 stand. 129 routes (section 5.16) |

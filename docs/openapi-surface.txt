@@ -25,6 +25,7 @@ GET    /api/portfolio/orders  ->  list_orders_api_portfolio_orders_get
 GET    /api/portfolio/realized  ->  get_realized_api_portfolio_realized_get
 GET    /api/portfolio/sales  ->  get_sales_api_portfolio_sales_get
 GET    /api/portfolio/stops  ->  list_stops_api_portfolio_stops_get
+GET    /api/portfolio/stops/holdings  ->  holding_stops_api_portfolio_stops_holdings_get
 GET    /api/portfolio/symbols  ->  get_symbol_rows_api_portfolio_symbols_get
 GET    /api/rungs/{rung_id}  ->  get_rung_api_rungs__rung_id__get
 GET    /api/securities/fundamentals/cache-stats  ->  get_cache_stats_api_securities_fundamentals_cache_stats_get

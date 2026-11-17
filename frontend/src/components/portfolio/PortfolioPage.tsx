@@ -20,12 +20,13 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useRealized, useSymbolRows } from '../../hooks/usePortfolio';
 import { useBooks } from '../../hooks/useBooks';
 import { useCashLedger } from '../../hooks/useCash';
-import { useStops } from '../../hooks/useStops';
+import { useCancelStop, useHoldingStops } from '../../hooks/useStops';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import OneDayChange, { compareOneDay } from '../common/OneDayChange';
@@ -42,7 +43,7 @@ import CashLedger from './CashLedger';
 import PaperOrderDialog from './PaperOrderDialog';
 import SeedEmptyBook from './SeedEmptyBook';
 import StopCell from './StopCell';
-import { stopsBySymbol } from './stopWords';
+import ConfirmDialog from '../common/ConfirmDialog';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { Lot, SymbolRow } from '../../api/portfolioTypes';
@@ -213,15 +214,19 @@ export default function PortfolioPage() {
 
   // The book's stops are their own request (#431 step 4.3): the holdings
   // never wait for them, and a failed read leaves the column blank.
-  const { data: stopsData } = useStops(bookId);
-  const stops = useMemo(
-    () =>
-      stopsBySymbol(
-        stopsData?.stops ?? [],
-        Object.fromEntries((data?.symbols ?? []).map((row) => [row.symbol, row.lots])),
-      ),
-    [stopsData, data],
+  // The server picks the one stop each holding shows (decision 66).
+  const { data: stopsData } = useHoldingStops(bookId);
+  const stops = useMemo<Record<string, Stop>>(
+    () => Object.fromEntries((stopsData?.stops ?? []).map((stop) => [stop.symbol, stop])),
+    [stopsData],
   );
+  // The stop whose Cancel was clicked; null keeps the confirmation shut.
+  const [cancelling, setCancelling] = useState<Stop | null>(null);
+  const cancelStop = useCancelStop(bookId);
+  const closeCancel = () => {
+    cancelStop.reset();
+    setCancelling(null);
+  };
 
   const sorted = useMemo<SymbolRow[]>(() => {
     const copy = [...rows];
@@ -412,8 +417,21 @@ export default function PortfolioPage() {
                             '—'
                           )}
                         </TableCell>
-                        <TableCell data-testid={`stop-${row.symbol}`}>
+                        <TableCell data-testid={`stop-${row.symbol}`} sx={{ whiteSpace: 'nowrap' }}>
                           <StopCell stop={stops[row.symbol]} />
+                          {/* A live stop can be taken off, in any book (decision 67). */}
+                          {stops[row.symbol]?.status === 'active' && (
+                            <Tooltip title="Take this stop off">
+                              <IconButton
+                                size="small"
+                                aria-label={`Take the stop off ${row.symbol}`}
+                                onClick={() => setCancelling(stops[row.symbol])}
+                                sx={{ ml: 0.5 }}
+                              >
+                                <CloseIcon fontSize="inherit" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                         </TableCell>
                         {!readOnly && (
                           <PlanCell
@@ -471,6 +489,21 @@ export default function PortfolioPage() {
       </Box>
 
       <AddLotDialog open={addOpen} onClose={() => setAddOpen(false)} />
+
+      <ConfirmDialog
+        open={cancelling !== null}
+        title={`Take the stop off ${cancelling?.symbol ?? ''}`}
+        message={
+          cancelStop.error
+            ? `The stop was not taken off: ${(cancelStop.error as Error).message}`
+            : `Take the stop at ${formatCurrency(cancelling?.stop_level)} off ${cancelling?.symbol ?? ''}? ` +
+              'The holding will then have no stop. The stop is kept in the record as cancelled.'
+        }
+        confirmLabel="Take it off"
+        loading={cancelStop.isPending}
+        onConfirm={() => cancelling && cancelStop.mutate(cancelling.stop_id, { onSuccess: closeCancel })}
+        onCancel={closeCancel}
+      />
 
       {selling && book && (
         <PaperOrderDialog

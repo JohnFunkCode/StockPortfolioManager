@@ -108,11 +108,16 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   `OrderStopField`: a fixed level or a trailing percentage. The stop card's request
   (`useStopLoss`) is made only when the field is mounted, so a buy with no stop never pays for
   it. Its candidates are buttons that fill the field; an edited suggestion keeps its method
-  and the suggested level. The dialog says whether the stop was set.
-- **Holdings show their stop** (#431 step 4.3). `useStops` is its own request, so the table
-  never waits for it. `stopWords.stopsBySymbol` picks a symbol's newest stop when it is active
-  or was reached while a lot was open, and `StopCell` (a row-bound fragment) draws it. Lot rows
-  show the symbol's live level. Nothing here sets or cancels a stop (step 4.5). The Realized
+  and the suggested level. When the symbol already has a stop in the chosen book, the field
+  warns that the new one replaces it (it reads the book's holding stops, also only once
+  mounted). The dialog says whether the stop was set, or that the buy was rejected because
+  it opened at or below its stop.
+- **Holdings show their stop** (#431 step 4.3). `useHoldingStops` is its own request, so the
+  table never waits for it. The server picks the one stop each holding shows
+  (`GET /api/portfolio/stops/holdings`); the page maps the answer by symbol and decides
+  nothing. `StopCell` (a row-bound fragment) draws it, and lot rows show the symbol's live
+  level. An active stop has a control that takes it off after a confirmation, in any book.
+  Setting a stop on a holding is step 4.5. The Realized
   section's expanded row has a Source column, and a stop's sale is a chip.
 - **A paper book can start as a copy of the real holdings** (#431 step 3.5). The New paper
   book dialog has a checkbox that calls the seed route after the create. If the copy fails

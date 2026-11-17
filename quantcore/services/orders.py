@@ -31,7 +31,8 @@ system sets every fill; the owner never types a price.
   as a broker's attached stop is live once the entry fills. A fixed level at or
   above the fill price can't be a stop: in market hours the order is refused
   as bad input before anything is stored, and a queued buy that opens at or
-  under its level fills with no stop and says so (`stop_set` False).
+  under its level is rejected `stop_not_below_fill`. No position opens
+  without the stop it was asked for.
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -381,8 +382,8 @@ class OrdersService:
         a `stop_trail_pct` (trailing, percent below a mark that starts at the
         fill price), and how the level was chosen (`stop_method`,
         `stop_proposed_level`). The stop is written when the buy fills, and
-        `stop_set` on the order then says whether it was: False means the buy
-        filled at or under the fixed level it asked for, so it has no stop.
+        `stop_set` on the order is then True. A queued buy whose opening
+        price leaves no room for the stop is rejected `stop_not_below_fill`.
 
         Raises `ValueError` for bad input (a dollar amount that would buy
         more shares than an order can hold included, and a fixed stop at or
@@ -676,8 +677,16 @@ class OrdersService:
         the cash check reads the ledger as it will be. A trade the book can't
         cover is undone to the savepoint and the order is rejected instead.
         A buy that asked for a stop gets it here, once the buy is known to
-        stand, so the lot and its stop land together or not at all.
+        stand, so the lot and its stop land together or not at all. When the
+        price leaves no room for that stop, the buy is rejected
+        `stop_not_below_fill` and nothing is written (plan decision 64).
         """
+        stop = _stop_terms(order, price)
+        if order["stop_kind"] is not None and stop is None:
+            # The buy asked for a stop this price leaves no room for. It is
+            # rejected whole: no position opens without its stop.
+            self._reject(tx, order, orders_math.STOP_NOT_BELOW_FILL, now)
+            return
         tx.savepoint()
         if order["side"] == orders_math.BUY:
             shares, reason = self._buy(tx, order, price)
@@ -687,10 +696,12 @@ class OrdersService:
             tx.undo_trade()
             self._reject(tx, order, reason, now)
             return
+        if stop is not None:
+            self._attach_stop(tx, order, stop, price, price_source, now)
         resolved = tx.resolve(
             order["order_id"], orders_math.FILLED, resolved_at=now, filled_shares=shares,
             fill_price=price, price_source=price_source, quote_time=quote_time,
-            stop_set=self._attach_stop(tx, order, price, price_source, now),
+            stop_set=True if stop is not None else None,
         )
         if not resolved:
             # The trade's rows are already written. Raising rolls them back
@@ -698,13 +709,11 @@ class OrdersService:
             raise RuntimeError("order is no longer pending")
 
     def _attach_stop(
-        self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal,
-        price_source: Optional[str], now: datetime.datetime,
-    ) -> Optional[bool]:
-        """Write the stop a filled buy asked for (plan step 4.3). None when
-        it asked for none, True when the stop was written, and False when no
-        stop can be set at this fill price: a queued buy that opened at or
-        under its fixed level. The buy still stands, with no stop.
+        self, tx: OrderTransaction, order: Dict[str, Any], terms: stops_math.StopTerms,
+        price: Decimal, price_source: Optional[str], now: datetime.datetime,
+    ) -> None:
+        """Write the stop a filled buy asked for (plan step 4.3), with the
+        `terms` worked out from its fill price.
 
         The stop is set against the fill: `price` is its reference and a
         trailing stop's first high-water mark, and `now` is when it was set.
@@ -718,11 +727,6 @@ class OrdersService:
         rule, the next session to open: a daily bar can't say whether its
         low came before the fill or after it.
         """
-        if order["stop_kind"] is None:
-            return None
-        terms = _stop_terms(order, price)
-        if terms is None:
-            return False
         tx.set_stop({
             "symbol": order["symbol"],
             "kind": terms.kind,
@@ -741,7 +745,6 @@ class OrdersService:
                 if price_source == orders_math.PRICE_FROM_SESSION_OPEN else None
             ),
         })
-        return True
 
     def _buy(self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal):
         """Write a buy's lot. Returns `(shares, None)`, or `(None, reason)`

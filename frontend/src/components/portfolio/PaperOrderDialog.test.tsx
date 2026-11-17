@@ -2,7 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import PaperOrderDialog from './PaperOrderDialog';
-import { cashLedger, mockApi, order, renderWithProviders, stopLossResponse } from '../../testUtils';
+import {
+  cashLedger, holdingStops, mockApi, order, renderWithProviders, stopLossResponse, stopRow,
+} from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -333,10 +335,13 @@ describe('PaperOrderDialog', () => {
       );
     });
 
-    it('says when the order filled and its stop could not be set', async () => {
+    it('says a buy was rejected because it opened at or below its stop', async () => {
       mount(
         {},
-        order({ stop_kind: 'fixed', stop_level: 55, stop_method: 'manual', stop_set: false }),
+        order({
+          ...REJECTED, reject_reason: 'stop_not_below_fill',
+          stop_kind: 'fixed', stop_level: 55, stop_method: 'manual',
+        }),
         [CARD],
       );
       type(/^Shares/, '2');
@@ -344,24 +349,52 @@ describe('PaperOrderDialog', () => {
       type(/Stop level/, '55');
       buy();
       const result = await screen.findByTestId('order-result');
-      expect(result).toHaveTextContent('Bought INTC: 2 @ $50.00. Stop not set: filled at or below it.');
+      expect(result).toHaveTextContent(
+        'Rejected: it opened at or below the stop it asked for, so no position was opened. Nothing changed.',
+      );
       expect(result).not.toHaveTextContent('Its stop is set');
     });
 
-    it('says a trail was too small when that is why the stop was not set', async () => {
-      mount(
-        {},
-        order({ stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
-        [CARD],
-      );
-      type(/^Shares/, '2');
-      openStop();
-      fireEvent.click(screen.getByRole('button', { name: 'Trailing' }));
-      type(/Trail percent/, '0.0001');
-      buy();
-      expect(await screen.findByTestId('order-result')).toHaveTextContent(
-        'Bought INTC: 2 @ $50.00. Stop not set: the trail is too small to give a price below the fill.',
-      );
+    describe('a symbol that already has a stop in the book (decision 65)', () => {
+      const held = (stops: object[]): [string, object] => ['/api/portfolio/stops/holdings', holdingStops(stops)];
+
+      it('warns that the new stop replaces it, and asks about the chosen book', async () => {
+        const { api } = mount({}, order(), [CARD, held([stopRow({ symbol: 'INTC', stop_level: 45 })])]);
+        openStop();
+        const warning = await screen.findByTestId('order-stop-replaces');
+        expect(warning).toHaveTextContent('INTC already has a stop in this book, at $45.00.');
+        expect(warning).toHaveTextContent('replaces it when the buy fills');
+        const asked = api.calls.map(([url]) => url).filter((url) => url.includes('/stops/holdings'));
+        expect(asked).toEqual(['/api/portfolio/stops/holdings?book_id=7']);
+      });
+
+      it('names a trailing stop by its percentage', async () => {
+        mount({}, order(), [
+          CARD,
+          held([stopRow({ symbol: 'INTC', kind: 'trailing', stop_level: 46, trail_pct: 8, high_water_mark: 50 })]),
+        ]);
+        openStop();
+        expect(await screen.findByTestId('order-stop-replaces')).toHaveTextContent('at $46.00, trailing 8%');
+      });
+
+      it('says nothing for another symbol\'s stop, a reached stop, or no stop', async () => {
+        mount({}, order(), [
+          CARD,
+          held([
+            stopRow({ symbol: 'AAPL' }),
+            stopRow({ symbol: 'INTC', status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44 }),
+          ]),
+        ]);
+        openStop();
+        await screen.findByRole('button', { name: 'Technical $173.54' });
+        expect(screen.queryByTestId('order-stop-replaces')).toBeNull();
+      });
+
+      it('does not ask about the book\'s stops until the field is opened', async () => {
+        const { api } = mount({}, order(), [CARD, held([stopRow()])]);
+        await screen.findByText(/Cash in this book/);
+        expect(api.calls.some(([url]) => url.includes('/stops/holdings'))).toBe(false);
+      });
     });
 
     it('shows the server\'s refusal of a stop that is not below the fill price', async () => {

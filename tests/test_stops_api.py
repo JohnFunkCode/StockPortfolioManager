@@ -275,6 +275,61 @@ class CancelStopTest(_Base):
         self.assertEqual(self.books.list_books(owner=OTHER), [])
 
 
+class HoldingStopsTest(_Base):
+    """`StopsService.holding_stops` (plan decision 66) over the real tables."""
+
+    def shown(self, **kwargs):
+        return self.service.holding_stops(owner=OWNER, **kwargs)
+
+    def test_each_book_shows_its_own_holdings_stop(self):
+        real = self.set_stop()
+        paper = self.set_stop(book_id=self.paper, stop_level="85")
+
+        self.assertEqual(self.shown()["book_kind"], "real")
+        self.assertEqual([s["stop_id"] for s in self.shown()["stops"]], [real["stop_id"]])
+        answer = self.shown(book_id=self.paper)
+        self.assertEqual(answer["book_kind"], "paper")
+        self.assertEqual([(s["stop_id"], s["stop_level"]) for s in answer["stops"]],
+                         [(paper["stop_id"], D("85"))])
+
+    def test_a_replaced_stop_gives_way_and_a_cancelled_one_shows_nothing(self):
+        self.set_stop()
+        newer = self.set_stop(stop_level="88")
+        self.assertEqual([s["stop_id"] for s in self.shown()["stops"]], [newer["stop_id"]])
+
+        self.service.cancel_stop(owner=OWNER, stop_id=newer["stop_id"], now=NOW)
+        self.assertEqual(self.shown()["stops"], [])
+
+    def test_a_reached_stop_is_shown_while_the_holding_it_was_reached_on_is_open(self):
+        stop = self.set_stop()
+        reached_on = datetime.date(2026, 6, 16)
+        self.assertTrue(self.repo.trigger_stop(
+            owner=OWNER, stop_id=stop["stop_id"], stop_level=D("90"), high_water_mark=None,
+            triggered_session=reached_on, trigger_price=D("89"), resolved_at=NOW))
+
+        (shown,) = self.shown()["stops"]
+        self.assertEqual((shown["status"], shown["trigger_price"]), ("triggered", D("89")))
+
+    def test_a_reached_stop_is_not_shown_on_a_position_bought_after_it(self):
+        stop = self.set_stop()
+        self.assertTrue(self.repo.trigger_stop(
+            owner=OWNER, stop_id=stop["stop_id"], stop_level=D("90"), high_water_mark=None,
+            triggered_session=datetime.date(2025, 12, 1), trigger_price=D("89"),
+            resolved_at=NOW))
+        # The lot in `setUp` was opened on 2026-01-02, after that bar.
+        self.assertEqual(self.shown()["stops"], [])
+
+    def test_the_read_creates_no_book_and_makes_no_network_call(self):
+        self.assertEqual(self.service.holding_stops(owner=OTHER), {"book_kind": "real", "stops": []})
+        self.assertEqual(self.books.list_books(owner=OTHER), [])
+        self.assertEqual(self.prices.calls, 0)
+
+    def test_another_owners_book_is_not_found(self):
+        self.set_stop(book_id=self.paper)
+        with self.assertRaises(BookNotFoundError):
+            self.service.holding_stops(owner=OTHER, book_id=self.paper)
+
+
 class StopsRoutesTest(_Base):
     def setUp(self):
         super().setUp()
@@ -371,6 +426,33 @@ class StopsRoutesTest(_Base):
         body = made.json()
         self.assertEqual((body["source"], body["source_ref"], body["status"]), ("manual", None, "active"))
         self.assertEqual(self.row_count(OTHER), 0)
+
+    def test_holdings_answers_one_stop_a_holding_for_the_asked_book(self):
+        real = self.post().json()
+        self.post(stop_level="88")              # replaces it: only the newest shows
+        paper = self.post(book_id=self.paper).json()
+
+        answer = self.client.get("/api/portfolio/stops/holdings")
+        self.assertEqual(answer.status_code, 200)
+        body = answer.json()
+        self.assertEqual(body["book_kind"], "real")
+        self.assertEqual([(s["symbol"], s["stop_level"], s["status"]) for s in body["stops"]],
+                         [(SYMBOL, 88, "active")])
+        self.assertNotEqual(body["stops"][0]["stop_id"], real["stop_id"])
+
+        in_paper = self.client.get(
+            "/api/portfolio/stops/holdings", params={"book_id": self.paper}).json()
+        self.assertEqual([s["stop_id"] for s in in_paper["stops"]], [paper["stop_id"]])
+
+    def test_holdings_is_closed_to_another_owner(self):
+        self.post()
+        self.post(book_id=self.paper)
+        self.as_identity(OTHER_IDENTITY)
+        self.assertEqual(self.client.get("/api/portfolio/stops/holdings").json()["stops"], [])
+        self.assertEqual(
+            self.client.get(
+                "/api/portfolio/stops/holdings", params={"book_id": self.paper}).status_code,
+            404)
 
     def test_another_owner_reaches_nothing_by_any_route(self):
         real = self.post().json()

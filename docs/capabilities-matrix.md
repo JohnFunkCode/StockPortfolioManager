@@ -16,7 +16,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 **Re-audited 2026-10-22** against what the frontend actually calls: every `apiRequest` path in
 `frontend/src/api/*.ts`, traced through `frontend/src/hooks/` to the components that consume it. A
 client function with no component behind it counts as **not surfaced**, and so does a standalone
-endpoint whose data the UI only gets through an aggregate one. Of the 128 REST operations, the
+endpoint whose data the UI only gets through an aggregate one. Of the 129 REST operations, the
 WebUI reaches **73** (counting the fetches Sidekick cards make themselves), leaving **55** with no
 UI consumer — each one is listed, by reason, in the
 [WebUI consumer inventory](#appendix-rest-operations-with-no-webui-consumer) at the end. Everything
@@ -55,7 +55,7 @@ Analysis tab and the Sidekick `stop_loss` card); the rest are still open.
 | **VWAP history** (multi-day series) | `GET /api/securities/{ticker}/vwap/history` | Chart overlay |
 | **On-demand news collection** (fetch + FinBERT + persist) | `POST /api/securities/{ticker}/news/collect` | A "refresh news" button (mirrors the existing options-snapshot refresh button) |
 | **Editing a sale's reason** (issue #266) | `PATCH /api/portfolio/sales/{id}` (and the standalone list, `GET /api/portfolio/sales`) | An edit control on a sale row in the Portfolio page's Realized section, which already lists each sale with its reason (#235). The client and hooks exist (`portfolioApi.getSales`/`updateSale`, `useSales`/`useUpdateSale`) but **no component calls them** |
-| **Setting and cancelling a stored stop on a holding** (a fixed or trailing stop, in any book; #431 plan step 4.1, #221) | `POST /api/portfolio/stops`, `POST /api/portfolio/stops/{stop_id}/cancel` | The stop panel on the Security page (plan step 4.5). Today the page sets a stop only with a paper buy (step 4.3), through the orders route, and shows a holding's stop without a way to take it off |
+| **Setting a stored stop on a holding, and a book's full stop history** (a fixed or trailing stop, in any book; #431 plan step 4.1, #221) | `POST /api/portfolio/stops`, `GET /api/portfolio/stops` | The stop panel on the Security page (plan step 4.5). Today the page sets a stop only with a paper buy (step 4.3), through the orders route. It shows each holding's stop and can take one off, but nothing lists the stops a book has had |
 | **Portfolio CSV import** (full-sync per-owner) | `POST /api/portfolio/import` | Upload dialog on the Portfolio page — today it's the `scripts/import_portfolio.py` CLI only |
 | **Batch fundamental scoring** | `POST /api/securities/fundamentals/scores-batch` | An MCP/API convenience; not obviously a page |
 
@@ -86,7 +86,7 @@ Analysis tab (issue #93).
 | Surface | Count | Examples |
 |---|---|---|
 | MCP Tools (7 servers) | 63 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 128 operations (74 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| REST Endpoints | 129 operations (75 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 2 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
 | Sidekick chat tools | 13 + 20 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
@@ -270,8 +270,8 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | A book's cash: balance, opening balance, deposits, withdrawals, and the buy and sell entry of every lot and sale (#431 step 3.1) | — | `GET /api/portfolio/cash?book_id=`, `PUT /api/portfolio/cash/opening-balance`, `POST /api/portfolio/cash/entries`, `DELETE /api/portfolio/cash/entries/{entry_id}` | Portfolio page → Cash and orders section (entry forms for the real book only), and the cash figure in the summary strip | `cash_ledger` card, read-only (no data tool: the model shows the card and quotes no figure) | `scripts/backfill_cash_entries.py` (rows for lots and sales from before the ledger) |
 | A paper book's orders, each with its status and what became of it; cancel a pending one (#431 step 3.3) | — | `GET /api/portfolio/orders?book_id=`, `POST /api/portfolio/orders/{order_id}/cancel` | Portfolio page → Cash and orders section → Orders (paper books only) | — | — |
 | Buy and sell on paper; copy the real holdings into a new paper book; close an unquotable position at the last price on record (#431 step 3.5) | — | `POST /api/portfolio/orders`, `POST /api/portfolio/orders/seed`, `POST /api/portfolio/orders/manual-close` | Security Detail → Buy on paper; Portfolio page → Sell on a paper symbol row, the New paper book dialog, and an empty paper book | — | Daily job: one `[PAPER]` Discord message with the day's fills |
-| A holding's stored stop: its level, a trailing stop's percentage, and whether a closed bar reached it (#431 plan steps 4.1 to 4.3, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops?book_id=&include_inactive=`; the `stop` field of `POST /api/portfolio/orders` | Portfolio page → Holdings, the Stop column on symbol and lot rows; Security Detail → Buy on paper → Add a stop | — | Daily job: the stop checker, and the real book's breach alert |
-| **⚠ Setting and cancelling a stop on a holding** (#431 plan step 4.1, #221) | — | `POST /api/portfolio/stops`, `POST /api/portfolio/stops/{stop_id}/cancel` | **—** (the stop panel is plan step 4.5) | — | — |
+| A holding's stored stop: its level, a trailing stop's percentage, and whether a closed bar reached it; take an active stop off (#431 plan steps 4.1 to 4.3, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops/holdings?book_id=`, `POST /api/portfolio/stops/{stop_id}/cancel`; the `stop` field of `POST /api/portfolio/orders` | Portfolio page → Holdings, the Stop column on symbol and lot rows, with its take-off control; Security Detail → Buy on paper → Add a stop | — | Daily job: the stop checker, and the real book's breach alert |
+| **⚠ Setting a stop on a holding; listing every stop a book has had** (#431 plan step 4.1, #221) | — | `POST /api/portfolio/stops`, `GET /api/portfolio/stops?book_id=&include_inactive=` | **—** (the stop panel is plan step 4.5) | — | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / Security Detail remove action | — | — |
 | Lot lifecycle (create / edit / delete / close), with an optional reason on each purchase and sale (issue #266; `lot_notes` gives each lot of a multi-lot sale its own reason) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close`, `POST .../lots/{id}/close/preview` (read-only: which lots a sale would touch) | Portfolio page lot dialogs, lot-row note icon + Edit note | — | — |
@@ -388,7 +388,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 74 of 128 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 75 of 129 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation panel** — the most powerful synthesis endpoint, invisible in the UI (its stop-loss sibling shipped in #399).
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -448,7 +448,9 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 ---
 
 **Document Version:** 2.6
-**Last Updated:** 2026-11-16 (#431 step 4.3: the Portfolio page now reads `GET /api/portfolio/stops`, so 74 of 128 operations are reached and 54 are left. Setting and cancelling a stop are still reached by no component. A paper buy can carry a stop, through the existing orders route. 34 gaps; 28 tables)
+**Last Updated:** 2026-11-17 (#431, John's decisions on the 4.3 build: a new `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, and the Portfolio page reads it and can take a stop off through the cancel route. The page no longer reads the full list route. 75 of 129 operations reached, 54 left, 34 gaps; 28 tables)
+
+**Earlier:** 2026-11-16 (#431 step 4.3: the Portfolio page now reads `GET /api/portfolio/stops`, so 74 of 128 operations are reached and 54 are left. Setting and cancelling a stop are still reached by no component. A paper buy can carry a stop, through the existing orders route. 34 gaps; 28 tables)
 
 **Earlier:** 2026-11-16 (#431 step 3.5: buying and selling on paper adds two operations, `/api/portfolio/orders/seed` and `/manual-close`. Both, and placing an order, are reached by the order dialog and the New paper book dialog, so the 3.3 gap closes: 72 of 124 operations reached, 52 left, 31 gaps; 27 tables)
 

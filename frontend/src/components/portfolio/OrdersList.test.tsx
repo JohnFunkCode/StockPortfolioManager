@@ -182,13 +182,14 @@ describe('OrdersList', () => {
     });
   });
 
-  it('says what stop a buy asked for, and when the fill could not set it (#431 step 4.3)', async () => {
+  it('says what stop a buy asked for, and when the buy was rejected for it (#431 step 4.3)', async () => {
     mount(ordersResponse([
       order({ order_id: 30, stop_kind: 'fixed', stop_level: 45, stop_method: 'manual', stop_set: true }),
       order({ order_id: 31, stop_kind: 'trailing', stop_trail_pct: 7.5, stop_method: 'trailing', stop_set: true }),
       order({
-        order_id: 32, stop_kind: 'fixed', stop_level: 55, stop_method: 'manual', stop_set: false,
-        price_source: 'session_open',
+        order_id: 32, stop_kind: 'fixed', stop_level: 55, stop_method: 'manual', status: 'rejected',
+        reject_reason: 'stop_not_below_fill', filled_shares: null, fill_price: null,
+        price_source: null, quote_time: null,
       }),
       order({
         order_id: 33, requested_shares: null, requested_amount: 500, stop_kind: 'fixed', stop_level: 45,
@@ -201,17 +202,11 @@ describe('OrdersList', () => {
     expect(row(30).getByText('Buy 2 INTC, with a stop at $45.00')).toBeInTheDocument();
     expect(row(30).getByText('2 @ $50.00')).toBeInTheDocument();
     expect(row(31).getByText('Buy 2 INTC, with a stop trailing 7.5%')).toBeInTheDocument();
-    expect(row(32).getByText('2 @ $50.00, the opening price. Stop not set: filled at or below it')).toBeInTheDocument();
-    expect(row(33).getByText('Buy $500.00 of INTC, with a stop at $45.00')).toBeInTheDocument();
-  });
-
-  it('says a trail was too small, not that the fill was below a level nobody gave', async () => {
-    mount(ordersResponse([
-      order({ order_id: 34, stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
-    ]));
-    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+    // A queued buy that opened at or under its stop is rejected whole (decision 64).
+    expect(row(32).getByText('Rejected')).toBeInTheDocument();
     expect(
-      row(34).getByText('2 @ $50.00. Stop not set: the trail is too small to give a price below the fill'),
+      row(32).getByText('it opened at or below the stop it asked for, so no position was opened'),
     ).toBeInTheDocument();
+    expect(row(33).getByText('Buy $500.00 of INTC, with a stop at $45.00')).toBeInTheDocument();
   });
 });

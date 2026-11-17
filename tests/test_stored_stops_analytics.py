@@ -3,6 +3,7 @@
 Pure functions, no database.
 """
 
+import datetime
 import unittest
 from decimal import Decimal
 
@@ -95,6 +96,57 @@ class StopTermsTest(unittest.TestCase):
         for level in ("0", "-5", "0.00004"):
             with self.subTest(level=level), self.assertRaises(ValueError):
                 stops_math.stop_terms("fixed", stop_level=D(level), reference=D("10.00"))
+
+
+class HoldingStopsTest(unittest.TestCase):
+    """`holding_stops` (plan decision 66): the one stop each holding shows."""
+
+    JAN = datetime.date(2026, 1, 2)
+    JUNE = datetime.date(2026, 6, 16)
+
+    @staticmethod
+    def stop(stop_id, symbol="AAA", status="active", triggered_session=None):
+        return {"stop_id": stop_id, "symbol": symbol, "status": status,
+                "triggered_session": triggered_session}
+
+    def shown(self, stops, opened):
+        return [s["stop_id"] for s in stops_math.holding_stops(stops, opened)]
+
+    def test_a_held_symbol_shows_its_active_stop(self):
+        self.assertEqual(self.shown([self.stop(3)], {"AAA": [self.JAN]}), [3])
+
+    def test_only_the_newest_stop_of_a_symbol_is_looked_at(self):
+        stops = [self.stop(9, status="cancelled"), self.stop(8)]
+        self.assertEqual(self.shown(stops, {"AAA": [self.JAN]}), [])
+        stops = [self.stop(9), self.stop(8, status="replaced")]
+        self.assertEqual(self.shown(stops, {"AAA": [self.JAN]}), [9])
+
+    def test_a_symbol_the_book_does_not_hold_shows_nothing(self):
+        self.assertEqual(self.shown([self.stop(3)], {}), [])
+        self.assertEqual(self.shown([self.stop(3)], {"BBB": [self.JAN]}), [])
+
+    def test_a_reached_stop_is_shown_only_to_a_lot_opened_by_its_bar(self):
+        reached = [self.stop(3, status="triggered", triggered_session=self.JUNE)]
+        self.assertEqual(self.shown(reached, {"AAA": [self.JUNE]}), [3])
+        self.assertEqual(self.shown(reached, {"AAA": [self.JAN]}), [3])
+        later = self.JUNE + datetime.timedelta(days=1)
+        self.assertEqual(self.shown(reached, {"AAA": [later]}), [])
+        self.assertEqual(self.shown(reached, {"AAA": [later, self.JAN]}), [3])
+        self.assertEqual(self.shown(reached, {"AAA": []}), [])
+
+    def test_an_active_stop_is_shown_even_when_no_lot_has_a_date(self):
+        self.assertEqual(self.shown([self.stop(3)], {"AAA": []}), [3])
+
+    def test_stops_that_ended_any_other_way_show_nothing(self):
+        for status in ("cancelled", "replaced", "closed"):
+            with self.subTest(status=status):
+                self.assertEqual(self.shown([self.stop(3, status=status)], {"AAA": [self.JAN]}), [])
+
+    def test_the_answer_is_in_symbol_order(self):
+        stops = [self.stop(1, "ZZZ"), self.stop(2, "AAA"), self.stop(3, "MMM")]
+        opened = {"ZZZ": [self.JAN], "AAA": [self.JAN], "MMM": [self.JAN]}
+        self.assertEqual(self.shown(stops, opened), [2, 3, 1])
+
 
 
 if __name__ == "__main__":

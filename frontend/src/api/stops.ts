@@ -51,14 +51,34 @@ export interface StopsResponse {
   stops: Stop[];
 }
 
+/** GET /api/portfolio/stops/holdings: one stop a holding at most. */
+export interface HoldingStopsResponse {
+  book_kind: 'real' | 'paper';
+  /** In symbol order. Each is its symbol's live stop, or one a bar reached
+   * while the holding was already open. The server picks. */
+  stops: Stop[];
+}
+
+function withBook(path: string, bookId: number | null, extra: Record<string, string> = {}): string {
+  const params = new URLSearchParams(extra);
+  if (bookId !== null) params.set('book_id', String(bookId));
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
 export const stopsApi = {
+  /** The stop each of a book's holdings shows; null is the real book. */
+  holdings: (bookId: number | null = null) =>
+    apiRequest<HoldingStopsResponse>(withBook('/api/portfolio/stops/holdings', bookId)),
+
   /** A book's stops; null is the real book. `includeInactive` adds the ones
    * that were triggered, cancelled, replaced or closed. */
-  list: (bookId: number | null = null, includeInactive = false) => {
-    const params = new URLSearchParams();
-    if (bookId !== null) params.set('book_id', String(bookId));
-    if (includeInactive) params.set('include_inactive', 'true');
-    const query = params.toString();
-    return apiRequest<StopsResponse>(`/api/portfolio/stops${query ? `?${query}` : ''}`);
-  },
+  list: (bookId: number | null = null, includeInactive = false) =>
+    apiRequest<StopsResponse>(
+      withBook('/api/portfolio/stops', bookId, includeInactive ? { include_inactive: 'true' } : {}),
+    ),
+
+  /** Take an active stop off. Only an active stop can be cancelled. */
+  cancel: (stopId: number, bookId: number | null = null) =>
+    apiRequest<Stop>(withBook(`/api/portfolio/stops/${stopId}/cancel`, bookId), { method: 'POST' }),
 };

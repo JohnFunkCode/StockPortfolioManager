@@ -14,7 +14,9 @@ export type RejectReason =
   | 'non_usd'
   | 'insufficient_cash'
   | 'insufficient_shares'
-  | 'no_open_price';
+  | 'no_open_price'
+  /** A queued buy whose opening price left no room for the stop it asked for. */
+  | 'stop_not_below_fill';
 
 export interface Order {
   order_id: number;
@@ -48,8 +50,8 @@ export interface Order {
   stop_trail_pct: number | null;
   stop_method: string | null;
   stop_proposed_level: number | null;
-  /** True once the fill wrote the stop. False when the buy filled at or
-   * under the fixed level it asked for, so it has no stop. Null until it fills. */
+  /** True once the fill wrote the stop. Null until the order fills, and on an
+   * order that asked for none. */
   stop_set: boolean | null;
   /** True when the request repeated an idempotency key: nothing new happened. */
   replayed: boolean;

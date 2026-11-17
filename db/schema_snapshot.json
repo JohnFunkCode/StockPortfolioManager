@@ -1224,7 +1224,7 @@
         "orders_pkey": "PRIMARY KEY (order_id)",
         "orders_positive_request": "CHECK ((COALESCE(requested_shares, requested_amount) > (0)::numeric))",
         "orders_price_source_check": "CHECK ((price_source = ANY (ARRAY['quote'::text, 'session_open'::text])))",
-        "orders_reject_reason_check": "CHECK ((reject_reason = ANY (ARRAY['stale_quote'::text, 'no_quote'::text, 'non_usd'::text, 'insufficient_cash'::text, 'insufficient_shares'::text, 'no_open_price'::text])))",
+        "orders_reject_reason_check": "CHECK ((reject_reason = ANY (ARRAY['stale_quote'::text, 'no_quote'::text, 'non_usd'::text, 'insufficient_cash'::text, 'insufficient_shares'::text, 'no_open_price'::text, 'stop_not_below_fill'::text])))",
         "orders_rejected_has_reason": "CHECK (((status = 'rejected'::text) = (reject_reason IS NOT NULL)))",
         "orders_sell_in_shares": "CHECK (((side = 'buy'::text) OR (requested_shares IS NOT NULL)))",
         "orders_side_check": "CHECK ((side = ANY (ARRAY['buy'::text, 'sell'::text])))",

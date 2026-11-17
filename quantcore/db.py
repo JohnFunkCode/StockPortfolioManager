@@ -269,7 +269,7 @@ CREATE TABLE IF NOT EXISTS orders (
     quote_time       TIMESTAMPTZ,
     reject_reason    TEXT          CHECK (reject_reason IN (
                          'stale_quote', 'no_quote', 'non_usd', 'insufficient_cash',
-                         'insufficient_shares', 'no_open_price')),
+                         'insufficient_shares', 'no_open_price', 'stop_not_below_fill')),
     CONSTRAINT orders_one_request
         CHECK ((requested_shares IS NULL) <> (requested_amount IS NULL)),
     CONSTRAINT orders_sell_in_shares
@@ -391,6 +391,19 @@ ALTER TABLE orders
 -- open after created_at.
 ALTER TABLE stops
   ADD COLUMN IF NOT EXISTS first_session DATE;
+
+-- V23 (#431 phase 2 and #221, decision 64): 'stop_not_below_fill' joins the
+-- reject reasons. Mirrors db/migrations/V23__reject_stop_not_below_fill.sql.
+-- The CREATE TABLE above already lists it for a new database. These two
+-- replace the constraint on a database made before V23, and are safe to
+-- repeat: the new list holds every value the old one did.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_reject_reason_check;
+
+ALTER TABLE orders
+  ADD CONSTRAINT orders_reject_reason_check
+      CHECK (reject_reason IN (
+          'stale_quote', 'no_quote', 'non_usd', 'insufficient_cash',
+          'insufficient_shares', 'no_open_price', 'stop_not_below_fill'));
 
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.

@@ -831,6 +831,11 @@ export function stopRow(overrides: object = {}) {
   };
 }
 
+/** What GET /api/portfolio/stops/holdings answers: one stop a holding. */
+export function holdingStops(stops: object[] = [stopRow()], overrides: object = {}) {
+  return { book_kind: 'real', stops, ...overrides };
+}
+
 /** What GET /api/portfolio/stops answers. */
 export function stopsResponse(stops: object[] = [stopRow()], overrides: object = {}) {
   return {

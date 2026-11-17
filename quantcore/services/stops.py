@@ -139,6 +139,17 @@ def _one_of(value: Any, allowed, name: str) -> str:
     return value
 
 
+def _opened_on(lot: Dict[str, Any]) -> Optional[datetime.date]:
+    """The date a lot was opened, or None when it has none on record. A lot's
+    `trade_date` is a date and its `purchase_date` text, so both are read as
+    the first ten characters of an ISO date."""
+    text = str(lot.get("trade_date") or lot.get("purchase_date") or "")[:10]
+    try:
+        return datetime.date.fromisoformat(text)
+    except ValueError:
+        return None
+
+
 class StopsService:
     def __init__(
         self,
@@ -189,6 +200,28 @@ class StopsService:
             "book_kind": REAL if book is None else book["kind"],
             "active_count": len(active),
             "stops": stops if include_inactive else active,
+        }
+
+    def holding_stops(self, *, owner: str, book_id: Optional[int] = None) -> Dict[str, Any]:
+        """The stop each of a book's holdings shows, one a symbol at most, in
+        symbol order (`analytics.stored_stops.holding_stops`): its live stop,
+        or one a bar reached while the holding was already open.
+
+        What the Portfolio page draws. Two queries, no network call, and no
+        book is created. Raises `BookNotFoundError` for a book that isn't
+        the owner's.
+        """
+        book = self._book(owner, book_id)
+        opened: Dict[str, List[datetime.date]] = {}
+        for lot in self._repo.open_lots(owner=owner, book_id=book_id):
+            day = _opened_on(lot)
+            if day is not None:
+                opened.setdefault(lot["symbol"], []).append(day)
+        return {
+            "book_kind": REAL if book is None else book["kind"],
+            "stops": stops_math.holding_stops(
+                self._repo.list_stops(owner=owner, book_id=book_id), opened
+            ),
         }
 
     # ------------------------------------------------------------------

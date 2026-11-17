@@ -66,8 +66,13 @@ NON_USD = "non_usd"
 INSUFFICIENT_CASH = "insufficient_cash"
 INSUFFICIENT_SHARES = "insufficient_shares"
 NO_OPEN_PRICE = "no_open_price"
+# A buy asked for a stop, and the price it would fill at leaves no room for
+# one: a fixed level at or above it, or a trail too small to give a price
+# under it. The buy is rejected, so no position opens without its stop.
+STOP_NOT_BELOW_FILL = "stop_not_below_fill"
 REJECT_REASONS = (
     STALE_QUOTE, NO_QUOTE, NON_USD, INSUFFICIENT_CASH, INSUFFICIENT_SHARES, NO_OPEN_PRICE,
+    STOP_NOT_BELOW_FILL,
 )
 
 # Where a fill's price came from. A manual close has neither: its price is the

@@ -6,9 +6,13 @@
  * buttons that fill the field. That request is made only when this field is
  * mounted, which is when the owner opens it, so a buy with no stop never
  * pays for the analysis. Every suggested figure is the server's.
+ *
+ * A book has one stop a symbol. When the symbol already has one in the
+ * chosen book, the field says the new stop will replace it (decision 65).
  */
-import { Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
+import { Alert, Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typography } from '@mui/material';
 import { useStopLoss } from '../../hooks/useSecurities';
+import { useHoldingStops } from '../../hooks/useStops';
 import { formatCurrency } from '../../utils/formatting';
 import type { OrderStopPayload } from '../../api/orders';
 import type { StopLossResponse } from '../../api/securitiesTypes';
@@ -74,16 +78,29 @@ function suggestions(stops: StopLossResponse['stops']): Suggestion[] {
 
 interface Props {
   symbol: string;
+  /** The paper book the buy is for, or null while none is picked. */
+  bookId: number | null;
   draft: StopDraft;
   onChange: (draft: StopDraft) => void;
 }
 
-export default function OrderStopField({ symbol, draft, onChange }: Props) {
+export default function OrderStopField({ symbol, bookId, draft, onChange }: Props) {
   const card = useStopLoss(symbol, 'stop');
   const fixed = draft.kind === 'fixed';
+  // A book has one stop a symbol, so a stop set here replaces the one the
+  // holding already has. The owner is told before the order is sent.
+  const { data: held } = useHoldingStops(bookId, bookId !== null);
+  const current = held?.stops.find((stop) => stop.symbol === symbol && stop.status === 'active');
 
   return (
     <Stack spacing={1.5} data-testid="order-stop">
+      {current && (
+        <Alert severity="warning" data-testid="order-stop-replaces">
+          {symbol} already has a stop in this book, at {formatCurrency(current.stop_level)}
+          {current.kind === 'trailing' ? `, trailing ${Number(current.trail_pct)}%` : ''}. The
+          stop set here replaces it when the buy fills, for the whole position.
+        </Alert>
+      )}
       <ToggleButtonGroup
         size="small"
         exclusive

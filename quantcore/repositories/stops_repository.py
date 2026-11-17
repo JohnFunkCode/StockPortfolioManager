@@ -203,6 +203,10 @@ class StopsRepository:
             rows = conn.execute(SQL_LIST_STOPS, {"owner": owner, "book_id": book_id}).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def open_lots(self, *, owner: str, book_id: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Every OPEN lot of one book: what its stops are on. Creates no book."""
+        return self._lots.list_positions(owner, book_id=book_id)
+
     def get_stop(
         self, *, owner: str, stop_id: int, book_id: Optional[int] = None
     ) -> Optional[Dict[str, Any]]:

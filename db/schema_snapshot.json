@@ -1836,6 +1836,26 @@
           "nullable": true,
           "type": "timestamp with time zone"
         },
+        "approach_alerted_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
+        "approach_atr": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "approach_close": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "approached_session": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
+        },
         "as_of": {
           "default": null,
           "nullable": false,
@@ -1944,6 +1964,7 @@
       },
       "constraints": {
         "stops_active_is_unresolved": "CHECK (((status = 'active'::text) = (resolved_at IS NULL)))",
+        "stops_approach_rule": "CHECK ((((approached_session IS NULL) = (approach_close IS NULL)) AND ((approached_session IS NULL) = (approach_atr IS NULL)) AND ((approach_alerted_at IS NULL) OR (approached_session IS NOT NULL))))",
         "stops_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
         "stops_fixed_has_no_trail": "CHECK (((kind = 'trailing'::text) OR ((trail_pct IS NULL) AND (high_water_mark IS NULL))))",
         "stops_high_water_mark_check": "CHECK ((high_water_mark > (0)::numeric))",

@@ -112,7 +112,7 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 
 `main.py` is the daily Cloud Run Job (`quantcore-report`). It reads John's positions and the
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
-this order** — notifications → queued paper fills → stop checks, then the day's `[PAPER]` fills message and the real book's stop alert (#431, #221) → options capture → gamma/GEX (from the
+this order** — notifications → queued paper fills → stop checks, then the day's `[PAPER]` fills message and the real book's stop and approach alerts (#431, #221) → options capture → gamma/GEX (from the
 persisted snapshot, no Yahoo calls) → capture health check → news staleness → fundamentals
 warming → OHLCV close-out (#518). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
@@ -129,6 +129,7 @@ effects land before anything that can run long. Rules to keep:
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
   `GEX_RECORD_BUDGET_SECONDS`, `QUEUED_FILLS_BUDGET_SECONDS`, `STOP_CHECK_BUDGET_SECONDS`,
+  `STOP_APPROACH_ATR_MULTIPLE`,
   `OHLCV_CLOSEOUT_BUDGET_SECONDS`,
   `NEWS_*`) fall back to the default on an unparseable value — a typo
   must not silently disarm an alarm.
@@ -336,7 +337,11 @@ lot. Rules to keep:
   (`stops.alerted_at`, marked only after Discord took it) and for the job owner's real book
   only. A sale that leaves a symbol flat closes its stop in the same transaction
   (`stop_sql.close_flat_stops_on`), and every checker run closes the rest. An archived
-  book's stops are not checked. Why: [`data.md`](docs/architecture/data.md#the-stop-checker).
+  book's stops are not checked. **A held stop whose newest closed bar ended within
+  `STOP_APPROACH_ATR_MULTIPLE` ATRs of its level is recorded as close, and the real book is
+  told once per approach** (`stops.approached_session`, `approach_alerted_at`, step 4.4); a
+  close further away clears both, and too little history to measure the ATR leaves them as
+  they were, never as "far". Why: [`data.md`](docs/architecture/data.md#the-stop-checker).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.
 - `tests/test_book_isolation_coverage.py` enforces the first two the way the owner test does

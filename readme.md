@@ -395,6 +395,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `FUNDAMENTALS_STALE_MAX_AGE_HOURS` | 168 |
 | `QUEUED_FILLS_BUDGET_SECONDS` | 120 |
 | `STOP_CHECK_BUDGET_SECONDS` | 120 |
+| `STOP_APPROACH_ATR_MULTIPLE` | 1 (ATRs above the stop that count as close to it) |
 | `OHLCV_CLOSEOUT_BUDGET_SECONDS` | 300 |
 | `NEWS_STALE_MAX_AGE_HOURS` | 120 |
 

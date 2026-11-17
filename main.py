@@ -9,7 +9,8 @@ as ``python main.py``. It no longer builds the HTML report — that moved to
 The step order is an isolation property, not an accident. The cheap,
 high-value work runs first (Discord notifications and the Harvester rung
 checks, then the fills of queued paper orders and the check of every stored
-stop against the closed bars, #431 and #221), then the options-chain
+stop against the closed bars, with the alerts for a stop reached or closely
+approached, #431 and #221), then the options-chain
 capture that keeps the open-interest history
 accumulating, then gamma/GEX computed from the chain the capture just
 persisted (no second Yahoo fetch, #373), the capture health check, the news
@@ -43,11 +44,13 @@ import os
 import sys
 import time
 from datetime import date
+from decimal import Decimal
 
 from portfolio import portfolio
 from portfolio import watch_list
 from notifier import Notifier
 from quantcore.analytics.market_time import is_trading_day, market_date
+from quantcore.analytics.stored_stops import DEFAULT_APPROACH_ATR_MULTIPLE
 from quantcore.db import ensure_schema
 from quantcore.services.registry import get_services
 
@@ -87,6 +90,11 @@ DEFAULT_STOP_CHECK_BUDGET_SECONDS = 120.0
 STOP_CHECK_ALERT_SYMBOLS = 10
 # How many stops the breach alert lists before "and N more".
 STOP_ALERT_MESSAGE_LINES = 20
+# A holding that closes within this many ATRs (14-session) above its stop is
+# announced once, the evening before a likely breach (plan step 4.4, #221).
+# Not a budget, but read the same way: an unparseable or non-positive value
+# falls back to the default rather than switching the alert off.
+STOP_APPROACH_ATR_MULTIPLE_ENV = "STOP_APPROACH_ATR_MULTIPLE"
 
 OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV = "OHLCV_CLOSEOUT_BUDGET_SECONDS"
 DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS = 300.0
@@ -655,6 +663,14 @@ def report_paper_fills(orders, notifier, owner, today=None) -> int:
         return 0
 
 
+def approach_atr_multiple() -> Decimal:
+    """How many ATRs above its stop a close counts as close to it, from
+    ``STOP_APPROACH_ATR_MULTIPLE`` (plan step 4.4). Falls back to the default
+    on an unset, unparseable or non-positive value."""
+    return Decimal(str(_env_float(
+        STOP_APPROACH_ATR_MULTIPLE_ENV, float(DEFAULT_APPROACH_ATR_MULTIPLE))))
+
+
 def check_stops(stops, budget_seconds=None, clock=time.monotonic, today=None) -> dict:
     """Test every active stop against the closed bars it hasn't seen (#431, #221).
 
@@ -670,9 +686,11 @@ def check_stops(stops, budget_seconds=None, clock=time.monotonic, today=None) ->
     budget = (_env_float(STOP_CHECK_BUDGET_SECONDS_ENV, DEFAULT_STOP_CHECK_BUDGET_SECONDS)
               if budget_seconds is None else budget_seconds)
     today = today or market_date()
+    multiple = approach_atr_multiple()
     closed = stops.close_flat_stops()
     due = stops.due_stops(today=today)
-    print(f"Checking {len(due)} stop(s), budget {budget:.0f}s...")
+    print(f"Checking {len(due)} stop(s), budget {budget:.0f}s, "
+          f"close to a stop within {multiple} ATR...")
 
     started = clock()
     summary = {"due": len(due), "closed_flat": closed, "attempted": 0, "triggered": 0,
@@ -684,7 +702,7 @@ def check_stops(stops, budget_seconds=None, clock=time.monotonic, today=None) ->
         try:
             result = stops.check_stop(
                 owner=stop["owner"], book_id=stop["book_id"],
-                stop_id=stop["stop_id"], today=today)
+                stop_id=stop["stop_id"], today=today, approach_atr_multiple=multiple)
             outcome = result["outcome"]
             summary[outcome if outcome in summary else "skipped"] += 1
         except Exception as exc:  # noqa: BLE001 — one bad stop must not stop the walk
@@ -773,6 +791,35 @@ def report_triggered_stops(stops, notifier, owner, today=None) -> int:
         return len(owed)
     except Exception as exc:  # noqa: BLE001 — an alert must not fail the job
         print(f"ERROR: stop alert failed: {type(exc).__name__}", file=sys.stderr)
+        return 0
+
+
+def report_approaching_stops(stops, notifier, owner, today=None) -> int:
+    """Alert that holdings in ``owner``'s real book closed near their stops
+    (plan step 4.4, #221): the warning the evening before a likely breach.
+
+    One message for every active real-book stop whose newest checked bar
+    closed within the approach distance and whose approach alert has not
+    gone out. It reads what the checker recorded, and a stop is marked only
+    after Discord took the message, so a failed send is made up on the next
+    run. A stop that stays close is announced once; one that moves away and
+    comes back is announced again. Only ``owner``'s, for the breach alert's
+    reason. Returns the number of stops reported. **Never raises.**
+    """
+    try:
+        owed = stops.unalerted_approaches(owner=owner)
+        if not owed:
+            return 0
+        day = (today or market_date()).isoformat()
+        print(f"Reporting {len(owed)} holding(s) close to their stop in the real book.")
+        if not notifier.send_stop_approach_alert(
+                owed[:STOP_ALERT_MESSAGE_LINES], len(owed), day, approach_atr_multiple()):
+            print("ERROR: the approach alert was not sent; it stays owed.", file=sys.stderr)
+            return 0
+        stops.mark_approach_alerted(owner=owner, stop_ids=[s["stop_id"] for s in owed])
+        return len(owed)
+    except Exception as exc:  # noqa: BLE001 — an alert must not fail the job
+        print(f"ERROR: approach alert failed: {type(exc).__name__}", file=sys.stderr)
         return 0
 
 
@@ -1129,9 +1176,11 @@ if __name__ == "__main__":
     )
 
     # The day's paper fills, in-hours, queued and stop sales, as one [PAPER]
-    # message, then the real book's stops that were reached.
+    # message, then the real book's stops that were reached, then the ones
+    # its holdings closed near (plan step 4.4).
     report_paper_fills(get_services().orders, notifier, notifier.owner)
     report_triggered_stops(get_services().stops, notifier, notifier.owner)
+    report_approaching_stops(get_services().stops, notifier, notifier.owner)
 
     # Capture full options chains for portfolio + watchlist symbols so the
     # options_contracts OI time series (and daily GEX regime history) keeps

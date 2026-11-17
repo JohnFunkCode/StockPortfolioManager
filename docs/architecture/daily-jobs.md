@@ -51,6 +51,7 @@ their own sections below):
    | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
    | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
    | `STOP_CHECK_BUDGET_SECONDS` | `120` | wall-clock budget for the stop checks; also clamped to the task deadline |
+   | `STOP_APPROACH_ATR_MULTIPLE` | `1` | a real-book holding that closes within this many ATRs (14-session) above its stop is announced once; zero or negative falls back too |
    | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the *optionable* universe's chains landed today (symbols with no listed options are excluded) |
    | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed, or of the capture's attempts were captured only partially |
    | `OPTIONS_CAPTURE_NO_OPTIONS_CEILING` | `0.25` | alarm when more than this fraction of the universe returned no options chain |
@@ -286,7 +287,10 @@ with no broker holding it, a stop the job doesn't test doesn't fire.
   walked, oldest first, so a night the job missed is made up.
 - **The outcome** (`analytics.stored_stops.check_stop`, then `StopsService.check_stop`):
   - no new closed bar: left as it is (`waiting`);
-  - the bars held: `last_bar_checked` is recorded, with a trailing stop's raised mark and level;
+  - the bars held: `last_bar_checked` is recorded, with a trailing stop's raised mark and level,
+    and whether the newest bar closed within `STOP_APPROACH_ATR_MULTIPLE` ATRs of the level
+    (plan step 4.4; [data.md](data.md#the-stop-checker) has the rule). The read reaches back
+    90 days for the ATR, which is still one read per stop;
   - a bar's low reached the level: the stop is `triggered`, at its level, or at that bar's open
     when the stock opened under the level. A **real** book's stop is marked and nothing is sold.
     A **paper** book's whole position is sold at that price, dated that bar's session, in the
@@ -321,6 +325,24 @@ level, whether it traded down to the level or opened under it, and the bar's dat
 - **A paper book's stop is not in it.** Its sale is in the `[PAPER]` fills message, worded as a
   stop's.
 - It says nothing was sold. It never raises.
+
+**The real book's holdings that closed near their stops** (plan step 4.4, #221). Straight after
+the breach alert, `report_approaching_stops` sends one Discord alert listing the job owner's
+active real-book stops whose newest checked bar closed within `STOP_APPROACH_ATR_MULTIPLE`
+(default `1`) ATRs of the level and that have not been announced since they came close
+(`StopsService.unalerted_approaches`), nearest first: each symbol, its close, the session, how
+many ATRs above its stop that was, and the stop. With after-close checking it is the warning the
+evening before a likely breach.
+
+- **Once per approach, and not lost.** A stop is marked (`stops.approach_alerted_at`) only after
+  Discord took the message; a send that raises, is refused or has no webhook leaves it owed. A
+  stop that stays close is not announced again. One that moves further away is cleared by the
+  checker and is announced again when it next comes close.
+- **Whose:** the job owner's real book only, as for the breach alert. A paper book's approach
+  is recorded and not sent: its stop sells by itself.
+- **The setting** falls back to the default on an unparseable, zero or negative value, so a typo
+  can't switch the alert off.
+- It never raises, and logs the exception class only.
 
 **News collection is a separate Job** (issue #68): `news_job.py`, image `quantcore-news` from
 `Dockerfile.news`, because FinBERT needs `requirements-ml.txt` (torch), which the lean report image

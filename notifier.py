@@ -66,12 +66,27 @@ def _paper_fill_line(fill: dict) -> str:
 def _stop_alert_line(stop: dict) -> str:
     """One real-book stop that a closed bar reached, in words."""
     level = _money(stop["stop_level"])
-    kind = f"trailing {stop['trail_pct'].normalize():f}%" if stop["kind"] == "trailing" else "fixed"
+    kind = _stop_kind_words(stop)
     if stop["trigger_price"] < stop["stop_level"]:
         what = f"opened at {_money(stop['trigger_price'])}, below its stop at {level}"
     else:
         what = f"traded down to its stop at {level}"
     return f"{stop['symbol']}: {what} ({kind}) on {stop['triggered_session']}"
+
+
+def _stop_kind_words(stop: dict) -> str:
+    return (f"trailing {stop['trail_pct'].normalize():f}%"
+            if stop["kind"] == "trailing" else "fixed")
+
+
+def _stop_approach_line(stop: dict) -> str:
+    """One real-book holding that closed near its stop, in words (plan
+    step 4.4). `atr_distance` is worked out by the service."""
+    return (
+        f"{stop['symbol']}: closed at {_money(stop['approach_close'])} on "
+        f"{stop['approached_session']}, {stop['atr_distance']:f} ATR above its stop at "
+        f"{_money(stop['stop_level'])} ({_stop_kind_words(stop)})"
+    )
 
 
 class Notifier:
@@ -656,6 +671,37 @@ class Notifier:
                         "your broker, then record the sale."
                     ),
                     "color": 16711680,
+                }
+            ]
+        }
+        return self.send_notifications(embed) is not False
+
+    def send_stop_approach_alert(
+        self, stops: list, stop_count: int, day: str, multiple
+    ) -> bool:
+        """Alert that holdings in the real book closed near their stops (plan
+        step 4.4, #221), the evening before a likely breach.
+
+        ``stops`` are those stops, nearest first, at most the number the
+        message lists; ``stop_count`` is how many there were; ``multiple`` is
+        the approach distance in ATRs. Returns False when the message did not
+        go out, so the caller can leave the alert owed.
+        """
+        lines = [f"- {_stop_approach_line(stop)}" for stop in stops]
+        if stop_count > len(stops):
+            lines.append(f"- and {stop_count - len(stops)} more")
+        embed = {
+            "content": f"Stop Approach Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": f"{stop_count} holding(s) closed near their stop, reported {day}",
+                    "description": (
+                        "\n".join(lines)
+                        + f"\nNear means a close within {multiple} ATR (14-session) above "
+                        "the stop. The stops have not been reached: each is checked "
+                        "against the next closed bar."
+                    ),
+                    "color": 16753920,
                 }
             ]
         }

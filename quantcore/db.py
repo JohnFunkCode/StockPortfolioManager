@@ -425,6 +425,23 @@ ALTER TABLE orders
                           AND stop_trail_pct IS NOT NULL
                           AND stop_trail_pct > 0 AND stop_trail_pct < 100))));
 
+-- V25 (#431 phase 2 and #221, plan step 4.4): a holding that closed near its
+-- stop. Mirrors db/migrations/V25__stop_approach.sql. approached_session is
+-- the newest bar whose close was within the approach distance, NULL while it
+-- is further away. approach_alerted_at is when a real-book stop's approach
+-- alert went out, cleared with approached_session.
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS approached_session  DATE,
+  ADD COLUMN IF NOT EXISTS approach_close      NUMERIC(18,6),
+  ADD COLUMN IF NOT EXISTS approach_atr        NUMERIC(18,6);
+
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS approach_alerted_at TIMESTAMPTZ
+      CONSTRAINT stops_approach_rule
+      CHECK ((approached_session IS NULL) = (approach_close IS NULL)
+             AND (approached_session IS NULL) = (approach_atr IS NULL)
+             AND (approach_alerted_at IS NULL OR approached_session IS NOT NULL));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

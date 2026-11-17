@@ -68,7 +68,11 @@ SELECT
     st.triggered_session AS triggered_session,
     st.trigger_price     AS trigger_price,
     st.alerted_at        AS alerted_at,
-    st.first_session     AS first_session
+    st.first_session     AS first_session,
+    st.approached_session  AS approached_session,
+    st.approach_close      AS approach_close,
+    st.approach_atr        AS approach_atr,
+    st.approach_alerted_at AS approach_alerted_at
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -103,7 +107,11 @@ SELECT
     st.triggered_session AS triggered_session,
     st.trigger_price     AS trigger_price,
     st.alerted_at        AS alerted_at,
-    st.first_session     AS first_session
+    st.first_session     AS first_session,
+    st.approached_session  AS approached_session,
+    st.approach_close      AS approach_close,
+    st.approach_atr        AS approach_atr,
+    st.approach_alerted_at AS approach_alerted_at
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -119,11 +127,30 @@ WHERE st.owner = :owner
 # The checker tested the stop against closed bars and it held. The stop stays
 # active: this records the newest bar tested and, for a trailing stop, the
 # mark and level those bars raised it to.
+#
+# And whether that bar closed near the level (plan step 4.4). When the
+# checker could judge it (`approach_known`), the three approach columns take
+# the bar's values, or NULL when it closed further away, and a NULL clears
+# the approach alert's mark too, so the next approach is announced. When it
+# could not, all four stay as they were.
 SQL_RECORD_CHECK = """
 UPDATE stops
 SET last_bar_checked = :last_bar_checked,
     stop_level = :stop_level,
-    high_water_mark = :high_water_mark
+    high_water_mark = :high_water_mark,
+    approached_session = CASE WHEN CAST(:approach_known AS BOOLEAN)
+                              THEN CAST(:approached_session AS DATE)
+                              ELSE approached_session END,
+    approach_close = CASE WHEN CAST(:approach_known AS BOOLEAN)
+                          THEN CAST(:approach_close AS NUMERIC)
+                          ELSE approach_close END,
+    approach_atr = CASE WHEN CAST(:approach_known AS BOOLEAN)
+                        THEN CAST(:approach_atr AS NUMERIC)
+                        ELSE approach_atr END,
+    approach_alerted_at = CASE WHEN CAST(:approach_known AS BOOLEAN)
+                                    AND CAST(:approached_session AS DATE) IS NULL
+                               THEN NULL
+                               ELSE approach_alerted_at END
 WHERE owner = :owner
   AND stop_id = :stop_id
   AND status = 'active'
@@ -144,6 +171,25 @@ WHERE owner = :owner
   AND stop_id = :stop_id
   AND status = 'triggered'
   AND alerted_at IS NULL
+  AND book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
+"""
+
+# The approach alert for an active stop that closed near its level went out
+# (plan step 4.4). Once per approach: an alerted one matches no row until a
+# check clears it.
+SQL_MARK_APPROACH_ALERTED = """
+UPDATE stops
+SET approach_alerted_at = :alerted_at
+WHERE owner = :owner
+  AND stop_id = :stop_id
+  AND status = 'active'
+  AND approached_session IS NOT NULL
+  AND approach_alerted_at IS NULL
   AND book_id IN (
       SELECT b.book_id FROM books b
       WHERE b.owner = :owner
@@ -185,6 +231,10 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "trigger_price": _dec(row["trigger_price"]),
         "alerted_at": row["alerted_at"],
         "first_session": row["first_session"],
+        "approached_session": row["approached_session"],
+        "approach_close": _dec(row["approach_close"]),
+        "approach_atr": _dec(row["approach_atr"]),
+        "approach_alerted_at": row["approach_alerted_at"],
     }
 
 
@@ -301,14 +351,25 @@ class StopsRepository:
         stop_level: Any,
         high_water_mark: Any,
         book_id: Optional[int] = None,
+        approach_known: bool = False,
+        approached_session: Any = None,
+        approach_close: Any = None,
+        approach_atr: Any = None,
     ) -> bool:
         """Record that an active stop held through the bars up to
         `last_bar_checked`, with the level and mark they left it at. Returns
         False, and changes nothing, when the stop is not active or is not in
-        this owner's book."""
+        this owner's book.
+
+        With `approach_known`, the approach columns are set to the three
+        values: the session, close and ATR of a bar that closed near the
+        level, or all None when it didn't (which also clears the approach
+        alert's mark). Without it they are left as they were (plan step 4.4)."""
         return self._write(SQL_RECORD_CHECK, {
             "owner": owner, "stop_id": stop_id, "last_bar_checked": last_bar_checked,
             "stop_level": stop_level, "high_water_mark": high_water_mark, "book_id": book_id,
+            "approach_known": approach_known, "approached_session": approached_session,
+            "approach_close": approach_close, "approach_atr": approach_atr,
         }) == 1
 
     def trigger_stop(
@@ -364,5 +425,16 @@ class StopsRepository:
         False, and changes nothing, for a stop that isn't triggered, has
         already been alerted for, or is not in this owner's book."""
         return self._write(SQL_MARK_ALERTED, {
+            "owner": owner, "stop_id": stop_id, "alerted_at": alerted_at, "book_id": book_id,
+        }) == 1
+
+    def mark_approach_alerted(
+        self, *, owner: str, stop_id: int, alerted_at: Any, book_id: Optional[int] = None
+    ) -> bool:
+        """Record that the approach alert went out for an active stop that
+        closed near its level (plan step 4.4). Returns False, and changes
+        nothing, for a stop that isn't active, isn't near, has been alerted
+        for since it came near, or is not in this owner's book."""
+        return self._write(SQL_MARK_APPROACH_ALERTED, {
             "owner": owner, "stop_id": stop_id, "alerted_at": alerted_at, "book_id": book_id,
         }) == 1

@@ -1,0 +1,8034 @@
+{
+ "schema": 1,
+ "generated": "2026-11-17",
+ "industries_asof": "2026-09",
+ "industries": [
+  {
+   "code": "Hardw",
+   "industry": "Computers",
+   "label": "Buy zone",
+   "pct": 1.0,
+   "pct_prev": 1.0,
+   "wind12": 0.5492546152258599,
+   "wind60": 0.9829748657337083,
+   "bm": 0.16,
+   "rank": 1
+  },
+  {
+   "code": "Mach",
+   "industry": "Machinery",
+   "label": "Buy zone",
+   "pct": 0.9795918367346939,
+   "pct_prev": 0.9183673469387755,
+   "wind12": 0.33147304239659453,
+   "wind60": 0.38739636161250474,
+   "bm": 0.14,
+   "rank": 2
+  },
+  {
+   "code": "Oil",
+   "industry": "Oil & Gas",
+   "label": "Buy zone",
+   "pct": 0.9591836734693877,
+   "pct_prev": 0.7551020408163265,
+   "wind12": 0.2735774622986886,
+   "wind60": 0.5014125099421571,
+   "bm": 0.58,
+   "rank": 3
+  },
+  {
+   "code": "Gold",
+   "industry": "Precious Metals",
+   "label": "Buy zone",
+   "pct": 0.9387755102040817,
+   "pct_prev": 0.9795918367346939,
+   "wind12": 0.2670898818858937,
+   "wind60": 0.3551765148536478,
+   "bm": 0.3,
+   "rank": 4
+  },
+  {
+   "code": "Mines",
+   "industry": "Industrial Mining",
+   "label": "Buy zone",
+   "pct": 0.9183673469387755,
+   "pct_prev": 0.8571428571428571,
+   "wind12": 0.2605649698943369,
+   "wind60": 0.44606038350573257,
+   "bm": 0.19,
+   "rank": 5
+  },
+  {
+   "code": "Drugs",
+   "industry": "Pharmaceuticals",
+   "label": "Buy zone",
+   "pct": 0.8979591836734694,
+   "pct_prev": 0.7346938775510204,
+   "wind12": 0.22555197703688007,
+   "wind60": -0.011094059332730334,
+   "bm": 0.16,
+   "rank": 6
+  },
+  {
+   "code": "LabEq",
+   "industry": "Measuring & Control Eq.",
+   "label": "Buy zone",
+   "pct": 0.8775510204081632,
+   "pct_prev": 0.8163265306122449,
+   "wind12": 0.1815782895605073,
+   "wind60": -0.20527041203631757,
+   "bm": 0.18,
+   "rank": 7
+  },
+  {
+   "code": "Chips",
+   "industry": "Semiconductors & Electronics",
+   "label": "Buy zone",
+   "pct": 0.8571428571428571,
+   "pct_prev": 0.8979591836734694,
+   "wind12": 0.16989582281254953,
+   "wind60": 1.193770775973178,
+   "bm": 0.09,
+   "rank": 8
+  },
+  {
+   "code": "Soda",
+   "industry": "Soft Drinks",
+   "label": "Buy zone",
+   "pct": 0.8367346938775511,
+   "pct_prev": 0.6326530612244898,
+   "wind12": 0.15698769240953633,
+   "wind60": 0.033192934220692125,
+   "bm": 0.11,
+   "rank": 9
+  },
+  {
+   "code": "Ships",
+   "industry": "Shipbuilding & Railroad Eq.",
+   "label": "Buy zone",
+   "pct": 0.8163265306122449,
+   "pct_prev": 0.6938775510204082,
+   "wind12": 0.12447303614321574,
+   "wind60": 0.3254507158237523,
+   "bm": 0.35,
+   "rank": 10
+  },
+  {
+   "code": "Steel",
+   "industry": "Steel",
+   "label": "Hold",
+   "pct": 0.7959183673469388,
+   "pct_prev": 0.9387755102040817,
+   "wind12": 0.11395900480151229,
+   "wind60": 0.2661951795367955,
+   "bm": 0.27,
+   "rank": 11
+  },
+  {
+   "code": "Coal",
+   "industry": "Coal",
+   "label": "Hold",
+   "pct": 0.7755102040816326,
+   "pct_prev": 0.8775510204081632,
+   "wind12": 0.08176177247372955,
+   "wind60": 0.493134217888311,
+   "bm": 0.7,
+   "rank": 12
+  },
+  {
+   "code": "ElcEq",
+   "industry": "Electrical Equipment",
+   "label": "Hold",
+   "pct": 0.7551020408163265,
+   "pct_prev": 0.9591836734693877,
+   "wind12": 0.06582284400951685,
+   "wind60": -0.1417355894373635,
+   "bm": 0.2,
+   "rank": 13
+  },
+  {
+   "code": "Agric",
+   "industry": "Agriculture",
+   "label": "Hold",
+   "pct": 0.7346938775510204,
+   "pct_prev": 0.2857142857142857,
+   "wind12": 0.048904093676538536,
+   "wind60": 0.04305464215148504,
+   "bm": 0.56,
+   "rank": 14
+  },
+  {
+   "code": "Hlth",
+   "industry": "Healthcare Services",
+   "label": "Hold",
+   "pct": 0.7142857142857143,
+   "pct_prev": 0.5918367346938775,
+   "wind12": 0.04338920295872886,
+   "wind60": -0.3515785726187964,
+   "bm": 0.49,
+   "rank": 15
+  },
+  {
+   "code": "Rubbr",
+   "industry": "Rubber & Plastics",
+   "label": "Hold",
+   "pct": 0.6938775510204082,
+   "pct_prev": 0.7142857142857143,
+   "wind12": 0.025362890388279498,
+   "wind60": -0.37791398564963863,
+   "bm": 0.22,
+   "rank": 16
+  },
+  {
+   "code": "Trans",
+   "industry": "Transportation",
+   "label": "Hold",
+   "pct": 0.673469387755102,
+   "pct_prev": 0.5510204081632653,
+   "wind12": 0.013463331306268166,
+   "wind60": -0.24792628033872696,
+   "bm": 0.26,
+   "rank": 17
+  },
+  {
+   "code": "Smoke",
+   "industry": "Tobacco",
+   "label": "Hold",
+   "pct": 0.6530612244897959,
+   "pct_prev": 0.3877551020408163,
+   "wind12": 0.006623420632971135,
+   "wind60": 0.31366730208467414,
+   "bm": 0.17,
+   "rank": 18
+  },
+  {
+   "code": "Banks",
+   "industry": "Banking",
+   "label": "Hold",
+   "pct": 0.6326530612244898,
+   "pct_prev": 0.42857142857142855,
+   "wind12": 0.0038978557099253195,
+   "wind60": -0.08583278660356028,
+   "bm": 0.53,
+   "rank": 19
+  },
+  {
+   "code": "Chems",
+   "industry": "Chemicals",
+   "label": "Hold",
+   "pct": 0.6122448979591837,
+   "pct_prev": 0.5714285714285714,
+   "wind12": -0.009120345877449774,
+   "wind60": -0.4704087009688451,
+   "bm": 0.43,
+   "rank": 20
+  },
+  {
+   "code": "Toys",
+   "industry": "Recreation",
+   "label": "Hold",
+   "pct": 0.5918367346938775,
+   "pct_prev": 0.6122448979591837,
+   "wind12": -0.02570113445787956,
+   "wind60": -0.7503532624794438,
+   "bm": 0.28,
+   "rank": 21
+  },
+  {
+   "code": "Boxes",
+   "industry": "Shipping Containers",
+   "label": "Hold",
+   "pct": 0.5714285714285714,
+   "pct_prev": 0.22448979591836735,
+   "wind12": -0.03184168764599618,
+   "wind60": -0.434686862610783,
+   "bm": 0.41,
+   "rank": 22
+  },
+  {
+   "code": "BldMt",
+   "industry": "Construction Materials",
+   "label": "Hold",
+   "pct": 0.5510204081632653,
+   "pct_prev": 0.46938775510204084,
+   "wind12": -0.03393393448366404,
+   "wind60": 0.037279205382231825,
+   "bm": 0.24,
+   "rank": 23
+  },
+  {
+   "code": "Fin",
+   "industry": "Trading & Finance",
+   "label": "Hold",
+   "pct": 0.5306122448979592,
+   "pct_prev": 0.4489795918367347,
+   "wind12": -0.038633959599010476,
+   "wind60": -0.02421582075990421,
+   "bm": 0.32,
+   "rank": 24
+  },
+  {
+   "code": "Whlsl",
+   "industry": "Wholesale",
+   "label": "Hold",
+   "pct": 0.5102040816326531,
+   "pct_prev": 0.32653061224489793,
+   "wind12": -0.03867533171445571,
+   "wind60": 0.028002900042983003,
+   "bm": 0.28,
+   "rank": 25
+  },
+  {
+   "code": "Aero",
+   "industry": "Aircraft",
+   "label": "Hold",
+   "pct": 0.4897959183673469,
+   "pct_prev": 0.6530612244897959,
+   "wind12": -0.03879941896037362,
+   "wind60": 0.08422005721393669,
+   "bm": 0.14,
+   "rank": 26
+  },
+  {
+   "code": "Cnstr",
+   "industry": "Construction",
+   "label": "Hold",
+   "pct": 0.46938775510204084,
+   "pct_prev": 0.8367346938775511,
+   "wind12": -0.04085755139063024,
+   "wind60": 0.5700416519789009,
+   "bm": 0.31,
+   "rank": 27
+  },
+  {
+   "code": "Meals",
+   "industry": "Restaurants & Hotels",
+   "label": "Hold",
+   "pct": 0.4489795918367347,
+   "pct_prev": 0.2653061224489796,
+   "wind12": -0.04120490426580723,
+   "wind60": -0.3373126184566773,
+   "bm": 0.19,
+   "rank": 28
+  },
+  {
+   "code": "FabPr",
+   "industry": "Fabricated Products",
+   "label": "Hold",
+   "pct": 0.42857142857142855,
+   "pct_prev": 0.7755102040816326,
+   "wind12": -0.07033410051125445,
+   "wind60": -0.3005880298554452,
+   "bm": 0.35,
+   "rank": 29
+  },
+  {
+   "code": "Insur",
+   "industry": "Insurance",
+   "label": "Hold",
+   "pct": 0.40816326530612246,
+   "pct_prev": 0.1836734693877551,
+   "wind12": -0.07329917632814524,
+   "wind60": -0.24190065494762708,
+   "bm": 0.47,
+   "rank": 30
+  },
+  {
+   "code": "Books",
+   "industry": "Printing & Publishing",
+   "label": "Watch",
+   "pct": 0.3877551020408163,
+   "pct_prev": 0.40816326530612246,
+   "wind12": -0.07556857295231492,
+   "wind60": -0.3223079894419484,
+   "bm": 0.55,
+   "rank": 31
+  },
+  {
+   "code": "Rtail",
+   "industry": "Retail",
+   "label": "Watch",
+   "pct": 0.3673469387755102,
+   "pct_prev": 0.5306122448979592,
+   "wind12": -0.07657095349438435,
+   "wind60": -0.17179340044755204,
+   "bm": 0.14,
+   "rank": 32
+  },
+  {
+   "code": "Txtls",
+   "industry": "Textiles",
+   "label": "Sell",
+   "pct": 0.3469387755102041,
+   "pct_prev": 0.3673469387755102,
+   "wind12": -0.08549175567645952,
+   "wind60": -0.56252868936243,
+   "bm": 0.98,
+   "rank": 33
+  },
+  {
+   "code": "Beer",
+   "industry": "Beer & Liquor",
+   "label": "Sell",
+   "pct": 0.32653061224489793,
+   "pct_prev": 0.3469387755102041,
+   "wind12": -0.08955338145982414,
+   "wind60": -0.5129369002642951,
+   "bm": 0.25,
+   "rank": 34
+  },
+  {
+   "code": "Guns",
+   "industry": "Defense",
+   "label": "Watch",
+   "pct": 0.30612244897959184,
+   "pct_prev": 0.673469387755102,
+   "wind12": -0.09597468805173333,
+   "wind60": 0.10651698725754316,
+   "bm": 0.08,
+   "rank": 35
+  },
+  {
+   "code": "Util",
+   "industry": "Utilities",
+   "label": "Watch",
+   "pct": 0.2857142857142857,
+   "pct_prev": 0.5102040816326531,
+   "wind12": -0.09731053092023755,
+   "wind60": -0.1249736954345454,
+   "bm": 0.43,
+   "rank": 36
+  },
+  {
+   "code": "RlEst",
+   "industry": "Real Estate",
+   "label": "Sell",
+   "pct": 0.2653061224489796,
+   "pct_prev": 0.30612244897959184,
+   "wind12": -0.11379070407774707,
+   "wind60": -0.42543643420763183,
+   "bm": 0.31,
+   "rank": 37
+  },
+  {
+   "code": "Other",
+   "industry": "Other",
+   "label": "Sell",
+   "pct": 0.24489795918367346,
+   "pct_prev": 0.24489795918367346,
+   "wind12": -0.11682744543531255,
+   "wind60": 0.009286742016196371,
+   "bm": 0.53,
+   "rank": 38
+  },
+  {
+   "code": "Softw",
+   "industry": "Software",
+   "label": "Watch",
+   "pct": 0.22448979591836735,
+   "pct_prev": 0.4897959183673469,
+   "wind12": -0.12121146136430368,
+   "wind60": -0.06184822182772991,
+   "bm": 0.12,
+   "rank": 39
+  },
+  {
+   "code": "Hshld",
+   "industry": "Consumer Goods",
+   "label": "Sell",
+   "pct": 0.20408163265306123,
+   "pct_prev": 0.12244897959183673,
+   "wind12": -0.12334841218891121,
+   "wind60": -0.44809868843708245,
+   "bm": 0.18,
+   "rank": 40
+  },
+  {
+   "code": "Food",
+   "industry": "Food Products",
+   "label": "Sell",
+   "pct": 0.1836734693877551,
+   "pct_prev": 0.14285714285714285,
+   "wind12": -0.1260850727673642,
+   "wind60": -0.5096138147150088,
+   "bm": 0.61,
+   "rank": 41
+  },
+  {
+   "code": "Telcm",
+   "industry": "Telecom",
+   "label": "Sell",
+   "pct": 0.16326530612244897,
+   "pct_prev": 0.20408163265306123,
+   "wind12": -0.1488455213488115,
+   "wind60": -0.5032708942357604,
+   "bm": 0.54,
+   "rank": 42
+  },
+  {
+   "code": "Paper",
+   "industry": "Business Supplies",
+   "label": "Sell",
+   "pct": 0.14285714285714285,
+   "pct_prev": 0.10204081632653061,
+   "wind12": -0.17592158224915816,
+   "wind60": -0.5913116617508827,
+   "bm": 0.37,
+   "rank": 43
+  },
+  {
+   "code": "BusSv",
+   "industry": "Business Services",
+   "label": "Sell",
+   "pct": 0.12244897959183673,
+   "pct_prev": 0.08163265306122448,
+   "wind12": -0.18310725477045736,
+   "wind60": -0.5788757320569429,
+   "bm": 0.17,
+   "rank": 44
+  },
+  {
+   "code": "PerSv",
+   "industry": "Personal Services",
+   "label": "Sell",
+   "pct": 0.10204081632653061,
+   "pct_prev": 0.061224489795918366,
+   "wind12": -0.18659473940157692,
+   "wind60": -0.24915161382244722,
+   "bm": 0.26,
+   "rank": 45
+  },
+  {
+   "code": "MedEq",
+   "industry": "Medical Equipment",
+   "label": "Sell",
+   "pct": 0.08163265306122448,
+   "pct_prev": 0.04081632653061224,
+   "wind12": -0.22128407149547838,
+   "wind60": -0.5471858621592167,
+   "bm": 0.23,
+   "rank": 46
+  },
+  {
+   "code": "Autos",
+   "industry": "Autos & Trucks",
+   "label": "Watch",
+   "pct": 0.061224489795918366,
+   "pct_prev": 0.7959183673469388,
+   "wind12": -0.2309749755256735,
+   "wind60": -0.2667390289085071,
+   "bm": 0.12,
+   "rank": 47
+  },
+  {
+   "code": "Clths",
+   "industry": "Apparel",
+   "label": "Sell",
+   "pct": 0.04081632653061224,
+   "pct_prev": 0.16326530612244897,
+   "wind12": -0.2925921417065751,
+   "wind60": -0.7287768057492403,
+   "bm": 0.26,
+   "rank": 48
+  },
+  {
+   "code": "Fun",
+   "industry": "Entertainment",
+   "label": "Sell",
+   "pct": 0.02040816326530612,
+   "pct_prev": 0.02040816326530612,
+   "wind12": -0.3404595074519274,
+   "wind60": -0.4402192792901251,
+   "bm": 0.11,
+   "rank": 49
+  }
+ ],
+ "sell_edge": {
+  "value": -0.017856398193547788,
+  "label": "Sell",
+  "horizon_months": 12,
+  "period": "1931–2026"
+ },
+ "window": {
+  "a": "2025-11-14",
+  "b": "2026-10-19",
+  "prices_asof": "2026-11-17"
+ },
+ "peers": [
+  {
+   "ticker": "MMM",
+   "name": "3M",
+   "code": "MedEq",
+   "shares": 516729574.0,
+   "capA": 86593542957.08011,
+   "capB": 83715355445.25967,
+   "cap": 93636569573.79373
+  },
+  {
+   "ticker": "AOS",
+   "name": "A. O. Smith",
+   "code": "Hshld",
+   "shares": 134328956.0,
+   "capA": 8696456324.482391,
+   "capB": 7882423179.073944,
+   "cap": 8609142298.11267
+  },
+  {
+   "ticker": "ABT",
+   "name": "Abbott Laboratories",
+   "code": "Drugs",
+   "shares": 1731941601.0,
+   "capA": 226174247332.03043,
+   "capB": 180225838771.68695,
+   "cap": 184217964690.53857
+  },
+  {
+   "ticker": "ABBV",
+   "name": "AbbVie",
+   "code": "Drugs",
+   "shares": 1767616306.0,
+   "capA": 410723325941.02734,
+   "capB": 499669764433.6715,
+   "cap": 517743651951.19525
+  },
+  {
+   "ticker": "ACN",
+   "name": "Accenture",
+   "code": "BusSv",
+   "shares": 590737475.0,
+   "capA": 144854740210.88293,
+   "capB": 139963425625.0595,
+   "cap": 141369383700.01984
+  },
+  {
+   "ticker": "ADBE",
+   "name": "Adobe Inc.",
+   "code": "Softw",
+   "shares": 389200000.0,
+   "capA": 128868006298.82812,
+   "capB": 96167426574.70703,
+   "cap": 91839524475.09766
+  },
+  {
+   "ticker": "AMD",
+   "name": "Advanced Micro Devices",
+   "code": "Chips",
+   "shares": 1655065573.0,
+   "capA": 408486730031.44257,
+   "capB": 890508011349.2129,
+   "cap": 820912675733.7788
+  },
+  {
+   "ticker": "AES",
+   "name": "AES Corporation",
+   "code": "Other",
+   "shares": 713564658.0,
+   "capA": 9861463355.797348,
+   "capB": 10674927310.900331,
+   "cap": 10653520561.702652
+  },
+  {
+   "ticker": "AFL",
+   "name": "Aflac",
+   "code": "Insur",
+   "shares": 494607060.0,
+   "capA": 56553369429.09485,
+   "capB": 58695018904.547424,
+   "cap": 63205836650.22629
+  },
+  {
+   "ticker": "A",
+   "name": "Agilent Technologies",
+   "code": "LabEq",
+   "shares": 281928854.0,
+   "capA": 41392796409.1886,
+   "capB": 47899710573.842834,
+   "cap": 48568022543.68326
+  },
+  {
+   "ticker": "APD",
+   "name": "Air Products",
+   "code": "Chems",
+   "shares": 222685530.0,
+   "capA": 57751264534.70123,
+   "capB": 66505032175.33539,
+   "cap": 69614277528.79578
+  },
+  {
+   "ticker": "ABNB",
+   "name": "Airbnb",
+   "code": "BusSv",
+   "shares": 587542197.0,
+   "capA": 71691896905.59985,
+   "capB": 103090157830.30028,
+   "cap": 107355710953.0546
+  },
+  {
+   "ticker": "AKAM",
+   "name": "Akamai Technologies",
+   "code": "BusSv",
+   "shares": 144229175.0,
+   "capA": 12572456920.658493,
+   "capB": 12583995518.75,
+   "cap": 12035924213.597488
+  },
+  {
+   "ticker": "ALB",
+   "name": "Albemarle Corporation",
+   "code": "Chems",
+   "shares": 118009849.0,
+   "capA": 13587653941.832504,
+   "capB": 11168452037.332504,
+   "cap": 10489895405.582504
+  },
+  {
+   "ticker": "ARE",
+   "name": "Alexandria Real Estate Equities",
+   "code": "Fin",
+   "shares": 174160645.0,
+   "capA": 9106860286.498833,
+   "capB": 7076147192.373638,
+   "cap": 7434917695.876751
+  },
+  {
+   "ticker": "ALGN",
+   "name": "Align Technology",
+   "code": "MedEq",
+   "shares": 70487053.0,
+   "capA": 9665889922.065063,
+   "capB": 10502570897.0,
+   "cap": 11547894022.055649
+  },
+  {
+   "ticker": "ALLE",
+   "name": "Allegion",
+   "code": "BusSv",
+   "shares": 84321432.0,
+   "capA": 13596830910.0,
+   "capB": 13106923595.942871,
+   "cap": 16005894839.828613
+  },
+  {
+   "ticker": "LNT",
+   "name": "Alliant Energy",
+   "code": "Util",
+   "shares": 259361652.0,
+   "capA": 17462820504.06537,
+   "capB": 17338326040.445526,
+   "cap": 18767409297.02179
+  },
+  {
+   "ticker": "ALL",
+   "name": "Allstate",
+   "code": "Insur",
+   "shares": 247449496.0,
+   "capA": 53028427747.95593,
+   "capB": 61082909597.911865,
+   "cap": 67063759687.35864
+  },
+  {
+   "ticker": "GOOGL",
+   "name": "Alphabet Inc. (Class A)",
+   "code": "Softw",
+   "shares": 12294000000.0,
+   "capA": 3398184585021.9727,
+   "capB": 4231348829956.0547,
+   "cap": 3457380225036.621
+  },
+  {
+   "ticker": "MO",
+   "name": "Altria",
+   "code": "Smoke",
+   "shares": 1663436915.0,
+   "capA": 96795391799.46703,
+   "capB": 123244034940.66208,
+   "cap": 130679599981.27472
+  },
+  {
+   "ticker": "AMZN",
+   "name": "Amazon",
+   "code": "Rtail",
+   "shares": 10813138306.0,
+   "capA": 2537735455434.4033,
+   "capB": 2837908280406.017,
+   "cap": 2766811764047.75
+  },
+  {
+   "ticker": "AMCR",
+   "name": "Amcor",
+   "code": "Other",
+   "shares": 461845690.0,
+   "capA": 19582257960.720596,
+   "capB": 20298118427.8603,
+   "cap": 20136471379.279404
+  },
+  {
+   "ticker": "AEE",
+   "name": "Ameren",
+   "code": "Util",
+   "shares": 276937491.0,
+   "capA": 29083974375.159233,
+   "capB": 28804269030.512306,
+   "cap": 31393634148.78923
+  },
+  {
+   "ticker": "AEP",
+   "name": "American Electric Power",
+   "code": "Util",
+   "shares": 544526330.0,
+   "capA": 66051045490.76248,
+   "capB": 67913324542.30499,
+   "cap": 70091429862.305
+  },
+  {
+   "ticker": "AXP",
+   "name": "American Express",
+   "code": "Banks",
+   "shares": 670552018.0,
+   "capA": 239507764877.97034,
+   "capB": 212169366471.01483,
+   "cap": 210962360560.44067
+  },
+  {
+   "ticker": "AIG",
+   "name": "American International Group",
+   "code": "Insur",
+   "shares": 518438878.0,
+   "capA": 40308622764.5,
+   "capB": 41817281798.059875,
+   "cap": 42527540529.48004
+  },
+  {
+   "ticker": "AMT",
+   "name": "American Tower",
+   "code": "Fin",
+   "shares": 463763555.0,
+   "capA": 85142349364.09714,
+   "capB": 84882642905.53238,
+   "cap": 87914499976.93298
+  },
+  {
+   "ticker": "AWK",
+   "name": "American Water Works",
+   "code": "Util",
+   "shares": 199104661.0,
+   "capA": 26206154508.629272,
+   "capB": 26594411028.05609,
+   "cap": 29961268536.613113
+  },
+  {
+   "ticker": "AMP",
+   "name": "Ameriprise Financial",
+   "code": "Fin",
+   "shares": 86812469.0,
+   "capA": 39760110802.0,
+   "capB": 41705578550.20676,
+   "cap": 44118097805.52252
+  },
+  {
+   "ticker": "AME",
+   "name": "Ametek",
+   "code": "LabEq",
+   "shares": 229317998.0,
+   "capA": 44340928233.2446,
+   "capB": 56691995745.4892,
+   "cap": 53704556366.33179
+  },
+  {
+   "ticker": "AMGN",
+   "name": "Amgen",
+   "code": "Drugs",
+   "shares": 540911490.0,
+   "capA": 182146529860.26123,
+   "capB": 229854929881.1847,
+   "cap": 247439967703.42346
+  },
+  {
+   "ticker": "APH",
+   "name": "Amphenol",
+   "code": "Chips",
+   "shares": 2469261188.0,
+   "capA": 165119502423.5884,
+   "capB": 198232285158.40515,
+   "cap": 187009497580.29742
+  },
+  {
+   "ticker": "ADI",
+   "name": "Analog Devices",
+   "code": "Chips",
+   "shares": 484565465.0,
+   "capA": 113819581778.09471,
+   "capB": 191088394080.3029,
+   "cap": 186838745488.08365
+  },
+  {
+   "ticker": "AON",
+   "name": "Aon plc",
+   "code": "Insur",
+   "shares": 212157176.0,
+   "capA": 74282593068.80371,
+   "capB": 61470418102.39258,
+   "cap": 71243969843.69629
+  },
+  {
+   "ticker": "APA",
+   "name": "APA Corporation",
+   "code": "Oil",
+   "shares": 335756005.0,
+   "capA": 8323391671.343803,
+   "capB": 16707218245.244694,
+   "cap": 15924907419.614601
+  },
+  {
+   "ticker": "APO",
+   "name": "Apollo Global Management",
+   "code": "Fin",
+   "shares": 590432584.0,
+   "capA": 77110499074.1145,
+   "capB": 65508493392.94275,
+   "cap": 69983973460.7771
+  },
+  {
+   "ticker": "AAPL",
+   "name": "Apple Inc.",
+   "code": "Hardw",
+   "shares": 14532182000.0,
+   "capA": 3958711751838.44,
+   "capB": 4983666530558.96,
+   "cap": 5124192482146.24
+  },
+  {
+   "ticker": "AMAT",
+   "name": "Applied Materials",
+   "code": "Chips",
+   "shares": 793597443.0,
+   "capA": 179360953733.06903,
+   "capB": 327843028052.76746,
+   "cap": 276211507692.6653
+  },
+  {
+   "ticker": "APP",
+   "name": "AppLovin",
+   "code": "Softw",
+   "shares": 331322000.0,
+   "capA": 184778283444.458,
+   "capB": 89165375022.2168,
+   "cap": 129205640744.4458
+  },
+  {
+   "ticker": "APTV",
+   "name": "Aptiv",
+   "code": "Autos",
+   "shares": 202430074.0,
+   "capA": 15973757880.661072,
+   "capB": 9004089598.854866,
+   "cap": 7639711332.532158
+  },
+  {
+   "ticker": "ACGL",
+   "name": "Arch Capital Group",
+   "code": "Insur",
+   "shares": 325525336.0,
+   "capA": 30117602993.953064,
+   "capB": 32708786854.046936,
+   "cap": 35726405626.0
+  },
+  {
+   "ticker": "ADM",
+   "name": "Archer Daniels Midland",
+   "code": "Food",
+   "shares": 475919192.0,
+   "capA": 27893624133.598022,
+   "capB": 38316255164.59308,
+   "cap": 33133495454.1911
+  },
+  {
+   "ticker": "ARES",
+   "name": "Ares Management",
+   "code": "Fin",
+   "shares": 227627941.0,
+   "capA": 33324729173.069305,
+   "capB": 25721957333.0,
+   "cap": 29321893775.647278
+  },
+  {
+   "ticker": "ANET",
+   "name": "Arista Networks",
+   "code": "Hardw",
+   "shares": 1263402335.0,
+   "capA": 165973158579.9933,
+   "capB": 231139453332.65204,
+   "cap": 236338360881.25336
+  },
+  {
+   "ticker": "AJG",
+   "name": "Arthur J. Gallagher & Co.",
+   "code": "Insur",
+   "shares": 256415000.0,
+   "capA": 66285844154.052734,
+   "capB": 64875557741.47034,
+   "cap": 72437237500.0
+  },
+  {
+   "ticker": "AIZ",
+   "name": "Assurant",
+   "code": "Insur",
+   "shares": 49066851.0,
+   "capA": 11216191290.401825,
+   "capB": 13766195596.767883,
+   "cap": 15797562928.687592
+  },
+  {
+   "ticker": "T",
+   "name": "AT&T",
+   "code": "Telcm",
+   "shares": 6736473433.0,
+   "capA": 172386356178.37427,
+   "capB": 156286188785.12137,
+   "cap": 151840117347.24564
+  },
+  {
+   "ticker": "ATO",
+   "name": "Atmos Energy",
+   "code": "Util",
+   "shares": 168988553.0,
+   "capA": 29593274576.22058,
+   "capB": 27839175149.501846,
+   "cap": 29370211027.112137
+  },
+  {
+   "ticker": "ADSK",
+   "name": "Autodesk",
+   "code": "Softw",
+   "shares": 209000000.0,
+   "capA": 62572513061.52344,
+   "capB": 50306299362.18262,
+   "cap": 53673289489.74609
+  },
+  {
+   "ticker": "ADP",
+   "name": "Automatic Data Processing",
+   "code": "BusSv",
+   "shares": 394759432.0,
+   "capA": 99909663199.22778,
+   "capB": 113307799285.07593,
+   "cap": 121988555339.68335
+  },
+  {
+   "ticker": "AZO",
+   "name": "AutoZone",
+   "code": "Rtail",
+   "shares": 16094341.0,
+   "capA": 62073782858.725586,
+   "capB": 49858335211.024414,
+   "cap": 52122729618.218506
+  },
+  {
+   "ticker": "AVY",
+   "name": "Avery Dennison",
+   "code": "Paper",
+   "shares": 75511437.0,
+   "capA": 13056682848.201141,
+   "capB": 13256787695.365906,
+   "cap": 14004351612.99376
+  },
+  {
+   "ticker": "AXON",
+   "name": "Axon Enterprise",
+   "code": "Guns",
+   "shares": 81432712.0,
+   "capA": 45143852153.819336,
+   "capB": 31196057341.864502,
+   "cap": 24058888193.270996
+  },
+  {
+   "ticker": "BKR",
+   "name": "Baker Hughes",
+   "code": "Mach",
+   "shares": 993078473.0,
+   "capA": 48392713534.69475,
+   "capB": 55423710941.91574,
+   "cap": 47518803417.732506
+  },
+  {
+   "ticker": "BALL",
+   "name": "Ball Corporation",
+   "code": "Boxes",
+   "shares": 260291542.0,
+   "capA": 12389877002.026627,
+   "capB": 16617012080.997337,
+   "cap": 16939774029.968048
+  },
+  {
+   "ticker": "BAC",
+   "name": "Bank of America",
+   "code": "Banks",
+   "shares": 6900209006.0,
+   "capA": 363020000017.2134,
+   "capB": 347701527600.7866,
+   "cap": 341284331119.43
+  },
+  {
+   "ticker": "BAX",
+   "name": "Baxter International",
+   "code": "MedEq",
+   "shares": 517348188.0,
+   "capA": 9555420677.12519,
+   "capB": 12928531099.708397,
+   "cap": 13207899594.87481
+  },
+  {
+   "ticker": "BDX",
+   "name": "Becton Dickinson",
+   "code": "MedEq",
+   "shares": 272386800.0,
+   "capA": 41337693587.05444,
+   "capB": 51955059728.26538,
+   "cap": 58478722757.006836
+  },
+  {
+   "ticker": "BRK.B",
+   "name": "Berkshire Hathaway",
+   "code": "Insur",
+   "shares": 2124519233.0,
+   "capA": 1081252823629.8345,
+   "capB": 1130732829885.0737,
+   "cap": 1251681694259.32
+  },
+  {
+   "ticker": "BBY",
+   "name": "Best Buy",
+   "code": "Rtail",
+   "shares": 209727698.0,
+   "capA": 15880581548.575256,
+   "capB": 19112484542.705673,
+   "cap": 20797647364.181442
+  },
+  {
+   "ticker": "TECH",
+   "name": "Bio-Techne",
+   "code": "Drugs",
+   "shares": 157090727.0,
+   "capA": 9328047537.050999,
+   "capB": 11387506464.648003,
+   "cap": 11429135411.422432
+  },
+  {
+   "ticker": "BIIB",
+   "name": "Biogen",
+   "code": "Drugs",
+   "shares": 147820223.0,
+   "capA": 24767278814.76152,
+   "capB": 34513065034.48387,
+   "cap": 36856756294.150345
+  },
+  {
+   "ticker": "BLK",
+   "name": "BlackRock",
+   "code": "Fin",
+   "shares": 154423421.0,
+   "capA": 163370704964.49268,
+   "capB": 173664575486.49695,
+   "cap": 182760891624.6256
+  },
+  {
+   "ticker": "BX",
+   "name": "Blackstone Inc.",
+   "code": "Fin",
+   "shares": 790691239.0,
+   "capA": 111835370774.55853,
+   "capB": 84675121888.9122,
+   "cap": 91874368274.30518
+  },
+  {
+   "ticker": "XYZ",
+   "name": "Block, Inc.",
+   "code": "Softw",
+   "shares": 604522000.0,
+   "capA": 36561490283.27179,
+   "capB": 46850455000.0,
+   "cap": 48524978910.65979
+  },
+  {
+   "ticker": "BE",
+   "name": "Bloom Energy",
+   "code": "ElcEq",
+   "shares": 295656689.0,
+   "capA": 33081026751.755478,
+   "capB": 66883456546.489044,
+   "cap": 50167024824.065735
+  },
+  {
+   "ticker": "BNY",
+   "name": "BNY Mellon",
+   "code": "Banks",
+   "shares": 672898490.0,
+   "capA": 74341827434.07555,
+   "capB": 95847662558.41858,
+   "cap": 100981881322.75574
+  },
+  {
+   "ticker": "BA",
+   "name": "Boeing",
+   "code": "Aero",
+   "shares": 792449940.0,
+   "capA": 154147365714.5114,
+   "capB": 151690766063.78082,
+   "cap": 130995931527.62329
+  },
+  {
+   "ticker": "BKNG",
+   "name": "Booking Holdings",
+   "code": "Trans",
+   "shares": 743701257.0,
+   "capA": 150168451499.1781,
+   "capB": 120925828927.39224,
+   "cap": 115314592957.10431
+  },
+  {
+   "ticker": "BSX",
+   "name": "Boston Scientific",
+   "code": "MedEq",
+   "shares": 1449473222.0,
+   "capA": 148846408705.93298,
+   "capB": 65298767545.23969,
+   "cap": 62515781613.06443
+  },
+  {
+   "ticker": "BMY",
+   "name": "Bristol Myers Squibb",
+   "code": "Drugs",
+   "shares": 2044085831.0,
+   "capA": 95356607135.17746,
+   "capB": 120253573180.56294,
+   "cap": 124750555770.70804
+  },
+  {
+   "ticker": "AVGO",
+   "name": "Broadcom",
+   "code": "Chips",
+   "shares": 4773629865.0,
+   "capA": 1634777242777.6057,
+   "capB": 1597208799048.7954,
+   "cap": 1617114899684.8792
+  },
+  {
+   "ticker": "BR",
+   "name": "Broadridge Financial Solutions",
+   "code": "BusSv",
+   "shares": 113106236.0,
+   "capA": 25568795434.02173,
+   "capB": 19807163496.043457,
+   "cap": 21585759747.489136
+  },
+  {
+   "ticker": "BRO",
+   "name": "Brown & Brown",
+   "code": "Insur",
+   "shares": 331691829.0,
+   "capA": 26767529588.05687,
+   "capB": 22959708808.277252,
+   "cap": 24105704684.81813
+  },
+  {
+   "ticker": "BF.B",
+   "name": "Brown–Forman",
+   "code": "Beer",
+   "shares": 458864265.0,
+   "capA": 12788547450.644217,
+   "capB": 12949149243.222914,
+   "cap": 13972417219.335651
+  },
+  {
+   "ticker": "BG",
+   "name": "Bunge Global",
+   "code": "Food",
+   "shares": 192143784.0,
+   "capA": 18447725112.303406,
+   "capB": 19811945685.51526,
+   "cap": 18651397054.24237
+  },
+  {
+   "ticker": "BXP",
+   "name": "BXP, Inc.",
+   "code": "Fin",
+   "shares": 159713264.0,
+   "capA": 11282144871.47876,
+   "capB": 9253786296.82721,
+   "cap": 10059540030.52124
+  },
+  {
+   "ticker": "CHRW",
+   "name": "C.H. Robinson",
+   "code": "Trans",
+   "shares": 115941629.0,
+   "capA": 17715881265.025772,
+   "capB": 16098495894.301544,
+   "cap": 15813858982.81108
+  },
+  {
+   "ticker": "CDNS",
+   "name": "Cadence Design Systems",
+   "code": "Softw",
+   "shares": 274379000.0,
+   "capA": 86410176460.38818,
+   "capB": 89409136920.77637,
+   "cap": 84075216864.28833
+  },
+  {
+   "ticker": "CPT",
+   "name": "Camden Property Trust",
+   "code": "Fin",
+   "shares": 100069681.0,
+   "capA": 10273153817.926117,
+   "capB": 9791818133.155785,
+   "cap": 9841352900.100372
+  },
+  {
+   "ticker": "COF",
+   "name": "Capital One",
+   "code": "Banks",
+   "shares": 601533153.0,
+   "capA": 127013721584.483,
+   "capB": 120204371065.4301,
+   "cap": 113310797093.4364
+  },
+  {
+   "ticker": "CAH",
+   "name": "Cardinal Health",
+   "code": "Whlsl",
+   "shares": 231136655.0,
+   "capA": 47468533708.75305,
+   "capB": 58396674475.003815,
+   "cap": 65357359636.865845
+  },
+  {
+   "ticker": "CCL",
+   "name": "Carnival Corporation",
+   "code": "Trans",
+   "shares": 1344610129.0,
+   "capA": 34986756172.09367,
+   "capB": 35564938937.90611,
+   "cap": 38207098046.56234
+  },
+  {
+   "ticker": "CARR",
+   "name": "Carrier Global",
+   "code": "Mach",
+   "shares": 818160206.0,
+   "capA": 44262465896.1866,
+   "capB": 45170624224.21196,
+   "cap": 41934802232.41938
+  },
+  {
+   "ticker": "CVNA",
+   "name": "Carvana",
+   "code": "Rtail",
+   "shares": 1103260745.0,
+   "capA": 70235784167.76732,
+   "capB": 64772437328.88462,
+   "cap": 77128962723.21152
+  },
+  {
+   "ticker": "CASY",
+   "name": "Casey's",
+   "code": "Rtail",
+   "shares": 36960167.0,
+   "capA": 19891592367.964783,
+   "capB": 25640375931.03174,
+   "cap": 26477894578.538696
+  },
+  {
+   "ticker": "CAT",
+   "name": "Caterpillar Inc.",
+   "code": "Mach",
+   "shares": 457594174.0,
+   "capA": 253520913627.29932,
+   "capB": 332117265492.9005,
+   "cap": 260419123456.8838
+  },
+  {
+   "ticker": "CBOE",
+   "name": "Cboe Global Markets",
+   "code": "Fin",
+   "shares": 104330235.0,
+   "capA": 26953716849.03122,
+   "capB": 31974087247.806244,
+   "cap": 38961083213.11249
+  },
+  {
+   "ticker": "CBRE",
+   "name": "CBRE Group",
+   "code": "RlEst",
+   "shares": 288196254.0,
+   "capA": 44284237445.0462,
+   "capB": 37687425366.88724,
+   "cap": 37814232422.25137
+  },
+  {
+   "ticker": "CDW",
+   "name": "CDW Corporation",
+   "code": "Rtail",
+   "shares": 124809323.0,
+   "capA": 18107336809.372696,
+   "capB": 19052142394.174347,
+   "cap": 20413812565.16974
+  },
+  {
+   "ticker": "COR",
+   "name": "Cencora",
+   "code": "Whlsl",
+   "shares": 190827165.0,
+   "capA": 69067984565.98663,
+   "capB": 64881236100.0,
+   "cap": 67726469828.97995
+  },
+  {
+   "ticker": "CNC",
+   "name": "Centene Corporation",
+   "code": "Insur",
+   "shares": 495068000.0,
+   "capA": 18010574368.789673,
+   "capB": 33976515480.255127,
+   "cap": 36526116435.668945
+  },
+  {
+   "ticker": "CNP",
+   "name": "CenterPoint Energy",
+   "code": "Util",
+   "shares": 662879606.0,
+   "capA": 26342836655.06141,
+   "capB": 26223518123.686607,
+   "cap": 26750506196.687798
+  },
+  {
+   "ticker": "CF",
+   "name": "CF Industries",
+   "code": "Chems",
+   "shares": 146284911.0,
+   "capA": 12440068965.367836,
+   "capB": 17336225115.108284,
+   "cap": 17495675132.38694
+  },
+  {
+   "ticker": "CRL",
+   "name": "Charles River Laboratories",
+   "code": "BusSv",
+   "shares": 47917467.0,
+   "capA": 8041030020.283997,
+   "capB": 14376197922.902985,
+   "cap": 16157050993.408997
+  },
+  {
+   "ticker": "SCHW",
+   "name": "Charles Schwab Corporation",
+   "code": "Fin",
+   "shares": 1726007705.0,
+   "capA": 162917866221.47852,
+   "capB": 154615773374.3145,
+   "cap": 157325604944.42874
+  },
+  {
+   "ticker": "CHTR",
+   "name": "Charter Communications",
+   "code": "Telcm",
+   "shares": 114454221.0,
+   "capA": 23245652983.673126,
+   "capB": 12419427765.210594,
+   "cap": 16008711332.411499
+  },
+  {
+   "ticker": "CVX",
+   "name": "Chevron Corporation",
+   "code": "Oil",
+   "shares": 1951253686.0,
+   "capA": 307556596459.7141,
+   "capB": 437802780000.2141,
+   "cap": 424690352848.39264
+  },
+  {
+   "ticker": "CMG",
+   "name": "Chipotle Mexican Grill",
+   "code": "Meals",
+   "shares": 1264975000.0,
+   "capA": 39935260363.960266,
+   "capB": 37759504232.54967,
+   "cap": 45203882397.07947
+  },
+  {
+   "ticker": "CB",
+   "name": "Chubb Limited",
+   "code": "Insur",
+   "shares": 382079222.0,
+   "capA": 112900585577.5376,
+   "capB": 136123360224.2923,
+   "cap": 143929247591.453
+  },
+  {
+   "ticker": "CHD",
+   "name": "Church & Dwight",
+   "code": "Hshld",
+   "shares": 236032052.0,
+   "capA": 19850295213.04367,
+   "capB": 24568575428.30481,
+   "cap": 26755414046.803925
+  },
+  {
+   "ticker": "CIEN",
+   "name": "Ciena",
+   "code": "Chips",
+   "shares": 141808525.0,
+   "capA": 27186113279.833603,
+   "capB": 48810496036.0611,
+   "cap": 36893797879.78287
+  },
+  {
+   "ticker": "CI",
+   "name": "Cigna",
+   "code": "Insur",
+   "shares": 263502561.0,
+   "capA": 71056101564.2352,
+   "capB": 78655514458.5,
+   "cap": 78193066177.3114
+  },
+  {
+   "ticker": "CINF",
+   "name": "Cincinnati Financial",
+   "code": "Insur",
+   "shares": 153510324.0,
+   "capA": 25160341166.64734,
+   "capB": 26079868850.664734,
+   "cap": 29093277260.346863
+  },
+  {
+   "ticker": "CTAS",
+   "name": "Cintas",
+   "code": "Clths",
+   "shares": 397075093.0,
+   "capA": 74141861849.6708,
+   "capB": 84299043455.67702,
+   "cap": 88734371517.4208
+  },
+  {
+   "ticker": "CSCO",
+   "name": "Cisco",
+   "code": "Hardw",
+   "shares": 3936980098.0,
+   "capA": 307084447644.0,
+   "capB": 419288380437.0,
+   "cap": 373186347093.83295
+  },
+  {
+   "ticker": "C",
+   "name": "Citigroup",
+   "code": "Banks",
+   "shares": 1655204519.0,
+   "capA": 166017018306.98334,
+   "capB": 201421841958.13666,
+   "cap": 197995569108.935
+  },
+  {
+   "ticker": "CFG",
+   "name": "Citizens Financial Group",
+   "code": "Banks",
+   "shares": 419195029.0,
+   "capA": 21668190473.333233,
+   "capB": 26308679316.435062,
+   "cap": 26497317399.30549
+  },
+  {
+   "ticker": "CLX",
+   "name": "Clorox",
+   "code": "Hshld",
+   "shares": 121147396.0,
+   "capA": 12560562054.251251,
+   "capB": 10365370905.98999,
+   "cap": 13167510767.01001
+  },
+  {
+   "ticker": "CME",
+   "name": "CME Group",
+   "code": "Fin",
+   "shares": 357933884.0,
+   "capA": 102025477353.87708,
+   "capB": 105064332533.58899,
+   "cap": 112681165148.17798
+  },
+  {
+   "ticker": "CMS",
+   "name": "CMS Energy",
+   "code": "Util",
+   "shares": 313625618.0,
+   "capA": 23189478960.607544,
+   "capB": 21128958746.058487,
+   "cap": 21978883883.705658
+  },
+  {
+   "ticker": "KO",
+   "name": "Coca-Cola Company (The)",
+   "code": "Beer",
+   "shares": 4301902335.0,
+   "capA": 306123385912.63684,
+   "capB": 401883708258.6816,
+   "cap": 426920778535.54517
+  },
+  {
+   "ticker": "CTSH",
+   "name": "Cognizant",
+   "code": "Softw",
+   "shares": 447030425.0,
+   "capA": 32463350691.305733,
+   "capB": 29857162495.018578,
+   "cap": 26830766313.13429
+  },
+  {
+   "ticker": "COHR",
+   "name": "Coherent Corp.",
+   "code": "LabEq",
+   "shares": 196958669.0,
+   "capA": 27442251712.412094,
+   "capB": 45698351222.87822,
+   "cap": 41112167893.92903
+  },
+  {
+   "ticker": "COIN",
+   "name": "Coinbase",
+   "code": "Banks",
+   "shares": 264763418.0,
+   "capA": 75192810712.0,
+   "capB": 44599396954.10617,
+   "cap": 30979968105.77568
+  },
+  {
+   "ticker": "CL",
+   "name": "Colgate-Palmolive",
+   "code": "Hshld",
+   "shares": 794920513.0,
+   "capA": 62043548465.554886,
+   "capB": 74237626223.88902,
+   "cap": 79921309104.79147
+  },
+  {
+   "ticker": "CMCSA",
+   "name": "Comcast",
+   "code": "Telcm",
+   "shares": 3551006335.0,
+   "capA": 91554062222.10977,
+   "capB": 77767037381.89859,
+   "cap": 90745967974.60614
+  },
+  {
+   "ticker": "FIX",
+   "name": "Comfort Systems USA",
+   "code": "Cnstr",
+   "shares": 34985904.0,
+   "capA": 31823177424.251953,
+   "capB": 51221810590.1543,
+   "cap": 37592353848.0
+  },
+  {
+   "ticker": "COP",
+   "name": "ConocoPhillips",
+   "code": "Oil",
+   "shares": 1182335057.0,
+   "capA": 108029957405.47021,
+   "capB": 171722350173.44043,
+   "cap": 167767437964.49536
+  },
+  {
+   "ticker": "ED",
+   "name": "Consolidated Edison",
+   "code": "Util",
+   "shares": 371133760.0,
+   "capA": 37729459400.73242,
+   "capB": 40709663040.48828,
+   "cap": 44716051300.12207
+  },
+  {
+   "ticker": "STZ",
+   "name": "Constellation Brands",
+   "code": "Beer",
+   "shares": 169224220.0,
+   "capA": 21857000874.917603,
+   "capB": 22180219754.835205,
+   "cap": 24419899827.664795
+  },
+  {
+   "ticker": "CEG",
+   "name": "Constellation Energy",
+   "code": "Util",
+   "shares": 351608504.0,
+   "capA": 119026506911.1936,
+   "capB": 92539843026.1792,
+   "cap": 95616417436.1792
+  },
+  {
+   "ticker": "COO",
+   "name": "Cooper Companies (The)",
+   "code": "MedEq",
+   "shares": 190155294.0,
+   "capA": 13715900833.942886,
+   "capB": 11059431870.024605,
+   "cap": 11604227106.503952
+  },
+  {
+   "ticker": "CPRT",
+   "name": "Copart",
+   "code": "Rtail",
+   "shares": 926378016.0,
+   "capA": 38055610593.52881,
+   "capB": 25484659432.1911,
+   "cap": 29292073643.36737
+  },
+  {
+   "ticker": "GLW",
+   "name": "Corning Inc.",
+   "code": "Steel",
+   "shares": 861401106.0,
+   "capA": 70686572655.32996,
+   "capB": 114342387542.2576,
+   "cap": 92187143472.45369
+  },
+  {
+   "ticker": "CPAY",
+   "name": "Corpay",
+   "code": "BusSv",
+   "shares": 63971827.0,
+   "capA": 17852618229.433655,
+   "capB": 25752498520.93878,
+   "cap": 28995870930.744873
+  },
+  {
+   "ticker": "CSGP",
+   "name": "CoStar Group",
+   "code": "BusSv",
+   "shares": 402337328.0,
+   "capA": 27379056398.236084,
+   "capB": 12798350188.808685,
+   "cap": 12253183293.544098
+  },
+  {
+   "ticker": "COST",
+   "name": "Costco",
+   "code": "Rtail",
+   "shares": 443129349.0,
+   "capA": 408999517885.1499,
+   "capB": 441148573792.27515,
+   "cap": 494106966618.7002
+  },
+  {
+   "ticker": "CRH",
+   "name": "CRH plc",
+   "code": "BldMt",
+   "shares": 665230751.0,
+   "capA": 72889333184.05768,
+   "capB": 55333894071.192314,
+   "cap": 60997866581.610146
+  },
+  {
+   "ticker": "CRWD",
+   "name": "CrowdStrike",
+   "code": "Softw",
+   "shares": 1023934842.0,
+   "capA": 137604040454.47385,
+   "capB": 233559543709.8023,
+   "cap": 224333880784.01862
+  },
+  {
+   "ticker": "CCI",
+   "name": "Crown Castle",
+   "code": "Fin",
+   "shares": 425481189.0,
+   "capA": 39008115537.366554,
+   "capB": 34489504141.567566,
+   "cap": 37731671970.366554
+  },
+  {
+   "ticker": "CSX",
+   "name": "CSX Corporation",
+   "code": "Trans",
+   "shares": 1843398210.0,
+   "capA": 64334600341.802444,
+   "capB": 88261908263.76172,
+   "cap": 94759882734.80804
+  },
+  {
+   "ticker": "CMI",
+   "name": "Cummins",
+   "code": "Mach",
+   "shares": 137000000.0,
+   "capA": 63377567993.16406,
+   "capB": 71531810668.94531,
+   "cap": 59401842041.015625
+  },
+  {
+   "ticker": "CVS",
+   "name": "CVS Health",
+   "code": "Rtail",
+   "shares": 1279474188.0,
+   "capA": 99555883444.56372,
+   "capB": 118581668134.30453,
+   "cap": 110047577643.13174
+  },
+  {
+   "ticker": "DHR",
+   "name": "Danaher Corporation",
+   "code": "LabEq",
+   "shares": 703530815.0,
+   "capA": 155628056309.56244,
+   "capB": 157893415657.6364,
+   "cap": 159131636762.45453
+  },
+  {
+   "ticker": "DRI",
+   "name": "Darden Restaurants",
+   "code": "Meals",
+   "shares": 113143224.0,
+   "capA": 19667686835.09143,
+   "capB": 24466091379.274292,
+   "cap": 26127599347.485718
+  },
+  {
+   "ticker": "DDOG",
+   "name": "Datadog",
+   "code": "Softw",
+   "shares": 361042545.0,
+   "capA": 66796479267.18407,
+   "capB": 94001031727.49084,
+   "cap": 59680333790.31441
+  },
+  {
+   "ticker": "DVA",
+   "name": "DaVita",
+   "code": "Hlth",
+   "shares": 62900000.0,
+   "capA": 7645495191.955566,
+   "capB": 11762300000.0,
+   "cap": 11043038653.564453
+  },
+  {
+   "ticker": "DECK",
+   "name": "Deckers Brands",
+   "code": "Clths",
+   "shares": 133479987.0,
+   "capA": 11054812482.60514,
+   "capB": 11644793780.735985,
+   "cap": 11025446722.525703
+  },
+  {
+   "ticker": "DE",
+   "name": "Deere & Company",
+   "code": "Mach",
+   "shares": 269625412.0,
+   "capA": 128403712918.95325,
+   "capB": 169055133324.0,
+   "cap": 175460086302.59033
+  },
+  {
+   "ticker": "DELL",
+   "name": "Dell Technologies",
+   "code": "Hardw",
+   "shares": 635812750.0,
+   "capA": 85046309947.37625,
+   "capB": 289574560412.2772,
+   "cap": 200331872732.47528
+  },
+  {
+   "ticker": "DAL",
+   "name": "Delta Air Lines",
+   "code": "Trans",
+   "shares": 657912380.0,
+   "capA": 38428662015.41054,
+   "capB": 49099999112.38968,
+   "cap": 55869918104.92645
+  },
+  {
+   "ticker": "DVN",
+   "name": "Devon Energy",
+   "code": "Oil",
+   "shares": 1139714310.0,
+   "capA": 40847361044.3066,
+   "capB": 58034250578.32077,
+   "cap": 50916735929.71699
+  },
+  {
+   "ticker": "DXCM",
+   "name": "Dexcom",
+   "code": "MedEq",
+   "shares": 372950922.0,
+   "capA": 21653531043.49015,
+   "capB": 32066321525.53148,
+   "cap": 30667755568.03148
+  },
+  {
+   "ticker": "FANG",
+   "name": "Diamondback Energy",
+   "code": "Oil",
+   "shares": 279167841.0,
+   "capA": 41651841025.24736,
+   "capB": 56704570500.79578,
+   "cap": 50375836056.49736
+  },
+  {
+   "ticker": "DLR",
+   "name": "Digital Realty",
+   "code": "Fin",
+   "shares": 378325884.0,
+   "capA": 59843585560.17847,
+   "capB": 65450377932.0,
+   "cap": 66903147941.08923
+  },
+  {
+   "ticker": "DG",
+   "name": "Dollar General",
+   "code": "Rtail",
+   "shares": 220616790.0,
+   "capA": 23010331870.269012,
+   "capB": 29401600545.876617,
+   "cap": 29423660205.06958
+  },
+  {
+   "ticker": "DLTR",
+   "name": "Dollar Tree",
+   "code": "Rtail",
+   "shares": 187630299.0,
+   "capA": 19654273820.25,
+   "capB": 23106671608.151115,
+   "cap": 26025260966.35634
+  },
+  {
+   "ticker": "D",
+   "name": "Dominion Energy",
+   "code": "Util",
+   "shares": 879566078.0,
+   "capA": 53266522891.58019,
+   "capB": 54717804907.113205,
+   "cap": 59405893713.386795
+  },
+  {
+   "ticker": "DPZ",
+   "name": "Domino's",
+   "code": "Whlsl",
+   "shares": 32896056.0,
+   "capA": 13492646449.428955,
+   "capB": 10047113865.239502,
+   "cap": 11486316315.239502
+  },
+  {
+   "ticker": "DASH",
+   "name": "DoorDash",
+   "code": "BusSv",
+   "shares": 435976331.0,
+   "capA": 90229664390.84718,
+   "capB": 84374498806.23233,
+   "cap": 72058167455.48233
+  },
+  {
+   "ticker": "DOV",
+   "name": "Dover Corporation",
+   "code": "Mach",
+   "shares": 133007687.0,
+   "capA": 24356366993.988403,
+   "capB": 25985711159.738403,
+   "cap": 27189431132.99565
+  },
+  {
+   "ticker": "DOW",
+   "name": "Dow Inc.",
+   "code": "Chems",
+   "shares": 723881907.0,
+   "capA": 16598612348.421227,
+   "capB": 21774367707.33219,
+   "cap": 22979631745.22087
+  },
+  {
+   "ticker": "DHI",
+   "name": "D. R. Horton",
+   "code": "Cnstr",
+   "shares": 271435610.0,
+   "capA": 38660571944.246216,
+   "capB": 36727951726.415405,
+   "cap": 39003941967.003784
+  },
+  {
+   "ticker": "DTE",
+   "name": "DTE Energy",
+   "code": "Util",
+   "shares": 208163081.0,
+   "capA": 28539159675.626617,
+   "capB": 26422139934.85633,
+   "cap": 28857648935.451294
+  },
+  {
+   "ticker": "DUK",
+   "name": "Duke Energy",
+   "code": "Util",
+   "shares": 779708297.0,
+   "capA": 95678004411.02573,
+   "capB": 92995805965.76102,
+   "cap": 101946859832.75
+  },
+  {
+   "ticker": "DD",
+   "name": "DuPont",
+   "code": "Chems",
+   "shares": 132532338.0,
+   "capA": 15788577061.929062,
+   "capB": 17141732111.572083,
+   "cap": 19962683411.25
+  },
+  {
+   "ticker": "ETN",
+   "name": "Eaton Corporation",
+   "code": "Mach",
+   "shares": 388500000.0,
+   "capA": 136903520690.91797,
+   "capB": 152097750000.0,
+   "cap": 130644779525.75684
+  },
+  {
+   "ticker": "EBAY",
+   "name": "eBay Inc.",
+   "code": "BusSv",
+   "shares": 439000000.0,
+   "capA": 36810149330.13916,
+   "capB": 52886330535.88867,
+   "cap": 52181734062.194824
+  },
+  {
+   "ticker": "ECHO",
+   "name": "EchoStar",
+   "code": "Telcm",
+   "shares": 290978155.0,
+   "capA": 19611928090.99743,
+   "capB": 25082316073.005142,
+   "cap": 28899950265.800514
+  },
+  {
+   "ticker": "ECL",
+   "name": "Ecolab",
+   "code": "Hshld",
+   "shares": 280467785.0,
+   "capA": 72523356079.25308,
+   "capB": 80196959127.6358,
+   "cap": 86621073400.6929
+  },
+  {
+   "ticker": "EIX",
+   "name": "Edison International",
+   "code": "Util",
+   "shares": 384787221.0,
+   "capA": 22590857392.626778,
+   "capB": 21424952582.70774,
+   "cap": 24222355855.519352
+  },
+  {
+   "ticker": "EW",
+   "name": "Edwards Lifesciences",
+   "code": "MedEq",
+   "shares": 575000000.0,
+   "capA": 49622501754.76074,
+   "capB": 50151500701.9043,
+   "cap": 61384123420.71533
+  },
+  {
+   "ticker": "ELV",
+   "name": "Elevance Health",
+   "code": "Insur",
+   "shares": 216055891.0,
+   "capA": 70397488063.38889,
+   "capB": 92953728358.59091,
+   "cap": 94550377964.4596
+  },
+  {
+   "ticker": "EME",
+   "name": "Emcor",
+   "code": "Cnstr",
+   "shares": 43782004.0,
+   "capA": 27138712358.10205,
+   "capB": 31382501685.153076,
+   "cap": 28053538186.799316
+  },
+  {
+   "ticker": "EMR",
+   "name": "Emerson Electric",
+   "code": "ElcEq",
+   "shares": 548600000.0,
+   "capA": 69990389004.5166,
+   "capB": 88072240316.77246,
+   "cap": 88066757330.32227
+  },
+  {
+   "ticker": "ETR",
+   "name": "Entergy",
+   "code": "Util",
+   "shares": 477827121.0,
+   "capA": 45417469309.26265,
+   "capB": 49598456618.01265,
+   "cap": 52193058030.863914
+  },
+  {
+   "ticker": "EOG",
+   "name": "EOG Resources",
+   "code": "Oil",
+   "shares": 518484224.0,
+   "capA": 57240659120.74414,
+   "capB": 81739034749.02344,
+   "cap": 80997606106.19531
+  },
+  {
+   "ticker": "EQT",
+   "name": "EQT Corporation",
+   "code": "Oil",
+   "shares": 625549428.0,
+   "capA": 37470411691.71268,
+   "capB": 34042398726.344788,
+   "cap": 31984342921.798874
+  },
+  {
+   "ticker": "EFX",
+   "name": "Equifax",
+   "code": "BusSv",
+   "shares": 117017174.0,
+   "capA": 24240106879.88385,
+   "capB": 18555414138.23938,
+   "cap": 21541398304.50885
+  },
+  {
+   "ticker": "EQIX",
+   "name": "Equinix",
+   "code": "Fin",
+   "shares": 98988318.0,
+   "capA": 77762253696.2721,
+   "capB": 96583893930.81628,
+   "cap": 102419256485.26978
+  },
+  {
+   "ticker": "ERIE",
+   "name": "Erie Indemnity",
+   "code": "Insur",
+   "shares": 52289868.0,
+   "capA": 14985229669.305542,
+   "capB": 12667220523.0,
+   "cap": 14424682220.515137
+  },
+  {
+   "ticker": "ESS",
+   "name": "Essex Property Trust",
+   "code": "Fin",
+   "shares": 64337514.0,
+   "capA": 16379687453.648987,
+   "capB": 17155597715.414978,
+   "cap": 17481789382.617004
+  },
+  {
+   "ticker": "EL",
+   "name": "Estée Lauder Companies (The)",
+   "code": "Hshld",
+   "shares": 362330460.0,
+   "capA": 31950300073.37448,
+   "capB": 38327315616.502075,
+   "cap": 38461378881.872406
+  },
+  {
+   "ticker": "EG",
+   "name": "Everest Group",
+   "code": "Insur",
+   "shares": 37042996.0,
+   "capA": 12084536992.046509,
+   "capB": 14464919146.291992,
+   "cap": 15852908947.005249
+  },
+  {
+   "ticker": "EVRG",
+   "name": "Evergy",
+   "code": "Util",
+   "shares": 234496657.0,
+   "capA": 17931959647.040802,
+   "capB": 19156032482.831604,
+   "cap": 20619291121.5727
+  },
+  {
+   "ticker": "P",
+   "name": "Everpure",
+   "code": "Hardw",
+   "shares": 333227251.0,
+   "capA": 28187691941.77536,
+   "capB": 42349850109.27536,
+   "cap": 34044162403.49366
+  },
+  {
+   "ticker": "ES",
+   "name": "Eversource Energy",
+   "code": "Util",
+   "shares": 376674754.0,
+   "capA": 27610260617.720123,
+   "capB": 24287989402.392136,
+   "cap": 27177084075.86006
+  },
+  {
+   "ticker": "EXC",
+   "name": "Exelon",
+   "code": "Util",
+   "shares": 1034896686.0,
+   "capA": 47543152333.62568,
+   "capB": 43889968295.3473,
+   "cap": 47900192953.5973
+  },
+  {
+   "ticker": "EXE",
+   "name": "Expand Energy",
+   "code": "Oil",
+   "shares": 230957348.0,
+   "capA": 27086677491.509644,
+   "capB": 21460556353.264465,
+   "cap": 19896975882.612946
+  },
+  {
+   "ticker": "EXPE",
+   "name": "Expedia Group",
+   "code": "Trans",
+   "shares": 118574304.0,
+   "capA": 31381875730.87207,
+   "capB": 34590496107.62402,
+   "cap": 29353069317.06006
+  },
+  {
+   "ticker": "EXPD",
+   "name": "Expeditors International",
+   "code": "Trans",
+   "shares": 129110669.0,
+   "capA": 17871498566.571304,
+   "capB": 25410270450.678406,
+   "cap": 24825399277.714203
+  },
+  {
+   "ticker": "EXR",
+   "name": "Extra Space Storage",
+   "code": "Fin",
+   "shares": 208719831.0,
+   "capA": 27740953502.56485,
+   "capB": 28840904718.8703,
+   "cap": 32932859298.68985
+  },
+  {
+   "ticker": "XOM",
+   "name": "ExxonMobil",
+   "code": "Oil",
+   "shares": 4079222444.0,
+   "capA": 486610449079.39966,
+   "capB": 727243772336.8004,
+   "cap": 686615125115.1664
+  },
+  {
+   "ticker": "FFIV",
+   "name": "F5, Inc.",
+   "code": "Hardw",
+   "shares": 56811000.0,
+   "capA": 13293774000.0,
+   "capB": 25610398106.506348,
+   "cap": 17245547021.30127
+  },
+  {
+   "ticker": "FDS",
+   "name": "FactSet",
+   "code": "Softw",
+   "shares": 35255660.0,
+   "capA": 9656877959.710083,
+   "capB": 10689868367.34314,
+   "cap": 11319182113.526611
+  },
+  {
+   "ticker": "FICO",
+   "name": "Fair Isaac",
+   "code": "BusSv",
+   "shares": 21380929.0,
+   "capA": 37232108228.33093,
+   "capB": 16700002370.628601,
+   "cap": 14881768638.264404
+  },
+  {
+   "ticker": "FAST",
+   "name": "Fastenal",
+   "code": "Rtail",
+   "shares": 1147301488.0,
+   "capA": 46408346064.92157,
+   "capB": 58535322442.95294,
+   "cap": 62527931096.0
+  },
+  {
+   "ticker": "FRT",
+   "name": "Federal Realty Investment Trust",
+   "code": "Fin",
+   "shares": 86021559.0,
+   "capA": 8346671764.763214,
+   "capB": 9012478447.661339,
+   "cap": 9719575767.648125
+  },
+  {
+   "ticker": "FDX",
+   "name": "FedEx",
+   "code": "Trans",
+   "shares": 234199353.0,
+   "capA": 50493456981.80846,
+   "capB": 68803085638.45212,
+   "cap": 75538661317.83517
+  },
+  {
+   "ticker": "FERG",
+   "name": "Ferguson Enterprises",
+   "code": "Whlsl",
+   "shares": 193648602.0,
+   "capA": 47017881156.568634,
+   "capB": 43834297666.91373,
+   "cap": 48884653561.65491
+  },
+  {
+   "ticker": "FIS",
+   "name": "Fidelity National Information Services",
+   "code": "BusSv",
+   "shares": 515470244.0,
+   "capA": 33113807373.39676,
+   "capB": 18546619143.15645,
+   "cap": 14175431710.0
+  },
+  {
+   "ticker": "FITB",
+   "name": "Fifth Third Bancorp",
+   "code": "Banks",
+   "shares": 903645765.0,
+   "capA": 38468199940.2792,
+   "capB": 45643146073.41058,
+   "cap": 47558877577.14781
+  },
+  {
+   "ticker": "FSLR",
+   "name": "First Solar",
+   "code": "Chips",
+   "shares": 107481151.0,
+   "capA": 27201329891.883865,
+   "capB": 18465262069.806442,
+   "cap": 16745025723.241135
+  },
+  {
+   "ticker": "FE",
+   "name": "FirstEnergy",
+   "code": "Util",
+   "shares": 578893330.0,
+   "capA": 26594358785.21099,
+   "capB": 26194923182.5,
+   "cap": 27468488950.16056
+  },
+  {
+   "ticker": "FISV",
+   "name": "Fiserv",
+   "code": "BusSv",
+   "shares": 532047720.0,
+   "capA": 33742465428.19153,
+   "capB": 25373355036.143646,
+   "cap": 33130611767.952118
+  },
+  {
+   "ticker": "FLEX",
+   "name": "Flex Ltd.",
+   "code": "Chips",
+   "shares": 369460804.0,
+   "capA": 22163954252.087692,
+   "capB": 32342599120.41147,
+   "cap": 26700931064.824615
+  },
+  {
+   "ticker": "F",
+   "name": "Ford Motor Company",
+   "code": "Autos",
+   "shares": 3993217466.0,
+   "capA": 52670536700.919266,
+   "capB": 48637389954.51326,
+   "cap": 45742305768.37169
+  },
+  {
+   "ticker": "FTNT",
+   "name": "Fortinet",
+   "code": "Hardw",
+   "shares": 734709741.0,
+   "capA": 60473956987.98505,
+   "capB": 126002720581.5,
+   "cap": 89906433024.11057
+  },
+  {
+   "ticker": "FTV",
+   "name": "Fortive",
+   "code": "LabEq",
+   "shares": 297644456.0,
+   "capA": 15355477530.45694,
+   "capB": 17108603194.62918,
+   "cap": 19864790357.602844
+  },
+  {
+   "ticker": "FOXA",
+   "name": "Fox Corporation (Class A)",
+   "code": "Telcm",
+   "shares": 567905799.0,
+   "capA": 36823009927.42685,
+   "capB": 37067209594.307945,
+   "cap": 37839618153.6763
+  },
+  {
+   "ticker": "BEN",
+   "name": "Franklin Resources",
+   "code": "Fin",
+   "shares": 512500000.0,
+   "capA": 11362125039.100647,
+   "capB": 15738874530.792236,
+   "cap": 17583875703.811646
+  },
+  {
+   "ticker": "FCX",
+   "name": "Freeport-McMoRan",
+   "code": "Mines",
+   "shares": 1434936034.0,
+   "capA": 57627030906.48614,
+   "capB": 100086788371.5,
+   "cap": 79897238811.02773
+  },
+  {
+   "ticker": "GRMN",
+   "name": "Garmin",
+   "code": "Chips",
+   "shares": 192695298.0,
+   "capA": 37407939141.63501,
+   "capB": 55141687181.35126,
+   "cap": 53440184406.87872
+  },
+  {
+   "ticker": "IT",
+   "name": "Gartner",
+   "code": "BusSv",
+   "shares": 63081351.0,
+   "capA": 14573684444.526398,
+   "capB": 13103258306.723602,
+   "cap": 11603814323.940994
+  },
+  {
+   "ticker": "GE",
+   "name": "GE Aerospace",
+   "code": "ElcEq",
+   "shares": 1033351921.0,
+   "capA": 314986340127.7155,
+   "capB": 321661784707.4641,
+   "cap": 337451400798.92816
+  },
+  {
+   "ticker": "GEHC",
+   "name": "GE HealthCare",
+   "code": "MedEq",
+   "shares": 452137831.0,
+   "capA": 33073883027.55758,
+   "capB": 31541136056.43061,
+   "cap": 37353365942.19439
+  },
+  {
+   "ticker": "GEV",
+   "name": "GE Vernova",
+   "code": "ElcEq",
+   "shares": 264677066.0,
+   "capA": 153065393392.27576,
+   "capB": 240443234483.22424,
+   "cap": 203318301943.62878
+  },
+  {
+   "ticker": "GEN",
+   "name": "Gen Digital",
+   "code": "Softw",
+   "shares": 593276080.0,
+   "capA": 15840471788.633728,
+   "capB": 14025046169.093018,
+   "cap": 17593602559.770355
+  },
+  {
+   "ticker": "GNRC",
+   "name": "Generac",
+   "code": "ElcEq",
+   "shares": 58988982.0,
+   "capA": 8919724364.26419,
+   "capB": 11403159966.40393,
+   "cap": 10955734442.592773
+  },
+  {
+   "ticker": "GD",
+   "name": "General Dynamics",
+   "code": "Ships",
+   "shares": 270223709.0,
+   "capA": 93024511823.25,
+   "capB": 92262478984.69244,
+   "cap": 96864388419.09952
+  },
+  {
+   "ticker": "GIS",
+   "name": "General Mills",
+   "code": "Food",
+   "shares": 534687144.0,
+   "capA": 25349517415.453217,
+   "capB": 17414760116.906433,
+   "cap": 18837027838.35965
+  },
+  {
+   "ticker": "GM",
+   "name": "General Motors",
+   "code": "Autos",
+   "shares": 843549423.0,
+   "capA": 59487102478.220604,
+   "capB": 69803714753.25,
+   "cap": 71119649793.68317
+  },
+  {
+   "ticker": "GPC",
+   "name": "Genuine Parts Company",
+   "code": "Whlsl",
+   "shares": 137864682.0,
+   "capA": 17544659725.830734,
+   "capB": 17947223293.00891,
+   "cap": 16855336315.830734
+  },
+  {
+   "ticker": "GILD",
+   "name": "Gilead Sciences",
+   "code": "Drugs",
+   "shares": 1240338614.0,
+   "capA": 155067129358.54565,
+   "capB": 189858640729.49133,
+   "cap": 210324227860.49133
+  },
+  {
+   "ticker": "GPN",
+   "name": "Global Payments",
+   "code": "BusSv",
+   "shares": 264635810.0,
+   "capA": 19612160040.62088,
+   "capB": 22385542198.77472,
+   "cap": 23192682226.87912
+  },
+  {
+   "ticker": "GL",
+   "name": "Globe Life",
+   "code": "Insur",
+   "shares": 75439736.0,
+   "capA": 9943711417.980957,
+   "capB": 12662560148.047607,
+   "cap": 11935321139.052368
+  },
+  {
+   "ticker": "GDDY",
+   "name": "GoDaddy",
+   "code": "Softw",
+   "shares": 121274701.0,
+   "capA": 15729328349.598984,
+   "capB": 12940010226.598984,
+   "cap": 13043094462.651016
+  },
+  {
+   "ticker": "GS",
+   "name": "Goldman Sachs",
+   "code": "Fin",
+   "shares": 288434583.0,
+   "capA": 228125788294.48407,
+   "capB": 252605247549.97192,
+   "cap": 252668694708.0
+  },
+  {
+   "ticker": "HAL",
+   "name": "Halliburton",
+   "code": "Oil",
+   "shares": 827126342.0,
+   "capA": 22580548505.55268,
+   "capB": 27278626380.53161,
+   "cap": 26852656819.239464
+  },
+  {
+   "ticker": "HIG",
+   "name": "Hartford (The)",
+   "code": "Insur",
+   "shares": 267413397.0,
+   "capA": 35793284820.61185,
+   "capB": 35921642108.658554,
+   "cap": 36598197676.636185
+  },
+  {
+   "ticker": "HAS",
+   "name": "Hasbro",
+   "code": "Toys",
+   "shares": 139862589.0,
+   "capA": 10868721663.141975,
+   "capB": 13775066091.831276,
+   "cap": 16763231074.104424
+  },
+  {
+   "ticker": "HCA",
+   "name": "HCA Healthcare",
+   "code": "Hlth",
+   "shares": 208892500.0,
+   "capA": 98733038850.02136,
+   "capB": 95021021419.98291,
+   "cap": 105852098819.96155
+  },
+  {
+   "ticker": "DOC",
+   "name": "Healthpeak Properties",
+   "code": "Fin",
+   "shares": 689543752.0,
+   "capA": 11963584360.240067,
+   "capB": 12687604773.759933,
+   "cap": 13446103164.0
+  },
+  {
+   "ticker": "HSIC",
+   "name": "Henry Schein",
+   "code": "Whlsl",
+   "shares": 110538542.0,
+   "capA": 7895768088.793686,
+   "capB": 9281921506.674744,
+   "cap": 9289659170.881058
+  },
+  {
+   "ticker": "HSY",
+   "name": "Hershey Company (The)",
+   "code": "Food",
+   "shares": 200980389.0,
+   "capA": 36015685095.45653,
+   "capB": 33563724963.0,
+   "cap": 35086150796.33153
+  },
+  {
+   "ticker": "HPE",
+   "name": "Hewlett Packard Enterprise",
+   "code": "Hardw",
+   "shares": 1327464779.0,
+   "capA": 30306020803.292473,
+   "capB": 74165455784.84465,
+   "cap": 60970457704.5801
+  },
+  {
+   "ticker": "HLT",
+   "name": "Hilton Worldwide",
+   "code": "Meals",
+   "shares": 222504355.0,
+   "capA": 60002752400.57938,
+   "capB": 76995408905.48233,
+   "cap": 82863961268.60733
+  },
+  {
+   "ticker": "HD",
+   "name": "Home Depot (The)",
+   "code": "Rtail",
+   "shares": 997689626.0,
+   "capA": 361522798262.76587,
+   "capB": 309164066176.4114,
+   "cap": 339009959863.3813
+  },
+  {
+   "ticker": "HON",
+   "name": "Honeywell Technologies",
+   "code": "Aero",
+   "shares": 317358518.0,
+   "capA": 66247549493.56308,
+   "capB": 66638940253.73813,
+   "cap": 69169876371.7908
+  },
+  {
+   "ticker": "HRL",
+   "name": "Hormel Foods",
+   "code": "Food",
+   "shares": 550350800.0,
+   "capA": 12459941776.09253,
+   "capB": 11199638989.94217,
+   "cap": 12630551279.884338
+  },
+  {
+   "ticker": "HST",
+   "name": "Host Hotels & Resorts",
+   "code": "Fin",
+   "shares": 685156063.0,
+   "capA": 12051895252.716518,
+   "capB": 16573925529.882814,
+   "cap": 17529717244.57589
+  },
+  {
+   "ticker": "HWM",
+   "name": "Howmet Aerospace",
+   "code": "Steel",
+   "shares": 397660490.0,
+   "capA": 80840398342.26028,
+   "capB": 87497237129.2746,
+   "cap": 85493030929.51431
+  },
+  {
+   "ticker": "HPQ",
+   "name": "HP Inc.",
+   "code": "Hardw",
+   "shares": 901790969.0,
+   "capA": 22120933088.780716,
+   "capB": 27270158696.156425,
+   "cap": 25619881291.68762
+  },
+  {
+   "ticker": "HUBB",
+   "name": "Hubbell Incorporated",
+   "code": "Chips",
+   "shares": 52835035.0,
+   "capA": 22868060235.675354,
+   "capB": 24564065181.654816,
+   "cap": 22370353496.52054
+  },
+  {
+   "ticker": "HUM",
+   "name": "Humana",
+   "code": "Insur",
+   "shares": 120103250.0,
+   "capA": 28478882053.55835,
+   "capB": 49840448004.49371,
+   "cap": 53325843000.0
+  },
+  {
+   "ticker": "HBAN",
+   "name": "Huntington Bancshares",
+   "code": "Banks",
+   "shares": 2015387251.0,
+   "capA": 31702040535.65893,
+   "capB": 30694346910.15893,
+   "cap": 30936195071.659225
+  },
+  {
+   "ticker": "HII",
+   "name": "Huntington Ingalls Industries",
+   "code": "Ships",
+   "shares": 39406060.0,
+   "capA": 12372320706.3031,
+   "capB": 10625450595.637207,
+   "cap": 11781427029.015503
+  },
+  {
+   "ticker": "IBM",
+   "name": "IBM",
+   "code": "Hardw",
+   "shares": 945120805.0,
+   "capA": 288913981187.87384,
+   "capB": 223417106517.09406,
+   "cap": 220921988168.75
+  },
+  {
+   "ticker": "IEX",
+   "name": "IDEX Corporation",
+   "code": "Mach",
+   "shares": 73452801.0,
+   "capA": 12082251639.978287,
+   "capB": 17177672086.692032,
+   "cap": 17084386715.597809
+  },
+  {
+   "ticker": "IDXX",
+   "name": "Idexx Laboratories",
+   "code": "Drugs",
+   "shares": 78786265.0,
+   "capA": 54357007234.40216,
+   "capB": 43789405125.2536,
+   "cap": 54721393710.02716
+  },
+  {
+   "ticker": "ITW",
+   "name": "Illinois Tool Works",
+   "code": "Mach",
+   "shares": 284200000.0,
+   "capA": 69336274346.92383,
+   "capB": 76782317816.16211,
+   "cap": 80243871734.61914
+  },
+  {
+   "ticker": "ILMN",
+   "name": "Illumina, Inc.",
+   "code": "LabEq",
+   "shares": 151200000.0,
+   "capA": 18245303723.14453,
+   "capB": 39714192553.71094,
+   "cap": 30007153015.13672
+  },
+  {
+   "ticker": "INCY",
+   "name": "Incyte",
+   "code": "BusSv",
+   "shares": 203832492.0,
+   "capA": 21229154352.8237,
+   "capB": 23084029719.0,
+   "cap": 24262181273.94104
+  },
+  {
+   "ticker": "IR",
+   "name": "Ingersoll Rand",
+   "code": "Mach",
+   "shares": 384019778.0,
+   "capA": 28981973114.434143,
+   "capB": 29857537739.5,
+   "cap": 32035890164.59207
+  },
+  {
+   "ticker": "PODD",
+   "name": "Insulet Corporation",
+   "code": "MedEq",
+   "shares": 69371043.0,
+   "capA": 23079746852.91449,
+   "capB": 9847913730.02797,
+   "cap": 10111522846.61348
+  },
+  {
+   "ticker": "INTC",
+   "name": "Intel",
+   "code": "Chips",
+   "shares": 5315000000.0,
+   "capA": 188788802433.01392,
+   "capB": 489139443511.9629,
+   "cap": 287674375000.0
+  },
+  {
+   "ticker": "IBKR",
+   "name": "Interactive Brokers",
+   "code": "Fin",
+   "shares": 453103799.0,
+   "capA": 29918443294.864777,
+   "capB": 36859993357.26847,
+   "cap": 34916177644.72955
+  },
+  {
+   "ticker": "ICE",
+   "name": "Intercontinental Exchange",
+   "code": "Fin",
+   "shares": 558858412.0,
+   "capA": 84985602806.04126,
+   "capB": 88523169049.79895,
+   "cap": 97993028934.34021
+  },
+  {
+   "ticker": "IFF",
+   "name": "International Flavors & Fragrances",
+   "code": "Chems",
+   "shares": 250391293.0,
+   "capA": 16495777695.119774,
+   "capB": 22775591782.039925,
+   "cap": 20046326306.273132
+  },
+  {
+   "ticker": "IP",
+   "name": "International Paper",
+   "code": "Paper",
+   "shares": 529602540.0,
+   "capA": 19780654060.890656,
+   "capB": 17874085725.0,
+   "cap": 17492771249.712524
+  },
+  {
+   "ticker": "INTU",
+   "name": "Intuit",
+   "code": "Softw",
+   "shares": 267236000.0,
+   "capA": 177019791583.25195,
+   "capB": 87017385015.13672,
+   "cap": 86851700000.0
+  },
+  {
+   "ticker": "ISRG",
+   "name": "Intuitive Surgical",
+   "code": "MedEq",
+   "shares": 346643718.0,
+   "capA": 190484192863.37256,
+   "capB": 150159123224.34558,
+   "cap": 149909539324.2365
+  },
+  {
+   "ticker": "IVZ",
+   "name": "Invesco",
+   "code": "Fin",
+   "shares": 439528938.0,
+   "capA": 10337720822.96038,
+   "capB": 12434274058.420761,
+   "cap": 12526574733.0
+  },
+  {
+   "ticker": "INVH",
+   "name": "Invitation Homes",
+   "code": "RlEst",
+   "shares": 576154556.0,
+   "capA": 16357027493.183167,
+   "capB": 15389087663.27475,
+   "cap": 15426538017.11448
+  },
+  {
+   "ticker": "IQV",
+   "name": "IQVIA",
+   "code": "BusSv",
+   "shares": 164800000.0,
+   "capA": 36356528100.58594,
+   "capB": 43817024804.6875,
+   "cap": 42828224804.6875
+  },
+  {
+   "ticker": "IRM",
+   "name": "Iron Mountain",
+   "code": "Fin",
+   "shares": 297833786.0,
+   "capA": 27213073844.844925,
+   "capB": 33223359737.216583,
+   "cap": 33101246794.256683
+  },
+  {
+   "ticker": "JBHT",
+   "name": "J.B. Hunt",
+   "code": "Trans",
+   "shares": 93218722.0,
+   "capA": 15176939901.23523,
+   "capB": 20811079686.5,
+   "cap": 21028279479.448578
+  },
+  {
+   "ticker": "JBL",
+   "name": "Jabil",
+   "code": "Chips",
+   "shares": 102974470.0,
+   "capA": 20787455756.09497,
+   "capB": 29044978756.797485,
+   "cap": 25122681571.601257
+  },
+  {
+   "ticker": "JKHY",
+   "name": "Jack Henry & Associates",
+   "code": "Softw",
+   "shares": 69618713.0,
+   "capA": 11418861603.703232,
+   "capB": 10637042691.859207,
+   "cap": 12278652071.874878
+  },
+  {
+   "ticker": "J",
+   "name": "Jacobs Solutions",
+   "code": "Cnstr",
+   "shares": 118080879.0,
+   "capA": 18232868958.815094,
+   "capB": 16335308368.434906,
+   "cap": 18667405728.684906
+  },
+  {
+   "ticker": "JNJ",
+   "name": "Johnson & Johnson",
+   "code": "Drugs",
+   "shares": 2407310266.0,
+   "capA": 471664282785.713,
+   "capB": 610951256245.7786,
+   "cap": 673890393435.4877
+  },
+  {
+   "ticker": "JCI",
+   "name": "Johnson Controls",
+   "code": "Mach",
+   "shares": 600199736.0,
+   "capA": 71255713390.5857,
+   "capB": 88961605602.5857,
+   "cap": 82059308638.5857
+  },
+  {
+   "ticker": "JPM",
+   "name": "JPMorgan Chase",
+   "code": "Banks",
+   "shares": 2655609509.0,
+   "capA": 806269564126.9601,
+   "capB": 885725436295.0592,
+   "cap": 881290532756.2101
+  },
+  {
+   "ticker": "KDP",
+   "name": "Keurig Dr Pepper",
+   "code": "Beer",
+   "shares": 1360948350.0,
+   "capA": 36922527593.346695,
+   "capB": 46898278895.01457,
+   "cap": 47803310793.75
+  },
+  {
+   "ticker": "KEY",
+   "name": "KeyCorp",
+   "code": "Banks",
+   "shares": 1055979769.0,
+   "capA": 18606364415.993492,
+   "capB": 21035117079.04486,
+   "cap": 22011897559.721237
+  },
+  {
+   "ticker": "KEYS",
+   "name": "Keysight Technologies",
+   "code": "LabEq",
+   "shares": 170244745.0,
+   "capA": 30484023624.063416,
+   "capB": 57178397561.88049,
+   "cap": 48489109517.80975
+  },
+  {
+   "ticker": "KMB",
+   "name": "Kimberly-Clark",
+   "code": "Paper",
+   "shares": 613675314.0,
+   "capA": 63834504102.21272,
+   "capB": 64687517096.08612,
+   "cap": 67215856393.30463
+  },
+  {
+   "ticker": "KIM",
+   "name": "Kimco Realty",
+   "code": "Fin",
+   "shares": 664488625.0,
+   "capA": 13568857773.196459,
+   "capB": 15077247256.125212,
+   "cap": 17004264015.142918
+  },
+  {
+   "ticker": "KMI",
+   "name": "Kinder Morgan",
+   "code": "Util",
+   "shares": 2227715229.0,
+   "capA": 61083951749.14118,
+   "capB": 74383410136.62053,
+   "cap": 70696544152.00447
+  },
+  {
+   "ticker": "KKR",
+   "name": "KKR & Co.",
+   "code": "Fin",
+   "shares": 892139534.0,
+   "capA": 106985371283.72372,
+   "capB": 77616139458.0,
+   "cap": 84726492633.01752
+  },
+  {
+   "ticker": "KLAC",
+   "name": "KLA Corporation",
+   "code": "LabEq",
+   "shares": 1302962435.0,
+   "capA": 147797633893.0753,
+   "capB": 216812941231.34842,
+   "cap": 185424580943.78937
+  },
+  {
+   "ticker": "KHC",
+   "name": "Kraft Heinz",
+   "code": "Food",
+   "shares": 1183828946.0,
+   "capA": 29418149759.694904,
+   "capB": 27429316769.13898,
+   "cap": 29844326644.83223
+  },
+  {
+   "ticker": "KR",
+   "name": "Kroger",
+   "code": "Rtail",
+   "shares": 590588700.0,
+   "capA": 39398171636.2999,
+   "capB": 37236617084.41658,
+   "cap": 41701468467.466736
+  },
+  {
+   "ticker": "LHX",
+   "name": "L3Harris",
+   "code": "Chips",
+   "shares": 186200733.0,
+   "capA": 53884632850.4198,
+   "capB": 45403186052.83255,
+   "cap": 48933550359.44183
+  },
+  {
+   "ticker": "LH",
+   "name": "Labcorp",
+   "code": "Hlth",
+   "shares": 81200000.0,
+   "capA": 21671469189.453125,
+   "capB": 25888994909.66797,
+   "cap": 30097592297.36328
+  },
+  {
+   "ticker": "LRCX",
+   "name": "Lam Research",
+   "code": "Mach",
+   "shares": 1249171000.0,
+   "capA": 185202085598.09875,
+   "capB": 340024361448.66943,
+   "cap": 259683906473.09875
+  },
+  {
+   "ticker": "LVS",
+   "name": "Las Vegas Sands",
+   "code": "Meals",
+   "shares": 626990133.0,
+   "capA": 40992613173.46017,
+   "capB": 23831893902.94788,
+   "cap": 24690872107.237713
+  },
+  {
+   "ticker": "LDOS",
+   "name": "Leidos",
+   "code": "Softw",
+   "shares": 121994697.0,
+   "capA": 23351005399.527924,
+   "capB": 15377431929.14827,
+   "cap": 15797702692.337769
+  },
+  {
+   "ticker": "LEN",
+   "name": "Lennar",
+   "code": "Cnstr",
+   "shares": 237900239.0,
+   "capA": 28812098090.492783,
+   "capB": 18049491786.34252,
+   "cap": 19814878107.314156
+  },
+  {
+   "ticker": "LII",
+   "name": "Lennox International",
+   "code": "Mach",
+   "shares": 34208431.0,
+   "capA": 16129275216.5,
+   "capB": 12170675539.421661,
+   "cap": 11403038264.264984
+  },
+  {
+   "ticker": "LLY",
+   "name": "Lilly (Eli)",
+   "code": "Drugs",
+   "shares": 890745031.0,
+   "capA": 913263091479.7258,
+   "capB": 1104826661305.1533,
+   "cap": 1262818103104.2822
+  },
+  {
+   "ticker": "LIN",
+   "name": "Linde plc",
+   "code": "Chems",
+   "shares": 459083779.0,
+   "capA": 194371487915.67004,
+   "capB": 231121138820.57,
+   "cap": 239021980744.45007
+  },
+  {
+   "ticker": "LYV",
+   "name": "Live Nation Entertainment",
+   "code": "Fun",
+   "shares": 235696543.0,
+   "capA": 32021732475.837753,
+   "capB": 40256970263.68877,
+   "cap": 41871489425.37247
+  },
+  {
+   "ticker": "LMT",
+   "name": "Lockheed Martin",
+   "code": "Guns",
+   "shares": 231004640.0,
+   "capA": 107595028634.90723,
+   "capB": 126643669275.39062,
+   "cap": 136293893751.15234
+  },
+  {
+   "ticker": "L",
+   "name": "Loews Corporation",
+   "code": "Insur",
+   "shares": 202225230.0,
+   "capA": 21114337004.87091,
+   "capB": 22291287781.756668,
+   "cap": 22367122243.006668
+  },
+  {
+   "ticker": "LOW",
+   "name": "Lowe's",
+   "code": "Rtail",
+   "shares": 561054019.0,
+   "capA": 127836161653.55197,
+   "capB": 109921702375.15941,
+   "cap": 124556800227.61658
+  },
+  {
+   "ticker": "LULU",
+   "name": "Lululemon Athletica",
+   "code": "Clths",
+   "shares": 115825986.0,
+   "capA": 19769178442.14514,
+   "capB": 11323148638.791,
+   "cap": 12247439512.209
+  },
+  {
+   "ticker": "LITE",
+   "name": "Lumentum",
+   "code": "Chips",
+   "shares": 90684914.0,
+   "capA": 21052502231.60321,
+   "capB": 75677468467.73486,
+   "cap": 50575885379.52844
+  },
+  {
+   "ticker": "LYB",
+   "name": "LyondellBasell",
+   "code": "Chems",
+   "shares": 323242496.0,
+   "capA": 14642884822.185547,
+   "capB": 20593779124.222656,
+   "cap": 19795370997.591797
+  },
+  {
+   "ticker": "MTB",
+   "name": "M&T Bank",
+   "code": "Banks",
+   "shares": 143434433.0,
+   "capA": 26816502556.679733,
+   "capB": 30657676497.328873,
+   "cap": 31219939212.05258
+  },
+  {
+   "ticker": "MPC",
+   "name": "Marathon Petroleum",
+   "code": "Oil",
+   "shares": 272282280.0,
+   "capA": 54451009191.084595,
+   "capB": 128977393877.95166,
+   "cap": 109355370705.0
+  },
+  {
+   "ticker": "MAR",
+   "name": "Marriott International",
+   "code": "Meals",
+   "shares": 257504397.0,
+   "capA": 73574156625.17642,
+   "capB": 100606971051.26422,
+   "cap": 109707175498.23495
+  },
+  {
+   "ticker": "MRSH",
+   "name": "Marsh McLennan",
+   "code": "Insur",
+   "shares": 475514327.0,
+   "capA": 86928772957.94635,
+   "capB": 89634450639.5,
+   "cap": 98536079421.40182
+  },
+  {
+   "ticker": "MLM",
+   "name": "Martin Marietta Materials",
+   "code": "Mines",
+   "shares": 71118485.0,
+   "capA": 42417909367.02911,
+   "capB": 35676587566.177216,
+   "cap": 36007644027.03766
+  },
+  {
+   "ticker": "MRVL",
+   "name": "Marvell Technology",
+   "code": "Chips",
+   "shares": 899765882.0,
+   "capA": 77784757753.03244,
+   "capB": 213325489668.33893,
+   "cap": 131815605607.6354
+  },
+  {
+   "ticker": "MAS",
+   "name": "Masco",
+   "code": "BldMt",
+   "shares": 192769103.0,
+   "capA": 11710723007.25,
+   "capB": 14072144519.0,
+   "cap": 16155978051.802307
+  },
+  {
+   "ticker": "MA",
+   "name": "Mastercard",
+   "code": "BusSv",
+   "shares": 871176114.0,
+   "capA": 475426923678.0615,
+   "capB": 536992977938.5481,
+   "cap": 562875586255.1711
+  },
+  {
+   "ticker": "MKC",
+   "name": "McCormick & Company",
+   "code": "Food",
+   "shares": 269064479.0,
+   "capA": 17577982905.741776,
+   "capB": 12339297171.163925,
+   "cap": 12589527218.745888
+  },
+  {
+   "ticker": "MCD",
+   "name": "McDonald's",
+   "code": "Meals",
+   "shares": 705784744.0,
+   "capA": 216697089088.76636,
+   "capB": 171272782534.14954,
+   "cap": 195121244295.3645
+  },
+  {
+   "ticker": "MCK",
+   "name": "McKesson",
+   "code": "Whlsl",
+   "shares": 115456664.0,
+   "capA": 97224905288.40283,
+   "capB": 116660876159.89014,
+   "cap": 127458378585.26758
+  },
+  {
+   "ticker": "MDT",
+   "name": "Medtronic",
+   "code": "MedEq",
+   "shares": 1279137890.0,
+   "capA": 122630953027.55714,
+   "capB": 118665617761.31905,
+   "cap": 131469790772.75238
+  },
+  {
+   "ticker": "MRK",
+   "name": "Merck & Co.",
+   "code": "Drugs",
+   "shares": 2465245688.0,
+   "capA": 229070624814.96033,
+   "capB": 354083250204.77246,
+   "cap": 354379067650.0
+  },
+  {
+   "ticker": "META",
+   "name": "Meta Platforms",
+   "code": "Softw",
+   "shares": 2556241253.0,
+   "capA": 1557926850220.7903,
+   "capB": 1803274835757.1433,
+   "cap": 1582326129294.9116
+  },
+  {
+   "ticker": "MET",
+   "name": "MetLife",
+   "code": "Insur",
+   "shares": 628442143.0,
+   "capA": 49420689741.949356,
+   "capB": 62580269750.65193,
+   "cap": 63218138142.22629
+  },
+  {
+   "ticker": "MTD",
+   "name": "Mettler Toledo",
+   "code": "LabEq",
+   "shares": 19890405.0,
+   "capA": 27907828573.309937,
+   "capB": 32336427732.165527,
+   "cap": 34213982900.625
+  },
+  {
+   "ticker": "MGM",
+   "name": "MGM Resorts",
+   "code": "Meals",
+   "shares": 253010547.0,
+   "capA": 8215252769.940765,
+   "capB": 7203210099.361444,
+   "cap": 8406275038.011543
+  },
+  {
+   "ticker": "MCHP",
+   "name": "Microchip Technology",
+   "code": "Chips",
+   "shares": 544223627.0,
+   "capA": 29105079322.834194,
+   "capB": 40506564723.69387,
+   "cap": 32631648176.66839
+  },
+  {
+   "ticker": "MU",
+   "name": "Micron Technology",
+   "code": "Chips",
+   "shares": 1131423212.0,
+   "capA": 279269193489.6578,
+   "capB": 1023824892161.437,
+   "cap": 785807396577.5244
+  },
+  {
+   "ticker": "MSFT",
+   "name": "Microsoft",
+   "code": "Softw",
+   "shares": 7426194552.0,
+   "capA": 3788695882148.2866,
+   "capB": 3962023462425.9023,
+   "cap": 3725647562923.238
+  },
+  {
+   "ticker": "MAA",
+   "name": "Mid-America Apartment Communities",
+   "code": "Fin",
+   "shares": 115993211.0,
+   "capA": 15188151331.52655,
+   "capB": 13432014187.783188,
+   "cap": 13546847218.884956
+  },
+  {
+   "ticker": "MRNA",
+   "name": "Moderna",
+   "code": "Drugs",
+   "shares": 404620975.0,
+   "capA": 10022461735.970783,
+   "capB": 91804452770.78896,
+   "cap": 85350749454.34418
+  },
+  {
+   "ticker": "MDLZ",
+   "name": "Mondelez International",
+   "code": "Food",
+   "shares": 1265838379.0,
+   "capA": 71975571002.54643,
+   "capB": 80178203119.01161,
+   "cap": 85076996293.68036
+  },
+  {
+   "ticker": "MPWR",
+   "name": "Monolithic Power Systems",
+   "code": "Chips",
+   "shares": 48768000.0,
+   "capA": 44875826039.0625,
+   "capB": 61138492546.875,
+   "cap": 65349120000.0
+  },
+  {
+   "ticker": "MNST",
+   "name": "Monster Beverage",
+   "code": "Soda",
+   "shares": 1957511922.0,
+   "capA": 69795085189.36908,
+   "capB": 91611556456.13693,
+   "cap": 88166338759.03569
+  },
+  {
+   "ticker": "MCO",
+   "name": "Moody's Corporation",
+   "code": "BusSv",
+   "shares": 172424082.0,
+   "capA": 82673900731.66754,
+   "capB": 82980815387.14893,
+   "cap": 83656714841.8883
+  },
+  {
+   "ticker": "MS",
+   "name": "Morgan Stanley",
+   "code": "Fin",
+   "shares": 1563043865.0,
+   "capA": 256120368672.90625,
+   "capB": 278956440494.5625,
+   "cap": 287006106859.2499
+  },
+  {
+   "ticker": "MOS",
+   "name": "Mosaic Company (The)",
+   "code": "Chems",
+   "shares": 317903655.0,
+   "capA": 8281389970.208759,
+   "capB": 5696833521.854124,
+   "cap": 6577426791.7288685
+  },
+  {
+   "ticker": "MSI",
+   "name": "Motorola Solutions",
+   "code": "Chips",
+   "shares": 165333940.0,
+   "capA": 62823592337.612915,
+   "capB": 75871744056.88171,
+   "cap": 86556454974.97314
+  },
+  {
+   "ticker": "MSCI",
+   "name": "MSCI",
+   "code": "BusSv",
+   "shares": 71500000.0,
+   "capA": 40408226745.60547,
+   "capB": 40289534301.75781,
+   "cap": 45774300872.802734
+  },
+  {
+   "ticker": "NDAQ",
+   "name": "Nasdaq, Inc.",
+   "code": "Fin",
+   "shares": 554962751.0,
+   "capA": 48326157373.24715,
+   "capB": 51722526699.58809,
+   "cap": 59217301361.62215
+  },
+  {
+   "ticker": "NTAP",
+   "name": "NetApp",
+   "code": "Hardw",
+   "shares": 196419005.0,
+   "capA": 21496096386.738586,
+   "capB": 40731408107.77283,
+   "cap": 34217173125.67894
+  },
+  {
+   "ticker": "NFLX",
+   "name": "Netflix",
+   "code": "Fun",
+   "shares": 4106325903.0,
+   "capA": 456693259733.57245,
+   "capB": 286826858058.79395,
+   "cap": 246933901284.5733
+  },
+  {
+   "ticker": "NEM",
+   "name": "Newmont",
+   "code": "Gold",
+   "shares": 1039193185.0,
+   "capA": 91241164814.36592,
+   "capB": 122635189981.80615,
+   "cap": 117160825699.42935
+  },
+  {
+   "ticker": "NWSA",
+   "name": "News Corp (Class A)",
+   "code": "Books",
+   "shares": 536664512.0,
+   "capA": 14033776784.078735,
+   "capB": 16132134944.11023,
+   "cap": 14151843631.826782
+  },
+  {
+   "ticker": "NEE",
+   "name": "NextEra Energy",
+   "code": "Util",
+   "shares": 2097306049.0,
+   "capA": 175922025629.6969,
+   "capB": 163946410010.0479,
+   "cap": 177935437516.59586
+  },
+  {
+   "ticker": "NKE",
+   "name": "Nike, Inc.",
+   "code": "Clths",
+   "shares": 1485308829.0,
+   "capA": 95312264837.2483,
+   "capB": 55268340167.24915,
+   "cap": 57615425468.93433
+  },
+  {
+   "ticker": "NI",
+   "name": "NiSource",
+   "code": "Util",
+   "shares": 479668642.0,
+   "capA": 20568191881.301384,
+   "capB": 20122099897.85813,
+   "cap": 21645047470.25
+  },
+  {
+   "ticker": "NDSN",
+   "name": "Nordson Corporation",
+   "code": "Mach",
+   "shares": 55717948.0,
+   "capA": 12830172124.012756,
+   "capB": 18045929270.300293,
+   "cap": 17873761015.025513
+  },
+  {
+   "ticker": "NSC",
+   "name": "Norfolk Southern",
+   "code": "Trans",
+   "shares": 224616686.0,
+   "capA": 63786648957.992615,
+   "capB": 72659008054.99261,
+   "cap": 72369250610.72058
+  },
+  {
+   "ticker": "NTRS",
+   "name": "Northern Trust",
+   "code": "Banks",
+   "shares": 181117806.0,
+   "capA": 23072597195.794464,
+   "capB": 29786635590.760895,
+   "cap": 31293534299.58893
+  },
+  {
+   "ticker": "NOC",
+   "name": "Northrop Grumman",
+   "code": "Chips",
+   "shares": 142064489.0,
+   "capA": 79271984862.0,
+   "capB": 72545230440.75717,
+   "cap": 78446590527.74713
+  },
+  {
+   "ticker": "NCLH",
+   "name": "Norwegian Cruise Line Holdings",
+   "code": "Trans",
+   "shares": 459275445.0,
+   "capA": 8400148309.529228,
+   "capB": 6999357676.680193,
+   "cap": 8131471718.685064
+  },
+  {
+   "ticker": "NRG",
+   "name": "NRG Energy",
+   "code": "Util",
+   "shares": 210021280.0,
+   "capA": 34693415755.947266,
+   "capB": 20871914229.559326,
+   "cap": 19432743216.0791
+  },
+  {
+   "ticker": "NUE",
+   "name": "Nucor",
+   "code": "Steel",
+   "shares": 224944177.0,
+   "capA": 33242250202.46994,
+   "capB": 58649697740.52054,
+   "cap": 57577385800.811874
+  },
+  {
+   "ticker": "NVDA",
+   "name": "Nvidia",
+   "code": "Chips",
+   "shares": 24147000000.0,
+   "capA": 4592034945785.522,
+   "capB": 5242072141571.045,
+   "cap": 3732884641571.045
+  },
+  {
+   "ticker": "NVR",
+   "name": "NVR, Inc.",
+   "code": "Cnstr",
+   "shares": 2645788.0,
+   "capA": 19239879661.04883,
+   "capB": 15419652464.0,
+   "cap": 15108904146.644531
+  },
+  {
+   "ticker": "NXPI",
+   "name": "NXP Semiconductors",
+   "code": "Chips",
+   "shares": 252052988.0,
+   "capA": 49679645473.20935,
+   "capB": 58020077923.08374,
+   "cap": 63761844682.04187
+  },
+  {
+   "ticker": "ORLY",
+   "name": "O'Reilly Automotive",
+   "code": "Rtail",
+   "shares": 802048733.0,
+   "capA": 79242417268.05849,
+   "capB": 71438480403.54416,
+   "cap": 74169455360.34576
+  },
+  {
+   "ticker": "OXY",
+   "name": "Occidental Petroleum",
+   "code": "Oil",
+   "shares": 999894745.0,
+   "capA": 42755497617.90987,
+   "capB": 62713399626.97464,
+   "cap": 57473949484.88451
+  },
+  {
+   "ticker": "OKTA",
+   "name": "Okta, Inc.",
+   "code": "Softw",
+   "shares": 174820928.0,
+   "capA": 14674469123.128906,
+   "capB": 33203737574.61328,
+   "cap": 29812212638.435547
+  },
+  {
+   "ticker": "ODFL",
+   "name": "Old Dominion",
+   "code": "Trans",
+   "shares": 206039886.0,
+   "capA": 27257015135.61557,
+   "capB": 38498553956.66766,
+   "cap": 35494492041.517365
+  },
+  {
+   "ticker": "OMC",
+   "name": "Omnicom Group",
+   "code": "BusSv",
+   "shares": 272847468.0,
+   "capA": 19707773529.57083,
+   "capB": 21675003524.051514,
+   "cap": 23531730627.057953
+  },
+  {
+   "ticker": "ON",
+   "name": "ON Semiconductor",
+   "code": "Chips",
+   "shares": 389284489.0,
+   "capA": 18265227511.07881,
+   "capB": 28464482904.881783,
+   "cap": 26424630044.118217
+  },
+  {
+   "ticker": "OKE",
+   "name": "Oneok",
+   "code": "Util",
+   "shares": 630450437.0,
+   "capA": 44440449957.34257,
+   "capB": 58266228233.15077,
+   "cap": 56154220231.191795
+  },
+  {
+   "ticker": "ORCL",
+   "name": "Oracle Corporation",
+   "code": "Softw",
+   "shares": 3117708046.0,
+   "capA": 694781257080.0798,
+   "capB": 404023774263.75214,
+   "cap": 359022782226.77185
+  },
+  {
+   "ticker": "OTIS",
+   "name": "Otis Worldwide",
+   "code": "ElcEq",
+   "shares": 380710513.0,
+   "capA": 33795670960.99009,
+   "capB": 27045675192.070885,
+   "cap": 29535522295.64177
+  },
+  {
+   "ticker": "PCAR",
+   "name": "Paccar",
+   "code": "Autos",
+   "shares": 526505329.0,
+   "capA": 50328642470.9899,
+   "capB": 57083706806.11995,
+   "cap": 55198816764.2399
+  },
+  {
+   "ticker": "PKG",
+   "name": "Packaging Corporation of America",
+   "code": "Boxes",
+   "shares": 89094661.0,
+   "capA": 17571249151.17813,
+   "capB": 21060196402.212524,
+   "cap": 22205953797.05159
+  },
+  {
+   "ticker": "PLTR",
+   "name": "Palantir Technologies",
+   "code": "Softw",
+   "shares": 2409497474.0,
+   "capA": 419276642214.9751,
+   "capB": 467803919870.6945,
+   "cap": 378074257469.1833
+  },
+  {
+   "ticker": "PANW",
+   "name": "Palo Alto Networks",
+   "code": "Hardw",
+   "shares": 818771631.0,
+   "capA": 168052877262.75,
+   "capB": 284072827370.2209,
+   "cap": 251256446407.06165
+  },
+  {
+   "ticker": "PH",
+   "name": "Parker Hannifin",
+   "code": "BldMt",
+   "shares": 126096795.0,
+   "capA": 104906230139.51752,
+   "capB": 121842290368.11401,
+   "cap": 117761799929.03503
+  },
+  {
+   "ticker": "PAYX",
+   "name": "Paychex",
+   "code": "BusSv",
+   "shares": 355980473.0,
+   "capA": 39905410480.116905,
+   "capB": 39424837384.75,
+   "cap": 40978691388.93867
+  },
+  {
+   "ticker": "PYPL",
+   "name": "PayPal",
+   "code": "BusSv",
+   "shares": 830658298.0,
+   "capA": 52173648838.11558,
+   "capB": 46940499025.74763,
+   "cap": 48551978151.84199
+  },
+  {
+   "ticker": "PNR",
+   "name": "Pentair",
+   "code": "Mach",
+   "shares": 159654682.0,
+   "capA": 16656773265.396454,
+   "capB": 8421784475.5,
+   "cap": 10829377372.396454
+  },
+  {
+   "ticker": "PEP",
+   "name": "PepsiCo",
+   "code": "Beer",
+   "shares": 1362741092.0,
+   "capA": 198755796585.71155,
+   "capB": 182021337639.45386,
+   "cap": 195308063286.45386
+  },
+  {
+   "ticker": "PFE",
+   "name": "Pfizer",
+   "code": "Drugs",
+   "shares": 5699853733.0,
+   "capA": 142838331504.9297,
+   "capB": 167803696943.5703,
+   "cap": 162616830916.26895
+  },
+  {
+   "ticker": "PCG",
+   "name": "PG&E Corporation",
+   "code": "Util",
+   "shares": 2202429703.0,
+   "capA": 36318065298.37385,
+   "capB": 28917902252.438076,
+   "cap": 30096201807.478973
+  },
+  {
+   "ticker": "PM",
+   "name": "Philip Morris International",
+   "code": "Smoke",
+   "shares": 1558655629.0,
+   "capA": 242261832999.53522,
+   "capB": 313367718967.0895,
+   "cap": 308956720683.03577
+  },
+  {
+   "ticker": "PSX",
+   "name": "Phillips 66",
+   "code": "Oil",
+   "shares": 390072362.0,
+   "capA": 55515101416.81531,
+   "capB": 113335520017.47449,
+   "cap": 100361721352.11786
+  },
+  {
+   "ticker": "PNW",
+   "name": "Pinnacle West Capital",
+   "code": "Util",
+   "shares": 121201207.0,
+   "capA": 10712974612.754654,
+   "capB": 12261925890.263962,
+   "cap": 12654011868.884308
+  },
+  {
+   "ticker": "PNC",
+   "name": "PNC Financial Services",
+   "code": "Banks",
+   "shares": 396778009.0,
+   "capA": 73003188055.4767,
+   "capB": 85787375989.80486,
+   "cap": 89568669931.2267
+  },
+  {
+   "ticker": "PPG",
+   "name": "PPG Industries",
+   "code": "Chems",
+   "shares": 220900000.0,
+   "capA": 21433926730.34668,
+   "capB": 23757795674.1333,
+   "cap": 26836036634.82666
+  },
+  {
+   "ticker": "PPL",
+   "name": "PPL Corporation",
+   "code": "Util",
+   "shares": 752747825.0,
+   "capA": 27671008783.53777,
+   "capB": 25826778909.491825,
+   "cap": 26797821421.397972
+  },
+  {
+   "ticker": "PFG",
+   "name": "Principal Financial Group",
+   "code": "Insur",
+   "shares": 212376467.0,
+   "capA": 17939440426.738617,
+   "capB": 22694549393.24431,
+   "cap": 23790411120.406303
+  },
+  {
+   "ticker": "PG",
+   "name": "Procter & Gamble",
+   "code": "Hshld",
+   "shares": 2317783143.0,
+   "capA": 342267032482.8223,
+   "capB": 365491229478.32025,
+   "cap": 400582464848.6777
+  },
+  {
+   "ticker": "PGR",
+   "name": "Progressive Corporation",
+   "code": "Insur",
+   "shares": 579362175.0,
+   "capA": 130460770323.1247,
+   "capB": 126944046517.86461,
+   "cap": 137077094141.14609
+  },
+  {
+   "ticker": "PLD",
+   "name": "Prologis",
+   "code": "Fin",
+   "shares": 950513000.0,
+   "capA": 116751513530.44128,
+   "capB": 117949154689.11743,
+   "cap": 119346409959.41162
+  },
+  {
+   "ticker": "PRU",
+   "name": "Prudential Financial",
+   "code": "Insur",
+   "shares": 343000000.0,
+   "capA": 36755881256.103516,
+   "capB": 38988809371.94824,
+   "cap": 41712230209.350586
+  },
+  {
+   "ticker": "PTC",
+   "name": "PTC Inc.",
+   "code": "Softw",
+   "shares": 108633154.0,
+   "capA": 19511600856.244415,
+   "capB": 20972716446.02234,
+   "cap": 21292098184.0
+  },
+  {
+   "ticker": "PEG",
+   "name": "Public Service Enterprise Group",
+   "code": "Util",
+   "shares": 498515417.0,
+   "capA": 41297015318.66202,
+   "capB": 35055603971.30517,
+   "cap": 37687764764.52584
+  },
+  {
+   "ticker": "PSA",
+   "name": "Public Storage",
+   "code": "Fin",
+   "shares": 186843449.0,
+   "capA": 51243686147.38306,
+   "capB": 55247739890.970764,
+   "cap": 62220738776.13306
+  },
+  {
+   "ticker": "PHM",
+   "name": "PulteGroup",
+   "code": "Cnstr",
+   "shares": 184086754.0,
+   "capA": 21790349576.58937,
+   "capB": 20415221299.494095,
+   "cap": 23067910694.30945
+  },
+  {
+   "ticker": "Q",
+   "name": "Qnity Electronics",
+   "code": "Chips",
+   "shares": 209043355.0,
+   "capA": 17450939977.14466,
+   "capB": 24886612050.69969,
+   "cap": 23799585647.775154
+  },
+  {
+   "ticker": "QCOM",
+   "name": "Qualcomm",
+   "code": "Chips",
+   "shares": 1070000000.0,
+   "capA": 186158595428.4668,
+   "capB": 185677098693.84766,
+   "cap": 177866095428.4668
+  },
+  {
+   "ticker": "PWR",
+   "name": "Quanta Services",
+   "code": "Cnstr",
+   "shares": 150677145.0,
+   "capA": 64685696509.17938,
+   "capB": 93180249192.94464,
+   "cap": 88834725481.24237
+  },
+  {
+   "ticker": "DGX",
+   "name": "Quest Diagnostics",
+   "code": "Hlth",
+   "shares": 110019073.0,
+   "capA": 20568065361.598434,
+   "capB": 25844580841.33188,
+   "cap": 28486687133.518738
+  },
+  {
+   "ticker": "RL",
+   "name": "Ralph Lauren Corporation",
+   "code": "Clths",
+   "shares": 59101709.0,
+   "capA": 19591035148.630768,
+   "capB": 22563258795.619232,
+   "cap": 22722834131.37564
+  },
+  {
+   "ticker": "RJF",
+   "name": "Raymond James Financial",
+   "code": "Fin",
+   "shares": 192361711.0,
+   "capA": 30533573565.172104,
+   "capB": 29515981405.473083,
+   "cap": 31740645062.821167
+  },
+  {
+   "ticker": "RDDT",
+   "name": "Reddit",
+   "code": "BusSv",
+   "shares": 193093731.0,
+   "capA": 37326948668.18976,
+   "capB": 29956561309.48494,
+   "cap": 18602649337.409637
+  },
+  {
+   "ticker": "O",
+   "name": "Realty Income",
+   "code": "Fin",
+   "shares": 950997048.0,
+   "capA": 54016631600.84683,
+   "capB": 52789844538.26303,
+   "cap": 55424204746.232574
+  },
+  {
+   "ticker": "REG",
+   "name": "Regency Centers",
+   "code": "Fin",
+   "shares": 183125078.0,
+   "capA": 12743673507.395935,
+   "capB": 13260087568.604065,
+   "cap": 13906518870.40271
+  },
+  {
+   "ticker": "REGN",
+   "name": "Regeneron Pharmaceuticals",
+   "code": "Drugs",
+   "shares": 103447859.0,
+   "capA": 71741090216.5,
+   "capB": 80900361379.33575,
+   "cap": 98574431877.8595
+  },
+  {
+   "ticker": "RF",
+   "name": "Regions Financial Corporation",
+   "code": "Banks",
+   "shares": 848847340.0,
+   "capA": 21187228829.25705,
+   "capB": 23088648295.619125,
+   "cap": 23996914690.371475
+  },
+  {
+   "ticker": "RSG",
+   "name": "Republic Services",
+   "code": "Other",
+   "shares": 304639653.0,
+   "capA": 63913400129.08644,
+   "capB": 69771619354.71542,
+   "cap": 77328208364.56517
+  },
+  {
+   "ticker": "RMD",
+   "name": "ResMed",
+   "code": "MedEq",
+   "shares": 140657071.0,
+   "capA": 34385028521.01289,
+   "capB": 33725346514.62184,
+   "cap": 33584689443.62184
+  },
+  {
+   "ticker": "RVTY",
+   "name": "Revvity",
+   "code": "LabEq",
+   "shares": 111638757.0,
+   "capA": 10352262311.373894,
+   "capB": 16850754254.13556,
+   "cap": 16701158728.588898
+  },
+  {
+   "ticker": "HOOD",
+   "name": "Robinhood Markets",
+   "code": "Fin",
+   "shares": 900491277.0,
+   "capA": 110310181432.5,
+   "capB": 86915415033.15057,
+   "cap": 62016836720.26316
+  },
+  {
+   "ticker": "ROK",
+   "name": "Rockwell Automation",
+   "code": "LabEq",
+   "shares": 109758673.0,
+   "capA": 41393288884.42102,
+   "capB": 46589264062.292755,
+   "cap": 42518315282.67102
+  },
+  {
+   "ticker": "ROL",
+   "name": "Rollins, Inc.",
+   "code": "BusSv",
+   "shares": 478045280.0,
+   "capA": 27831796785.151367,
+   "capB": 15612958771.85608,
+   "cap": 18505132351.136475
+  },
+  {
+   "ticker": "ROP",
+   "name": "Roper Technologies",
+   "code": "LabEq",
+   "shares": 99036429.0,
+   "capA": 44516874835.5,
+   "capB": 37980470521.5,
+   "cap": 46947930835.07309
+  },
+  {
+   "ticker": "ROST",
+   "name": "Ross Stores",
+   "code": "Rtail",
+   "shares": 319453110.0,
+   "capA": 51297780988.736115,
+   "capB": 76240680402.47223,
+   "cap": 70688583790.84259
+  },
+  {
+   "ticker": "RCL",
+   "name": "Royal Caribbean Group",
+   "code": "Trans",
+   "shares": 267470925.0,
+   "capA": 67635371498.739624,
+   "capB": 75418777048.7526,
+   "cap": 83509772530.0026
+  },
+  {
+   "ticker": "RTX",
+   "name": "RTX Corporation",
+   "code": "Aero",
+   "shares": 1349440548.0,
+   "capA": 236921286895.95776,
+   "capB": 259241024499.91315,
+   "cap": 266089431162.8474
+  },
+  {
+   "ticker": "SPGI",
+   "name": "S&P Global",
+   "code": "BusSv",
+   "shares": 289900000.0,
+   "capA": 135460366616.82129,
+   "capB": 124027913107.2998,
+   "cap": 132092933230.59082
+  },
+  {
+   "ticker": "CRM",
+   "name": "Salesforce",
+   "code": "Softw",
+   "shares": 823000000.0,
+   "capA": 200532183013.91602,
+   "capB": 199536347488.40332,
+   "cap": 161867633972.16797
+  },
+  {
+   "ticker": "SNDK",
+   "name": "Sandisk",
+   "code": "Hardw",
+   "shares": 142289365.0,
+   "capA": 36164265529.47922,
+   "capB": 195095793444.0277,
+   "cap": 110430764017.98492
+  },
+  {
+   "ticker": "SBAC",
+   "name": "SBA Communications",
+   "code": "Fin",
+   "shares": 104427989.0,
+   "capA": 20594244411.80565,
+   "capB": 19119720123.583282,
+   "cap": 19286805543.361145
+  },
+  {
+   "ticker": "SLB",
+   "name": "Schlumberger",
+   "code": "Oil",
+   "shares": 1476029613.0,
+   "capA": 54524531877.2018,
+   "capB": 72458293927.39424,
+   "cap": 72871580417.24028
+  },
+  {
+   "ticker": "STX",
+   "name": "Seagate Technology",
+   "code": "Hardw",
+   "shares": 229561109.0,
+   "capA": 59274971993.30826,
+   "capB": 151696275877.83807,
+   "cap": 114196892858.33383
+  },
+  {
+   "ticker": "SRE",
+   "name": "Sempra",
+   "code": "Util",
+   "shares": 654119591.0,
+   "capA": 60179002372.0,
+   "capB": 53467733970.9898,
+   "cap": 51374553276.00437
+  },
+  {
+   "ticker": "NOW",
+   "name": "ServiceNow",
+   "code": "Softw",
+   "shares": 1037917000.0,
+   "capA": 176535149341.61377,
+   "capB": 150871615753.49426,
+   "cap": 96879168979.03442
+  },
+  {
+   "ticker": "SHW",
+   "name": "Sherwin-Williams",
+   "code": "Rtail",
+   "shares": 241588072.0,
+   "capA": 80250723987.51611,
+   "capB": 80113017017.03223,
+   "cap": 84205519546.52686
+  },
+  {
+   "ticker": "SPG",
+   "name": "Simon Property Group",
+   "code": "Fin",
+   "shares": 322470211.0,
+   "capA": 58924980278.28862,
+   "capB": 65296994796.771774,
+   "cap": 74793741526.62079
+  },
+  {
+   "ticker": "SKYD",
+   "name": "Skydance",
+   "code": "Telcm",
+   "shares": 5044222368.0,
+   "capA": 79093408269.6145,
+   "capB": 34300713064.509064,
+   "cap": 35536546967.403625
+  },
+  {
+   "ticker": "SWKS",
+   "name": "Skyworks Solutions",
+   "code": "Chips",
+   "shares": 234854620.0,
+   "capA": 15641317333.64029,
+   "capB": 18842386950.991364,
+   "cap": 20262082698.85971
+  },
+  {
+   "ticker": "SJM",
+   "name": "J.M. Smucker Company (The)",
+   "code": "Food",
+   "shares": 106823183.0,
+   "capA": 11658682127.420303,
+   "capB": 13574021831.210152,
+   "cap": 14330863984.965607
+  },
+  {
+   "ticker": "SW",
+   "name": "Smurfit Westrock",
+   "code": "Boxes",
+   "shares": 524526976.0,
+   "capA": 17986030487.25879,
+   "capB": 21421681779.876465,
+   "cap": 21694436047.50586
+  },
+  {
+   "ticker": "SNA",
+   "name": "Snap-on",
+   "code": "BldMt",
+   "shares": 51581233.0,
+   "capA": 17020775832.02835,
+   "capB": 18820444232.84851,
+   "cap": 18684270596.27835
+  },
+  {
+   "ticker": "SOLV",
+   "name": "Solventum",
+   "code": "MedEq",
+   "shares": 169956897.0,
+   "capA": 12858939449.420746,
+   "capB": 14454834608.517288,
+   "cap": 14825340695.844017
+  },
+  {
+   "ticker": "SO",
+   "name": "Southern Company",
+   "code": "Util",
+   "shares": 1164261029.0,
+   "capA": 105586835562.44415,
+   "capB": 103933578150.48303,
+   "cap": 109114545059.09708
+  },
+  {
+   "ticker": "LUV",
+   "name": "Southwest Airlines",
+   "code": "Trans",
+   "shares": 489602380.0,
+   "capA": 16068749962.185211,
+   "capB": 18996571970.463028,
+   "cap": 22431132367.33345
+  },
+  {
+   "ticker": "SWK",
+   "name": "Stanley Black & Decker",
+   "code": "BldMt",
+   "shares": 148696226.0,
+   "capA": 9761907463.792435,
+   "capB": 13559609211.967896,
+   "cap": 16258444806.298157
+  },
+  {
+   "ticker": "SBUX",
+   "name": "Starbucks",
+   "code": "Meals",
+   "shares": 1140100000.0,
+   "capA": 96657676608.27637,
+   "capB": 111581590131.37817,
+   "cap": 122498044152.06909
+  },
+  {
+   "ticker": "STT",
+   "name": "State Street Corporation",
+   "code": "Banks",
+   "shares": 272078043.0,
+   "capA": 31789597547.740448,
+   "capB": 45009868660.730896,
+   "cap": 45466961931.79326
+  },
+  {
+   "ticker": "STLD",
+   "name": "Steel Dynamics",
+   "code": "Steel",
+   "shares": 142217487.0,
+   "capA": 22102020175.485992,
+   "capB": 34867461027.382,
+   "cap": 32189505486.764008
+  },
+  {
+   "ticker": "STE",
+   "name": "Steris",
+   "code": "MedEq",
+   "shares": 97107020.0,
+   "capA": 25093425393.81653,
+   "capB": 21554845347.938843,
+   "cap": 25152902258.1781
+  },
+  {
+   "ticker": "SYK",
+   "name": "Stryker Corporation",
+   "code": "MedEq",
+   "shares": 380691004.0,
+   "capA": 137893895933.5907,
+   "capB": 113423078661.1814,
+   "cap": 119487483566.6372
+  },
+  {
+   "ticker": "SMCI",
+   "name": "Supermicro",
+   "code": "Hardw",
+   "shares": 659227367.0,
+   "capA": 24009059499.05864,
+   "capB": 21161197474.798866,
+   "cap": 15907155812.464376
+  },
+  {
+   "ticker": "SYF",
+   "name": "Synchrony Financial",
+   "code": "Banks",
+   "shares": 311404854.0,
+   "capA": 22760579638.461365,
+   "capB": 23118695695.727463,
+   "cap": 22044349899.75966
+  },
+  {
+   "ticker": "SNPS",
+   "name": "Synopsys",
+   "code": "Softw",
+   "shares": 191636646.0,
+   "capA": 74705711136.93402,
+   "capB": 87114183965.43402,
+   "cap": 83358110382.46307
+  },
+  {
+   "ticker": "SYY",
+   "name": "Sysco",
+   "code": "Whlsl",
+   "shares": 492270756.0,
+   "capA": 36777547730.07266,
+   "capB": 40164369179.29065,
+   "cap": 38741706994.908875
+  },
+  {
+   "ticker": "TMUS",
+   "name": "T-Mobile US",
+   "code": "Telcm",
+   "shares": 1059272571.0,
+   "capA": 228887619081.266,
+   "capB": 165341851728.218,
+   "cap": 181771179648.8867
+  },
+  {
+   "ticker": "TROW",
+   "name": "T. Rowe Price",
+   "code": "Fin",
+   "shares": 213325929.0,
+   "capA": 21699513758.28763,
+   "capB": 21353925167.390465,
+   "cap": 22881339600.25335
+  },
+  {
+   "ticker": "TTWO",
+   "name": "Take-Two Interactive",
+   "code": "Softw",
+   "shares": 187213488.0,
+   "capA": 44000785856.10791,
+   "capB": 38363787618.161865,
+   "cap": 39004994385.89209
+  },
+  {
+   "ticker": "TPR",
+   "name": "Tapestry, Inc.",
+   "code": "Clths",
+   "shares": 196516496.0,
+   "capA": 19928738579.024902,
+   "capB": 23131956564.243774,
+   "cap": 25946564498.0083
+  },
+  {
+   "ticker": "TRGP",
+   "name": "Targa Resources",
+   "code": "Util",
+   "shares": 214554011.0,
+   "capA": 37139300613.63376,
+   "capB": 62821411801.73248,
+   "cap": 62551078200.28726
+  },
+  {
+   "ticker": "TGT",
+   "name": "Target Corporation",
+   "code": "Rtail",
+   "shares": 454291461.0,
+   "capA": 40840803037.09376,
+   "capB": 69638335006.63747,
+   "cap": 71450960431.525
+  },
+  {
+   "ticker": "TEL",
+   "name": "TE Connectivity",
+   "code": "Whlsl",
+   "shares": 286695097.0,
+   "capA": 68041347895.9644,
+   "capB": 60873970470.9644,
+   "cap": 60840998959.9462
+  },
+  {
+   "ticker": "TDY",
+   "name": "Teledyne Technologies",
+   "code": "Chips",
+   "shares": 46036417.0,
+   "capA": 23074833798.681183,
+   "capB": 28531530249.494385,
+   "cap": 28783578508.633423
+  },
+  {
+   "ticker": "TER",
+   "name": "Teradyne",
+   "code": "LabEq",
+   "shares": 156124751.0,
+   "capA": 26536524118.05197,
+   "capB": 52384537512.44803,
+   "cap": 36202208024.207886
+  },
+  {
+   "ticker": "TSLA",
+   "name": "Tesla, Inc.",
+   "code": "Autos",
+   "shares": 3952757946.0,
+   "capA": 1598297699590.8198,
+   "capB": 1454852079954.4722,
+   "cap": 1504063964633.6118
+  },
+  {
+   "ticker": "TXN",
+   "name": "Texas Instruments",
+   "code": "Chips",
+   "shares": 913770316.0,
+   "capA": 145591026121.44342,
+   "capB": 252337667186.1886,
+   "cap": 267483421328.3114
+  },
+  {
+   "ticker": "TPL",
+   "name": "Texas Pacific Land Corporation",
+   "code": "Fin",
+   "shares": 68974683.0,
+   "capA": 23512319716.32065,
+   "capB": 23769364498.258667,
+   "cap": 20445131250.828278
+  },
+  {
+   "ticker": "TXT",
+   "name": "Textron",
+   "code": "Aero",
+   "shares": 169399979.0,
+   "capA": 13673966511.667084,
+   "capB": 12908277882.83229,
+   "cap": 13925525583.875626
+  },
+  {
+   "ticker": "TMO",
+   "name": "Thermo Fisher Scientific",
+   "code": "LabEq",
+   "shares": 370515868.0,
+   "capA": 214421246111.4978,
+   "capB": 251721072210.9995,
+   "cap": 255865291289.99976
+  },
+  {
+   "ticker": "TJX",
+   "name": "TJX Companies",
+   "code": "Rtail",
+   "shares": 1104704446.0,
+   "capA": 161375227494.45425,
+   "capB": 162789247836.81808,
+   "cap": 145340443135.02234
+  },
+  {
+   "ticker": "TKO",
+   "name": "TKO Group Holdings",
+   "code": "Fun",
+   "shares": 72440231.0,
+   "capA": 13335521859.50595,
+   "capB": 12621986247.366074,
+   "cap": 13654983543.5
+  },
+  {
+   "ticker": "TSCO",
+   "name": "Tractor Supply",
+   "code": "Rtail",
+   "shares": 518573690.0,
+   "capA": 28739352950.263214,
+   "capB": 17014403481.05259,
+   "cap": 19845815353.684196
+  },
+  {
+   "ticker": "TT",
+   "name": "Trane Technologies",
+   "code": "LabEq",
+   "shares": 218895337.0,
+   "capA": 91533274921.53867,
+   "capB": 101795089388.92355,
+   "cap": 88665744670.80756
+  },
+  {
+   "ticker": "TDG",
+   "name": "TransDigm Group",
+   "code": "Aero",
+   "shares": 54589836.0,
+   "capA": 73183132808.84033,
+   "capB": 62366155472.680664,
+   "cap": 65752364599.072266
+  },
+  {
+   "ticker": "TRV",
+   "name": "Travelers Companies (The)",
+   "code": "Insur",
+   "shares": 204946347.0,
+   "capA": 58879037780.88052,
+   "capB": 78996571952.93646,
+   "cap": 82219348255.93854
+  },
+  {
+   "ticker": "TRMB",
+   "name": "Trimble Inc.",
+   "code": "LabEq",
+   "shares": 229243001.0,
+   "capA": 17780086597.884705,
+   "capB": 13743118084.84853,
+   "cap": 12320664843.887058
+  },
+  {
+   "ticker": "TFC",
+   "name": "Truist Financial",
+   "code": "Banks",
+   "shares": 1198488412.0,
+   "capA": 53764190893.819275,
+   "capB": 55513982878.09036,
+   "cap": 58330428817.542175
+  },
+  {
+   "ticker": "TWLO",
+   "name": "Twilio",
+   "code": "Softw",
+   "shares": 154734032.0,
+   "capA": 19397458345.96216,
+   "capB": 39811520415.470215,
+   "cap": 29953414197.886475
+  },
+  {
+   "ticker": "TYL",
+   "name": "Tyler Technologies",
+   "code": "Softw",
+   "shares": 39759524.0,
+   "capA": 18593144385.774902,
+   "capB": 14317006851.556274,
+   "cap": 16562625203.887451
+  },
+  {
+   "ticker": "TSN",
+   "name": "Tyson Foods",
+   "code": "Food",
+   "shares": 344530166.0,
+   "capA": 18597738202.966606,
+   "capB": 18604628964.0,
+   "cap": 22151566392.116425
+  },
+  {
+   "ticker": "USB",
+   "name": "U.S. Bancorp",
+   "code": "Banks",
+   "shares": 1558208825.0,
+   "capA": 73391633279.86203,
+   "capB": 90142378148.61203,
+   "cap": 92479691386.11203
+  },
+  {
+   "ticker": "UBER",
+   "name": "Uber",
+   "code": "BusSv",
+   "shares": 2041898070.0,
+   "capA": 187078706781.64056,
+   "capB": 142851187107.7865,
+   "cap": 138563204276.47568
+  },
+  {
+   "ticker": "UDR",
+   "name": "UDR, Inc.",
+   "code": "Fin",
+   "shares": 316888770.0,
+   "capA": 10989702640.306778,
+   "capB": 10723516025.153389,
+   "cap": 11484049556.687279
+  },
+  {
+   "ticker": "ULTA",
+   "name": "Ulta Beauty",
+   "code": "Rtail",
+   "shares": 42757471.0,
+   "capA": 22633240847.411926,
+   "capB": 25296174784.243286,
+   "cap": 27589258162.75
+  },
+  {
+   "ticker": "UNP",
+   "name": "Union Pacific Corporation",
+   "code": "Trans",
+   "shares": 594250416.0,
+   "capA": 132529730315.23169,
+   "capB": 170555817699.38672,
+   "cap": 176557732392.91992
+  },
+  {
+   "ticker": "UAL",
+   "name": "United Airlines Holdings",
+   "code": "Trans",
+   "shares": 324894375.0,
+   "capA": 30874712059.65042,
+   "capB": 31059901754.250526,
+   "cap": 34974879964.49947
+  },
+  {
+   "ticker": "UPS",
+   "name": "United Parcel Service",
+   "code": "Trans",
+   "shares": 851469372.0,
+   "capA": 81724033182.88614,
+   "capB": 82984204215.5765,
+   "cap": 94674881551.46265
+  },
+  {
+   "ticker": "URI",
+   "name": "United Rentals",
+   "code": "BusSv",
+   "shares": 61916588.0,
+   "capA": 51640293703.60254,
+   "capB": 63464502700.0,
+   "cap": 67549138196.39746
+  },
+  {
+   "ticker": "UNH",
+   "name": "UnitedHealth Group",
+   "code": "Insur",
+   "shares": 896022611.0,
+   "capA": 288393824451.1288,
+   "capB": 364573684338.7904,
+   "cap": 355828494905.2096
+  },
+  {
+   "ticker": "UHS",
+   "name": "Universal Health Services",
+   "code": "Hlth",
+   "shares": 57652117.0,
+   "capA": 12974032022.611343,
+   "capB": 10509404020.861343,
+   "cap": 11290878924.24112
+  },
+  {
+   "ticker": "VLO",
+   "name": "Valero Energy",
+   "code": "Oil",
+   "shares": 278884400.0,
+   "capA": 50690027012.04224,
+   "capB": 120843398683.12988,
+   "cap": 102180459401.2207
+  },
+  {
+   "ticker": "VEEV",
+   "name": "Veeva Systems",
+   "code": "Softw",
+   "shares": 161908850.0,
+   "capA": 47497577864.28833,
+   "capB": 51292721703.57361,
+   "cap": 47554246950.001526
+  },
+  {
+   "ticker": "VTR",
+   "name": "Ventas",
+   "code": "Fin",
+   "shares": 528820000.0,
+   "capA": 41247960000.0,
+   "capB": 44690579329.6814,
+   "cap": 46515006715.85083
+  },
+  {
+   "ticker": "VLTO",
+   "name": "Veralto",
+   "code": "LabEq",
+   "shares": 243141824.0,
+   "capA": 24017549077.916016,
+   "capB": 24428459354.083984,
+   "cap": 28933877056.0
+  },
+  {
+   "ticker": "VRSN",
+   "name": "Verisign",
+   "code": "Softw",
+   "shares": 89700000.0,
+   "capA": 22683336437.98828,
+   "capB": 27491256985.473633,
+   "cap": 27146809313.964844
+  },
+  {
+   "ticker": "VRSK",
+   "name": "Verisk Analytics",
+   "code": "BusSv",
+   "shares": 128286417.0,
+   "capA": 27689339775.48111,
+   "capB": 24273073821.867966,
+   "cap": 26555288319.0
+  },
+  {
+   "ticker": "VZ",
+   "name": "Verizon",
+   "code": "Telcm",
+   "shares": 4144598336.0,
+   "capA": 170177213367.89966,
+   "capB": 182984022858.55518,
+   "cap": 192744550042.58862
+  },
+  {
+   "ticker": "VRTX",
+   "name": "Vertex Pharmaceuticals",
+   "code": "Drugs",
+   "shares": 253537674.0,
+   "capA": 110833992641.62885,
+   "capB": 127263238559.24231,
+   "cap": 134828794085.56384
+  },
+  {
+   "ticker": "VRT",
+   "name": "Vertiv",
+   "code": "Chips",
+   "shares": 385060421.0,
+   "capA": 65833780648.41446,
+   "capB": 79353252264.74669,
+   "cap": 72329748070.50662
+  },
+  {
+   "ticker": "VTRS",
+   "name": "Viatris",
+   "code": "Drugs",
+   "shares": 1146454729.0,
+   "capA": 12289995001.016441,
+   "capB": 20934263613.942665,
+   "cap": 23462196203.92011
+  },
+  {
+   "ticker": "VICI",
+   "name": "Vici Properties",
+   "code": "Fin",
+   "shares": 1101085584.0,
+   "capA": 33428959002.289307,
+   "capB": 25435077410.430817,
+   "cap": 27229845988.28302
+  },
+  {
+   "ticker": "V",
+   "name": "Visa Inc.",
+   "code": "BusSv",
+   "shares": 1865800052.0,
+   "capA": 615751312662.7484,
+   "capB": 751768182005.3075,
+   "cap": 780734716424.6677
+  },
+  {
+   "ticker": "VST",
+   "name": "Vistra Corp.",
+   "code": "Util",
+   "shares": 339394683.0,
+   "capA": 59288858001.8703,
+   "capB": 50807383009.349625,
+   "cap": 43836218499.18045
+  },
+  {
+   "ticker": "VMRK",
+   "name": "Vivmark Residential",
+   "code": "Fin",
+   "shares": 774798545.0,
+   "capA": 46038528125.20149,
+   "capB": 47154239921.5995,
+   "cap": 50067484105.94776
+  },
+  {
+   "ticker": "VMC",
+   "name": "Vulcan Materials Company",
+   "code": "Mines",
+   "shares": 128344422.0,
+   "capA": 36010876201.38519,
+   "capB": 33042273010.60437,
+   "cap": 35444238398.32306
+  },
+  {
+   "ticker": "WRB",
+   "name": "W. R. Berkley Corporation",
+   "code": "Insur",
+   "shares": 371515776.0,
+   "capA": 28606714752.0,
+   "capB": 27521889366.345703,
+   "cap": 28866774661.42383
+  },
+  {
+   "ticker": "GWW",
+   "name": "W. W. Grainger",
+   "code": "Whlsl",
+   "shares": 46814148.0,
+   "capA": 43359733047.71118,
+   "capB": 61703858655.896484,
+   "cap": 68802168138.75
+  },
+  {
+   "ticker": "WAB",
+   "name": "Wabtec",
+   "code": "Ships",
+   "shares": 167802384.0,
+   "capA": 34218261838.02466,
+   "capB": 48115653949.46484,
+   "cap": 49036892519.85205
+  },
+  {
+   "ticker": "WMT",
+   "name": "Walmart",
+   "code": "Rtail",
+   "shares": 7933746241.0,
+   "capA": 813050341410.7393,
+   "capB": 941735654594.8279,
+   "cap": 1011393997435.7393
+  },
+  {
+   "ticker": "DIS",
+   "name": "Walt Disney Company (The)",
+   "code": "Fun",
+   "shares": 1726686902.0,
+   "capA": 182683479501.03024,
+   "capB": 189227611266.8637,
+   "cap": 206623989708.65906
+  },
+  {
+   "ticker": "WM",
+   "name": "Waste Management",
+   "code": "Other",
+   "shares": 397634916.0,
+   "capA": 83173294651.62872,
+   "capB": 90028522787.74255,
+   "cap": 96730657598.04291
+  },
+  {
+   "ticker": "WAT",
+   "name": "Waters Corporation",
+   "code": "LabEq",
+   "shares": 196533745.0,
+   "capA": 74564901653.45322,
+   "capB": 85348707281.96579,
+   "cap": 88723194322.61871
+  },
+  {
+   "ticker": "WEC",
+   "name": "WEC Energy Group",
+   "code": "Util",
+   "shares": 328992329.0,
+   "capA": 36508279150.731964,
+   "capB": 35202179203.0,
+   "cap": 38544742470.44589
+  },
+  {
+   "ticker": "WFC",
+   "name": "Wells Fargo",
+   "code": "Banks",
+   "shares": 3001850317.0,
+   "capA": 255307378621.77014,
+   "capB": 245551365091.52014,
+   "cap": 249153576311.0
+  },
+  {
+   "ticker": "WELL",
+   "name": "Welltower",
+   "code": "Fin",
+   "shares": 733609863.0,
+   "capA": 142188269019.7791,
+   "capB": 171305235079.29065,
+   "cap": 177577601646.7403
+  },
+  {
+   "ticker": "WST",
+   "name": "West Pharmaceutical Services",
+   "code": "MedEq",
+   "shares": 69661036.0,
+   "capA": 18206607348.534668,
+   "capB": 26743568585.866333,
+   "cap": 28903409347.18811
+  },
+  {
+   "ticker": "WDC",
+   "name": "Western Digital",
+   "code": "Hardw",
+   "shares": 374323269.0,
+   "capA": 59079442231.67638,
+   "capB": 131840395375.92691,
+   "cap": 104567207479.83792
+  },
+  {
+   "ticker": "WY",
+   "name": "Weyerhaeuser",
+   "code": "Fin",
+   "shares": 720344000.0,
+   "capA": 15941212115.463257,
+   "capB": 13830605349.578857,
+   "cap": 14669805395.126343
+  },
+  {
+   "ticker": "WSM",
+   "name": "Williams-Sonoma, Inc.",
+   "code": "Rtail",
+   "shares": 117768000.0,
+   "capA": 21462040966.918945,
+   "capB": 29374871377.441406,
+   "cap": 29567423207.51953
+  },
+  {
+   "ticker": "WMB",
+   "name": "Williams Companies",
+   "code": "Util",
+   "shares": 1250202516.0,
+   "capA": 76249853549.26341,
+   "capB": 87989249642.29623,
+   "cap": 84613706664.41153
+  },
+  {
+   "ticker": "WTW",
+   "name": "Willis Towers Watson",
+   "code": "Insur",
+   "shares": 92216232.0,
+   "capA": 29705615264.43457,
+   "capB": 28997395278.086426,
+   "cap": 30746045014.543213
+  },
+  {
+   "ticker": "WDAY",
+   "name": "Workday, Inc.",
+   "code": "BusSv",
+   "shares": 241000000.0,
+   "capA": 55627621765.13672,
+   "capB": 47043199264.52637,
+   "cap": 44635611618.04199
+  },
+  {
+   "ticker": "WYNN",
+   "name": "Wynn Resorts",
+   "code": "Meals",
+   "shares": 102551611.0,
+   "capA": 12381056340.288948,
+   "capB": 7791871748.038948,
+   "cap": 8410257837.183876
+  },
+  {
+   "ticker": "XEL",
+   "name": "Xcel Energy",
+   "code": "Util",
+   "shares": 641874448.0,
+   "capA": 51722244195.14722,
+   "capB": 48230445630.95093,
+   "cap": 52030404850.277954
+  },
+  {
+   "ticker": "XYL",
+   "name": "Xylem Inc.",
+   "code": "Mach",
+   "shares": 229334592.0,
+   "capA": 32732925336.336914,
+   "capB": 23743010029.810547,
+   "cap": 21791372161.979004
+  },
+  {
+   "ticker": "YUM",
+   "name": "Yum! Brands",
+   "code": "Meals",
+   "shares": 268258657.0,
+   "capA": 39975906212.26463,
+   "capB": 40193195069.50627,
+   "cap": 42901937840.956314
+  },
+  {
+   "ticker": "ZBRA",
+   "name": "Zebra Technologies",
+   "code": "Mach",
+   "shares": 47087454.0,
+   "capA": 11327357819.280396,
+   "capB": 17694052072.26178,
+   "cap": 14954975677.799011
+  },
+  {
+   "ticker": "ZBH",
+   "name": "Zimmer Biomet",
+   "code": "MedEq",
+   "shares": 189253888.0,
+   "capA": 17015817763.148438,
+   "capB": 17977226416.83008,
+   "cap": 19499775043.148438
+  },
+  {
+   "ticker": "ZTS",
+   "name": "Zoetis",
+   "code": "Drugs",
+   "shares": 406316147.0,
+   "capA": 49091116756.54215,
+   "capB": 32338700651.75583,
+   "cap": 33844102720.377914
+  }
+ ],
+ "classes": {
+  "A": {
+   "ff49": "LabEq",
+   "sic": 3826,
+   "sic_desc": "Laboratory Analytical Instruments",
+   "name": "AGILENT TECHNOLOGIES, INC."
+  },
+  "AAPL": {
+   "ff49": "Hardw",
+   "sic": 3571,
+   "sic_desc": "Electronic Computers",
+   "name": "Apple Inc."
+  },
+  "ABBV": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "AbbVie Inc."
+  },
+  "ABNB": {
+   "ff49": "BusSv",
+   "sic": 7340,
+   "sic_desc": "Services-To Dwellings & Other Buildings",
+   "name": "Airbnb, Inc."
+  },
+  "ABT": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "ABBOTT LABORATORIES"
+  },
+  "ACGL": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "ARCH CAPITAL GROUP LTD."
+  },
+  "ACN": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "Accenture plc"
+  },
+  "ADBE": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "ADOBE INC."
+  },
+  "ADI": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "ANALOG DEVICES INC"
+  },
+  "ADM": {
+   "ff49": "Food",
+   "sic": 2070,
+   "sic_desc": "Fats & Oils",
+   "name": "Archer-Daniels-Midland Co"
+  },
+  "ADP": {
+   "ff49": "BusSv",
+   "sic": 7374,
+   "sic_desc": "Services-Computer Processing & Data Preparation",
+   "name": "AUTOMATIC DATA PROCESSING INC"
+  },
+  "ADSK": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Autodesk, Inc."
+  },
+  "AEE": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "AMEREN CORP"
+  },
+  "AEP": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "AMERICAN ELECTRIC POWER CO INC"
+  },
+  "AES": {
+   "ff49": "Other",
+   "sic": 4991,
+   "sic_desc": "Cogeneration Services & Small Power Producers",
+   "name": "AES CORP"
+  },
+  "AFL": {
+   "ff49": "Insur",
+   "sic": 6321,
+   "sic_desc": "Accident & Health Insurance",
+   "name": "AFLAC INC"
+  },
+  "AIG": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "AMERICAN INTERNATIONAL GROUP, INC."
+  },
+  "AIZ": {
+   "ff49": "Insur",
+   "sic": 6399,
+   "sic_desc": "Insurance Carriers, NEC",
+   "name": "ASSURANT, INC."
+  },
+  "AJG": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "Arthur J. Gallagher & Co."
+  },
+  "AKAM": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "AKAMAI TECHNOLOGIES INC"
+  },
+  "ALB": {
+   "ff49": "Chems",
+   "sic": 2821,
+   "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers",
+   "name": "ALBEMARLE CORP"
+  },
+  "ALGN": {
+   "ff49": "MedEq",
+   "sic": 3842,
+   "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies",
+   "name": "ALIGN TECHNOLOGY INC"
+  },
+  "ALL": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "ALLSTATE CORP"
+  },
+  "ALLE": {
+   "ff49": "BusSv",
+   "sic": 7381,
+   "sic_desc": "Services-Detective, Guard & Armored Car Services",
+   "name": "Allegion plc"
+  },
+  "AMAT": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "APPLIED MATERIALS INC /DE"
+  },
+  "AMCR": {
+   "ff49": "Other",
+   "sic": 3990,
+   "sic_desc": "Miscellaneous Manufacturing Industries",
+   "name": "Amcor plc"
+  },
+  "AMD": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "ADVANCED MICRO DEVICES INC"
+  },
+  "AME": {
+   "ff49": "LabEq",
+   "sic": 3823,
+   "sic_desc": "Industrial Instruments For Measurement, Display, and Control",
+   "name": "AMETEK INC/"
+  },
+  "AMGN": {
+   "ff49": "Drugs",
+   "sic": 2836,
+   "sic_desc": "Biological Products, (No Diagnostic Substances)",
+   "name": "AMGEN INC"
+  },
+  "AMP": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "AMERIPRISE FINANCIAL INC"
+  },
+  "AMT": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "AMERICAN TOWER CORP /MA/"
+  },
+  "AMZN": {
+   "ff49": "Rtail",
+   "sic": 5961,
+   "sic_desc": "Retail-Catalog & Mail-Order Houses",
+   "name": "AMAZON COM INC"
+  },
+  "ANET": {
+   "ff49": "Hardw",
+   "sic": 3576,
+   "sic_desc": "Computer Communications Equipment",
+   "name": "Arista Networks, Inc."
+  },
+  "AON": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "Aon plc"
+  },
+  "AOS": {
+   "ff49": "Hshld",
+   "sic": 3630,
+   "sic_desc": "Household Appliances",
+   "name": "SMITH A O CORP"
+  },
+  "APA": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "APA Corp"
+  },
+  "APD": {
+   "ff49": "Chems",
+   "sic": 2810,
+   "sic_desc": "Industrial Inorganic Chemicals",
+   "name": "Air Products & Chemicals, Inc."
+  },
+  "APH": {
+   "ff49": "Chips",
+   "sic": 3678,
+   "sic_desc": "Electronic Connectors",
+   "name": "AMPHENOL CORP /DE/"
+  },
+  "APO": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "Apollo Global Management, Inc."
+  },
+  "APP": {
+   "ff49": "Softw",
+   "sic": 7370,
+   "sic_desc": "Services-Computer Programming, Data Processing, Etc.",
+   "name": "AppLovin Corp"
+  },
+  "APTV": {
+   "ff49": "Autos",
+   "sic": 3714,
+   "sic_desc": "Motor Vehicle Parts & Accessories",
+   "name": "Aptiv PLC"
+  },
+  "ARE": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "ALEXANDRIA REAL ESTATE EQUITIES, INC."
+  },
+  "ARES": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "Ares Management Corp"
+  },
+  "ATO": {
+   "ff49": "Util",
+   "sic": 4924,
+   "sic_desc": "Natural Gas Distribution",
+   "name": "ATMOS ENERGY CORP"
+  },
+  "AVGO": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "Broadcom Inc."
+  },
+  "AVY": {
+   "ff49": "Paper",
+   "sic": 2670,
+   "sic_desc": "Converted Paper & Paperboard Prods (No Contaners/Boxes)",
+   "name": "Avery Dennison Corp"
+  },
+  "AWK": {
+   "ff49": "Util",
+   "sic": 4941,
+   "sic_desc": "Water Supply",
+   "name": "American Water Works Company, Inc."
+  },
+  "AXON": {
+   "ff49": "Guns",
+   "sic": 3480,
+   "sic_desc": "Ordnance & Accessories, (No Vehicles/Guided Missiles)",
+   "name": "AXON ENTERPRISE, INC."
+  },
+  "AXP": {
+   "ff49": "Banks",
+   "sic": 6199,
+   "sic_desc": "Finance Services",
+   "name": "AMERICAN EXPRESS CO"
+  },
+  "AZO": {
+   "ff49": "Rtail",
+   "sic": 5531,
+   "sic_desc": "Retail-Auto & Home Supply Stores",
+   "name": "AUTOZONE INC"
+  },
+  "BA": {
+   "ff49": "Aero",
+   "sic": 3721,
+   "sic_desc": "Aircraft",
+   "name": "BOEING CO"
+  },
+  "BAC": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "BANK OF AMERICA CORP /DE/"
+  },
+  "BALL": {
+   "ff49": "Boxes",
+   "sic": 3411,
+   "sic_desc": "Metal Cans",
+   "name": "BALL Corp"
+  },
+  "BAX": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "BAXTER INTERNATIONAL INC"
+  },
+  "BBY": {
+   "ff49": "Rtail",
+   "sic": 5731,
+   "sic_desc": "Retail-Radio, Tv & Consumer Electronics Stores",
+   "name": "BEST BUY CO INC"
+  },
+  "BDX": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "BECTON DICKINSON & CO"
+  },
+  "BE": {
+   "ff49": "ElcEq",
+   "sic": 3620,
+   "sic_desc": "Electrical Industrial Apparatus",
+   "name": "Bloom Energy Corp"
+  },
+  "BEN": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "FRANKLIN TEMPLETON INC"
+  },
+  "BF.B": {
+   "ff49": "Beer",
+   "sic": 2080,
+   "sic_desc": "Beverages",
+   "name": "BROWN FORMAN CORP"
+  },
+  "BG": {
+   "ff49": "Food",
+   "sic": 2070,
+   "sic_desc": "Fats & Oils",
+   "name": "Bunge Global SA"
+  },
+  "BIIB": {
+   "ff49": "Drugs",
+   "sic": 2836,
+   "sic_desc": "Biological Products, (No Diagnostic Substances)",
+   "name": "BIOGEN INC."
+  },
+  "BKNG": {
+   "ff49": "Trans",
+   "sic": 4700,
+   "sic_desc": "Transportation Services",
+   "name": "Booking Holdings Inc."
+  },
+  "BKR": {
+   "ff49": "Mach",
+   "sic": 3533,
+   "sic_desc": "Oil & Gas Field Machinery & Equipment",
+   "name": "Baker Hughes Co"
+  },
+  "BLK": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "BlackRock, Inc."
+  },
+  "BMY": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "BRISTOL MYERS SQUIBB CO"
+  },
+  "BNY": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "Bank of New York Mellon Corp"
+  },
+  "BR": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "BROADRIDGE FINANCIAL SOLUTIONS, INC."
+  },
+  "BRK.B": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "BERKSHIRE HATHAWAY INC"
+  },
+  "BRO": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "BROWN & BROWN, INC."
+  },
+  "BSX": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "BOSTON SCIENTIFIC CORP"
+  },
+  "BX": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "Blackstone Inc."
+  },
+  "BXP": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "BXP, Inc."
+  },
+  "C": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "CITIGROUP INC"
+  },
+  "CAH": {
+   "ff49": "Whlsl",
+   "sic": 5122,
+   "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries",
+   "name": "CARDINAL HEALTH INC"
+  },
+  "CARR": {
+   "ff49": "Mach",
+   "sic": 3585,
+   "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip",
+   "name": "CARRIER GLOBAL Corp"
+  },
+  "CASY": {
+   "ff49": "Rtail",
+   "sic": 5500,
+   "sic_desc": "Retail-Auto Dealers & Gasoline Stations",
+   "name": "CASEYS GENERAL STORES INC"
+  },
+  "CAT": {
+   "ff49": "Mach",
+   "sic": 3531,
+   "sic_desc": "Construction Machinery & Equip",
+   "name": "CATERPILLAR INC"
+  },
+  "CB": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "Chubb Ltd"
+  },
+  "CBOE": {
+   "ff49": "Fin",
+   "sic": 6200,
+   "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services",
+   "name": "Cboe Global Markets, Inc."
+  },
+  "CBRE": {
+   "ff49": "RlEst",
+   "sic": 6500,
+   "sic_desc": "Real Estate",
+   "name": "CBRE GROUP, INC."
+  },
+  "CCI": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "CROWN CASTLE INC."
+  },
+  "CCL": {
+   "ff49": "Trans",
+   "sic": 4400,
+   "sic_desc": "Water Transportation",
+   "name": "Carnival Corp Ltd."
+  },
+  "CDNS": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "CADENCE DESIGN SYSTEMS INC"
+  },
+  "CDW": {
+   "ff49": "Rtail",
+   "sic": 5961,
+   "sic_desc": "Retail-Catalog & Mail-Order Houses",
+   "name": "CDW Corp"
+  },
+  "CEG": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "Constellation Energy Corp"
+  },
+  "CF": {
+   "ff49": "Chems",
+   "sic": 2870,
+   "sic_desc": "Agricultural Chemicals",
+   "name": "CF Industries Holdings, Inc."
+  },
+  "CFG": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "CITIZENS FINANCIAL GROUP INC/RI"
+  },
+  "CHD": {
+   "ff49": "Hshld",
+   "sic": 2840,
+   "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics",
+   "name": "CHURCH & DWIGHT CO INC /DE/"
+  },
+  "CHRW": {
+   "ff49": "Trans",
+   "sic": 4731,
+   "sic_desc": "Arrangement of  Transportation of  Freight & Cargo",
+   "name": "C. H. ROBINSON WORLDWIDE, INC."
+  },
+  "CHTR": {
+   "ff49": "Telcm",
+   "sic": 4841,
+   "sic_desc": "Cable & Other Pay Television Services",
+   "name": "CHARTER COMMUNICATIONS, INC. /MO/"
+  },
+  "CI": {
+   "ff49": "Insur",
+   "sic": 6324,
+   "sic_desc": "Hospital & Medical Service Plans",
+   "name": "Cigna Group"
+  },
+  "CIEN": {
+   "ff49": "Chips",
+   "sic": 3661,
+   "sic_desc": "Telephone & Telegraph Apparatus",
+   "name": "CIENA CORP"
+  },
+  "CINF": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "CINCINNATI FINANCIAL CORP"
+  },
+  "CL": {
+   "ff49": "Hshld",
+   "sic": 2844,
+   "sic_desc": "Perfumes, Cosmetics & Other Toilet Preparations",
+   "name": "COLGATE PALMOLIVE CO"
+  },
+  "CLX": {
+   "ff49": "Hshld",
+   "sic": 2842,
+   "sic_desc": "Specialty Cleaning, Polishing and Sanitation Preparations",
+   "name": "CLOROX CO /DE/"
+  },
+  "CMCSA": {
+   "ff49": "Telcm",
+   "sic": 4841,
+   "sic_desc": "Cable & Other Pay Television Services",
+   "name": "COMCAST CORP"
+  },
+  "CME": {
+   "ff49": "Fin",
+   "sic": 6200,
+   "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services",
+   "name": "CME GROUP INC."
+  },
+  "CMG": {
+   "ff49": "Meals",
+   "sic": 5812,
+   "sic_desc": "Retail-Eating  Places",
+   "name": "CHIPOTLE MEXICAN GRILL INC"
+  },
+  "CMI": {
+   "ff49": "Mach",
+   "sic": 3510,
+   "sic_desc": "Engines & Turbines",
+   "name": "CUMMINS INC"
+  },
+  "CMS": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "CMS ENERGY CORP"
+  },
+  "CNC": {
+   "ff49": "Insur",
+   "sic": 6324,
+   "sic_desc": "Hospital & Medical Service Plans",
+   "name": "CENTENE CORP"
+  },
+  "CNP": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "CENTERPOINT ENERGY INC"
+  },
+  "COF": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "CAPITAL ONE FINANCIAL CORP"
+  },
+  "COHR": {
+   "ff49": "LabEq",
+   "sic": 3827,
+   "sic_desc": "Optical Instruments & Lenses",
+   "name": "COHERENT CORP."
+  },
+  "COIN": {
+   "ff49": "Banks",
+   "sic": 6199,
+   "sic_desc": "Finance Services",
+   "name": "Coinbase Global, Inc."
+  },
+  "COO": {
+   "ff49": "MedEq",
+   "sic": 3851,
+   "sic_desc": "Ophthalmic Goods",
+   "name": "COOPER COMPANIES, INC."
+  },
+  "COP": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "CONOCOPHILLIPS"
+  },
+  "COR": {
+   "ff49": "Whlsl",
+   "sic": 5122,
+   "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries",
+   "name": "Cencora, Inc."
+  },
+  "COST": {
+   "ff49": "Rtail",
+   "sic": 5331,
+   "sic_desc": "Retail-Variety Stores",
+   "name": "COSTCO WHOLESALE CORP /NEW"
+  },
+  "CPAY": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "CORPAY, INC."
+  },
+  "CPRT": {
+   "ff49": "Rtail",
+   "sic": 5500,
+   "sic_desc": "Retail-Auto Dealers & Gasoline Stations",
+   "name": "COPART INC"
+  },
+  "CPT": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "CAMDEN PROPERTY TRUST"
+  },
+  "CRH": {
+   "ff49": "BldMt",
+   "sic": 3241,
+   "sic_desc": "Cement, Hydraulic",
+   "name": "CRH PUBLIC LTD CO"
+  },
+  "CRL": {
+   "ff49": "BusSv",
+   "sic": 8731,
+   "sic_desc": "Services-Commercial Physical & Biological Research",
+   "name": "CHARLES RIVER LABORATORIES INTERNATIONAL, INC."
+  },
+  "CRM": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Salesforce, Inc."
+  },
+  "CRWD": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "CrowdStrike Holdings, Inc."
+  },
+  "CSCO": {
+   "ff49": "Hardw",
+   "sic": 3576,
+   "sic_desc": "Computer Communications Equipment",
+   "name": "CISCO SYSTEMS, INC."
+  },
+  "CSGP": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "COSTAR GROUP, INC."
+  },
+  "CSX": {
+   "ff49": "Trans",
+   "sic": 4011,
+   "sic_desc": "Railroads, Line-Haul Operating",
+   "name": "CSX CORP"
+  },
+  "CTAS": {
+   "ff49": "Clths",
+   "sic": 2320,
+   "sic_desc": "Men's & Boys' Furnishgs, Work Clothg, & Allied Garments",
+   "name": "CINTAS CORP"
+  },
+  "CTSH": {
+   "ff49": "Softw",
+   "sic": 7371,
+   "sic_desc": "Services-Computer Programming Services",
+   "name": "COGNIZANT TECHNOLOGY SOLUTIONS CORP"
+  },
+  "CVNA": {
+   "ff49": "Rtail",
+   "sic": 5500,
+   "sic_desc": "Retail-Auto Dealers & Gasoline Stations",
+   "name": "CARVANA CO."
+  },
+  "CVS": {
+   "ff49": "Rtail",
+   "sic": 5912,
+   "sic_desc": "Retail-Drug Stores and Proprietary Stores",
+   "name": "CVS HEALTH Corp"
+  },
+  "CVX": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "CHEVRON CORP"
+  },
+  "D": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "DOMINION ENERGY, INC"
+  },
+  "DAL": {
+   "ff49": "Trans",
+   "sic": 4512,
+   "sic_desc": "Air Transportation, Scheduled",
+   "name": "DELTA AIR LINES, INC."
+  },
+  "DASH": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "DoorDash, Inc."
+  },
+  "DD": {
+   "ff49": "Chems",
+   "sic": 2821,
+   "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers",
+   "name": "DuPont de Nemours, Inc."
+  },
+  "DDOG": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Datadog, Inc."
+  },
+  "DE": {
+   "ff49": "Mach",
+   "sic": 3523,
+   "sic_desc": "Farm Machinery & Equipment",
+   "name": "DEERE & CO"
+  },
+  "DECK": {
+   "ff49": "Clths",
+   "sic": 3021,
+   "sic_desc": "Rubber & Plastics Footwear",
+   "name": "DECKERS OUTDOOR CORP"
+  },
+  "DELL": {
+   "ff49": "Hardw",
+   "sic": 3571,
+   "sic_desc": "Electronic Computers",
+   "name": "Dell Technologies Inc."
+  },
+  "DG": {
+   "ff49": "Rtail",
+   "sic": 5331,
+   "sic_desc": "Retail-Variety Stores",
+   "name": "DOLLAR GENERAL CORP"
+  },
+  "DGX": {
+   "ff49": "Hlth",
+   "sic": 8071,
+   "sic_desc": "Services-Medical Laboratories",
+   "name": "QUEST DIAGNOSTICS INC"
+  },
+  "DHI": {
+   "ff49": "Cnstr",
+   "sic": 1531,
+   "sic_desc": "Operative Builders",
+   "name": "HORTON D R INC /DE/"
+  },
+  "DHR": {
+   "ff49": "LabEq",
+   "sic": 3823,
+   "sic_desc": "Industrial Instruments For Measurement, Display, and Control",
+   "name": "DANAHER CORP /DE/"
+  },
+  "DIS": {
+   "ff49": "Fun",
+   "sic": 7990,
+   "sic_desc": "Services-Miscellaneous Amusement & Recreation",
+   "name": "Walt Disney Co"
+  },
+  "DLR": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "DIGITAL REALTY TRUST, INC."
+  },
+  "DLTR": {
+   "ff49": "Rtail",
+   "sic": 5331,
+   "sic_desc": "Retail-Variety Stores",
+   "name": "DOLLAR TREE, INC."
+  },
+  "DOC": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "HEALTHPEAK PROPERTIES, INC."
+  },
+  "DOV": {
+   "ff49": "Mach",
+   "sic": 3530,
+   "sic_desc": "Construction, Mining & Materials Handling Machinery & Equip",
+   "name": "DOVER Corp"
+  },
+  "DOW": {
+   "ff49": "Chems",
+   "sic": 2821,
+   "sic_desc": "Plastic Materials, Synth Resins & Nonvulcan Elastomers",
+   "name": "DOW INC."
+  },
+  "DPZ": {
+   "ff49": "Whlsl",
+   "sic": 5140,
+   "sic_desc": "Wholesale-Groceries & Related Products",
+   "name": "DOMINOS PIZZA INC"
+  },
+  "DRI": {
+   "ff49": "Meals",
+   "sic": 5812,
+   "sic_desc": "Retail-Eating  Places",
+   "name": "DARDEN RESTAURANTS INC"
+  },
+  "DTE": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "DTE ENERGY CO"
+  },
+  "DUK": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "Duke Energy CORP"
+  },
+  "DVA": {
+   "ff49": "Hlth",
+   "sic": 8090,
+   "sic_desc": "Services-Misc Health & Allied Services, NEC",
+   "name": "DAVITA INC."
+  },
+  "DVN": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "DEVON ENERGY CORP/DE"
+  },
+  "DXCM": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "DEXCOM INC"
+  },
+  "EBAY": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "EBAY INC"
+  },
+  "ECHO": {
+   "ff49": "Telcm",
+   "sic": 4899,
+   "sic_desc": "Communications Services, NEC",
+   "name": "EchoStar CORP"
+  },
+  "ECL": {
+   "ff49": "Hshld",
+   "sic": 2840,
+   "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics",
+   "name": "ECOLAB INC."
+  },
+  "ED": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "CONSOLIDATED EDISON INC"
+  },
+  "EFX": {
+   "ff49": "BusSv",
+   "sic": 7320,
+   "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies",
+   "name": "EQUIFAX INC"
+  },
+  "EG": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "EVEREST GROUP, LTD."
+  },
+  "EIX": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "EDISON INTERNATIONAL"
+  },
+  "EL": {
+   "ff49": "Hshld",
+   "sic": 2844,
+   "sic_desc": "Perfumes, Cosmetics & Other Toilet Preparations",
+   "name": "ESTEE LAUDER COMPANIES INC"
+  },
+  "ELV": {
+   "ff49": "Insur",
+   "sic": 6324,
+   "sic_desc": "Hospital & Medical Service Plans",
+   "name": "Elevance Health, Inc."
+  },
+  "EME": {
+   "ff49": "Cnstr",
+   "sic": 1731,
+   "sic_desc": "Electrical Work",
+   "name": "EMCOR Group, Inc."
+  },
+  "EMR": {
+   "ff49": "ElcEq",
+   "sic": 3600,
+   "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)",
+   "name": "EMERSON ELECTRIC CO"
+  },
+  "EOG": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "EOG RESOURCES INC"
+  },
+  "EQIX": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "EQUINIX INC"
+  },
+  "EQT": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "EQT Corp"
+  },
+  "ERIE": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "ERIE INDEMNITY CO"
+  },
+  "ES": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "EVERSOURCE ENERGY"
+  },
+  "ESS": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "ESSEX PROPERTY TRUST, INC."
+  },
+  "ETN": {
+   "ff49": "Mach",
+   "sic": 3590,
+   "sic_desc": "Misc Industrial & Commercial Machinery & Equipment",
+   "name": "Eaton Corp plc"
+  },
+  "ETR": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "ENTERGY CORP /DE/"
+  },
+  "EVRG": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "Evergy, Inc."
+  },
+  "EW": {
+   "ff49": "MedEq",
+   "sic": 3842,
+   "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies",
+   "name": "Edwards Lifesciences Corp"
+  },
+  "EXC": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "EXELON CORP"
+  },
+  "EXE": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "EXPAND ENERGY Corp"
+  },
+  "EXPD": {
+   "ff49": "Trans",
+   "sic": 4731,
+   "sic_desc": "Arrangement of  Transportation of  Freight & Cargo",
+   "name": "EXPEDITORS INTERNATIONAL OF WASHINGTON INC"
+  },
+  "EXPE": {
+   "ff49": "Trans",
+   "sic": 4700,
+   "sic_desc": "Transportation Services",
+   "name": "Expedia Group, Inc."
+  },
+  "EXR": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "Extra Space Storage Inc."
+  },
+  "F": {
+   "ff49": "Autos",
+   "sic": 3711,
+   "sic_desc": "Motor Vehicles & Passenger Car Bodies",
+   "name": "FORD MOTOR CO"
+  },
+  "FANG": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "Diamondback Energy, Inc."
+  },
+  "FAST": {
+   "ff49": "Rtail",
+   "sic": 5200,
+   "sic_desc": "Retail-Building Materials, Hardware, Garden Supply",
+   "name": "FASTENAL CO"
+  },
+  "FCX": {
+   "ff49": "Mines",
+   "sic": 1000,
+   "sic_desc": "Metal Mining",
+   "name": "FREEPORT-MCMORAN INC"
+  },
+  "FDS": {
+   "ff49": "Softw",
+   "sic": 7370,
+   "sic_desc": "Services-Computer Programming, Data Processing, Etc.",
+   "name": "FACTSET RESEARCH SYSTEMS INC"
+  },
+  "FDX": {
+   "ff49": "Trans",
+   "sic": 4513,
+   "sic_desc": "Air Courier Services",
+   "name": "FEDEX CORP"
+  },
+  "FE": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "FIRSTENERGY CORP"
+  },
+  "FERG": {
+   "ff49": "Whlsl",
+   "sic": 5070,
+   "sic_desc": "Wholesale-Hardware & Plumbing & Heating Equipment & Supplies",
+   "name": "Ferguson Enterprises Inc. /DE/"
+  },
+  "FFIV": {
+   "ff49": "Hardw",
+   "sic": 3576,
+   "sic_desc": "Computer Communications Equipment",
+   "name": "F5, INC."
+  },
+  "FICO": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "FAIR ISAAC CORP"
+  },
+  "FIS": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "Fidelity National Information Services, Inc."
+  },
+  "FISV": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "FISERV INC"
+  },
+  "FITB": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "FIFTH THIRD BANCORP"
+  },
+  "FIX": {
+   "ff49": "Cnstr",
+   "sic": 1731,
+   "sic_desc": "Electrical Work",
+   "name": "COMFORT SYSTEMS USA INC"
+  },
+  "FLEX": {
+   "ff49": "Chips",
+   "sic": 3672,
+   "sic_desc": "Printed Circuit Boards",
+   "name": "FLEX LTD."
+  },
+  "FOX": {
+   "ff49": "Telcm",
+   "sic": 4833,
+   "sic_desc": "Television Broadcasting Stations",
+   "name": "Fox Corp"
+  },
+  "FOXA": {
+   "ff49": "Telcm",
+   "sic": 4833,
+   "sic_desc": "Television Broadcasting Stations",
+   "name": "Fox Corp"
+  },
+  "FRT": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "FEDERAL REALTY INVESTMENT TRUST"
+  },
+  "FSLR": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "FIRST SOLAR, INC."
+  },
+  "FTNT": {
+   "ff49": "Hardw",
+   "sic": 3577,
+   "sic_desc": "Computer Peripheral Equipment, NEC",
+   "name": "Fortinet, Inc."
+  },
+  "FTV": {
+   "ff49": "LabEq",
+   "sic": 3823,
+   "sic_desc": "Industrial Instruments For Measurement, Display, and Control",
+   "name": "Fortive Corp"
+  },
+  "GD": {
+   "ff49": "Ships",
+   "sic": 3730,
+   "sic_desc": "Ship & Boat Building & Repairing",
+   "name": "GENERAL DYNAMICS CORP"
+  },
+  "GDDY": {
+   "ff49": "Softw",
+   "sic": 7373,
+   "sic_desc": "Services-Computer Integrated Systems Design",
+   "name": "GoDaddy Inc."
+  },
+  "GE": {
+   "ff49": "ElcEq",
+   "sic": 3600,
+   "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)",
+   "name": "GENERAL ELECTRIC CO"
+  },
+  "GEHC": {
+   "ff49": "MedEq",
+   "sic": 3844,
+   "sic_desc": "X-Ray Apparatus & Tubes & Related Irradiation Apparatus",
+   "name": "GE HealthCare Technologies Inc."
+  },
+  "GEN": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Gen Digital Inc."
+  },
+  "GEV": {
+   "ff49": "ElcEq",
+   "sic": 3600,
+   "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)",
+   "name": "GE Vernova Inc."
+  },
+  "GILD": {
+   "ff49": "Drugs",
+   "sic": 2836,
+   "sic_desc": "Biological Products, (No Diagnostic Substances)",
+   "name": "GILEAD SCIENCES, INC."
+  },
+  "GIS": {
+   "ff49": "Food",
+   "sic": 2040,
+   "sic_desc": "Grain Mill Products",
+   "name": "GENERAL MILLS INC"
+  },
+  "GL": {
+   "ff49": "Insur",
+   "sic": 6311,
+   "sic_desc": "Life Insurance",
+   "name": "GLOBE LIFE INC."
+  },
+  "GLW": {
+   "ff49": "Steel",
+   "sic": 3357,
+   "sic_desc": "Drawing & Insulating of  Nonferrous Wire",
+   "name": "CORNING INC /NY"
+  },
+  "GM": {
+   "ff49": "Autos",
+   "sic": 3711,
+   "sic_desc": "Motor Vehicles & Passenger Car Bodies",
+   "name": "General Motors Co"
+  },
+  "GNRC": {
+   "ff49": "ElcEq",
+   "sic": 3621,
+   "sic_desc": "Motors & Generators",
+   "name": "GENERAC HOLDINGS INC."
+  },
+  "GOOG": {
+   "ff49": "Softw",
+   "sic": 7370,
+   "sic_desc": "Services-Computer Programming, Data Processing, Etc.",
+   "name": "Alphabet Inc."
+  },
+  "GOOGL": {
+   "ff49": "Softw",
+   "sic": 7370,
+   "sic_desc": "Services-Computer Programming, Data Processing, Etc.",
+   "name": "Alphabet Inc."
+  },
+  "GPC": {
+   "ff49": "Whlsl",
+   "sic": 5013,
+   "sic_desc": "Wholesale-Motor Vehicle Supplies & New Parts",
+   "name": "GENUINE PARTS CO"
+  },
+  "GPN": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "GLOBAL PAYMENTS INC"
+  },
+  "GRMN": {
+   "ff49": "Chips",
+   "sic": 3812,
+   "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys",
+   "name": "GARMIN LTD"
+  },
+  "GS": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "GOLDMAN SACHS GROUP INC"
+  },
+  "GWW": {
+   "ff49": "Whlsl",
+   "sic": 5000,
+   "sic_desc": "Wholesale-Durable Goods",
+   "name": "W.W. GRAINGER, INC."
+  },
+  "HAL": {
+   "ff49": "Oil",
+   "sic": 1389,
+   "sic_desc": "Oil & Gas Field Services, NEC",
+   "name": "HALLIBURTON CO"
+  },
+  "HAS": {
+   "ff49": "Toys",
+   "sic": 3944,
+   "sic_desc": "Games, Toys & Children's Vehicles (No Dolls & Bicycles)",
+   "name": "HASBRO, INC."
+  },
+  "HBAN": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "HUNTINGTON BANCSHARES INC /MD/"
+  },
+  "HCA": {
+   "ff49": "Hlth",
+   "sic": 8062,
+   "sic_desc": "Services-General Medical & Surgical Hospitals, NEC",
+   "name": "HCA Healthcare, Inc."
+  },
+  "HD": {
+   "ff49": "Rtail",
+   "sic": 5211,
+   "sic_desc": "Retail-Lumber & Other Building Materials Dealers",
+   "name": "HOME DEPOT, INC."
+  },
+  "HIG": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "HARTFORD INSURANCE GROUP, INC."
+  },
+  "HII": {
+   "ff49": "Ships",
+   "sic": 3730,
+   "sic_desc": "Ship & Boat Building & Repairing",
+   "name": "HUNTINGTON INGALLS INDUSTRIES, INC."
+  },
+  "HLT": {
+   "ff49": "Meals",
+   "sic": 7011,
+   "sic_desc": "Hotels & Motels",
+   "name": "Hilton Worldwide Holdings Inc."
+  },
+  "HON": {
+   "ff49": "Aero",
+   "sic": 3724,
+   "sic_desc": "Aircraft Engines & Engine Parts",
+   "name": "HONEYWELL INTERNATIONAL INC"
+  },
+  "HOOD": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "Robinhood Markets, Inc."
+  },
+  "HPE": {
+   "ff49": "Hardw",
+   "sic": 3570,
+   "sic_desc": "Computer & office Equipment",
+   "name": "Hewlett Packard Enterprise Co"
+  },
+  "HPQ": {
+   "ff49": "Hardw",
+   "sic": 3570,
+   "sic_desc": "Computer & office Equipment",
+   "name": "HP INC"
+  },
+  "HRL": {
+   "ff49": "Food",
+   "sic": 2011,
+   "sic_desc": "Meat Packing Plants",
+   "name": "HORMEL FOODS CORP /DE/"
+  },
+  "HSIC": {
+   "ff49": "Whlsl",
+   "sic": 5047,
+   "sic_desc": "Wholesale-Medical, Dental & Hospital Equipment & Supplies",
+   "name": "HENRY SCHEIN INC"
+  },
+  "HST": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "HOST HOTELS & RESORTS, INC."
+  },
+  "HSY": {
+   "ff49": "Food",
+   "sic": 2060,
+   "sic_desc": "Sugar & Confectionery Products",
+   "name": "HERSHEY CO"
+  },
+  "HUBB": {
+   "ff49": "Chips",
+   "sic": 3670,
+   "sic_desc": "Electronic Components & Accessories",
+   "name": "HUBBELL INC"
+  },
+  "HUM": {
+   "ff49": "Insur",
+   "sic": 6324,
+   "sic_desc": "Hospital & Medical Service Plans",
+   "name": "HUMANA INC"
+  },
+  "HWM": {
+   "ff49": "Steel",
+   "sic": 3350,
+   "sic_desc": "Rolling Drawing & Extruding of  Nonferrous Metals",
+   "name": "Howmet Aerospace Inc."
+  },
+  "IBKR": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "Interactive Brokers Group, Inc."
+  },
+  "IBM": {
+   "ff49": "Hardw",
+   "sic": 3570,
+   "sic_desc": "Computer & office Equipment",
+   "name": "INTERNATIONAL BUSINESS MACHINES CORP"
+  },
+  "ICE": {
+   "ff49": "Fin",
+   "sic": 6200,
+   "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services",
+   "name": "Intercontinental Exchange, Inc."
+  },
+  "IDXX": {
+   "ff49": "Drugs",
+   "sic": 2835,
+   "sic_desc": "In Vitro & In Vivo Diagnostic Substances",
+   "name": "IDEXX LABORATORIES INC /DE"
+  },
+  "IEX": {
+   "ff49": "Mach",
+   "sic": 3561,
+   "sic_desc": "Pumps & Pumping Equipment",
+   "name": "IDEX CORP /DE/"
+  },
+  "IFF": {
+   "ff49": "Chems",
+   "sic": 2860,
+   "sic_desc": "Industrial Organic Chemicals",
+   "name": "INTERNATIONAL FLAVORS & FRAGRANCES INC"
+  },
+  "ILMN": {
+   "ff49": "LabEq",
+   "sic": 3826,
+   "sic_desc": "Laboratory Analytical Instruments",
+   "name": "ILLUMINA, INC."
+  },
+  "INCY": {
+   "ff49": "BusSv",
+   "sic": 8731,
+   "sic_desc": "Services-Commercial Physical & Biological Research",
+   "name": "INCYTE CORP"
+  },
+  "INTC": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "INTEL CORP"
+  },
+  "INTU": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "INTUIT INC."
+  },
+  "INVH": {
+   "ff49": "RlEst",
+   "sic": 6510,
+   "sic_desc": "Real Estate Operators (No Developers) & Lessors",
+   "name": "Invitation Homes Inc."
+  },
+  "IP": {
+   "ff49": "Paper",
+   "sic": 2621,
+   "sic_desc": "Paper Mills",
+   "name": "INTERNATIONAL PAPER CO /NEW/"
+  },
+  "IQV": {
+   "ff49": "BusSv",
+   "sic": 8731,
+   "sic_desc": "Services-Commercial Physical & Biological Research",
+   "name": "IQVIA HOLDINGS INC."
+  },
+  "IR": {
+   "ff49": "Mach",
+   "sic": 3560,
+   "sic_desc": "General Industrial Machinery & Equipment",
+   "name": "Ingersoll Rand Inc."
+  },
+  "IRM": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "IRON MOUNTAIN INC"
+  },
+  "ISRG": {
+   "ff49": "MedEq",
+   "sic": 3842,
+   "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies",
+   "name": "INTUITIVE SURGICAL INC"
+  },
+  "IT": {
+   "ff49": "BusSv",
+   "sic": 8741,
+   "sic_desc": "Services-Management Services",
+   "name": "GARTNER INC"
+  },
+  "ITW": {
+   "ff49": "Mach",
+   "sic": 3560,
+   "sic_desc": "General Industrial Machinery & Equipment",
+   "name": "ILLINOIS TOOL WORKS INC"
+  },
+  "IVZ": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "Invesco Ltd."
+  },
+  "J": {
+   "ff49": "Cnstr",
+   "sic": 1600,
+   "sic_desc": "Heavy Construction Other Than Bldg Const - Contractors",
+   "name": "JACOBS SOLUTIONS INC."
+  },
+  "JBHT": {
+   "ff49": "Trans",
+   "sic": 4213,
+   "sic_desc": "Trucking (No Local)",
+   "name": "HUNT J B TRANSPORT SERVICES INC"
+  },
+  "JBL": {
+   "ff49": "Chips",
+   "sic": 3672,
+   "sic_desc": "Printed Circuit Boards",
+   "name": "JABIL INC"
+  },
+  "JCI": {
+   "ff49": "Mach",
+   "sic": 3585,
+   "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip",
+   "name": "Johnson Controls International plc"
+  },
+  "JKHY": {
+   "ff49": "Softw",
+   "sic": 7373,
+   "sic_desc": "Services-Computer Integrated Systems Design",
+   "name": "JACK HENRY & ASSOCIATES INC"
+  },
+  "JNJ": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "JOHNSON & JOHNSON"
+  },
+  "JPM": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "JPMORGAN CHASE & CO"
+  },
+  "KDP": {
+   "ff49": "Beer",
+   "sic": 2080,
+   "sic_desc": "Beverages",
+   "name": "Keurig Dr Pepper Inc."
+  },
+  "KEY": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "KEYCORP /NEW/"
+  },
+  "KEYS": {
+   "ff49": "LabEq",
+   "sic": 3823,
+   "sic_desc": "Industrial Instruments For Measurement, Display, and Control",
+   "name": "Keysight Technologies, Inc."
+  },
+  "KHC": {
+   "ff49": "Food",
+   "sic": 2030,
+   "sic_desc": "Canned, Frozen & Preservd Fruit, Veg & Food Specialties",
+   "name": "Kraft Heinz Co"
+  },
+  "KIM": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "KIMCO REALTY CORP"
+  },
+  "KKR": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "KKR & Co. Inc."
+  },
+  "KLAC": {
+   "ff49": "LabEq",
+   "sic": 3827,
+   "sic_desc": "Optical Instruments & Lenses",
+   "name": "KLA CORP"
+  },
+  "KMB": {
+   "ff49": "Paper",
+   "sic": 2670,
+   "sic_desc": "Converted Paper & Paperboard Prods (No Contaners/Boxes)",
+   "name": "KIMBERLY CLARK CORP"
+  },
+  "KMI": {
+   "ff49": "Util",
+   "sic": 4922,
+   "sic_desc": "Natural Gas Transmission",
+   "name": "KINDER MORGAN, INC."
+  },
+  "KO": {
+   "ff49": "Beer",
+   "sic": 2080,
+   "sic_desc": "Beverages",
+   "name": "COCA COLA CO"
+  },
+  "KR": {
+   "ff49": "Rtail",
+   "sic": 5411,
+   "sic_desc": "Retail-Grocery Stores",
+   "name": "KROGER CO"
+  },
+  "L": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "LOEWS CORP"
+  },
+  "LDOS": {
+   "ff49": "Softw",
+   "sic": 7373,
+   "sic_desc": "Services-Computer Integrated Systems Design",
+   "name": "Leidos Holdings, Inc."
+  },
+  "LEN": {
+   "ff49": "Cnstr",
+   "sic": 1520,
+   "sic_desc": "General Bldg Contractors - Residential Bldgs",
+   "name": "LENNAR CORP /NEW/"
+  },
+  "LH": {
+   "ff49": "Hlth",
+   "sic": 8071,
+   "sic_desc": "Services-Medical Laboratories",
+   "name": "LABCORP HOLDINGS INC."
+  },
+  "LHX": {
+   "ff49": "Chips",
+   "sic": 3812,
+   "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys",
+   "name": "L3HARRIS TECHNOLOGIES, INC. /DE/"
+  },
+  "LII": {
+   "ff49": "Mach",
+   "sic": 3585,
+   "sic_desc": "Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip",
+   "name": "LENNOX INTERNATIONAL INC"
+  },
+  "LIN": {
+   "ff49": "Chems",
+   "sic": 2810,
+   "sic_desc": "Industrial Inorganic Chemicals",
+   "name": "LINDE PLC"
+  },
+  "LITE": {
+   "ff49": "Chips",
+   "sic": 3669,
+   "sic_desc": "Communications Equipment, NEC",
+   "name": "Lumentum Holdings Inc."
+  },
+  "LLY": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "ELI LILLY & Co"
+  },
+  "LMT": {
+   "ff49": "Guns",
+   "sic": 3760,
+   "sic_desc": "Guided Missiles & Space Vehicles & Parts",
+   "name": "LOCKHEED MARTIN CORP"
+  },
+  "LNT": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "ALLIANT ENERGY CORP"
+  },
+  "LOW": {
+   "ff49": "Rtail",
+   "sic": 5211,
+   "sic_desc": "Retail-Lumber & Other Building Materials Dealers",
+   "name": "LOWES COMPANIES INC"
+  },
+  "LRCX": {
+   "ff49": "Mach",
+   "sic": 3559,
+   "sic_desc": "Special Industry Machinery, NEC",
+   "name": "LAM RESEARCH CORP"
+  },
+  "LULU": {
+   "ff49": "Clths",
+   "sic": 2300,
+   "sic_desc": "Apparel & Other Finishd Prods of  Fabrics & Similar Matl",
+   "name": "lululemon athletica inc."
+  },
+  "LUV": {
+   "ff49": "Trans",
+   "sic": 4512,
+   "sic_desc": "Air Transportation, Scheduled",
+   "name": "SOUTHWEST AIRLINES CO"
+  },
+  "LVS": {
+   "ff49": "Meals",
+   "sic": 7011,
+   "sic_desc": "Hotels & Motels",
+   "name": "LAS VEGAS SANDS CORP"
+  },
+  "LYB": {
+   "ff49": "Chems",
+   "sic": 2860,
+   "sic_desc": "Industrial Organic Chemicals",
+   "name": "LyondellBasell Industries N.V."
+  },
+  "LYV": {
+   "ff49": "Fun",
+   "sic": 7900,
+   "sic_desc": "Services-Amusement & Recreation Services",
+   "name": "Live Nation Entertainment, Inc."
+  },
+  "MA": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "Mastercard Inc"
+  },
+  "MAA": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "MID AMERICA APARTMENT COMMUNITIES INC."
+  },
+  "MAR": {
+   "ff49": "Meals",
+   "sic": 7011,
+   "sic_desc": "Hotels & Motels",
+   "name": "MARRIOTT INTERNATIONAL INC /MD/"
+  },
+  "MAS": {
+   "ff49": "BldMt",
+   "sic": 3430,
+   "sic_desc": "Heating Equip, Except Elec & Warm Air; & Plumbing Fixtures",
+   "name": "MASCO CORP /DE/"
+  },
+  "MCD": {
+   "ff49": "Meals",
+   "sic": 5812,
+   "sic_desc": "Retail-Eating  Places",
+   "name": "MCDONALDS CORP"
+  },
+  "MCHP": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "MICROCHIP TECHNOLOGY INC"
+  },
+  "MCK": {
+   "ff49": "Whlsl",
+   "sic": 5122,
+   "sic_desc": "Wholesale-Drugs, Proprietaries & Druggists' Sundries",
+   "name": "MCKESSON CORP"
+  },
+  "MCO": {
+   "ff49": "BusSv",
+   "sic": 7320,
+   "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies",
+   "name": "MOODYS CORP /DE/"
+  },
+  "MDLZ": {
+   "ff49": "Food",
+   "sic": 2000,
+   "sic_desc": "Food and Kindred Products",
+   "name": "Mondelez International, Inc."
+  },
+  "MDT": {
+   "ff49": "MedEq",
+   "sic": 3845,
+   "sic_desc": "Electromedical & Electrotherapeutic Apparatus",
+   "name": "Medtronic plc"
+  },
+  "MET": {
+   "ff49": "Insur",
+   "sic": 6311,
+   "sic_desc": "Life Insurance",
+   "name": "METLIFE INC"
+  },
+  "META": {
+   "ff49": "Softw",
+   "sic": 7370,
+   "sic_desc": "Services-Computer Programming, Data Processing, Etc.",
+   "name": "Meta Platforms, Inc."
+  },
+  "MGM": {
+   "ff49": "Meals",
+   "sic": 7011,
+   "sic_desc": "Hotels & Motels",
+   "name": "MGM Resorts International"
+  },
+  "MKC": {
+   "ff49": "Food",
+   "sic": 2090,
+   "sic_desc": "Miscellaneous Food Preparations & Kindred Products",
+   "name": "MCCORMICK & CO INC"
+  },
+  "MLM": {
+   "ff49": "Mines",
+   "sic": 1400,
+   "sic_desc": "Mining & Quarrying of  Nonmetallic Minerals (No Fuels)",
+   "name": "MARTIN MARIETTA MATERIALS INC"
+  },
+  "MMM": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "3M CO"
+  },
+  "MNST": {
+   "ff49": "Soda",
+   "sic": 2086,
+   "sic_desc": "Bottled & Canned Soft Drinks & Carbonated Waters",
+   "name": "Monster Beverage Corp"
+  },
+  "MO": {
+   "ff49": "Smoke",
+   "sic": 2111,
+   "sic_desc": "Cigarettes",
+   "name": "ALTRIA GROUP, INC."
+  },
+  "MOS": {
+   "ff49": "Chems",
+   "sic": 2870,
+   "sic_desc": "Agricultural Chemicals",
+   "name": "MOSAIC CO"
+  },
+  "MPC": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "Marathon Petroleum Corp"
+  },
+  "MPWR": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "MONOLITHIC POWER SYSTEMS, INC."
+  },
+  "MRK": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "Merck & Co., Inc."
+  },
+  "MRNA": {
+   "ff49": "Drugs",
+   "sic": 2836,
+   "sic_desc": "Biological Products, (No Diagnostic Substances)",
+   "name": "Moderna, Inc."
+  },
+  "MRSH": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "MARSH & MCLENNAN COMPANIES, INC."
+  },
+  "MRVL": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "Marvell Technology, Inc."
+  },
+  "MS": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "MORGAN STANLEY"
+  },
+  "MSCI": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "MSCI Inc."
+  },
+  "MSFT": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "MICROSOFT CORP"
+  },
+  "MSI": {
+   "ff49": "Chips",
+   "sic": 3663,
+   "sic_desc": "Radio & Tv Broadcasting & Communications Equipment",
+   "name": "Motorola Solutions, Inc."
+  },
+  "MTB": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "M&T BANK CORP"
+  },
+  "MTD": {
+   "ff49": "LabEq",
+   "sic": 3826,
+   "sic_desc": "Laboratory Analytical Instruments",
+   "name": "METTLER TOLEDO INTERNATIONAL INC/"
+  },
+  "MU": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "MICRON TECHNOLOGY INC"
+  },
+  "NCLH": {
+   "ff49": "Trans",
+   "sic": 4400,
+   "sic_desc": "Water Transportation",
+   "name": "Norwegian Cruise Line Holdings Ltd."
+  },
+  "NDAQ": {
+   "ff49": "Fin",
+   "sic": 6200,
+   "sic_desc": "Security & Commodity Brokers, Dealers, Exchanges & Services",
+   "name": "NASDAQ, INC."
+  },
+  "NDSN": {
+   "ff49": "Mach",
+   "sic": 3569,
+   "sic_desc": "General Industrial Machinery & Equipment, NEC",
+   "name": "NORDSON CORP"
+  },
+  "NEE": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "NEXTERA ENERGY INC"
+  },
+  "NEM": {
+   "ff49": "Gold",
+   "sic": 1040,
+   "sic_desc": "Gold and Silver Ores",
+   "name": "NEWMONT Corp /DE/"
+  },
+  "NFLX": {
+   "ff49": "Fun",
+   "sic": 7841,
+   "sic_desc": "Services-Video Tape Rental",
+   "name": "NETFLIX INC"
+  },
+  "NI": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "NISOURCE INC."
+  },
+  "NKE": {
+   "ff49": "Clths",
+   "sic": 3021,
+   "sic_desc": "Rubber & Plastics Footwear",
+   "name": "NIKE, Inc."
+  },
+  "NOC": {
+   "ff49": "Chips",
+   "sic": 3812,
+   "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys",
+   "name": "NORTHROP GRUMMAN CORP /DE/"
+  },
+  "NOW": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "ServiceNow, Inc."
+  },
+  "NRG": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "NRG ENERGY, INC."
+  },
+  "NSC": {
+   "ff49": "Trans",
+   "sic": 4011,
+   "sic_desc": "Railroads, Line-Haul Operating",
+   "name": "NORFOLK SOUTHERN CORP"
+  },
+  "NTAP": {
+   "ff49": "Hardw",
+   "sic": 3572,
+   "sic_desc": "Computer Storage Devices",
+   "name": "NetApp, Inc."
+  },
+  "NTRS": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "NORTHERN TRUST CORP"
+  },
+  "NUE": {
+   "ff49": "Steel",
+   "sic": 3312,
+   "sic_desc": "Steel Works, Blast Furnaces & Rolling Mills (Coke Ovens)",
+   "name": "NUCOR CORP"
+  },
+  "NVDA": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "NVIDIA CORP"
+  },
+  "NVR": {
+   "ff49": "Cnstr",
+   "sic": 1531,
+   "sic_desc": "Operative Builders",
+   "name": "NVR INC"
+  },
+  "NWS": {
+   "ff49": "Books",
+   "sic": 2711,
+   "sic_desc": "Newspapers: Publishing or  Publishing & Printing",
+   "name": "NEWS CORP"
+  },
+  "NWSA": {
+   "ff49": "Books",
+   "sic": 2711,
+   "sic_desc": "Newspapers: Publishing or  Publishing & Printing",
+   "name": "NEWS CORP"
+  },
+  "NXPI": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "NXP Semiconductors N.V."
+  },
+  "O": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "REALTY INCOME CORP"
+  },
+  "ODFL": {
+   "ff49": "Trans",
+   "sic": 4213,
+   "sic_desc": "Trucking (No Local)",
+   "name": "OLD DOMINION FREIGHT LINE, INC."
+  },
+  "OKE": {
+   "ff49": "Util",
+   "sic": 4923,
+   "sic_desc": "Natural Gas Transmisison & Distribution",
+   "name": "ONEOK INC /NEW/"
+  },
+  "OKTA": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Okta, Inc."
+  },
+  "OMC": {
+   "ff49": "BusSv",
+   "sic": 7311,
+   "sic_desc": "Services-Advertising Agencies",
+   "name": "OMNICOM GROUP INC."
+  },
+  "ON": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "ON SEMICONDUCTOR CORP"
+  },
+  "ORCL": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "ORACLE CORP"
+  },
+  "ORLY": {
+   "ff49": "Rtail",
+   "sic": 5531,
+   "sic_desc": "Retail-Auto & Home Supply Stores",
+   "name": "O REILLY AUTOMOTIVE INC"
+  },
+  "OTIS": {
+   "ff49": "ElcEq",
+   "sic": 3600,
+   "sic_desc": "Electronic & Other Electrical Equipment (No Computer Equip)",
+   "name": "Otis Worldwide Corp"
+  },
+  "OXY": {
+   "ff49": "Oil",
+   "sic": 1311,
+   "sic_desc": "Crude Petroleum & Natural Gas",
+   "name": "OCCIDENTAL PETROLEUM CORP /DE/"
+  },
+  "P": {
+   "ff49": "Hardw",
+   "sic": 3572,
+   "sic_desc": "Computer Storage Devices",
+   "name": "Everpure, Inc."
+  },
+  "PANW": {
+   "ff49": "Hardw",
+   "sic": 3577,
+   "sic_desc": "Computer Peripheral Equipment, NEC",
+   "name": "Palo Alto Networks Inc"
+  },
+  "PAYX": {
+   "ff49": "BusSv",
+   "sic": 8700,
+   "sic_desc": "Services-Engineering, Accounting, Research, Management",
+   "name": "PAYCHEX INC"
+  },
+  "PCAR": {
+   "ff49": "Autos",
+   "sic": 3711,
+   "sic_desc": "Motor Vehicles & Passenger Car Bodies",
+   "name": "PACCAR INC"
+  },
+  "PCG": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "PG&E Corp"
+  },
+  "PEG": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "PUBLIC SERVICE ENTERPRISE GROUP INC"
+  },
+  "PEP": {
+   "ff49": "Beer",
+   "sic": 2080,
+   "sic_desc": "Beverages",
+   "name": "PEPSICO INC"
+  },
+  "PFE": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "PFIZER INC"
+  },
+  "PFG": {
+   "ff49": "Insur",
+   "sic": 6321,
+   "sic_desc": "Accident & Health Insurance",
+   "name": "PRINCIPAL FINANCIAL GROUP INC"
+  },
+  "PG": {
+   "ff49": "Hshld",
+   "sic": 2840,
+   "sic_desc": "Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics",
+   "name": "PROCTER & GAMBLE Co"
+  },
+  "PGR": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "PROGRESSIVE CORP/OH/"
+  },
+  "PH": {
+   "ff49": "BldMt",
+   "sic": 3490,
+   "sic_desc": "Miscellaneous Fabricated Metal Products",
+   "name": "Parker-Hannifin Corp"
+  },
+  "PHM": {
+   "ff49": "Cnstr",
+   "sic": 1531,
+   "sic_desc": "Operative Builders",
+   "name": "PULTEGROUP INC/MI/"
+  },
+  "PKG": {
+   "ff49": "Boxes",
+   "sic": 2650,
+   "sic_desc": "Paperboard Containers & Boxes",
+   "name": "PACKAGING CORP OF AMERICA"
+  },
+  "PLD": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "Prologis, Inc."
+  },
+  "PLTR": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Palantir Technologies Inc."
+  },
+  "PM": {
+   "ff49": "Smoke",
+   "sic": 2111,
+   "sic_desc": "Cigarettes",
+   "name": "Philip Morris International Inc."
+  },
+  "PNC": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "PNC FINANCIAL SERVICES GROUP, INC."
+  },
+  "PNR": {
+   "ff49": "Mach",
+   "sic": 3550,
+   "sic_desc": "Special Industry Machinery (No Metalworking Machinery)",
+   "name": "PENTAIR plc"
+  },
+  "PNW": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "PINNACLE WEST CAPITAL CORP"
+  },
+  "PODD": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "INSULET CORP"
+  },
+  "PPG": {
+   "ff49": "Chems",
+   "sic": 2851,
+   "sic_desc": "Paints, Varnishes, Lacquers, Enamels & Allied Prods",
+   "name": "PPG INDUSTRIES INC"
+  },
+  "PPL": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "PPL Corp"
+  },
+  "PRU": {
+   "ff49": "Insur",
+   "sic": 6311,
+   "sic_desc": "Life Insurance",
+   "name": "PRUDENTIAL FINANCIAL INC"
+  },
+  "PSA": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "Public Storage"
+  },
+  "PSX": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "Phillips 66"
+  },
+  "PTC": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "PTC INC."
+  },
+  "PWR": {
+   "ff49": "Cnstr",
+   "sic": 1731,
+   "sic_desc": "Electrical Work",
+   "name": "QUANTA SERVICES, INC."
+  },
+  "PYPL": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "PayPal Holdings, Inc."
+  },
+  "Q": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "Qnity Electronics, Inc."
+  },
+  "QCOM": {
+   "ff49": "Chips",
+   "sic": 3663,
+   "sic_desc": "Radio & Tv Broadcasting & Communications Equipment",
+   "name": "QUALCOMM INC/DE"
+  },
+  "RCL": {
+   "ff49": "Trans",
+   "sic": 4400,
+   "sic_desc": "Water Transportation",
+   "name": "ROYAL CARIBBEAN CRUISES LTD"
+  },
+  "RDDT": {
+   "ff49": "BusSv",
+   "sic": 7374,
+   "sic_desc": "Services-Computer Processing & Data Preparation",
+   "name": "Reddit, Inc."
+  },
+  "REG": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "REGENCY CENTERS CORP"
+  },
+  "REGN": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "REGENERON PHARMACEUTICALS, INC."
+  },
+  "RF": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "REGIONS FINANCIAL CORP"
+  },
+  "RJF": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "RAYMOND JAMES FINANCIAL INC"
+  },
+  "RL": {
+   "ff49": "Clths",
+   "sic": 2320,
+   "sic_desc": "Men's & Boys' Furnishgs, Work Clothg, & Allied Garments",
+   "name": "RALPH LAUREN CORP"
+  },
+  "RMD": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "RESMED INC"
+  },
+  "ROK": {
+   "ff49": "LabEq",
+   "sic": 3829,
+   "sic_desc": "Measuring & Controlling Devices, NEC",
+   "name": "ROCKWELL AUTOMATION, INC"
+  },
+  "ROL": {
+   "ff49": "BusSv",
+   "sic": 7340,
+   "sic_desc": "Services-To Dwellings & Other Buildings",
+   "name": "ROLLINS INC"
+  },
+  "ROP": {
+   "ff49": "LabEq",
+   "sic": 3823,
+   "sic_desc": "Industrial Instruments For Measurement, Display, and Control",
+   "name": "ROPER TECHNOLOGIES INC"
+  },
+  "ROST": {
+   "ff49": "Rtail",
+   "sic": 5651,
+   "sic_desc": "Retail-Family Clothing Stores",
+   "name": "ROSS STORES, INC."
+  },
+  "RSG": {
+   "ff49": "Other",
+   "sic": 4953,
+   "sic_desc": "Refuse Systems",
+   "name": "REPUBLIC SERVICES, INC."
+  },
+  "RTX": {
+   "ff49": "Aero",
+   "sic": 3724,
+   "sic_desc": "Aircraft Engines & Engine Parts",
+   "name": "RTX Corp"
+  },
+  "RVTY": {
+   "ff49": "LabEq",
+   "sic": 3826,
+   "sic_desc": "Laboratory Analytical Instruments",
+   "name": "REVVITY, INC."
+  },
+  "SBAC": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "SBA COMMUNICATIONS CORP"
+  },
+  "SBUX": {
+   "ff49": "Meals",
+   "sic": 5810,
+   "sic_desc": "Retail-Eating & Drinking Places",
+   "name": "STARBUCKS CORP"
+  },
+  "SCHW": {
+   "ff49": "Fin",
+   "sic": 6211,
+   "sic_desc": "Security Brokers, Dealers & Flotation Companies",
+   "name": "SCHWAB CHARLES CORP"
+  },
+  "SHW": {
+   "ff49": "Rtail",
+   "sic": 5200,
+   "sic_desc": "Retail-Building Materials, Hardware, Garden Supply",
+   "name": "SHERWIN WILLIAMS CO"
+  },
+  "SJM": {
+   "ff49": "Food",
+   "sic": 2033,
+   "sic_desc": "Canned, Fruits, Veg, Preserves, Jams & Jellies",
+   "name": "J M SMUCKER Co"
+  },
+  "SKYD": {
+   "ff49": "Telcm",
+   "sic": 4833,
+   "sic_desc": "Television Broadcasting Stations",
+   "name": "Skydance Corp"
+  },
+  "SLB": {
+   "ff49": "Oil",
+   "sic": 1389,
+   "sic_desc": "Oil & Gas Field Services, NEC",
+   "name": "SLB LIMITED/NV"
+  },
+  "SMCI": {
+   "ff49": "Hardw",
+   "sic": 3571,
+   "sic_desc": "Electronic Computers",
+   "name": "Super Micro Computer, Inc."
+  },
+  "SNA": {
+   "ff49": "BldMt",
+   "sic": 3420,
+   "sic_desc": "Cutlery, Handtools & General Hardware",
+   "name": "Snap-on Inc"
+  },
+  "SNDK": {
+   "ff49": "Hardw",
+   "sic": 3572,
+   "sic_desc": "Computer Storage Devices",
+   "name": "Sandisk Corp"
+  },
+  "SNPS": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "SYNOPSYS INC"
+  },
+  "SO": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "SOUTHERN CO"
+  },
+  "SOLV": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "Solventum Corp"
+  },
+  "SPG": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "SIMON PROPERTY GROUP INC."
+  },
+  "SPGI": {
+   "ff49": "BusSv",
+   "sic": 7320,
+   "sic_desc": "Services-Consumer Credit Reporting, Collection Agencies",
+   "name": "S&P Global Inc."
+  },
+  "SRE": {
+   "ff49": "Util",
+   "sic": 4932,
+   "sic_desc": "Gas & Other Services Combined",
+   "name": "SEMPRA"
+  },
+  "STE": {
+   "ff49": "MedEq",
+   "sic": 3842,
+   "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies",
+   "name": "STERIS plc"
+  },
+  "STLD": {
+   "ff49": "Steel",
+   "sic": 3312,
+   "sic_desc": "Steel Works, Blast Furnaces & Rolling Mills (Coke Ovens)",
+   "name": "STEEL DYNAMICS INC"
+  },
+  "STT": {
+   "ff49": "Banks",
+   "sic": 6022,
+   "sic_desc": "State Commercial Banks",
+   "name": "STATE STREET CORP"
+  },
+  "STX": {
+   "ff49": "Hardw",
+   "sic": 3572,
+   "sic_desc": "Computer Storage Devices",
+   "name": "Seagate Technology Holdings plc"
+  },
+  "STZ": {
+   "ff49": "Beer",
+   "sic": 2080,
+   "sic_desc": "Beverages",
+   "name": "CONSTELLATION BRANDS, INC."
+  },
+  "SW": {
+   "ff49": "Boxes",
+   "sic": 2650,
+   "sic_desc": "Paperboard Containers & Boxes",
+   "name": "Smurfit Westrock plc"
+  },
+  "SWK": {
+   "ff49": "BldMt",
+   "sic": 3420,
+   "sic_desc": "Cutlery, Handtools & General Hardware",
+   "name": "STANLEY BLACK & DECKER, INC."
+  },
+  "SWKS": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "SKYWORKS SOLUTIONS, INC."
+  },
+  "SYF": {
+   "ff49": "Banks",
+   "sic": 6199,
+   "sic_desc": "Finance Services",
+   "name": "Synchrony Financial"
+  },
+  "SYK": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "STRYKER CORP"
+  },
+  "SYY": {
+   "ff49": "Whlsl",
+   "sic": 5140,
+   "sic_desc": "Wholesale-Groceries & Related Products",
+   "name": "SYSCO CORP"
+  },
+  "T": {
+   "ff49": "Telcm",
+   "sic": 4813,
+   "sic_desc": "Telephone Communications (No Radiotelephone)",
+   "name": "AT&T INC."
+  },
+  "TDG": {
+   "ff49": "Aero",
+   "sic": 3728,
+   "sic_desc": "Aircraft Parts & Auxiliary Equipment, NEC",
+   "name": "TransDigm Group INC"
+  },
+  "TDY": {
+   "ff49": "Chips",
+   "sic": 3812,
+   "sic_desc": "Search, Detection, Navigation, Guidance, Aeronautical Sys",
+   "name": "TELEDYNE TECHNOLOGIES INC"
+  },
+  "TECH": {
+   "ff49": "Drugs",
+   "sic": 2836,
+   "sic_desc": "Biological Products, (No Diagnostic Substances)",
+   "name": "BIO-TECHNE Corp"
+  },
+  "TEL": {
+   "ff49": "Whlsl",
+   "sic": 5065,
+   "sic_desc": "Wholesale-Electronic Parts & Equipment, NEC",
+   "name": "TE Connectivity plc"
+  },
+  "TER": {
+   "ff49": "LabEq",
+   "sic": 3825,
+   "sic_desc": "Instruments For Meas & Testing of  Electricity & Elec Signals",
+   "name": "TERADYNE, INC"
+  },
+  "TFC": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "TRUIST FINANCIAL CORP"
+  },
+  "TGT": {
+   "ff49": "Rtail",
+   "sic": 5331,
+   "sic_desc": "Retail-Variety Stores",
+   "name": "TARGET CORP"
+  },
+  "TJX": {
+   "ff49": "Rtail",
+   "sic": 5651,
+   "sic_desc": "Retail-Family Clothing Stores",
+   "name": "TJX COMPANIES INC /DE/"
+  },
+  "TKO": {
+   "ff49": "Fun",
+   "sic": 7900,
+   "sic_desc": "Services-Amusement & Recreation Services",
+   "name": "TKO Group Holdings, Inc."
+  },
+  "TMO": {
+   "ff49": "LabEq",
+   "sic": 3829,
+   "sic_desc": "Measuring & Controlling Devices, NEC",
+   "name": "THERMO FISHER SCIENTIFIC INC."
+  },
+  "TMUS": {
+   "ff49": "Telcm",
+   "sic": 4812,
+   "sic_desc": "Radiotelephone Communications",
+   "name": "T-Mobile US, Inc."
+  },
+  "TPL": {
+   "ff49": "Fin",
+   "sic": 6792,
+   "sic_desc": "Oil Royalty Traders",
+   "name": "Texas Pacific Land Corp"
+  },
+  "TPR": {
+   "ff49": "Clths",
+   "sic": 3100,
+   "sic_desc": "Leather & Leather Products",
+   "name": "TAPESTRY, INC."
+  },
+  "TRGP": {
+   "ff49": "Util",
+   "sic": 4922,
+   "sic_desc": "Natural Gas Transmission",
+   "name": "Targa Resources Corp."
+  },
+  "TRMB": {
+   "ff49": "LabEq",
+   "sic": 3829,
+   "sic_desc": "Measuring & Controlling Devices, NEC",
+   "name": "TRIMBLE INC."
+  },
+  "TROW": {
+   "ff49": "Fin",
+   "sic": 6282,
+   "sic_desc": "Investment Advice",
+   "name": "PRICE T ROWE GROUP INC"
+  },
+  "TRV": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "TRAVELERS COMPANIES, INC."
+  },
+  "TSCO": {
+   "ff49": "Rtail",
+   "sic": 5200,
+   "sic_desc": "Retail-Building Materials, Hardware, Garden Supply",
+   "name": "TRACTOR SUPPLY CO /DE/"
+  },
+  "TSLA": {
+   "ff49": "Autos",
+   "sic": 3711,
+   "sic_desc": "Motor Vehicles & Passenger Car Bodies",
+   "name": "Tesla, Inc."
+  },
+  "TSN": {
+   "ff49": "Food",
+   "sic": 2015,
+   "sic_desc": "Poultry Slaughtering and Processing",
+   "name": "TYSON FOODS, INC."
+  },
+  "TT": {
+   "ff49": "LabEq",
+   "sic": 3822,
+   "sic_desc": "Auto Controls For Regulating Residential & Comml Environments",
+   "name": "Trane Technologies plc"
+  },
+  "TTWO": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "TAKE TWO INTERACTIVE SOFTWARE INC"
+  },
+  "TWLO": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "TWILIO INC"
+  },
+  "TXN": {
+   "ff49": "Chips",
+   "sic": 3674,
+   "sic_desc": "Semiconductors & Related Devices",
+   "name": "TEXAS INSTRUMENTS INC"
+  },
+  "TXT": {
+   "ff49": "Aero",
+   "sic": 3720,
+   "sic_desc": "Aircraft & Parts",
+   "name": "TEXTRON INC"
+  },
+  "TYL": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "TYLER TECHNOLOGIES INC"
+  },
+  "UAL": {
+   "ff49": "Trans",
+   "sic": 4512,
+   "sic_desc": "Air Transportation, Scheduled",
+   "name": "United Airlines Holdings, Inc."
+  },
+  "UBER": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "Uber Technologies, Inc"
+  },
+  "UDR": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "UDR, Inc."
+  },
+  "UHS": {
+   "ff49": "Hlth",
+   "sic": 8062,
+   "sic_desc": "Services-General Medical & Surgical Hospitals, NEC",
+   "name": "UNIVERSAL HEALTH SERVICES INC"
+  },
+  "ULTA": {
+   "ff49": "Rtail",
+   "sic": 5990,
+   "sic_desc": "Retail-Retail Stores, NEC",
+   "name": "Ulta Beauty, Inc."
+  },
+  "UNH": {
+   "ff49": "Insur",
+   "sic": 6324,
+   "sic_desc": "Hospital & Medical Service Plans",
+   "name": "UNITEDHEALTH GROUP INC"
+  },
+  "UNP": {
+   "ff49": "Trans",
+   "sic": 4011,
+   "sic_desc": "Railroads, Line-Haul Operating",
+   "name": "UNION PACIFIC CORP"
+  },
+  "UPS": {
+   "ff49": "Trans",
+   "sic": 4210,
+   "sic_desc": "Trucking & Courier Services (No Air)",
+   "name": "UNITED PARCEL SERVICE INC"
+  },
+  "URI": {
+   "ff49": "BusSv",
+   "sic": 7359,
+   "sic_desc": "Services-Equipment Rental & Leasing, NEC",
+   "name": "UNITED RENTALS, INC."
+  },
+  "USB": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "US BANCORP \\DE\\"
+  },
+  "V": {
+   "ff49": "BusSv",
+   "sic": 7389,
+   "sic_desc": "Services-Business Services, NEC",
+   "name": "VISA INC."
+  },
+  "VEEV": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "VEEVA SYSTEMS INC"
+  },
+  "VICI": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "VICI PROPERTIES INC."
+  },
+  "VLO": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "VALERO ENERGY CORP/TX"
+  },
+  "VLTO": {
+   "ff49": "LabEq",
+   "sic": 3825,
+   "sic_desc": "Instruments For Meas & Testing of  Electricity & Elec Signals",
+   "name": "Veralto Corp"
+  },
+  "VMC": {
+   "ff49": "Mines",
+   "sic": 1400,
+   "sic_desc": "Mining & Quarrying of  Nonmetallic Minerals (No Fuels)",
+   "name": "Vulcan Materials CO"
+  },
+  "VMRK": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "VIVMARK RESIDENTIAL"
+  },
+  "VRSK": {
+   "ff49": "BusSv",
+   "sic": 7374,
+   "sic_desc": "Services-Computer Processing & Data Preparation",
+   "name": "Verisk Analytics, Inc."
+  },
+  "VRSN": {
+   "ff49": "Softw",
+   "sic": 7371,
+   "sic_desc": "Services-Computer Programming Services",
+   "name": "VERISIGN INC/CA"
+  },
+  "VRT": {
+   "ff49": "Chips",
+   "sic": 3679,
+   "sic_desc": "Electronic Components, NEC",
+   "name": "Vertiv Holdings Co"
+  },
+  "VRTX": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "VERTEX PHARMACEUTICALS INC / MA"
+  },
+  "VST": {
+   "ff49": "Util",
+   "sic": 4911,
+   "sic_desc": "Electric Services",
+   "name": "Vistra Corp."
+  },
+  "VTR": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "Ventas, Inc."
+  },
+  "VTRS": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "Viatris Inc"
+  },
+  "VZ": {
+   "ff49": "Telcm",
+   "sic": 4813,
+   "sic_desc": "Telephone Communications (No Radiotelephone)",
+   "name": "VERIZON COMMUNICATIONS INC"
+  },
+  "WAB": {
+   "ff49": "Ships",
+   "sic": 3743,
+   "sic_desc": "Railroad Equipment",
+   "name": "WESTINGHOUSE AIR BRAKE TECHNOLOGIES CORP"
+  },
+  "WAT": {
+   "ff49": "LabEq",
+   "sic": 3826,
+   "sic_desc": "Laboratory Analytical Instruments",
+   "name": "WATERS CORP /DE/"
+  },
+  "WDAY": {
+   "ff49": "BusSv",
+   "sic": 7374,
+   "sic_desc": "Services-Computer Processing & Data Preparation",
+   "name": "Workday, Inc."
+  },
+  "WDC": {
+   "ff49": "Hardw",
+   "sic": 3572,
+   "sic_desc": "Computer Storage Devices",
+   "name": "WESTERN DIGITAL CORP"
+  },
+  "WEC": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "WEC ENERGY GROUP, INC."
+  },
+  "WELL": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "WELLTOWER INC."
+  },
+  "WFC": {
+   "ff49": "Banks",
+   "sic": 6021,
+   "sic_desc": "National Commercial Banks",
+   "name": "WELLS FARGO & COMPANY/MN"
+  },
+  "WM": {
+   "ff49": "Other",
+   "sic": 4953,
+   "sic_desc": "Refuse Systems",
+   "name": "WASTE MANAGEMENT INC"
+  },
+  "WMB": {
+   "ff49": "Util",
+   "sic": 4922,
+   "sic_desc": "Natural Gas Transmission",
+   "name": "WILLIAMS COMPANIES, INC."
+  },
+  "WMT": {
+   "ff49": "Rtail",
+   "sic": 5331,
+   "sic_desc": "Retail-Variety Stores",
+   "name": "Walmart Inc."
+  },
+  "WRB": {
+   "ff49": "Insur",
+   "sic": 6331,
+   "sic_desc": "Fire, Marine & Casualty Insurance",
+   "name": "BERKLEY W R CORP"
+  },
+  "WSM": {
+   "ff49": "Rtail",
+   "sic": 5700,
+   "sic_desc": "Retail-Home Furniture, Furnishings & Equipment Stores",
+   "name": "WILLIAMS SONOMA INC"
+  },
+  "WST": {
+   "ff49": "MedEq",
+   "sic": 3841,
+   "sic_desc": "Surgical & Medical Instruments & Apparatus",
+   "name": "WEST PHARMACEUTICAL SERVICES INC"
+  },
+  "WTW": {
+   "ff49": "Insur",
+   "sic": 6411,
+   "sic_desc": "Insurance Agents, Brokers & Service",
+   "name": "WILLIS TOWERS WATSON PLC"
+  },
+  "WY": {
+   "ff49": "Fin",
+   "sic": 6798,
+   "sic_desc": "Real Estate Investment Trusts",
+   "name": "WEYERHAEUSER CO"
+  },
+  "WYNN": {
+   "ff49": "Meals",
+   "sic": 7011,
+   "sic_desc": "Hotels & Motels",
+   "name": "WYNN RESORTS LTD"
+  },
+  "XEL": {
+   "ff49": "Util",
+   "sic": 4931,
+   "sic_desc": "Electric & Other Services Combined",
+   "name": "XCEL ENERGY INC"
+  },
+  "XOM": {
+   "ff49": "Oil",
+   "sic": 2911,
+   "sic_desc": "Petroleum Refining",
+   "name": "ExxonMobil Holdings Corp"
+  },
+  "XYL": {
+   "ff49": "Mach",
+   "sic": 3561,
+   "sic_desc": "Pumps & Pumping Equipment",
+   "name": "Xylem Inc."
+  },
+  "XYZ": {
+   "ff49": "Softw",
+   "sic": 7372,
+   "sic_desc": "Services-Prepackaged Software",
+   "name": "Block, Inc."
+  },
+  "YUM": {
+   "ff49": "Meals",
+   "sic": 5812,
+   "sic_desc": "Retail-Eating  Places",
+   "name": "YUM BRANDS INC"
+  },
+  "ZBH": {
+   "ff49": "MedEq",
+   "sic": 3842,
+   "sic_desc": "Orthopedic, Prosthetic & Surgical Appliances & Supplies",
+   "name": "ZIMMER BIOMET HOLDINGS, INC."
+  },
+  "ZBRA": {
+   "ff49": "Mach",
+   "sic": 3560,
+   "sic_desc": "General Industrial Machinery & Equipment",
+   "name": "ZEBRA TECHNOLOGIES CORP"
+  },
+  "ZTS": {
+   "ff49": "Drugs",
+   "sic": 2834,
+   "sic_desc": "Pharmaceutical Preparations",
+   "name": "Zoetis Inc."
+  }
+ }
+}

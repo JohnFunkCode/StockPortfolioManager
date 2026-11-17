@@ -1,6 +1,6 @@
 # Portfolio Check: per-user version (plan)
 
-Status: **step 1 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
+Status: **steps 1–2 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
 
 ## Where it stands
 
@@ -49,6 +49,8 @@ prototype was tried on had neither).
    - **(b) new tables** (a Flyway migration, `_SCHEMA`, the snapshot: three files) filled by a
      monthly step in the daily Job or a new Job. Automatic, but more moving parts.
    Recommendation: **(a) first**; move to (b) if monthly refresh by hand proves annoying.
+   Step 2 built (a) on that recommendation; John can still choose (b), which reuses the same
+   builder and validator and only changes where the result is stored.
 3. **SIC lookup for holdings outside the S&P 500 (D2).** The prototype asks SEC EDGAR per ticker
    (10 requests/s fair-access limit, a descriptive User-Agent required) and caches it. In QuantUI
    that becomes a gateway (`SecGateway`) behind a cache: a small global table, or the JSON snapshot
@@ -90,7 +92,8 @@ prototype was tried on had neither).
 ## Steps (append a checkpoint as each lands)
 
 1. Analytics module + parity tests. **Done 2026-11-17** (checkpoint below).
-2. Market-state snapshot + refresh script (D1a), with the SIC map.
+2. Market-state snapshot + refresh script (D1a), with the SIC map. **Done 2026-11-17**
+   (checkpoint below).
 3. Service + route + tests.
 4. Native page replacing the sample; registries.
 5. Optional MCP tool.
@@ -144,6 +147,56 @@ Gotchas from this step:
 - **Verified locally on Python 3.13 / pandas 3.1.1** (the prototype's environment; there is no
   project venv on that machine). CI pins Python 3.12 / pandas 3.1.0, so CI is the real check of
   the parity tolerances.
+
+### Step 2: market-state file + refresh script (2026-11-17)
+
+- `quantcore/gateways/market_reference_gateway.py`, `MarketReferenceGateway`: Ken French's FF49
+  tables and `Siccodes49`, Wikipedia's S&P 500 table (parsed with the standard library's
+  `HTMLParser`, because `pandas.read_html` needs `lxml`, which isn't in the base set), and SEC
+  EDGAR SIC codes. Parsers are module-level pure functions. Yahoo stays behind `YFinanceGateway`
+  (the architecture fence allows no other importer).
+- `quantcore/analytics/portfolio_check.py` gains `ff49_for_sic`, `label_forward_edge` (the
+  prototype's label event study, which supplies the "Sell industries trailed by about x%" figure),
+  `window_dates`, `build_market_state`, `validate_market_state` and `market_state_inputs` (the file
+  back into `check_portfolio`'s market arguments, for step 3).
+- `scripts/refresh_portfolio_check_market_state.py` fetches everything, builds the state,
+  **validates it before writing**, and writes `quantcore/data/portfolio_check_market_state.json`
+  (`--check` validates the existing file with no network; `--extra-tickers` pre-classifies
+  holdings outside the S&P 500, which is all of D2 this step takes on).
+- The file shape: `schema`, `generated`, `industries_asof`, the 49 `industries` rows,
+  `sell_edge` (value and period), `window` (dates `a`, `b` and `prices_asof`), the S&P 500
+  `peers` (caps at `a`, `b` and now) and `classes` (ticker → FF49 code, SIC, SEC name).
+- `tests/test_portfolio_check_market_state.py`, 23 tests (one skipped until the file is
+  committed): the parsers on saved text, the gateway through a fake session (no SEC call without a
+  User-Agent, calls spaced to SEC's 10/s, a 403 or 429 stops the run while a 404 is just
+  unclassified), the Sell edge on a hand-worked case, every validator rejection, a full refresh on
+  fake gateways over a synthetic 49-industry, 343-company world whose result drives
+  `check_portfolio`, and the script's command line.
+- **The ported Sell edge equals the prototype's on the full 1926–2026 history exactly**
+  (−0.017856398193547788, difference 0.0), as do the Buy zone, Watch and Hold figures. Checked
+  once against `label_backtest.json`; the full history is too large for a fixture, so the test
+  pins a hand-worked case instead.
+
+**First real run (2026-11-17)**, about two minutes: 49 industries as of 2026-09 (10 Buy zone, 20
+Hold, 6 Watch, 13 Sell), 497 S&P 500 peers, window 2025-11-14 → 2026-10-19, 500 tickers classified
+(none unclassified), sell edge −1.79% (1931–2026). Cross-checked against the prototype's run the
+same day: identical industry labels and ranks, identical sell edge, and the same 497 peers in the
+same industries. Three recent listings (FDXF, HONA, VYLR) had under a year of prices and are left
+out, as the prototype does. The SEC contact is not stored in the file. No `--extra-tickers`: the
+file is committed, and a handful of non-S&P tickers in it would read as someone's holdings, so
+holdings outside the S&P 500 are left to the service to classify (step 3).
+
+Gotchas from this step:
+
+- **The window dates move from request time to refresh time.** The prototype measured stock vs
+  peers over the 12 months before the day it ran; the market state fixes them when the file is
+  built, so the service must price the owner's stocks at those two dates (`window.a`, `window.b`),
+  and the measure is up to a month older than the prototype's.
+- **SEC refusals must stop the run.** The prototype treated any failed SEC lookup as "no SIC
+  code"; a rate-limited run would then quietly mark hundreds of companies unclassified. The
+  gateway raises on 403/429 and only a 404 means unclassified.
+- **Check the User-Agent before downloading anything.** The first version only found a missing
+  `SEC_USER_AGENT` at its first SEC call, after minutes of Ken French, Wikipedia and Yahoo traffic.
 
 ## Gotchas found while building the demo
 

@@ -620,6 +620,26 @@ intended.
 Design: [`docs/architecture/arbitrage.md`](docs/architecture/arbitrage.md). Usage and worked
 examples: [`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md).
 
+## Portfolio Check
+
+A quarterly check of each holding against the Market Casting industry rules: each of the 49
+Fama-French industries is labelled Buy zone, Hold, Watch or Sell from its 12-month "wind" (its
+change in share of total market value), and each holding gets an action adjusted for position
+size and taxes. The QuantUI page still shows a made-up sample; the per-user version is being built
+in steps ([plan](docs/proposals/portfolio-check-plan.md)).
+
+The market side is the same for everyone and changes monthly, so it lives in one reviewed file,
+`quantcore/data/portfolio_check_market_state.json`. Refresh it monthly and open a PR with the
+change (a few minutes; Ken French, Wikipedia, Yahoo and SEC EDGAR; no database):
+
+```bash
+SEC_USER_AGENT="QuantCore refresh <your name> <your email>"   python scripts/refresh_portfolio_check_market_state.py [--extra-tickers CRSP,ARWR]
+python scripts/refresh_portfolio_check_market_state.py --check   # validate the file, no network
+```
+
+SEC requires the User-Agent to name who is calling, with a contact address; the script won't start
+without it. `--extra-tickers` pre-classifies holdings outside the S&P 500.
+
 ---
 
 ## Testing

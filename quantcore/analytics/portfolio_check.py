@@ -279,6 +279,149 @@ def decide(h: Mapping[str, Any], lots: pd.DataFrame, ind_row: Optional[Mapping[s
     return action, reasons, tax
 
 
+def ff49_for_sic(sic: Optional[int], ranges: Iterable[tuple[int, int, str]]) -> Optional[str]:
+    """The FF49 industry of a SIC code: the first matching range, ``Other`` if none, None without a code."""
+    if sic is None:
+        return None
+    for lo, hi, code in ranges:
+        if lo <= sic <= hi:
+            return code
+    return "Other"
+
+
+def label_forward_edge(p12: pd.DataFrame, rel: pd.DataFrame, *, label: str = "Sell", horizon: int = 12,
+                       first: str = "1931-09", since: str = "1931-01", min_industries: int = 40,
+                       review_months: int = REVIEW_MONTHS) -> float:
+    """How industries given ``label`` did against the market over the next ``horizon`` months.
+
+    The prototype's label event study: at each quarterly review (from ``first``,
+    once ``min_industries`` have a percentile), label the industries, take each
+    labelled one's change in log share over the next ``horizon`` months, average
+    across industries per review, then across reviews since ``since``. Returned as
+    a simple return (``expm1``); negative means they trailed. NaN without data.
+    """
+    months = rel.index[(rel.index >= pd.Period(first, "M")) & (p12.notna().sum(axis=1) >= min_industries)]
+    reviews = [t for t in months if t.month % review_months == 0]
+    since_p = pd.Period(since, "M")
+    per_review = []
+    for i, t in enumerate(reviews[1:], 1):
+        j = rel.index.get_loc(t) + horizon
+        if t < since_p or j >= len(rel):
+            continue
+        vals = [rel[ind].iloc[j] - rel[ind].loc[t]
+                for ind, lab in label_industries(p12, t, reviews[i - 1]).items() if lab == label]
+        vals = [v for v in vals if pd.notna(v)]
+        if vals:
+            per_review.append(float(np.mean(vals)))
+    return float(np.expm1(np.mean(per_review))) if per_review else float("nan")
+
+
+# ----------------------------------------------------- market state file ----
+MARKET_STATE_SCHEMA = 1
+MIN_MARKET_STATE_INDUSTRIES = 40
+MIN_MARKET_STATE_PEERS = 300     # a full S&P 500 is ~500; fewer means a broken scrape
+
+
+def window_dates(trading_days: pd.Index) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """The stock-vs-peers window: ``WIN_A`` and ``WIN_B`` trading days before the last."""
+    return trading_days[-WIN_A], trading_days[-WIN_B]
+
+
+def build_market_state(ret: pd.DataFrame, cap_start: pd.DataFrame, bm: pd.DataFrame,
+                       constituents: pd.DataFrame, closes: pd.DataFrame,
+                       classes: Mapping[str, Mapping[str, Any]], *, generated: date) -> dict[str, Any]:
+    """The monthly market-state file: everything ``check_portfolio`` needs that isn't the owner's.
+
+    ``ret``/``cap_start``/``bm`` come from ``industry_inputs`` over the full FF49
+    history (the Sell edge is measured from 1931). ``constituents`` has
+    ``ticker, name, yahoo, shares``; ``closes`` is daily closes, one column per
+    Yahoo symbol, at least ``WIN_A`` trading days long. ``classes`` maps a ticker to
+    ``{"ff49", "sic", "sic_desc", "name"}`` for every constituent and any extra
+    tickers worth pre-classifying. The window dates are fixed here, so the service
+    must price the owner's stocks at those same two dates.
+    """
+    rel = relative_log_share(ret, cap_start)
+    ind, asof = industry_state(ret, cap_start, bm)
+    edge = label_forward_edge(percentile_ranks(wind(rel, 12, 1)), rel)
+    closes = closes.sort_index().ffill()
+    a, b = window_dates(closes.index)
+    codes = {t: c.get("ff49") for t, c in classes.items()}
+    peers = peer_table(constituents, closes.loc[a], closes.loc[b], closes.iloc[-1], codes)
+    return {
+        "schema": MARKET_STATE_SCHEMA,
+        "generated": generated.isoformat(),
+        "industries_asof": asof,
+        "industries": [{k: _clean(v) for k, v in row.items()} for row in ind.to_dict("records")],
+        "sell_edge": {"value": edge, "label": "Sell", "horizon_months": 12,
+                      "period": f"1931–{ret.index[-1].year}"},
+        "window": {"a": pd.Timestamp(a).date().isoformat(), "b": pd.Timestamp(b).date().isoformat(),
+                   "prices_asof": pd.Timestamp(closes.index[-1]).date().isoformat()},
+        "peers": [{"ticker": r.ticker, "name": r.name, "code": r.code, "shares": float(r.shares),
+                   "capA": float(r.capA), "capB": float(r.capB), "cap": _clean(float(r.cap))}
+                  for r in peers.itertuples()],
+        "classes": {t: {"ff49": c.get("ff49"), "sic": c.get("sic"), "sic_desc": c.get("sic_desc") or "",
+                        "name": c.get("name") or ""} for t, c in sorted(classes.items())},
+    }
+
+
+def validate_market_state(state: Mapping[str, Any], *, min_industries: int = MIN_MARKET_STATE_INDUSTRIES,
+                          min_peers: int = MIN_MARKET_STATE_PEERS) -> Mapping[str, Any]:
+    """Raise ``ValueError`` naming the first problem with a market-state file; return it when sound."""
+    def fail(msg):
+        raise ValueError(f"portfolio check market state: {msg}")
+
+    if state.get("schema") != MARKET_STATE_SCHEMA:
+        fail(f"schema {state.get('schema')!r}, expected {MARKET_STATE_SCHEMA}")
+    inds = state.get("industries") or []
+    if len(inds) < min_industries:
+        fail(f"{len(inds)} industries, expected at least {min_industries}")
+    codes = [i.get("code") for i in inds]
+    if len(set(codes)) != len(codes):
+        fail("duplicate industry codes")
+    if sorted(i.get("rank") for i in inds) != list(range(1, len(inds) + 1)):
+        fail("industry ranks are not 1..n")
+    bad = sorted({i.get("label") for i in inds} - set(LABELS))
+    if bad:
+        fail(f"unknown industry labels {bad}")
+    edge = (state.get("sell_edge") or {}).get("value")
+    if not isinstance(edge, (int, float)) or not math.isfinite(edge):
+        fail("sell edge is missing or not a finite number")
+    w = state.get("window") or {}
+    try:
+        a, b, asof = (date.fromisoformat(w[k]) for k in ("a", "b", "prices_asof"))
+    except (KeyError, TypeError, ValueError):
+        fail("window dates missing or malformed")
+    if not a < b <= asof:
+        fail(f"window dates out of order: {a} / {b} / {asof}")
+    peers = state.get("peers") or []
+    if len(peers) < min_peers:
+        fail(f"{len(peers)} S&P 500 peers, expected at least {min_peers}")
+    for p in peers:
+        if not (p.get("code") and all(isinstance(p.get(k), (int, float)) and p[k] > 0 for k in ("shares", "capA", "capB"))):
+            fail(f"peer {p.get('ticker')!r} lacks an industry or a positive share count / cap")
+    if not isinstance(state.get("classes"), Mapping):
+        fail("classes missing")
+    return state
+
+
+def market_state_inputs(state: Mapping[str, Any]) -> dict[str, Any]:
+    """A market-state file as ``check_portfolio``'s market arguments.
+
+    Returns ``industries`` and ``peers`` frames, ``codes`` (ticker → FF49 code),
+    ``sell_edge``, ``sell_edge_period`` and the ``window`` dates ``(a, b)`` at which
+    the caller must price the owner's stocks for ``window_prices``.
+    """
+    w = state["window"]
+    return {
+        "industries": pd.DataFrame(state["industries"]),
+        "peers": pd.DataFrame(state["peers"]),
+        "codes": {t: c.get("ff49") for t, c in state["classes"].items()},
+        "sell_edge": float(state["sell_edge"]["value"]),
+        "sell_edge_period": state["sell_edge"].get("period", DEFAULT_SELL_EDGE_PERIOD),
+        "window": (date.fromisoformat(w["a"]), date.fromisoformat(w["b"])),
+    }
+
+
 def action_sort_key(action: str) -> float:
     """Where an action sorts in the report: sells first, buys last."""
     return SELL_AFTER_ORDER if action.startswith("Sell after") else ACTION_ORDER.get(action, 3)

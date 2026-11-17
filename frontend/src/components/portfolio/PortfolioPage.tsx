@@ -418,7 +418,7 @@ export default function PortfolioPage() {
                           )}
                         </TableCell>
                         <TableCell data-testid={`stop-${row.symbol}`} sx={{ whiteSpace: 'nowrap' }}>
-                          <StopCell stop={stops[row.symbol]} />
+                          <StopCell stop={stops[row.symbol]} paper={isPaper} />
                           {/* A live stop can be taken off, in any book (decision 67). */}
                           {stops[row.symbol]?.status === 'active' && (
                             <Tooltip title="Take this stop off">

@@ -27,14 +27,17 @@ export function trailPercent(pct: number | null): string {
   return pct == null ? '' : `${Number(pct)}%`;
 }
 
-/** One or two sentences about a stop, for its tooltip. */
-export function stopDetail(stop: Stop): string {
+/** One or two sentences about a stop, for its tooltip. `paper` says the stop
+ * is in a paper book, where a stop that is reached sells the position; in the
+ * real book it only alerts. */
+export function stopDetail(stop: Stop, paper = false): string {
   if (stop.status === 'triggered') {
-    return (
+    const reached =
       `A closed bar on ${formatDate(stop.triggered_session)} reached this stop at ` +
-      `${formatCurrency(stop.trigger_price)}. Nothing was sold: a real book's stop is an alert. ` +
-      'The holding has no stop now.'
-    );
+      `${formatCurrency(stop.trigger_price)}.`;
+    return paper
+      ? `${reached} The position was sold at that price.`
+      : `${reached} Nothing was sold: a real book's stop is an alert. The holding has no stop now.`;
   }
   const terms =
     stop.kind === 'trailing'

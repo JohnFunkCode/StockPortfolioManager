@@ -36,6 +36,16 @@ describe('stopDetail', () => {
     expect(text).toContain('Nothing was sold');
   });
 
+  it('does not say nothing was sold for a paper book, where the stop sold the position', () => {
+    const text = stopDetail(
+      stop({ status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1 }),
+      true,
+    );
+    expect(text).toContain('reached this stop at $44.10');
+    expect(text).toContain('The position was sold at that price.');
+    expect(text).not.toContain('Nothing was sold');
+  });
+
   it('shows a method it does not know as it came', () => {
     expect(stopDetail(stop({ method: 'chandelier' }))).toContain('chandelier');
   });

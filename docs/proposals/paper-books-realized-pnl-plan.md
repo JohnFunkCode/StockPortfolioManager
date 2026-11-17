@@ -1161,8 +1161,10 @@ Cancel now (67); 6, keep. The questions as they were put:
 | Taking a stop off | `stopsApi.cancel`, `useCancelStop`, a control in the Stop cell, `ConfirmDialog` | Only on an active stop. A refusal from the server is shown in the question, which stays open |
 | The warning | `OrderStopField` | Reads the chosen book's holding stops once the field is opened |
 | The words | `orderWords.ts` | "it opened at or below the stop it asked for, so no position was opened". The "Stop not set" wording is gone with the case it described |
+| The stop rule (the #567 review) | `V24__order_stop_rule_kind.sql`, `_SCHEMA`, the snapshot | **Applied by hand**, for the same reason. `orders_stop_rule` now requires `stop_kind` on a requested stop |
 
-**For an operator, before the roll-out:** V23 must be applied by hand on each database.
+**For an operator, before the roll-out:** V23 and V24 must be applied by hand on each database
+(one `migrate` applies both).
 `./scripts/flyway.sh migrate` for test, then re-run the deploy workflow, which will have
 stopped at the migrate step. `./scripts/flyway.sh --prod migrate` before the prod promotion.
 V21 and V22 are applied by the same command if CI has not already applied them.
@@ -1551,7 +1553,9 @@ Known before any code is written. Add to this list as the work finds more.
 - **A `CHECK` passes when a comparison is NULL** (4.3). The first draft of `orders_stop_rule`
   said `stop_kind = 'fixed' AND stop_level > 0`. With no level that is NULL, the whole rule is
   NULL, and Postgres accepts the row. A test that inserts each bad shape caught it. Write
-  `IS NOT NULL AND` in front of a comparison in a `CHECK`.
+  `IS NOT NULL AND` in front of a comparison in a `CHECK`. The fix guarded the level and
+  missed `stop_kind` itself, which the two branches compare: the #567 review found it, and V24
+  adds the guard. The test inserts a bad shape per column, so add one when a column joins a rule.
 - **`ADD COLUMN IF NOT EXISTS` skips a column that exists, with its constraint** (4.3). After
   the rule above was corrected, the local unit-test database still had the first draft, and
   the tests kept failing. `stop_set` was dropped there by hand so startup added it again. A
@@ -1635,3 +1639,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | Decisions 56 to 62 against other systems | #566 | Not a plan step: John asked for the 4.3 decisions to be compared with market-leading systems and aligned. Section 5.15 records what was found. One change, decision 63: V22 `stops.first_session`, so the stop of a buy that fills at a session's open is tested against that session's own bar, as a broker's attached stop is live once its entry fills. Six questions with no norm to follow are listed there for John |
 | 2026-11-17 | John's decisions 64 to 67 | #567 | John answered the six questions of section 5.15. Built: a queued buy that opens at or under its stop is rejected `stop_not_below_fill` (V23, **applied by hand**: it replaces a `CHECK`); `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, picked on the server; the Portfolio page can take an active stop off; and the Buy dialog warns when a stop will replace one the symbol has. Decision 57 for an in-hours fill and decision 62 stand. 129 routes (section 5.16) |
 | 2026-11-17 | Decision 63 review | #566 | Approved, with one suggestion, taken. A reached stop's tooltip said "Nothing was sold: a real book's stop is an alert" whatever the book. It is only reachable for the real book today, but `StopCell` and `stopDetail` are generic, so they now take the book's kind and say a paper book's position was sold. The review did not run the suites and could not measure the front end's complexity |
+| 2026-11-17 | Decisions 64 to 67 review | #567 | Two reviews. Guppy found that V21's `orders_stop_rule` let through a requested stop with `stop_kind` NULL: `stop_kind = 'fixed'` is NULL there, the branch came out NULL, and a `CHECK` passes on NULL. The same trap as the 4.3 gotcha in section 7, missed on the column the branches compare: a comparison on a nullable column needs its `IS NOT NULL`. V24 replaces the rule with `stop_kind IS NOT NULL` in that branch (**applied by hand**, with V23), mirrored in `_SCHEMA` and the snapshot, with two database cases. Clippy approved with three suggestions: the capabilities matrix header still said 122 operations and 2026-11-13 (fixed); V21's header comment still describes `stop_set` FALSE, but V21 is applied, so it is left and `data.md` holds the right wording; and the V23 operator step, now V23 and V24. Neither review ran the suites. |

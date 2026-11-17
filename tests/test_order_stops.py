@@ -524,6 +524,10 @@ class DatabaseRuleTest(_Base):
             dict(stop_kind="trailing", stop_trail_pct=100, stop_method="manual"),
             dict(stop_kind="fixed", stop_level=45),
             dict(stop_level=45),
+            # A whole stop but for its kind (V24, the #567 review): V21's rule
+            # came out NULL here, and a CHECK passes on NULL.
+            dict(stop_level=45, stop_method="manual"),
+            dict(stop_trail_pct=8, stop_method="trailing"),
             dict(stop_set=True),
             # Whether the stop was set is only known once the order has filled.
             dict(stop_kind="fixed", stop_level=45, stop_method="manual", stop_set=True),

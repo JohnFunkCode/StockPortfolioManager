@@ -2,10 +2,10 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-11-13
+**Last Updated:** 2026-11-17
 
 **Earlier:** 2026-11-16 (#431 step 4.1: stored stops add three `/api/portfolio/stops` operations (list, set, cancel). No component reaches them until steps 4.3 and 4.5, so they are a new gap: 73 of 128 operations reached, 55 left, 34 gaps; 28 tables. The totals also count `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches and this matrix had left out since it was added, so they now agree with `docs/openapi-surface.txt`)
-**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 122 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 20 components | **CLI Tools:** 1 | **Daily Jobs:** 2
+**MCP Tools:** 63 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 129 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 2 drill-downs (+ Sidekick chat rail) | **Sidekick:** 13 data tools + 20 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.
 
@@ -382,7 +382,7 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (122 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (129 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, portfolio lots, the merged Watchlist page (screener, sentiment, options refresh), cross-symbol fundamentals, arbitrage, and options analytics (IV rank, max pain, P/C history)** are all surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.

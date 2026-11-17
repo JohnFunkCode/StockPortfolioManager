@@ -543,7 +543,9 @@ rules (`requested_stop`, `order_stop_terms`).
   cash. A trailing stop is treated the same way when its percentage is too small to give a
   price below the fill (0.0001% under $50.00 rounds back to $50.00).
 - **The reason needed a hand-applied migration** (V23). `reject_reason` has a `CHECK`, and
-  widening one means replacing the constraint, which the migrate Job refuses.
+  widening one means replacing the constraint, which the migrate Job refuses. V24, applied the
+  same way, makes `orders_stop_rule` require `stop_kind` on a requested stop: V21's rule came
+  out NULL, which a `CHECK` passes, for a whole fixed or trailing stop with no kind.
 - **`stop_set` says what became of the request**: `true` once the fill wrote the stop, NULL
   before the fill and on an order that asked for none. `false` is allowed by the column and
   no longer written.

@@ -405,6 +405,26 @@ ALTER TABLE orders
           'stale_quote', 'no_quote', 'non_usd', 'insufficient_cash',
           'insufficient_shares', 'no_open_price', 'stop_not_below_fill'));
 
+-- V24 (#431 phase 2 and #221, the #567 review): a buy's stop must name its
+-- kind. Mirrors db/migrations/V24__order_stop_rule_kind.sql. V21's rule came
+-- out NULL, which a CHECK passes, for a row with stop_kind NULL and a whole
+-- fixed or trailing stop otherwise. Safe to repeat: the app never wrote one.
+ALTER TABLE orders DROP CONSTRAINT IF EXISTS orders_stop_rule;
+
+ALTER TABLE orders
+  ADD CONSTRAINT orders_stop_rule
+      CHECK ((stop_kind IS NULL AND stop_level IS NULL AND stop_trail_pct IS NULL
+              AND stop_method IS NULL AND stop_proposed_level IS NULL
+              AND stop_set IS NULL)
+             OR (side = 'buy' AND kind = 'market' AND stop_kind IS NOT NULL
+                 AND stop_method IS NOT NULL
+                 AND (stop_set IS NULL OR status = 'filled')
+                 AND ((stop_kind = 'fixed' AND stop_level IS NOT NULL
+                       AND stop_level > 0 AND stop_trail_pct IS NULL)
+                      OR (stop_kind = 'trailing' AND stop_level IS NULL
+                          AND stop_trail_pct IS NOT NULL
+                          AND stop_trail_pct > 0 AND stop_trail_pct < 100))));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

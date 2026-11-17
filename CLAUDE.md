@@ -319,7 +319,9 @@ lot. Rules to keep:
   order holds what was asked; `OrdersService._attach_stop` writes the `stops` row on the fill's
   transaction, against the fill price. A queued buy has no stop until it fills, and a rejected
   or cancelled one never gets one. A fixed level at or above the fill price is a 422 in market
-  hours and `stop_set = false` on a queued fill, not a rejection. Why:
+  hours and `stop_set = false` on a queued fill, not a rejection. The stop of a buy that filled
+  at a session's open is live from that session (`stops.first_session`); don't set it for a
+  fill at a live quote, whose bar may hold a low from before the fill. Why:
   [`data.md`](docs/architecture/data.md#a-stop-on-a-buy).
 - **The daily job checks every active stop against closed daily bars, and only the job does**
   (`run_stop_checks`, step 4.2). It runs **after the queued fills**: an order fills at its

@@ -71,6 +71,8 @@ export function stopDetail(stop: Stop): string {
   const how = METHOD_WORDS[stop.method] ?? stop.method;
   const checked = stop.last_bar_checked
     ? `Last checked against the bar of ${formatDate(stop.last_bar_checked)}.`
-    : 'Not checked yet: the first check is against the next session to open after it was set.';
+    : stop.first_session
+      ? `Not checked yet: the first check is against the bar of ${formatDate(stop.first_session)}, the day its buy filled at the open.`
+      : 'Not checked yet: the first check is against the next session to open after it was set.';
   return `${terms}, ${how}, set ${formatDate(stop.created_at.slice(0, 10))}. ${checked}`;
 }

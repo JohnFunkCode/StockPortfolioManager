@@ -33,6 +33,10 @@ export interface Stop {
   status: StopStatus;
   created_at: string;
   resolved_at: string | null;
+  /** The session a buy filled in at the open, for the stop that buy asked
+   * for: its first check is against that day's bar. Null for a stop set by
+   * hand, whose first check is against the next session to open. */
+  first_session: string | null;
   /** The newest closed daily bar the stop has been tested against. */
   last_bar_checked: string | null;
   /** A triggered stop: the bar that reached it, and the price it was reached at. */

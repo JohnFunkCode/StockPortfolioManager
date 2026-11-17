@@ -544,8 +544,17 @@ rules (`requested_stop`, `order_stop_terms`).
   back to $50.00), and the message then says the trail is too small.
 - **`stop_set` says what became of the request**: `true` once the fill wrote the stop, `false`
   for the case above, NULL before the fill and on an order that asked for none.
-- **The stop is dated the moment of the fill**, so the checker first tests it against the next
-  session to open. Its `source` is `manual` and its `source_ref` is `order:<order_id>`.
+- **A buy that fills at its session's open has a stop that is live from that session**
+  (`stops.first_session`, V22). The checker tests it against that day's own bar, so a low
+  under the level sells the position the day it was bought, and a fill recorded days late is
+  tested from its own session. This is what a broker's attached stop does: it is active once
+  its entry fills. The whole bar came after a fill at the open, so the reason a hand-set
+  stop skips the bar it was set in doesn't apply.
+- **A buy filled at a live quote in market hours keeps the general rule**: its stop is first
+  tested against the next session to open. A daily bar can't say whether its low came before
+  the fill.
+- The stop's `created_at` is the moment the fill was recorded, its `source` is `manual` and
+  its `source_ref` is `order:<order_id>`.
 - **It replaces the stop the symbol already has in the book.** A buy with no stop leaves that
   stop alone, and the new lot is under it.
 - `orders_stop_rule` holds the shapes: only a `market` buy carries a stop, a fixed one has a
@@ -616,7 +625,8 @@ outcome. Four columns from V20 hold what it finds: `last_bar_checked`, `triggere
 - **Closed bars only.** A forming bar's low is not final. A stop reached by it could be
   un-reached by the finished bar.
 - **The first bar tested is the first session that opens after the stop was set**
-  (`first_session`). The bar that was already trading when the stop was set is never tested:
+  (`first_session`), except for the stop of a buy that filled at a session's open, which
+  starts with that session ([a stop on a buy](#a-stop-on-a-buy)). The bar that was already trading when the stop was set is never tested:
   its low may be from before the stop existed, and a paper fill at that price would be a trade
   at a price the stop never saw. What it costs: a stop set at 11:00 and crossed at 14:00 is not
   caught that evening. The next bar catches it, usually as an open under the level.

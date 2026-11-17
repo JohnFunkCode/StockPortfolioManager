@@ -1851,6 +1851,11 @@
           "nullable": false,
           "type": "timestamp with time zone"
         },
+        "first_session": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
+        },
         "high_water_mark": {
           "default": null,
           "nullable": true,

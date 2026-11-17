@@ -8,6 +8,8 @@ tests every active stop against the closed daily bars it has not seen
 - **The checker reads closed bars only**, starting with the first session
   that opens after the stop was set, and works through every bar since the
   last one it tested. A night the job missed is made up on the next run.
+  The stop of a buy that filled at a session's open starts with that
+  session's own bar (`stops.first_session`).
 - **A trailing stop's mark rises to a bar's high and never falls.**
 - **A bar whose low reached the level triggers the stop.** In a real book
   that is a record and an alert: nothing is sold. In a paper book the whole
@@ -333,7 +335,10 @@ class StopsService:
             for stop in self._repo.list_stops(owner=owner, book_id=book["book_id"]):
                 if stop["status"] != stops_math.ACTIVE:
                     continue
-                if not stops_math.is_due(stop["created_at"], stop["last_bar_checked"], today):
+                if not stops_math.is_due(
+                    stop["created_at"], stop["last_bar_checked"], today,
+                    live_from=stop["first_session"],
+                ):
                     continue
                 due.append({
                     "owner": owner,
@@ -400,7 +405,9 @@ class StopsService:
     def _new_bars(self, stop: Dict[str, Any], today: datetime.date) -> List[Dict[str, Any]]:
         """The closed daily bars `stop` has not been tested against, through
         `today`, oldest first. No read at all when none can exist yet."""
-        since = stops_math.next_bar_date(stop["created_at"], stop["last_bar_checked"])
+        since = stops_math.next_bar_date(
+            stop["created_at"], stop["last_bar_checked"], live_from=stop["first_session"]
+        )
         if since > today:
             return []
         return [

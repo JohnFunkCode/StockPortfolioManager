@@ -26,7 +26,9 @@ system sets every fill; the owner never types a price.
 - **A buy can ask for a stop** (`place_order`'s `stop_*` arguments, plan step
   4.3). The stop row is written when the buy fills, in the fill's
   transaction, against the fill price. A queued buy has no stop until it
-  fills, and a rejected or cancelled one never gets one. A fixed level at or
+  fills, and a rejected or cancelled one never gets one. The stop of a buy
+  that filled at its session's open is live from that session's own bar,
+  as a broker's attached stop is live once the entry fills. A fixed level at or
   above the fill price can't be a stop: in market hours the order is refused
   as bad input before anything is stored, and a queued buy that opens at or
   under its level fills with no stop and says so (`stop_set` False).
@@ -688,7 +690,7 @@ class OrdersService:
         resolved = tx.resolve(
             order["order_id"], orders_math.FILLED, resolved_at=now, filled_shares=shares,
             fill_price=price, price_source=price_source, quote_time=quote_time,
-            stop_set=self._attach_stop(tx, order, price, now),
+            stop_set=self._attach_stop(tx, order, price, price_source, now),
         )
         if not resolved:
             # The trade's rows are already written. Raising rolls them back
@@ -697,7 +699,7 @@ class OrdersService:
 
     def _attach_stop(
         self, tx: OrderTransaction, order: Dict[str, Any], price: Decimal,
-        now: datetime.datetime,
+        price_source: Optional[str], now: datetime.datetime,
     ) -> Optional[bool]:
         """Write the stop a filled buy asked for (plan step 4.3). None when
         it asked for none, True when the stop was written, and False when no
@@ -705,10 +707,16 @@ class OrdersService:
         under its fixed level. The buy still stands, with no stop.
 
         The stop is set against the fill: `price` is its reference and a
-        trailing stop's first high-water mark, and `now` is when it was set,
-        so the checker first tests it against the next session to open. It
-        replaces the stop the symbol already has in this book, as any new
+        trailing stop's first high-water mark, and `now` is when it was set.
+        It replaces the stop the symbol already has in this book, as any new
         stop does.
+
+        **A buy that filled at its session's open has a stop that is live
+        from that session** (plan decision 63): the whole of that day's bar
+        came after the fill, so the checker tests it, on whatever night the
+        fill was recorded. A buy filled at a live quote keeps the general
+        rule, the next session to open: a daily bar can't say whether its
+        low came before the fill or after it.
         """
         if order["stop_kind"] is None:
             return None
@@ -728,6 +736,10 @@ class OrdersService:
             "source": stops_math.MANUAL,
             "source_ref": f"order:{order['order_id']}",
             "created_at": now,
+            "first_session": (
+                order["session_date"]
+                if price_source == orders_math.PRICE_FROM_SESSION_OPEN else None
+            ),
         })
         return True
 

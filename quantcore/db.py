@@ -385,6 +385,13 @@ ALTER TABLE orders
                           AND stop_trail_pct IS NOT NULL
                           AND stop_trail_pct > 0 AND stop_trail_pct < 100))));
 
+-- V22 (#431 phase 2 and #221, decision 63): the first session a stop is
+-- tested against, when a buy's fill sets it. Mirrors
+-- db/migrations/V22__stop_first_session.sql. NULL means the first session to
+-- open after created_at.
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS first_session DATE;
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

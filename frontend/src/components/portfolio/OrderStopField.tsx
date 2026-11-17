@@ -132,8 +132,10 @@ export default function OrderStopField({ symbol, draft, onChange }: Props) {
         {fixed
           ? 'The stop is set when the buy fills, and must be below the price it fills at.'
           : 'The stop is set when the buy fills, and trails this far below the highest price since, starting from the fill price.'}{' '}
-        The daily check tests it against each closed daily bar, starting with the next session,
-        and sells the whole position when a bar reaches it.
+        The daily check tests it against each closed daily bar and sells the whole position when
+        a bar reaches it. A buy placed while the market is closed fills at the open, and its stop
+        is live that same day. A buy filled in market hours has its stop checked from the next
+        session.
       </Typography>
     </Stack>
   );

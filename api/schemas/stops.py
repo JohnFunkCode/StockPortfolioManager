@@ -48,6 +48,10 @@ class Stop(BaseModel):
     # stock opened below the level).
     triggered_session: Optional[date] = None
     trigger_price: Optional[Decimal] = None
+    # The first session the stop is tested against, when a buy's fill set
+    # it: the session the buy filled in at the open. None for a stop set by
+    # hand, which starts with the first session to open after `created_at`.
+    first_session: Optional[date] = None
     # When a real-book stop's breach alert went out.
     alerted_at: Optional[datetime] = None
     # On the answer to a new stop: the stop it took over from, if any.

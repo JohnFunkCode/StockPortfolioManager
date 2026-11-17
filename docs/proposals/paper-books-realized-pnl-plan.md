@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, and 63 after comparing those with other systems (section 5.15); they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2 and 4.3 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2, 4.3 and decision 63 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -415,6 +415,26 @@ before a stop is put on a real buy.
 62. **A sale's source is a column in the Realized view's expanded row.** `source`,
     `source_ref` and `order_id` join each sale on the payload. A stop's sale is drawn as a
     chip, because nobody chose that moment. Realized P/L added up by source is 5.3.
+
+### Made on 2026-11-17, after comparing 56 to 62 with other systems (John asked for the alignment)
+
+John asked for decisions 56 to 62 to be checked against what market-leading systems do, and
+for each to be brought into line where a norm could be found. Section 5.15 has what was found.
+One decision changed:
+
+63. **The stop of a buy that fills at a session's open is live from that session.** This
+    changes decision 57's "first tested against the next session to open" for a queued buy.
+    Alpaca and Interactive Brokers both make an attached stop active when its entry fills, so
+    it can trigger the same day. A buy that fills at the open has the whole day's bar after
+    it, so no low in that bar is from before the stop existed, which was decision 48's reason
+    for skipping a bar. `stops.first_session` (V22) holds the session. A fill recorded days
+    late is tested from its own session, so the days the job missed are made up. A buy
+    filled at a live quote in market hours keeps decision 48's rule: a daily bar can't say
+    whether its low came before the fill. What it costs: a paper buy at the open can be sold
+    by its stop the same day, which the 4.3 build did not do, and one more column on `stops`.
+
+Where no norm was found, the decision stands as built until John decides. Those are listed in
+section 5.15.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1063,6 +1083,43 @@ Left for later steps, on purpose:
 - **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
 - **Not tried in a browser against a live server.** The front end is covered by vitest only.
 
+#### 5.15 Decisions 56 to 62 against other systems (2026-11-17)
+
+Read: Alpaca's order documentation, backtrader's bracket, execution and trailing-stop pages,
+QuantConnect's equity fill model, and TradingView's strategy documentation. Interactive
+Brokers' pages refused automated reading, so its lines are from quotes of its documentation
+in search results. Nothing was tested against a live account.
+
+| Decision | What other systems do | Outcome |
+|---|---|---|
+| 56, the request waits on the order | The norm. Alpaca: the child orders "won't be active until the first order is completely filled", and cancelling one cancels the group. Interactive Brokers: an attached stop "will not be submitted until the parent order fills". backtrader: "the children are not active until the main side is executed" | Already in line |
+| 57, a trailing stop starts at the fill | Alpaca tracks the high "since the order was submitted", and takes no trailing stop as a bracket leg, so a trail is submitted after the fill. backtrader starts from the latest close. No system states "the fill price" in those words | In line in effect. No change |
+| 57, when the stop goes live | Alpaca and Interactive Brokers: when the entry fills, so the same day. TradingView assumes a path inside each bar. backtrader: "starting with the next price bar" | Changed for a fill at the open (decision 63). A fill in market hours is open, below |
+| 58, a level at or above the price, at placement | Alpaca refuses a stop that isn't at least $0.01 under its base price (the entry limit, or the current price for a market entry) | Already in line |
+| 58, a queued buy that opens at or under its level | Nothing found | Open, below |
+| 59, a second stop on a held symbol | Nothing documented. A broker's stop belongs to its order, so two brackets give two stops, and users report resizing stops by hand | Open, below |
+| 60, 61, 62 | Nothing found | Open, below |
+| Decision 5, the fill price | QuantConnect: `min(open, stop)`. backtrader and TradingView: the open when price gaps through | Already in line |
+
+**Open, for John to decide.** Each stands as built until then.
+
+1. **57, a buy filled in market hours.** A broker's stop is live from the fill. A daily bar
+   can't say whether its low came before the fill, so the stop is first tested the next
+   session. The choices: keep that; test the fill day's bar anyway and accept a sale at a
+   price from before the buy; or wait for intraday checking (decision 6).
+2. **58, a queued buy that opens at or under its fixed level.** As built it fills with no
+   stop and says so. The choices: keep that; reject the buy (a hand-applied migration for the
+   new reject reason); or fill and let the stop sell at once, as a broker's would.
+3. **59, a buy with a stop on a symbol that has one.** As built the new stop replaces the
+   old. The choices: keep that; refuse the second stop; or warn in the dialog before
+   replacing.
+4. **60, which stop a holding shows.** As built the page picks from the book's whole
+   history. The choice is whether to move that to a server-side read now or when it grows.
+5. **61, no Cancel in 4.3.** As built a stop can't be taken off from a page until 4.5. The
+   choice is whether to add Cancel to the Stop cell first.
+6. **62, the Source column.** As built every sale shows its source. The choice is whether to
+   show it only when it is not `manual`.
+
 ### Milestone 5: performance (#431 phase 3)
 
 - [ ] **5.1 Snapshots and the maths.**
@@ -1525,3 +1582,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-16 | 4.2 review | #564 | Approved, with one suggestion, taken. `send_notifications` returned None with no webhook set, which `send_stop_alert` counted as sent, so a real-book breach alert would have been marked delivered without going anywhere. It now returns False there, and only a skipped duplicate returns None. The deployed job has its webhook, so nothing was lost. The review did not re-run the suites and could not measure cognitive complexity for `notifier.py`, `prices.py` or the front end |
 | 2026-11-16 | 4.3 Stops in the UI | #565 | V21: `orders.stop_kind`, `stop_level`, `stop_trail_pct`, `stop_method`, `stop_proposed_level` and `stop_set`. A paper buy can ask for a fixed or trailing stop (`analytics.stored_stops.requested_stop`, `order_stop_terms`); the stop row is written in the fill's transaction against the fill price (`stop_sql.set_stop_on`, `OrdersService._attach_stop`). In the UI: "Add a stop" in the Buy dialog with the stop card's candidates loaded only when it is opened (`OrderStopField`), a Stop column on holdings and lot rows (`useStops`, `StopCell`), and a Source column on each sale in the Realized view. Decisions 56 to 62 were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.14) |
 | 2026-11-16 | 4.3 review | #565 | Approved, with four suggestions, all taken. The readme's "No page shows a stop yet" was stale and now says no page sets or cancels one on a holding. A trailing stop whose percentage is too small to give a price below the fill got the fixed stop's wording ("below the price", "filled at or below it") though the owner gave no level: the 422 and the page now say the trail is too small. `_stop_request` let a `stop_method` through with no kind, and now refuses it like the other stop terms. `list_realized_sales` had reached cyclomatic 12 with the three new fields, so its row mapping is `_realized_sale_row`, over the helpers the other row shapes use. The review did not run the suites and could not measure the front end's complexity |
+| 2026-11-17 | Decisions 56 to 62 against other systems | this PR | Not a plan step: John asked for the 4.3 decisions to be compared with market-leading systems and aligned. Section 5.15 records what was found. One change, decision 63: V22 `stops.first_session`, so the stop of a buy that fills at a session's open is tested against that session's own bar, as a broker's attached stop is live once its entry fills. Six questions with no norm to follow are listed there for John |

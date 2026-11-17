@@ -562,10 +562,6 @@ class StopsRoutesTest(_Base):
         self.assertEqual(self.stops()["active_count"], 1)
         self.assertEqual(self.stops(book_id=self.paper)["active_count"], 1)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     def test_a_broker_mirror_over_the_route(self):
         made = self.post(at_broker=True, broker_quantity="3", broker_order_type="stop",
                          brokerage="Fidelity")
@@ -583,3 +579,10 @@ if __name__ == "__main__":
         self.assertEqual(self.post(book_id=self.paper, at_broker=True).status_code, 422)
         self.assertEqual(
             self.post(at_broker=True, broker_order_type="market").status_code, 422)
+        # Neither refusal wrote a stop or took the mirrored one's place.
+        self.assertEqual(self.stops(book_id=self.paper)["stops"], [])
+        self.assertEqual([s["stop_id"] for s in self.stops()["stops"]], [body["stop_id"]])
+
+
+if __name__ == "__main__":
+    unittest.main()

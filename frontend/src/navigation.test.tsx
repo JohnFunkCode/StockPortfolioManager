@@ -50,7 +50,7 @@ describe('navItems', () => {
   it('is every route except the detail routes', () => {
     expect(navItems.map((item) => item.path)).toEqual([
       '/', '/plans', '/harvester', '/watchlist', '/fundamentals', '/arbitrage',
-      '/settings',
+      '/wind-map', '/portfolio-check', '/settings',
     ]);
   });
 
@@ -78,7 +78,7 @@ describe('navSections', () => {
       ),
     ).toEqual([
       [MY_POSITIONS, ['Portfolio', 'Plans', 'Harvester']],
-      [RESEARCH, ['Watchlist', 'Fundamentals', 'Arbitrage']],
+      [RESEARCH, ['Watchlist', 'Fundamentals', 'Arbitrage', 'Wind Map', 'Portfolio Check']],
       ['', 'Settings'],
     ]);
   });

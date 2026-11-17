@@ -1,0 +1,175 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio Wind Check</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600&family=Barlow:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root { --bg:#f2f5f6; --surface:#fbfcfc; --ink:#0f1a22; --ink-2:#46545e; --muted:#76838b; --grid:#dde3e6; --axis:#b9c3c8;
+  --gain:#2a78d6; --loss:#e34948; --warn:#c98500; --mid:#e4e8ea; --border:rgba(15,26,34,.12);
+  --fd:"Barlow Condensed","Arial Narrow",sans-serif; --fb:"Barlow",system-ui,"Segoe UI",sans-serif; --fm:"IBM Plex Mono",Consolas,monospace; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0d1317; --surface:#131b20; --ink:#e7edf0; --ink-2:#b1bec5; --muted:#7f8c93;
+  --grid:#222c32; --axis:#36424b; --gain:#3987e5; --loss:#e66767; --warn:#e0a020; --mid:#343d43; --border:rgba(231,237,240,.12); color-scheme:dark; } }
+* { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 var(--fb) }
+.wrap { max-width:1240px; margin:0 auto; padding:28px max(16px,env(safe-area-inset-left)) 56px; display:grid; gap:32px }
+h1,h2 { font-family:var(--fd); font-weight:600; margin:0; line-height:1.1 } h1 { font-size:46px } h2 { font-size:26px }
+p { margin:0; max-width:75ch } small { color:var(--ink-2) }
+.eyebrow { font:11.5px var(--fm); letter-spacing:.12em; text-transform:uppercase; color:var(--muted) }
+header, section { display:grid; gap:12px }
+.chips { display:flex; flex-wrap:wrap; gap:8px }
+.chip { display:inline-block; font:500 12px var(--fm); padding:3px 9px; border-radius:999px; border:1px solid; white-space:nowrap }
+.chip.sell { color:var(--loss); border-color:var(--loss) } .chip.buy { color:var(--gain); border-color:var(--gain) }
+.chip.watch { color:var(--warn); border-color:var(--warn) } .chip.hold { color:var(--ink-2); border-color:var(--axis) }
+.panel { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:16px; overflow-x:auto }
+table { border-collapse:collapse; width:100%; font-size:13.5px }
+th { font:500 11px var(--fm); text-transform:uppercase; letter-spacing:.05em; color:var(--muted); text-align:left; border-bottom:1px solid var(--axis); padding:8px }
+td { border-bottom:1px solid var(--grid); padding:10px 8px; vertical-align:top }
+td.n { font-family:var(--fm); text-align:right; white-space:nowrap } .tk { font-family:var(--fm) }
+.why ul { margin:0; padding-left:16px; display:grid; gap:4px; min-width:340px } .tax { margin-top:6px; font-size:12.5px; color:var(--ink-2) }
+.rkc { min-width:120px } .rk { position:relative; height:8px; border-radius:4px; margin:6px 0 4px;
+  background:linear-gradient(90deg, var(--loss) 0 40%, var(--mid) 40% 80%, var(--gain) 80% 100%) }
+.rk.q { background:linear-gradient(90deg, var(--mid) 0 20%, var(--axis) 20% 80%, var(--mid) 80% 100%) }
+.rk span { position:absolute; top:-4px; width:3px; height:16px; background:var(--ink); border-radius:2px; transform:translateX(-50%) }
+.strip { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:4px 16px }
+.bar { display:flex; justify-content:space-between; gap:8px; font-size:12.5px; padding:3px 8px; border-left:4px solid var(--axis); border-radius:2px }
+.bar.buy { border-color:var(--gain) } .bar.sell { border-color:var(--loss) } .bar.watch { border-color:var(--warn) }
+.bar.held { background:var(--mid); font-weight:600 } .bar .v { font-family:var(--fm) } .bar .nm { overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
+.notes { display:grid; gap:8px; color:var(--ink-2); padding-left:18px; margin:0; max-width:80ch }
+</style></head><body><div class="wrap">
+<header>
+  <div class="eyebrow">Market Casting · holdings_example.csv · run 2026-11-12</div>
+  <h1>Portfolio Wind Check</h1>
+  <p>Total value <b>$157,930</b> across 13 stocks. Industry signals as of <b>2026-09</b> (latest month in the Fama-French
+  data library). Rules: buy in the top 20% of 49 industries by 12-month wind; sell after two quarterly reviews in a row in the bottom 40%.</p>
+  <div class="chips"><span class="chip sell">Sell · 4</span><span class="chip watch">Hold, on watch · 3</span><span class="chip buy">Buy / add · 3</span><span class="chip hold">Hold (at size limit) · 2</span><span class="chip hold">Hold · 1</span></div>
+</header>
+<section><h2>Holdings</h2><div class="panel"><table>
+  <thead><tr><th>Action</th><th>Stock</th><th>Industry</th><th>Value</th><th>Industry wind rank</th><th>Stock vs industry</th><th>Why</th></tr></thead>
+  <tbody><tr>
+          <td><span class="chip sell">Sell</span></td>
+          <td><b class="tk">KO</b><br><small>Coca Cola Co</small></td>
+          <td>Beer &amp; Liquor<br><small>SIC 2080 Beverages</small></td>
+          <td class="n">$6,853<br><small>4.3%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:33%"></span></div><small>rank 34 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:87%"></span></div><small class="tk">+35%</small> <small>· top 13%</small></td>
+          <td class="why"><ul><li>Beer &amp; Liquor ranks 34 of 49 industries by 12-month wind (-9% vs market). It has been in the bottom 40% at two reviews in a row.</li><li>Historically, industries with this label trailed the market by about 1.8% over the next 12 months (1931–2026). Since 2000 the gap has been small and not reliable.</li><li>Against its 4 S&amp;P 500 industry peers, the stock is +35% over 12 months (latest month skipped), in the top 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul><p class="tax">Selling now realizes $2,807 long-term and $0 short-term gain/loss; estimated tax $421.</p></td>
+        </tr><tr>
+          <td><span class="chip sell">Sell</span></td>
+          <td><b class="tk">MDT</b><br><small>Medtronic Plc</small></td>
+          <td>Medical Equipment<br><small>SIC 3845 Electromedical &amp; Electrotherapeutic Apparatus</small></td>
+          <td class="n">$5,075<br><small>3.2%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:8%"></span></div><small>rank 46 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:79%"></span></div><small class="tk">+21%</small> <small>· top 21%</small></td>
+          <td class="why"><ul><li>Medical Equipment ranks 46 of 49 industries by 12-month wind (-22% vs market). It has been in the bottom 40% at two reviews in a row.</li><li>Historically, industries with this label trailed the market by about 1.8% over the next 12 months (1931–2026). Since 2000 the gap has been small and not reliable.</li><li>Against its 17 S&amp;P 500 industry peers, the stock is +21% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul><p class="tax">Selling now realizes $1,221 long-term and $0 short-term gain/loss; estimated tax $183.</p></td>
+        </tr><tr>
+          <td><span class="chip sell">Sell</span></td>
+          <td><b class="tk">NKE</b><br><small>Nike, Inc.</small></td>
+          <td>Apparel<br><small>SIC 3021 Rubber &amp; Plastics Footwear</small></td>
+          <td class="n">$4,947<br><small>3.1%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:4%"></span></div><small>rank 48 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:3%"></span></div><small class="tk">-46%</small> <small>· bottom 3%</small></td>
+          <td class="why"><ul><li>Apparel ranks 48 of 49 industries by 12-month wind (-29% vs market). It has been in the bottom 40% at two reviews in a row.</li><li>Historically, industries with this label trailed the market by about 1.8% over the next 12 months (1931–2026). Since 2000 the gap has been small and not reliable.</li><li>Against its 5 S&amp;P 500 industry peers, the stock is -46% over 12 months (latest month skipped), in the bottom 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul><p class="tax">Selling now realizes −$7,707 long-term and −$205 short-term gain/loss; estimated tax $0. This position is at a loss, so selling also harvests a tax loss (avoid rebuying within 30 days: wash-sale rule).</p></td>
+        </tr><tr>
+          <td><span class="chip sell">Sell</span></td>
+          <td><b class="tk">DIS</b><br><small>Walt Disney Co</small></td>
+          <td>Entertainment<br><small>SIC 7990 Services-Miscellaneous Amusement &amp; Recreation</small></td>
+          <td class="n">$7,145<br><small>4.5%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:2%"></span></div><small>rank 49 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:91%"></span></div><small class="tk">+42%</small> <small>· top 9%</small></td>
+          <td class="why"><ul><li>Entertainment ranks 49 of 49 industries by 12-month wind (-34% vs market). It has been in the bottom 40% at two reviews in a row.</li><li>Historically, industries with this label trailed the market by about 1.8% over the next 12 months (1931–2026). Since 2000 the gap has been small and not reliable.</li><li>Against its 3 S&amp;P 500 industry peers, the stock is +42% over 12 months (latest month skipped), in the top 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul><p class="tax">Selling now realizes $657 long-term and $0 short-term gain/loss; estimated tax $99.</p></td>
+        </tr><tr>
+          <td><span class="chip watch">Hold, on watch</span></td>
+          <td><b class="tk">HD</b><br><small>Home Depot, Inc.</small></td>
+          <td>Retail<br><small>SIC 5211 Retail-Lumber &amp; Other Building Materials Dealers</small></td>
+          <td class="n">$8,769<br><small>5.6%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:37%"></span></div><small>rank 32 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:16%"></span></div><small class="tk">-24%</small> <small>· bottom 16%</small></td>
+          <td class="why"><ul><li>Retail ranks 32 of 49 industries by 12-month wind (-8% vs market). First review in the bottom 40%; it becomes a Sell if it is still there at the next review.</li><li>Against its 23 S&amp;P 500 industry peers, the stock is -24% over 12 months (latest month skipped), in the bottom 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip watch">Hold, on watch</span></td>
+          <td><b class="tk">MSFT</b><br><small>Microsoft Corp</small></td>
+          <td>Software<br><small>SIC 7372 Services-Prepackaged Software</small></td>
+          <td class="n">$18,410<br><small>11.7%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:22%"></span></div><small>rank 39 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:48%"></span></div><small class="tk">-2%</small> <small>· bottom 48%</small></td>
+          <td class="why"><ul><li>Software ranks 39 of 49 industries by 12-month wind (-12% vs market). First review in the bottom 40%; it becomes a Sell if it is still there at the next review.</li><li>Against its 28 S&amp;P 500 industry peers, the stock is -2% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip watch">Hold, on watch</span></td>
+          <td><b class="tk">GM</b><br><small>General Motors Co</small></td>
+          <td>Autos &amp; Trucks<br><small>SIC 3711 Motor Vehicles &amp; Passenger Car Bodies</small></td>
+          <td class="n">$8,766<br><small>5.6%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:6%"></span></div><small>rank 47 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:90%"></span></div><small class="tk">+38%</small> <small>· top 10%</small></td>
+          <td class="why"><ul><li>Autos &amp; Trucks ranks 47 of 49 industries by 12-month wind (-23% vs market). First review in the bottom 40%; it becomes a Sell if it is still there at the next review.</li><li>Against its 4 S&amp;P 500 industry peers, the stock is +38% over 12 months (latest month skipped), in the top 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip hold">Hold</span></td>
+          <td><b class="tk">JPM</b><br><small>Jpmorgan Chase &amp; Co</small></td>
+          <td>Banking<br><small>SIC 6021 National Commercial Banks</small></td>
+          <td class="n">$13,711<br><small>8.7%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:63%"></span></div><small>rank 19 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:62%"></span></div><small class="tk">+7%</small> <small>· top 38%</small></td>
+          <td class="why"><ul><li>Banking ranks 19 of 49 industries by 12-month wind (+0% vs market), in the middle of the pack.</li><li>Against its 19 S&amp;P 500 industry peers, the stock is +7% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip hold">Hold (at size limit)</span></td>
+          <td><b class="tk">AAPL</b><br><small>Apple Inc.</small></td>
+          <td>Computers<br><small>SIC 3571 Electronic Computers</small></td>
+          <td class="n">$28,607<br><small>18.1%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:100%"></span></div><small>rank 1 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:12%"></span></div><small class="tk">-29%</small> <small>· bottom 12%</small></td>
+          <td class="why"><ul><li>Computers ranks 1 of 49 industries by 12-month wind (+55% vs market), in the top 20%.</li><li>Already 18.1% of the portfolio, at or above the 10% position limit.</li><li>Large position: 18.1% of the portfolio. Consider trimming for diversification.</li><li>Against its 15 S&amp;P 500 industry peers, the stock is -29% over 12 months (latest month skipped), in the bottom 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip hold">Hold (at size limit)</span></td>
+          <td><b class="tk">NVDA</b><br><small>Nvidia Corp</small></td>
+          <td>Semiconductors &amp; Electronics<br><small>SIC 3674 Semiconductors &amp; Related Devices</small></td>
+          <td class="n">$24,807<br><small>15.7%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:86%"></span></div><small>rank 8 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:13%"></span></div><small class="tk">-27%</small> <small>· bottom 13%</small></td>
+          <td class="why"><ul><li>Semiconductors &amp; Electronics ranks 8 of 49 industries by 12-month wind (+17% vs market), in the top 20%.</li><li>Already 15.7% of the portfolio, at or above the 10% position limit.</li><li>Large position: 15.7% of the portfolio. Consider trimming for diversification.</li><li>Against its 28 S&amp;P 500 industry peers, the stock is -27% over 12 months (latest month skipped), in the bottom 20% of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip buy">Buy / add</span></td>
+          <td><b class="tk">CAT</b><br><small>Caterpillar Inc</small></td>
+          <td>Machinery<br><small>SIC 3531 Construction Machinery &amp; Equip</small></td>
+          <td class="n">$8,929<br><small>5.7%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:98%"></span></div><small>rank 2 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:58%"></span></div><small class="tk">+4%</small> <small>· top 42%</small></td>
+          <td class="why"><ul><li>Machinery ranks 2 of 49 industries by 12-month wind (+33% vs market), in the top 20%.</li><li>Against its 16 S&amp;P 500 industry peers, the stock is +4% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip buy">Buy / add</span></td>
+          <td><b class="tk">XOM</b><br><small>Exxonmobil Holdings Corp</small></td>
+          <td>Oil &amp; Gas<br><small>SIC 2911 Petroleum Refining</small></td>
+          <td class="n">$13,438<br><small>8.5%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:96%"></span></div><small>rank 3 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:42%"></span></div><small class="tk">-5%</small> <small>· bottom 42%</small></td>
+          <td class="why"><ul><li>Oil &amp; Gas ranks 3 of 49 industries by 12-month wind (+27% vs market), in the top 20%.</li><li>Against its 14 S&amp;P 500 industry peers, the stock is -5% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr><tr>
+          <td><span class="chip buy">Buy / add</span></td>
+          <td><b class="tk">JNJ</b><br><small>Johnson &amp; Johnson</small></td>
+          <td>Pharmaceuticals<br><small>SIC 2834 Pharmaceutical Preparations</small></td>
+          <td class="n">$8,473<br><small>5.4%</small></td>
+          <td class="rkc"><div class="rk"><span style="left:90%"></span></div><small>rank 6 of 49</small></td>
+          <td class="rkc"><div class="rk q"><span style="left:61%"></span></div><small class="tk">+6%</small> <small>· top 39%</small></td>
+          <td class="why"><ul><li>Pharmaceuticals ranks 6 of 49 industries by 12-month wind (+23% vs market), in the top 20%.</li><li>Against its 16 S&amp;P 500 industry peers, the stock is +6% over 12 months (latest month skipped), in the middle of S&amp;P 500 stocks on this measure. A quick 2021–2026 test suggests this helps pick stocks within an industry, but it isn&#x27;t confirmed yet.</li></ul></td>
+        </tr></tbody></table></div></section>
+<section><h2>All 49 industries by 12-month wind</h2>
+  <p><small>Blue edge = Buy zone, red = Sell, amber = Watch. Shaded = you hold it. Percent = change in the industry's share of market value.</small></p>
+  <div class="panel strip"><div class="bar buy held" title="Computers: +55% vs market, Buy zone"><span class="nm">Computers</span><span class="v">+55%</span></div><div class="bar buy held" title="Machinery: +33% vs market, Buy zone"><span class="nm">Machinery</span><span class="v">+33%</span></div><div class="bar buy held" title="Oil &amp; Gas: +27% vs market, Buy zone"><span class="nm">Oil &amp; Gas</span><span class="v">+27%</span></div><div class="bar buy" title="Precious Metals: +27% vs market, Buy zone"><span class="nm">Precious Metals</span><span class="v">+27%</span></div><div class="bar buy" title="Industrial Mining: +26% vs market, Buy zone"><span class="nm">Industrial Mining</span><span class="v">+26%</span></div><div class="bar buy held" title="Pharmaceuticals: +23% vs market, Buy zone"><span class="nm">Pharmaceuticals</span><span class="v">+23%</span></div><div class="bar buy" title="Measuring &amp; Control Eq.: +18% vs market, Buy zone"><span class="nm">Measuring &amp; Control Eq.</span><span class="v">+18%</span></div><div class="bar buy held" title="Semiconductors &amp; Electronics: +17% vs market, Buy zone"><span class="nm">Semiconductors &amp; Electronics</span><span class="v">+17%</span></div><div class="bar buy" title="Soft Drinks: +16% vs market, Buy zone"><span class="nm">Soft Drinks</span><span class="v">+16%</span></div><div class="bar buy" title="Shipbuilding &amp; Railroad Eq.: +12% vs market, Buy zone"><span class="nm">Shipbuilding &amp; Railroad Eq.</span><span class="v">+12%</span></div><div class="bar hold" title="Steel: +11% vs market, Hold"><span class="nm">Steel</span><span class="v">+11%</span></div><div class="bar hold" title="Coal: +8% vs market, Hold"><span class="nm">Coal</span><span class="v">+8%</span></div><div class="bar hold" title="Electrical Equipment: +7% vs market, Hold"><span class="nm">Electrical Equipment</span><span class="v">+7%</span></div><div class="bar hold" title="Agriculture: +5% vs market, Hold"><span class="nm">Agriculture</span><span class="v">+5%</span></div><div class="bar hold" title="Healthcare Services: +4% vs market, Hold"><span class="nm">Healthcare Services</span><span class="v">+4%</span></div><div class="bar hold" title="Rubber &amp; Plastics: +3% vs market, Hold"><span class="nm">Rubber &amp; Plastics</span><span class="v">+3%</span></div><div class="bar hold" title="Transportation: +1% vs market, Hold"><span class="nm">Transportation</span><span class="v">+1%</span></div><div class="bar hold" title="Tobacco: +1% vs market, Hold"><span class="nm">Tobacco</span><span class="v">+1%</span></div><div class="bar hold held" title="Banking: +0% vs market, Hold"><span class="nm">Banking</span><span class="v">+0%</span></div><div class="bar hold" title="Chemicals: -1% vs market, Hold"><span class="nm">Chemicals</span><span class="v">-1%</span></div><div class="bar hold" title="Recreation: -3% vs market, Hold"><span class="nm">Recreation</span><span class="v">-3%</span></div><div class="bar hold" title="Shipping Containers: -3% vs market, Hold"><span class="nm">Shipping Containers</span><span class="v">-3%</span></div><div class="bar hold" title="Construction Materials: -3% vs market, Hold"><span class="nm">Construction Materials</span><span class="v">-3%</span></div><div class="bar hold" title="Trading &amp; Finance: -4% vs market, Hold"><span class="nm">Trading &amp; Finance</span><span class="v">-4%</span></div><div class="bar hold" title="Wholesale: -4% vs market, Hold"><span class="nm">Wholesale</span><span class="v">-4%</span></div><div class="bar hold" title="Aircraft: -4% vs market, Hold"><span class="nm">Aircraft</span><span class="v">-4%</span></div><div class="bar hold" title="Construction: -4% vs market, Hold"><span class="nm">Construction</span><span class="v">-4%</span></div><div class="bar hold" title="Restaurants &amp; Hotels: -4% vs market, Hold"><span class="nm">Restaurants &amp; Hotels</span><span class="v">-4%</span></div><div class="bar hold" title="Fabricated Products: -7% vs market, Hold"><span class="nm">Fabricated Products</span><span class="v">-7%</span></div><div class="bar hold" title="Insurance: -7% vs market, Hold"><span class="nm">Insurance</span><span class="v">-7%</span></div><div class="bar watch" title="Printing &amp; Publishing: -8% vs market, Watch"><span class="nm">Printing &amp; Publishing</span><span class="v">-8%</span></div><div class="bar watch held" title="Retail: -8% vs market, Watch"><span class="nm">Retail</span><span class="v">-8%</span></div><div class="bar sell" title="Textiles: -9% vs market, Sell"><span class="nm">Textiles</span><span class="v">-9%</span></div><div class="bar sell held" title="Beer &amp; Liquor: -9% vs market, Sell"><span class="nm">Beer &amp; Liquor</span><span class="v">-9%</span></div><div class="bar watch" title="Defense: -10% vs market, Watch"><span class="nm">Defense</span><span class="v">-10%</span></div><div class="bar watch" title="Utilities: -10% vs market, Watch"><span class="nm">Utilities</span><span class="v">-10%</span></div><div class="bar sell" title="Real Estate: -11% vs market, Sell"><span class="nm">Real Estate</span><span class="v">-11%</span></div><div class="bar sell" title="Other: -12% vs market, Sell"><span class="nm">Other</span><span class="v">-12%</span></div><div class="bar watch held" title="Software: -12% vs market, Watch"><span class="nm">Software</span><span class="v">-12%</span></div><div class="bar sell" title="Consumer Goods: -12% vs market, Sell"><span class="nm">Consumer Goods</span><span class="v">-12%</span></div><div class="bar sell" title="Food Products: -13% vs market, Sell"><span class="nm">Food Products</span><span class="v">-13%</span></div><div class="bar sell" title="Telecom: -15% vs market, Sell"><span class="nm">Telecom</span><span class="v">-15%</span></div><div class="bar sell" title="Business Supplies: -18% vs market, Sell"><span class="nm">Business Supplies</span><span class="v">-18%</span></div><div class="bar sell" title="Business Services: -18% vs market, Sell"><span class="nm">Business Services</span><span class="v">-18%</span></div><div class="bar sell" title="Personal Services: -19% vs market, Sell"><span class="nm">Personal Services</span><span class="v">-19%</span></div><div class="bar sell held" title="Medical Equipment: -22% vs market, Sell"><span class="nm">Medical Equipment</span><span class="v">-22%</span></div><div class="bar watch held" title="Autos &amp; Trucks: -23% vs market, Watch"><span class="nm">Autos &amp; Trucks</span><span class="v">-23%</span></div><div class="bar sell held" title="Apparel: -29% vs market, Sell"><span class="nm">Apparel</span><span class="v">-29%</span></div><div class="bar sell held" title="Entertainment: -34% vs market, Sell"><span class="nm">Entertainment</span><span class="v">-34%</span></div></div></section>
+<section><h2>Buy-zone industries you don't hold</h2><div class="panel"><table>
+  <thead><tr><th>Industry</th><th>Rank</th><th>Wind</th><th>Largest S&amp;P 500 members</th></tr></thead><tbody><tr><td>Precious Metals</td><td class='n'>4</td><td class='n'>+27%</td><td>NEM (Newmont)</td></tr><tr><td>Industrial Mining</td><td class='n'>5</td><td class='n'>+26%</td><td>FCX (Freeport-McMoRan), MLM (Martin Marietta Materials), VMC (Vulcan Materials Company)</td></tr><tr><td>Measuring &amp; Control Eq.</td><td class='n'>7</td><td class='n'>+18%</td><td>TMO (Thermo Fisher Scientific; -10% vs peers), KLAC (KLA Corporation; +25% vs peers), DHR (Danaher Corporation; -19% vs peers)</td></tr><tr><td>Soft Drinks</td><td class='n'>9</td><td class='n'>+16%</td><td>MNST (Monster Beverage)</td></tr><tr><td>Shipbuilding &amp; Railroad Eq.</td><td class='n'>10</td><td class='n'>+12%</td><td>GD (General Dynamics), WAB (Wabtec), HII (Huntington Ingalls Industries)</td></tr></tbody></table></div></section>
+<section><h2>How much to trust these labels</h2><div class="panel"><table>
+  <thead><tr><th>Label</th><th>6 mo after, 1931–2026</th><th>12 mo after, 1931–2026</th><th>6 mo after, 2000–2026</th><th>12 mo after, 2000–2026</th></tr></thead>
+  <tbody><tr><td>Buy zone</td><td class='n'>+1.0% <small>(t +2.3)</small></td><td class='n'>+0.6% <small>(t +0.9)</small></td><td class='n'>+0.1% <small>(t +0.1)</small></td><td class='n'>-0.8% <small>(t -0.7)</small></td></tr><tr><td>Hold</td><td class='n'>+0.2% <small>(t +0.5)</small></td><td class='n'>+0.1% <small>(t +0.2)</small></td><td class='n'>+0.4% <small>(t +0.5)</small></td><td class='n'>+0.5% <small>(t +0.4)</small></td></tr><tr><td>Watch</td><td class='n'>-0.9% <small>(t -2.2)</small></td><td class='n'>-2.1% <small>(t -2.7)</small></td><td class='n'>+0.1% <small>(t +0.1)</small></td><td class='n'>-0.7% <small>(t -0.5)</small></td></tr><tr><td>Sell</td><td class='n'>-1.7% <small>(t -3.8)</small></td><td class='n'>-1.8% <small>(t -2.4)</small></td><td class='n'>-0.6% <small>(t -0.6)</small></td><td class='n'>-0.2% <small>(t -0.1)</small></td></tr></tbody></table></div>
+  <p>Average return relative to the market for industries carrying each label at a quarterly review. Following these rules for whole industries
+  beat the market by +2.3%/yr over 1931–2026 (t 4.0) and +1.8%/yr since 2000,
+  selling about 37% of the portfolio a year, with 9% of sales short-term. Since 2000 the gap between
+  individual labels has been small and not statistically reliable.</p></section>
+<section><h2>Notes</h2><ul class="notes">
+  <li>This is a research tool, not personal financial advice. Consider your full situation, or a professional's view, before trading.</li>
+  <li>Industries come from each company's SEC SIC code mapped to the Fama-French 49 industries. A company filed under a broad code can land in a
+    surprising group. The SIC description is shown so you can check.</li>
+  <li>"Stock vs industry" is the stock's 12-month wind (latest month skipped) minus its S&amp;P 500 industry peers, weighted by size.
+    The marker shows where it ranks among all S&amp;P 500 stocks on the same measure. A quick 2021–2026 test on today's members found the
+    top 20% beat the bottom 20% by about 6 points over the next 6 months, measured against their industries. That test is short and has
+    survivor bias, so this column doesn't change the action yet.</li>
+  <li>Tax estimates use 32% short-term and 15% long-term rates (change with --st-rate / --lt-rate).
+    They ignore state tax, the net investment income tax and lots not in the file.</li>
+  <li>Position limit 10%, industry limit 25% (change with --position-cap / --industry-cap).</li>
+</ul></section>
+</div></body></html>

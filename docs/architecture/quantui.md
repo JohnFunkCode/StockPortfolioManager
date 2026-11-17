@@ -187,6 +187,45 @@ majority neutral. A window needs 10+ articles and a quarter of its days inside n
 reads `thin`. The response's `news_rule` carries those thresholds for the tooltip, which states the
 counts and the coverage ("covers 23 of 75 days").
 
+The **Wind Map page** (`/wind-map`, Research) shows how market-value share moves between S&P 500
+sectors, sub-industries and companies, and the backtests of whether that "wind" predicts later
+returns. This is the quick version: the Market Casting prototype's self-contained page, committed as
+`frontend/public/research/wind-map.html` (a byte-for-byte copy of that project's
+`output/wind_map_local.html`, built by its `build_page.py`, with its data baked in), framed by
+`frontend/src/components/windmap/WindMapPage.tsx`. It is a **static snapshot**: refreshing it means
+re-running the prototype's fetch, backtest and build scripts and copying the page over again. The
+intended full version serves the data from the API and renders it with QuantUI components, at which
+point the frame and its CSP exception go away.
+
+The **Portfolio Check page** (`/portfolio-check`, Research, below the Wind Map) is the same pattern
+for the prototype's quarterly holdings check (`portfolio_check.py`: each holding's industry against
+the Wind Map's tested rules, adjusted for position size and taxes). It is a **demo**:
+`frontend/public/research/portfolio-check-sample.html` is that script's report for the prototype's
+made-up `holdings_example.csv`, and the page says so in an `Alert`. **A pre-built page must never
+hold a real portfolio**: it is served identically to every user and committed to git. The
+per-user version, built from the viewer's own lots through the API, is
+[`portfolio-check-plan.md`](../proposals/portfolio-check-plan.md).
+
+Both pages frame their file through `frontend/src/components/research/SandboxedReport.tsx`, the one
+place the `sandbox` attribute is set. Neither is GenUI-compliant (arch-v2 Rules 8–9): the numbers
+are computed by the prototype, not by `quantcore/analytics`, and the Sidekick can't render them.
+That is accepted for a static demo and is what each full version fixes.
+
+The prototype runs an inline `<script>` and writes markup with `innerHTML`, so it can't run under the
+app CSP (no inline script, Trusted Types) and `frame-ancestors 'none'` forbids framing it. Rather
+than loosen the app CSP, `frontend/server/csp.mjs` gives the exact paths in `SANDBOXED_PAGES` a
+separate policy, `SANDBOXED_PAGE_CSP` (the Portfolio Check sample has no script, but gets the same
+policy). Three things about it are load-bearing:
+
+- **`sandbox allow-scripts`, never `allow-same-origin`**, in both the CSP and the `<iframe>`
+  attribute. The page then runs in an opaque origin even when opened directly, so its script can't
+  read QuantUI's cookies, storage or BYOK vault, or call `/api` as the user. `csp.test.mjs` and
+  `SandboxedReport.test.tsx` pin both halves.
+- **No network.** `default-src 'none'` plus inline script and style only, so the page's Google Fonts
+  links are refused (it falls back to system fonts) and nothing it does can leave the browser.
+- **The match is the exact, undecoded request path.** Any other spelling (encoded, trailing slash,
+  different case) gets the strict app CSP, so a miss breaks the page rather than weakening anything.
+
 The security detail page's Technical Analysis tab ends with two cards that share **one request**
 (#399, [`stop-loss-card-plan.md`](../proposals/stop-loss-card-plan.md)): Support Confluence, then the
 Stop-Loss card, which proposes a stop under one of its zones. The order is display only; the

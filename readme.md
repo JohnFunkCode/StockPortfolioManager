@@ -304,6 +304,8 @@ none ([why it's read at runtime](docs/architecture/quantui.md)).
 | Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns over the same six windows (a live 1d, refreshed on load and by the Refresh button), USD market caps, staleness, tags and news sentiment. Rows you hold carry a Held chip with your quantity and average price, and a Show filter narrows to them. Also hosts the technical screener, the sentiment dashboard and the options-snapshot refresh. It replaced the Securities page (#224); `/securities` redirects here |
 | Fundamentals | `/fundamentals` | Research | the tracked universe ranked by score, cut by sector, with score movement and the earnings calendar |
 | Arbitrage | `/arbitrage` | Research | scan results, the curated universe with each link's rationale, and per-pair factor breakdowns |
+| Wind Map | `/wind-map` | Research | how market-value share moves between S&P 500 sectors, sub-industries and companies, with the backtests of that "wind". A static snapshot of the Market Casting prototype in a sandboxed frame ([details](docs/architecture/quantui.md)) |
+| Portfolio Check | `/portfolio-check` | Research | the quarterly sell / watch / hold / buy check against the Wind Map's industry rules, with tax notes. **A demo for a made-up sample portfolio**, not yours; a per-user version is [planned](docs/proposals/portfolio-check-plan.md) |
 | Settings | `/settings` | top level | your BYOK key vault, Sidekick model, and Sidekick daily budget |
 
 The drill-down pages, `/plans/:id` and `/securities/:symbol` (opened from a Watchlist row), are reached from those pages and

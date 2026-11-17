@@ -21,6 +21,8 @@ import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import AssessmentIcon from '@mui/icons-material/Assessment';
 import SettingsIcon from '@mui/icons-material/Settings';
+import AirIcon from '@mui/icons-material/Air';
+import FactCheckIcon from '@mui/icons-material/FactCheck';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PortfolioPage from './components/portfolio/PortfolioPage';
 import PlansPage from './components/plans/PlansPage';
@@ -30,6 +32,8 @@ import ArbitragePage from './components/arbitrage/ArbitragePage';
 import WatchlistPage from './components/watchlist/WatchlistPage';
 import FundamentalsPage from './components/fundamentals/FundamentalsPage';
 import SettingsPage from './components/settings/SettingsPage';
+import WindMapPage from './components/windmap/WindMapPage';
+import PortfolioCheckPage from './components/portfoliocheck/PortfolioCheckPage';
 
 /** The two nav menus. Named so a typo is a compile error, not a third menu. */
 export const MY_POSITIONS = 'My Positions';
@@ -66,6 +70,8 @@ export const routes: AppRoute[] = [
   { path: '/watchlist', label: 'Watchlist', group: RESEARCH, icon: <VisibilityIcon />, element: <WatchlistPage /> },
   { path: '/fundamentals', label: 'Fundamentals', group: RESEARCH, icon: <AssessmentIcon />, element: <FundamentalsPage /> },
   { path: '/arbitrage', label: 'Arbitrage', group: RESEARCH, icon: <CompareArrowsIcon />, element: <ArbitragePage /> },
+  { path: '/wind-map', label: 'Wind Map', group: RESEARCH, icon: <AirIcon />, element: <WindMapPage /> },
+  { path: '/portfolio-check', label: 'Portfolio Check', group: RESEARCH, icon: <FactCheckIcon />, element: <PortfolioCheckPage /> },
   { path: '/settings', label: 'Settings', icon: <SettingsIcon />, element: <SettingsPage /> },
 ];
 

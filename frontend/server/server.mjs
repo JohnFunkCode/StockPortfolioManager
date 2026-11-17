@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { createApiProxy } from './proxy.mjs';
 import { createAuthProvider, IapAuthError } from './auth.mjs';
 import { mountSpa } from './indexHtml.mjs';
+import { cspMiddleware } from './csp.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = process.env.DIST_DIR || path.resolve(__dirname, '..', 'dist');
@@ -55,25 +56,9 @@ const authProvider = createAuthProvider({
 
 const app = express();
 
-// Strict CSP (BYOK packet 5b): the SPA is fully self-contained (fonts are
-// self-hosted via @fontsource), so everything locks to 'self'. The only
-// exception is style-src 'unsafe-inline', required by MUI/emotion's runtime
-// <style> injection. require-trusted-types-for 'script' turns on Trusted
-// Types enforcement so any future DOM XSS sink throws instead of executing.
-const CSP =
-  "default-src 'self'; " +
-  "connect-src 'self'; " +
-  "frame-ancestors 'none'; " +
-  "object-src 'none'; " +
-  "form-action 'self'; " +
-  "base-uri 'none'; " +
-  "style-src 'self' 'unsafe-inline'; " +
-  "require-trusted-types-for 'script'";
-
-app.use((_req, res, next) => {
-  res.setHeader('Content-Security-Policy', CSP);
-  next();
-});
+// Strict CSP (BYOK packet 5b) on everything, except the sandboxed research pages the
+// SPA frames (the Wind Map), which get a sandbox CSP instead. Both live in csp.mjs.
+app.use(cspMiddleware);
 
 // Lightweight liveness probe (does not touch the api) for Cloud Run / compose.
 app.get('/healthz', (_req, res) => res.status(200).send('ok'));

@@ -60,7 +60,8 @@ describe('NavBar', () => {
     await user.click(screen.getByTestId('mobile-nav-menu'));
     const menu = await screen.findByRole('menu');
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      'Portfolio', 'Plans', 'Harvester', 'Watchlist', 'Fundamentals', 'Arbitrage', 'Settings',
+      'Portfolio', 'Plans', 'Harvester', 'Watchlist', 'Fundamentals', 'Arbitrage', 'Wind Map',
+      'Portfolio Check', 'Settings',
     ]);
   });
 
@@ -75,14 +76,14 @@ describe('NavBar', () => {
     expect(screen.queryByRole('link', { name: /Watchlist/ })).not.toBeInTheDocument();
   });
 
-  it('reveals all three Research pages when the menu is opened', async () => {
+  it('reveals all five Research pages when the menu is opened', async () => {
     const user = userEvent.setup();
     renderNav('/');
     await user.click(trigger('Research'));
 
     const menu = await screen.findByRole('menu');
     expect(within(menu).getAllByRole('menuitem').map((item) => item.textContent)).toEqual([
-      'Watchlist', 'Fundamentals', 'Arbitrage',
+      'Watchlist', 'Fundamentals', 'Arbitrage', 'Wind Map', 'Portfolio Check',
     ]);
   });
 

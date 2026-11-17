@@ -42,6 +42,15 @@ export interface Order {
    * manual_close (sold at the last price on record: no quote). */
   kind: OrderKind;
   reject_reason: RejectReason | null;
+  /** The stop a buy asked for (#431 step 4.3). All null when it asked for none. */
+  stop_kind: 'fixed' | 'trailing' | null;
+  stop_level: number | null;
+  stop_trail_pct: number | null;
+  stop_method: string | null;
+  stop_proposed_level: number | null;
+  /** True once the fill wrote the stop. False when the buy filled at or
+   * under the fixed level it asked for, so it has no stop. Null until it fills. */
+  stop_set: boolean | null;
   /** True when the request repeated an idempotency key: nothing new happened. */
   replayed: boolean;
 }
@@ -53,6 +62,18 @@ export interface OrdersResponse {
   orders: Order[];
 }
 
+/** The stop a buy asks for. It is set when the buy fills, against the fill
+ * price: a trailing stop's mark starts there. */
+export interface OrderStopPayload {
+  kind: 'fixed' | 'trailing';
+  stop_level?: number;
+  trail_pct?: number;
+  /** manual, or the stop card's candidate the figure came from. */
+  method: 'manual' | 'technical' | 'trailing' | 'confluence';
+  /** What the stop card suggested, when the figure came from it. */
+  proposed_level?: number;
+}
+
 export interface PlaceOrderPayload {
   book_id: number;
   symbol: string;
@@ -62,6 +83,8 @@ export interface PlaceOrderPayload {
   amount?: number;
   /** The caller's own id for this request. Sending it again places nothing. */
   idempotency_key: string;
+  /** A buy only. */
+  stop?: OrderStopPayload;
 }
 
 /** What copying the real book's holdings into a paper book did. */

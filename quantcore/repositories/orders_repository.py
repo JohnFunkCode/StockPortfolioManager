@@ -33,7 +33,7 @@ from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.cash_repository import list_entries_on
 from quantcore.repositories.portfolio_repository import PortfolioRepository
-from quantcore.repositories.stop_sql import resolve_stop_on, trigger_stop_on
+from quantcore.repositories.stop_sql import resolve_stop_on, set_stop_on, trigger_stop_on
 
 SQL_LIST_ORDERS = """
 SELECT
@@ -55,7 +55,13 @@ SELECT
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
     o.reject_reason    AS reject_reason,
-    o.kind             AS kind
+    o.kind             AS kind,
+    o.stop_kind           AS stop_kind,
+    o.stop_level          AS stop_level,
+    o.stop_trail_pct      AS stop_trail_pct,
+    o.stop_method         AS stop_method,
+    o.stop_proposed_level AS stop_proposed_level,
+    o.stop_set            AS stop_set
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -88,7 +94,13 @@ SELECT
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
     o.reject_reason    AS reject_reason,
-    o.kind             AS kind
+    o.kind             AS kind,
+    o.stop_kind           AS stop_kind,
+    o.stop_level          AS stop_level,
+    o.stop_trail_pct      AS stop_trail_pct,
+    o.stop_method         AS stop_method,
+    o.stop_proposed_level AS stop_proposed_level,
+    o.stop_set            AS stop_set
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -121,7 +133,13 @@ SELECT
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
     o.reject_reason    AS reject_reason,
-    o.kind             AS kind
+    o.kind             AS kind,
+    o.stop_kind           AS stop_kind,
+    o.stop_level          AS stop_level,
+    o.stop_trail_pct      AS stop_trail_pct,
+    o.stop_method         AS stop_method,
+    o.stop_proposed_level AS stop_proposed_level,
+    o.stop_set            AS stop_set
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -156,7 +174,13 @@ SELECT
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
     o.reject_reason    AS reject_reason,
-    o.kind             AS kind
+    o.kind             AS kind,
+    o.stop_kind           AS stop_kind,
+    o.stop_level          AS stop_level,
+    o.stop_trail_pct      AS stop_trail_pct,
+    o.stop_method         AS stop_method,
+    o.stop_proposed_level AS stop_proposed_level,
+    o.stop_set            AS stop_set
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -193,7 +217,13 @@ SELECT
     o.price_source     AS price_source,
     o.quote_time       AS quote_time,
     o.reject_reason    AS reject_reason,
-    o.kind             AS kind
+    o.kind             AS kind,
+    o.stop_kind           AS stop_kind,
+    o.stop_level          AS stop_level,
+    o.stop_trail_pct      AS stop_trail_pct,
+    o.stop_method         AS stop_method,
+    o.stop_proposed_level AS stop_proposed_level,
+    o.stop_set            AS stop_set
 FROM orders o
 JOIN symbols s ON s.symbol_id = o.symbol_id
 WHERE o.owner = :owner
@@ -242,11 +272,13 @@ ON CONFLICT(ticker) DO NOTHING;
 SQL_INSERT_ORDER = """
 INSERT INTO orders (
     owner, book_id, symbol_id, side, requested_shares, requested_amount,
-    source, source_ref, idempotency_key, session_date, placed_at, kind
+    source, source_ref, idempotency_key, session_date, placed_at, kind,
+    stop_kind, stop_level, stop_trail_pct, stop_method, stop_proposed_level
 ) VALUES (
     :owner, :book_id, (SELECT symbol_id FROM symbols WHERE ticker = :ticker), :side,
     :requested_shares, :requested_amount,
-    :source, :source_ref, :idempotency_key, :session_date, :placed_at, :kind
+    :source, :source_ref, :idempotency_key, :session_date, :placed_at, :kind,
+    :stop_kind, :stop_level, :stop_trail_pct, :stop_method, :stop_proposed_level
 )
 ON CONFLICT (owner, idempotency_key) DO NOTHING
 RETURNING order_id;
@@ -254,7 +286,8 @@ RETURNING order_id;
 
 # The one statement that takes an order out of `pending`. It matches no row
 # for an order that has already been filled, cancelled or rejected, which is
-# what makes a fill happen exactly once.
+# what makes a fill happen exactly once. `stop_set` says whether the fill of a
+# buy that asked for a stop wrote it (plan step 4.3), and is NULL otherwise.
 SQL_RESOLVE_ORDER = """
 UPDATE orders
 SET status = :status,
@@ -263,7 +296,8 @@ SET status = :status,
     fill_price = :fill_price,
     price_source = :price_source,
     quote_time = :quote_time,
-    reject_reason = :reject_reason
+    reject_reason = :reject_reason,
+    stop_set = :stop_set
 WHERE owner = :owner
   AND order_id = :order_id
   AND status = 'pending'
@@ -322,6 +356,12 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "quote_time": row["quote_time"],
         "reject_reason": row["reject_reason"],
         "kind": row["kind"],
+        "stop_kind": row["stop_kind"],
+        "stop_level": _dec(row["stop_level"]),
+        "stop_trail_pct": _dec(row["stop_trail_pct"]),
+        "stop_method": row["stop_method"],
+        "stop_proposed_level": _dec(row["stop_proposed_level"]),
+        "stop_set": row["stop_set"],
     }
 
 
@@ -366,6 +406,11 @@ class OrderTransaction:
             session_date=order["session_date"],
             placed_at=order["placed_at"],
             kind=order.get("kind", "market"),
+            stop_kind=order.get("stop_kind"),
+            stop_level=order.get("stop_level"),
+            stop_trail_pct=order.get("stop_trail_pct"),
+            stop_method=order.get("stop_method"),
+            stop_proposed_level=order.get("stop_proposed_level"),
         )).fetchone()
         if row is not None:
             return self.get(int(row["order_id"])), True
@@ -391,9 +436,12 @@ class OrderTransaction:
         price_source: Optional[str] = None,
         quote_time: Any = None,
         reject_reason: Optional[str] = None,
+        stop_set: Optional[bool] = None,
     ) -> bool:
         """Move a pending order to `filled`, `cancelled` or `rejected`.
-        Returns False, and changes nothing, when the order is not pending."""
+        `stop_set` is for a filled buy that asked for a stop: whether the
+        fill wrote it. Returns False, and changes nothing, when the order is
+        not pending."""
         cur = self._conn.execute(SQL_RESOLVE_ORDER, self._scope(
             order_id=order_id,
             status=status,
@@ -403,6 +451,7 @@ class OrderTransaction:
             price_source=price_source,
             quote_time=quote_time,
             reject_reason=reject_reason,
+            stop_set=stop_set,
         ))
         return cur.rowcount == 1
 
@@ -462,6 +511,14 @@ class OrderTransaction:
             triggered_session=triggered_session, trigger_price=trigger_price,
             resolved_at=resolved_at,
         )
+
+    def set_stop(self, stop: Dict[str, Any]) -> int:
+        """Store `stop` as its symbol's active stop in the book, replacing
+        the one the symbol has, in this transaction: the stop a buy asked
+        for lands with the buy's fill (plan step 4.3). Returns the `stop_id`.
+        The caller has just written the lot the stop is on."""
+        stop_id, _ = set_stop_on(self._conn, owner=self._owner, book_id=self._book, stop=stop)
+        return stop_id
 
     def close_stop(self, stop_id: int, *, resolved_at: Any) -> bool:
         """Mark one of the book's active stops `closed`: the holding it was

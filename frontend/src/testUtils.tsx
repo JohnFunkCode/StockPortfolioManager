@@ -796,6 +796,46 @@ export function realizedSale(overrides: object = {}) {
     basis_missing: false,
     allocation_method: 'FIFO',
     notes: null,
+    source: 'manual',
+    source_ref: null,
+    order_id: null,
+    ...overrides,
+  };
+}
+
+/** One stop of GET /api/portfolio/stops (#431 step 4.3): an active fixed
+ * stop on INTC in the real book, not yet checked. */
+export function stopRow(overrides: object = {}) {
+  return {
+    stop_id: 3,
+    book_id: 1,
+    symbol: 'INTC',
+    kind: 'fixed',
+    stop_level: 45,
+    trail_pct: null,
+    high_water_mark: null,
+    method: 'manual',
+    proposed_level: null,
+    reference_price: 50,
+    as_of: '2026-06-15',
+    source: 'manual',
+    source_ref: null,
+    status: 'active',
+    created_at: '2026-06-15T15:00:00Z',
+    resolved_at: null,
+    last_bar_checked: null,
+    triggered_session: null,
+    trigger_price: null,
+    ...overrides,
+  };
+}
+
+/** What GET /api/portfolio/stops answers. */
+export function stopsResponse(stops: object[] = [stopRow()], overrides: object = {}) {
+  return {
+    book_kind: 'real',
+    active_count: stops.filter((s) => (s as { status?: string }).status === 'active').length,
+    stops,
     ...overrides,
   };
 }
@@ -864,6 +904,12 @@ export function order(overrides: object = {}) {
     quote_time: '2026-06-15T14:59:50Z',
     reject_reason: null,
     kind: 'market',
+    stop_kind: null,
+    stop_level: null,
+    stop_trail_pct: null,
+    stop_method: null,
+    stop_proposed_level: null,
+    stop_set: null,
     replayed: false,
     ...overrides,
   };

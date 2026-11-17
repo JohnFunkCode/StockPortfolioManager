@@ -13,6 +13,7 @@ import EditLotNoteDialog from './EditLotNoteDialog';
 import { useDeleteLot, useUpdateLot } from '../../hooks/usePortfolio';
 import { formatCurrency, formatDate, formatDollarsPerDay, formatPercentRaw, formatShares } from '../../utils/formatting';
 import type { Lot } from '../../api/portfolioTypes';
+import type { Stop } from '../../api/stops';
 
 /** The `YYYY-MM-DD` a date input needs; null/blank stays blank. */
 function dateInputValue(value: string | null | undefined): string {
@@ -29,9 +30,18 @@ interface Props {
   /** A paper book's lot (#431): shown, never edited, sold or deleted by hand,
    * because the system sets every paper fill. */
   readOnly?: boolean;
+  /** The stop on the lot's symbol (#431 step 4.3). A stop is set on a symbol
+   * in a book, so every lot of the symbol is under it. */
+  stop?: Stop | null;
 }
 
-export default function LotRow({ lot, readOnly = false }: Props) {
+/** The level a lot is protected at: its symbol's stop while that is live. A
+ * stop that was reached, or none, protects nothing. */
+function stopLevel(stop: Stop | null | undefined): string {
+  return stop?.status === 'active' ? formatCurrency(stop.stop_level) : '—';
+}
+
+export default function LotRow({ lot, readOnly = false, stop = null }: Props) {
   const [editing, setEditing] = useState(false);
   const [purchasePrice, setPurchasePrice] = useState(String(lot.purchase_price ?? ''));
   const [quantity, setQuantity] = useState(String(lot.quantity ?? ''));
@@ -140,6 +150,7 @@ export default function LotRow({ lot, readOnly = false }: Props) {
         {/* The brokerage account inside the book — a field of the lot, never
             a second kind of book (#431). */}
         <TableCell>{lot.account || '—'}</TableCell>
+        <TableCell data-testid={`lot-stop-${lot.lot_id}`}>{stopLevel(stop)}</TableCell>
         {!readOnly && (
           <TableCell align="right">
             {editing ? (
@@ -185,7 +196,7 @@ export default function LotRow({ lot, readOnly = false }: Props) {
 
       {updateLot.isError && editing && (
         <TableRow>
-          <TableCell colSpan={10}>
+          <TableCell colSpan={11}>
             <Typography variant="caption" sx={{ color: '#ef4444' }}>
               {(updateLot.error as Error).message}
             </Typography>

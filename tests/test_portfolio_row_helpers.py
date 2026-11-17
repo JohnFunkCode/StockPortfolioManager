@@ -186,3 +186,38 @@ class NormalizeRowTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealizedSaleRowTest(unittest.TestCase):
+    """`_realized_sale_row` (plan step 4.3 review): the row mapping of
+    `list_realized_sales`, taken out so that method stays a query and a list."""
+
+    ROW = {
+        "sale_id": 4, "lot_id": 9, "symbol": " intc ", "shares_sold": "2.5",
+        "sale_price": "44.10", "sale_trade_date": date(2026, 6, 16),
+        "allocation_method": "FIFO", "notes": "Sold by its stop at 45.00",
+        "purchase_price": "50", "trade_date": date(2026, 6, 15), "currency": "usd",
+        "account": "Sim", "fx_rate_at_purchase": None, "fx_rate_at_sale": None,
+        "source": "stop", "source_ref": "stop:7", "order_id": 12,
+    }
+
+    def test_a_stop_sale_keeps_its_source_and_its_order(self):
+        sale = repo._realized_sale_row(self.ROW)
+        self.assertEqual(
+            (sale["symbol"], sale["shares_sold"], sale["sale_trade_date"], sale["trade_date"],
+             sale["currency"], sale["source"], sale["source_ref"], sale["order_id"]),
+            ("INTC", Decimal("2.5"), "2026-06-16", "2026-06-15", "USD", "stop", "stop:7", 12),
+        )
+
+    def test_empty_columns_come_back_as_none_and_a_blank_currency_as_usd(self):
+        sale = repo._realized_sale_row({
+            **self.ROW, "allocation_method": "", "notes": None, "purchase_price": None,
+            "trade_date": None, "currency": None, "account": "", "source": "manual",
+            "source_ref": "", "order_id": None,
+        })
+        self.assertEqual(
+            (sale["allocation_method"], sale["notes"], sale["purchase_price"],
+             sale["trade_date"], sale["currency"], sale["account"], sale["source_ref"],
+             sale["order_id"]),
+            (None, None, None, None, "USD", None, None, None),
+        )

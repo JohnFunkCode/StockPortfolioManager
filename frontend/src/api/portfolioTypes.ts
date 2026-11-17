@@ -229,6 +229,11 @@ export interface RealizedSale {
   basis_missing: boolean;
   allocation_method: string | null;
   notes: string | null;
+  /** What prompted the sale: manual, stop, harvester, evaluator, watch or ai. */
+  source: string;
+  source_ref: string | null;
+  /** The paper order that made the sale; null for one recorded by hand. */
+  order_id: number | null;
 }
 
 export interface RealizedSymbolRow extends RealizedTotals {

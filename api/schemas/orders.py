@@ -45,6 +45,19 @@ class Order(BaseModel):
     # into a new paper book, at no cost) or manual_close (a position sold at
     # the last good price because its symbol can't be quoted).
     kind: str = "market"
+    # The stop a buy asked for (plan step 4.3): fixed with a level, or
+    # trailing with a percentage below a mark that starts at the fill price.
+    # All None on an order that asked for none.
+    stop_kind: Optional[str] = None
+    stop_level: Optional[Decimal] = None
+    stop_trail_pct: Optional[Decimal] = None
+    # manual, or the stop card's candidate the level came from.
+    stop_method: Optional[str] = None
+    stop_proposed_level: Optional[Decimal] = None
+    # True once the fill wrote the stop. False when the buy filled at or
+    # under the fixed level it asked for, so it has no stop. None until the
+    # order fills.
+    stop_set: Optional[bool] = None
     # True when the request repeated an idempotency key: nothing new happened.
     replayed: bool = False
 
@@ -58,10 +71,24 @@ class OrdersResponse(BaseModel):
     orders: List[Order]
 
 
+class OrderStop(BaseModel):
+    """The stop a buy asks for. `fixed` gives `stop_level`; `trailing` gives
+    `trail_pct`, the percent below a high-water mark that starts at the fill
+    price. `method` says how the level was chosen and `proposed_level` what
+    the stop card suggested, when it did. No status and no source is taken."""
+
+    kind: Literal["fixed", "trailing"]
+    stop_level: Optional[Decimal] = None
+    trail_pct: Optional[Decimal] = None
+    method: Literal["manual", "technical", "trailing", "confluence"] = "manual"
+    proposed_level: Optional[Decimal] = None
+
+
 class PlaceOrderRequest(BaseModel):
     """A market order in a paper book. Give `shares` or, for a buy, `amount`
     (dollars), never both. `idempotency_key` is the caller's own id for this
-    request: sending it again returns the first order and places nothing."""
+    request: sending it again returns the first order and places nothing.
+    A buy may carry a `stop`, which is set when the buy fills."""
 
     book_id: int
     symbol: str
@@ -69,6 +96,7 @@ class PlaceOrderRequest(BaseModel):
     shares: Optional[Decimal] = None
     amount: Optional[Decimal] = None
     idempotency_key: str
+    stop: Optional[OrderStop] = None
 
 
 class SeedBookRequest(BaseModel):

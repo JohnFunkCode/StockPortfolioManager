@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { Table, TableBody } from '@mui/material';
 import LotRow from './LotRow';
-import { lotRow, mockApi, renderWithProviders } from '../../testUtils';
+import { lotRow, mockApi, renderWithProviders, stopRow } from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -76,7 +76,8 @@ describe('LotRow', () => {
 
   it('shows — rather than Invalid Date or N/A for a lot with no trade date', () => {
     mount({ trade_date: null, days_held: 5, dollars_per_day: 1, account: 'IRA' });
-    expect(screen.getByText('—')).toBeInTheDocument();
+    // The trade date, and the Stop column: this lot's symbol has no stop.
+    expect(screen.getAllByText('—')).toHaveLength(2);
     expect(screen.queryByText(/Invalid Date|N\/A/)).not.toBeInTheDocument();
   });
 
@@ -246,6 +247,32 @@ describe('LotRow', () => {
       for (const label of ['Edit lot', 'Edit note', 'Sell / close lot', 'Delete lot']) {
         expect(screen.queryByLabelText(label)).not.toBeInTheDocument();
       }
+    });
+  });
+
+  describe('the stop on its symbol (#431 step 4.3)', () => {
+    const mountWithStop = (stop: object | null) =>
+      renderWithProviders(
+        <Table>
+          <TableBody>
+            <LotRow lot={lotRow()} stop={stop as never} />
+          </TableBody>
+        </Table>,
+      );
+
+    it('shows the level of an active stop', () => {
+      mockApi([]);
+      mountWithStop(stopRow({ stop_level: 27.5 }));
+      expect(screen.getByTestId('lot-stop-1')).toHaveTextContent('$27.50');
+    });
+
+    it('shows a dash with no stop, and for one that was reached', () => {
+      mockApi([]);
+      const { unmount } = mountWithStop(null);
+      expect(screen.getByTestId('lot-stop-1')).toHaveTextContent('—');
+      unmount();
+      mountWithStop(stopRow({ status: 'triggered', triggered_session: '2026-06-16', trigger_price: 26 }));
+      expect(screen.getByTestId('lot-stop-1')).toHaveTextContent('—');
     });
   });
 });

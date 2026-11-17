@@ -181,4 +181,37 @@ describe('OrdersList', () => {
       expect(await row(14).findByText(/this one is filled/)).toBeInTheDocument();
     });
   });
+
+  it('says what stop a buy asked for, and when the fill could not set it (#431 step 4.3)', async () => {
+    mount(ordersResponse([
+      order({ order_id: 30, stop_kind: 'fixed', stop_level: 45, stop_method: 'manual', stop_set: true }),
+      order({ order_id: 31, stop_kind: 'trailing', stop_trail_pct: 7.5, stop_method: 'trailing', stop_set: true }),
+      order({
+        order_id: 32, stop_kind: 'fixed', stop_level: 55, stop_method: 'manual', stop_set: false,
+        price_source: 'session_open',
+      }),
+      order({
+        order_id: 33, requested_shares: null, requested_amount: 500, stop_kind: 'fixed', stop_level: 45,
+        stop_method: 'manual', status: 'pending', resolved_at: null, filled_shares: null, fill_price: null,
+        price_source: null, quote_time: null,
+      }),
+    ], { pending_count: 1 }));
+    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+
+    expect(row(30).getByText('Buy 2 INTC, with a stop at $45.00')).toBeInTheDocument();
+    expect(row(30).getByText('2 @ $50.00')).toBeInTheDocument();
+    expect(row(31).getByText('Buy 2 INTC, with a stop trailing 7.5%')).toBeInTheDocument();
+    expect(row(32).getByText('2 @ $50.00, the opening price. Stop not set: filled at or below it')).toBeInTheDocument();
+    expect(row(33).getByText('Buy $500.00 of INTC, with a stop at $45.00')).toBeInTheDocument();
+  });
+
+  it('says a trail was too small, not that the fill was below a level nobody gave', async () => {
+    mount(ordersResponse([
+      order({ order_id: 34, stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
+    ]));
+    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+    expect(
+      row(34).getByText('2 @ $50.00. Stop not set: the trail is too small to give a price below the fill'),
+    ).toBeInTheDocument();
+  });
 });

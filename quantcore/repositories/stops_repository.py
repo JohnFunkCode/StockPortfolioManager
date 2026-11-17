@@ -36,10 +36,13 @@ from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.orders_repository import SQL_LOCK_BOOK
 from quantcore.repositories.portfolio_repository import PortfolioRepository
-from quantcore.repositories.stop_sql import (  # noqa: F401  (SQL_RESOLVE_STOP re-exported)
+from quantcore.repositories.stop_sql import (  # noqa: F401  (the SQL constants are re-exported)
+    SQL_INSERT_STOP,
+    SQL_REPLACE_ACTIVE_STOP,
     SQL_RESOLVE_STOP,
     close_flat_stops_on,
     resolve_stop_on,
+    set_stop_on,
     trigger_stop_on,
 )
 
@@ -109,37 +112,6 @@ WHERE st.owner = :owner
         AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
                  THEN b.kind = 'real'
                  ELSE b.book_id = CAST(:book_id AS INTEGER) END);
-"""
-
-# `:book_id` is the book `set_stop` has resolved as this owner's and locked.
-SQL_INSERT_STOP = """
-INSERT INTO stops (
-    owner, book_id, symbol_id, kind, stop_level, trail_pct, high_water_mark,
-    method, proposed_level, reference_price, as_of, source, source_ref, created_at
-) VALUES (
-    :owner, :book_id, (SELECT symbol_id FROM symbols WHERE ticker = :ticker), :kind,
-    :stop_level, :trail_pct, :high_water_mark,
-    :method, :proposed_level, :reference_price, :as_of, :source, :source_ref, :created_at
-)
-RETURNING stop_id;
-"""
-
-# The symbol's live stop gives way to the one about to be inserted. It
-# matches at most one row: the unique index allows one active stop.
-SQL_REPLACE_ACTIVE_STOP = """
-UPDATE stops
-SET status = 'replaced',
-    resolved_at = :resolved_at
-WHERE owner = :owner
-  AND status = 'active'
-  AND symbol_id = (SELECT symbol_id FROM symbols WHERE ticker = :ticker)
-  AND book_id IN (
-      SELECT b.book_id FROM books b
-      WHERE b.owner = :owner
-        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
-                 THEN b.kind = 'real'
-                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
-RETURNING stop_id;
 """
 
 # The checker tested the stop against closed bars and it held. The stop stays
@@ -262,24 +234,7 @@ class StopsRepository:
                     raise SymbolNotHeldError(
                         f"a stop needs a holding: this book has no open lot of {ticker}"
                     )
-                scope = {"owner": owner, "book_id": book, "ticker": ticker}
-                replaced = conn.execute(
-                    SQL_REPLACE_ACTIVE_STOP, {**scope, "resolved_at": stop["created_at"]}
-                ).fetchone()
-                stop_id = int(conn.execute(SQL_INSERT_STOP, {
-                    **scope,
-                    "kind": stop["kind"],
-                    "stop_level": stop["stop_level"],
-                    "trail_pct": stop.get("trail_pct"),
-                    "high_water_mark": stop.get("high_water_mark"),
-                    "method": stop["method"],
-                    "proposed_level": stop.get("proposed_level"),
-                    "reference_price": stop.get("reference_price"),
-                    "as_of": stop["as_of"],
-                    "source": stop["source"],
-                    "source_ref": stop.get("source_ref"),
-                    "created_at": stop["created_at"],
-                }).fetchone()["stop_id"])
+                stop_id, replaced = set_stop_on(conn, owner=owner, book_id=book, stop=stop)
                 row = conn.execute(
                     SQL_GET_STOP, {"owner": owner, "stop_id": stop_id, "book_id": book}
                 ).fetchone()
@@ -289,7 +244,7 @@ class StopsRepository:
                 raise
         return {
             **_row_to_dict(row),
-            "replaced_stop_id": int(replaced["stop_id"]) if replaced is not None else None,
+            "replaced_stop_id": replaced,
         }
 
     def resolve_stop(

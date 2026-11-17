@@ -104,6 +104,16 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   idempotency key, and a try after an answer sends a new one. When a sell is rejected for
   want of a quote, or the position has no current price, the dialog offers to close the whole
   position at the last price on record; the server decides whether that is allowed.
+- **A paper buy can ask for a stop** (#431 step 4.3). "Add a stop" in the Buy dialog mounts
+  `OrderStopField`: a fixed level or a trailing percentage. The stop card's request
+  (`useStopLoss`) is made only when the field is mounted, so a buy with no stop never pays for
+  it. Its candidates are buttons that fill the field; an edited suggestion keeps its method
+  and the suggested level. The dialog says whether the stop was set.
+- **Holdings show their stop** (#431 step 4.3). `useStops` is its own request, so the table
+  never waits for it. `stopWords.stopsBySymbol` picks a symbol's newest stop when it is active
+  or was reached while a lot was open, and `StopCell` (a row-bound fragment) draws it. Lot rows
+  show the symbol's live level. Nothing here sets or cancels a stop (step 4.5). The Realized
+  section's expanded row has a Source column, and a stop's sale is a chip.
 - **A paper book can start as a copy of the real holdings** (#431 step 3.5). The New paper
   book dialog has a checkbox that calls the seed route after the create. If the copy fails
   the book still exists, the dialog says so, and the empty book shows `SeedEmptyBook`: a

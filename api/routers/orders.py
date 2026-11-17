@@ -13,6 +13,9 @@ owner's answers 404.
 Orders are for paper books only: the real book is refused with a 422, because
 a real trade is recorded with Add Lot. The system sets every fill, so no route
 takes a price or a date, and a placed order's ``source`` is always ``manual``.
+A buy may carry a ``stop`` (plan step 4.3): what the owner wants, never a
+status. The stop is written when the buy fills, and a fixed level at or above
+the price an in-hours order fills at is a 422.
 That holds for a manual close too: its price is the last good one on record,
 and a symbol that still has a quote is refused with a 422.
 
@@ -23,7 +26,7 @@ is stored and comes back with status ``rejected`` and its ``reject_reason``.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends
 
@@ -36,6 +39,7 @@ from ..schemas.orders import (
     ManualCloseRequest,
     Order,
     OrdersResponse,
+    OrderStop,
     PlaceOrderRequest,
     SeedBookRequest,
     SeedBookResponse,
@@ -57,6 +61,20 @@ def list_orders(
     return QuantCoreJSONResponse(orders)
 
 
+def _stop_arguments(stop: Optional[OrderStop]) -> Dict[str, Any]:
+    """The stop a buy asked for, as `place_order`'s `stop_*` arguments. None
+    when the request carried no stop."""
+    if stop is None:
+        return {}
+    return {
+        "stop_kind": stop.kind,
+        "stop_level": stop.stop_level,
+        "stop_trail_pct": stop.trail_pct,
+        "stop_method": stop.method,
+        "stop_proposed_level": stop.proposed_level,
+    }
+
+
 @router.post("", response_model=Order, status_code=201)
 def place_order(
     body: PlaceOrderRequest, owner: str = Depends(require_owner)
@@ -67,6 +85,7 @@ def place_order(
         order = services().orders.place_order(
             owner=owner, book_id=body.book_id, symbol=body.symbol, side=body.side,
             shares=body.shares, amount=body.amount, idempotency_key=body.idempotency_key,
+            **_stop_arguments(body.stop),
         )
     except BookNotFoundError as exc:
         return route_error_plain(str(exc), 404)

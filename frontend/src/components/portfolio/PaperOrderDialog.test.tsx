@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 
 import PaperOrderDialog from './PaperOrderDialog';
-import { cashLedger, mockApi, order, renderWithProviders } from '../../testUtils';
+import { cashLedger, mockApi, order, renderWithProviders, stopLossResponse } from '../../testUtils';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -179,5 +179,209 @@ describe('PaperOrderDialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close position' }));
     expect(await screen.findByText('INTC has a quote: sell it with an order')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Sell' })).toBeInTheDocument();
+  });
+
+  describe('the stop a buy asks for (#431 step 4.3)', () => {
+    const CARD: [string, object] = ['/stop-loss', stopLossResponse({ symbol: 'INTC' })];
+    const cardCalls = (api: { calls: Array<[string, RequestInit | undefined]> }) =>
+      api.calls.filter(([url]) => url.includes('/stop-loss'));
+    const openStop = () => fireEvent.click(screen.getByRole('checkbox', { name: 'Add a stop' }));
+    const buy = () => fireEvent.click(screen.getByRole('button', { name: 'Buy' }));
+
+    it('sends no stop, and never asks for the stop card, while the field is closed', async () => {
+      const { api } = mount({}, order(), [CARD]);
+      expect(screen.queryByTestId('order-stop')).toBeNull();
+      type(/^Shares/, '2');
+      buy();
+      await screen.findByTestId('order-result');
+      expect(posts(api)[0][1].stop).toBeUndefined();
+      expect(cardCalls(api)).toHaveLength(0);
+    });
+
+    it('loads the stop card once the field is opened, and only then', async () => {
+      const { api } = mount({}, order(), [CARD]);
+      openStop();
+      expect(screen.getByText(/Loading the stop card's suggestions/)).toBeInTheDocument();
+      expect(await screen.findByRole('button', { name: 'Technical $173.54' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Trailing 6.5%' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Confluence $168.65' })).toBeInTheDocument();
+      expect(cardCalls(api)).toHaveLength(1);
+      expect(cardCalls(api)[0][0]).toContain('/api/securities/INTC/stop-loss?confluence=stop');
+    });
+
+    it('sends a typed fixed level as a manual stop and says it was set', async () => {
+      const { api } = mount(
+        {},
+        order({ stop_kind: 'fixed', stop_level: 45, stop_method: 'manual', stop_set: true }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      type(/Stop level/, '45');
+      buy();
+
+      expect(await screen.findByTestId('order-result')).toHaveTextContent(
+        'Bought INTC: 2 @ $50.00. Its stop is set at $45.00.',
+      );
+      expect(posts(api)[0][1].stop).toEqual({ kind: 'fixed', stop_level: 45, method: 'manual' });
+    });
+
+    it('fills the field from a suggestion and records what was suggested, even after an edit', async () => {
+      const { api } = mount({}, order(), [CARD]);
+      type(/^Shares/, '2');
+      openStop();
+      fireEvent.click(await screen.findByRole('button', { name: 'Technical $173.54' }));
+      expect((screen.getByLabelText(/Stop level/) as HTMLInputElement).value).toBe('173.54');
+      type(/Stop level/, '172');
+      buy();
+
+      await screen.findByTestId('order-result');
+      expect(posts(api)[0][1].stop).toEqual({
+        kind: 'fixed', stop_level: 172, method: 'technical', proposed_level: 173.54,
+      });
+    });
+
+    it('sends the trailing suggestion as a percentage, with the level the card worked out', async () => {
+      const { api } = mount(
+        {},
+        order({ stop_kind: 'trailing', stop_trail_pct: 6.5, stop_method: 'trailing', stop_set: true }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      fireEvent.click(await screen.findByRole('button', { name: 'Trailing 6.5%' }));
+      expect((screen.getByLabelText(/Trail percent/) as HTMLInputElement).value).toBe('6.5');
+      buy();
+
+      expect(await screen.findByTestId('order-result')).toHaveTextContent(
+        'Its stop is set, trailing 6.5% below the fill price.',
+      );
+      expect(posts(api)[0][1].stop).toEqual({
+        kind: 'trailing', trail_pct: 6.5, method: 'trailing', proposed_level: 168.3,
+      });
+    });
+
+    it('forgets a suggestion when the kind is changed by hand', async () => {
+      const { api } = mount({}, order(), [CARD]);
+      type(/^Shares/, '2');
+      openStop();
+      fireEvent.click(await screen.findByRole('button', { name: 'Confluence $168.65' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Trailing' }));
+      expect((screen.getByLabelText(/Trail percent/) as HTMLInputElement).value).toBe('');
+      type(/Trail percent/, '8');
+      buy();
+
+      await screen.findByTestId('order-result');
+      expect(posts(api)[0][1].stop).toEqual({ kind: 'trailing', trail_pct: 8, method: 'manual' });
+    });
+
+    it('leaves out the confluence suggestion when no zone qualified', async () => {
+      const response = stopLossResponse();
+      mount({}, order(), [[
+        '/stop-loss',
+        { ...response, stops: { ...response.stops, confluence_stop: null, confluence_stop_reason: 'no zone' } },
+      ]]);
+      openStop();
+      await screen.findByRole('button', { name: 'Technical $173.54' });
+      expect(screen.queryByRole('button', { name: /Confluence/ })).toBeNull();
+    });
+
+    it('still takes a typed level when the stop card fails to load', async () => {
+      const { api } = mount({}, order(), [['/stop-loss', { __status: 500, error: 'boom' }]]);
+      type(/^Shares/, '2');
+      openStop();
+      expect(await screen.findByText(/suggestions could not be loaded/)).toBeInTheDocument();
+      type(/Stop level/, '45');
+      buy();
+      await screen.findByTestId('order-result');
+      expect(posts(api)[0][1].stop).toMatchObject({ kind: 'fixed', stop_level: 45 });
+    });
+
+    it('asks for a figure before it calls the server', async () => {
+      const { api } = mount({}, order(), [CARD]);
+      type(/^Shares/, '2');
+      openStop();
+      buy();
+      expect(await screen.findByRole('alert')).toHaveTextContent('The stop level must be more than zero.');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Trailing' }));
+      type(/Trail percent/, '100');
+      buy();
+      expect(screen.getByRole('alert')).toHaveTextContent('The trail must be less than 100 percent.');
+      type(/Trail percent/, '0');
+      buy();
+      expect(screen.getByRole('alert')).toHaveTextContent('The trail must be more than zero percent.');
+      expect(posts(api)).toHaveLength(0);
+    });
+
+    it('says a queued order gets its stop when it fills', async () => {
+      mount(
+        {},
+        order({
+          status: 'pending', session_date: '2026-06-16', resolved_at: null, filled_shares: null,
+          fill_price: null, price_source: null, quote_time: null,
+          stop_kind: 'fixed', stop_level: 45, stop_method: 'manual',
+        }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      type(/Stop level/, '45');
+      buy();
+      expect(await screen.findByTestId('order-result')).toHaveTextContent(
+        /fills at its opening price.*Its stop is set when the order fills\./,
+      );
+    });
+
+    it('says when the order filled and its stop could not be set', async () => {
+      mount(
+        {},
+        order({ stop_kind: 'fixed', stop_level: 55, stop_method: 'manual', stop_set: false }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      type(/Stop level/, '55');
+      buy();
+      const result = await screen.findByTestId('order-result');
+      expect(result).toHaveTextContent('Bought INTC: 2 @ $50.00. Stop not set: filled at or below it.');
+      expect(result).not.toHaveTextContent('Its stop is set');
+    });
+
+    it('says a trail was too small when that is why the stop was not set', async () => {
+      mount(
+        {},
+        order({ stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      fireEvent.click(screen.getByRole('button', { name: 'Trailing' }));
+      type(/Trail percent/, '0.0001');
+      buy();
+      expect(await screen.findByTestId('order-result')).toHaveTextContent(
+        'Bought INTC: 2 @ $50.00. Stop not set: the trail is too small to give a price below the fill.',
+      );
+    });
+
+    it('shows the server\'s refusal of a stop that is not below the fill price', async () => {
+      mount(
+        {},
+        { __status: 422, error: 'the stop must be below the price the order fills at, which is 50.00' },
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      type(/Stop level/, '60');
+      buy();
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'the stop must be below the price the order fills at, which is 50.00',
+      );
+    });
+
+    it('offers no stop on a sell', () => {
+      mount({ side: 'sell', books: [BOOKS[0]], heldShares: 3 }, order({ side: 'sell' }));
+      expect(screen.queryByRole('checkbox', { name: 'Add a stop' })).toBeNull();
+    });
   });
 });

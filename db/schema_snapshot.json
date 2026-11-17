@@ -1179,6 +1179,36 @@
           "nullable": false,
           "type": "text"
         },
+        "stop_kind": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "stop_level": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "stop_method": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "stop_proposed_level": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "stop_set": {
+          "default": null,
+          "nullable": true,
+          "type": "boolean"
+        },
+        "stop_trail_pct": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(7,4)"
+        },
         "symbol_id": {
           "default": null,
           "nullable": false,
@@ -1200,6 +1230,7 @@
         "orders_side_check": "CHECK ((side = ANY (ARRAY['buy'::text, 'sell'::text])))",
         "orders_source_check": "CHECK ((source = ANY (ARRAY['manual'::text, 'stop'::text, 'harvester'::text, 'evaluator'::text, 'watch'::text, 'ai'::text])))",
         "orders_status_check": "CHECK ((status = ANY (ARRAY['pending'::text, 'filled'::text, 'cancelled'::text, 'rejected'::text])))",
+        "orders_stop_rule": "CHECK ((((stop_kind IS NULL) AND (stop_level IS NULL) AND (stop_trail_pct IS NULL) AND (stop_method IS NULL) AND (stop_proposed_level IS NULL) AND (stop_set IS NULL)) OR ((side = 'buy'::text) AND (kind = 'market'::text) AND (stop_method IS NOT NULL) AND ((stop_set IS NULL) OR (status = 'filled'::text)) AND (((stop_kind = 'fixed'::text) AND (stop_level IS NOT NULL) AND (stop_level > (0)::numeric) AND (stop_trail_pct IS NULL)) OR ((stop_kind = 'trailing'::text) AND (stop_level IS NULL) AND (stop_trail_pct IS NOT NULL) AND (stop_trail_pct > (0)::numeric) AND (stop_trail_pct < (100)::numeric))))))",
         "orders_symbol_id_fkey": "FOREIGN KEY (symbol_id) REFERENCES symbols(symbol_id)"
       },
       "indexes": {

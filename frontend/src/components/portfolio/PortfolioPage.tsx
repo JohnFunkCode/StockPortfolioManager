@@ -25,6 +25,7 @@ import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useRealized, useSymbolRows } from '../../hooks/usePortfolio';
 import { useBooks } from '../../hooks/useBooks';
 import { useCashLedger } from '../../hooks/useCash';
+import { useStops } from '../../hooks/useStops';
 import LoadingSpinner from '../common/LoadingSpinner';
 import ErrorAlert from '../common/ErrorAlert';
 import OneDayChange, { compareOneDay } from '../common/OneDayChange';
@@ -40,9 +41,12 @@ import RealizedPnl from './RealizedPnl';
 import CashLedger from './CashLedger';
 import PaperOrderDialog from './PaperOrderDialog';
 import SeedEmptyBook from './SeedEmptyBook';
+import StopCell from './StopCell';
+import { stopsBySymbol } from './stopWords';
 import CreatePlanDialog from '../plans/CreatePlanDialog';
 import { formatCurrency, formatDollarsPerDay, formatPercentRaw } from '../../utils/formatting';
 import type { Lot, SymbolRow } from '../../api/portfolioTypes';
+import type { Stop } from '../../api/stops';
 
 type SortKey =
   | 'symbol'
@@ -131,8 +135,9 @@ function PlanCell({
 }
 
 /** One symbol's open lots. `readOnly` is a paper book (#431): the Actions
- * column goes, because the system sets every paper fill. */
-function LotsTable({ lots, readOnly }: { lots: Lot[]; readOnly: boolean }) {
+ * column goes, because the system sets every paper fill. `stop` is the
+ * symbol's stop: it is set on the symbol, so every lot is under it. */
+function LotsTable({ lots, readOnly, stop }: { lots: Lot[]; readOnly: boolean; stop?: Stop }) {
   return (
     <Table size="small">
       <TableHead>
@@ -146,12 +151,13 @@ function LotsTable({ lots, readOnly }: { lots: Lot[]; readOnly: boolean }) {
           <TableCell>Days Held</TableCell>
           <TableCell>$/Day</TableCell>
           <TableCell>Account</TableCell>
+          <TableCell>Stop</TableCell>
           {!readOnly && <TableCell align="right">Actions</TableCell>}
         </TableRow>
       </TableHead>
       <TableBody>
         {lots.map((lot) => (
-          <LotRow key={lot.lot_id} lot={lot} readOnly={readOnly} />
+          <LotRow key={lot.lot_id} lot={lot} readOnly={readOnly} stop={stop} />
         ))}
       </TableBody>
     </Table>
@@ -205,6 +211,18 @@ export default function PortfolioPage() {
 
   const rows = data?.symbols ?? [];
 
+  // The book's stops are their own request (#431 step 4.3): the holdings
+  // never wait for them, and a failed read leaves the column blank.
+  const { data: stopsData } = useStops(bookId);
+  const stops = useMemo(
+    () =>
+      stopsBySymbol(
+        stopsData?.stops ?? [],
+        Object.fromEntries((data?.symbols ?? []).map((row) => [row.symbol, row.lots])),
+      ),
+    [stopsData, data],
+  );
+
   const sorted = useMemo<SymbolRow[]>(() => {
     const copy = [...rows];
     if (sortKey === 'return_1d_display') {
@@ -247,7 +265,8 @@ export default function PortfolioPage() {
 
   // Lot columns, plus Actions for a book that can be edited by hand.
   // A tradable paper book has a Sell column where the real book has Plan.
-  const lotColSpan = COLUMNS.length + (readOnly && !tradable ? 2 : 3);
+  // Every book has the Stop column.
+  const lotColSpan = COLUMNS.length + (readOnly && !tradable ? 3 : 4);
 
   return (
     <Box>
@@ -333,6 +352,11 @@ export default function PortfolioPage() {
                     </TableCell>
                   ))}
                   <TableCell>MM Hedge Bias</TableCell>
+                  <TableCell>
+                    <Tooltip title="The stop set on this holding. The daily check tests it against each closed daily bar: a real book's stop alerts, a paper book's sells the position.">
+                      <span>Stop</span>
+                    </Tooltip>
+                  </TableCell>
                   {/* Harvest plans belong to real holdings. */}
                   {!readOnly && <TableCell>Plan</TableCell>}
                   {tradable && <TableCell />}
@@ -388,6 +412,9 @@ export default function PortfolioPage() {
                             '—'
                           )}
                         </TableCell>
+                        <TableCell data-testid={`stop-${row.symbol}`}>
+                          <StopCell stop={stops[row.symbol]} />
+                        </TableCell>
                         {!readOnly && (
                           <PlanCell
                             planId={row.active_plan_id}
@@ -412,7 +439,7 @@ export default function PortfolioPage() {
                         <TableCell colSpan={lotColSpan} sx={{ p: 0, borderBottom: isOpen ? undefined : 'none' }}>
                           <Collapse in={isOpen} unmountOnExit>
                             <Box sx={{ pl: 6, pr: 2, py: 1 }}>
-                              <LotsTable lots={row.lots} readOnly={readOnly} />
+                              <LotsTable lots={row.lots} readOnly={readOnly} stop={stops[row.symbol]} />
                             </Box>
                           </Collapse>
                         </TableCell>

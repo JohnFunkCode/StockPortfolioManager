@@ -403,4 +403,29 @@ describe('RealizedPnl', () => {
       expect(symbolOrder()).toEqual(['MSFT', 'AAPL', 'ZM']);
     });
   });
+
+  it('says what prompted each sale, and marks one a stop made (#431 step 4.3)', async () => {
+    mount(
+      realizedResponse([
+        realizedSymbol({
+          sale_count: 3,
+          sales: [
+            realizedSale(),
+            realizedSale({ sale_id: 2, source: 'stop', source_ref: 'stop:4', order_id: 20 }),
+            realizedSale({ sale_id: 3, source: 'chandelier' }),
+          ],
+        }),
+      ]),
+    );
+    await waitFor(() => expect(screen.getByTestId('realized-table')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Show INTC sales' }));
+
+    expect(screen.getByRole('columnheader', { name: 'Source' })).toBeInTheDocument();
+    expect(screen.getByTestId('realized-sale-source-1')).toHaveTextContent('Manual');
+    const stop = within(screen.getByTestId('realized-sale-source-2')).getByText('Stop');
+    // A stop's sale is drawn on its tint with the matching ink.
+    expect(stop.closest('.MuiChip-root')).toHaveStyle({ color: 'var(--qc-ink-amber)' });
+    // A source this page has no word for is shown as it came.
+    expect(screen.getByTestId('realized-sale-source-3')).toHaveTextContent('chandelier');
+  });
 });

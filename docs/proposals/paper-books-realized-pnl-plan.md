@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes) and 4.2 (the bar-close checker) are built. Next is 4.3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build and 48 to 55 during the 4.2 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker) and 4.3 (stops in the UI) are built. Next is 4.4. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2 adds columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2 and 4.3 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -371,6 +371,50 @@ are the ones worth a look before 4.3 puts stops on the page.
     checker run.** `close_lots_on` is the one place a real sale and a paper sale both pass
     through. The checker run covers a deleted lot, an import, and the race section 7 names.
     Until the run, a stop on a lot that was deleted (not sold) is still `active`.
+
+### Made on 2026-11-16, during the 4.3 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review. 57 and 58 change what a paper book's results mean, so they are the ones worth a look
+before a stop is put on a real buy.
+
+56. **The stop a buy asks for is stored on the order, and the stop row is written by the
+    fill.** V21 adds five columns for what was asked (`stop_kind`, `stop_level`,
+    `stop_trail_pct`, `stop_method`, `stop_proposed_level`) and `stop_set` for what became of
+    it. Section 5.8 asked for this order of events: a queued buy has no stop until it fills,
+    and a rejected or cancelled one never gets one. What it costs: six columns on `orders`
+    that most orders leave empty.
+57. **A buy's stop is set against the fill price, not the last stored close.** This is
+    decision 44 for a stop that arrives with its position. The fill price is the stop's
+    `reference_price` and a trailing stop's first high-water mark, and a fixed level must be
+    under it. The stop is dated the moment of the fill, so the checker first tests it against
+    the next session to open (decision 48). What it costs: a queued buy that the job fills
+    days late is unprotected for those days, and its stop is tested from the session after
+    the night it filled, not the one after its own.
+58. **A fixed level at or above the fill price is no stop, and the buy still stands.** In
+    market hours the price is known before anything is stored, so the order is refused as bad
+    input (a 422). A queued buy can't be checked until the open: when it opens at or under
+    its level it fills with no stop, `stop_set` is false, and the Orders list and the dialog
+    say so. Rejecting it instead would need a new reject reason, which widens a `CHECK`
+    (decision 35's reason), and a real stop order placed that way would sell at once. What it
+    costs: a position the owner meant to protect is not, until they act on the notice, and
+    nothing on the page sets a stop on a holding until 4.5.
+59. **A buy with a stop replaces the stop its symbol already has in the book; a buy without
+    one leaves it.** That is decision 43, and the new lot is covered by the old stop either
+    way (decision 42). The stop's `source` is `manual` and its `source_ref` is `order:<id>`.
+60. **The page picks which stop a holding shows.** It reads `GET /api/portfolio/stops` with
+    `include_inactive=true` as its own request and shows a symbol its newest stop when that
+    one is active, or was reached while one of its lots was already open. The second case is
+    how another owner learns their real-book stop was reached (decision 51). The pick
+    compares two dates the rows already hold and works nothing out. What it costs: a book's
+    whole stop history is read on every page load. A server-side "current stop per holding"
+    read would replace it if that grows.
+61. **4.3 shows stops and sets them only through a buy.** There is no Cancel and no "set a
+    stop" on a holding: both belong to the stop panel (4.5). A lot row shows its symbol's
+    live level, since a stop is set on the symbol.
+62. **A sale's source is a column in the Realized view's expanded row.** `source`,
+    `source_ref` and `order_id` join each sale on the payload. A stop's sale is drawn as a
+    chip, because nobody chose that moment. Realized P/L added up by source is 5.3.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -889,10 +933,10 @@ Left for later steps, on purpose:
   paper books place a sell that fills at the stop level, or at the open when the stock opened
   below the stop (decision 5). A stop closes when its position goes flat. Updates #431's text to
   match the new fill rule. What was built, and what was left for later steps, is in section 5.13.
-- [ ] **4.3 Stops in the UI.**
+- [x] **4.3 Stops in the UI.**
   The stop field in the Buy dialog, with the stop card's suggestion loaded only when the field is
   opened; the stop shown on holdings and lot rows; the source of a stop-driven sale shown in the
-  Realized view.
+  Realized view. What was built, and what was left for later steps, is in section 5.14.
 - [ ] **4.4 Approach alerts.**
   A Discord alert when a holding closes within an ATR-relative distance of its stop, in the same
   checker step, deduplicated across runs so a stop that stays close alerts once. The distance is
@@ -977,6 +1021,47 @@ Left for later steps, on purpose:
 - **Not run against Yahoo.** The bar read is `get_history`, the one 3.4 uses; the tests stub
   the fetch.
 - **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
+
+#### 5.14 Stops in the UI as built (4.3)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The schema | `V21__order_stop.sql`, `_SCHEMA`, the snapshot | `orders.stop_kind`, `stop_level`, `stop_trail_pct`, `stop_method`, `stop_proposed_level`, `stop_set`, and `orders_stop_rule`: only a `market` buy carries a stop, a fixed one has a level and a trailing one a percentage, and `stop_set` is set only on a filled order. `ADD COLUMN` only, so CI applies it. The table count stays 28 |
+| The rules | `analytics.stored_stops`: `requested_stop`, `order_stop_terms`, `RequestedStop`, `MAX_LEVEL` | Pure. What a buy may ask for, checked with no price; and its terms once there is a fill price, or None when no stop can be set there |
+| The statements | `stop_sql.set_stop_on` | The replace and the insert, on the caller's connection. `StopsRepository.set_stop` and `OrderTransaction.set_stop` both run it |
+| The service | `OrdersService.place_order` (five `stop_*` arguments), `_attach_stop` in `_fill` | The stop is written after the buy is known to stand and before the order is marked, so the lot, the stop and `stop_set` commit together |
+| The route | `POST /api/portfolio/orders` takes `stop` (`kind`, `stop_level` or `trail_pct`, `method`, `proposed_level`) | No status, source or reference price is taken. The order answers with the six `stop_*` fields. The route count stays 128 |
+| A sale's source | `PortfolioRepository.list_realized_sales`, `RealizedSale` | `source`, `source_ref` and `order_id` on every sale of the realized payload |
+| The Buy dialog | `PaperOrderDialog`, `OrderStopField` | "Add a stop" opens a fixed level or a trailing percentage. The field is mounted only when opened, and that is when `useStopLoss` asks for the card. Its three candidates are buttons that fill the field. An edited suggestion keeps its method and the level that was suggested |
+| Holdings | `useStops`, `stopWords.stopsBySymbol`, `StopCell` (a row-bound fragment) | A Stop column in every book: the level, "trails 8%" for a trailing stop, or "Reached $44.10" for a stop a bar reached while the holding was open |
+| Lot rows | `LotRow` | A Stop column with the symbol's live level |
+| Realized | `RealizedPnl` (`SaleSource`), `stopWords.SALE_SOURCES` | A Source column in the expanded row. A stop's sale is a chip |
+| The words | `orderWords.ts` | "Buy 5 INTC, with a stop at $45.00"; "Its stop is set when the order fills"; "Stop not set: filled at or below it" |
+
+The rules are in [`data.md`](../architecture/data.md#a-stop-on-a-buy).
+
+How section 5.8's row for this step came out:
+
+| What 5.8 asked | In the code |
+|---|---|
+| The stop row is written in the fill transaction | `_attach_stop` runs on the order's transaction, between the lot and the order's `UPDATE` |
+| A queued order has no stop until it fills | The order holds the request in its own columns. No `stops` row exists until `fill_queued_order` |
+| A rejected order never gets one | A rejection returns before `_attach_stop`, and `orders_stop_rule` refuses `stop_set` on an order that isn't filled |
+
+**Nothing for an operator to run.** V21 is applied by CI and needs no backfill: every existing
+order asked for no stop.
+
+Left for later steps, on purpose:
+
+- **No way to set or cancel a stop on a holding from a page** (4.5). `POST /api/portfolio/stops`
+  and the cancel route are still reached by no component.
+- **No approach alert** (4.4), and **no "exists at a broker" field** (4.5).
+- **Realized P/L by source** (5.3). The Realized view shows each sale's source and adds nothing
+  up by it.
+- **The stop field is not a registered Sidekick component.** It is part of a form, like the
+  dialog it sits in.
+- **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
+- **Not tried in a browser against a live server.** The front end is covered by vitest only.
 
 ### Milestone 5: performance (#431 phase 3)
 
@@ -1356,6 +1441,25 @@ Known before any code is written. Add to this list as the work finds more.
 - **A stop's snapshot rows were added by hand** (4.2). Four columns and one constraint, in the
   shape `check_schema_snapshot.py` writes, which avoids the Postgres 18 strip (3.3, 4.1).
   `tests/test_schema_parity.py` and the snapshot check both pass on it.
+- **A `CHECK` passes when a comparison is NULL** (4.3). The first draft of `orders_stop_rule`
+  said `stop_kind = 'fixed' AND stop_level > 0`. With no level that is NULL, the whole rule is
+  NULL, and Postgres accepts the row. A test that inserts each bad shape caught it. Write
+  `IS NOT NULL AND` in front of a comparison in a `CHECK`.
+- **`ADD COLUMN IF NOT EXISTS` skips a column that exists, with its constraint** (4.3). After
+  the rule above was corrected, the local unit-test database still had the first draft, and
+  the tests kept failing. `stop_set` was dropped there by hand so startup added it again. A
+  migration that has been applied anywhere is never edited: this was a draft that had only
+  run locally.
+- **The snapshot rows can be copied by a script** (4.3). The snapshot was generated on the
+  local Postgres 18 into a scratch copy, and only the `orders` columns and the one constraint
+  were copied into the committed file. That gives Postgres's own spelling of the `CHECK`
+  without the `*_not_null` rows (3.3, 4.2).
+- **`PortfolioPage.test.tsx`'s `mount` lists its own symbols route first** (4.3). A route a
+  test passes in never wins over it, so a test that needs its own holdings calls `mockApi`
+  itself. The first stop tests passed for the wrong reason until one needed a later lot date.
+- **A test pins the exact shape of a realized sale** (4.3).
+  `test_a_sale_carries_its_lots_basis` compares the whole dict, so a new field on
+  `list_realized_sales` is added there too.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1419,3 +1523,5 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-16 | 4.1 review | #563 | Two suggestions, both taken. A refused cancel re-reads the stop before naming its status, so a stop resolved between the read and the `UPDATE` is not reported as `active`. The readme's route count was stale (115) and is now 128; the capabilities matrix said 127 because it had never counted `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches: now 73 of 128 reached, 55 left, with a row for it. |
 | 2026-11-16 | 4.2 Bar-close checker | #564 | V20: `stops.last_bar_checked`, `triggered_session`, `trigger_price` and `alerted_at`. `analytics.stored_stops.check_stop` (a run of closed bars against a stop), `PricesService.closed_bars_since`, `stop_sql.py`, `StopsService.due_stops` and `check_stop`, `OrdersService.sell_for_stop`, and the job step `run_stop_checks` with its alarm, third in `main.py`'s order behind `STOP_CHECK_BUDGET_SECONDS` (120), then `report_triggered_stops`. A trailing stop rises with each bar's high; a bar whose low reached the level triggers the stop at the level, or at the open for a gap; a real book alerts once and a paper book sells the position in the same transaction; a flat position closes its stop. #431's fill rule is updated. Decisions 48 to 55 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.13) |
 | 2026-11-16 | 4.2 review | #564 | Approved, with one suggestion, taken. `send_notifications` returned None with no webhook set, which `send_stop_alert` counted as sent, so a real-book breach alert would have been marked delivered without going anywhere. It now returns False there, and only a skipped duplicate returns None. The deployed job has its webhook, so nothing was lost. The review did not re-run the suites and could not measure cognitive complexity for `notifier.py`, `prices.py` or the front end |
+| 2026-11-16 | 4.3 Stops in the UI | #565 | V21: `orders.stop_kind`, `stop_level`, `stop_trail_pct`, `stop_method`, `stop_proposed_level` and `stop_set`. A paper buy can ask for a fixed or trailing stop (`analytics.stored_stops.requested_stop`, `order_stop_terms`); the stop row is written in the fill's transaction against the fill price (`stop_sql.set_stop_on`, `OrdersService._attach_stop`). In the UI: "Add a stop" in the Buy dialog with the stop card's candidates loaded only when it is opened (`OrderStopField`), a Stop column on holdings and lot rows (`useStops`, `StopCell`), and a Source column on each sale in the Realized view. Decisions 56 to 62 were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.14) |
+| 2026-11-16 | 4.3 review | #565 | Approved, with four suggestions, all taken. The readme's "No page shows a stop yet" was stale and now says no page sets or cancels one on a holding. A trailing stop whose percentage is too small to give a price below the fill got the fixed stop's wording ("below the price", "filled at or below it") though the owner gave no level: the 422 and the page now say the trail is too small. `_stop_request` let a `stop_method` through with no kind, and now refuses it like the other stop terms. `list_realized_sales` had reached cyclomatic 12 with the three new fields, so its row mapping is `_realized_sale_row`, over the helpers the other row shapes use. The review did not run the suites and could not measure the front end's complexity |

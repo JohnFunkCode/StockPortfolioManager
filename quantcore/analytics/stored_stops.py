@@ -20,6 +20,11 @@ The rules:
 - **A level is rounded to the market's tick**, the same rule a fill price
   uses, so a stop and the fill it later causes can be compared exactly.
 - **Only an active stop is live.** Every other status is final.
+- **A buy order can ask for a stop** (`requested_stop`, `order_stop_terms`;
+  plan step 4.3). What it asks for is checked when the order is placed and
+  turned into terms when the buy fills, against the fill price: that price
+  is the trailing stop's first high-water mark, and a fixed level at or
+  above it is no stop at all.
 - **A stop is tested against closed daily bars, starting with the first
   session that opens after it was set** (`first_session`, `check_stop`; plan
   step 4.2). A bar that was already trading when the stop was set is not
@@ -143,6 +148,97 @@ def stop_terms(
     if stop_level is not None:
         raise ValueError("a trailing stop takes a trail_pct, not a stop_level: its level is worked out")
     return _trailing_terms(trail_pct, reference)
+
+
+# --------------------------------------------------------------------------
+# The stop a buy order asks for (plan step 4.3)
+# --------------------------------------------------------------------------
+
+# The level columns are NUMERIC(18,6). A larger figure would overflow the
+# column and surface as a database error rather than as bad input.
+MAX_LEVEL = Decimal("1000000000")
+
+
+@dataclass(frozen=True)
+class RequestedStop:
+    """The stop a buy order asks for, as the order stores it until it fills.
+    A fixed stop has a `stop_level` and a trailing stop a `trail_pct`, never
+    both. `proposed_level` is what an analysis suggested, when one did."""
+
+    kind: str
+    method: str
+    stop_level: Optional[Decimal] = None
+    trail_pct: Optional[Decimal] = None
+    proposed_level: Optional[Decimal] = None
+
+
+def _asked_level(value: Decimal, name: str) -> Decimal:
+    """A level an order asked for, to the tick. More than zero and small
+    enough to store, or `ValueError`."""
+    if value <= _ZERO:
+        raise ValueError(f"{name} must be more than zero")
+    if value > MAX_LEVEL:
+        raise ValueError(f"{name} is too large")
+    level = fill_price(value)
+    if level <= _ZERO:
+        raise ValueError(f"{name} is too small to be a price")
+    return level
+
+
+def requested_stop(
+    kind: str,
+    *,
+    stop_level: Optional[Decimal] = None,
+    trail_pct: Optional[Decimal] = None,
+    method: str = MANUAL,
+    proposed_level: Optional[Decimal] = None,
+) -> RequestedStop:
+    """The stop a buy order asks for, or `ValueError` saying what is wrong
+    with it. Checked with no price: the buy has not filled yet, so nothing
+    here can say whether a fixed level is under the fill price
+    (`order_stop_terms` does, once there is one)."""
+    if kind not in KINDS:
+        raise ValueError("a stop's kind must be fixed or trailing")
+    if method not in METHODS:
+        raise ValueError(f"a stop's method must be one of {', '.join(METHODS)}")
+    proposed = None if proposed_level is None else _asked_level(proposed_level, "proposed_level")
+    if kind == FIXED:
+        if trail_pct is not None:
+            raise ValueError("a fixed stop takes a stop_level, not a trail_pct")
+        if stop_level is None:
+            raise ValueError("a fixed stop needs a stop_level")
+        return RequestedStop(
+            kind=FIXED, method=method, stop_level=_asked_level(stop_level, "stop_level"),
+            proposed_level=proposed,
+        )
+    if stop_level is not None:
+        raise ValueError("a trailing stop takes a trail_pct, not a stop_level: its level is worked out")
+    if trail_pct is None:
+        raise ValueError("a trailing stop needs a trail_pct")
+    return RequestedStop(
+        kind=TRAILING, method=method, trail_pct=trail_percent(trail_pct), proposed_level=proposed,
+    )
+
+
+def order_stop_terms(
+    kind: str,
+    *,
+    stop_level: Optional[Decimal],
+    trail_pct: Optional[Decimal],
+    fill: Decimal,
+) -> Optional[StopTerms]:
+    """The terms of the stop a buy asked for, now that it filled at `fill`,
+    or None when no stop can be set: a fixed level at or above the fill
+    price, or a trailing level that works out to no price below it.
+
+    The fill price stands where the last close does for a stop set by hand
+    (`stop_terms`): the level must be under it, and it is a trailing stop's
+    first high-water mark.
+    """
+    try:
+        return stop_terms(kind, stop_level=stop_level, trail_pct=trail_pct, reference=fill)
+    except ValueError:
+        return None
 
 
 # --------------------------------------------------------------------------

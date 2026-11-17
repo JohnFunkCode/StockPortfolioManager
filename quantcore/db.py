@@ -360,6 +360,31 @@ ALTER TABLE stops
       CHECK ((status = 'triggered')
              = (trigger_price IS NOT NULL AND triggered_session IS NOT NULL));
 
+-- V21 (#431 phase 2 and #221, plan step 4.3): the stop a paper buy asks for.
+-- Mirrors db/migrations/V21__order_stop.sql. The stop row is written when the
+-- buy fills, in the fill's transaction. These columns hold what was asked for
+-- and, in stop_set, whether the fill wrote it.
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS stop_kind           TEXT,
+  ADD COLUMN IF NOT EXISTS stop_level          NUMERIC(18,6),
+  ADD COLUMN IF NOT EXISTS stop_trail_pct      NUMERIC(7,4),
+  ADD COLUMN IF NOT EXISTS stop_method         TEXT,
+  ADD COLUMN IF NOT EXISTS stop_proposed_level NUMERIC(18,6);
+
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS stop_set BOOLEAN
+      CONSTRAINT orders_stop_rule
+      CHECK ((stop_kind IS NULL AND stop_level IS NULL AND stop_trail_pct IS NULL
+              AND stop_method IS NULL AND stop_proposed_level IS NULL
+              AND stop_set IS NULL)
+             OR (side = 'buy' AND kind = 'market' AND stop_method IS NOT NULL
+                 AND (stop_set IS NULL OR status = 'filled')
+                 AND ((stop_kind = 'fixed' AND stop_level IS NOT NULL
+                       AND stop_level > 0 AND stop_trail_pct IS NULL)
+                      OR (stop_kind = 'trailing' AND stop_level IS NULL
+                          AND stop_trail_pct IS NOT NULL
+                          AND stop_trail_pct > 0 AND stop_trail_pct < 100))));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

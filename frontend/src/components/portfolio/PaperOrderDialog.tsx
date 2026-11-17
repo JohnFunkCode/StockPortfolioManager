@@ -9,16 +9,21 @@
  * A sell that can't be priced because the symbol has no quote offers one more
  * step: close the whole position at the last price on record. The server
  * decides whether that is allowed and what the price is.
+ *
+ * A buy can ask for a stop (step 4.3). The field is closed until asked for,
+ * and the stop card's suggestions load only once it is opened.
  */
 import { useRef, useState } from 'react';
 import {
   Alert,
   Button,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
   InputLabel,
   MenuItem,
   Select,
@@ -32,7 +37,9 @@ import { useCashLedger } from '../../hooks/useCash';
 import { useManualClose, usePlaceOrder } from '../../hooks/useOrders';
 import { newIdempotencyKey } from '../../api/orders';
 import { formatCurrency, formatDate, formatShares } from '../../utils/formatting';
-import { outcome, REJECT_REASONS, UNQUOTED_REASONS } from './orderWords';
+import { outcome, REJECT_REASONS, stopOutcome, UNQUOTED_REASONS } from './orderWords';
+import OrderStopField, { EMPTY_STOP, stopPayload } from './OrderStopField';
+import type { StopDraft } from './OrderStopField';
 import type { Book } from '../../api/books';
 import type { Order } from '../../api/orders';
 
@@ -49,16 +56,21 @@ interface Props {
   onClose: () => void;
 }
 
-/** What the server did with the order, as one sentence. */
+/** What the server did with the order, and with the stop it asked for. */
 function resultText(order: Order): string {
+  const stop = stopOutcome(order);
   if (order.status === 'filled') {
     const verb = order.kind === 'manual_close' ? 'Closed' : order.side === 'buy' ? 'Bought' : 'Sold';
-    return `${verb} ${order.symbol}: ${outcome(order)}.`;
+    // `outcome` already says when the stop was not set.
+    const filled = `${verb} ${order.symbol}: ${outcome(order)}.`;
+    return stop && order.stop_set !== false ? `${filled} ${stop}` : filled;
   }
   if (order.status === 'pending') {
     return `Queued. The market is closed, so this order waits for the session of ${formatDate(
       order.session_date,
-    )} and fills at its opening price. Until then it can be cancelled from the Orders list.`;
+    )} and fills at its opening price. Until then it can be cancelled from the Orders list.${
+      stop ? ` ${stop}` : ''
+    }`;
   }
   const reason = order.reject_reason
     ? (REJECT_REASONS[order.reject_reason] ?? order.reject_reason)
@@ -81,6 +93,9 @@ export default function PaperOrderDialog({
   const [unit, setUnit] = useState<'shares' | 'amount'>('shares');
   const [size, setSize] = useState(!buying && heldShares != null ? String(heldShares) : '');
   const [formError, setFormError] = useState('');
+  // The stop a buy asks for. Closed until the owner opens it.
+  const [stopOpen, setStopOpen] = useState(false);
+  const [stop, setStop] = useState<StopDraft>(EMPTY_STOP);
   // One key per distinct request: a retry after a network error repeats it,
   // and a changed form gets a new one.
   const key = useRef(newIdempotencyKey());
@@ -115,6 +130,11 @@ export default function PaperOrderDialog({
       setFormError(unit === 'shares' ? 'Shares must be more than zero.' : 'The amount must be more than zero.');
       return;
     }
+    const asked = buying && stopOpen ? stopPayload(stop) : null;
+    if (asked && 'error' in asked) {
+      setFormError(asked.error);
+      return;
+    }
     place.mutate(
       {
         book_id: bookId,
@@ -122,6 +142,7 @@ export default function PaperOrderDialog({
         side,
         ...(unit === 'shares' ? { shares: number } : { amount: number }),
         idempotency_key: key.current,
+        ...(asked ? { stop: asked.stop } : {}),
       },
       // The server answered, so this request is over: a second try after a
       // rejection is a new order, not a replay of the rejected one.
@@ -200,6 +221,31 @@ export default function PaperOrderDialog({
                 <Typography variant="caption" color="text.secondary">
                   Cash in this book: {formatCurrency(cash?.balance ?? 0)}. A paper book has no margin.
                 </Typography>
+              )}
+              {buying && (
+                <FormControlLabel
+                  control={
+                    <Checkbox
+                      size="small"
+                      checked={stopOpen}
+                      onChange={(e) => {
+                        setStopOpen(e.target.checked);
+                        changed();
+                      }}
+                    />
+                  }
+                  label="Add a stop"
+                />
+              )}
+              {buying && stopOpen && (
+                <OrderStopField
+                  symbol={symbol}
+                  draft={stop}
+                  onChange={(next) => {
+                    setStop(next);
+                    changed();
+                  }}
+                />
               )}
               {!buying && heldShares != null && (
                 <Typography variant="caption" color="text.secondary">

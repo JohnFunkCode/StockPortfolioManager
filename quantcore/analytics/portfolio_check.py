@@ -422,6 +422,25 @@ def market_state_inputs(state: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
+MAX_WINDOW_GAP_DAYS = 10    # a close older than this before a window date is no price for it
+
+
+def close_on_or_before(closes: pd.Series, day: date, max_gap_days: int = MAX_WINDOW_GAP_DAYS) -> Optional[float]:
+    """The last close on or before ``day`` (``closes`` indexed by trading date).
+
+    The prototype forward-filled each stock's closes onto the window dates. A stock
+    with no close in the ``max_gap_days`` before ``day`` (not yet listed, or a gap in
+    the stored history) gets None, so it has no stock-vs-peers measure rather than a
+    stale one.
+    """
+    s = closes.dropna()
+    s = s[[d <= day for d in s.index]]
+    if s.empty or (day - s.index[-1]).days > max_gap_days:
+        return None
+    v = float(s.iloc[-1])
+    return v if v > 0 else None
+
+
 def action_sort_key(action: str) -> float:
     """Where an action sorts in the report: sells first, buys last."""
     return SELL_AFTER_ORDER if action.startswith("Sell after") else ACTION_ORDER.get(action, 3)

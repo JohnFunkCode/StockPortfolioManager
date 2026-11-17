@@ -1,6 +1,6 @@
 # Portfolio Check: per-user version (plan)
 
-Status: **steps 1–2 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
+Status: **steps 1–3 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
 
 ## Where it stands
 
@@ -94,7 +94,7 @@ prototype was tried on had neither).
 1. Analytics module + parity tests. **Done 2026-11-17** (checkpoint below).
 2. Market-state snapshot + refresh script (D1a), with the SIC map. **Done 2026-11-17**
    (checkpoint below).
-3. Service + route + tests.
+3. Service + route + tests. **Done 2026-11-17** (checkpoint below).
 4. Native page replacing the sample; registries.
 5. Optional MCP tool.
 
@@ -197,6 +197,48 @@ Gotchas from this step:
   gateway raises on 403/429 and only a 404 means unclassified.
 - **Check the User-Agent before downloading anything.** The first version only found a missing
   `SEC_USER_AGENT` at its first SEC call, after minutes of Ken French, Wikipedia and Yahoo traffic.
+
+### Step 3: service + route (2026-11-17)
+
+- `quantcore/services/portfolio_check.py`, `PortfolioCheckService.check(owner, params=...)`,
+  wired in `registry.py` as `services().portfolio_check`. It gathers and the analytics compute:
+  the owner's open lots from **`PortfolioService.list_lots`**, so it adds no SQL and no per-owner
+  table (D2's runtime SEC lookup would be the first new I/O, and it isn't built); each held
+  stock's close on or before the file's window dates, from one
+  `OhlcvRepository.daily_history_for_symbols` read, falling back to `PricesService.get_history`
+  only for a stock whose stored history starts after the first date (one stock's failure costs
+  only its peer measure, logged); and the market-state file, validated once per process.
+- Costs are purchase price × quantity, the basis the portfolio pages use for gain/loss (fees are
+  left out); a lot's date is its `trade_date`, else its `purchase_date`. Lots with no live price
+  count as zero value, as in the prototype, and are listed in `unpriced`.
+- `GET /api/portfolio/check` in `api/routers/portfolio.py`: the owner from `require_owner` (an
+  `?owner=` is ignored), the five `CheckParams` as bounded query parameters (D3: query
+  parameters with the prototype's defaults, not `user_settings`, for now), one service call deep,
+  failures through `route_internal_error`. `PortfolioCheckResponse` in `api/schemas/portfolio.py`;
+  the route added to `docs/openapi-surface.txt`.
+- Tests: `tests/test_portfolio_check_service.py` (12, stand-ins for the portfolio service, the
+  OHLCV repository and the prices service, over step 2's synthetic world: it asks for exactly the
+  given owner's open lots, the one-read window prices and both fallbacks, costs/dates/unpriced,
+  `Review` for unclassified holdings, parameters reaching the decision, an empty portfolio, the
+  state loaded once); `tests/test_portfolio_check_route.py` (5, the router on a bare app:
+  principal over `?owner=`, parameters through, 422s, a redacted 500); and a
+  `test_portfolio_check` case in `tests/test_error_redaction.py`, which needs the full app and so
+  runs only where the database is (CI).
+
+Not verified on this machine (no database): `test_error_redaction.py` and
+`scripts/check_openapi_snapshot.py`, both of which build the real app. The surface line was added
+by hand in sorted position; CI's snapshot check is the proof.
+
+Gotchas from this step:
+
+- **Stored daily bars are UTC timestamps at midnight ET** (05:00 or 04:00 UTC), so the service
+  converts the index to ET before taking dates; a plain `.date()` on a later-in-the-day timestamp
+  could land on the wrong trading day.
+- **`tests/test_owner_isolation_coverage.py` fails on Windows** with a `UnicodeDecodeError`,
+  before and after this change: it reads files with the platform encoding, and `notifier.py` holds
+  a character cp1252 can't decode. Run it with `PYTHONUTF8=1` on Windows; Linux CI is unaffected.
+- **Locally the route tests mount the router on a bare `FastAPI()`**: importing `api.main` builds
+  the app, which calls `ensure_schema()` and needs a database.
 
 ## Gotchas found while building the demo
 

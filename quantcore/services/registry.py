@@ -57,6 +57,7 @@ from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
 from quantcore.services.options_screening import OptionsScreeningService
 from quantcore.services.portfolio import PortfolioService
+from quantcore.services.portfolio_check import PortfolioCheckService
 from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
@@ -104,6 +105,7 @@ class Services:
     cash: CashService
     orders: OrdersService
     stops: StopsService
+    portfolio_check: PortfolioCheckService
     watchlist: WatchlistService
     recommendations: RecommendationsService
     arbitrage: ArbitrageService
@@ -322,6 +324,13 @@ def get_services() -> Services:
         cash=CashService(cash_repository, books_repository),
         orders=orders,
         stops=StopsService(stops_repository, books_repository, prices, orders),
+        # Gathers only: the owner's lots via PortfolioService.list_lots (its
+        # owner-scoped SQL), window closes, and the monthly market-state file.
+        portfolio_check=PortfolioCheckService(
+            portfolio=portfolio,
+            ohlcv_repository=ohlcv_repository,
+            prices=prices,
+        ),
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

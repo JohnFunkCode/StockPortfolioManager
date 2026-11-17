@@ -176,6 +176,15 @@ class RouteRedactionTest(unittest.TestCase):
         self.assert_redacted(resp, logs, "lookup")
         self.assertIn("lookup_security failed symbol=TST", logs.output[0])
 
+    def test_portfolio_check(self):
+        self.patch_services(LeakyError(SECRET), portfolio_router)
+        self.app.dependency_overrides[require_owner] = lambda: "tester"
+        self.addCleanup(self.app.dependency_overrides.pop, require_owner, None)
+        with self.assertLogs("api.routers.portfolio", level="WARNING") as logs:
+            resp = self.client.get("/api/portfolio/check")
+        self.assert_redacted(resp, logs, "portfolio check")
+        self.assertIn("get_portfolio_check failed", logs.output[0])
+
 
     def test_watchlist_quotes(self):
         self.patch_services(LeakyError(SECRET), portfolio_router)

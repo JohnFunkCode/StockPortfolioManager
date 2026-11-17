@@ -11,6 +11,7 @@ Ports the Flask handlers (api/app.py) for:
   GET       /api/watchlist/mine        (owner-scoped — issue #224)
   GET       /api/watchlist/quotes      (live 1d columns — issue #518)
   GET       /api/securities/lookup
+  GET       /api/portfolio/check                          (owner-scoped Portfolio Check)
   POST      /api/portfolio/lots/{lot_id}/close/preview   (issue #266)
   GET       /api/portfolio/sales                          (issue #266)
   PATCH     /api/portfolio/sales/{sale_id}                (issue #266)
@@ -36,7 +37,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 
 from ..auth import Principal, require_owner, require_principal
 from ..deps import (
@@ -61,6 +62,7 @@ from ..schemas.portfolio import (
     DeleteLotResponse,
     ImportResult,
     LotsResponse,
+    PortfolioCheckResponse,
     RealizedResponse,
     RemovePositionResponse,
     RemoveWatchlistResponse,
@@ -78,6 +80,7 @@ from ..schemas.portfolio import (
     WatchlistMineResponse,
     WatchlistQuotesResponse,
 )
+from quantcore.analytics.portfolio_check import CheckParams
 from quantcore.services.portfolio import BookNotFoundError, DuplicateSymbolError
 
 logger = logging.getLogger(__name__)
@@ -217,6 +220,31 @@ def get_symbol_rows(
         return route_error_plain(str(exc), 404)
     totals = services().portfolio.portfolio_totals(rows)
     return QuantCoreJSONResponse({"symbols": rows, "totals": totals})
+
+
+# --------------------------------------------------------------------------- #
+# Portfolio Check (docs/proposals/portfolio-check-plan.md, step 3). The owner's
+# own open lots only: the service reads them through PortfolioService.list_lots.
+# --------------------------------------------------------------------------- #
+_CHECK_DEFAULTS = CheckParams()
+
+
+@router.get("/portfolio/check", response_model=PortfolioCheckResponse)
+def get_portfolio_check(
+    st_rate: float = Query(_CHECK_DEFAULTS.st_rate, ge=0, le=1, description="short-term gains tax rate"),
+    lt_rate: float = Query(_CHECK_DEFAULTS.lt_rate, ge=0, le=1, description="long-term gains tax rate"),
+    position_cap: float = Query(_CHECK_DEFAULTS.position_cap, gt=0, le=1, description="max weight of one stock"),
+    industry_cap: float = Query(_CHECK_DEFAULTS.industry_cap, gt=0, le=1, description="max weight of one industry"),
+    wait_days: int = Query(_CHECK_DEFAULTS.wait_days, ge=0, le=366,
+                           description="wait for long-term treatment if it is this close"),
+    owner: str = Depends(require_owner),
+) -> QuantCoreJSONResponse:
+    params = CheckParams(st_rate=st_rate, lt_rate=lt_rate, position_cap=position_cap,
+                         industry_cap=industry_cap, wait_days=wait_days)
+    try:
+        return QuantCoreJSONResponse(services().portfolio_check.check(owner, params=params))
+    except Exception as exc:  # noqa: BLE001
+        return route_internal_error(logger, "get_portfolio_check", exc)
 
 
 @router.post("/portfolio/lots", response_model=CreateLotResponse, status_code=201)

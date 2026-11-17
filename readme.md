@@ -264,7 +264,7 @@ authoritative endpoint list.** There are 128 routes, so the table below only gro
 | Router | Prefix | Covers |
 |--------|--------|--------|
 | `system.py` | `/api/health` | health check |
-| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, realized P/L by symbol over a rolling period (`GET /api/portfolio/realized`), CSV import, delta exposure. Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals; `GET /api/watchlist/mine` adds the caller's holdings to it; `GET /api/watchlist/quotes` returns live 1-day changes for the list, and is the one of the three that may call Yahoo) and security lookup |
+| `portfolio.py` | `/api/portfolio*`, `/api/watchlist*`, `/api/securities*` | positions and lots for the caller's identity: lot and sale notes, close preview, sales history, realized P/L by symbol over a rolling period (`GET /api/portfolio/realized`), CSV import, delta exposure, and `GET /api/portfolio/check` (the Portfolio Check on the caller's own open lots). Also the global shared watchlist (`GET /api/watchlist/fundamentals` reads only cached fundamentals; `GET /api/watchlist/mine` adds the caller's holdings to it; `GET /api/watchlist/quotes` returns live 1-day changes for the list, and is the one of the three that may call Yahoo) and security lookup |
 | `prices.py` | `/api/securities/{ticker}/…` | OHLCV, price summary, technicals, VWAP (rolling, anchored, history), ATR bands, volume profile, candlesticks, gaps, drawdown |
 | `options.py` | `/api/securities/{ticker}/options/…`, `/api/options/…` | chains and contracts, spread pricing, IV rank, flow, OI change, GEX, gamma-wall history, the watchlist screen |
 | `fundamentals.py` | `/api/securities/…` | scores (single and batch, at most 25 symbols), growth, acceleration, earnings calendar, history, sector breakdown, cache stats. Collection reads take `?scope=all\|tracked` |
@@ -639,6 +639,12 @@ python scripts/refresh_portfolio_check_market_state.py --check   # validate the 
 
 SEC requires the User-Agent to name who is calling, with a contact address; the script won't start
 without it. `--extra-tickers` pre-classifies holdings outside the S&P 500.
+
+`GET /api/portfolio/check` runs the check on the signed-in user's own open lots, against that file.
+Optional query parameters, with these defaults: `st_rate=0.32`, `lt_rate=0.15` (tax rates),
+`position_cap=0.10`, `industry_cap=0.25` (size limits) and `wait_days=120` (how close a lot must be
+to long-term treatment for a Sell to wait for it). Holdings the file can't classify come back as
+`Review`.
 
 ---
 

@@ -19,6 +19,7 @@ GET    /api/plans/{instance_id}  ->  get_plan_api_plans__instance_id__get
 GET    /api/plans/{instance_id}/rungs  ->  list_rungs_api_plans__instance_id__rungs_get
 GET    /api/portfolio  ->  get_portfolio_api_portfolio_get
 GET    /api/portfolio/cash  ->  get_cash_ledger_api_portfolio_cash_get
+GET    /api/portfolio/check  ->  get_portfolio_check_api_portfolio_check_get
 GET    /api/portfolio/delta-exposure  ->  get_portfolio_delta_exposure_api_portfolio_delta_exposure_get
 GET    /api/portfolio/lots  ->  get_lots_api_portfolio_lots_get
 GET    /api/portfolio/orders  ->  list_orders_api_portfolio_orders_get

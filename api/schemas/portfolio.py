@@ -578,3 +578,56 @@ class WatchlistQuotesResponse(BaseModel):
     # Rows whose 1d figure is the cached fallback, not a live quote.
     stale_count: int
     quotes: List[WatchlistQuoteRow]
+
+
+# --------------------------------------------------------------------------- #
+# Portfolio Check (docs/proposals/portfolio-check-plan.md, step 3)
+# --------------------------------------------------------------------------- #
+class PortfolioCheckHolding(BaseModel):
+    """One holding's decision; every number comes from quantcore.analytics.portfolio_check."""
+
+    model_config = ConfigDict(extra="allow")
+
+    ticker: str
+    company: str = ""
+    action: str
+    industry_code: Optional[str] = None
+    industry: str
+    industry_label: Optional[str] = None
+    industry_rank: Optional[int] = None
+    industry_pct: Optional[float] = None
+    shares: Optional[float] = None
+    value: Optional[float] = None
+    cost: Optional[float] = None
+    weight: Optional[float] = None
+    industry_weight: Optional[float] = None
+    vs_peers_12m: Optional[float] = None
+    vs_peers_percentile: Optional[float] = None
+    peer_count: int
+    reasons: List[str]
+    tax_note: str
+
+
+class PortfolioCheckIdeaExample(BaseModel):
+    ticker: str
+    name: str
+    vs_peers_12m: Optional[float] = None
+
+
+class PortfolioCheckIdea(BaseModel):
+    industry: str
+    industry_code: str
+    rank: int
+    wind12: Optional[float] = None
+    examples: List[PortfolioCheckIdeaExample]
+
+
+class PortfolioCheckResponse(BaseModel):
+    as_of: str
+    params: Dict[str, Any]
+    market_state: Dict[str, Any]
+    total_value: Optional[float] = None
+    holdings: List[PortfolioCheckHolding]
+    ideas: List[PortfolioCheckIdea]
+    industries: List[Dict[str, Any]]
+    unpriced: List[str]

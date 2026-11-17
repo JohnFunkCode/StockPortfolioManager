@@ -203,8 +203,10 @@ export default function StopPanel({ symbol, heldInReal, paperBooks }: Props) {
 
   const chooseBook = (id: number | null) => {
     setBookId(id);
-    // A paper book has no broker.
+    // A paper book has no broker. A broker order typed for one book is not
+    // another's, so its details go whichever way the switch is.
     if (id !== null) setPath('card');
+    setBroker(EMPTY_BROKER);
     setSaved('');
     setError('');
   };

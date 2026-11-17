@@ -211,6 +211,20 @@ describe('StopPanel', () => {
     expect(screen.queryByTestId('stop-panel-broker')).toBeNull();
   });
 
+  it('drops a broker draft when the book is switched and back (#570 review)', async () => {
+    mount({ paperBooks: [book(7, 'Momentum')] });
+    await screen.findByText('No stop in this book.');
+    open();
+    fireEvent.click(screen.getByRole('button', { name: 'Mirror a broker order' }));
+    type(/Shares/, '10');
+    type(/Brokerage/, 'Schwab');
+    fireEvent.click(screen.getByRole('button', { name: 'Momentum' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Real' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mirror a broker order' }));
+    expect(screen.getByLabelText(/Shares/)).toHaveValue(null);
+    expect(screen.getByLabelText(/Brokerage/)).toHaveValue('');
+  });
+
   it('still takes a typed figure when the card cannot be loaded', async () => {
     const api = mount({}, { card: { __status: 500, error: 'boom' } });
     open();

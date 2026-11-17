@@ -98,6 +98,54 @@ class StopTermsTest(unittest.TestCase):
                 stops_math.stop_terms("fixed", stop_level=D(level), reference=D("10.00"))
 
 
+class BrokerOrderTest(unittest.TestCase):
+    """What a stop at an outside broker records (plan step 4.5)."""
+
+    def test_a_stop_only_here_has_no_details(self):
+        self.assertIs(stops_math.broker_order("fixed", at_broker=False), stops_math.NOT_AT_BROKER)
+        self.assertIs(
+            stops_math.broker_order("fixed", at_broker=False, brokerage="   "),
+            stops_math.NOT_AT_BROKER)
+
+    def test_details_without_a_broker_are_refused_not_dropped(self):
+        for details in ({"quantity": D("1")}, {"order_type": "stop"}, {"brokerage": "Schwab"}):
+            with self.subTest(details=details), self.assertRaisesRegex(ValueError, "at_broker"):
+                stops_math.broker_order("fixed", at_broker=False, **details)
+
+    def test_at_a_broker_each_detail_is_optional(self):
+        self.assertEqual(
+            stops_math.broker_order("fixed", at_broker=True),
+            stops_math.BrokerOrder(True, None, None, None))
+        self.assertEqual(
+            stops_math.broker_order(
+                "fixed", at_broker=True, quantity=D("2.5"), order_type="stop_limit",
+                brokerage=" Schwab "),
+            stops_math.BrokerOrder(True, D("2.5"), "stop_limit", "Schwab"))
+
+    def test_the_order_type_suits_the_kind(self):
+        for kind, allowed in (("fixed", ("stop", "stop_limit")), ("trailing", ("trailing_stop",))):
+            for order_type in stops_math.BROKER_ORDER_TYPES:
+                with self.subTest(kind=kind, order_type=order_type):
+                    if order_type in allowed:
+                        self.assertEqual(stops_math.broker_order(
+                            kind, at_broker=True, order_type=order_type).order_type, order_type)
+                    else:
+                        with self.assertRaisesRegex(ValueError, "must be one of"):
+                            stops_math.broker_order(kind, at_broker=True, order_type=order_type)
+
+    def test_a_quantity_is_positive_and_a_lots_precision(self):
+        for quantity, message in ((D("0"), "more than zero"), (D("-3"), "more than zero"),
+                                  (D("0.0000001"), "six decimal places")):
+            with self.subTest(quantity=quantity), self.assertRaisesRegex(ValueError, message):
+                stops_math.broker_order("fixed", at_broker=True, quantity=quantity)
+
+    def test_a_brokerage_has_a_length_limit(self):
+        name = "x" * stops_math.MAX_BROKERAGE_LENGTH
+        self.assertEqual(stops_math.broker_order("fixed", at_broker=True, brokerage=name).brokerage, name)
+        with self.assertRaisesRegex(ValueError, "at most 60"):
+            stops_math.broker_order("fixed", at_broker=True, brokerage=name + "x")
+
+
 class HoldingStopsTest(unittest.TestCase):
     """`holding_stops` (plan decision 66): the one stop each holding shows."""
 

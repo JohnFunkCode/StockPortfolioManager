@@ -10,7 +10,8 @@ principal (``require_owner``); there is no ``?owner=``. Without a ``book_id``
 a route acts on the real book, and a book that isn't the owner's answers 404.
 
 A stop here is a record. Nothing on these routes places an order at a broker
-or checks a price: the daily job tests each active stop against closed daily
+or reads one (a stop marked `at_broker` mirrors an order the owner placed
+there, plan step 4.5), or checks a price: the daily job tests each active stop against closed daily
 bars (plan step 4.2). No route takes a ``source``, so a caller can't say an
 automated trigger set a stop, and none takes a status: a stop leaves
 ``active`` only by being cancelled, replaced by a new one, or by the checker.
@@ -66,12 +67,15 @@ def holding_stops(
 def set_stop(body: SetStopRequest, owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
     """Set the stop on a holding. 201 with the stop; `replaced_stop_id` names
     the stop it took over from. 422 for a symbol the book doesn't hold or a
-    level at or above the last close."""
+    level at or above the last close. `at_broker` records a stop already
+    placed at an outside broker (real book only); nothing is sent to one."""
     try:
         stop = services().stops.set_stop(
             owner=owner, book_id=body.book_id, symbol=body.symbol, kind=body.kind,
             stop_level=body.stop_level, trail_pct=body.trail_pct, method=body.method,
-            proposed_level=body.proposed_level,
+            proposed_level=body.proposed_level, at_broker=body.at_broker,
+            broker_quantity=body.broker_quantity, broker_order_type=body.broker_order_type,
+            brokerage=body.brokerage,
         )
     except BookNotFoundError as exc:
         return route_error_plain(str(exc), 404)

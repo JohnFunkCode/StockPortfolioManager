@@ -54,6 +54,20 @@ class Stop(BaseModel):
     first_session: Optional[date] = None
     # When a real-book stop's breach alert went out.
     alerted_at: Optional[datetime] = None
+    # A holding that closed near its stop (plan step 4.4): the session and
+    # close of that bar and the ATR it was measured in. None while the
+    # newest close is further away.
+    approached_session: Optional[date] = None
+    approach_close: Optional[Decimal] = None
+    approach_atr: Optional[Decimal] = None
+    approach_alerted_at: Optional[datetime] = None
+    # True when the stop mirrors an order the owner placed at an outside
+    # broker (plan step 4.5); QuantCore only records it. The three details
+    # are that order's, as the owner gave them, and None otherwise.
+    at_broker: bool = False
+    broker_quantity: Optional[Decimal] = None
+    broker_order_type: Optional[str] = None
+    brokerage: Optional[str] = None
     # On the answer to a new stop: the stop it took over from, if any.
     replaced_stop_id: Optional[int] = None
 
@@ -88,3 +102,9 @@ class SetStopRequest(BaseModel):
     method: Literal["manual", "technical", "trailing", "confluence"] = "manual"
     proposed_level: Optional[Decimal] = None
     book_id: Optional[int] = None
+    # The stop mirrors an order already placed at an outside broker. Real
+    # book only. Each detail is optional, and is refused without at_broker.
+    at_broker: bool = False
+    broker_quantity: Optional[Decimal] = None
+    broker_order_type: Optional[Literal["stop", "stop_limit", "trailing_stop"]] = None
+    brokerage: Optional[str] = None

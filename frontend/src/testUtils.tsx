@@ -827,6 +827,10 @@ export function stopRow(overrides: object = {}) {
     last_bar_checked: null,
     triggered_session: null,
     trigger_price: null,
+    at_broker: false,
+    broker_quantity: null,
+    broker_order_type: null,
+    brokerage: null,
     ...overrides,
   };
 }

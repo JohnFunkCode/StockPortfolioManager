@@ -1861,10 +1861,30 @@
           "nullable": false,
           "type": "date"
         },
+        "at_broker": {
+          "default": "false",
+          "nullable": false,
+          "type": "boolean"
+        },
         "book_id": {
           "default": null,
           "nullable": false,
           "type": "integer"
+        },
+        "broker_order_type": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
+        },
+        "broker_quantity": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,6)"
+        },
+        "brokerage": {
+          "default": null,
+          "nullable": true,
+          "type": "text"
         },
         "created_at": {
           "default": "now()",
@@ -1966,6 +1986,8 @@
         "stops_active_is_unresolved": "CHECK (((status = 'active'::text) = (resolved_at IS NULL)))",
         "stops_approach_rule": "CHECK ((((approached_session IS NULL) = (approach_close IS NULL)) AND ((approached_session IS NULL) = (approach_atr IS NULL)) AND ((approach_alerted_at IS NULL) OR (approached_session IS NOT NULL))))",
         "stops_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "stops_broker_details_rule": "CHECK ((at_broker OR ((broker_quantity IS NULL) AND (broker_order_type IS NULL) AND (brokerage IS NULL))))",
+        "stops_broker_quantity_check": "CHECK ((broker_quantity > (0)::numeric))",
         "stops_fixed_has_no_trail": "CHECK (((kind = 'trailing'::text) OR ((trail_pct IS NULL) AND (high_water_mark IS NULL))))",
         "stops_high_water_mark_check": "CHECK ((high_water_mark > (0)::numeric))",
         "stops_kind_check": "CHECK ((kind = ANY (ARRAY['fixed'::text, 'trailing'::text])))",

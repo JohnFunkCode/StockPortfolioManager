@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) has started: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI) and 4.4 (approach alerts) are built. Next is 4.5. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; 68 to 73 were made during the 4.4 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Next is milestone 5, starting with 5.1. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build; they are John's to confirm or change (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -498,6 +498,51 @@ when he doesn't, so they are the ones worth a look.
     tonight is in the breach alert and not in this one (a triggered stop is not active). Its
     own message, because the two ask different things of John: one says sell at the broker,
     the other says look. Nearest first.
+
+### Made on 2026-11-17, during the 4.5 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first. 76 and 80 are the ones worth a look:
+one decides what a mirrored stop means, the other where the panel lives.
+
+74. **A stop at a broker is a flag and three optional details on the stop row** (V26:
+    `at_broker`, `broker_quantity`, `broker_order_type`, `brokerage`), as #221 asked: "store
+    that as a field rather than as two tables". `stops_broker_details_rule` lets only a stop at
+    a broker carry the details. `ADD COLUMN` only, so CI applies it. A stop that replaces a
+    mirrored one does not inherit the mirror. What it costs: four columns most stops leave
+    empty.
+75. **Only a real book's stop can be at a broker.** A paper book has none. The service refuses
+    it (422), because a `CHECK` can't see the book's kind.
+76. **A mirrored stop is checked and alerted like any other, and is never synced.** Its level
+    must be below the last stored close, the daily job tests it against closed bars, and a
+    trailing mirror's mark is QuantCore's own, starting at the last close. QuantCore reads
+    nothing from the broker. What it costs: the broker's level and QuantCore's can disagree,
+    most of all for a trailing stop, whose broker tracks intraday highs. The owner keeps them
+    in line by setting the stop again.
+77. **The share count may be fewer than the holding, never more, and is checked only when the
+    stop is set.** It is checked against the book's OPEN lots under the book's lock. A later
+    partial sale leaves it as typed. What it costs: after a sale, the count can say more shares
+    than are held, until the owner sets the stop again.
+78. **The order type is `stop`, `stop_limit` or `trailing_stop`, and must suit the kind.** A
+    fixed stop is a stop or a stop limit; a trailing stop is a trailing stop. No `CHECK`, for
+    `method`'s reason (decision 45). A stop limit's limit price is not stored. What it costs:
+    the alert can't say a stop limit may not have filled below its limit.
+79. **A mirrored stop's breach alert says the broker's order should have filled, and names
+    where it was placed.** The approach alert names it too. The breach message's closing line
+    now reads "Nothing was recorded as sold: sell at your broker, or check the fill of a stop
+    order placed there", since for a mirrored stop something probably was sold.
+80. **The panel is its own form under the stop card, not a button inside the card.** #221's
+    2026-10-24 comment asked for "a Set stop button" on #399's card. The card is a registered
+    Sidekick component, so a button in it would be a Sidekick gesture under arch-v2 Rule 9
+    (both interaction registries, locked and consumed history). The panel is a form, like the
+    Buy dialog's stop field, and is not registered; the card stays read-only. It reads the
+    card's candidates from the same query, so it adds no stop-loss request. What it costs: the
+    suggestion and the action are two boxes, and Sidekick can show the card but can't set a
+    stop from it.
+81. **The panel offers the real book when it holds the symbol, and every open paper book.**
+    Whether a paper book holds the symbol is the server's to say: a save answers "a stop
+    needs a holding". Knowing beforehand would mean a holdings read per paper book on the
+    Security page. What it costs: a paper book that doesn't hold the symbol is offered, and
+    its save is refused with that reason.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1025,11 +1070,12 @@ Left for later steps, on purpose:
   checker step, deduplicated across runs so a stop that stays close alerts once. The distance is
   an env var with a documented default that falls back on an unparseable value. What was built,
   and what was left for later steps, is in section 5.17.
-- [ ] **4.5 The stop panel, with broker mirroring.**
+- [x] **4.5 The stop panel, with broker mirroring.**
   #221's one panel with two entry paths on the Security page: mirror a stop already placed at an
   outside broker (price, and optionally quantity, order type and brokerage), or create one from
   the stop card's recommendation with its reasoning. Both write the same row; a field records
-  whether the order exists at a broker. Real books only for mirroring. Closes #221.
+  whether the order exists at a broker. Real books only for mirroring. Closes #221. What was
+  built, and what was left for later steps, is in section 5.18.
 
 #### 5.12 The stops table, service and routes as built (4.1)
 
@@ -1235,6 +1281,40 @@ Left for later steps, on purpose:
 - **Not run against Yahoo.** The read is the one 4.2 uses, with a longer window; the tests
   stub it.
 - **No band between leaving and coming back** (decision 69).
+
+#### 5.18 The stop panel as built (4.5)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The schema | `V26__stop_at_broker.sql`, `_SCHEMA`, the snapshot | `stops.at_broker` (default false), `broker_quantity`, `broker_order_type`, `brokerage`, and `stops_broker_details_rule`. `ADD COLUMN` only, so CI applies it. The table count stays 28 |
+| The rule | `analytics.stored_stops.broker_order`, `BrokerOrder`, `BROKER_ORDER_TYPES` | Pure. Details without `at_broker` are refused, not dropped; the order type must suit the kind; the brokerage is trimmed and at most 60 characters |
+| The rows | `stop_sql.set_stop_on` (the insert), `StopsRepository.set_stop` | The share count is checked against the book's OPEN lots on the transaction that holds the book's lock (`BrokerQuantityError`, a 422). Every stop read returns the four columns |
+| The service | `StopsService.set_stop` (four new keyword arguments) | A paper book's stop at a broker is refused before anything is read |
+| The route | `POST /api/portfolio/stops` takes `at_broker`, `broker_quantity`, `broker_order_type` (a `Literal`), `brokerage` | The `Stop` model documents the four, and the four approach columns 4.4 added, which the answers already carried. The route count stays 129 |
+| The alerts | `notifier._stop_alert_line`, `_stop_approach_line`, `_broker_words` | "The stop order at Schwab for 100 shares (stop-limit) should have filled: check it" |
+| The panel | `StopPanel` on the Technical Analysis tab, under the two cards; `useSetStop`, `stopsApi.set` | Book chips; the book's stop on the symbol, "At a broker" or "Only here", and its tooltip words; "Set a stop" or "Replace this stop"; the two paths; a warning naming the stop it replaces, and for a mirrored one, that the broker's order must be changed there too |
+| Shared with the Buy dialog | `stopDraft.ts` (`StopDraft`, `stopPayload`, `stopSuggestions`) | Moved out of `OrderStopField`. A suggestion now carries the card's reasoning, which the Buy dialog shows as the button's title |
+| The words | `stopWords.brokerWords`, `stopDetail` | "Placed at Schwab as a stop-limit order for 100 shares." A reached mirrored stop says its order should have filled |
+| The tests | `tests/test_stops_api.py` (`BrokerMirrorTest`, `test_a_broker_mirror_over_the_route`), `tests/test_stops_repository.py`, `tests/test_stored_stops_analytics.py` (`BrokerOrderTest`), `tests/test_stop_checks.py`, `tests/test_stop_approach.py`; `StopPanel.test.tsx`, `SecurityDetailPage.test.tsx`, `stopWords.test.ts`, `stops.test.ts` | Owner and book isolation are unchanged: no new statement, and the insert binds the same owner and book |
+
+The rules are in [`data.md`](../architecture/data.md#stored-stops) and the panel in
+[`quantui.md`](../architecture/quantui.md).
+
+**Nothing for an operator to run.** V26 is applied by CI and needs no backfill: every existing
+stop is one that exists only here.
+
+Left, on purpose:
+
+- **The Add Lot dialog's stop field**, #221's first entry point, is not built. A real lot is
+  recorded and then its stop is set from the panel.
+- **No page lists a book's stop history.** `GET /api/portfolio/stops?include_inactive=true` is
+  still reached by no component (a gap in the capabilities matrix).
+- **No page shows that a holding is close to its stop** (left by 4.4). The panel and the Stop
+  cell don't mark it.
+- **A mirror is never reconciled with the broker** (decision 76), and a stop limit's limit
+  price is not stored (decision 78).
+- **Not tried in a browser against a live server.** The front end is covered by vitest only.
+- **No Sidekick or MCP access to stops** (decision 18, step 5.4). The tool count stays 63.
 
 ### Milestone 5: performance (#431 phase 3)
 
@@ -1666,6 +1746,12 @@ Known before any code is written. Add to this list as the work finds more.
   never shown as a zero or a dash that reads as a real value.
 - **A new daily-job step changes an ordering that is deliberate.** Steps 3.4, 4.2 and 5.1 each
   need a place in `main.py`'s order and an entry in `docs/architecture/daily-jobs.md`.
+- **`check_schema_snapshot.py --update` against the local Postgres 18 rewrites every table.**
+  PG18 names each `NOT NULL` as a constraint (`<table>_<column>_not_null`), which CI's Postgres
+  doesn't, so the update adds hundreds of lines across all 28 tables. For 4.5 only the `stops`
+  table's entry was taken from the regenerated file, without its `*_not_null` constraints, and
+  the rest was left as committed. `tests/test_schema_parity.py` passed against the same server,
+  since both sides of it come from PG18.
 - **The owner-isolation coverage test derives per-owner tables from the snapshot.** Each new table
   with an `owner` column or a foreign key into one needs mapped wrong-owner tests in the same PR,
   or that test fails.
@@ -1715,3 +1801,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 4.4 Approach alerts | #568 | V25: `stops.approached_session`, `approach_close`, `approach_atr`, `approach_alerted_at`. `analytics.stored_stops.approach` (a close within `STOP_APPROACH_ATR_MULTIPLE`, default 1, of a 14-session ATR above the level), recorded by the check that held, from one read reaching back 90 days; `StopsService.unalerted_approaches` and `mark_approach_alerted`; the job's `report_approaching_stops` after the breach alert, once per approach and real book only. Decisions 68 to 73 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.17) |
 | 2026-11-17 | 4.4 review | #568 | Approved, with two suggestions, both taken. The checkpoint row said `#PR` (fixed in the PR's second commit). A message names at most 20 stops, and both the approach alert and the breach alert marked every owed stop, so one past the twentieth was marked as announced and never named. Now only the stops a message names are marked; the rest stay owed and are named on the next run, and the message says so. The review did not run the suites and could not measure `notifier.py`'s cognitive complexity |
 | 2026-11-17 | 4.4 review fixes | #569 | The two fixes above never reached #568: the branch had no upstream, so their push failed, and #568 merged without them. #569 carries the same two commits. Its review approved, with one suggestion, taken: no test showed the stops a long list left out being named on the next run. Each long-list test now has a second run, against a fake whose owed list shrinks as stops are marked, which names the rest; a third run sends nothing. See the gotcha in section 7 |
+| 2026-11-17 | 4.5 The stop panel | #PR | V26: `stops.at_broker`, `broker_quantity`, `broker_order_type`, `brokerage`. `analytics.stored_stops.broker_order`; the share count checked under the book's lock; `StopsService.set_stop` and `POST /api/portfolio/stops` take the four; a mirrored stop's alerts say where it was placed and that its order should have filled. `StopPanel` on the Security page's Technical Analysis tab sets a stop from the stop card's candidates, with their reasoning, or by mirroring a broker order (real book only). Closes #221 and milestone 4. Decisions 74 to 81 were made in the build and are John's to confirm. Not tried in a browser. Nothing for an operator to run (section 5.18) |

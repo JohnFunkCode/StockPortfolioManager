@@ -44,4 +44,19 @@ describe('stopsApi', () => {
     expect(api.calls.every(([, init]) => init?.body === undefined)).toBe(true);
     expect(cancelled.status).toBe('cancelled');
   });
+
+  it('sets a stop with a POST that carries the whole payload', async () => {
+    const api = mockApi([['/api/portfolio/stops', stopRow({ at_broker: true, brokerage: 'Schwab' })]]);
+    const payload = {
+      symbol: 'INTC', kind: 'fixed' as const, stop_level: 45, method: 'manual' as const,
+      at_broker: true, broker_quantity: 10, broker_order_type: 'stop' as const, brokerage: 'Schwab',
+    };
+    const made = await stopsApi.set(payload);
+
+    expect(api.calls.map(([url, init]) => [url, init?.method])).toEqual([
+      ['/api/portfolio/stops', 'POST'],
+    ]);
+    expect(JSON.parse(String(api.calls[0][1]?.body))).toEqual(payload);
+    expect(made.brokerage).toBe('Schwab');
+  });
 });

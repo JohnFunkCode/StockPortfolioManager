@@ -224,8 +224,12 @@ is live that same day. A buy that opens at or below the stop it asked for is rej
 position is opened without its stop, and a stop set this way replaces the one the holding
 already has (the dialog says so first). A stop can be taken off from the Portfolio page. The Portfolio page shows each holding's
 stop, and the Realized section says which sales a stop made.
-A trailing stop rises with each new high and never falls. Until the stop panel is built, a
-stop is set from a page only with a paper buy.
+A trailing stop rises with each new high and never falls. The stop panel on a security's
+Technical Analysis tab sets the stop on a holding, from one of the stop card's suggestions (with
+its reasoning, and open to an override) or by mirroring a stop order you already placed at a
+broker: its price and, if you like, its share count, order type and brokerage. A mirrored stop
+is real-book only, is recorded and never sent to the broker, and its breach alert says the
+broker's order should have filled.
 
 ### Migrations (Flyway)
 

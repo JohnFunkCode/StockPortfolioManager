@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { stopsApi } from '../api/stops';
+import type { SetStopPayload } from '../api/stops';
 
 /** The stop each holding of one book shows; null is the real book (#431).
  * The server picks: a symbol's live stop, or one a bar reached while the
@@ -19,6 +20,16 @@ export function useCancelStop(bookId: number | null = null) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (stopId: number) => stopsApi.cancel(stopId, bookId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolio-stops'] }),
+  });
+}
+
+/** Set the stop on a holding (step 4.5). The book is in the payload; every
+ * book's stops are read again, as a cancel does. */
+export function useSetStop() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SetStopPayload) => stopsApi.set(payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['portfolio-stops'] }),
   });
 }

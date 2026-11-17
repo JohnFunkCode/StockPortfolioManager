@@ -14,67 +14,8 @@ import { Alert, Button, Stack, TextField, ToggleButton, ToggleButtonGroup, Typog
 import { useStopLoss } from '../../hooks/useSecurities';
 import { useHoldingStops } from '../../hooks/useStops';
 import { formatCurrency } from '../../utils/formatting';
-import type { OrderStopPayload } from '../../api/orders';
-import type { StopLossResponse } from '../../api/securitiesTypes';
-
-/** The stop as the form holds it. `method` and `proposed` remember which of
- * the card's candidates filled the field, if one did: the figure can then be
- * edited, and the stop records both what was suggested and what was saved. */
-export interface StopDraft {
-  kind: 'fixed' | 'trailing';
-  value: string;
-  method: OrderStopPayload['method'];
-  proposed: number | null;
-}
-
-export const EMPTY_STOP: StopDraft = { kind: 'fixed', value: '', method: 'manual', proposed: null };
-
-/** The payload for a draft, or the reason it can't be sent. */
-export function stopPayload(draft: StopDraft): { stop: OrderStopPayload } | { error: string } {
-  const number = Number(draft.value);
-  const fixed = draft.kind === 'fixed';
-  if (!draft.value.trim() || !Number.isFinite(number) || number <= 0) {
-    return { error: fixed ? 'The stop level must be more than zero.' : 'The trail must be more than zero percent.' };
-  }
-  if (!fixed && number >= 100) return { error: 'The trail must be less than 100 percent.' };
-  return {
-    stop: {
-      kind: draft.kind,
-      ...(fixed ? { stop_level: number } : { trail_pct: number }),
-      method: draft.method,
-      ...(draft.proposed != null ? { proposed_level: draft.proposed } : {}),
-    },
-  };
-}
-
-interface Suggestion extends StopDraft {
-  label: string;
-}
-
-/** The stop card's candidates, as drafts. The confluence stop is there only
- * when a zone qualified. */
-function suggestions(stops: StopLossResponse['stops']): Suggestion[] {
-  const found: Suggestion[] = [
-    {
-      label: `Technical ${formatCurrency(stops.technical_stop)}`,
-      kind: 'fixed', value: String(stops.technical_stop), method: 'technical',
-      proposed: stops.technical_stop,
-    },
-    {
-      label: `Trailing ${stops.trailing_stop_pct}%`,
-      kind: 'trailing', value: String(stops.trailing_stop_pct), method: 'trailing',
-      proposed: stops.trailing_stop_price,
-    },
-  ];
-  if (stops.confluence_stop) {
-    found.push({
-      label: `Confluence ${formatCurrency(stops.confluence_stop.stop)}`,
-      kind: 'fixed', value: String(stops.confluence_stop.stop), method: 'confluence',
-      proposed: stops.confluence_stop.stop,
-    });
-  }
-  return found;
-}
+import { EMPTY_STOP, stopSuggestions } from './stopDraft';
+import type { StopDraft } from './stopDraft';
 
 interface Props {
   symbol: string;
@@ -133,9 +74,10 @@ export default function OrderStopField({ symbol, bookId, draft, onChange }: Prop
       ) : (
         <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
           <Typography variant="caption" color="text.secondary">From the stop card:</Typography>
-          {suggestions(card.data.stops).map(({ label, ...suggested }) => (
+          {stopSuggestions(card.data).map(({ label, reason, ...suggested }) => (
             <Button
               key={suggested.method}
+              title={reason}
               size="small"
               variant={draft.method === suggested.method ? 'contained' : 'outlined'}
               onClick={() => onChange(suggested)}

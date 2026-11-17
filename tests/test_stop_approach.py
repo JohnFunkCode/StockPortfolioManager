@@ -425,6 +425,13 @@ class ApproachMessageTest(unittest.TestCase):
         self.assertIn("(trailing 8%)", _stop_approach_line(
             approached(kind="trailing", trail_pct=D("8.0000"))))
 
+    def test_a_stop_at_a_broker_says_where_it_was_placed(self):
+        # Plan step 4.5.
+        self.assertEqual(
+            _stop_approach_line(approached(at_broker=True, brokerage="Fidelity")),
+            "INTC: closed at $20.60 on 2026-06-16, 0.6 ATR above its stop at $20.00 (fixed), "
+            "placed as a stop order at Fidelity")
+
     def test_the_message_lists_them_and_says_the_stops_were_not_reached(self):
         self.assertTrue(self.notifier.send_stop_approach_alert(
             [approached()], 3, "2026-06-16", D("1.0")))

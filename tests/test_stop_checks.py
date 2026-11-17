@@ -1001,13 +1001,28 @@ class NotifierStopMessagesTest(unittest.TestCase):
         self.assertEqual(
             line, "INTC: opened at $0.8125, below its stop at $0.9000 (trailing 8%) on 2026-06-16")
 
+    def test_a_stop_at_a_broker_says_its_order_should_have_filled(self):
+        # Plan step 4.5: the owner said the order is at a broker.
+        line = _stop_alert_line(reached_stop(
+            at_broker=True, brokerage="Schwab", broker_quantity=D("100"),
+            broker_order_type="stop_limit"))
+        self.assertEqual(
+            line,
+            "INTC: traded down to its stop at $20.00 (fixed) on 2026-06-16. The stop order "
+            "at Schwab for 100 shares (stop-limit) should have filled: check it")
+        self.assertEqual(
+            _stop_alert_line(reached_stop(at_broker=True)),
+            "INTC: traded down to its stop at $20.00 (fixed) on 2026-06-16. The stop order "
+            "should have filled: check it")
+
     def test_breach_alert_lists_the_stops_and_says_nothing_was_sold(self):
         self.assertTrue(self.notifier.send_stop_alert([reached_stop()], 3, "2026-06-16"))
         embed = self.sent[0]["embeds"][0]
         self.assertEqual(embed["title"], "3 stop(s) reached, reported 2026-06-16")
         self.assertIn("- INTC: traded down to its stop at $20.00", embed["description"])
         self.assertIn("- and 2 more, named on the next run", embed["description"])
-        self.assertIn("Nothing was sold", embed["description"])
+        self.assertIn("Nothing was recorded as sold", embed["description"])
+        self.assertIn("check the fill of a stop order placed there", embed["description"])
         self.assertNotIn("[PAPER]", self.sent[0]["content"])
 
     def test_breach_alert_is_unsent_only_when_the_send_says_so(self):

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { SALE_SOURCES, stopDetail, trailPercent } from './stopWords';
+import { SALE_SOURCES, brokerWords, stopDetail, trailPercent } from './stopWords';
 import { stopRow } from '../../testUtils';
 import type { Stop } from '../../api/stops';
 
@@ -46,8 +46,37 @@ describe('stopDetail', () => {
     expect(text).not.toContain('Nothing was sold');
   });
 
+  it('says where a stop mirrored from a broker was placed', () => {
+    const text = stopDetail(stop({
+      at_broker: true, brokerage: 'Schwab', broker_order_type: 'stop_limit', broker_quantity: 100,
+    }));
+    expect(text).toContain('Placed at Schwab as a stop-limit order for 100 shares. Not checked yet');
+  });
+
+  it('says a reached broker stop should have filled', () => {
+    const text = stopDetail(stop({
+      status: 'triggered', triggered_session: '2026-06-16', trigger_price: 44.1, at_broker: true,
+    }));
+    expect(text).toContain('Placed at a broker. That order should have filled: record the sale.');
+    expect(text).not.toContain('Nothing was sold');
+  });
+
   it('shows a method it does not know as it came', () => {
     expect(stopDetail(stop({ method: 'chandelier' }))).toContain('chandelier');
+  });
+});
+
+describe('brokerWords', () => {
+  it('is empty for a stop that exists only here', () => {
+    expect(brokerWords(stop())).toBe('');
+  });
+
+  it('says only what the owner gave', () => {
+    expect(brokerWords(stop({ at_broker: true }))).toBe('Placed at a broker.');
+    expect(brokerWords(stop({ at_broker: true, broker_order_type: 'trailing_stop' })))
+      .toBe('Placed at a broker as a trailing stop order.');
+    expect(brokerWords(stop({ at_broker: true, brokerage: 'Fidelity', broker_quantity: 2.5 })))
+      .toBe('Placed at Fidelity for 2.5 shares.');
   });
 });
 

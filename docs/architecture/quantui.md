@@ -117,7 +117,7 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   (`GET /api/portfolio/stops/holdings`); the page maps the answer by symbol and decides
   nothing. `StopCell` (a row-bound fragment) draws it, and lot rows show the symbol's live
   level. An active stop has a control that takes it off after a confirmation, in any book.
-  Setting a stop on a holding is step 4.5. The Realized
+  A stop is set on a holding from the stop panel on the Security page (step 4.5). The Realized
   section's expanded row has a Source column, and a stop's sale is a chip.
 - **A paper book can start as a copy of the real holdings** (#431 step 3.5). The New paper
   book dialog has a checkbox that calls the seed route after the create. If the copy fails
@@ -221,6 +221,18 @@ request is owned by the page, not by either card:
 The card is also the Sidekick component `stop_loss` (`{ticker}` only, `confluence=stop`) — never
 give it a cost-basis, shares or owner prop. The Signals tab's old *Risk & Stop-Loss Calibration*
 panel was retired into it; `/signals/risk` still feeds the Signals summary line.
+
+Under the two cards sits the **stop panel** (`StopPanel.tsx`, #431 step 4.5, #221), for an owner
+who holds the symbol in the real book or has a paper book. It shows the chosen book's stop on
+the symbol (from `GET /api/portfolio/stops/holdings`) and whether it is at a broker, and sets a
+new one through `POST /api/portfolio/stops` in one of two ways: **from the stop card**, whose
+candidates are listed with the card's reasoning and fill a field that can then be overridden
+(the stop keeps the card's method and level beside the saved one), or **by mirroring a broker
+order**, a price with an optional share count, order type and brokerage, real book only. Book
+chips choose the book when there is more than one. The panel is a form, like the Buy dialog's
+stop field: the card stays read-only and Sidekick-renderable, and the panel is not a registered
+component. Its card candidates come from the same `useStopLoss(ticker, 'full')` query the card
+uses, mounted only when the card path is open, so the panel adds no stop-loss request.
 
 The Signals tab's *Recent News & Sentiment* panel carries `SentimentTrendChart` (#411): weekly net
 sentiment from `/news/trend?bucket=week`, with a 4w / 13w / 26w window (13w by default). The server

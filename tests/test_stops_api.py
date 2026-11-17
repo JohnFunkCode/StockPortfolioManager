@@ -236,6 +236,90 @@ class SetStopTest(_Base):
             self.service.cancel_stop(owner=OTHER, stop_id=1, book_id=self.paper)
 
 
+class BrokerMirrorTest(_Base):
+    """A stop that mirrors an order placed at an outside broker (plan step 4.5)."""
+
+    def test_a_mirrored_stop_records_the_brokers_order(self):
+        stop = self.set_stop(
+            stop_level="88", at_broker=True, broker_quantity="4", broker_order_type="stop_limit",
+            brokerage="  Schwab  ",
+        )
+        self.assertEqual(
+            {k: stop[k] for k in (
+                "stop_level", "method", "at_broker", "broker_quantity", "broker_order_type",
+                "brokerage", "status")},
+            {"stop_level": D("88.00"), "method": "manual", "at_broker": True,
+             "broker_quantity": D("4"), "broker_order_type": "stop_limit",
+             "brokerage": "Schwab", "status": "active"},
+        )
+        self.assertEqual(self.service.list_stops(owner=OWNER)["stops"][0]["brokerage"], "Schwab")
+
+    def test_every_detail_is_optional(self):
+        stop = self.set_stop(at_broker=True)
+        self.assertEqual(
+            (stop["at_broker"], stop["broker_quantity"], stop["broker_order_type"],
+             stop["brokerage"]),
+            (True, None, None, None),
+        )
+
+    def test_a_stop_only_here_carries_no_broker_details(self):
+        stop = self.set_stop()
+        self.assertEqual(
+            (stop["at_broker"], stop["broker_quantity"], stop["broker_order_type"],
+             stop["brokerage"]),
+            (False, None, None, None),
+        )
+
+    def test_a_trailing_mirror_is_a_trailing_stop_order(self):
+        stop = self.set_stop(
+            kind="trailing", stop_level=None, trail_pct="8", at_broker=True,
+            broker_order_type="trailing_stop",
+        )
+        self.assertEqual((stop["kind"], stop["broker_order_type"]), ("trailing", "trailing_stop"))
+
+    def test_a_replacement_does_not_inherit_the_mirror(self):
+        mirrored = self.set_stop(at_broker=True, brokerage="Schwab")
+        here = self.set_stop(stop_level="95", now=LATER)
+        self.assertEqual(here["replaced_stop_id"], mirrored["stop_id"])
+        self.assertEqual((here["at_broker"], here["brokerage"]), (False, None))
+
+    def test_a_paper_book_has_no_broker(self):
+        with self.assertRaisesRegex(ValueError, "only a real book's stop can be at a broker"):
+            self.set_stop(book_id=self.paper, at_broker=True)
+        self.assertEqual(self.row_count(), 0)
+
+    def test_the_real_book_named_by_its_id_can_mirror(self):
+        real = next(b for b in self.books.list_books(owner=OWNER) if b["kind"] == "real")
+        stop = self.set_stop(book_id=real["book_id"], at_broker=True)
+        self.assertTrue(stop["at_broker"])
+
+    def test_more_shares_than_the_book_holds_is_refused(self):
+        with self.assertRaisesRegex(ValueError, "for 6 shares, and this book holds 5"):
+            self.set_stop(at_broker=True, broker_quantity="6")
+        self.assertEqual(self.row_count(), 0)
+        self.assertEqual(self.set_stop(at_broker=True, broker_quantity="5")["broker_quantity"], D("5"))
+
+    def test_bad_broker_details_are_refused_and_write_nothing(self):
+        cases = [
+            ({"brokerage": "Schwab"}, "set at_broker"),
+            ({"broker_quantity": "2"}, "set at_broker"),
+            ({"broker_order_type": "stop"}, "set at_broker"),
+            ({"at_broker": True, "broker_quantity": "0"}, "more than zero"),
+            ({"at_broker": True, "broker_quantity": "-1"}, "more than zero"),
+            ({"at_broker": True, "broker_quantity": "NaN"}, "finite"),
+            ({"at_broker": True, "broker_quantity": "1.0000001"}, "six decimal places"),
+            ({"at_broker": True, "broker_order_type": "trailing_stop"}, "must be one of stop, stop_limit"),
+            ({"at_broker": True, "broker_order_type": "market"}, "must be one of"),
+            ({"at_broker": True, "brokerage": "x" * 61}, "at most 60"),
+            ({"kind": "trailing", "stop_level": None, "trail_pct": "8", "at_broker": True,
+              "broker_order_type": "stop"}, "must be one of trailing_stop"),
+        ]
+        for overrides, message in cases:
+            with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, message):
+                self.set_stop(**overrides)
+        self.assertEqual(self.row_count(), 0)
+
+
 class CancelStopTest(_Base):
     def test_cancel_takes_an_active_stop_off_once(self):
         stop = self.set_stop()
@@ -481,3 +565,21 @@ class StopsRoutesTest(_Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_a_broker_mirror_over_the_route(self):
+        made = self.post(at_broker=True, broker_quantity="3", broker_order_type="stop",
+                         brokerage="Fidelity")
+        self.assertEqual(made.status_code, 201)
+        body = made.json()
+        self.assertEqual(
+            (body["at_broker"], body["broker_quantity"], body["broker_order_type"],
+             body["brokerage"]),
+            (True, 3, "stop", "Fidelity"),
+        )
+        holding = self.client.get("/api/portfolio/stops/holdings").json()["stops"][0]
+        self.assertEqual((holding["at_broker"], holding["brokerage"]), (True, "Fidelity"))
+        # A paper book has no broker, and an unknown order type is refused
+        # by the request model.
+        self.assertEqual(self.post(book_id=self.paper, at_broker=True).status_code, 422)
+        self.assertEqual(
+            self.post(at_broker=True, broker_order_type="market").status_code, 422)

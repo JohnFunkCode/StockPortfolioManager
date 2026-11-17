@@ -918,14 +918,17 @@ class ReportTriggeredStopsTest(unittest.TestCase):
         self.assertEqual(n.alerts, [(reached(2), 2, "2026-06-16")])
         stops.mark_alerted.assert_called_once_with(owner="john", stop_ids=[1, 2])
 
-    def test_a_long_list_is_cut_but_every_stop_is_marked(self):
+    def test_a_long_list_is_cut_and_only_the_stops_it_names_are_marked(self):
+        # The rest stay owed and are named on the next run (the #568 review).
         stops, n = mock.Mock(), FakeNotifier()
         many = reached(main.STOP_ALERT_MESSAGE_LINES + 3)
         stops.unalerted_triggers.return_value = many
-        main.report_triggered_stops(stops, n, "john", today=TUESDAY)
+        self.assertEqual(main.report_triggered_stops(stops, n, "john", today=TUESDAY),
+                         main.STOP_ALERT_MESSAGE_LINES)
         self.assertEqual((len(n.alerts[0][0]), n.alerts[0][1]),
                          (main.STOP_ALERT_MESSAGE_LINES, len(many)))
-        self.assertEqual(len(stops.mark_alerted.call_args.kwargs["stop_ids"]), len(many))
+        self.assertEqual(stops.mark_alerted.call_args.kwargs["stop_ids"],
+                         [s["stop_id"] for s in many[:main.STOP_ALERT_MESSAGE_LINES]])
 
     def test_a_refused_message_leaves_the_alert_owed(self):
         stops, n = mock.Mock(), FakeNotifier(accepted=False)
@@ -983,7 +986,7 @@ class NotifierStopMessagesTest(unittest.TestCase):
         embed = self.sent[0]["embeds"][0]
         self.assertEqual(embed["title"], "3 stop(s) reached, reported 2026-06-16")
         self.assertIn("- INTC: traded down to its stop at $20.00", embed["description"])
-        self.assertIn("- and 2 more", embed["description"])
+        self.assertIn("- and 2 more, named on the next run", embed["description"])
         self.assertIn("Nothing was sold", embed["description"])
         self.assertNotIn("[PAPER]", self.sent[0]["content"])
 

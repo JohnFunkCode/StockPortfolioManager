@@ -775,8 +775,10 @@ def report_triggered_stops(stops, notifier, owner, today=None) -> int:
     and a stop is marked alerted only after Discord took the message. So a
     failed send is made up on the next run, and a sent one is never repeated.
     Only ``owner``'s: the job's webhook is theirs. A paper book's stop is
-    reported by its sale, in the day's ``[PAPER]`` fills. Returns the number
-    of stops reported. **Never raises.**
+    reported by its sale, in the day's ``[PAPER]`` fills. A message names at
+    most ``STOP_ALERT_MESSAGE_LINES`` stops; only those are marked, and the
+    rest are named on the next run. Returns the number of stops named.
+    **Never raises.**
     """
     try:
         owed = stops.unalerted_triggers(owner=owner)
@@ -784,11 +786,14 @@ def report_triggered_stops(stops, notifier, owner, today=None) -> int:
             return 0
         day = (today or market_date()).isoformat()
         print(f"Reporting {len(owed)} stop(s) reached in the real book.")
-        if not notifier.send_stop_alert(owed[:STOP_ALERT_MESSAGE_LINES], len(owed), day):
+        named = owed[:STOP_ALERT_MESSAGE_LINES]
+        if not notifier.send_stop_alert(named, len(owed), day):
             print("ERROR: the stop alert was not sent; it stays owed.", file=sys.stderr)
             return 0
-        stops.mark_alerted(owner=owner, stop_ids=[s["stop_id"] for s in owed])
-        return len(owed)
+        # Only the stops the message named: the rest stay owed and are named
+        # on the next run (the #568 review).
+        stops.mark_alerted(owner=owner, stop_ids=[s["stop_id"] for s in named])
+        return len(named)
     except Exception as exc:  # noqa: BLE001 — an alert must not fail the job
         print(f"ERROR: stop alert failed: {type(exc).__name__}", file=sys.stderr)
         return 0
@@ -804,7 +809,8 @@ def report_approaching_stops(stops, notifier, owner, today=None) -> int:
     after Discord took the message, so a failed send is made up on the next
     run. A stop that stays close is announced once; one that moves away and
     comes back is announced again. Only ``owner``'s, for the breach alert's
-    reason. Returns the number of stops reported. **Never raises.**
+    reason. As there, only the stops the message names are marked. Returns
+    the number of stops named. **Never raises.**
     """
     try:
         owed = stops.unalerted_approaches(owner=owner)
@@ -812,12 +818,15 @@ def report_approaching_stops(stops, notifier, owner, today=None) -> int:
             return 0
         day = (today or market_date()).isoformat()
         print(f"Reporting {len(owed)} holding(s) close to their stop in the real book.")
+        named = owed[:STOP_ALERT_MESSAGE_LINES]
         if not notifier.send_stop_approach_alert(
-                owed[:STOP_ALERT_MESSAGE_LINES], len(owed), day, approach_atr_multiple()):
+                named, len(owed), day, approach_atr_multiple()):
             print("ERROR: the approach alert was not sent; it stays owed.", file=sys.stderr)
             return 0
-        stops.mark_approach_alerted(owner=owner, stop_ids=[s["stop_id"] for s in owed])
-        return len(owed)
+        # Only the stops the message named: the rest stay owed and are named
+        # on the next run (the #568 review).
+        stops.mark_approach_alerted(owner=owner, stop_ids=[s["stop_id"] for s in named])
+        return len(named)
     except Exception as exc:  # noqa: BLE001 — an alert must not fail the job
         print(f"ERROR: approach alert failed: {type(exc).__name__}", file=sys.stderr)
         return 0

@@ -930,6 +930,26 @@ class ReportTriggeredStopsTest(unittest.TestCase):
         self.assertEqual(stops.mark_alerted.call_args.kwargs["stop_ids"],
                          [s["stop_id"] for s in many[:main.STOP_ALERT_MESSAGE_LINES]])
 
+    def test_the_stops_a_long_list_left_out_are_named_on_the_next_run(self):
+        # A fake service whose owed list is what has not been marked (the
+        # #569 review): the second run names the three the first one left.
+        stops, n = mock.Mock(), FakeNotifier()
+        many = reached(main.STOP_ALERT_MESSAGE_LINES + 3)
+        marked = set()
+        stops.unalerted_triggers.side_effect = (
+            lambda owner: [s for s in many if s["stop_id"] not in marked])
+        stops.mark_alerted.side_effect = (
+            lambda owner, stop_ids: marked.update(stop_ids) or len(stop_ids))
+
+        main.report_triggered_stops(stops, n, "john", today=TUESDAY)
+        self.assertEqual(main.report_triggered_stops(stops, n, "john", today=TUESDAY), 3)
+        self.assertEqual((n.alerts[1][0], n.alerts[1][1]),
+                         (many[main.STOP_ALERT_MESSAGE_LINES:], 3))
+        self.assertEqual(marked, {s["stop_id"] for s in many})
+        # Nothing left: a third run sends nothing.
+        self.assertEqual(main.report_triggered_stops(stops, n, "john", today=TUESDAY), 0)
+        self.assertEqual(len(n.alerts), 2)
+
     def test_a_refused_message_leaves_the_alert_owed(self):
         stops, n = mock.Mock(), FakeNotifier(accepted=False)
         stops.unalerted_triggers.return_value = reached(1)

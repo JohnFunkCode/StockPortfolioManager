@@ -539,7 +539,9 @@ rules (`requested_stop`, `order_stop_terms`).
   known before anything is stored, so the request is a 422 and no order exists. A queued buy
   can only be checked at the open: it fills, no stop is written, and `stop_set` is `false`.
   It is not rejected, because that needs a reject reason the `CHECK` doesn't have, and
-  widening a `CHECK` is a dropped constraint.
+  widening a `CHECK` is a dropped constraint. A trailing stop is treated the same way when
+  its percentage is too small to give a price below the fill (0.0001% under $50.00 rounds
+  back to $50.00), and the message then says the trail is too small.
 - **`stop_set` says what became of the request**: `true` once the fill wrote the stop, `false`
   for the case above, NULL before the fill and on an order that asked for none.
 - **The stop is dated the moment of the fill**, so the checker first tests it against the next

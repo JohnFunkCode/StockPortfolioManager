@@ -433,6 +433,30 @@ def _int_or_none(v) -> Optional[int]:
     return int(v) if v is not None else None
 
 
+def _realized_sale_row(r) -> Dict[str, Any]:
+    """One `SQL_LIST_REALIZED_SALES` row: a sale with the basis of the lot it
+    closed, what prompted it, and the paper order that made it, when one did."""
+    return {
+        "sale_id": int(r["sale_id"]),
+        "lot_id": int(r["lot_id"]),
+        "symbol": _text(r["symbol"]).upper(),
+        "shares_sold": _dec(r["shares_sold"]),
+        "sale_price": _dec(r["sale_price"]),
+        "sale_trade_date": str(r["sale_trade_date"]),
+        "allocation_method": _or_none(r["allocation_method"]),
+        "notes": _or_none(r["notes"]),
+        "purchase_price": _dec(r["purchase_price"]),
+        "trade_date": str(r["trade_date"]) if r["trade_date"] else None,
+        "currency": _text(r["currency"], "USD").upper(),
+        "account": _or_none(r["account"]),
+        "fx_rate_at_purchase": _dec(r["fx_rate_at_purchase"]),
+        "fx_rate_at_sale": _dec(r["fx_rate_at_sale"]),
+        "source": r["source"],
+        "source_ref": _or_none(r["source_ref"]),
+        "order_id": _int_or_none(r["order_id"]),
+    }
+
+
 def _row_to_dict(row) -> Dict[str, Any]:
     """Map a positions row to the CSV-parity dict shape the REST layer expects.
 
@@ -847,30 +871,7 @@ class PortfolioRepository:
                 "start_date": start_date.isoformat() if start_date else None,
                 "end_date": end_date.isoformat() if end_date else None,
             }).fetchall()
-        return [
-            {
-                "sale_id": int(r["sale_id"]),
-                "lot_id": int(r["lot_id"]),
-                "symbol": (r["symbol"] or "").strip().upper(),
-                "shares_sold": _dec(r["shares_sold"]),
-                "sale_price": _dec(r["sale_price"]),
-                "sale_trade_date": str(r["sale_trade_date"]),
-                "allocation_method": r["allocation_method"] or None,
-                "notes": r["notes"] or None,
-                "purchase_price": _dec(r["purchase_price"]),
-                "trade_date": str(r["trade_date"]) if r["trade_date"] else None,
-                "currency": (r["currency"] or "USD").strip().upper(),
-                "account": r["account"] or None,
-                "fx_rate_at_purchase": _dec(r["fx_rate_at_purchase"]),
-                "fx_rate_at_sale": _dec(r["fx_rate_at_sale"]),
-                # What prompted the sale (manual, stop, ...), a pointer to it,
-                # and the paper order that made it, when one did.
-                "source": r["source"],
-                "source_ref": r["source_ref"] or None,
-                "order_id": int(r["order_id"]) if r["order_id"] is not None else None,
-            }
-            for r in rows
-        ]
+        return [_realized_sale_row(r) for r in rows]
 
     def list_lots_missing_fx(
         self, owner: str, *, book_id: Optional[int] = None

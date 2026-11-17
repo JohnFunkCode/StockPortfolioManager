@@ -221,7 +221,8 @@ the position is sold, at the stop's level or at the opening price when the stock
 A paper buy can carry a stop ("Add a stop" in the Buy dialog, with the stop card's suggestions):
 it is set when the buy fills, against the fill price. The Portfolio page shows each holding's
 stop, and the Realized section says which sales a stop made.
-A trailing stop rises with each new high and never falls. No page shows a stop yet.
+A trailing stop rises with each new high and never falls. No page sets or cancels a stop on a
+holding yet: until the stop panel is built, a stop is set from a page only with a paper buy.
 
 ### Migrations (Flyway)
 

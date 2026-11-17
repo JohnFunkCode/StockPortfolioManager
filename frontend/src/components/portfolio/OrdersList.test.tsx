@@ -204,4 +204,14 @@ describe('OrdersList', () => {
     expect(row(32).getByText('2 @ $50.00, the opening price. Stop not set: filled at or below it')).toBeInTheDocument();
     expect(row(33).getByText('Buy $500.00 of INTC, with a stop at $45.00')).toBeInTheDocument();
   });
+
+  it('says a trail was too small, not that the fill was below a level nobody gave', async () => {
+    mount(ordersResponse([
+      order({ order_id: 34, stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
+    ]));
+    await waitFor(() => expect(screen.getByTestId('orders-table')).toBeInTheDocument());
+    expect(
+      row(34).getByText('2 @ $50.00. Stop not set: the trail is too small to give a price below the fill'),
+    ).toBeInTheDocument();
+  });
 });

@@ -244,6 +244,14 @@ class StopOnAFilledBuyTest(_Base):
         self.assertEqual(self.all_stops(), [])
         self.assertEqual(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book), [])
 
+    def test_a_trail_too_small_to_give_a_level_is_bad_input_and_says_so(self):
+        # 0.0001% under $50.00 rounds back to $50.00: the owner gave no level
+        # to be "below", so the message is about the trail.
+        with self.assertRaisesRegex(ValueError, "the trail is too small.*which is 50.00"):
+            self.place(stop_kind="trailing", stop_trail_pct="0.0001")
+        self.assertEqual(self.order_count(), 0)
+        self.assertEqual(self.all_stops(), [])
+
     def test_a_buy_the_cash_cannot_cover_gets_no_stop(self):
         order = self.place(shares=500, stop_kind="fixed", stop_level="45")
         self.assertEqual((order["status"], order["reject_reason"], order["stop_set"]),
@@ -280,6 +288,8 @@ class BadStopRequestTest(_Base):
             ("only a buy can carry a stop", dict(side="sell", stop_kind="fixed", stop_level="45")),
             ("a stop needs a kind", dict(stop_level="45")),
             ("a stop needs a kind", dict(stop_trail_pct="5")),
+            ("a stop needs a kind", dict(stop_method="technical")),
+            ("a stop needs a kind", dict(stop_proposed_level="45")),
             ("kind must be fixed or trailing", dict(stop_kind="limit", stop_level="45")),
             ("needs a stop_level", dict(stop_kind="fixed")),
             ("stop_level is not a valid number", dict(stop_kind="fixed", stop_level="abc")),
@@ -327,6 +337,11 @@ class StopOnAQueuedBuyTest(_Base):
         self.assertEqual(self.all_stops(), [])
         self.assertEqual(
             len(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book)), 2)
+
+    def test_a_queued_trail_too_small_to_give_a_level_fills_with_no_stop(self):
+        filled = self.fill(self.queue(stop_kind="trailing", stop_trail_pct="0.0001"))
+        self.assertEqual((filled["status"], filled["stop_set"]), ("filled", False))
+        self.assertEqual(self.all_stops(), [])
 
     def test_a_cancelled_order_never_gets_its_stop(self):
         order = self.queue(stop_kind="fixed", stop_level="45")

@@ -348,6 +348,22 @@ describe('PaperOrderDialog', () => {
       expect(result).not.toHaveTextContent('Its stop is set');
     });
 
+    it('says a trail was too small when that is why the stop was not set', async () => {
+      mount(
+        {},
+        order({ stop_kind: 'trailing', stop_trail_pct: 0.0001, stop_method: 'manual', stop_set: false }),
+        [CARD],
+      );
+      type(/^Shares/, '2');
+      openStop();
+      fireEvent.click(screen.getByRole('button', { name: 'Trailing' }));
+      type(/Trail percent/, '0.0001');
+      buy();
+      expect(await screen.findByTestId('order-result')).toHaveTextContent(
+        'Bought INTC: 2 @ $50.00. Stop not set: the trail is too small to give a price below the fill.',
+      );
+    });
+
     it('shows the server\'s refusal of a stop that is not below the fill price', async () => {
       mount(
         {},

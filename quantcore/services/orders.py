@@ -184,7 +184,7 @@ def _stop_request(
     None when no `kind` is given. Raises `ValueError` for a stop on a sell,
     for stop terms sent with no kind, and for terms that are wrong."""
     if kind is None:
-        if any(v is not None for v in (level, trail_pct, proposed_level)):
+        if any(v is not None for v in (level, trail_pct, method, proposed_level)):
             raise ValueError("a stop needs a kind: fixed or trailing")
         return dict(_NO_STOP)
     if side != orders_math.BUY:
@@ -216,6 +216,18 @@ def _stop_terms(order: Dict[str, Any], price: Decimal) -> Optional[stops_math.St
         order["stop_kind"], stop_level=order["stop_level"],
         trail_pct=order["stop_trail_pct"], fill=price,
     )
+
+
+def _no_stop_at(kind: str, price: Decimal) -> str:
+    """Why a stop of `kind` can't be set on a buy that fills at `price`. A
+    fixed stop gave a level that isn't under it. A trailing stop gave no
+    level: its percentage is too small to reach the next price down."""
+    if kind == stops_math.TRAILING:
+        return (
+            f"the trail is too small: it works out to no price below the one the order "
+            f"fills at, which is {price}"
+        )
+    return f"the stop must be below the price the order fills at, which is {price}"
 
 
 def _public(order: Dict[str, Any], *, replayed: bool = False) -> Dict[str, Any]:
@@ -403,9 +415,7 @@ class OrdersService:
             plan.action == orders_math.FILL and stop["stop_kind"] is not None
             and _stop_terms(stop, plan.price) is None
         ):
-            raise ValueError(
-                f"the stop must be below the price the order fills at, which is {plan.price}"
-            )
+            raise ValueError(_no_stop_at(stop["stop_kind"], plan.price))
 
         with self._repo.transaction(owner=owner, book_id=book_id) as tx:
             order, created = tx.insert({

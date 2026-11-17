@@ -40,6 +40,11 @@ tests every active stop against the closed daily bars it has not seen
 - **Every stop records where its level came from**: the method, the level
   the analysis proposed, the level saved, the close it was set against and
   that close's date.
+- **A real book's stop can mirror an order placed at an outside broker**
+  (`at_broker`, plan step 4.5), with that order's share count, order type and
+  brokerage when the owner gives them. It is recorded, never placed or read
+  back: the checker treats it like any other stop, and its breach alert says
+  the broker's order should have filled. A paper book has no broker.
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -255,6 +260,10 @@ class StopsService:
         proposed_level: Any = None,
         source: str = stops_math.MANUAL,
         source_ref: Any = None,
+        at_broker: bool = False,
+        broker_quantity: Any = None,
+        broker_order_type: Any = None,
+        brokerage: Any = None,
         book_id: Optional[int] = None,
         now: Optional[datetime.datetime] = None,
     ) -> Dict[str, Any]:
@@ -266,9 +275,19 @@ class StopsService:
         analysis suggested, when one did. `replaced_stop_id` on the answer is
         the stop this one took over from, or None.
 
+        `at_broker` records that the stop mirrors an order the owner placed at
+        an outside broker (plan step 4.5), with that order's share count,
+        order type and brokerage when given. QuantCore places nothing and
+        reads nothing from the broker. Only a real book's stop can be at a
+        broker. Otherwise the stop is like any other: below the last close,
+        on a holding, replacing the symbol's live stop, and checked by the
+        daily job.
+
         Raises `ValueError` for bad input, a level at or above the last
-        close, a symbol the book doesn't hold, or an archived book, and
-        `BookNotFoundError` for a book that isn't the owner's.
+        close, a symbol the book doesn't hold, a broker order for more shares
+        than it holds, a paper book's stop said to be at a broker, or an
+        archived book, and `BookNotFoundError` for a book that isn't the
+        owner's.
         """
         symbol = _symbol(symbol)
         method = _one_of(method, stops_math.METHODS, "method")
@@ -278,6 +297,8 @@ class StopsService:
         book = self._book(owner, book_id)
         if book is not None and book["archived_at"] is not None:
             raise ValueError("an archived book takes no new stop")
+        if at_broker and book is not None and book["kind"] != REAL:
+            raise ValueError("only a real book's stop can be at a broker: a paper book has none")
         now = now or datetime.datetime.now(tz=datetime.timezone.utc)
 
         reference = self._reference(symbol, now)
@@ -286,6 +307,13 @@ class StopsService:
             stop_level=_level(stop_level, "stop_level"),
             trail_pct=_optional_number(trail_pct, "trail_pct"),
             reference=reference["price"],
+        )
+        broker = stops_math.broker_order(
+            terms.kind,
+            at_broker=bool(at_broker),
+            quantity=_optional_number(broker_quantity, "broker_quantity"),
+            order_type=broker_order_type,
+            brokerage=None if brokerage is None else str(brokerage),
         )
         return self._repo.set_stop(owner=owner, book_id=book_id, stop={
             "symbol": symbol,
@@ -300,6 +328,10 @@ class StopsService:
             "source": source,
             "source_ref": ref,
             "created_at": now,
+            "at_broker": broker.at_broker,
+            "broker_quantity": broker.quantity,
+            "broker_order_type": broker.order_type,
+            "brokerage": broker.brokerage,
         })
 
     def cancel_stop(

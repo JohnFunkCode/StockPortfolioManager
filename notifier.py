@@ -71,7 +71,33 @@ def _stop_alert_line(stop: dict) -> str:
         what = f"opened at {_money(stop['trigger_price'])}, below its stop at {level}"
     else:
         what = f"traded down to its stop at {level}"
-    return f"{stop['symbol']}: {what} ({kind}) on {stop['triggered_session']}"
+    line = f"{stop['symbol']}: {what} ({kind}) on {stop['triggered_session']}"
+    if stop.get("at_broker"):
+        line += f". The stop order{_broker_words(stop)} should have filled: check it"
+    return line
+
+
+# How a broker's order type reads in a message (plan step 4.5).
+_BROKER_ORDER_WORDS = {
+    "stop": "stop",
+    "stop_limit": "stop-limit",
+    "trailing_stop": "trailing stop",
+}
+
+
+def _broker_words(stop: dict) -> str:
+    """What the owner said about a stop's order at a broker, as words after
+    "stop order": " at Schwab for 100 shares (stop-limit)", or "" when they
+    gave none of it."""
+    words = ""
+    if stop.get("brokerage"):
+        words += f" at {stop['brokerage']}"
+    if stop.get("broker_quantity") is not None:
+        words += f" for {format_quantity(stop['broker_quantity'])} shares"
+    order_type = stop.get("broker_order_type")
+    if order_type:
+        words += f" ({_BROKER_ORDER_WORDS.get(order_type, order_type)})"
+    return words
 
 
 def _stop_kind_words(stop: dict) -> str:
@@ -86,6 +112,7 @@ def _stop_approach_line(stop: dict) -> str:
         f"{stop['symbol']}: closed at {_money(stop['approach_close'])} on "
         f"{stop['approached_session']}, {stop['atr_distance']:f} ATR above its stop at "
         f"{_money(stop['stop_level'])} ({_stop_kind_words(stop)})"
+        + (f", placed as a stop order{_broker_words(stop)}" if stop.get("at_broker") else "")
     )
 
 
@@ -667,8 +694,9 @@ class Notifier:
                     "title": f"{stop_count} stop(s) reached, reported {day}",
                     "description": (
                         "\n".join(lines)
-                        + "\nChecked against closed daily bars. Nothing was sold: sell at "
-                        "your broker, then record the sale."
+                        + "\nChecked against closed daily bars. Nothing was recorded as "
+                        "sold: sell at your broker, or check the fill of a stop order "
+                        "placed there, then record the sale."
                     ),
                     "color": 16711680,
                 }

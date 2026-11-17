@@ -55,7 +55,7 @@ Analysis tab and the Sidekick `stop_loss` card); the rest are still open.
 | **VWAP history** (multi-day series) | `GET /api/securities/{ticker}/vwap/history` | Chart overlay |
 | **On-demand news collection** (fetch + FinBERT + persist) | `POST /api/securities/{ticker}/news/collect` | A "refresh news" button (mirrors the existing options-snapshot refresh button) |
 | **Editing a sale's reason** (issue #266) | `PATCH /api/portfolio/sales/{id}` (and the standalone list, `GET /api/portfolio/sales`) | An edit control on a sale row in the Portfolio page's Realized section, which already lists each sale with its reason (#235). The client and hooks exist (`portfolioApi.getSales`/`updateSale`, `useSales`/`useUpdateSale`) but **no component calls them** |
-| **Setting a stored stop on a holding, and a book's full stop history** (a fixed or trailing stop, in any book; #431 plan step 4.1, #221) | `POST /api/portfolio/stops`, `GET /api/portfolio/stops` | The stop panel on the Security page (plan step 4.5). Today the page sets a stop only with a paper buy (step 4.3), through the orders route. It shows each holding's stop and can take one off, but nothing lists the stops a book has had |
+| **A book's full stop history** (every stop a book has had, and what became of it; #431 plan step 4.1, #221) | `GET /api/portfolio/stops?include_inactive=true` | A page or section listing a book's stops. Setting a stop is the stop panel on the Security page (step 4.5), and the Portfolio page shows each holding's current stop and can take one off, but nothing lists the stops a book has had |
 | **Portfolio CSV import** (full-sync per-owner) | `POST /api/portfolio/import` | Upload dialog on the Portfolio page — today it's the `scripts/import_portfolio.py` CLI only |
 | **Batch fundamental scoring** | `POST /api/securities/fundamentals/scores-batch` | An MCP/API convenience; not obviously a page |
 
@@ -270,8 +270,8 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | A book's cash: balance, opening balance, deposits, withdrawals, and the buy and sell entry of every lot and sale (#431 step 3.1) | — | `GET /api/portfolio/cash?book_id=`, `PUT /api/portfolio/cash/opening-balance`, `POST /api/portfolio/cash/entries`, `DELETE /api/portfolio/cash/entries/{entry_id}` | Portfolio page → Cash and orders section (entry forms for the real book only), and the cash figure in the summary strip | `cash_ledger` card, read-only (no data tool: the model shows the card and quotes no figure) | `scripts/backfill_cash_entries.py` (rows for lots and sales from before the ledger) |
 | A paper book's orders, each with its status and what became of it; cancel a pending one (#431 step 3.3) | — | `GET /api/portfolio/orders?book_id=`, `POST /api/portfolio/orders/{order_id}/cancel` | Portfolio page → Cash and orders section → Orders (paper books only) | — | — |
 | Buy and sell on paper; copy the real holdings into a new paper book; close an unquotable position at the last price on record (#431 step 3.5) | — | `POST /api/portfolio/orders`, `POST /api/portfolio/orders/seed`, `POST /api/portfolio/orders/manual-close` | Security Detail → Buy on paper; Portfolio page → Sell on a paper symbol row, the New paper book dialog, and an empty paper book | — | Daily job: one `[PAPER]` Discord message with the day's fills |
-| A holding's stored stop: its level, a trailing stop's percentage, and whether a closed bar reached it; take an active stop off (#431 plan steps 4.1 to 4.3, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops/holdings?book_id=`, `POST /api/portfolio/stops/{stop_id}/cancel`; the `stop` field of `POST /api/portfolio/orders` | Portfolio page → Holdings, the Stop column on symbol and lot rows, with its take-off control; Security Detail → Buy on paper → Add a stop | — | Daily job: the stop checker, and the real book's breach and approach alerts |
-| **⚠ Setting a stop on a holding; listing every stop a book has had** (#431 plan step 4.1, #221) | — | `POST /api/portfolio/stops`, `GET /api/portfolio/stops?book_id=&include_inactive=` | **—** (the stop panel is plan step 4.5) | — | — |
+| A holding's stored stop: its level, a trailing stop's percentage, whether it is at a broker, and whether a closed bar reached it; set one from the stop card's suggestions or by mirroring a broker order (real book only); take an active stop off (#431 plan steps 4.1 to 4.5, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops/holdings?book_id=`, `POST /api/portfolio/stops`, `POST /api/portfolio/stops/{stop_id}/cancel`; the `stop` field of `POST /api/portfolio/orders` | Portfolio page → Holdings, the Stop column on symbol and lot rows, with its take-off control; Security Detail → Technical Analysis → the stop panel; Security Detail → Buy on paper → Add a stop | — | Daily job: the stop checker, and the real book's breach and approach alerts |
+| **⚠ Listing every stop a book has had** (#431 plan step 4.1, #221) | — | `GET /api/portfolio/stops?book_id=&include_inactive=` | **—** | — | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / Security Detail remove action | — | — |
 | Lot lifecycle (create / edit / delete / close), with an optional reason on each purchase and sale (issue #266; `lot_notes` gives each lot of a multi-lot sale its own reason) | — | `POST`/`PATCH`/`DELETE /api/portfolio/lots[/{id}]`, `POST .../lots/{id}/close`, `POST .../lots/{id}/close/preview` (read-only: which lots a sale would touch) | Portfolio page lot dialogs, lot-row note icon + Edit note | — | — |
@@ -409,17 +409,17 @@ The WebUI reaches 75 of 129 REST operations. It has kept pace with portfolio, wa
 
 ## Appendix: REST operations with no WebUI consumer
 
-The 55 operations in `docs/openapi-surface.txt` that no production frontend component reaches
-(2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14 and left it the same day, with the Realized section; `POST portfolio/orders` joined it 2026-11-15 and left it 2026-11-16, with the order dialog; the three `portfolio/stops` operations joined it 2026-11-16). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
+The 53 operations in `docs/openapi-surface.txt` that no production frontend component reaches
+(2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14 and left it the same day, with the Realized section; `POST portfolio/orders` joined it 2026-11-15 and left it 2026-11-16, with the order dialog; the three `portfolio/stops` operations joined it 2026-11-16; the cancel left it 2026-11-17 with the Portfolio page's take-off control, and `POST portfolio/stops` the same day with the stop panel). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
 `chatStream.ts`, keep only the ones whose client method has a non-test caller in `hooks/`,
 `components/` or `chat/`, and diff that set against the surface file. Three client methods look
 like coverage and aren't: `portfolioApi.getLots`, `rungsApi.list` and `rungsApi.get` have no
 callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 
-**Gaps — listed in the ⭐ section above (34):**
+**Gaps — listed in the ⭐ section above (32):**
 `GET /api/options/screen-watchlist` · `GET /api/portfolio/sales` ·
 `PATCH /api/portfolio/sales/{sale_id}` · `POST /api/portfolio/import` ·
-`GET /api/portfolio/stops` · `POST /api/portfolio/stops` · `POST /api/portfolio/stops/{stop_id}/cancel` ·
+`GET /api/portfolio/stops` ·
 `POST /api/securities/fundamentals/scores-batch` · and under `/api/securities/{ticker}/`:
 `anchored-vwap`, `atr-bands`, `volume-profile`, `vwap/history`, `relative-strength`,
 `relative-strength/history`, `recommendation`, `microstructure`, `short-interest`,
@@ -448,7 +448,9 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 ---
 
 **Document Version:** 2.6
-**Last Updated:** 2026-11-17 (#431, John's decisions on the 4.3 build: a new `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, and the Portfolio page reads it and can take a stop off through the cancel route. The page no longer reads the full list route. 75 of 129 operations reached, 54 left, 34 gaps; 28 tables)
+**Last Updated:** 2026-11-17 (#431 step 4.5: the stop panel on the Security page sets a stop through `POST /api/portfolio/stops`, from the stop card or by mirroring a broker order. The cancel route, reached by the Portfolio page since John's decisions on the 4.3 build, had stayed in the gap list. 76 of 129 operations reached, 53 left, 32 gaps; 28 tables)
+
+**Earlier:** 2026-11-17 (#431, John's decisions on the 4.3 build: a new `GET /api/portfolio/stops/holdings` gives the one stop each holding shows, and the Portfolio page reads it and can take a stop off through the cancel route. The page no longer reads the full list route. 75 of 129 operations reached, 54 left, 34 gaps; 28 tables)
 
 **Earlier:** 2026-11-16 (#431 step 4.3: the Portfolio page now reads `GET /api/portfolio/stops`, so 74 of 128 operations are reached and 54 are left. Setting and cancelling a stop are still reached by no component. A paper buy can carry a stop, through the existing orders route. 34 gaps; 28 tables)
 

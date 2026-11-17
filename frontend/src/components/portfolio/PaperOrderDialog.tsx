@@ -38,8 +38,9 @@ import { useManualClose, usePlaceOrder } from '../../hooks/useOrders';
 import { newIdempotencyKey } from '../../api/orders';
 import { formatCurrency, formatDate, formatShares } from '../../utils/formatting';
 import { outcome, REJECT_REASONS, stopOutcome, UNQUOTED_REASONS } from './orderWords';
-import OrderStopField, { EMPTY_STOP, stopPayload } from './OrderStopField';
-import type { StopDraft } from './OrderStopField';
+import OrderStopField from './OrderStopField';
+import { EMPTY_STOP, stopPayload } from './stopDraft';
+import type { StopDraft } from './stopDraft';
 import type { Book } from '../../api/books';
 import type { Order } from '../../api/orders';
 

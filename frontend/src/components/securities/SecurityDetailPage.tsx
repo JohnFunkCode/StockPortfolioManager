@@ -39,6 +39,7 @@ import PaperOrderDialog from '../portfolio/PaperOrderDialog';
 import SignalsTab from './SignalsTab';
 import SupportConfluenceCard from './SupportConfluenceCard';
 import StopLossCard from './StopLossCard';
+import StopPanel from './StopPanel';
 import PriceChart from './charts/PriceChart';
 import RSIChart from './charts/RSIChart';
 import MACDChart from './charts/MACDChart';
@@ -961,6 +962,17 @@ export default function SecurityDetailPage() {
 
           {/* Stop-loss synthesis, then the confluence zones it embeds (#399) */}
           <TechnicalStopAndConfluence ticker={ticker} />
+
+          {/* The stop on a holding: set from the card, or mirrored from a
+              broker (#431 step 4.5, #221). Shown to an owner who holds the
+              symbol or has a paper book. */}
+          {(source === 'portfolio' || source === 'both' || paperBooks.length > 0) && (
+            <StopPanel
+              symbol={ticker}
+              heldInReal={source === 'portfolio' || source === 'both'}
+              paperBooks={paperBooks}
+            />
+          )}
         </Stack>
       )}
 

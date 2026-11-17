@@ -5,6 +5,7 @@ import { Route, Routes } from 'react-router-dom';
 
 import SecurityDetailPage from './SecurityDetailPage';
 import {
+  holdingStops,
   indicatorRows,
   makeQueryClient,
   ivExpirations,
@@ -61,6 +62,8 @@ function armAll(overrides: Record<string, unknown> = {}) {
     // Technical Analysis tab: one stop-loss request embeds the confluence result.
     ['/stop-loss', overrides.stopLoss ?? stopLossResponse({ symbol: 'INTC', confluence: CONFLUENCE })],
     ['/support-confluence', CONFLUENCE],
+    // The stop panel (#431 step 4.5) reads the chosen book's holding stops.
+    ['/api/portfolio/stops/holdings', holdingStops([])],
     [/\/api\//, {}],
   ]);
 }
@@ -146,6 +149,27 @@ describe('SecurityDetailPage', () => {
       '/api/securities/INTC/stop-loss?confluence=full&position=mine',
     ]);
     expect(urls.some((u) => u.includes('/support-confluence'))).toBe(false);
+  });
+
+  it('puts the stop panel under the stop card for a held name (#431 step 4.5)', async () => {
+    const api = armAll();
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    const panel = await screen.findByTestId('stop-panel');
+    const card = await screen.findByTestId('stop-loss-card');
+    expect(card.compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(await within(panel).findByText('No stop in this book.')).toBeInTheDocument();
+    expect(api.calls.some(([url]) => url === '/api/portfolio/stops/holdings')).toBe(true);
+    // The panel asks for no stop-loss of its own until its form is opened.
+    expect(stopLossUrls(api)).toEqual(['/api/securities/INTC/stop-loss?confluence=full&position=mine']);
+  });
+
+  it('offers no stop panel for a watchlist-only name and no paper book', async () => {
+    armAll({ source: 'watchlist' });
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: 'Technical Analysis' }));
+    await screen.findByTestId('stop-loss-card');
+    expect(screen.queryByTestId('stop-panel')).toBeNull();
   });
 
   it('shows Support Confluence before the Stop-Loss card', async () => {

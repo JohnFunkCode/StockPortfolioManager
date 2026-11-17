@@ -572,7 +572,8 @@ rules (`requested_stop`, `order_stop_terms`).
 A stop is the owner's decision to get out of a holding at a level (`stops`, V19 and V20, #431
 phase 2 and #221, plan steps 4.1 and 4.2). The table records the decision, and the daily job
 tests it against closed bars ([the stop checker](#the-stop-checker), below). Nothing here places
-an order at a broker.
+an order at a broker or reads one: a stop marked `at_broker` mirrors an order the owner placed
+there (step 4.5, below).
 
 - **A stop is set on a symbol in one book, not on a lot.** Lots bought later are covered by the
   same stop. Both kinds of book take stops.
@@ -604,6 +605,17 @@ an order at a broker.
   `source_ref`. It is a trade's source list without `stop`. Only `manual` has a writer, and no
   route takes a source.
 - **An archived book takes no new stop.** One it already has can still be cancelled.
+- **A real book's stop can mirror an order placed at an outside broker** (`at_broker`, V26,
+  plan step 4.5). The owner says the order exists and, if they like, its share count
+  (`broker_quantity`), order type (`broker_order_type`: `stop` or `stop_limit` for a fixed
+  stop, `trailing_stop` for a trailing one) and `brokerage`. `stops_broker_details_rule` lets
+  only a stop at a broker carry the three. A paper book has no broker, so `StopsService` refuses
+  `at_broker` there (422). The share count is checked against the book's holding under the
+  book's lock, and is otherwise only a record. QuantCore never reads the broker: a mirrored
+  stop is set, replaced, checked and alerted like any other, its trailing mark is QuantCore's
+  own, and a replacement does not inherit the mirror. The breach alert says the broker's order
+  should have filled, and names where it was placed. `broker_order_type` has no `CHECK`, for
+  `method`'s reason.
 
 `analytics/stored_stops.py` works out a stop's terms; `StopsRepository` is the SQL;
 `StopsService` validates and orchestrates. Served by `api/routers/stops.py`:
@@ -611,9 +623,8 @@ an order at a broker.
 | Route | What it does |
 |---|---|
 | `GET /api/portfolio/stops?book_id=&include_inactive=` | a book's active stops, newest first, and how many are active. `include_inactive=true` adds the ones that ended. Without `book_id`, the real book. The read creates no book. 404 for a book that isn't the owner's |
-| `POST /api/portfolio/stops` | set the stop on a holding: `symbol`, `kind`, `stop_level` (fixed) or `trail_pct` (trailing), and optionally `method`, `proposed_level`, `book_id`. 201 with the stop, whose `replaced_stop_id` names the one it took over from. 422 for a symbol the book doesn't hold, a level at or above the last close, or an archived book |
+| `POST /api/portfolio/stops` | set the stop on a holding: `symbol`, `kind`, `stop_level` (fixed) or `trail_pct` (trailing), and optionally `method`, `proposed_level`, `book_id`, and `at_broker` with `broker_quantity`, `broker_order_type` and `brokerage`. 201 with the stop, whose `replaced_stop_id` names the one it took over from. 422 for a symbol the book doesn't hold, a level at or above the last close, an archived book, a paper book's stop said to be at a broker, broker details without `at_broker`, or a broker order for more shares than the book holds |
 | `POST /api/portfolio/stops/{stop_id}/cancel?book_id=` | take an active stop off. 404 for a stop that isn't in that book, 422 for one that is no longer active |
-
 | `GET /api/portfolio/stops/holdings?book_id=` | the one stop each holding shows, in symbol order: the symbol's newest stop when it is active, or was reached while a lot was already open. 404 for a book that isn't the owner's |
 
 **The server picks the stop a holding shows** (`analytics.stored_stops.holding_stops`,
@@ -624,9 +635,12 @@ position bought back later was never under it. The read is two queries, makes no
 call and creates no book.
 
 The Portfolio page reads the holdings route and can take an active stop off through the cancel
-route, in any book (plan step 4.3 and decision 67). No component sets a stop through
-`POST /api/portfolio/stops` yet: the stop panel is step 4.5, and until then the page sets a stop
-only [with a paper buy](#a-stop-on-a-buy). No MCP tool or Sidekick tool reads a stop (step 5.4).
+route, in any book (plan step 4.3 and decision 67). The **stop panel** on the Security page's
+Technical Analysis tab (`StopPanel`, step 4.5) sets one through `POST /api/portfolio/stops`, in
+the real book or a paper book: from one of the stop-loss card's candidates, shown with the
+card's reasoning and open to an override, or by mirroring a broker order (real book only). A
+paper buy still sets its own [on its fill](#a-stop-on-a-buy). No MCP tool or Sidekick tool
+reads a stop (step 5.4).
 
 #### The stop checker
 

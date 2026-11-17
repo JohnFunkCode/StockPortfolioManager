@@ -204,6 +204,40 @@ class StopRowsTest(_Base):
                     )
                 conn.rollback()
 
+    def test_only_a_stop_at_a_broker_carries_its_orders_details(self):
+        # Plan step 4.5: `stops_broker_details_rule` and the quantity's CHECK.
+        book = self.books.ensure_real_book(owner=OWNER)
+        bad = [
+            (False, D("2"), None, None),
+            (False, None, "stop", None),
+            (False, None, None, "Schwab"),
+            (True, D("0"), None, None),
+        ]
+        for at_broker, quantity, order_type, brokerage in bad:
+            with self.subTest(at_broker=at_broker, quantity=quantity, order_type=order_type,
+                              brokerage=brokerage), closing(get_connection()) as conn:
+                with self.assertRaises(psycopg2.errors.CheckViolation):
+                    conn.execute(
+                        "INSERT INTO stops (owner, book_id, symbol_id, kind, stop_level, "
+                        "as_of, at_broker, broker_quantity, broker_order_type, brokerage) "
+                        "VALUES (%s, %s, (SELECT symbol_id FROM symbols WHERE ticker = %s), "
+                        "'fixed', 90, %s, %s, %s, %s, %s)",
+                        (OWNER, book, SYMBOL, DAY, at_broker, quantity, order_type, brokerage),
+                    )
+                conn.rollback()
+
+    def test_a_mirrored_stop_round_trips(self):
+        stop = self.repo.set_stop(owner=OWNER, stop=fixed(
+            at_broker=True, broker_quantity=D("2.5"), broker_order_type="stop",
+            brokerage="Schwab"))
+        self.assertEqual(
+            (stop["at_broker"], stop["broker_quantity"], stop["broker_order_type"],
+             stop["brokerage"]),
+            (True, D("2.5"), "stop", "Schwab"),
+        )
+        plain = self.repo.set_stop(owner=OWNER, stop=fixed("91.00", created_at=LATER))
+        self.assertEqual((plain["at_broker"], plain["brokerage"]), (False, None))
+
     def test_the_database_allows_one_active_stop_per_symbol_per_book(self):
         self.repo.set_stop(owner=OWNER, stop=fixed())
         book = self.books.ensure_real_book(owner=OWNER)

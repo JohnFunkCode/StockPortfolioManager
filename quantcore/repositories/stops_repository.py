@@ -72,7 +72,11 @@ SELECT
     st.approached_session  AS approached_session,
     st.approach_close      AS approach_close,
     st.approach_atr        AS approach_atr,
-    st.approach_alerted_at AS approach_alerted_at
+    st.approach_alerted_at AS approach_alerted_at,
+    st.at_broker           AS at_broker,
+    st.broker_quantity     AS broker_quantity,
+    st.broker_order_type   AS broker_order_type,
+    st.brokerage           AS brokerage
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -111,7 +115,11 @@ SELECT
     st.approached_session  AS approached_session,
     st.approach_close      AS approach_close,
     st.approach_atr        AS approach_atr,
-    st.approach_alerted_at AS approach_alerted_at
+    st.approach_alerted_at AS approach_alerted_at,
+    st.at_broker           AS at_broker,
+    st.broker_quantity     AS broker_quantity,
+    st.broker_order_type   AS broker_order_type,
+    st.brokerage           AS brokerage
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -204,6 +212,11 @@ class SymbolNotHeldError(ValueError):
     `ValueError`, so a route answers 422 for it."""
 
 
+class BrokerQuantityError(ValueError):
+    """A broker's stop order said to be for more shares than the book holds
+    (plan step 4.5). A `ValueError`, so a route answers 422 for it."""
+
+
 def _dec(v) -> Optional[Decimal]:
     return Decimal(str(v)) if v is not None else None
 
@@ -235,6 +248,10 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "approach_close": _dec(row["approach_close"]),
         "approach_atr": _dec(row["approach_atr"]),
         "approach_alerted_at": row["approach_alerted_at"],
+        "at_broker": bool(row["at_broker"]),
+        "broker_quantity": _dec(row["broker_quantity"]),
+        "broker_order_type": row["broker_order_type"] or None,
+        "brokerage": row["brokerage"] or None,
     }
 
 
@@ -276,20 +293,32 @@ class StopsRepository:
 
         `stop` carries `symbol`, `kind`, `stop_level`, `trail_pct`,
         `high_water_mark`, `method`, `proposed_level`, `reference_price`,
-        `as_of`, `source`, `source_ref` and `created_at`.
+        `as_of`, `source`, `source_ref` and `created_at`, and for a stop at
+        an outside broker `at_broker` and its order's details (plan step 4.5).
 
         Raises `SymbolNotHeldError` when the book holds no OPEN lot of the
-        symbol, and `BookNotFoundError` for a book that isn't this owner's.
-        Either way nothing is written.
+        symbol, `BrokerQuantityError` when the broker's order is for more
+        shares than the book holds, and `BookNotFoundError` for a book that
+        isn't this owner's. Either way nothing is written.
         """
         ticker = stop["symbol"]
         with closing(get_connection()) as conn:
             try:
                 book = resolve_book_id(conn, owner=owner, book_id=book_id)
                 conn.execute(SQL_LOCK_BOOK, {"owner": owner, "book_id": book})
-                if not self._lots.open_lots_on(conn, owner, ticker, book_id=book):
+                lots = self._lots.open_lots_on(conn, owner, ticker, book_id=book)
+                if not lots:
                     raise SymbolNotHeldError(
                         f"a stop needs a holding: this book has no open lot of {ticker}"
+                    )
+                # Read under the book's lock, so a sale can't shrink the
+                # holding between this check and the insert.
+                held = sum((lot["quantity"] or Decimal("0")) for lot in lots)
+                wanted = stop.get("broker_quantity")
+                if wanted is not None and wanted > held:
+                    raise BrokerQuantityError(
+                        f"the broker's order is for {wanted.normalize():f} shares, and this "
+                        f"book holds {held.normalize():f} of {ticker}"
                     )
                 stop_id, replaced = set_stop_on(conn, owner=owner, book_id=book, stop=stop)
                 row = conn.execute(

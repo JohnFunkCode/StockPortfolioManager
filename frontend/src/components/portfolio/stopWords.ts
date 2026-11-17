@@ -22,6 +22,26 @@ export const SALE_SOURCES: Record<string, string> = {
   ai: 'AI',
 };
 
+/** How a broker's order type reads (step 4.5). */
+export const BROKER_ORDER_WORDS: Record<string, string> = {
+  stop: 'stop',
+  stop_limit: 'stop-limit',
+  trailing_stop: 'trailing stop',
+};
+
+/** Where a stop lives, in words: "Placed at Schwab as a stop-limit order for
+ * 100 shares." for one the owner mirrored from a broker, or "" for a stop
+ * that exists only here. Only what the owner gave is said. */
+export function brokerWords(stop: Stop): string {
+  if (!stop.at_broker) return '';
+  const where = stop.brokerage ? ` at ${stop.brokerage}` : ' at a broker';
+  const how = stop.broker_order_type
+    ? ` as a ${BROKER_ORDER_WORDS[stop.broker_order_type] ?? stop.broker_order_type} order`
+    : '';
+  const size = stop.broker_quantity != null ? ` for ${Number(stop.broker_quantity)} shares` : '';
+  return `Placed${where}${how}${size}.`;
+}
+
 /** A percentage as typed: "8%", "7.5%". */
 export function trailPercent(pct: number | null): string {
   return pct == null ? '' : `${Number(pct)}%`;
@@ -35,8 +55,9 @@ export function stopDetail(stop: Stop, paper = false): string {
     const reached =
       `A closed bar on ${formatDate(stop.triggered_session)} reached this stop at ` +
       `${formatCurrency(stop.trigger_price)}.`;
-    return paper
-      ? `${reached} The position was sold at that price.`
+    if (paper) return `${reached} The position was sold at that price.`;
+    return stop.at_broker
+      ? `${reached} ${brokerWords(stop)} That order should have filled: record the sale. The holding has no stop now.`
       : `${reached} Nothing was sold: a real book's stop is an alert. The holding has no stop now.`;
   }
   const terms =
@@ -49,5 +70,6 @@ export function stopDetail(stop: Stop, paper = false): string {
     : stop.first_session
       ? `Not checked yet: the first check is against the bar of ${formatDate(stop.first_session)}, the day its buy filled at the open.`
       : 'Not checked yet: the first check is against the next session to open after it was set.';
-  return `${terms}, ${how}, set ${formatDate(stop.created_at.slice(0, 10))}. ${checked}`;
+  const broker = brokerWords(stop);
+  return `${terms}, ${how}, set ${formatDate(stop.created_at.slice(0, 10))}. ${broker ? `${broker} ` : ''}${checked}`;
 }

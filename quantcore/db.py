@@ -442,6 +442,22 @@ ALTER TABLE stops
              AND (approached_session IS NULL) = (approach_atr IS NULL)
              AND (approach_alerted_at IS NULL OR approached_session IS NOT NULL));
 
+-- V26 (#431 phase 2 and #221, plan step 4.5): a stop that mirrors an order
+-- placed at an outside broker. Mirrors db/migrations/V26__stop_at_broker.sql.
+-- at_broker is true when the order exists at a broker, and the three details
+-- of that order are carried only then. Only a real book's stop is at a broker.
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS at_broker         BOOLEAN       NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS broker_quantity   NUMERIC(18,6) CHECK (broker_quantity > 0),
+  ADD COLUMN IF NOT EXISTS broker_order_type TEXT;
+
+ALTER TABLE stops
+  ADD COLUMN IF NOT EXISTS brokerage TEXT
+      CONSTRAINT stops_broker_details_rule
+      CHECK (at_broker
+             OR (broker_quantity IS NULL AND broker_order_type IS NULL
+                 AND brokerage IS NULL));
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

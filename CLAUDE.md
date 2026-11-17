@@ -314,8 +314,10 @@ lot. Rules to keep:
   symbol the book holds an OPEN lot of, and its level sits below the last stored close
   (`PricesService.last_close`, zero network; don't add a live quote there). A trailing stop
   stores the level worked out from its percentage and high-water mark, and the owner types no
-  mark. No route takes a `source` or a status. `method` has no `CHECK` on purpose. Why:
-  [`data.md`](docs/architecture/data.md#stored-stops).
+  mark. No route takes a `source` or a status. `method` has no `CHECK` on purpose. **A stop
+  marked `at_broker` mirrors an order the owner placed at a broker, and only a real book's
+  can be** (step 4.5): QuantCore records it and never places, reads or syncs a broker order.
+  Why: [`data.md`](docs/architecture/data.md#stored-stops).
 - **A paper buy's stop is written by its fill, never before** (`orders.stop_*`, step 4.3). The
   order holds what was asked; `OrdersService._attach_stop` writes the `stops` row on the fill's
   transaction, against the fill price. A queued buy has no stop until it fills, and a rejected

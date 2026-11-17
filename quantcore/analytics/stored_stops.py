@@ -85,6 +85,95 @@ _PCT_STEP = Decimal("0.0001")
 _ZERO = Decimal("0")
 _HUNDRED = Decimal("100")
 
+# The order a stop at an outside broker was placed as (plan step 4.5). A
+# trailing stop is placed as a trailing stop; a fixed one as a stop (a market
+# order once triggered) or a stop limit. `stops.broker_order_type` has no
+# CHECK, for the reason `method` has none.
+STOP_ORDER = "stop"
+STOP_LIMIT_ORDER = "stop_limit"
+TRAILING_STOP_ORDER = "trailing_stop"
+BROKER_ORDER_TYPES = (STOP_ORDER, STOP_LIMIT_ORDER, TRAILING_STOP_ORDER)
+_ORDER_TYPES_FOR_KIND = {
+    FIXED: (STOP_ORDER, STOP_LIMIT_ORDER),
+    TRAILING: (TRAILING_STOP_ORDER,),
+}
+MAX_BROKERAGE_LENGTH = 60
+# `broker_quantity` is NUMERIC(18,6), as a lot's quantity is.
+_QUANTITY_STEP = Decimal("0.000001")
+
+
+@dataclass(frozen=True)
+class BrokerOrder:
+    """What is stored about a stop's order at an outside broker. Every field
+    is None for a stop that exists only here."""
+
+    at_broker: bool = False
+    quantity: Optional[Decimal] = None
+    order_type: Optional[str] = None
+    brokerage: Optional[str] = None
+
+
+NOT_AT_BROKER = BrokerOrder()
+
+
+def broker_order(
+    kind: str,
+    *,
+    at_broker: bool,
+    quantity: Optional[Decimal] = None,
+    order_type: Optional[str] = None,
+    brokerage: Optional[str] = None,
+) -> BrokerOrder:
+    """The broker details of a stop of `kind`, checked, or a `ValueError`
+    saying what is wrong with them.
+
+    A stop that isn't at a broker takes no details: a quantity, order type
+    or brokerage with `at_broker` false is refused, not dropped, since the
+    caller meant something by it. At a broker each detail is optional. The
+    quantity is a positive number of shares (whether the book holds that many
+    is the caller's to check), the order type must suit the kind, and the
+    brokerage is trimmed text, empty read as none.
+    """
+    name = (brokerage or "").strip() or None
+    if not at_broker:
+        if any(detail is not None for detail in (quantity, order_type, name)):
+            raise ValueError(
+                "a quantity, order type or brokerage describes an order at a broker: "
+                "set at_broker to give them"
+            )
+        return NOT_AT_BROKER
+    return BrokerOrder(
+        True, _broker_quantity(quantity), _broker_order_type(kind, order_type),
+        _brokerage(name),
+    )
+
+
+def _broker_quantity(quantity: Optional[Decimal]) -> Optional[Decimal]:
+    """A broker order's share count, checked: positive, at a lot's precision."""
+    if quantity is None:
+        return None
+    if quantity <= _ZERO:
+        raise ValueError("broker_quantity must be more than zero")
+    if quantity != quantity.quantize(_QUANTITY_STEP):
+        raise ValueError("broker_quantity can have at most six decimal places")
+    return quantity
+
+
+def _broker_order_type(kind: str, order_type: Optional[str]) -> Optional[str]:
+    """A broker order's type, checked against the kinds of order that suit
+    a stop of `kind`."""
+    allowed = _ORDER_TYPES_FOR_KIND.get(kind, ())
+    if order_type is not None and order_type not in allowed:
+        raise ValueError(f"a {kind} stop's broker_order_type must be one of {', '.join(allowed)}")
+    return order_type
+
+
+def _brokerage(name: Optional[str]) -> Optional[str]:
+    """A brokerage's name, already trimmed, checked for length."""
+    if name is not None and len(name) > MAX_BROKERAGE_LENGTH:
+        raise ValueError(f"brokerage can be at most {MAX_BROKERAGE_LENGTH} characters")
+    return name
+
 
 @dataclass(frozen=True)
 class StopTerms:

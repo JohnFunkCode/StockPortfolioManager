@@ -94,12 +94,12 @@ SQL_INSERT_STOP = """
 INSERT INTO stops (
     owner, book_id, symbol_id, kind, stop_level, trail_pct, high_water_mark,
     method, proposed_level, reference_price, as_of, source, source_ref, created_at,
-    first_session
+    first_session, at_broker, broker_quantity, broker_order_type, brokerage
 ) VALUES (
     :owner, :book_id, (SELECT symbol_id FROM symbols WHERE ticker = :ticker), :kind,
     :stop_level, :trail_pct, :high_water_mark,
     :method, :proposed_level, :reference_price, :as_of, :source, :source_ref, :created_at,
-    :first_session
+    :first_session, :at_broker, :broker_quantity, :broker_order_type, :brokerage
 )
 RETURNING stop_id;
 """
@@ -135,7 +135,10 @@ def set_stop_on(
     `kind`, `stop_level`, `trail_pct`, `high_water_mark`, `method`,
     `proposed_level`, `reference_price`, `as_of`, `source`, `source_ref` and
     `created_at`, and optionally `first_session`: the session a buy filled in
-    at the open, for the stop that buy asked for.
+    at the open, for the stop that buy asked for. A stop that mirrors an
+    order at an outside broker (plan step 4.5) also carries `at_broker` true
+    and, when given, `broker_quantity`, `broker_order_type` and `brokerage`;
+    without them a stop is one that exists only here.
     """
     scope = {"owner": owner, "book_id": book_id, "ticker": stop["symbol"]}
     replaced = conn.execute(
@@ -155,6 +158,10 @@ def set_stop_on(
         "source_ref": stop.get("source_ref"),
         "created_at": stop["created_at"],
         "first_session": stop.get("first_session"),
+        "at_broker": bool(stop.get("at_broker", False)),
+        "broker_quantity": stop.get("broker_quantity"),
+        "broker_order_type": stop.get("broker_order_type"),
+        "brokerage": stop.get("brokerage"),
     }).fetchone()["stop_id"])
     return stop_id, (int(replaced["stop_id"]) if replaced is not None else None)
 

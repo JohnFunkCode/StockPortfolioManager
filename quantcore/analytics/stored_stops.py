@@ -136,23 +136,43 @@ def broker_order(
     """
     name = (brokerage or "").strip() or None
     if not at_broker:
-        if quantity is not None or order_type is not None or name is not None:
+        if any(detail is not None for detail in (quantity, order_type, name)):
             raise ValueError(
                 "a quantity, order type or brokerage describes an order at a broker: "
                 "set at_broker to give them"
             )
         return NOT_AT_BROKER
-    if quantity is not None:
-        if quantity <= _ZERO:
-            raise ValueError("broker_quantity must be more than zero")
-        if quantity != quantity.quantize(_QUANTITY_STEP):
-            raise ValueError("broker_quantity can have at most six decimal places")
-    if order_type is not None and order_type not in _ORDER_TYPES_FOR_KIND.get(kind, ()):
-        allowed = ", ".join(_ORDER_TYPES_FOR_KIND.get(kind, ()))
-        raise ValueError(f"a {kind} stop's broker_order_type must be one of {allowed}")
+    return BrokerOrder(
+        True, _broker_quantity(quantity), _broker_order_type(kind, order_type),
+        _brokerage(name),
+    )
+
+
+def _broker_quantity(quantity: Optional[Decimal]) -> Optional[Decimal]:
+    """A broker order's share count, checked: positive, at a lot's precision."""
+    if quantity is None:
+        return None
+    if quantity <= _ZERO:
+        raise ValueError("broker_quantity must be more than zero")
+    if quantity != quantity.quantize(_QUANTITY_STEP):
+        raise ValueError("broker_quantity can have at most six decimal places")
+    return quantity
+
+
+def _broker_order_type(kind: str, order_type: Optional[str]) -> Optional[str]:
+    """A broker order's type, checked against the kinds of order that suit
+    a stop of `kind`."""
+    allowed = _ORDER_TYPES_FOR_KIND.get(kind, ())
+    if order_type is not None and order_type not in allowed:
+        raise ValueError(f"a {kind} stop's broker_order_type must be one of {', '.join(allowed)}")
+    return order_type
+
+
+def _brokerage(name: Optional[str]) -> Optional[str]:
+    """A brokerage's name, already trimmed, checked for length."""
     if name is not None and len(name) > MAX_BROKERAGE_LENGTH:
         raise ValueError(f"brokerage can be at most {MAX_BROKERAGE_LENGTH} characters")
-    return BrokerOrder(True, quantity, order_type, name)
+    return name
 
 
 @dataclass(frozen=True)

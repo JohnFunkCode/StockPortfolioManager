@@ -9,13 +9,15 @@ import type { Stop } from '../../api/stops';
 
 interface Props {
   stop: Stop | null | undefined;
+  /** The stop is in a paper book, where a reached stop sold the position. */
+  paper?: boolean;
 }
 
-export default function StopCell({ stop }: Props) {
+export default function StopCell({ stop, paper = false }: Props) {
   if (!stop) return <>—</>;
   if (stop.status === 'triggered') {
     return (
-      <Tooltip title={stopDetail(stop)}>
+      <Tooltip title={stopDetail(stop, paper)}>
         <Chip
           size="small"
           label={`Reached ${formatCurrency(stop.trigger_price)}`}
@@ -25,7 +27,7 @@ export default function StopCell({ stop }: Props) {
     );
   }
   return (
-    <Tooltip title={stopDetail(stop)}>
+    <Tooltip title={stopDetail(stop, paper)}>
       <Box component="span" sx={{ whiteSpace: 'nowrap' }}>
         {formatCurrency(stop.stop_level)}
         {stop.kind === 'trailing' && (

@@ -413,7 +413,7 @@ export default function PortfolioPage() {
                           )}
                         </TableCell>
                         <TableCell data-testid={`stop-${row.symbol}`}>
-                          <StopCell stop={stops[row.symbol]} />
+                          <StopCell stop={stops[row.symbol]} paper={isPaper} />
                         </TableCell>
                         {!readOnly && (
                           <PlanCell

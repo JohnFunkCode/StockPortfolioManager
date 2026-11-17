@@ -316,17 +316,38 @@ class ReportApproachingStopsTest(unittest.TestCase):
         self.assertEqual(n.approaches, [])
         stops.mark_approach_alerted.assert_not_called()
 
-    def test_sends_one_message_then_marks_every_stop_it_covers(self):
+    def test_sends_one_message_then_marks_only_the_stops_it_names(self):
+        # The rest stay owed and are named on the next run (the #568 review).
         stops, n = mock.Mock(), ApproachNotifier()
         many = near(main.STOP_ALERT_MESSAGE_LINES + 2)
+        named = many[:main.STOP_ALERT_MESSAGE_LINES]
         stops.unalerted_approaches.return_value = many
         self.assertEqual(
-            main.report_approaching_stops(stops, n, "john", today=TUESDAY), len(many))
+            main.report_approaching_stops(stops, n, "john", today=TUESDAY), len(named))
         stops.unalerted_approaches.assert_called_once_with(owner="john")
-        self.assertEqual(n.approaches, [(many[:main.STOP_ALERT_MESSAGE_LINES], len(many),
-                                         "2026-06-16", D("1.0"))])
+        self.assertEqual(n.approaches, [(named, len(many), "2026-06-16", D("1.0"))])
         stops.mark_approach_alerted.assert_called_once_with(
-            owner="john", stop_ids=[s["stop_id"] for s in many])
+            owner="john", stop_ids=[s["stop_id"] for s in named])
+
+    def test_the_stops_a_long_list_left_out_are_named_on_the_next_run(self):
+        # A fake service whose owed list is what has not been marked (the
+        # #569 review): the second run names the two the first one left.
+        stops, n = mock.Mock(), ApproachNotifier()
+        many = near(main.STOP_ALERT_MESSAGE_LINES + 2)
+        marked = set()
+        stops.unalerted_approaches.side_effect = (
+            lambda owner: [s for s in many if s["stop_id"] not in marked])
+        stops.mark_approach_alerted.side_effect = (
+            lambda owner, stop_ids: marked.update(stop_ids) or len(stop_ids))
+
+        main.report_approaching_stops(stops, n, "john", today=TUESDAY)
+        self.assertEqual(main.report_approaching_stops(stops, n, "john", today=TUESDAY), 2)
+        self.assertEqual((n.approaches[1][0], n.approaches[1][1]),
+                         (many[main.STOP_ALERT_MESSAGE_LINES:], 2))
+        self.assertEqual(marked, {s["stop_id"] for s in many})
+        # Nothing left: a third run sends nothing.
+        self.assertEqual(main.report_approaching_stops(stops, n, "john", today=TUESDAY), 0)
+        self.assertEqual(len(n.approaches), 2)
 
     def test_a_refused_or_failed_send_leaves_it_owed_and_does_not_raise(self):
         stops = mock.Mock()
@@ -410,7 +431,7 @@ class ApproachMessageTest(unittest.TestCase):
         embed = self.sent[0]["embeds"][0]
         self.assertEqual(embed["title"], "3 holding(s) closed near their stop, reported 2026-06-16")
         self.assertIn("- INTC: closed at $20.60", embed["description"])
-        self.assertIn("- and 2 more", embed["description"])
+        self.assertIn("- and 2 more, named on the next run", embed["description"])
         self.assertIn("within 1.0 ATR", embed["description"])
         self.assertIn("have not been reached", embed["description"])
 

@@ -319,7 +319,8 @@ level, whether it traded down to the level or opened under it, and the bar's dat
 - **Once, and not lost.** A stop is marked (`stops.alerted_at`) only after Discord took the
   message. A send that raises, is refused, or has no webhook to go to leaves it owed, and the
   next run sends it. A run
-  repeated the same evening sends nothing twice.
+  repeated the same evening sends nothing twice. A message names at most 20 stops, and only
+  those are marked: the rest stay owed and are named on the next run (the #568 review).
 - **Whose:** the job owner's real book only, for the reason the fills message gives. Another
   owner's stops are still checked and marked; they are not posted.
 - **A paper book's stop is not in it.** Its sale is in the `[PAPER]` fills message, worded as a
@@ -335,7 +336,8 @@ many ATRs above its stop that was, and the stop. With after-close checking it is
 evening before a likely breach.
 
 - **Once per approach, and not lost.** A stop is marked (`stops.approach_alerted_at`) only after
-  Discord took the message; a send that raises, is refused or has no webhook leaves it owed. A
+  Discord took the message; a send that raises, is refused or has no webhook leaves it owed.
+  As for the breach alert, only the 20 stops a message names are marked. A
   stop that stays close is not announced again. One that moves further away is cleared by the
   checker and is announced again when it next comes close.
 - **Whose:** the job owner's real book only, as for the breach alert. A paper book's approach

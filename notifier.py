@@ -659,7 +659,7 @@ class Notifier:
         """
         lines = [f"- {_stop_alert_line(stop)}" for stop in stops]
         if stop_count > len(stops):
-            lines.append(f"- and {stop_count - len(stops)} more")
+            lines.append(f"- and {stop_count - len(stops)} more, named on the next run")
         embed = {
             "content": f"Stop Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
             "embeds": [
@@ -689,7 +689,7 @@ class Notifier:
         """
         lines = [f"- {_stop_approach_line(stop)}" for stop in stops]
         if stop_count > len(stops):
-            lines.append(f"- and {stop_count - len(stops)} more")
+            lines.append(f"- and {stop_count - len(stops)} more, named on the next run")
         embed = {
             "content": f"Stop Approach Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
             "embeds": [

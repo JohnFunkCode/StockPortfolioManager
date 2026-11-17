@@ -67,7 +67,8 @@ SELECT
     st.last_bar_checked  AS last_bar_checked,
     st.triggered_session AS triggered_session,
     st.trigger_price     AS trigger_price,
-    st.alerted_at        AS alerted_at
+    st.alerted_at        AS alerted_at,
+    st.first_session     AS first_session
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -101,7 +102,8 @@ SELECT
     st.last_bar_checked  AS last_bar_checked,
     st.triggered_session AS triggered_session,
     st.trigger_price     AS trigger_price,
-    st.alerted_at        AS alerted_at
+    st.alerted_at        AS alerted_at,
+    st.first_session     AS first_session
 FROM stops st
 JOIN symbols s ON s.symbol_id = st.symbol_id
 WHERE st.owner = :owner
@@ -182,6 +184,7 @@ def _row_to_dict(row) -> Dict[str, Any]:
         "triggered_session": row["triggered_session"],
         "trigger_price": _dec(row["trigger_price"]),
         "alerted_at": row["alerted_at"],
+        "first_session": row["first_session"],
     }
 
 

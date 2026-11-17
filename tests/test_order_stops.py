@@ -30,6 +30,7 @@ from quantcore.repositories.owner_identity_repository import (  # noqa: E402
 from quantcore.repositories.portfolio_repository import PortfolioRepository  # noqa: E402
 from quantcore.repositories.stops_repository import StopsRepository  # noqa: E402
 from quantcore.services.orders import OrdersService  # noqa: E402
+from quantcore.services.stops import StopsService  # noqa: E402
 
 from api.auth import Principal, require_principal  # noqa: E402
 from api.main import create_app  # noqa: E402
@@ -47,6 +48,7 @@ D = Decimal
 # an order placed then belongs to Tuesday's session.
 OPEN_NOW = ET.localize(datetime.datetime(2026, 6, 15, 11, 0))
 EVENING = ET.localize(datetime.datetime(2026, 6, 15, 20, 0))
+MONDAY = datetime.date(2026, 6, 15)
 SESSION = datetime.date(2026, 6, 16)
 JOB_NOW = ET.localize(datetime.datetime(2026, 6, 16, 18, 0))
 OPENED_ON = datetime.date(2026, 6, 1)
@@ -206,10 +208,14 @@ class StopOnAFilledBuyTest(_Base):
             ("trailing", D("10"), D("50"), D("45")),
         )
 
-    def test_the_stop_is_first_checked_against_the_next_session(self):
+    def test_a_stop_from_a_fill_in_market_hours_is_first_checked_against_the_next_session(self):
+        # A daily bar can't say whether its low came before 11:00 or after.
         self.place(stop_kind="fixed", stop_level="45")
         (stop,) = self.all_stops()
-        self.assertEqual(stops_math.first_session(stop["created_at"]), SESSION)
+        self.assertIsNone(stop["first_session"])
+        self.assertEqual(
+            stops_math.first_session(stop["created_at"], live_from=stop["first_session"]),
+            SESSION)
 
     def test_a_buy_with_no_stop_writes_none(self):
         order = self.place()
@@ -321,6 +327,8 @@ class StopOnAQueuedBuyTest(_Base):
              stop["source_ref"]),
             (D("45"), D("51"), "2026-06-16", JOB_NOW, f"order:{order['order_id']}"),
         )
+        # It filled at the open, so the stop is live from that session's bar.
+        self.assertEqual(stop["first_session"], SESSION)
 
     def test_a_queued_trailing_stop_starts_from_the_open_it_filled_at(self):
         filled = self.fill(self.queue(stop_kind="trailing", stop_trail_pct="10"))
@@ -362,6 +370,108 @@ class StopOnAQueuedBuyTest(_Base):
         self.fill(order)
         self.fill(order)
         self.assertEqual(len(self.all_stops()), 1)
+
+
+class StopLiveOnTheFillSessionTest(_Base):
+    """Plan decision 63: a buy that filled at its session's open has a stop
+    that the checker tests against that session's own bar, as a broker's
+    attached stop is live once the entry fills."""
+
+    def setUp(self):
+        super().setUp()
+        self.bars = []
+        self.prices.closed_bars_since = lambda symbol, since: [
+            b for b in self.bars if b["session"] >= since]
+        self.checker = StopsService(self.stops, self.books, self.prices, self.service)
+
+    def filled_with_stop(self, **stop):
+        stop = stop or {"stop_kind": "fixed", "stop_level": "45"}
+        self.fill(self.queue(**stop))
+        (row,) = self.all_stops()
+        return row
+
+    def check(self, stop, today=SESSION, now=JOB_NOW):
+        return self.checker.check_stop(
+            owner=OWNER, book_id=self.book, stop_id=stop["stop_id"], today=today, now=now)
+
+    def due(self, today):
+        return [s["stop_id"] for s in self.checker.due_stops(today=today) if s["owner"] == OWNER]
+
+    def test_the_stop_is_due_the_night_its_buy_fills(self):
+        stop = self.filled_with_stop()
+        self.assertEqual(self.due(SESSION), [stop["stop_id"]])
+
+    def test_a_low_under_the_level_on_the_fill_day_sells_at_the_level_that_day(self):
+        stop = self.filled_with_stop()
+        self.bars = [{"session": SESSION, "open": 51.0, "high": 52.0, "low": 44.0, "close": 46.0}]
+
+        result = self.check(stop)
+
+        self.assertEqual(
+            (result["outcome"], result["status"], result["triggered_session"],
+             result["trigger_price"]),
+            ("triggered", "triggered", SESSION, D("45")))
+        self.assertEqual(self.lots.list_lots_for_symbol(OWNER, SYMBOL, book_id=self.book), [])
+        (sale,) = self.lots.list_realized_sales(OWNER, book_id=self.book)
+        self.assertEqual(
+            (sale["source"], sale["sale_price"], sale["sale_trade_date"], sale["trade_date"]),
+            ("stop", D("45"), "2026-06-16", "2026-06-16"))
+
+    def test_a_fill_day_that_holds_is_recorded_and_a_trail_rises_on_its_high(self):
+        stop = self.filled_with_stop(stop_kind="trailing", stop_trail_pct="10")
+        self.bars = [{"session": SESSION, "open": 51.0, "high": 60.0, "low": 50.0, "close": 59.0}]
+
+        result = self.check(stop)
+
+        self.assertEqual(
+            (result["outcome"], result["last_bar_checked"], result["high_water_mark"],
+             result["stop_level"]),
+            ("checked", SESSION, D("60"), D("54")))
+
+    def test_a_fill_recorded_days_late_is_still_tested_from_its_own_session(self):
+        late = ET.localize(datetime.datetime(2026, 6, 18, 18, 0))
+        order = self.queue(stop_kind="fixed", stop_level="45")
+        self.service.fill_queued_order(
+            owner=OWNER, book_id=self.book, order_id=order["order_id"],
+            today=datetime.date(2026, 6, 18), now=late)
+        (stop,) = self.all_stops()
+        self.bars = [
+            {"session": SESSION, "open": 51.0, "high": 52.0, "low": 50.0, "close": 51.0},
+            {"session": datetime.date(2026, 6, 17), "open": 44.0, "high": 46.0, "low": 43.0,
+             "close": 45.0},
+            {"session": datetime.date(2026, 6, 18), "open": 60.0, "high": 61.0, "low": 59.0,
+             "close": 60.0},
+        ]
+
+        result = self.check(stop, today=datetime.date(2026, 6, 18), now=late)
+
+        # Wednesday opened under the level: sold at that open, dated Wednesday.
+        self.assertEqual(
+            (result["outcome"], result["triggered_session"], result["trigger_price"]),
+            ("triggered", datetime.date(2026, 6, 17), D("44")))
+
+    def test_a_stop_from_a_fill_in_market_hours_is_not_due_that_night(self):
+        self.gateway.quotes[SYMBOL] = quote(50.0)
+        self.place(stop_kind="fixed", stop_level="45")
+        (stop,) = self.all_stops()
+        self.bars = [{"session": MONDAY, "open": 50.0, "high": 51.0, "low": 40.0, "close": 50.0}]
+
+        self.assertEqual(self.due(MONDAY), [])
+        self.assertEqual(self.check(stop, today=MONDAY)["outcome"], "waiting")
+        self.assertEqual(self.due(SESSION), [stop["stop_id"]])
+
+
+class LiveFromRuleTest(unittest.TestCase):
+    def test_live_from_replaces_the_first_session_and_nothing_else(self):
+        self.assertEqual(stops_math.first_session(JOB_NOW), datetime.date(2026, 6, 17))
+        self.assertEqual(stops_math.first_session(JOB_NOW, live_from=SESSION), SESSION)
+        self.assertEqual(stops_math.next_bar_date(JOB_NOW, None, live_from=SESSION), SESSION)
+        self.assertEqual(
+            stops_math.next_bar_date(JOB_NOW, SESSION, live_from=SESSION),
+            datetime.date(2026, 6, 17))
+        self.assertTrue(stops_math.is_due(JOB_NOW, None, SESSION, live_from=SESSION))
+        self.assertFalse(stops_math.is_due(JOB_NOW, None, SESSION))
+        self.assertFalse(stops_math.is_due(JOB_NOW, SESSION, SESSION, live_from=SESSION))
 
 
 class DatabaseRuleTest(_Base):

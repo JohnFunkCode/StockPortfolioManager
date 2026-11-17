@@ -823,6 +823,7 @@ export function stopRow(overrides: object = {}) {
     status: 'active',
     created_at: '2026-06-15T15:00:00Z',
     resolved_at: null,
+    first_session: null,
     last_bar_checked: null,
     triggered_session: null,
     trigger_price: null,

@@ -93,11 +93,13 @@ WHERE owner = :owner
 SQL_INSERT_STOP = """
 INSERT INTO stops (
     owner, book_id, symbol_id, kind, stop_level, trail_pct, high_water_mark,
-    method, proposed_level, reference_price, as_of, source, source_ref, created_at
+    method, proposed_level, reference_price, as_of, source, source_ref, created_at,
+    first_session
 ) VALUES (
     :owner, :book_id, (SELECT symbol_id FROM symbols WHERE ticker = :ticker), :kind,
     :stop_level, :trail_pct, :high_water_mark,
-    :method, :proposed_level, :reference_price, :as_of, :source, :source_ref, :created_at
+    :method, :proposed_level, :reference_price, :as_of, :source, :source_ref, :created_at,
+    :first_session
 )
 RETURNING stop_id;
 """
@@ -132,7 +134,8 @@ def set_stop_on(
     has also checked the book holds the symbol. `stop` carries `symbol`,
     `kind`, `stop_level`, `trail_pct`, `high_water_mark`, `method`,
     `proposed_level`, `reference_price`, `as_of`, `source`, `source_ref` and
-    `created_at`.
+    `created_at`, and optionally `first_session`: the session a buy filled in
+    at the open, for the stop that buy asked for.
     """
     scope = {"owner": owner, "book_id": book_id, "ticker": stop["symbol"]}
     replaced = conn.execute(
@@ -151,6 +154,7 @@ def set_stop_on(
         "source": stop["source"],
         "source_ref": stop.get("source_ref"),
         "created_at": stop["created_at"],
+        "first_session": stop.get("first_session"),
     }).fetchone()["stop_id"])
     return stop_id, (int(replaced["stop_id"]) if replaced is not None else None)
 

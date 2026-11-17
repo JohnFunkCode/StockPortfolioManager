@@ -20,6 +20,9 @@ The rules:
 - **A level is rounded to the market's tick**, the same rule a fill price
   uses, so a stop and the fill it later causes can be compared exactly.
 - **Only an active stop is live.** Every other status is final.
+- **The stop of a buy that filled at a session's open is live from that
+  session** (`first_session`'s `live_from`; plan decision 63). The whole bar
+  came after the fill, so there is no low from before the stop existed.
 - **A buy order can ask for a stop** (`requested_stop`, `order_stop_terms`;
   plan step 4.3). What it asks for is checked when the order is placed and
   turned into terms when the buy fills, against the fill price: that price
@@ -269,22 +272,33 @@ class StopCheck:
     trigger: Optional[Trigger] = None
 
 
-def first_session(created_at: datetime.datetime) -> datetime.date:
-    """The first session a stop is tested against: the first one to open
-    after it was set. `created_at` is timezone-aware.
+def first_session(
+    created_at: datetime.datetime, *, live_from: Optional[datetime.date] = None
+) -> datetime.date:
+    """The first session a stop is tested against. `created_at` is
+    timezone-aware.
 
-    A stop set before 9:30 ET on a trading day is tested against that day's
-    bar. One set during the session or after it starts with the next
+    With no `live_from`, the first session to open after the stop was set: a
+    stop set before 9:30 ET on a trading day is tested against that day's
+    bar, and one set during the session or after it starts with the next
     session's bar.
+
+    `live_from` is the session a buy filled in at the opening price, for the
+    stop that buy asked for (plan decision 63). The whole of that bar came
+    after the fill, so the stop is tested against it, whenever the fill was
+    recorded.
     """
-    return market_time.upcoming_session(created_at)
+    return live_from if live_from is not None else market_time.upcoming_session(created_at)
 
 
 def next_bar_date(
-    created_at: datetime.datetime, last_bar_checked: Optional[datetime.date]
+    created_at: datetime.datetime,
+    last_bar_checked: Optional[datetime.date],
+    *,
+    live_from: Optional[datetime.date] = None,
 ) -> datetime.date:
     """The earliest session whose bar a stop still has to be tested against."""
-    first = first_session(created_at)
+    first = first_session(created_at, live_from=live_from)
     if last_bar_checked is None:
         return first
     return max(first, last_bar_checked + datetime.timedelta(days=1))
@@ -294,10 +308,12 @@ def is_due(
     created_at: datetime.datetime,
     last_bar_checked: Optional[datetime.date],
     today: datetime.date,
+    *,
+    live_from: Optional[datetime.date] = None,
 ) -> bool:
     """Whether a stop is owed a check on the market date `today`: its first
     session has come and today's bar hasn't been tested."""
-    return next_bar_date(created_at, last_bar_checked) <= today
+    return next_bar_date(created_at, last_bar_checked, live_from=live_from) <= today
 
 
 def _price(value: Any) -> Optional[Decimal]:

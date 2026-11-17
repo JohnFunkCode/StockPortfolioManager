@@ -1,6 +1,6 @@
 # Portfolio Check: per-user version (plan)
 
-Status: **proposal, not started** (2026-11-12). Decisions marked **D?** are open for John.
+Status: **step 1 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
 
 ## Where it stands
 
@@ -89,11 +89,61 @@ prototype was tried on had neither).
 
 ## Steps (append a checkpoint as each lands)
 
-1. Analytics module + parity tests.
+1. Analytics module + parity tests. **Done 2026-11-17** (checkpoint below).
 2. Market-state snapshot + refresh script (D1a), with the SIC map.
 3. Service + route + tests.
 4. Native page replacing the sample; registries.
 5. Optional MCP tool.
+
+## Review on test
+
+John suggested reviewing the per-user version on the **test** site. That works, but not because
+test is less locked down: test and prod run the same image with the same IAP gate, per-user
+tokens and CSP (`deploy/cloudrun-services.toml` differs only in the environment label and
+URLs). The route reads the signed-in user's lots the same way in both. Two things make test the
+right place:
+
+- A branch can go on test without merging (`deploy.yml` dispatched from main with `ref`), and
+  prod is untouched until `prod-rollout.yml`. That path refuses a ref that touches a migration,
+  which D1 (a) avoids.
+- Test has **its own database**. A reviewer's real holdings must be entered there first (by hand
+  or the import); prod's lots are not visible to test.
+
+## Checkpoint log
+
+### Step 1: analytics module + parity tests (2026-11-17)
+
+- `quantcore/analytics/portfolio_check.py`: `industry_inputs` (the FF49 tables into monthly
+  returns, starting caps and book/market), `relative_log_share` / `wind` / `percentile_ranks` /
+  `label_industries` / `industry_state` (the 49-industry labels), `peer_table` and
+  `relative_wind` (stock vs S&P 500 industry peers), `decide` (one holding's action, reasons and
+  tax note) and `check_portfolio` (the whole report: holdings sorted sells first, plus ideas).
+  No I/O: today's date, prices, SIC codes and the market state are all arguments, so the service
+  (step 3) owns the clock (`market_date()`) and the data. Output is JSON-ready (no NaN, no numpy
+  scalars); ideas' examples are structured, not the prototype's pre-formatted string.
+- `tests/test_analytics_portfolio_check.py`, 24 tests. **Parity**: the prototype's own run on its
+  made-up `holdings_example.csv`, frozen in `tests/fixtures/portfolio_check/parity.json`, is
+  reproduced exactly (order, actions, every reason and tax note word for word, weights, peer winds,
+  ideas). The industry state is also recomputed from the raw FF49 tail in the fixture and matches
+  the prototype's full-history run. Unit tests cover what the sample doesn't reach: "Sell after"
+  a long-term date, tax-loss harvesting, missing cost or date, both size caps, and unclassified
+  holdings. Two deliberate mutations (`SELL_P` 0.40→0.45, `MIN_PEERS` 3→2) each fail the parity
+  tests.
+- `tests/fixtures/portfolio_check/make_fixture.py` regenerates the fixture by running the
+  prototype's `main()` unchanged and wrapping the functions it calls, so the expectation is the
+  prototype's output, not a second copy of its logic. It needs the prototype and the network; it
+  is not part of the test run.
+
+Gotchas from this step:
+
+- **The industry state from 72 months equals the prototype's from 1926 on**, because every wind is
+  a difference of the cumulative log-share series. That is what lets the fixture (and a future
+  market-state snapshot) carry only the tail of the FF49 tables.
+- **A rank read back from JSON is a float**, and the reasons then say "ranks 3.0 of 49".
+  `check_portfolio` casts it back to int.
+- **Verified locally on Python 3.13 / pandas 3.1.1** (the prototype's environment; there is no
+  project venv on that machine). CI pins Python 3.12 / pandas 3.1.0, so CI is the real check of
+  the parity tolerances.
 
 ## Gotchas found while building the demo
 

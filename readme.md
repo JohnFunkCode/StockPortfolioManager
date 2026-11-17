@@ -305,7 +305,7 @@ none ([why it's read at runtime](docs/architecture/quantui.md)).
 | Fundamentals | `/fundamentals` | Research | the tracked universe ranked by score, cut by sector, with score movement and the earnings calendar |
 | Arbitrage | `/arbitrage` | Research | scan results, the curated universe with each link's rationale, and per-pair factor breakdowns |
 | Wind Map | `/wind-map` | Research | how market-value share moves between S&P 500 sectors, sub-industries and companies, with the backtests of that "wind". A static snapshot of the Market Casting prototype in a sandboxed frame ([details](docs/architecture/quantui.md)) |
-| Portfolio Check | `/portfolio-check` | Research | the quarterly sell / watch / hold / buy check against the Wind Map's industry rules, with tax notes. **A demo for a made-up sample portfolio**, not yours; a per-user version is [planned](docs/proposals/portfolio-check-plan.md) |
+| Portfolio Check | `/portfolio-check` | Research | the quarterly sell / watch / hold / buy check against the Wind Map's industry rules, with tax notes, for your own open lots, plus the strong industries you don't hold and all 49 industry ranks ([details](docs/architecture/quantui.md)) |
 | Settings | `/settings` | top level | your BYOK key vault, Sidekick model, and Sidekick daily budget |
 
 The drill-down pages, `/plans/:id` and `/securities/:symbol` (opened from a Watchlist row), are reached from those pages and
@@ -625,8 +625,9 @@ examples: [`docs/arbitrage-scanner-usage.md`](docs/arbitrage-scanner-usage.md).
 A quarterly check of each holding against the Market Casting industry rules: each of the 49
 Fama-French industries is labelled Buy zone, Hold, Watch or Sell from its 12-month "wind" (its
 change in share of total market value), and each holding gets an action adjusted for position
-size and taxes. The QuantUI page still shows a made-up sample; the per-user version is being built
-in steps ([plan](docs/proposals/portfolio-check-plan.md)).
+size and taxes. The QuantUI page runs it on the signed-in user's own open lots; the Sidekick can
+show the same two cards (`portfolio_check`, `portfolio_check_ideas`). How it was built, and the
+decisions still open: [plan](docs/proposals/portfolio-check-plan.md).
 
 The market side is the same for everyone and changes monthly, so it lives in one reviewed file,
 `quantcore/data/portfolio_check_market_state.json`. Refresh it monthly and open a PR with the

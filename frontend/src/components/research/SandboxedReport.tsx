@@ -2,7 +2,7 @@
  * SandboxedReport — a pre-built research page shown in a sandboxed frame.
  *
  * Used by the Research pages that are, for now, static snapshots of a
- * prototype's self-contained HTML (Wind Map, Portfolio Check). The page lives
+ * prototype's self-contained HTML (the Wind Map). The page lives
  * under `frontend/public/research/` and must be listed in SANDBOXED_PAGES in
  * `frontend/server/csp.mjs`, which sends it a matching `sandbox` CSP.
  *

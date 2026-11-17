@@ -1,38 +1,49 @@
 /**
  * PortfolioCheckPage — the quarterly Portfolio Check, under Research.
  *
- * Runs each holding through the Wind Map's tested industry rules (sell / watch /
- * hold / buy), adjusted for position size and taxes. This is a DEMO: the
- * Market Casting prototype's report for a made-up sample portfolio
- * (`frontend/public/research/portfolio-check-sample.html`), shown in a
- * sandboxed frame (see SandboxedReport). It never shows the viewer's own
- * holdings — a static page is the same for every user and is committed to the
- * repo, so it must only ever hold made-up data. The per-user version, built
- * from the viewer's own lots, is docs/proposals/portfolio-check-plan.md.
+ * Runs the signed-in user's own open lots through the Wind Map's tested
+ * industry rules (sell / watch / hold / buy), adjusted for position size and
+ * taxes (docs/proposals/portfolio-check-plan.md, step 4). Composed entirely of
+ * the two cards the Sidekick also renders, so the two surfaces can't drift.
  */
-import { Alert } from '@mui/material';
-import SandboxedReport from '../research/SandboxedReport';
+import { Box, Paper, Stack, Typography } from '@mui/material';
+import PortfolioCheckCard from './PortfolioCheckCard';
+import PortfolioCheckIdeasCard from './PortfolioCheckIdeasCard';
+import { usePortfolioCheck } from '../../hooks/usePortfolioCheck';
+import { formatDate, formatPercent } from '../../utils/formatting';
 
-/** Where the server serves the pre-built sample. Listed in SANDBOXED_PAGES in csp.mjs. */
-export const PORTFOLIO_CHECK_SRC = '/research/portfolio-check-sample.html';
+function DataAsOf() {
+  const { data } = usePortfolioCheck();
+  if (!data) return null;
+  const m = data.market_state;
+  return (
+    <Typography variant="caption" color="text.secondary" component="p" sx={{ mb: 2 }}>
+      Industry signals as of {m.industries_asof}; stock-vs-peers window {formatDate(m.window.a)} to{' '}
+      {formatDate(m.window.b)}; market data refreshed {formatDate(m.generated)}. Taxes assume{' '}
+      {formatPercent(data.params.st_rate, 0)} short-term and {formatPercent(data.params.lt_rate, 0)} long-term.
+    </Typography>
+  );
+}
 
 export default function PortfolioCheckPage() {
   return (
-    <SandboxedReport
-      title="Portfolio Check"
-      src={PORTFOLIO_CHECK_SRC}
-      frameTitle="Portfolio Check sample report"
-      description={
-        <>
-          A quarterly check of each holding against the Wind Map&apos;s industry rules, adjusted for
-          position size and taxes. Research output, not financial advice.
-        </>
-      }
-    >
-      <Alert severity="info" sx={{ mb: 2 }}>
-        Sample portfolio: this demo report is for made-up holdings, not your portfolio. A version
-        built from your own lots is planned.
-      </Alert>
-    </SandboxedReport>
+    <Box>
+      <Typography variant="h4" sx={{ mb: 1 }}>
+        Portfolio Check
+      </Typography>
+      <Typography variant="body2" sx={{ mb: 0.5, color: 'text.secondary' }}>
+        A quarterly check of each holding against the Wind Map&apos;s industry rules, adjusted for position size
+        and taxes. Research output, not financial advice.
+      </Typography>
+      <DataAsOf />
+      <Stack spacing={2}>
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <PortfolioCheckCard />
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 2 }}>
+          <PortfolioCheckIdeasCard />
+        </Paper>
+      </Stack>
+    </Box>
   );
 }

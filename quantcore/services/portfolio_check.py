@@ -125,7 +125,7 @@ class PortfolioCheckService:
                                         today=today, sell_edge=market["sell_edge"],
                                         sell_edge_period=market["sell_edge_period"], params=params)
         else:
-            result = {"total_value": 0.0, "holdings": [], "ideas": []}
+            result = {"total_value": 0.0, "holdings": [], "ideas": [], "action_counts": []}
         classes = state["classes"]
         for h in result["holdings"]:
             h["company"] = (classes.get(h["ticker"], {}).get("name") or "").title()
@@ -140,6 +140,7 @@ class PortfolioCheckService:
             },
             "total_value": result["total_value"],
             "holdings": result["holdings"],
+            "action_counts": result["action_counts"],
             "ideas": result["ideas"],
             "industries": [dict(i) for i in state["industries"]],
             "unpriced": sorted(unpriced),

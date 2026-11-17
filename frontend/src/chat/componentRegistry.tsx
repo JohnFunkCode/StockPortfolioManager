@@ -23,6 +23,8 @@ import PortfolioAllocationCard from '../components/chat/PortfolioAllocationCard'
 import RealizedPnlCard from '../components/chat/RealizedPnlCard';
 import CashLedgerCard from '../components/chat/CashLedgerCard';
 import SymbolLotsCard from '../components/chat/SymbolLotsCard';
+import PortfolioCheckCard from '../components/portfoliocheck/PortfolioCheckCard';
+import PortfolioCheckIdeasCard from '../components/portfoliocheck/PortfolioCheckIdeasCard';
 import WatchlistFundamentalsCard from '../components/chat/WatchlistFundamentalsCard';
 import {
   FundamentalsTopCard,
@@ -87,6 +89,9 @@ export const COMPONENT_REGISTRY: Record<string, RegistryEntry> = {
   // No props, same rule: the cash ledger of the caller's own real book,
   // read-only in the chat (#431).
   cash_ledger: { component: CashLedgerCard, spec: {}, titled: false },
+  // Same no-props rule: the caller's own Portfolio Check, never an owner prop.
+  portfolio_check: { component: PortfolioCheckCard, spec: {}, titled: false },
+  portfolio_check_ideas: { component: PortfolioCheckIdeasCard, spec: {}, titled: false },
   // Carries its own "TICKER — Lots" heading, so no titled wrapper.
   symbol_lots: { component: SymbolLotsCard, spec: TICKER_ONLY },
   // The watchlist is one global list — there is no symbol or owner to name.

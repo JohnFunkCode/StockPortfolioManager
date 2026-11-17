@@ -27,6 +27,8 @@ describe('COMPONENT_REGISTRY', () => {
       'portfolio_allocation',
       'realized_pnl',
       'cash_ledger',
+      'portfolio_check',
+      'portfolio_check_ideas',
       'symbol_lots',
       'watchlist_fundamentals',
       'fundamentals_top',
@@ -63,6 +65,17 @@ describe('COMPONENT_REGISTRY', () => {
     expect(
       validateDirective({ component: 'portfolio_table', props: { ticker: 'INTC' } }).ok,
     ).toBe(false);
+  });
+
+  it('the Portfolio Check cards take no props — always the caller’s own lots', () => {
+    // Mirrors test_chat_tools.py::TestPortfolioCheckDirectives: an owner prop
+    // would let the model pick whose holdings to check (decision #20).
+    for (const name of ['portfolio_check', 'portfolio_check_ideas']) {
+      expect(COMPONENT_REGISTRY[name].spec, name).toEqual({});
+      expect(validateDirective({ component: name, props: {} }).ok, name).toBe(true);
+      expect(validateDirective({ component: name, props: { owner: 'someone_else' } }).ok, name).toBe(false);
+      expect(validateDirective({ component: name, props: { ticker: 'KO' } }).ok, name).toBe(false);
+    }
   });
 
   it('portfolio_allocation takes no props either — same cross-user reason', () => {

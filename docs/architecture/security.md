@@ -46,7 +46,7 @@ same PR (see "Documentation is part of the change" in `CLAUDE.md`).
 |---|---|---|
 | All Cloud Run config lives in `deploy/cloudrun-services.toml`; roll-outs use `--update-*`, never `--set-*` ([cloudrun-services.md](cloudrun-services.md)). | `tests/test_cloudrun_services.py`; `cloudrun_services.py check` drift report | Enforced |
 | Public services (`allUsers`, by design, #297) return only identity and status from health checks: no OS, interpreter, internal URL or driver error. | `tests/test_mcp_seam.py` (`test_health_checks_disclose_no_host_details`) | Enforced |
-| QuantUI sends a strict CSP (`default-src 'self'`, `frame-ancestors 'none'`, Trusted Types) from `frontend/server/csp.mjs`. The only exceptions are the exact paths in `SANDBOXED_PAGES` (the Wind Map, the Portfolio Check sample), which get a `sandbox allow-scripts` CSP with no `allow-same-origin` and no network ([quantui.md](quantui.md)). | `frontend/server/csp.test.mjs` | Enforced |
+| QuantUI sends a strict CSP (`default-src 'self'`, `frame-ancestors 'none'`, Trusted Types) from `frontend/server/csp.mjs`. The only exceptions are the exact paths in `SANDBOXED_PAGES` (the Wind Map), which get a `sandbox allow-scripts` CSP with no `allow-same-origin` and no network ([quantui.md](quantui.md)). | `frontend/server/csp.test.mjs` | Enforced |
 | `docker-compose.yml` publishes ports on `127.0.0.1` only; the local api runs `AUTH_DISABLED=1`. | none | Convention |
 | CI cannot set IAM on an existing service; it refuses to create a public wrapper. | `scripts/cloudrun_services.py` | Enforced |
 

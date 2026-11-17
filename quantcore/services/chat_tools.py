@@ -55,6 +55,11 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # No props, same rule (#431): the cash ledger of the caller's own real
     # book. Read-only in the chat: the entry forms are the Portfolio page's.
     "cash_ledger": {},
+    # Same no-props rule: both run the Portfolio Check on the caller's own lots
+    # (GET /api/portfolio/check resolves the owner from the session). Never an
+    # owner prop, and no ticker either; the ideas depend on the whole portfolio.
+    "portfolio_check": {},
+    "portfolio_check_ideas": {},
     "symbol_lots": {"ticker": str},
     # No props: the watchlist is one global shared list (issue #83), so unlike
     # the portfolio components there is not even an owner to withhold.
@@ -539,6 +544,15 @@ TOOL_SCHEMAS: list[dict] = [
             "Portfolio page, and it cannot record anything. No tool returns "
             "these figures, so show the card and do not quote a cash balance "
             "of your own (no props, same caller-only rule), "
+            "'portfolio_check' shows the Portfolio Check for the caller's own "
+            "holdings: each one's action (Sell, Sell after a date, Hold on watch, "
+            "Hold, Hold at size limit, Buy / add, or Review when its industry is "
+            "unknown) from the Wind Map's 49-industry rules, with the reasons and "
+            "a tax note per holding; research output, not advice (no props, same "
+            "caller-only rule), "
+            "'portfolio_check_ideas' shows the Buy-zone industries the caller "
+            "doesn't hold, with their largest S&P 500 members, and all 49 "
+            "industry ranks (no props, same caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
             "their portfolio (requires ticker), "
             "'watchlist_fundamentals' shows the shared watchlist ranked by "
@@ -551,7 +565,7 @@ TOOL_SCHEMAS: list[dict] = [
             "'fundamentals_score_changes' shows which of those symbols' scores "
             "moved over the last 90 days and by how much, biggest improvements "
             "first, each with whether the news over that same window agrees, "
-            "diverges, is mixed, or is too thin to say (no props). All four portfolio "
+            "diverges, is mixed, or is too thin to say (no props). All the portfolio "
             "components are read-only — there is no component or tool for adding, "
             "editing, or closing a lot; tell the user to use the Portfolio page "
             "for that."

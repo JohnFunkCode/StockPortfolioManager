@@ -13,14 +13,12 @@ import { CSP, SANDBOXED_PAGES, SANDBOXED_PAGE_CSP, cspFor, cspMiddleware } from 
 import { mountSpa } from './indexHtml.mjs';
 
 const WIND_MAP = '/research/wind-map.html';
-const PORTFOLIO_CHECK = '/research/portfolio-check-sample.html';
 
 async function serve() {
   const dist = mkdtempSync(path.join(os.tmpdir(), 'quantui-csp-'));
   writeFileSync(path.join(dist, 'index.html'), '<html><head></head><body></body></html>');
   mkdirSync(path.join(dist, 'research'));
   writeFileSync(path.join(dist, 'research', 'wind-map.html'), '<script>1</script>');
-  writeFileSync(path.join(dist, 'research', 'portfolio-check-sample.html'), '<p>sample</p>');
   writeFileSync(path.join(dist, 'research', 'other.html'), '<script>1</script>');
   const app = express();
   app.use(cspMiddleware);
@@ -56,12 +54,11 @@ test('the sandbox CSP isolates the page from the app origin', () => {
 });
 
 test('cspFor matches only the exact listed paths', () => {
-  assert.deepEqual([...SANDBOXED_PAGES].sort(), [PORTFOLIO_CHECK, WIND_MAP]);
+  assert.deepEqual([...SANDBOXED_PAGES], [WIND_MAP]);
   assert.equal(cspFor(WIND_MAP), SANDBOXED_PAGE_CSP);
-  assert.equal(cspFor(PORTFOLIO_CHECK), SANDBOXED_PAGE_CSP);
   for (const p of ['/', '/wind-map', '/research/', '/research/wind-map.html/',
     '/research/wind%2Dmap.html', '/RESEARCH/wind-map.html', '/research/other.html',
-    '/portfolio-check', '/research/portfolio-check.html']) {
+    '/portfolio-check', '/research/portfolio-check-sample.html']) {
     assert.equal(cspFor(p), CSP, p);
   }
 });
@@ -69,11 +66,9 @@ test('cspFor matches only the exact listed paths', () => {
 test('served responses carry the right CSP', async () => {
   const s = await serve();
   try {
-    for (const p of [WIND_MAP, PORTFOLIO_CHECK]) {
-      const page = await s.get(p);
-      assert.equal(page.status, 200, p);
-      assert.equal(page.csp, SANDBOXED_PAGE_CSP, p);
-    }
+    const page = await s.get(WIND_MAP);
+    assert.equal(page.status, 200);
+    assert.equal(page.csp, SANDBOXED_PAGE_CSP);
 
     for (const p of ['/', '/index.html', '/wind-map', '/portfolio-check', '/research/other.html']) {
       const res = await s.get(p);

@@ -469,9 +469,10 @@ def check_portfolio(lots: Iterable[Mapping[str, Any]], industries: pd.DataFrame,
     → FF49 code (None when unclassified). ``window_prices``: ticker → its prices
     ``WIN_A`` and ``WIN_B`` trading days back.
 
-    Returns ``{"total_value", "holdings", "ideas"}``. Holdings are sorted sells
-    first; ideas are Buy-zone industries the owner doesn't hold, with their three
-    largest S&P 500 members.
+    Returns ``{"total_value", "holdings", "ideas", "action_counts"}``. Holdings are
+    sorted sells first; ideas are Buy-zone industries the owner doesn't hold, with
+    their three largest S&P 500 members; ``action_counts`` is how many holdings got
+    each action, in the same order.
     """
     lots = pd.DataFrame(list(lots), columns=["ticker", "shares", "price", "cost", "acquired"])
     lots["ticker"] = lots["ticker"].astype(str).str.strip().str.upper()
@@ -530,4 +531,8 @@ def check_portfolio(lots: Iterable[Mapping[str, Any]], industries: pd.DataFrame,
                       "examples": [{"ticker": t, "name": n,
                                     "vs_peers_12m": _clean(np.expm1(sp_rel[t])) if t in sp_rel else None}
                                    for t, n in zip(top["ticker"], top["name"])]})
-    return {"total_value": _clean(total), "holdings": holdings, "ideas": ideas}
+    counts: dict[str, int] = {}
+    for r in holdings:                    # holdings are already in report order
+        counts[r["action"]] = counts.get(r["action"], 0) + 1
+    return {"total_value": _clean(total), "holdings": holdings, "ideas": ideas,
+            "action_counts": [{"action": a, "count": n} for a, n in counts.items()]}

@@ -114,6 +114,38 @@ class TestCashLedgerDirective(unittest.TestCase):
         self.assertIn("'cash_ledger'", show["description"])
 
 
+class TestPortfolioCheckDirectives(unittest.TestCase):
+    """Both Portfolio Check cards run the check on the caller's own lots
+    (GET /api/portfolio/check resolves the owner from the session), so they
+    take the portfolio_table no-props contract. Mirrored in componentRegistry.test.ts."""
+
+    NAMES = ("portfolio_check", "portfolio_check_ideas")
+
+    def test_registered_with_no_props(self):
+        for name in self.NAMES:
+            self.assertEqual(BACKEND_COMPONENT_REGISTRY[name], {}, name)
+
+    def test_empty_props_accepted(self):
+        for name in self.NAMES:
+            ok, reason = validate_directive(name, {})
+            self.assertTrue(ok, reason)
+
+    def test_owner_and_ticker_props_rejected(self):
+        for name in self.NAMES:
+            ok, reason = validate_directive(name, {"owner": "someone_else"})
+            self.assertFalse(ok, name)
+            self.assertIn("owner", reason)
+            ok, _ = validate_directive(name, {"ticker": "KO"})
+            self.assertFalse(ok, name)
+
+    def test_described_to_the_model(self):
+        from quantcore.services.chat_tools import TOOL_SCHEMAS
+
+        show = next(t for t in TOOL_SCHEMAS if t["name"] == "show_component")
+        for name in self.NAMES:
+            self.assertIn(f"'{name}'", show["description"], name)
+
+
 class TestSymbolLotsDirective(unittest.TestCase):
     def test_registered_with_ticker_only(self):
         self.assertEqual(BACKEND_COMPONENT_REGISTRY["symbol_lots"], {"ticker": str})

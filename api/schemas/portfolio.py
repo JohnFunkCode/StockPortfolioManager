@@ -628,6 +628,7 @@ class PortfolioCheckResponse(BaseModel):
     market_state: Dict[str, Any]
     total_value: Optional[float] = None
     holdings: List[PortfolioCheckHolding]
+    action_counts: List[Dict[str, Any]]
     ideas: List[PortfolioCheckIdea]
     industries: List[Dict[str, Any]]
     unpriced: List[str]

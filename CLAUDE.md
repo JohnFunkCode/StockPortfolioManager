@@ -436,13 +436,14 @@ IAP — test `https://quantui-493357101423.us-central1.run.app`, prod
   the image built for test. It travels as a `<meta>` the server injects (an inline script would be
   blocked by the CSP), the SPA is mounted only through `mountSpa` so `/` and `/index.html` can't
   bypass it, and the badge shows only for exactly `test`.
-- **A pre-built research page (the Wind Map, the Portfolio Check sample) is never served under
+- **A pre-built research page (today only the Wind Map) is never served under
   the app's origin.** It is listed in `SANDBOXED_PAGES` in `frontend/server/csp.mjs`, which gives
   it a `sandbox allow-scripts` CSP, and framed through `SandboxedReport`
   (`sandbox="allow-scripts"`). Never add `allow-same-origin` to either, and never loosen the app
   CSP to make such a page run. **A pre-built page holds made-up data only, never a real
   portfolio**: it is the same for every user and lives in git. Per-user reports go through the
-  API ([`portfolio-check-plan.md`](docs/proposals/portfolio-check-plan.md)).
+  API, as the Portfolio Check page does (`GET /api/portfolio/check`,
+  [`portfolio-check-plan.md`](docs/proposals/portfolio-check-plan.md)).
 - Deploy: merge to `main` → `deploy.yml` rolls **test**; prod only by manually dispatching
   `prod-rollout.yml`. Prod is never auto-deployed. It asks for **one** approval (#346), right
   after a `preflight` job with test credentials and no prod access binds the tag's digests and

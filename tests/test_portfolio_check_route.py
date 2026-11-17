@@ -18,7 +18,7 @@ from quantcore.analytics.portfolio_check import CheckParams
 
 SECRET = "postgresql://quantcore:s3cr3t-pw@10.0.0.5:5432/quantcore"
 REPORT = {"as_of": "2026-11-17", "params": {}, "market_state": {}, "total_value": 0.0,
-          "holdings": [], "ideas": [], "industries": [], "unpriced": []}
+          "holdings": [], "action_counts": [], "ideas": [], "industries": [], "unpriced": []}
 
 
 class StubCheck:

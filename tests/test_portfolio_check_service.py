@@ -168,7 +168,8 @@ class ServiceTests(unittest.TestCase):
     def test_empty_portfolio(self):
         svc, *_ = self.service({})
         out = svc.check("nobody")
-        self.assertEqual((out["holdings"], out["total_value"], out["unpriced"]), ([], 0.0, []))
+        self.assertEqual((out["holdings"], out["total_value"], out["unpriced"], out["action_counts"]),
+                         ([], 0.0, [], []))
         self.assertEqual(out["ideas"], [])
         self.assertEqual(len(out["industries"]), 49)
 

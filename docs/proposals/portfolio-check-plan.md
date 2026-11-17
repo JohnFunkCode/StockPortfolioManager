@@ -1,6 +1,6 @@
 # Portfolio Check: per-user version (plan)
 
-Status: **steps 1–3 done** (2026-11-17; see the checkpoint log). Decisions marked **D?** are open for John.
+Status: **steps 1–4 done** (2026-11-17; see the checkpoint log); next, review on the test site. Decisions marked **D?** are open for John.
 
 ## Where it stands
 
@@ -95,7 +95,7 @@ prototype was tried on had neither).
 2. Market-state snapshot + refresh script (D1a), with the SIC map. **Done 2026-11-17**
    (checkpoint below).
 3. Service + route + tests. **Done 2026-11-17** (checkpoint below).
-4. Native page replacing the sample; registries.
+4. Native page replacing the sample; registries. **Done 2026-11-17** (checkpoint below).
 5. Optional MCP tool.
 
 ## Review on test
@@ -239,6 +239,48 @@ Gotchas from this step:
   a character cp1252 can't decode. Run it with `PYTHONUTF8=1` on Windows; Linux CI is unaffected.
 - **Locally the route tests mount the router on a bare `FastAPI()`**: importing `api.main` builds
   the app, which calls `ensure_schema()` and needs a database.
+
+### Step 4: the native page (2026-11-17)
+
+- The Portfolio Check page no longer frames a sample. It is two GenUI cards in
+  `frontend/src/components/portfoliocheck/`, both registered with **no props** in
+  `quantcore/services/chat_tools.py` and `frontend/src/chat/componentRegistry.tsx` (the
+  `portfolio_table` rule: the caller's own lots, never an owner prop):
+  `PortfolioCheckCard` (`portfolio_check`: the summary chips and each holding's action, with its
+  reasons and tax note on click) and `PortfolioCheckIdeasCard` (`portfolio_check_ideas`: Buy-zone
+  industries not held, and the 49 industry ranks on request). The page adds a heading and an
+  as-of line. `api/portfolioCheck.ts` and `hooks/usePortfolioCheck.ts`: one react-query key, so the
+  page is one request.
+- **No math in the cards** (Rule 8.4): the per-action counts moved server-side as
+  `action_counts` (in `check_portfolio`, in report order) when the first draft counted them in the
+  browser; the cards only format (`formatPercent`, `formatCurrency`, a signed-percent formatter).
+- The sample is gone: `frontend/public/research/portfolio-check-sample.html` deleted, its
+  `SANDBOXED_PAGES` entry removed (only the Wind Map is sandboxed now), the CSP test asserting its
+  old path now gets the strict policy.
+- Tests: `PortfolioCheckCard.test.tsx` (loading, error, empty, success with key values, the row
+  details, unpriced, a `Review` row), `PortfolioCheckIdeasCard.test.tsx` (loading, error, ideas,
+  the ranks toggle, no ideas), `PortfolioCheckPage.test.tsx` (both cards from one request, the
+  as-of line, no iframe left); registry cases on both sides (`componentRegistry.test.ts`,
+  `test_chat_tools.py::TestPortfolioCheckDirectives`). Whole frontend suite with coverage: 775 pass,
+  thresholds met; server tests 39 pass; build clean.
+
+**Next: review on the test site.** John dispatches `deploy.yml` from main with this branch as
+`ref` (nothing here touches a migration, so `check_deploy_ref.py` allows it); the reviewer enters
+their own lots on the test site first (test has its own database), with a trade date and purchase
+price per lot so the tax notes appear. Open for John: D2 (holdings outside the S&P 500 show as
+`Review` until classified), D3 (tax rates and caps as user settings rather than defaults), D4 (an
+MCP tool).
+
+Rebased onto main on 2026-11-17 (141 commits, including books, #431): the service's
+`list_lots(owner, status="OPEN")` names no book, so **the check covers the owner's real book**;
+paper books are a possible later option (pass `book_id` through). John's new `realized_pnl` and
+`cash_ledger` cards landed in the same registry lines as ours, and both are kept.
+
+Gotchas from this step:
+
+- **Test titles in the registry test are single-quoted TypeScript**: an apostrophe written through
+  a script lost its escape and broke the whole file's transform, so it reads "caller’s" (a typographic
+  apostrophe) instead.
 
 ## Gotchas found while building the demo
 

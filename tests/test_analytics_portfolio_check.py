@@ -90,6 +90,12 @@ class ParityTests(unittest.TestCase):
         for g, w in zip(self.result["ideas"], self.fx["expected"]["ideas"]):
             self.assertAlmostEqual(g["wind12"], w["wind12"], places=12)
 
+    def test_action_counts_follow_report_order(self):
+        want = {}
+        for h in self.fx["expected"]["holdings"]:
+            want[h["action"]] = want.get(h["action"], 0) + 1
+        self.assertEqual(self.result["action_counts"], [{"action": a, "count": n} for a, n in want.items()])
+
     def test_output_is_json_ready(self):
         json.dumps(self.result, allow_nan=False)  # raises on a NaN or a numpy scalar
 

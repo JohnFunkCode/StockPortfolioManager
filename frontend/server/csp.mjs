@@ -16,7 +16,7 @@ export const CSP =
   "require-trusted-types-for 'script'";
 
 // Self-contained research pages shown inside the SPA in a sandboxed <iframe>. These are
-// pre-built HTML documents that may carry their own inline <script> (the Wind Map does,
+// pre-built HTML documents that carry their own inline <script> (the Wind Map does,
 // and writes markup with innerHTML) and inline <style>, so they cannot run under CSP
 // above. Instead of loosening CSP for the whole app, each listed page gets
 // SANDBOXED_PAGE_CSP, whose `sandbox` directive (without
@@ -28,7 +28,6 @@ export const CSP =
 // weakening anything.
 export const SANDBOXED_PAGES = new Set([
   '/research/wind-map.html', // Sector Wind Map (Market Casting prototype), the /wind-map page
-  '/research/portfolio-check-sample.html', // made-up sample report, the /portfolio-check page
 ]);
 
 // Inline script and style only; no network at all (connect/img/font fall to 'none',

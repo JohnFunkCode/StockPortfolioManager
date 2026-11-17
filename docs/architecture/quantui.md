@@ -197,25 +197,27 @@ re-running the prototype's fetch, backtest and build scripts and copying the pag
 intended full version serves the data from the API and renders it with QuantUI components, at which
 point the frame and its CSP exception go away.
 
-The **Portfolio Check page** (`/portfolio-check`, Research, below the Wind Map) is the same pattern
-for the prototype's quarterly holdings check (`portfolio_check.py`: each holding's industry against
-the Wind Map's tested rules, adjusted for position size and taxes). It is a **demo**:
-`frontend/public/research/portfolio-check-sample.html` is that script's report for the prototype's
-made-up `holdings_example.csv`, and the page says so in an `Alert`. **A pre-built page must never
-hold a real portfolio**: it is served identically to every user and committed to git. The
-per-user version, built from the viewer's own lots through the API, is
-[`portfolio-check-plan.md`](../proposals/portfolio-check-plan.md).
+The Wind Map frames its file through `frontend/src/components/research/SandboxedReport.tsx`, the
+one place the `sandbox` attribute is set. It is not GenUI-compliant (arch-v2 Rules 8–9): the numbers
+are computed by the prototype, not by `quantcore/analytics`, and the Sidekick can't render it. That
+is accepted for a static snapshot and is what the full version fixes. **A pre-built page must never
+hold a real portfolio**: it is served identically to every user and committed to git.
 
-Both pages frame their file through `frontend/src/components/research/SandboxedReport.tsx`, the one
-place the `sandbox` attribute is set. Neither is GenUI-compliant (arch-v2 Rules 8–9): the numbers
-are computed by the prototype, not by `quantcore/analytics`, and the Sidekick can't render them.
-That is accepted for a static demo and is what each full version fixes.
+The **Portfolio Check page** (`/portfolio-check`, Research, below the Wind Map) runs the signed-in
+user's own open lots through the Wind Map's tested industry rules, adjusted for position size and
+taxes (`GET /api/portfolio/check`; the math is `quantcore/analytics/portfolio_check.py`, the market
+side the monthly `quantcore/data/portfolio_check_market_state.json`). It is composed of two
+GenUI cards in `frontend/src/components/portfoliocheck/`, registered on both sides with **no
+props**, like `portfolio_table`: `portfolio_check` (each holding's action, with its reasons and tax
+note on click, and the action counts) and `portfolio_check_ideas` (Buy-zone industries not held, and
+all 49 industry ranks). Both read one react-query key, so the page costs one request. Counts,
+weights and every other number come from the server; the cards only format. It replaced a
+pre-built sample report (step 4 of [`portfolio-check-plan.md`](../proposals/portfolio-check-plan.md)).
 
 The prototype runs an inline `<script>` and writes markup with `innerHTML`, so it can't run under the
 app CSP (no inline script, Trusted Types) and `frame-ancestors 'none'` forbids framing it. Rather
 than loosen the app CSP, `frontend/server/csp.mjs` gives the exact paths in `SANDBOXED_PAGES` a
-separate policy, `SANDBOXED_PAGE_CSP` (the Portfolio Check sample has no script, but gets the same
-policy). Three things about it are load-bearing:
+separate policy, `SANDBOXED_PAGE_CSP`. Three things about it are load-bearing:
 
 - **`sandbox allow-scripts`, never `allow-same-origin`**, in both the CSP and the `<iframe>`
   attribute. The page then runs in an opaque origin even when opened directly, so its script can't

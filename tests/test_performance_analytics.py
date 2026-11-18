@@ -42,7 +42,6 @@ class BookValueTest(unittest.TestCase):
         self.assertEqual(snap["holding_count"], 1)
         self.assertEqual((snap["unpriced_count"], snap["stale_count"], snap["fx_missing_count"]),
                          (0, 0, 0))
-        self.assertFalse(snap["cash_negative"])
         self.assertEqual(snap["session_date"], TUE)
 
     def test_no_opening_balance_by_the_session_is_no_value(self):
@@ -94,7 +93,9 @@ class BookValueTest(unittest.TestCase):
     def test_negative_cash_is_said(self):
         snap = perf.book_value(session=TUE, entries=OPENING + [entry("buy", MON, "-1500.00", 2)],
                                lots=[lot()], closes={"AAA": (D("150"), TUE)}, rates={})
-        self.assertTrue(snap["cash_negative"])
+        # A negative cash is stored as it is: Performance reads it from the
+        # row to mark the day (plan decision 8).
+        self.assertEqual(snap["cash"], D("-500.00"))
         self.assertEqual(snap["book_value"], D("1000.00"))
 
     def test_rounds_the_holdings_once_not_each_lot(self):

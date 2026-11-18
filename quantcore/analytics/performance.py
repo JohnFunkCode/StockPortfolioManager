@@ -193,7 +193,6 @@ def book_value(
     Returns None when the ledger had no opening balance by `session`.
     Otherwise `cash`, `contributed`, `holdings_value`, `book_value` and
     `flow` (each to the cent; the last three None when incomplete),
-    `cash_negative`,
     `holding_count`, `unpriced_count`, `stale_count`, `fx_missing_count`
     (holdings and cash rows with no rate).
     """
@@ -215,7 +214,6 @@ def book_value(
         "holdings_value": held,
         "book_value": cash + held if complete else None,
         "flow": cash_math.to_cents(flow) if flow is not None else None,
-        "cash_negative": cash < 0,
         "holding_count": len(lots),
         "unpriced_count": holdings["unpriced"],
         "stale_count": holdings["stale"],

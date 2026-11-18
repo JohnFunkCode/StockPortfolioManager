@@ -5,6 +5,7 @@ close and rate here comes from a stub."""
 import datetime
 import unittest
 from decimal import Decimal
+from unittest import mock
 
 from quantcore.db_safety import assert_not_production  # noqa: E402
 
@@ -18,6 +19,7 @@ from quantcore.repositories.books_repository import (  # noqa: E402
 from quantcore.repositories.cash_repository import CashRepository  # noqa: E402
 from quantcore.repositories.portfolio_repository import PortfolioRepository  # noqa: E402
 from quantcore.services.performance import PerformanceService  # noqa: E402
+from quantcore.services.prices import CLOSE_ON_LOOKBACK_DAYS, PricesService  # noqa: E402
 
 from tests.test_orders_repository import purge  # noqa: E402
 
@@ -167,6 +169,57 @@ class SnapshotBookTest(_Base):
         self.service.snapshot_book(owner=OWNER, book_id=paper, session=TUE)
         self.assertEqual(self.service.list_snapshots(owner=OTHER), [])
         self.assertEqual(len(self.service.list_snapshots(owner=OWNER, book_id=paper)), 1)
+
+
+class CloseOnTest(unittest.TestCase):
+    """`PricesService.close_on`, over a stubbed `closed_bars_since` (the
+    #573 review): the newest closed bar on or before the session, within
+    the lookback window."""
+
+    def setUp(self):
+        self.prices = PricesService(
+            ohlcv_repository=mock.Mock(), yfinance_gateway=mock.Mock(),
+            options_repository=mock.Mock(), sentiment_repository=mock.Mock())
+        self.bars = []
+        self.asked = []
+
+        def closed_bars_since(symbol, since):
+            self.asked.append((symbol, since))
+            return [b for b in self.bars if b["session"] >= since]
+
+        self.prices.closed_bars_since = closed_bars_since
+
+    def bar(self, day, close):
+        self.bars.append({"session": day, "open": close, "high": close, "low": close,
+                          "close": close})
+
+    def test_the_sessions_own_close(self):
+        self.bar(MON, 10.0)
+        self.bar(TUE, 11.0)
+        self.assertEqual(self.prices.close_on(SYMBOL, TUE), {"close": 11.0, "session": TUE})
+        self.assertEqual(
+            self.asked, [(SYMBOL, TUE - datetime.timedelta(days=CLOSE_ON_LOOKBACK_DAYS))])
+
+    def test_an_earlier_close_when_the_session_has_none(self):
+        self.bar(MON, 10.0)
+        self.assertEqual(self.prices.close_on(SYMBOL, TUE), {"close": 10.0, "session": MON})
+
+    def test_a_later_bar_is_never_used(self):
+        self.bar(MON, 10.0)
+        self.bar(WED, 12.0)
+        self.assertEqual(self.prices.close_on(SYMBOL, TUE), {"close": 10.0, "session": MON})
+
+    def test_nothing_in_the_window_is_no_close(self):
+        self.bar(TUE - datetime.timedelta(days=CLOSE_ON_LOOKBACK_DAYS + 1), 9.0)
+        self.assertEqual(self.prices.close_on(SYMBOL, TUE), {"close": None, "session": None})
+
+    def test_a_fetch_error_reaches_the_caller(self):
+        def boom(symbol, since):
+            raise RuntimeError("yahoo down")
+
+        self.prices.closed_bars_since = boom
+        with self.assertRaises(RuntimeError):
+            self.prices.close_on(SYMBOL, TUE)
 
 
 class DueSnapshotsTest(_Base):

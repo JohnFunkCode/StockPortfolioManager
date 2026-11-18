@@ -104,6 +104,12 @@ OHLCV_CLOSEOUT_CHUNK_SIZE = 25
 OHLCV_CLOSEOUT_PAUSE_SECONDS = 2.0
 OHLCV_CLOSEOUT_ALERT_SYMBOLS = 10
 
+BOOK_SNAPSHOT_BUDGET_SECONDS_ENV = "BOOK_SNAPSHOT_BUDGET_SECONDS"
+# A snapshot is a few queries a book, plus one history download for a held
+# symbol whose closed bars are behind (the close-out has just closed the
+# captured ones) and one FX download a non-USD currency held.
+DEFAULT_BOOK_SNAPSHOT_BUDGET_SECONDS = 120.0
+
 DEFAULT_REPORT_TASK_TIMEOUT_SECONDS = 1800.0  # Cloud Run Job task timeout
 WARM_DEADLINE_MARGIN_SECONDS = 60.0
 # How far past the warm budget the post-warm alarm's re-read can land: the last
@@ -1120,6 +1126,109 @@ def run_ohlcv_closeout(symbols, prices, notifier, budget_seconds=None,
         print(f"ERROR: OHLCV close-out failed: {type(exc).__name__}", file=sys.stderr)
 
 
+def take_book_snapshots(performance, budget_seconds=None, clock=time.monotonic,
+                        today=None) -> dict:
+    """Store what every book is worth at today's close (#431 step 5.1).
+
+    ``PerformanceService`` holds the rules (which books are owed a snapshot,
+    what it values a holding at); this walks them under a wall-clock budget.
+    One bad book degrades one row. ``empty`` counts books that turned out to
+    have no opening balance by today.
+
+    The summary is what the loop saw. Whether snapshots are still owed is
+    ``alert_if_snapshots_owed``'s question, and it asks the database.
+    """
+    budget = (_env_float(BOOK_SNAPSHOT_BUDGET_SECONDS_ENV,
+                         DEFAULT_BOOK_SNAPSHOT_BUDGET_SECONDS)
+              if budget_seconds is None else budget_seconds)
+    today = today or market_date()
+    due = performance.due_snapshots(today=today)
+    print(f"Taking {len(due)} book snapshot(s) for {today}, budget {budget:.0f}s...")
+
+    started = clock()
+    summary = {"due": len(due), "attempted": 0, "valued": 0, "incomplete": 0,
+               "empty": 0, "failed": 0}
+    for book in due:
+        if clock() - started >= budget:
+            break
+        summary["attempted"] += 1
+        try:
+            row = performance.snapshot_book(
+                owner=book["owner"], book_id=book["book_id"], session=today)
+            if row is None:
+                summary["empty"] += 1
+            elif row["book_value"] is None:
+                summary["incomplete"] += 1
+            else:
+                summary["valued"] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad book must not stop the walk
+            summary["failed"] += 1
+            print(f"  book {book['book_id']}: snapshot failed ({type(exc).__name__})")
+
+    summary["elapsed_seconds"] = clock() - started
+    summary["budget_exhausted"] = summary["attempted"] < summary["due"]
+    print(f"Book snapshots: {summary['valued']} valued, {summary['incomplete']} "
+          f"incomplete, {summary['empty']} with no opening balance, "
+          f"{summary['failed']} failed, {summary['due'] - summary['attempted']} "
+          f"not attempted, {summary['elapsed_seconds']:.0f}s.")
+    return summary
+
+
+def alert_if_snapshots_owed(performance, notifier, today=None) -> bool:
+    """Alarm when a book is still owed a complete snapshot for today.
+
+    Reads what is in the database after the step, not the loop's summary, so
+    it also catches a step that ran out of budget, a holding with no close or
+    no FX rate, one priced from an earlier session, and a write that reported
+    success and didn't commit. A day with no row is a hole in the book's
+    return series. Counts books by reason, never names an owner.
+    """
+    owed = performance.due_snapshots(today=today or market_date())
+    if not owed:
+        return False
+    reasons = {}
+    for book in owed:
+        reasons[book["reason"]] = reasons.get(book["reason"], 0) + 1
+    words = ", ".join(f"{count} {reason}" for reason, count in sorted(reasons.items()))
+    print(f"ERROR: {len(owed)} book(s) have no complete snapshot for today: {words}.",
+          file=sys.stderr)
+    try:
+        notifier.send_snapshots_owed_alert(len(owed), reasons)
+    except Exception as exc:  # noqa: BLE001 — a dead webhook must not kill the job
+        print(f"  (failed to send the book-snapshot alert: {type(exc).__name__})",
+              file=sys.stderr)
+    return True
+
+
+def run_book_snapshots(performance, notifier, budget_seconds=None,
+                       clock=time.monotonic, today=None) -> None:
+    """Snapshot every book's value at the close, then alarm on any still
+    owed. Never raises.
+
+    Runs after the OHLCV close-out (#431 step 5.1), so the captured symbols'
+    closes are already stored and most holdings cost no download. A snapshot
+    is taken after the day's fills and stop sales, because those change what
+    a book holds at the close. Does nothing on a day the NYSE is closed. The
+    alarm runs even when the snapshots raise.
+    """
+    try:
+        today = today or market_date()
+        if not is_trading_day(today):
+            return
+    except Exception as exc:  # noqa: BLE001 — a tail step must not fail the job
+        print(f"ERROR: book snapshots failed: {type(exc).__name__}", file=sys.stderr)
+        return
+    try:
+        take_book_snapshots(performance, budget_seconds=budget_seconds, clock=clock,
+                            today=today)
+    except Exception as exc:  # noqa: BLE001 — a tail step must not fail the job
+        print(f"ERROR: book snapshots failed: {type(exc).__name__}", file=sys.stderr)
+    try:
+        alert_if_snapshots_owed(performance, notifier, today=today)
+    except Exception as exc:  # noqa: BLE001 — a check on the step must not fail the job
+        print(f"ERROR: book-snapshot check failed: {type(exc).__name__}", file=sys.stderr)
+
+
 if __name__ == "__main__":
     # Make sure the schema is right (creates tables, or verifies them
     # where Flyway owns the DDL -- see QUANTCORE_SCHEMA_MODE).
@@ -1222,11 +1331,21 @@ if __name__ == "__main__":
             _warm_budget_seconds(None), job_started),
     )
 
-    # Last of all: finalize today's daily bars. It yields to every step above
-    # because it is the one that can be redone on any later night (#518).
+    # Finalize today's daily bars. It yields to every step above because it
+    # is the one that can be redone on any later night (#518).
     run_ohlcv_closeout(
         capture_symbols, get_services().prices, notifier,
         budget_seconds=_remaining_budget(
             _env_float(OHLCV_CLOSEOUT_BUDGET_SECONDS_ENV,
                        DEFAULT_OHLCV_CLOSEOUT_BUDGET_SECONDS), job_started),
+    )
+
+    # After the close-out: what every book is worth at today's close, one
+    # snapshot a book (#431 step 5.1). The close-out has just stored the
+    # captured symbols' closes, so most holdings cost no download.
+    run_book_snapshots(
+        get_services().performance, notifier,
+        budget_seconds=_remaining_budget(
+            _env_float(BOOK_SNAPSHOT_BUDGET_SECONDS_ENV,
+                       DEFAULT_BOOK_SNAPSHOT_BUDGET_SECONDS), job_started),
     )

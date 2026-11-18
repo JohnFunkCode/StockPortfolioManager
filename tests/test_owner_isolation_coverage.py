@@ -92,6 +92,11 @@ OWNER_SCOPED = {
         ("tests/test_stops_repository.py", "test_another_owners_stop_on_the_same_symbol_is_not_replaced"),
         ("tests/test_stops_api.py", "test_another_owner_reaches_nothing_by_any_route"),
     ],
+    "book_value_snapshots": [
+        ("tests/test_book_snapshots_repository.py", "test_another_owner_reads_no_snapshots"),
+        ("tests/test_book_snapshots_repository.py", "test_wrong_owner_writes_change_nothing"),
+        ("tests/test_performance_service.py", "test_another_owners_book_is_not_found"),
+    ],
     "positions": [
         ("tests/test_portfolio_repository.py", "test_get_lot_is_owner_scoped"),
         ("tests/test_portfolio_repository.py", "test_update_lot_is_owner_scoped"),

@@ -21,6 +21,7 @@ from quantcore.chat_models import CHAT_MODELS, DEFAULT_CHAT_MODEL, MODEL_IDS
 from quantcore.gateways.polygon_gateway import PolygonGateway
 from quantcore.gateways.yfinance_gateway import YFinanceGateway
 from quantcore.repositories.arbitrage_repository import ArbitrageRepository
+from quantcore.repositories.book_snapshots_repository import BookSnapshotsRepository
 from quantcore.repositories.books_repository import BooksRepository
 from quantcore.repositories.cash_repository import CashRepository
 from quantcore.repositories.orders_repository import OrdersRepository
@@ -57,6 +58,7 @@ from quantcore.services.microstructure import MicrostructureService
 from quantcore.services.options import OptionsService
 from quantcore.services.options_screening import OptionsScreeningService
 from quantcore.services.portfolio import PortfolioService
+from quantcore.services.performance import PerformanceService
 from quantcore.services.prices import PricesService
 from quantcore.services.recommendations import RecommendationsService
 from quantcore.services.sentiment import SentimentService
@@ -87,6 +89,7 @@ class Services:
     cash_repository: CashRepository
     orders_repository: OrdersRepository
     stops_repository: StopsRepository
+    book_snapshots_repository: BookSnapshotsRepository
     watchlist_repository: WatchlistRepository
     user_settings_repository: UserSettingsRepository
     arbitrage_repository: ArbitrageRepository
@@ -104,6 +107,7 @@ class Services:
     cash: CashService
     orders: OrdersService
     stops: StopsService
+    performance: PerformanceService
     watchlist: WatchlistService
     recommendations: RecommendationsService
     arbitrage: ArbitrageService
@@ -129,6 +133,7 @@ def get_services() -> Services:
     # Shares PortfolioRepository: a fill writes its lot and sale rows through it.
     orders_repository = OrdersRepository(portfolio_repository)
     stops_repository = StopsRepository(portfolio_repository)
+    book_snapshots_repository = BookSnapshotsRepository()
     watchlist_repository = WatchlistRepository()
     user_settings_repository = UserSettingsRepository()
     arbitrage_repository = ArbitrageRepository()
@@ -299,6 +304,7 @@ def get_services() -> Services:
         cash_repository=cash_repository,
         orders_repository=orders_repository,
         stops_repository=stops_repository,
+        book_snapshots_repository=book_snapshots_repository,
         watchlist_repository=watchlist_repository,
         user_settings_repository=user_settings_repository,
         arbitrage_repository=arbitrage_repository,
@@ -322,6 +328,14 @@ def get_services() -> Services:
         cash=CashService(cash_repository, books_repository),
         orders=orders,
         stops=StopsService(stops_repository, books_repository, prices, orders),
+        performance=PerformanceService(
+            book_snapshots_repository,
+            books_repository,
+            cash_repository,
+            portfolio_repository,
+            prices,
+            fx_gateway=yfinance_gateway,
+        ),
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

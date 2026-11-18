@@ -156,6 +156,94 @@
         "idx_arb_nav_latest": "CREATE INDEX idx_arb_nav_latest ON public.arb_nav_snapshots USING btree (security, as_of DESC)"
       }
     },
+    "book_value_snapshots": {
+      "columns": {
+        "book_id": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "book_value": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,2)"
+        },
+        "cash": {
+          "default": null,
+          "nullable": false,
+          "type": "numeric(18,2)"
+        },
+        "contributed": {
+          "default": null,
+          "nullable": false,
+          "type": "numeric(18,2)"
+        },
+        "flow": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,2)"
+        },
+        "fx_missing_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "holding_count": {
+          "default": null,
+          "nullable": false,
+          "type": "integer"
+        },
+        "holdings_value": {
+          "default": null,
+          "nullable": true,
+          "type": "numeric(18,2)"
+        },
+        "owner": {
+          "default": null,
+          "nullable": false,
+          "type": "text"
+        },
+        "session_date": {
+          "default": null,
+          "nullable": false,
+          "type": "date"
+        },
+        "snapshot_id": {
+          "default": "nextval('book_value_snapshots_snapshot_id_seq'::regclass)",
+          "nullable": false,
+          "type": "integer"
+        },
+        "stale_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        },
+        "taken_at": {
+          "default": "now()",
+          "nullable": false,
+          "type": "timestamp with time zone"
+        },
+        "unpriced_count": {
+          "default": "0",
+          "nullable": false,
+          "type": "integer"
+        }
+      },
+      "constraints": {
+        "book_value_snapshots_book_id_fkey": "FOREIGN KEY (book_id) REFERENCES books(book_id)",
+        "book_value_snapshots_fx_missing_count_check": "CHECK ((fx_missing_count >= 0))",
+        "book_value_snapshots_holding_count_check": "CHECK ((holding_count >= 0))",
+        "book_value_snapshots_one_a_session": "UNIQUE (book_id, session_date)",
+        "book_value_snapshots_pkey": "PRIMARY KEY (snapshot_id)",
+        "book_value_snapshots_stale_count_check": "CHECK ((stale_count >= 0))",
+        "book_value_snapshots_unpriced_count_check": "CHECK ((unpriced_count >= 0))",
+        "book_value_snapshots_value_rule": "CHECK (((book_value IS NULL) OR ((holdings_value IS NOT NULL) AND (book_value = (cash + holdings_value)))))"
+      },
+      "indexes": {
+        "book_value_snapshots_one_a_session": "CREATE UNIQUE INDEX book_value_snapshots_one_a_session ON public.book_value_snapshots USING btree (book_id, session_date)",
+        "book_value_snapshots_pkey": "CREATE UNIQUE INDEX book_value_snapshots_pkey ON public.book_value_snapshots USING btree (snapshot_id)"
+      }
+    },
     "books": {
       "columns": {
         "archived_at": {

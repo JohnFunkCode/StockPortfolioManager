@@ -458,6 +458,32 @@ ALTER TABLE stops
              OR (broker_quantity IS NULL AND broker_order_type IS NULL
                  AND brokerage IS NULL));
 
+-- V27 (#431 phase 3, plan step 5.1): what each book was worth at a session's
+-- close, one row a book and session, written by the daily job. Mirrors
+-- db/migrations/V27__book_value_snapshots.sql, which says what each column
+-- holds. A NULL value is an incomplete one, never a guess. A book is never
+-- deleted, so book_id has no cascade.
+CREATE TABLE IF NOT EXISTS book_value_snapshots (
+    snapshot_id      SERIAL PRIMARY KEY,
+    owner            TEXT          NOT NULL,
+    book_id          INTEGER       NOT NULL REFERENCES books(book_id),
+    session_date     DATE          NOT NULL,
+    cash             NUMERIC(18,2) NOT NULL,
+    holdings_value   NUMERIC(18,2),
+    book_value       NUMERIC(18,2),
+    flow             NUMERIC(18,2),
+    contributed      NUMERIC(18,2) NOT NULL,
+    holding_count    INTEGER       NOT NULL CHECK (holding_count >= 0),
+    unpriced_count   INTEGER       NOT NULL DEFAULT 0 CHECK (unpriced_count >= 0),
+    stale_count      INTEGER       NOT NULL DEFAULT 0 CHECK (stale_count >= 0),
+    fx_missing_count INTEGER       NOT NULL DEFAULT 0 CHECK (fx_missing_count >= 0),
+    taken_at         TIMESTAMPTZ   NOT NULL DEFAULT now(),
+    CONSTRAINT book_value_snapshots_one_a_session UNIQUE (book_id, session_date),
+    CONSTRAINT book_value_snapshots_value_rule
+        CHECK (book_value IS NULL
+               OR (holdings_value IS NOT NULL AND book_value = cash + holdings_value))
+);
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

@@ -1,0 +1,21 @@
+-- V28: restating a book's history (#431 phase 3, plan step 5.2 in
+-- docs/proposals/paper-books-realized-pnl-plan.md, decisions 85 and 88 as
+-- John revised them on 2026-11-17).
+--
+--   books.restate_from                  the earliest session whose snapshot a
+--                                       later write has made wrong. A write to
+--                                       a book's cash or lots dated on or
+--                                       before its newest snapshot sets it to
+--                                       the earlier of itself and that date;
+--                                       the daily job rebuilds the rows from
+--                                       there and clears it. NULL: nothing to
+--                                       restate
+--   book_value_snapshots.restated_at    when a rebuild changed the row after
+--                                       it was first taken. NULL for a row
+--                                       nothing has corrected, so a
+--                                       correction can be shown (GIPS asks for
+--                                       it to be disclosed)
+--
+-- Additive only, so CI applies it.
+ALTER TABLE books ADD COLUMN IF NOT EXISTS restate_from DATE;
+ALTER TABLE book_value_snapshots ADD COLUMN IF NOT EXISTS restated_at TIMESTAMPTZ;

@@ -22,6 +22,11 @@ Every write that can change what a lot cost or a sale brought in rewrites
 that lot's rows in the cash ledger before it commits (#431 step 3.1,
 `cash_entry_sql.sync_lot_cash`). A deleted lot takes its rows with it through
 the foreign keys.
+
+Every write the owner makes also marks the book for restatement when it is
+dated on or before the book's newest value snapshot (#431 step 5.2,
+`restate_sql.mark_restate`), in the same transaction. An order's fill goes
+through the `_on` methods, which don't mark: it is dated today.
 """
 
 from __future__ import annotations
@@ -34,6 +39,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from quantcore.db import get_connection
 from quantcore.repositories.books_repository import resolve_book_id
 from quantcore.repositories.cash_entry_sql import insert_trade_entries, sync_lot_cash
+from quantcore.repositories.restate_sql import lot_day, mark_restate
 from quantcore.repositories.stop_sql import close_flat_stops_on
 
 # What prompted a sale (`lot_sales.source`, #431 step 3.3). A sale the owner
@@ -85,6 +91,37 @@ WHERE p.owner = :owner
                  THEN b.kind = 'real'
                  ELSE b.book_id = CAST(:book_id AS INTEGER) END)
 ORDER BY s.ticker, p.purchase_date;
+"""
+
+# Every lot of one book, whatever its status, with the date it was sold: what
+# rebuilding a book's past snapshots reads (#431 step 5.2). A closed lot holds
+# exactly the shares its one sale sold (a partial sale splits the lot), so a
+# lot is held from its trade date until `sold_on`. The sales are reached
+# through the restricted lot, never on their own.
+SQL_LIST_LOT_HISTORY = """
+SELECT
+    p.position_id    AS position_id,
+    s.ticker         AS symbol,
+    p.quantity       AS quantity,
+    p.currency       AS currency,
+    p.acquisition_type AS acquisition_type,
+    p.trade_date     AS trade_date,
+    p.purchase_date  AS purchase_date,
+    p.sale_date      AS sale_date,
+    p.status         AS status,
+    MIN(ls.sale_trade_date) AS sold_on
+FROM positions p
+JOIN symbols s ON s.symbol_id = p.symbol_id
+LEFT JOIN lot_sales ls ON ls.lot_id = p.position_id
+WHERE p.owner = :owner
+  AND p.book_id IN (
+      SELECT b.book_id FROM books b
+      WHERE b.owner = :owner
+        AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
+                 THEN b.kind = 'real'
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+GROUP BY p.position_id, s.ticker
+ORDER BY p.position_id;
 """
 
 # Cross-owner on purpose (the daily job's walk). Real books only: an owner who
@@ -598,6 +635,38 @@ class PortfolioRepository:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def list_lot_history(
+        self, owner: str, *, book_id: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """Every lot of one book, open and closed, with the date each closed
+        lot was sold (`sold_on`, None while it is open): what rebuilding the
+        book's past snapshots reads (#431 step 5.2). One query."""
+        with closing(get_connection()) as conn:
+            return self._lot_history(conn, owner, book_id=book_id)
+
+    @staticmethod
+    def _lot_history(conn, owner: str, *, book_id: Optional[int]) -> List[Dict[str, Any]]:
+        rows = conn.execute(SQL_LIST_LOT_HISTORY, {"owner": owner, "book_id": book_id}).fetchall()
+        return [{
+            "lot_id": int(r["position_id"]),
+            "symbol": r["symbol"],
+            "quantity": _dec(r["quantity"]),
+            "currency": r["currency"],
+            "acquisition_type": r["acquisition_type"],
+            "trade_date": r["trade_date"],
+            "purchase_date": r["purchase_date"],
+            "sale_date": r["sale_date"],
+            "status": r["status"],
+            "sold_on": r["sold_on"],
+        } for r in rows]
+
+    def _lot_on(self, conn, owner: str, lot_id: int, *, book_id: Optional[int]):
+        """One lot as `conn`'s transaction sees it, or None."""
+        row = conn.execute(
+            SQL_GET_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
+        ).fetchone()
+        return _row_to_dict(row) if row is not None else None
+
     def list_owners(self) -> List[str]:
         """Every owner holding a position in a real book."""
         with closing(get_connection()) as conn:
@@ -662,12 +731,18 @@ class PortfolioRepository:
         with closing(get_connection()) as conn:
             try:
                 book = resolve_book_id(conn, owner=owner, book_id=book_id)
+                old = self._lot_history(conn, owner, book_id=book)
                 conn.execute(SQL_DELETE_OWNER_POSITIONS, {"owner": owner, "book_id": book})
                 for row in rows:
                     self._insert_position(conn, owner, row, book_id=book)
                 # The old lots took their cash rows with them. One pass
                 # writes the new ones.
                 insert_trade_entries(conn, owner=owner, book_id=book)
+                # The book's holdings may have changed from the earliest lot
+                # either side of the import.
+                mark_restate(conn, owner=owner, book_id=book, days=[
+                    *(lot_day(lot) for lot in old), *(lot_day(row) for row in rows),
+                ])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -686,6 +761,7 @@ class PortfolioRepository:
         with closing(get_connection()) as conn:
             try:
                 lot_id = self.add_lot_on(conn, owner, row, book_id=book_id)
+                mark_restate(conn, owner=owner, book_id=book_id, days=[lot_day(row)])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -717,11 +793,15 @@ class PortfolioRepository:
         """Delete every lot of `ticker` for `owner` in one book. Returns rows removed."""
         with closing(get_connection()) as conn:
             try:
+                lots = self._lots_for_symbol(conn, owner, ticker, None, book_id=book_id)
                 cur = conn.execute(
                     SQL_DELETE_OWNER_SYMBOL,
                     {"owner": owner, "ticker": ticker.strip().upper(), "book_id": book_id},
                 )
                 removed = cur.rowcount
+                if removed:
+                    mark_restate(conn, owner=owner, book_id=book_id,
+                                 days=[lot_day(lot) for lot in lots])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -742,6 +822,7 @@ class PortfolioRepository:
         """
         with closing(get_connection()) as conn:
             try:
+                before = self._lot_on(conn, owner, lot_id, book_id=book_id)
                 updated = self._apply_lot_fields(conn, owner, lot_id, fields, book_id=book_id)
                 if updated and "currency" in fields:
                     conn.execute(
@@ -750,6 +831,9 @@ class PortfolioRepository:
                     )
                 if updated:
                     sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
+                    after = self._lot_on(conn, owner, lot_id, book_id=book_id)
+                    mark_restate(conn, owner=owner, book_id=book_id,
+                                 days=[lot_day(before), lot_day(after)])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -760,10 +844,13 @@ class PortfolioRepository:
         """Delete a single lot. Returns True if a row was deleted."""
         with closing(get_connection()) as conn:
             try:
+                lot = self._lot_on(conn, owner, lot_id, book_id=book_id)
                 cur = conn.execute(
                     SQL_DELETE_LOT, {"owner": owner, "lot_id": lot_id, "book_id": book_id}
                 )
                 deleted = cur.rowcount
+                if deleted:
+                    mark_restate(conn, owner=owner, book_id=book_id, days=[lot_day(lot)])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -811,6 +898,7 @@ class PortfolioRepository:
                 })
                 sale_id = int(cur.fetchone()["sale_id"])
                 sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
+                mark_restate(conn, owner=owner, book_id=book_id, days=[sale_trade_date])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -932,18 +1020,20 @@ class PortfolioRepository:
             {"owner": owner, "sale_id": sale_id, "rate": rate, "book_id": book_id},
         )
 
-    @staticmethod
-    def _fill_fx_rate(sql: str, params: Dict[str, Any]) -> bool:
+    def _fill_fx_rate(self, sql: str, params: Dict[str, Any]) -> bool:
         """Run one of the two fill statements, which return the lot they
         touched. A filled rate gives that lot's cash rows an amount."""
         with closing(get_connection()) as conn:
             try:
                 row = conn.execute(sql, params).fetchone()
                 if row is not None:
-                    sync_lot_cash(
-                        conn, owner=params["owner"], book_id=params["book_id"],
-                        lot_id=int(row["lot_id"]),
-                    )
+                    owner, book_id = params["owner"], params["book_id"]
+                    lot_id = int(row["lot_id"])
+                    sync_lot_cash(conn, owner=owner, book_id=book_id, lot_id=lot_id)
+                    # A rate filled in later gives a cash row its amount, from
+                    # the lot's trade date (on or before any sale of it).
+                    lot = self._lot_on(conn, owner, lot_id, book_id=book_id)
+                    mark_restate(conn, owner=owner, book_id=book_id, days=[lot_day(lot)])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -1017,6 +1107,7 @@ class PortfolioRepository:
                     fees=fees, allocation_method=allocation_method, notes=notes,
                     lot_notes=lot_notes, fx_rates_at_sale=fx_rates_at_sale, book_id=book_id,
                 )
+                mark_restate(conn, owner=owner, book_id=book_id, days=[sale_trade_date])
                 conn.commit()
             except Exception:
                 conn.rollback()

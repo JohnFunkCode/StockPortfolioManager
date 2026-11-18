@@ -215,9 +215,17 @@ their own sections below):
    rows back as a time-weighted return and a drawdown.
 
    - **Which books** (`PerformanceService.due_snapshots`): every owner's books that are not
-     archived and whose cash ledger has an opening balance on or before today, and whose row for
-     today is missing, has no value, or priced a holding from an earlier session. A real book with
-     no opening balance owes nothing: its history starts at that date (plan decision 9).
+     archived and whose cash ledger has an opening balance on or before today, and that is
+     marked for restatement, or whose row for today is missing, has no value, or priced a holding
+     from an earlier session. A real book with no opening balance owes nothing: its history
+     starts at that date (plan decision 9).
+   - **A marked book is restated instead** (step 5.2, `PerformanceService.restate_book`). A write
+     dated on or before the book's newest row set `books.restate_from`; the step rebuilds every
+     session from the mark (or the book's first row, if later) through today, which takes
+     today's row too, and clears the mark in the same transaction. A rebuild whose price or FX
+     fetch fails writes nothing and leaves the mark for the next night, as does a book the budget
+     doesn't reach. One a symbol's closed bars a restated book holds over the range, and one FX
+     download a currency. Why: [data.md](data.md#book-value-snapshots).
    - **The prices** (`PricesService.close_on`): each held symbol's newest **closed** daily bar on
      or up to 7 days before today. It reads through `get_history(include_open=False)`, so a symbol
      the close-out has just closed costs no Yahoo call, and one it didn't (a symbol held only in a
@@ -234,8 +242,9 @@ their own sections below):
      task deadline and falling back to the default on an unparseable value.
    - **Alarm:** after the walk, `alert_if_snapshots_owed` asks the database for the owed books
      again. If any is still owed one it sends one Discord alarm (`send_snapshots_owed_alert`)
-     counting the books by reason: no snapshot, a holding with no close or no FX rate, or a
-     holding priced from an earlier session. It names no book or owner. A book holding a symbol
+     counting the books by reason: no snapshot, a holding with no close or no FX rate, a
+     holding priced from an earlier session, or a change to its history still to restate. It
+     names no book or owner. A book holding a symbol
      that has stopped trading alarms every night until the holding is closed.
    - It never raises: the walk and the alarm each have their own guard. One bad book degrades
      one row, and the log names the exception's class only. It does nothing on an NYSE-closed

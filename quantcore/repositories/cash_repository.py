@@ -11,6 +11,8 @@ Rules this module keeps (CLAUDE.md, "Unified Database"):
 - `book_id` is keyword-only and defaults to None, which means the owner's real
   book. A book that isn't the owner's reads as empty and takes no writes.
 - A read never creates a book. The first write to the real book does.
+- A write dated on or before the book's newest value snapshot marks the book
+  for restatement in its own transaction (#431 step 5.2, `restate_sql`).
 
 SQL only — no analytics. The running balance is `analytics.cash.cash_ledger`.
 """
@@ -24,6 +26,7 @@ from typing import Any, Dict, List, Optional
 from quantcore.db import get_connection
 from quantcore.repositories import cash_entry_sql
 from quantcore.repositories.books_repository import resolve_book_id
+from quantcore.repositories.restate_sql import mark_restate
 
 # Each buy or sell row with the lot or sale it came from, for its description.
 # The two positions joins are restricted to the owner and the book like the
@@ -91,7 +94,8 @@ WHERE owner = :owner
       WHERE b.owner = :owner
         AND CASE WHEN CAST(:book_id AS INTEGER) IS NULL
                  THEN b.kind = 'real'
-                 ELSE b.book_id = CAST(:book_id AS INTEGER) END);
+                 ELSE b.book_id = CAST(:book_id AS INTEGER) END)
+RETURNING entry_date;
 """
 
 # A paper book made before the ledger existed has no opening row. Its opening
@@ -170,10 +174,13 @@ class CashRepository:
         with closing(get_connection()) as conn:
             try:
                 book = resolve_book_id(conn, owner=owner, book_id=book_id)
+                old = [e["entry_date"] for e in list_entries_on(conn, owner=owner, book_id=book)
+                       if e["kind"] == cash_entry_sql.OPENING_BALANCE]
                 entry_id = cash_entry_sql.write_opening_balance(
                     conn, owner=owner, book_id=book, entry_date=entry_date,
                     amount=amount, notes=notes,
                 )
+                mark_restate(conn, owner=owner, book_id=book, days=[*old, entry_date])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -210,6 +217,7 @@ class CashRepository:
                     "notes": notes,
                 })
                 entry_id = int(cur.fetchone()["entry_id"])
+                mark_restate(conn, owner=owner, book_id=book, days=[entry_date])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -228,7 +236,10 @@ class CashRepository:
                     SQL_DELETE_MANUAL_ENTRY,
                     {"owner": owner, "entry_id": entry_id, "book_id": book_id},
                 )
-                deleted = cur.rowcount
+                gone = cur.fetchall()
+                deleted = len(gone)
+                mark_restate(conn, owner=owner, book_id=book_id,
+                             days=[r["entry_date"] for r in gone])
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -252,6 +263,12 @@ class CashRepository:
                 written["openings"] = conn.execute(
                     SQL_INSERT_PAPER_OPENING, {"owner": owner, "book_id": book_id}
                 ).rowcount
+                if any(written.values()):
+                    # The rows written are new to the ledger. Which ones isn't
+                    # returned, so the book restates from its earliest row.
+                    mark_restate(conn, owner=owner, book_id=book_id, days=[
+                        e["entry_date"]
+                        for e in list_entries_on(conn, owner=owner, book_id=book_id)])
                 if apply:
                     conn.commit()
                 else:

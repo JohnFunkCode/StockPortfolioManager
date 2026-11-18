@@ -1135,6 +1135,11 @@ def take_book_snapshots(performance, budget_seconds=None, clock=time.monotonic,
     One bad book degrades one row. ``empty`` counts books that turned out to
     have no opening balance by today.
 
+    A book a later write marked for restatement (step 5.2) is rebuilt from
+    its mark through today instead, which takes today's row too, and counts
+    as ``restated``. One the budget doesn't reach stays marked for the next
+    night, and a failed rebuild leaves it marked.
+
     The summary is what the loop saw. Whether snapshots are still owed is
     ``alert_if_snapshots_owed``'s question, and it asks the database.
     """
@@ -1147,12 +1152,15 @@ def take_book_snapshots(performance, budget_seconds=None, clock=time.monotonic,
 
     started = clock()
     summary = {"due": len(due), "attempted": 0, "valued": 0, "incomplete": 0,
-               "empty": 0, "failed": 0}
+               "empty": 0, "restated": 0, "failed": 0}
     for book in due:
         if clock() - started >= budget:
             break
         summary["attempted"] += 1
         try:
+            if book.get("restate_from") is not None:
+                _restate_one(performance, book, today, summary)
+                continue
             row = performance.snapshot_book(
                 owner=book["owner"], book_id=book["book_id"], session=today)
             if row is None:
@@ -1169,9 +1177,23 @@ def take_book_snapshots(performance, budget_seconds=None, clock=time.monotonic,
     summary["budget_exhausted"] = summary["attempted"] < summary["due"]
     print(f"Book snapshots: {summary['valued']} valued, {summary['incomplete']} "
           f"incomplete, {summary['empty']} with no opening balance, "
+          f"{summary['restated']} restated, "
           f"{summary['failed']} failed, {summary['due'] - summary['attempted']} "
           f"not attempted, {summary['elapsed_seconds']:.0f}s.")
     return summary
+
+
+def _restate_one(performance, book, today, summary) -> None:
+    """Rebuild one marked book from its mark through ``today`` (#431 step
+    5.2) and count it. Prints counts and dates only: never an owner."""
+    result = performance.restate_book(
+        owner=book["owner"], book_id=book["book_id"], through=today)
+    summary["restated"] += 1
+    if today in result.get("unvalued", []):
+        summary["incomplete"] += 1
+    print(f"  book {book['book_id']}: restated from {result.get('restated_from')}, "
+          f"{result.get('restated', 0)} row(s) changed, {result.get('inserted', 0)} "
+          f"added, {len(result.get('unvalued', []))} with no value")
 
 
 def alert_if_snapshots_owed(performance, notifier, today=None) -> bool:

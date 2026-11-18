@@ -203,6 +203,11 @@
           "nullable": false,
           "type": "text"
         },
+        "restated_at": {
+          "default": null,
+          "nullable": true,
+          "type": "timestamp with time zone"
+        },
         "session_date": {
           "default": null,
           "nullable": false,
@@ -275,6 +280,11 @@
           "default": null,
           "nullable": false,
           "type": "text"
+        },
+        "restate_from": {
+          "default": null,
+          "nullable": true,
+          "type": "date"
         },
         "starting_cash": {
           "default": "0",

@@ -95,6 +95,34 @@ class TakeBookSnapshotsTest(unittest.TestCase):
         self.assertIn(f"budget {main.DEFAULT_BOOK_SNAPSHOT_BUDGET_SECONDS:.0f}s", output)
 
 
+    def test_a_marked_book_is_restated_through_today_instead(self):
+        """Step 5.2: the rebuild takes today's row too, so the book isn't
+        snapshotted a second time."""
+        marked = {**owed(2, "restate"), "restate_from": TODAY - datetime.timedelta(days=5)}
+        performance = fake_performance(due=[owed(1), marked])
+        performance.restate_book.return_value = {
+            "restated_from": marked["restate_from"], "restated": 3, "inserted": 0,
+            "unvalued": [TODAY]}
+        with mock.patch("builtins.print") as printed:
+            summary = main.take_book_snapshots(performance, budget_seconds=100, today=TODAY)
+        performance.restate_book.assert_called_once_with(owner="someone", book_id=2,
+                                                         through=TODAY)
+        self.assertEqual([c.kwargs["book_id"] for c in performance.snapshot_book.call_args_list],
+                         [1])
+        self.assertEqual((summary["restated"], summary["incomplete"], summary["valued"]),
+                         (1, 1, 1))
+        self.assertNotIn("someone", " ".join(str(c) for c in printed.call_args_list))
+
+    def test_a_failed_restatement_is_counted_and_the_walk_goes_on(self):
+        marked = {**owed(1, "restate"), "restate_from": TODAY}
+        performance = fake_performance(due=[marked, owed(2)])
+        performance.restate_book.side_effect = RuntimeError("secret detail")
+        with mock.patch("builtins.print") as printed:
+            summary = main.take_book_snapshots(performance, budget_seconds=100, today=TODAY)
+        self.assertEqual((summary["failed"], summary["valued"], summary["restated"]), (1, 1, 0))
+        self.assertNotIn("secret detail", " ".join(str(c) for c in printed.call_args_list))
+
+
 class AlertIfSnapshotsOwedTest(unittest.TestCase):
     def test_quiet_when_nothing_is_owed(self):
         performance = mock.Mock()
@@ -160,6 +188,16 @@ class NotifierSnapshotsAlertTest(unittest.TestCase):
         self.assertIn("3 book(s) have no complete value", embed["description"])
         self.assertIn("2 book(s) have no snapshot", embed["description"])
         self.assertIn("1 book(s) priced a holding from an earlier session", embed["description"])
+
+    def test_a_book_still_to_restate_is_named_as_such(self):
+        from notifier import Notifier
+
+        notifier = Notifier.__new__(Notifier)
+        notifier.send_notifications = mock.Mock()
+        notifier.send_snapshots_owed_alert(1, {"restate": 1})
+        embed = notifier.send_notifications.call_args.args[0]["embeds"][0]
+        self.assertIn("1 book(s) have a change to their history still to restate",
+                      embed["description"])
 
 
 class MainOrderTest(unittest.TestCase):

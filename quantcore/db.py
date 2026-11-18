@@ -484,6 +484,13 @@ CREATE TABLE IF NOT EXISTS book_value_snapshots (
                OR (holdings_value IS NOT NULL AND book_value = cash + holdings_value))
 );
 
+-- V28 (#431 phase 3, plan step 5.2): restatement. Mirrors
+-- db/migrations/V28__book_restatement.sql, which says what each column holds.
+-- books.restate_from is the earliest session a later write made wrong, and
+-- book_value_snapshots.restated_at says when a rebuild corrected a row.
+ALTER TABLE books ADD COLUMN IF NOT EXISTS restate_from DATE;
+ALTER TABLE book_value_snapshots ADD COLUMN IF NOT EXISTS restated_at TIMESTAMPTZ;
+
 -- Global watchlist (#83, V5). No `owner` column by design -- one shared list.
 -- symbol_id is UNIQUE so duplicate-add is a database invariant, not a race.
 -- `tags` is the schema's first array column. psycopg2 adapts a Python list to

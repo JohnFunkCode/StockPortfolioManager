@@ -2240,8 +2240,8 @@ Known before any code is written. Add to this list as the work finds more.
     snapshot rows only.
   - **The opening date decides the history, and it is easy to get wrong.** It should be the day
     of the book's first recorded trade, with the cash held that morning. A date 19 months early
-    added hundreds of all-cash sessions that make "vs SPY" read worse; a date picked as 11-06
-    for 06-15 left 46 of 48 cash rows before the opening, uncounted, and every earlier lot
+    (2024-11-18) added hundreds of all-cash sessions that make "vs SPY" read worse; a date
+    entered as 2026-11-06 instead of 2026-06-15 left 46 of 48 cash rows before the opening, uncounted, and every earlier lot
     counted as already held. Read `opening_date`, `earlier_entry_count` and the ledger's ending
     balance before applying.
 - **The owner-isolation coverage test derives per-owner tables from the snapshot.** Each new table

@@ -23,6 +23,7 @@ import AssessmentIcon from '@mui/icons-material/Assessment';
 import SettingsIcon from '@mui/icons-material/Settings';
 import DashboardPage from './components/dashboard/DashboardPage';
 import PortfolioPage from './components/portfolio/PortfolioPage';
+import CompareBooksPage from './components/portfolio/CompareBooksPage';
 import PlansPage from './components/plans/PlansPage';
 import PlanDetailPage from './components/plans/PlanDetailPage';
 import SecurityDetailPage from './components/securities/SecurityDetailPage';
@@ -57,6 +58,8 @@ export type AppRoute = NavRoute | DetailRoute;
  */
 export const routes: AppRoute[] = [
   { path: '/', label: 'Portfolio', group: MY_POSITIONS, icon: <AccountBalanceWalletIcon />, element: <PortfolioPage /> },
+  // Opened from the Performance section's link (#431 decision 15), never the bar.
+  { path: '/books/compare', label: 'Compare books', nav: false, element: <CompareBooksPage /> },
   { path: '/plans', label: 'Plans', group: MY_POSITIONS, icon: <ListAltIcon />, element: <PlansPage /> },
   { path: '/plans/:id', label: 'Plan detail', nav: false, element: <PlanDetailPage /> },
   { path: '/harvester', label: 'Harvester', group: MY_POSITIONS, icon: <DashboardIcon />, element: <DashboardPage /> },

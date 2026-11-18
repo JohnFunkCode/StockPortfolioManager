@@ -789,6 +789,17 @@ Rules to keep:
 - **A real book's value is unreliable while its cash is negative** (plan decision 8): a buy with
   no recorded deposit behind it. The row stores the cash, so Performance can mark those days.
 - **A split looks like a fall** (#391), here as in the stop checker, until splits are handled.
+- **The performance read only reads the stored rows** (`PerformanceService.book_performance`
+  and `compare_books`, step 5.3; `GET /api/books/performance` and `/performance/compare`). A
+  period is the Realized view's rolling window, and the row just before it is the base, so the
+  return covers the whole window. Each statement binds the owner and the book like every other
+  read; with no book named it reads the real book, and an owner with none yet gets a stand-in,
+  never a new book. The one possible network call is SPY's closed bars
+  (`PricesService.closed_bars_since`, which fetches only when they are behind). SPY's index takes
+  each session's close as a holding's is taken, a price return like the book's, and "vs SPY" is
+  the simple difference of the two returns. A failed SPY read is logged by class and leaves the
+  benchmark out (`benchmark_available: false`); it never fails the read. Realized P/L by sale
+  `source` comes from the window's sales (`portfolio_math.realized_by_source`).
 
 ### Realized P/L
 

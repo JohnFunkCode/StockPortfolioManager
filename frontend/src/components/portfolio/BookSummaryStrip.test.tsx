@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 
 import BookSummaryStrip from './BookSummaryStrip';
-import { portfolioTotals, realizedResponse } from '../../testUtils';
+import { bookPerformance, portfolioTotals, realizedResponse } from '../../testUtils';
+import type { BookPerformance } from '../../api/books';
+
+const performance = (overrides: object = {}) => bookPerformance(overrides) as BookPerformance;
 
 const realizedTotals = (overrides: object = {}) => ({ ...realizedResponse().totals, ...overrides });
 
@@ -29,6 +32,7 @@ describe('BookSummaryStrip', () => {
     const nav = within(screen.getByRole('navigation', { name: 'Portfolio sections' }));
     expect(nav.getByRole('link', { name: 'Holdings' })).toHaveAttribute('href', '#holdings');
     expect(nav.getByRole('link', { name: 'Realized' })).toHaveAttribute('href', '#realized');
+    expect(nav.getByRole('link', { name: 'Performance' })).toHaveAttribute('href', '#performance');
     expect(nav.getByRole('link', { name: 'Cash and orders' })).toHaveAttribute('href', '#cash');
   });
 
@@ -85,5 +89,32 @@ describe('BookSummaryStrip', () => {
     render(<BookSummaryStrip holdings={portfolioTotals({ total_gain_loss_pct: null })} />);
     expect(screen.getByText('Unrealized')).toBeInTheDocument();
     expect(screen.queryByText(/%/)).toBeNull();
+  });
+
+  it("shows the year's return against SPY and the newest snapshot's book value (5.3)", () => {
+    render(<BookSummaryStrip performanceYear={performance()} />);
+    const strip = within(screen.getByTestId('book-summary-strip'));
+    expect(strip.getByText('Return, last year')).toBeInTheDocument();
+    expect(strip.getByText('+11.00% vs SPY')).toBeInTheDocument();
+    expect(strip.getByText('Book value, Nov 4, 2026 close')).toBeInTheDocument();
+    expect(strip.getByText('$1,210.00')).toBeInTheDocument();
+  });
+
+  it('says a return measured over negative cash is unreliable (decision 8)', () => {
+    render(<BookSummaryStrip performanceYear={performance({ cash_negative_count: 2 })} />);
+    expect(screen.getByText('Return, last year (unreliable)')).toBeInTheDocument();
+  });
+
+  it('leaves the return out when there is none yet, and says nothing about SPY without it', () => {
+    render(
+      <BookSummaryStrip
+        performanceYear={performance({ twr: null, latest: null, vs_benchmark: null })}
+      />,
+    );
+    expect(screen.queryByText(/Return, last year/)).toBeNull();
+    expect(screen.queryByText(/Book value,/)).toBeNull();
+    render(<BookSummaryStrip performanceYear={performance({ vs_benchmark: null })} />);
+    expect(screen.queryByText(/vs SPY/)).toBeNull();
+    expect(screen.getByText('Return, last year')).toBeInTheDocument();
   });
 });

@@ -375,3 +375,121 @@ class RebuildSnapshotsTest(unittest.TestCase):
         self.assertIsNone(rows[MON]["book_value"], "never 1.0")
         self.assertEqual(rows[TUE]["holdings_value"], D("625.00"))
         self.assertEqual(rows[WED]["holdings_value"], D("687.50"), "Tuesday's rate carries")
+
+
+def _day(n):
+    return datetime.date(2026, 11, 2) + datetime.timedelta(days=n)
+
+
+def _row(n, value, flow="0", cash="100", restated_at=None):
+    return {"session_date": _day(n), "book_value": D(value) if value is not None else None,
+            "flow": D(flow) if flow is not None else None,
+            "cash": D(cash) if cash is not None else None, "holdings_value": None,
+            "unpriced_count": 0, "stale_count": 0, "fx_missing_count": 0,
+            "restated_at": restated_at}
+
+
+class BenchmarkIndexTest(unittest.TestCase):
+    def test_the_growth_of_one_over_the_sessions(self):
+        bars = [(_day(0), 100), (_day(1), 110), (_day(2), 99)]
+        self.assertEqual(perf.benchmark_index([_day(0), _day(1), _day(2)], bars),
+                         [(_day(0), D(1)), (_day(1), D("1.1")), (_day(2), D("0.99"))])
+
+    def test_a_session_with_no_close_uses_the_last_one_in_the_lookback(self):
+        bars = [(_day(0), 100), (_day(1), 120)]
+        self.assertEqual(perf.benchmark_index([_day(0), _day(3)], bars)[1], (_day(3), D("1.2")))
+
+    def test_no_close_for_the_first_session_gives_no_index(self):
+        bars = [(_day(5), 100)]
+        self.assertEqual(perf.benchmark_index([_day(0), _day(5)], bars),
+                         [(_day(0), None), (_day(5), None)])
+
+    def test_no_sessions_is_empty(self):
+        self.assertEqual(perf.benchmark_index([], [(_day(0), 1)]), [])
+
+
+class BookPerformanceTest(unittest.TestCase):
+    BARS = [(_day(0), 100), (_day(1), 105), (_day(2), 110)]
+
+    def test_the_return_against_the_benchmark(self):
+        rows = [_row(0, "1000", flow="1000"), _row(1, "1100"), _row(2, "1210")]
+        result = perf.book_performance(rows, self.BARS)
+        self.assertEqual(result["twr"], D("0.21000000"))
+        self.assertEqual(result["benchmark_return"], D("0.10000000"))
+        self.assertEqual(result["vs_benchmark"], D("0.11000000"))
+        self.assertEqual(result["benchmark_symbol"], "SPY")
+        self.assertTrue(result["benchmark_available"])
+        self.assertEqual(result["first_session"], _day(0))
+        self.assertEqual(result["last_session"], _day(2))
+        self.assertEqual(
+            [(p["session_date"], p["index"], p["benchmark_index"]) for p in result["series"]],
+            [(_day(0), D("1.00000000"), D("1.00000000")),
+             (_day(1), D("1.10000000"), D("1.05000000")),
+             (_day(2), D("1.21000000"), D("1.10000000"))])
+        self.assertEqual(result["series"][2]["book_value"], D("1210"))
+
+    def test_a_deposit_is_not_a_gain(self):
+        rows = [_row(0, "1000"), _row(1, "2000", flow="1000")]
+        self.assertEqual(perf.book_performance(rows, self.BARS)["twr"], D("0E-8"))
+
+    def test_the_drawdown(self):
+        rows = [_row(0, "1000"), _row(1, "1200"), _row(2, "900")]
+        result = perf.book_performance(rows, self.BARS)
+        self.assertEqual(result["max_drawdown"], D("-0.25000000"))
+        self.assertEqual((result["drawdown_peak"], result["drawdown_trough"]), (_day(1), _day(2)))
+
+    def test_unreadable_benchmark_bars_leave_the_benchmark_out(self):
+        rows = [_row(0, "1000"), _row(1, "1100")]
+        result = perf.book_performance(rows, None)
+        self.assertFalse(result["benchmark_available"])
+        self.assertIsNone(result["benchmark_return"])
+        self.assertIsNone(result["vs_benchmark"])
+        self.assertEqual(result["twr"], D("0.10000000"))
+        self.assertIsNone(result["series"][1]["benchmark_index"])
+
+    def test_one_row_has_no_return(self):
+        result = perf.book_performance([_row(0, "1000")], self.BARS)
+        self.assertIsNone(result["twr"])
+        self.assertIsNone(result["benchmark_return"])
+        self.assertIsNone(result["vs_benchmark"])
+        self.assertIsNone(result["max_drawdown"])
+
+    def test_no_rows(self):
+        result = perf.book_performance([], [])
+        self.assertEqual(result["series"], [])
+        self.assertIsNone(result["latest"])
+        self.assertIsNone(result["first_session"])
+        self.assertEqual(result["cash_negative_count"], 0)
+
+    def test_the_base_row_before_the_window_starts_the_chain_but_is_not_counted(self):
+        stamp = datetime.datetime(2026, 11, 20, tzinfo=datetime.timezone.utc)
+        rows = [_row(0, "1000", cash="-5", restated_at=stamp), _row(1, "1100"), _row(2, "1210")]
+        result = perf.book_performance(rows, self.BARS, window_start=_day(1))
+        self.assertEqual(result["twr"], D("0.21000000"))
+        self.assertEqual(result["first_session"], _day(0))
+        self.assertEqual(result["restated_count"], 0)
+        self.assertEqual(result["cash_negative_count"], 0)
+
+    def test_restated_rows_are_disclosed(self):
+        early = datetime.datetime(2026, 11, 20, tzinfo=datetime.timezone.utc)
+        late = datetime.datetime(2026, 11, 21, tzinfo=datetime.timezone.utc)
+        rows = [_row(0, "1000", restated_at=late), _row(1, "1100"),
+                _row(2, "1210", restated_at=early)]
+        result = perf.book_performance(rows, self.BARS)
+        self.assertEqual((result["restated_count"], result["last_restated_at"]), (2, late))
+
+    def test_negative_cash_is_counted(self):
+        rows = [_row(0, "1000", cash="-1"), _row(1, "1100", cash="0"), _row(2, "1210", cash="-3")]
+        self.assertEqual(perf.book_performance(rows, self.BARS)["cash_negative_count"], 2)
+
+    def test_a_gap_in_the_window_is_listed(self):
+        rows = [_row(0, "1000"), _row(1, None), _row(2, "1210")]
+        result = perf.book_performance(rows, self.BARS)
+        self.assertEqual(result["gaps"], [_day(1)])
+        self.assertEqual([p["session_date"] for p in result["series"]], [_day(0), _day(2)])
+
+    def test_the_latest_row(self):
+        rows = [_row(0, "1000"), _row(1, "1100", cash="40")]
+        latest = perf.book_performance(rows, self.BARS)["latest"]
+        self.assertEqual((latest["session_date"], latest["book_value"], latest["cash"]),
+                         (_day(1), D("1100"), D("40")))

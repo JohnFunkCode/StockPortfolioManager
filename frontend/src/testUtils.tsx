@@ -942,3 +942,56 @@ export function seedResult(overrides: object = {}) {
 export function ordersResponse(orders: object[] = [order()], overrides: object = {}) {
   return { book_kind: 'paper', pending_count: 0, orders, ...overrides };
 }
+
+// ---------------------------------------------------------------------------
+// book performance (#431 step 5.3)
+// ---------------------------------------------------------------------------
+
+/** A book's performance over a year: three valued sessions, 1000 -> 1210,
+ * SPY up 10%, one manual and one stop sale. */
+export function bookPerformance(overrides: object = {}) {
+  return {
+    book_id: 1,
+    name: 'Real',
+    kind: 'real',
+    period: 'year',
+    start_date: '2025-11-17',
+    end_date: '2026-11-17',
+    first_session: '2026-11-02',
+    last_session: '2026-11-04',
+    twr: 0.21,
+    benchmark_symbol: 'SPY',
+    benchmark_available: true,
+    benchmark_return: 0.1,
+    vs_benchmark: 0.11,
+    max_drawdown: -0.05,
+    drawdown_peak: '2026-11-02',
+    drawdown_trough: '2026-11-03',
+    series: [
+      { session_date: '2026-11-02', book_value: 1000, index: 1, benchmark_index: 1 },
+      { session_date: '2026-11-03', book_value: 1100, index: 1.1, benchmark_index: 1.05 },
+      { session_date: '2026-11-04', book_value: 1210, index: 1.21, benchmark_index: 1.1 },
+    ],
+    gaps: [],
+    restated_count: 0,
+    last_restated_at: null,
+    cash_negative_count: 0,
+    latest: {
+      session_date: '2026-11-04',
+      book_value: 1210,
+      cash: 210,
+      holdings_value: 1000,
+      unpriced_count: 0,
+      stale_count: 0,
+      fx_missing_count: 0,
+    },
+    attribution: {
+      sources: [
+        { source: 'manual', sale_count: 2, fx_missing_count: 0, basis_missing_count: 0, cost_basis: 100, proceeds: 140, realized_pnl: 40, realized_pnl_pct: 40 },
+        { source: 'stop', sale_count: 1, fx_missing_count: 0, basis_missing_count: 0, cost_basis: 50, proceeds: 45, realized_pnl: -5, realized_pnl_pct: -10 },
+      ],
+      totals: { sale_count: 3, fx_missing_count: 0, basis_missing_count: 0, cost_basis: 150, proceeds: 185, realized_pnl: 35, realized_pnl_pct: 23.33 },
+    },
+    ...overrides,
+  };
+}

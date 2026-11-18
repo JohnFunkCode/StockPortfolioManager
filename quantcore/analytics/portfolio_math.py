@@ -432,6 +432,26 @@ def realized_pnl(
     }
 
 
+def realized_by_source(sales: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
+    """Realized P/L by what prompted each sale (`lot_sales.source`), for one
+    book's sales in a period: the attribution the Performance section shows
+    (#431 step 5.3).
+
+    The same per-sale figures and sums as `realized_pnl`, grouped by source
+    instead of by symbol. A sale with no source recorded counts as `manual`,
+    which is what the column defaults to. Sources are ordered best realized
+    P/L first; one with no USD figure is last.
+    """
+    by_source: Dict[str, List[Dict[str, Any]]] = {}
+    for sale in sales:
+        by_source.setdefault(sale.get("source") or "manual", []).append(realized_sale(sale))
+    rows = [{"source": source, **_realized_totals(rows)} for source, rows in by_source.items()]
+    rows.sort(key=lambda r: (r["realized_pnl"] is None, -(r["realized_pnl"] or Decimal("0")),
+                             r["source"]))
+    all_sales = [s for group in by_source.values() for s in group]
+    return {"sources": rows, "totals": _realized_totals(all_sales)}
+
+
 def total_quantity(lots: Iterable[Dict[str, Any]]) -> Decimal:
     """The shares held across `lots`, priced or not. A lot with no quantity
     counts as none."""

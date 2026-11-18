@@ -29,7 +29,7 @@ describe('routes', () => {
 
   it('hides the drill-down detail routes from the nav bar', () => {
     const hidden = routes.filter((route) => route.nav === false).map((r) => r.path);
-    expect(hidden).toEqual(['/plans/:id', '/securities', '/securities/:symbol']);
+    expect(hidden).toEqual(['/books/compare', '/plans/:id', '/securities', '/securities/:symbol']);
   });
 
   it('keeps /securities only as a redirect to the merged Watchlist page', () => {

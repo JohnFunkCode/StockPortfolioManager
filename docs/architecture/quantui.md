@@ -59,7 +59,7 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
 - **The Portfolio's holdings table** gets every column from its one `GET /api/portfolio/symbols`
   request.
 - **The Portfolio is one page of stacked sections** (#235, plan decision 7): a summary strip
-  (`BookSummaryStrip`), then Holdings, Realized, and Cash and orders. Each section makes its own request and shows
+  (`BookSummaryStrip`), then Holdings, Realized, Performance, and Cash and orders. Each section makes its own request and shows
   its own loading and error state, so Holdings never waits for a section under it, and a book
   with no open lots still shows what it realized. The strip leaves out a figure it doesn't have
   (still loading, failed, or not built yet); it never shows a zero or a dash in its place. Its
@@ -75,6 +75,23 @@ days, and YTD and 1y are calendar-anchored; each column header says so on hover,
   with the figure in its own currency and both rates beneath it; one without rates shows the
   native figure and a "no FX rate" chip. The same component with no props is the Sidekick
   `realized_pnl` card, which therefore always reads the real book.
+- **The Performance section is `BookPerformance`** (#431 step 5.3), fed by one
+  `GET /api/books/performance` request: the time-weighted return, SPY's return over the same
+  sessions, the difference ("vs SPY"), the max drawdown and the newest close's book value; the
+  growth-of-$1 chart (`PerformanceChart`, SPY dashed and drawn under the book); one note each for
+  what qualifies the figures (cash below zero makes the return "unreliable", restated rows, gaps,
+  an incomplete or stale newest row, SPY unreadable); realized P/L by sale source; and the
+  dividend and split caveat (`PERFORMANCE_CAVEATS`), which every performance view shows. Its
+  period pulldown is its own, like Realized's, and opens on Year. The strip's "Book value" and
+  "Return, last year … vs SPY" come from the same Year request, cached under one key, so the page
+  makes one performance request until the period is changed. Nothing is computed in the browser.
+  The same component with no props and no Compare link is the Sidekick `book_performance` card,
+  which therefore always reads the real book.
+- **Compare books is `CompareBooksPage` at `/books/compare`**, a drill-down (`nav: false`) linked
+  from the Performance section. One `GET /api/books/performance/compare` request: every open book
+  in one chart against SPY and a table (value, return, vs SPY, drawdown, realized), with paper and
+  unreliable chips. Each book's name opens the Portfolio page with that book selected. Books are
+  never added together.
 - **The Cash and orders section is `CashLedger`** (#431 step 3.1), fed by one
   `GET /api/portfolio/cash` request: the balance, the totals by kind, and the entries newest first
   with the server's running balance, cut to the latest five until "Show all entries". The forms

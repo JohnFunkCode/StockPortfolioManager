@@ -10,6 +10,8 @@ GET    /api/arbitrage/pairs/{security}/spread-history  ->  spread_history_api_ar
 GET    /api/arbitrage/scan  ->  scan_api_arbitrage_scan_get
 GET    /api/arbitrage/universe  ->  get_universe_api_arbitrage_universe_get
 GET    /api/books  ->  list_books_api_books_get
+GET    /api/books/performance  ->  get_book_performance_api_books_performance_get
+GET    /api/books/performance/compare  ->  compare_books_api_books_performance_compare_get
 GET    /api/dashboard/stats  ->  dashboard_stats_api_dashboard_stats_get
 GET    /api/health  ->  health_api_health_get
 GET    /api/keyproxy/publickey  ->  publickey_api_keyproxy_publickey_get

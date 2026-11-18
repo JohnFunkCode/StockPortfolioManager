@@ -749,6 +749,10 @@ Rules to keep:
   and stop sales. A second run on the same session replaces that session's row. A row is not
   rewritten when a lot or cash entry is edited later; the history backfill (step 5.2) is what
   rebuilds past rows.
+- **A lot that cost no cash, typed in late, reads as a gain** (a known limit). A transfer or seed
+  dated on or before the previous row's session, but entered after that row was taken, is valued
+  in the next row's holdings and counted in no flow: lots have no stored total the way cash has
+  `contributed`. The backfill (step 5.2) is what rebuilds those rows.
 - **A real book's value is unreliable while its cash is negative** (plan decision 8): a buy with
   no recorded deposit behind it. The row stores the cash, so Performance can mark those days.
 - **A split looks like a fall** (#391), here as in the stop checker, until splits are handled.

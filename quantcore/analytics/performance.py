@@ -27,8 +27,15 @@ The rules:
   ledger counted as contributed (`contributed`), and its cash flow is the
   change since the previous row: a deposit typed in after a row was taken,
   but dated before it, is then a flow of the next row and not a gain. A lot
-  that arrived without cash counts against the first row after its date, so
-  one dated on a weekend lands on the Monday.
+  that arrived without cash counts against the first row after the previous
+  row's session, so one dated on a weekend lands on the Monday. With no
+  previous row only a lot dated on the session counts, which is harmless:
+  the first row is the base and its flow is never used.
+- **A lot that arrived without cash, typed in late with a date on or before
+  the previous row's session, is not a flow** (a known limit, #573 review).
+  Lots have no stored total the way cash has `contributed`, so its value
+  shows in the next row's holdings and reads as a gain. The history backfill
+  (step 5.2) rebuilds such rows.
 - **The return is time-weighted, with a flow invested from the start of its
   session**: a session's return is `value / (previous value + flow) - 1`, and
   the sessions chain. Deposits and withdrawals then don't read as gains or

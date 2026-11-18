@@ -158,6 +158,23 @@ class FlowTest(unittest.TestCase):
                                 previous={"session_date": TUE, "contributed": D("1000.00")})
         self.assertEqual(older["flow"], D("0.00"))
 
+    def test_a_lot_that_cost_no_cash_typed_in_late_is_not_a_flow(self):
+        # A known limit (#573 review): a transfer dated MON but typed in after
+        # MON's row was taken is valued in TUE's holdings and in no flow, so
+        # it reads as a gain until step 5.2's backfill rebuilds the rows.
+        transferred = lot(acquisition_type="TRANSFER", day=MON)
+        previous = {"session_date": MON, "contributed": D("1000.00")}
+        snap = perf.book_value(session=TUE, entries=OPENING, lots=[transferred],
+                               closes={"AAA": (D("12"), TUE)}, rates={}, previous=previous)
+        self.assertEqual(snap["holdings_value"], D("120.00"))
+        self.assertEqual(snap["flow"], D("0.00"))
+
+    def test_with_no_previous_snapshot_only_a_lot_dated_on_the_session_is_a_flow(self):
+        lots = [lot(acquisition_type="SEED", day=MON), lot("BBB", acquisition_type="SEED", day=TUE)]
+        snap = perf.book_value(session=TUE, entries=OPENING, lots=lots,
+                               closes={"AAA": (D("12"), TUE), "BBB": (D("5"), TUE)}, rates={})
+        self.assertEqual(snap["flow"], D("50.00"))
+
     def test_an_unpriced_lot_that_cost_no_cash_leaves_the_flow_unknown(self):
         seeded = lot(acquisition_type="TRANSFER", day=TUE)
         previous = {"session_date": MON, "contributed": D("1000.00")}

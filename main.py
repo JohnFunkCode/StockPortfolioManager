@@ -779,7 +779,11 @@ def report_triggered_stops(stops, notifier, owner, today=None) -> int:
     One message for every triggered real-book stop whose alert has not gone
     out, whichever night it was triggered: it reads what is in the database,
     and a stop is marked alerted only after Discord took the message. So a
-    failed send is made up on the next run, and a sent one is never repeated.
+    failed send is made up on the next run, and a sent one is not repeated
+    unless the mark itself fails: the alert skips ``notification.log``'s
+    dedupe (#581), so the mark is the only record, and a mark that raises
+    after a send leaves the stops owed and the same message goes out on the
+    next run. A repeat is the accepted cost; a stop never alerted is not.
     Only ``owner``'s: the job's webhook is theirs. A paper book's stop is
     reported by its sale, in the day's ``[PAPER]`` fills. A message names at
     most ``STOP_ALERT_MESSAGE_LINES`` stops; only those are marked, and the
@@ -813,8 +817,9 @@ def report_approaching_stops(stops, notifier, owner, today=None) -> int:
     closed within the approach distance and whose approach alert has not
     gone out. It reads what the checker recorded, and a stop is marked only
     after Discord took the message, so a failed send is made up on the next
-    run. A stop that stays close is announced once; one that moves away and
-    comes back is announced again. Only ``owner``'s, for the breach alert's
+    run. A stop that stays close is announced once, unless the mark fails
+    after the send, when the next run repeats it, as for the breach alert;
+    one that moves away and comes back is announced again. Only ``owner``'s, for the breach alert's
     reason. As there, only the stops the message names are marked. Returns
     the number of stops named. **Never raises.**
     """

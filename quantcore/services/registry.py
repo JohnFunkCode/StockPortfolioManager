@@ -265,6 +265,16 @@ def get_services() -> Services:
         prices=prices,
         yfinance_gateway=yfinance_gateway,
     )
+    # Hoisted for the same reason: the sidekick's get_books tool reads this
+    # instance (#431 step 5.4).
+    performance = PerformanceService(
+        book_snapshots_repository,
+        books_repository,
+        cash_repository,
+        portfolio_repository,
+        prices,
+        fx_gateway=yfinance_gateway,
+    )
     chat = ChatService(
         prices=prices,
         fundamentals=fundamentals,
@@ -272,6 +282,7 @@ def get_services() -> Services:
         options=options,
         arbitrage=arbitrage,
         portfolio=portfolio,
+        performance=performance,
         model=chat_model,
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
@@ -328,14 +339,7 @@ def get_services() -> Services:
         cash=CashService(cash_repository, books_repository),
         orders=orders,
         stops=StopsService(stops_repository, books_repository, prices, orders),
-        performance=PerformanceService(
-            book_snapshots_repository,
-            books_repository,
-            cash_repository,
-            portfolio_repository,
-            prices,
-            fx_gateway=yfinance_gateway,
-        ),
+        performance=performance,
         watchlist=watchlist,
         recommendations=RecommendationsService(
             prices=prices,

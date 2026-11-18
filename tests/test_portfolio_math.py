@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 from quantcore.analytics.portfolio_math import (
+    book_holdings,
     total_quantity,
     allocation_segments,
     dollars_per_day,
@@ -295,3 +296,26 @@ class TestTotalQuantity(unittest.TestCase):
 
     def test_no_lots_is_zero(self):
         self.assertEqual(total_quantity([]), Decimal("0"))
+
+
+class TestBookHoldings(unittest.TestCase):
+    """#431 step 5.4: a book's open lots, one row a symbol, by symbol."""
+
+    def test_groups_by_symbol_in_order_with_the_lots_currency(self):
+        lots = [
+            {"symbol": "SHOP", "currency": "CAD", "quantity": Decimal("2"),
+             "purchase_price": Decimal("100")},
+            {"symbol": "AAPL", "currency": "USD", "quantity": Decimal("0.5"),
+             "purchase_price": Decimal("200")},
+            {"symbol": "AAPL", "currency": "USD", "quantity": Decimal("1.5"),
+             "purchase_price": Decimal("180")},
+        ]
+        self.assertEqual(book_holdings(lots), [
+            {"symbol": "AAPL", "currency": "USD", "quantity": Decimal("2.0"),
+             "avg_price": Decimal("185.00"), "lot_count": 2},
+            {"symbol": "SHOP", "currency": "CAD", "quantity": Decimal("2"),
+             "avg_price": Decimal("100.00"), "lot_count": 1},
+        ])
+
+    def test_no_lots_is_no_rows(self):
+        self.assertEqual(book_holdings([]), [])

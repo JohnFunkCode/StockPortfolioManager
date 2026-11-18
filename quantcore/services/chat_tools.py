@@ -483,6 +483,44 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "get_books",
+        "description": (
+            "Every one of the user's open books, the real book first. A book "
+            "is a named container of positions: the user's one real book (what "
+            "they actually hold, which get_portfolio_summary reads) and any "
+            "paper books they trade on paper. Per book, over a rolling period: "
+            "the time-weighted return (`twr`), SPY's price return over the same "
+            "sessions (`benchmark_return`) and the difference (`vs_benchmark`), "
+            "the maximum drawdown, the newest daily snapshot (`latest`: value, "
+            "cash, holdings value), realized P/L by what prompted each sale "
+            "(`attribution`), and the open holdings (symbol, shares, average "
+            "purchase price in its currency). Use for 'how are my paper books "
+            "doing?', 'am I beating SPY?', 'what's in my paper book?'.\n\n"
+            "Returns are fractions (0.05 is 5%) and price returns on both "
+            "sides: no dividends, and a split reads as a fall; say so when you "
+            "quote one. A book whose cash went below zero in the window "
+            "(`cash_negative_count` > 0) has an unreliable return; say that "
+            "too. A book with no snapshots yet has null figures, not zero ones. "
+            "Pair with show_component('book_performance', {}) for the real "
+            "book's chart.\n\n"
+            "Read-only, and always the signed-in user's own books: there is no "
+            "argument naming a book or an owner."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "period": {
+                    "type": "string",
+                    "enum": ["month", "quarter", "year", "all"],
+                    "description": (
+                        "The last 30, 90 or 365 days, or everything. Default year."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "show_component",
         "description": (
             "Render a live, data-bound UI component inline in the conversation. "

@@ -1,9 +1,12 @@
-"""Books routes (#431 steps 1.2 and 5.3).
+"""Books routes (#431 steps 1.2, 5.3 and 5.4).
 
   GET   /api/books                     the owner's books, the real book first
   GET   /api/books/performance         one book's return, drawdown and realized
                                        P/L by source, against SPY (step 5.3)
   GET   /api/books/performance/compare every open book side by side (step 5.3)
+  GET   /api/books/overview            every open book in brief, with its
+                                       holdings: the read-only book tool's
+                                       source (step 5.4)
   POST  /api/books                     create a paper book
   POST  /api/books/{book_id}/archive   archive a paper book
 
@@ -29,6 +32,7 @@ from ..json_response import QuantCoreJSONResponse
 from ..schemas.books import (
     BookPerformanceResponse,
     BookResponse,
+    BooksOverviewResponse,
     BooksResponse,
     CompareBooksResponse,
     CreateBookRequest,
@@ -73,6 +77,17 @@ def compare_books(
     """Every one of the owner's open books over the same period, the real
     book first: the Compare books view."""
     return QuantCoreJSONResponse(services().performance.compare_books(owner=owner, period=period))
+
+
+@router.get("/overview", response_model=BooksOverviewResponse)
+def books_overview(
+    period: Period = "year", owner: str = Depends(require_owner)
+) -> QuantCoreJSONResponse:
+    """Every one of the owner's open books over a rolling period: its return
+    and drawdown against SPY, newest value, realized P/L by source and open
+    holdings, without the daily series. The MCP `get_books` tool's source;
+    it names no book, so it lists only the caller's."""
+    return QuantCoreJSONResponse(services().performance.books_overview(owner=owner, period=period))
 
 
 @router.post("", response_model=BookResponse, status_code=201)

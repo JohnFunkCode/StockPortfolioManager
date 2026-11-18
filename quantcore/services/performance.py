@@ -4,7 +4,8 @@ series (#431 phase 3, plan step 5.1).
 The daily job asks for every book a snapshot is owed for (`due_snapshots`)
 and takes each (`snapshot_book`). Step 5.3 reads the series back as a
 time-weighted return and a drawdown against SPY (`book_performance`, and
-`compare_books` for every open book side by side).
+`compare_books` for every open book side by side). Step 5.4 gives Sidekick
+and MCP the same figures, without the daily series (`books_overview`).
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -440,6 +441,31 @@ class PerformanceService:
             "books": [self._performance(owner, b, rows, start, end, period, bars)
                       for b, rows in read],
         }
+
+    def books_overview(self, *, owner: str, period: str = "year") -> Dict[str, Any]:
+        """Every one of `owner`'s open books in a few lines each: what the
+        read-only book tool hands Sidekick and MCP (#431 step 5.4, plan
+        decision 18).
+
+        The Compare books payload for `period`, with each book's daily
+        `series` left out and its `gaps` counted rather than listed, so a
+        year of sessions doesn't flood a model's context, and with the book's
+        open holdings (`portfolio_math.book_holdings`, one query a book, no
+        network). The real book is first; an owner with no book yet gets the
+        real book's stand-in. It takes no book: every open book is listed,
+        and only `owner`'s.
+        """
+        compared = self.compare_books(owner=owner, period=period)
+        books = []
+        for book in compared["books"]:
+            summary = {k: v for k, v in book.items() if k not in ("series", "gaps")}
+            lots = self._lots.list_positions(owner, "OPEN", book_id=_read_id(book))
+            books.append({
+                **summary,
+                "gap_count": len(book["gaps"]),
+                "holdings": portfolio_math.book_holdings(lots),
+            })
+        return {**{k: compared[k] for k in ("period", "start_date", "end_date")}, "books": books}
 
     def _book(self, owner: str, book_id: Optional[int]) -> Dict[str, Any]:
         """The book a read is about. With no `book_id` it is the real book,

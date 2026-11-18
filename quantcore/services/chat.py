@@ -59,13 +59,13 @@ QuantUI portfolio dashboard. Your data tools span prices and technical signals
 vertical option spread pricing (price_vertical_spread — real contracts, real
 bid/ask), arbitrage (the curated pair universe, a scan across it, a workup on
 one pair, and a statistical sweep for undeclared links), and the signed-in
-user's own portfolio (totals, and the lots behind a single symbol). Each
-tool's own description — not this prompt — is the authority on what it takes,
-what it returns, and what it deliberately leaves out; read it before reaching
-for the tool.
+user's own portfolio (totals, the lots behind a single symbol, and every
+open book, real and paper, against SPY). Each tool's own description — not
+this prompt — is the authority on what it takes, what it returns, and what it
+deliberately leaves out; read it before reaching for the tool.
 
-The portfolio tools always read the holdings of whoever is signed in. They
-take no owner, there is no way to ask for anyone else's, and you must never
+The portfolio and book tools always read the holdings of whoever is signed
+in. They take no owner, there is no way to ask for anyone else's, and you must never
 try. If one comes back saying the account is not linked to a portfolio, say
 exactly that and that an administrator has to link it — never guess at,
 estimate, or invent positions to fill the gap.
@@ -261,7 +261,7 @@ CHAT_NOT_CONFIGURED_MESSAGE = (
 # TurnContext.owner into these and only these — none of them declares an
 # `owner` parameter in its schema, so the model can neither choose nor
 # influence whose data it sees (the same rule show_component's props follow).
-OWNER_SCOPED_TOOLS = frozenset({"get_portfolio_summary", "get_symbol_lots"})
+OWNER_SCOPED_TOOLS = frozenset({"get_portfolio_summary", "get_symbol_lots", "get_books"})
 
 # Every data tool the model can call, and all of them only read — so an
 # instruction injected into a tool result (a crafted news headline, #463) can at
@@ -286,6 +286,7 @@ READ_ONLY_TOOLS = frozenset({
     "discover_arbitrage_pairs",
     "get_portfolio_summary",
     "get_symbol_lots",
+    "get_books",
 })
 
 # Mirrors quantcore/services/arbitrage.py's caps of the same name. They are
@@ -389,6 +390,15 @@ def _plain(value):
     return value
 
 
+def _plain_tree(value):
+    """`_plain` applied all the way down a payload of dicts and lists."""
+    if isinstance(value, dict):
+        return {k: _plain_tree(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain_tree(v) for v in value]
+    return _plain(value)
+
+
 def _fold_interactions(convo: list[dict], interactions: list[dict]) -> None:
     """Append [UI_INTERACTION] envelope lines to the final user turn (adding
     one if the conversation doesn't end on a user turn). Interactions are
@@ -485,6 +495,7 @@ class ChatService:
         options,
         arbitrage=None,
         portfolio=None,
+        performance=None,
         model: str = "claude-sonnet-5",
         effort: str = "medium",
         max_iterations: int = 8,
@@ -499,6 +510,7 @@ class ChatService:
         self._options = options
         self._arbitrage = arbitrage
         self._portfolio = portfolio
+        self._performance = performance
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
@@ -566,6 +578,8 @@ class ChatService:
                 "get_portfolio_summary": self._portfolio_summary,
                 "get_symbol_lots": self._symbol_lots,
             })
+        if performance is not None:
+            self._handlers["get_books"] = self._books
 
     # ------------------------------------------------------------------
     # Tool handlers that need more than a lambda (issue #208)
@@ -679,6 +693,13 @@ class ChatService:
             for sale in self._portfolio.list_sales(owner, symbol)
         ]
         return {"symbol": symbol, "lot_count": len(lots), "lots": lots, "sales": sales}
+
+    def _books(self, owner: str, period: str = "year"):
+        """The caller's open books in brief (#431 step 5.4): the same
+        `books_overview` the MCP `get_books` tool reads over REST, so the two
+        never disagree. An unknown period is the service's ValueError, which
+        reaches the model as a tool error it can correct."""
+        return _plain_tree(self._performance.books_overview(owner=owner, period=period))
 
     def _resolve_model(self, context: TurnContext) -> str:
         """Requested model wins if allow-listed; else fall back to the

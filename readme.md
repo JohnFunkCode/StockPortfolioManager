@@ -526,7 +526,7 @@ Design: [`docs/architecture/byok.md`](docs/architecture/byok.md).
 
 ## MCP servers
 
-Seven FastMCP servers in `fastMCPTest/` carry **63 tools**. Count them with the anchored
+Seven FastMCP servers in `fastMCPTest/` carry **64 tools**. Count them with the anchored
 `grep -c "^@mcp.tool" fastMCPTest/*.py`; the unanchored form also counts a mention inside a
 docstring.
 
@@ -535,7 +535,7 @@ docstring.
 | `stock-price-server` | 21 | price, news, technicals (RSI, MACD, stochastic, OBV, VWAP, candlesticks, gaps, higher lows), ATR bands, anchored VWAP, volume profile, support confluence, drawdown and stop-loss, VWAP and relative-strength history, `get_trade_recommendation` |
 | `company-fundamentals-server` | 12 | earnings calendar, fundamental score (single and batch), revenue growth, earnings acceleration, full profile, top stocks, upcoming earnings, sector breakdown, score changes, history, cache stats |
 | `options-analysis-server` | 11 | the watchlist screen, a per-symbol analysis, contract lookup, spread pricing, full chain, unusual calls, delta-adjusted OI, gamma-wall history, OI change, GEX profile, health check |
-| `portfolio-server` | 7 | the caller's portfolio, lots and sales (read-only), a summary, the shared watchlist (list and add; removal is UI-only), health check |
+| `portfolio-server` | 8 | the caller's portfolio, lots and sales (read-only), a summary, every open book (real and paper) against SPY with its holdings (`get_books`, read-only), the shared watchlist (list and add; removal is UI-only), health check |
 | `arbitrage-server` | 5 | universe, pair analysis, scan, cointegration discovery, health check |
 | `news-sentiment-server` | 4 | news collection, sentiment, sentiment trend, covered symbols |
 | `market-analysis-server` | 3 | short interest, dark-pool proxy, bid/ask spread |

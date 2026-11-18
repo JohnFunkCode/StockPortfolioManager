@@ -1,12 +1,14 @@
 """
 Portfolio MCP Server (issue #126 PR 4, Step 4.8; watchlist tools from issue #83)
 
-Provides four read-only tools over the caller's own portfolio:
+Provides five read-only tools over the caller's own portfolio:
 
   get_portfolio         — per-symbol roll-up (value, gain/loss, $/day) + totals
   get_symbol_lots        — the individual lots making up one symbol's position
   get_symbol_sales       — the recorded sales of one symbol, with why each happened
   get_portfolio_summary  — just the portfolio-wide totals
+  get_books              — every open book (the real one and each paper one),
+                           its return against SPY, drawdown and holdings
 
 plus two tools over the shared watchlist:
 
@@ -25,7 +27,8 @@ REST tier resolves the owner from the caller's authenticated token
 argument on any tool here, so a caller can only ever see their own portfolio.
 
 The **portfolio** side stays deliberately read-only: there are no ``create_lot``,
-``close_lot``, or ``delete_lot`` tools. Adding portfolio write tools is a
+``close_lot``, or ``delete_lot`` tools, and no tool places a paper order, sets a
+stop or makes a book (#431 decision 18). Adding portfolio write tools is a
 decision the plan defers (#126 Q19), not an oversight — a position is
 per-owner financial record-keeping, and a mis-parsed agent call there would
 corrupt cost basis.
@@ -161,6 +164,35 @@ def get_portfolio_summary() -> dict:
         total_gain_loss_pct, total_dollars_per_day
     """
     return rest_client.get("/api/portfolio/symbols").get("totals") or {}
+
+
+@mcp.tool()
+def get_books(period: str = "year") -> dict:
+    """Return every one of the caller's open books, the real book first.
+
+    A book is a named container of positions: the caller's one real book
+    (what they actually hold, which get_portfolio reads) and any paper books
+    they trade on paper. Per book, over a rolling period: the time-weighted
+    return (`twr`), SPY's price return over the same sessions
+    (`benchmark_return`) and the difference (`vs_benchmark`), the maximum
+    drawdown, the newest daily snapshot (`latest`: value, cash, holdings
+    value), realized P/L by what prompted each sale (`attribution`), and the
+    open holdings (symbol, shares, average purchase price in its currency).
+
+    Returns are fractions (0.05 is 5%) and price returns on both sides: no
+    dividends, and a split reads as a fall. A book whose cash went below zero
+    in the window (`cash_negative_count` > 0) has an unreliable return; say
+    so. `gap_count` sessions could not be valued, and `restated_count` rows
+    were rebuilt after a late change. A book with no snapshots yet has null
+    figures, not zero ones. Always the caller's own books: the owner comes
+    from the authenticated token, and there is no argument naming a book or
+    an owner.
+
+    Args:
+        period: 'month', 'quarter' or 'year' (the last 30, 90 or 365 days),
+            or 'all'. Defaults to 'year'.
+    """
+    return rest_client.get("/api/books/overview", period=period)
 
 
 @mcp.tool()

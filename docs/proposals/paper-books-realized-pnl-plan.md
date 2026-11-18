@@ -1776,6 +1776,53 @@ was added to `docs/openapi-surface.txt` by hand, in the file's sorted order, and
   a new Job to deploy and monitor, intraday Yahoo calls for every symbol with a stop (the daily
   job has drawn 429s before), and its own dedup. The stop-level fill rule doesn't change.
 - **Trustworthy long-run returns:** #391 (splits), then dividends into the cash ledger.
+- **Broker import into a real book (proposed 2026-11-18, John; not yet an issue).** The owner
+  updates one brokerage account (`positions.account`) of their real book from a broker's CSV,
+  in one of two modes they choose. Both are additive and never delete a lot, run as a preview
+  that writes nothing until the owner confirms, and go through the existing lot and sale write
+  paths, so FX capture, the cash rows and restatement marks come with them.
+  - **Positions mode (quick, with known weaknesses).** A positions export holds each symbol's
+    quantity, last price and cost basis today, so the import reconciles the account's open
+    lots against it. A new symbol, or more shares with a higher basis, becomes a lot costed
+    from the basis (the rise in basis for added shares). Fewer shares, or a missing symbol,
+    becomes a sale, but the file has no sale price or date: the preview fills in the file's
+    last price and the import date, the owner can correct both, and a sale left uncorrected is
+    marked estimated in the Realized view, the way a missing FX rate is flagged. Lots sold
+    follow the existing allocation rules and are checked against the remaining basis when the
+    file gives it. More shares at the same basis (probably a split, #391) and a changed basis
+    at the same quantity (a wash sale or return of capital) are flagged, never booked. An
+    undated trade lands on the import date, so returns between imports go to the wrong days;
+    importing often keeps that small, and lot detail with acquired dates removes it for buys.
+    Cash gets each trade's own row only; when the file has a cash balance, the preview shows
+    its gap from the ledger.
+  - **Transactions mode (complete).** A transaction history gives every buy, sell, dividend,
+    interest payment, fee, split and transfer with its date and price, so realized P/L is
+    exact, each trade sits on its real date, and the cash ledger is complete. Each row is
+    keyed on the broker's transaction id (or a hash of date, symbol, side, quantity and price)
+    so an overlapping re-import adds only what is new. A lot already in the book, entered by
+    hand or by a positions import, is matched on symbol, date, quantity and price within a
+    tolerance and linked rather than duplicated; an ambiguous match is put to the owner. A
+    positions file supplied with it checks the result: the account's holdings should equal it.
+  - **How the modes coexist.** Every imported lot and sale records how it was made
+    (positions-estimated, positions-confirmed, transaction). That is a new provenance column:
+    `lot_sales.source` says who decided a sale (manual, stop, ...), not where its numbers came
+    from, and `positions` has none. Transactions win: a transactions import replaces the
+    positions-estimated rows in the dates it covers, which restates the snapshots from the
+    earliest change.
+  - **What it needs first.** Retire `PortfolioService.import_csv`'s full replace, or restrict
+    it to an empty book: it deletes every lot in the real book, and `lot_sales` cascades, so
+    it erases realized history, rewrites the cash rows and leaves stops on symbols no longer
+    held. No page calls it today. Transactions mode also needs new `cash_entries` kinds
+    (dividend, interest, fee; the `CHECK` allows only `opening_balance`, `deposit`,
+    `withdrawal`, `buy`, `sell`), #391 before a split can be applied rather than flagged, a
+    way to enter the basis of shares transferred in without one, and a mapper per broker,
+    since transaction formats differ far more than positions formats.
+  - **Proposed order.** (1) Positions mode, with the full replace retired. (2) Transactions
+    mode for one broker, with dividends, interest and fees in the ledger. (3) Splits, once
+    #391 lands. Steps 2 and 3 cover most of the trustworthy-returns item above, and the
+    mapping from broker activity to lots, sales and cash is the one phase 5 (Alpaca) needs.
+  - **Open:** which brokers, and whether their positions exports carry lot detail with
+    acquired dates.
 
 ## 7. Gotchas to watch for
 
@@ -2306,3 +2353,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-18 | #579 The stops tool | #582 | `GET /api/books/stops` (133 routes), `StopsService.stops_overview`, `PricesService.last_closes`, `analytics.stored_stops.book_stops`; the `get_stops` Sidekick tool (read-only, owner-scoped, 15 data tools) and MCP tool on `portfolio-server` (65 tools, with its contract case). Every open book's holding stops with the last stored close's distance and the job's approach record, and the held symbols with no live stop. Decisions 111 to 116 are John's to confirm. No migration. As built: section 5.23 |
 | 2026-11-18 | #579 review; decisions 111 to 116 | #582 | Two reviews, no findings. Clippy made two suggestions: the capabilities matrix header still read 2026-11-17 (fixed in the PR); and `ChatService.__init__` is at cyclomatic 11, in the warning band, from one more optional-service guard (left as it is, both branches tested; a table of handlers is the refactor if it grows again). It marked "whether the newest closed bar was within the approach threshold" partly met, which is decision 114. Guppy's draft was not published by its pipeline and listed only evidence gaps from truncated inputs; a PR comment answered each, with the full suite at the head (3593 OK, 6 skipped). John confirmed decisions 111 to 116 as built and merged #582, which closes #579 |
 | 2026-11-18 | Prod backfill, john's real book | none (operator run) | `backfill_cash_entries.py --owner john --apply` wrote 28 buy and 19 sell rows that lots from before V16 lacked (the 3.1 step had not been run on prod). John set the real book's opening balance ($100,000.00 on 2026-06-15, the day of its first trade); the ledger ends at $80,315.00 and never goes below zero. `backfill_book_snapshots.py --owner john --apply` wrote 110 rows, 2026-06-15 to 2026-11-18, none unvalued; today's was priced from the earlier close, for tonight's job to rewrite. Read back: since 2026-06-15 the book returned −5.06% against SPY's −2.47% (−2.59 points), with a maximum drawdown of −7.33% from 2026-08-17 to 2026-11-05. `dabrown` and `sager` have no opening balance and were not run. Gotchas in section 7 |
+| 2026-11-18 | Broker import proposed | none yet | Docs only. Section 6 gains a broker import into a real book, in two modes the owner picks: positions (quick; sales estimated unless corrected) and transactions (complete; replaces estimated rows in the dates it covers). It records that the current `import_csv` full replace erases realized history and must be retired or restricted first. Not yet an issue; brokers and lot detail are open |

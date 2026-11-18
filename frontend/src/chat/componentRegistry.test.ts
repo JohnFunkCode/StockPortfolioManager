@@ -27,6 +27,7 @@ describe('COMPONENT_REGISTRY', () => {
       'portfolio_allocation',
       'realized_pnl',
       'cash_ledger',
+      'book_performance',
       'symbol_lots',
       'watchlist_fundamentals',
       'fundamentals_top',
@@ -95,6 +96,17 @@ describe('COMPONENT_REGISTRY', () => {
       expect(validateDirective({ component: 'cash_ledger', props }).ok, JSON.stringify(props)).toBe(
         false,
       );
+    }
+  });
+
+  it('book_performance takes no props: no owner, no book and no period', () => {
+    // Mirrors test_chat_tools.py::TestBookPerformanceDirective (#431 step 5.3).
+    expect(validateDirective({ component: 'book_performance', props: {} }).ok).toBe(true);
+    for (const props of [{ owner: 'someone_else' }, { book_id: 7 }, { period: 'all' }]) {
+      expect(
+        validateDirective({ component: 'book_performance', props }).ok,
+        JSON.stringify(props),
+      ).toBe(false);
     }
   });
 

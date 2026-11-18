@@ -24,7 +24,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
 import { useRealized, useSymbolRows } from '../../hooks/usePortfolio';
-import { useBooks } from '../../hooks/useBooks';
+import { useBookPerformance, useBooks } from '../../hooks/useBooks';
 import { useCashLedger } from '../../hooks/useCash';
 import { useCancelStop, useHoldingStops } from '../../hooks/useStops';
 import LoadingSpinner from '../common/LoadingSpinner';
@@ -39,6 +39,7 @@ import BookSelector from './BookSelector';
 import PaperBookBanner from './PaperBookBanner';
 import BookSummaryStrip from './BookSummaryStrip';
 import RealizedPnl from './RealizedPnl';
+import BookPerformance from './BookPerformance';
 import CashLedger from './CashLedger';
 import PaperOrderDialog from './PaperOrderDialog';
 import SeedEmptyBook from './SeedEmptyBook';
@@ -196,6 +197,9 @@ export default function PortfolioPage() {
   const { data: realizedYear } = useRealized('year', bookId);
   // The same query the Cash section below makes, so this is not a second request.
   const { data: cash } = useCashLedger(bookId);
+  // The strip's return is always the last year; the Performance section opens
+  // on Year, so the two share one request until its period is changed.
+  const { data: performanceYear } = useBookPerformance('year', bookId);
 
   const [sortKey, setSortKey] = useState<SortKey>('symbol');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -310,6 +314,7 @@ export default function PortfolioPage() {
         holdings={data?.totals}
         realizedYear={realizedYear?.totals}
         cash={cash?.balance}
+        performanceYear={performanceYear}
       />
 
       {/* Each section loads and fails on its own: Holdings never waits for
@@ -475,6 +480,10 @@ export default function PortfolioPage() {
           not depend on the holdings above. */}
       <Box id="realized" sx={{ mt: 4, scrollMarginTop: 16 }}>
         <RealizedPnl bookId={bookId} />
+      </Box>
+
+      <Box id="performance" sx={{ mt: 4, scrollMarginTop: 16 }}>
+        <BookPerformance bookId={bookId} />
       </Box>
 
       {/* A paper book, or one the list can't vouch for, gets no forms. */}

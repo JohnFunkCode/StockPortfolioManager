@@ -244,3 +244,44 @@ class TestRealizedPnl(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestRealizedBySource(unittest.TestCase):
+    """Attribution: realized P/L grouped by what prompted each sale (#431
+    step 5.3)."""
+
+    def test_sales_are_summed_by_source_best_first(self):
+        from quantcore.analytics.portfolio_math import realized_by_source
+        result = realized_by_source([
+            sale(sale_id=1, source="manual", sell="110"),    # +100
+            sale(sale_id=2, source="stop", sell="90"),       # -100
+            sale(sale_id=3, source="manual", sell="130"),    # +300
+        ])
+        self.assertEqual([r["source"] for r in result["sources"]], ["manual", "stop"])
+        manual, stop = result["sources"]
+        self.assertEqual((manual["sale_count"], manual["realized_pnl"]), (2, D("400.00")))
+        self.assertEqual((stop["sale_count"], stop["realized_pnl"]), (1, D("-100.00")))
+        self.assertEqual(result["totals"]["realized_pnl"], D("300.00"))
+        self.assertEqual(result["totals"]["sale_count"], 3)
+
+    def test_a_sale_with_no_source_is_manual(self):
+        from quantcore.analytics.portfolio_math import realized_by_source
+        result = realized_by_source([sale(source=None)])
+        self.assertEqual(result["sources"][0]["source"], "manual")
+
+    def test_a_source_with_no_dollar_figure_is_last_and_counted(self):
+        from quantcore.analytics.portfolio_math import realized_by_source
+        result = realized_by_source([
+            sale(sale_id=1, source="ai", buy=None),
+            sale(sale_id=2, source="stop", sell="90"),
+        ])
+        self.assertEqual([r["source"] for r in result["sources"]], ["stop", "ai"])
+        self.assertIsNone(result["sources"][1]["realized_pnl"])
+        self.assertEqual(result["sources"][1]["basis_missing_count"], 1)
+        self.assertEqual(result["totals"]["realized_pnl"], D("-100.00"))
+
+    def test_no_sales_is_empty_with_no_total(self):
+        from quantcore.analytics.portfolio_math import realized_by_source
+        result = realized_by_source([])
+        self.assertEqual(result["sources"], [])
+        self.assertIsNone(result["totals"]["realized_pnl"])

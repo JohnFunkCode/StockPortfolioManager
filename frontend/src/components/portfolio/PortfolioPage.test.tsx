@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import PortfolioPage from './PortfolioPage';
 import {
+  bookPerformance,
   cashEntry,
   cashLedger,
   emptyCashLedger,
@@ -17,6 +18,10 @@ import {
   stopRow,
   symbolRow,
 } from '../../testUtils';
+
+// The books list only: `/api/books/performance` has its own mock where a test
+// needs one, and otherwise falls through as unmatched.
+const BOOKS_LIST = /\/api\/books(\?|$)/;
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -38,7 +43,7 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
         },
       },
     ],
-    ['/api/books', { books: [] }],
+    [BOOKS_LIST, { books: [] }],
     // The Realized section's own request (#235): no sales unless a test says so.
     ['/api/portfolio/realized', realizedResponse([])],
     ...routes,
@@ -47,6 +52,9 @@ function mount(routes: Array<[string | RegExp, object]> = []) {
     ['/api/portfolio/cash', emptyCashLedger()],
     // The book's stops (#431 step 4.3): none unless a test says so.
     ['/api/portfolio/stops', holdingStops([])],
+    // The strip and the Performance section (#431 step 5.3): no history
+    // unless a test says so.
+    ['/api/books/performance', bookPerformance({ series: [], twr: null, latest: null })],
   ]);
   renderWithProviders(<PortfolioPage />);
   return api;
@@ -377,7 +385,7 @@ describe('PortfolioPage books (#431)', () => {
         : options.paperRows;
     const api = mockApi([
       [/\/api\/books\/7\/archive$/, { ...PAPER, archived_at: '2026-11-14T00:00:00Z' }],
-      ['/api/books', { books: [REAL, PAPER] }],
+      [BOOKS_LIST, { books: [REAL, PAPER] }],
       [/\/api\/portfolio\/symbols\?book_id=7$/, paper ?? { __status: 404, error: 'book 7 not found' }],
       [/\/api\/portfolio\/symbols$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
     ]);
@@ -403,6 +411,8 @@ describe('PortfolioPage books (#431)', () => {
 
     await waitFor(() => expect(holdings().getByText('NVDA')).toBeInTheDocument());
     expect(urls(api)).toContain('/api/portfolio/symbols?book_id=7');
+    // The Performance section and the strip follow the book (5.3).
+    expect(urls(api)).toContain('/api/books/performance?period=year&book_id=7');
     const banner = screen.getByRole('status');
     expect(within(banner).getByText('Paper book: Momentum')).toBeInTheDocument();
     expect(within(banner).getByText(/Nothing here is a real holding/)).toBeInTheDocument();
@@ -422,7 +432,7 @@ describe('PortfolioPage books (#431)', () => {
   it("lets a pending order be cancelled in an open paper book, and not in an archived one", async () => {
     const pending = order({ order_id: 14, status: 'pending', filled_shares: null, fill_price: null });
     const routes = (paper: object): Array<[string | RegExp, object]> => [
-      ['/api/books', { books: [REAL, paper] }],
+      [BOOKS_LIST, { books: [REAL, paper] }],
       [/\/api\/portfolio\/symbols/, { symbols: [], totals }],
       ['/api/portfolio/realized', realizedResponse([])],
       ['/api/portfolio/cash', cashLedger(undefined, { book_kind: 'paper' })],
@@ -442,7 +452,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('sells a paper position through an order, with the shares the server counted', async () => {
     const api = mockApi([
-      ['/api/books', { books: [REAL, PAPER] }],
+      [BOOKS_LIST, { books: [REAL, PAPER] }],
       [/\/api\/portfolio\/symbols/, { symbols: [symbolRow({ symbol: 'NVDA', total_quantity: 12.5 })], totals }],
       ['/api/portfolio/realized', realizedResponse([])],
       ['/api/portfolio/cash', cashLedger(undefined, { book_kind: 'paper' })],
@@ -471,7 +481,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('has no Sell in an archived paper book', async () => {
     mockApi([
-      ['/api/books', { books: [REAL, { ...PAPER, archived_at: '2026-11-14T00:00:00Z' }] }],
+      [BOOKS_LIST, { books: [REAL, { ...PAPER, archived_at: '2026-11-14T00:00:00Z' }] }],
       [/\/api\/portfolio\/symbols/, { symbols: [symbolRow({ symbol: 'NVDA' })], totals }],
     ]);
     renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
@@ -481,7 +491,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('offers to copy the real holdings into an empty paper book with no orders', async () => {
     mockApi([
-      ['/api/books', { books: [REAL, PAPER] }],
+      [BOOKS_LIST, { books: [REAL, PAPER] }],
       [/\/api\/portfolio\/symbols/, { symbols: [], totals }],
       ['/api/portfolio/orders', ordersResponse([])],
     ]);
@@ -541,7 +551,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('still shows the Real chip and the holdings when the book list fails', async () => {
     mockApi([
-      ['/api/books', { __status: 500, error: 'boom' }],
+      [BOOKS_LIST, { __status: 500, error: 'boom' }],
       ['/api/portfolio/symbols', { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
     ]);
     renderWithProviders(<PortfolioPage />);
@@ -553,7 +563,7 @@ describe('PortfolioPage books (#431)', () => {
   // paper. It stays read-only, because it can't say the book is real either.
   it('does not call a named book paper when the book list fails', async () => {
     mockApi([
-      ['/api/books', { __status: 500, error: 'boom' }],
+      [BOOKS_LIST, { __status: 500, error: 'boom' }],
       [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
     ]);
     renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
@@ -566,7 +576,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('treats the real book named by its own id as the real book', async () => {
     mockApi([
-      ['/api/books', { books: [REAL, PAPER] }],
+      [BOOKS_LIST, { books: [REAL, PAPER] }],
       [/\/api\/portfolio\/symbols\?book_id=1$/, { symbols: [symbolRow({ symbol: 'INTC' })], totals }],
     ]);
     renderWithProviders(<PortfolioPage />, { route: '/?book=1' });
@@ -578,7 +588,7 @@ describe('PortfolioPage books (#431)', () => {
 
   it('shows the banner for a book the loaded list does not hold', async () => {
     mockApi([
-      ['/api/books', { books: [REAL] }],
+      [BOOKS_LIST, { books: [REAL] }],
       [/\/api\/portfolio\/symbols\?book_id=7$/, { symbols: [symbolRow({ symbol: 'NVDA' })], totals }],
     ]);
     renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
@@ -598,12 +608,31 @@ describe('PortfolioPage books (#431)', () => {
       expect(strip.getByText('Unrealized')).toBeInTheDocument();
 
       const headings = screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent);
-      expect(headings).toEqual(['Holdings', 'Realized', 'Cash and orders']);
+      expect(headings).toEqual(['Holdings', 'Realized', 'Performance', 'Cash and orders']);
       // The jump links land on the sections.
       expect(document.getElementById('holdings')).toHaveTextContent('Holdings');
       expect(document.getElementById('realized')).toContainElement(screen.getByTestId('realized-pnl'));
       expect(document.getElementById('cash')).toContainElement(screen.getByTestId('cash-ledger'));
+      expect(document.getElementById('performance')).toContainElement(
+        screen.getByTestId('book-performance'),
+      );
     });
+
+    it("puts the year's return against SPY and the snapshot's book value in the strip (5.3)", async () => {
+      const api = mount([['/api/books/performance', bookPerformance()]]);
+      await waitFor(() => expect(screen.getByTestId('attribution-table')).toBeInTheDocument());
+
+      const strip = within(screen.getByTestId('book-summary-strip'));
+      expect(strip.getByText('Return, last year')).toBeInTheDocument();
+      expect(strip.getByText('21.00%', { exact: false })).toBeInTheDocument();
+      expect(strip.getByText('+11.00% vs SPY')).toBeInTheDocument();
+      expect(strip.getByText('Book value, Nov 4, 2026 close')).toBeInTheDocument();
+      // The strip and the section share one request for the year.
+      const reads = api.calls.filter(([url]) => url.includes('/api/books/performance'));
+      expect(reads).toHaveLength(1);
+      expect(reads[0][0]).toBe('/api/books/performance?period=year');
+    });
+
 
     it('puts the cash balance in the strip from the Cash section\'s own request', async () => {
       const api = mount([['/api/portfolio/cash', cashLedger()]]);
@@ -638,7 +667,7 @@ describe('PortfolioPage books (#431)', () => {
         { book_kind: 'paper', balance: 5000, opening_balance: 5000, opening_date: '2026-11-02' },
       );
       const api = mockApi([
-        ['/api/books', { books: [REAL_BOOK, PAPER_BOOK] }],
+        [BOOKS_LIST, { books: [REAL_BOOK, PAPER_BOOK] }],
         [/\/api\/portfolio\/cash\?book_id=7$/, paperLedger],
         [/\/api\/portfolio\/cash$/, cashLedger()],
         ['/api/portfolio/symbols', { symbols: [], totals: null }],
@@ -658,7 +687,7 @@ describe('PortfolioPage books (#431)', () => {
     it("puts the last year's realized P/L in the strip from the section's own request", async () => {
       const api = mockApi([
         ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         [
           '/api/portfolio/realized',
           realizedResponse([realizedSymbol()], {
@@ -679,7 +708,7 @@ describe('PortfolioPage books (#431)', () => {
     it("keeps the strip on the last year when the section's period changes", async () => {
       mockApi([
         ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         [
           /realized\?period=all/,
           realizedResponse([realizedSymbol()], {
@@ -710,7 +739,7 @@ describe('PortfolioPage books (#431)', () => {
     it('shows Holdings without waiting for Realized', async () => {
       mockApi([
         ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: null }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         ['/api/portfolio/realized', () => new Promise<object>(() => {})],
       ]);
       renderWithProviders(<PortfolioPage />);
@@ -722,7 +751,7 @@ describe('PortfolioPage books (#431)', () => {
     it('keeps Holdings when Realized fails, and says which part failed', async () => {
       mockApi([
         ['/api/portfolio/symbols', { symbols: [symbolRow()], totals: portfolioTotals() }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         ['/api/portfolio/realized', () => ({ __status: 500, error: 'boom' })],
       ]);
       renderWithProviders(<PortfolioPage />);
@@ -741,7 +770,7 @@ describe('PortfolioPage books (#431)', () => {
       // Fully sold out: the holdings are empty and the sales are not.
       mockApi([
         ['/api/portfolio/symbols', { symbols: [], totals: null }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         ['/api/portfolio/realized', realizedResponse()],
       ]);
       renderWithProviders(<PortfolioPage />);
@@ -753,7 +782,7 @@ describe('PortfolioPage books (#431)', () => {
     it("asks for the selected book's realized P/L", async () => {
       const api = mockApi([
         [/\/api\/portfolio\/symbols\?book_id=7$/, { symbols: [], totals: null }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         ['/api/portfolio/realized', realizedResponse()],
       ]);
       renderWithProviders(<PortfolioPage />, { route: '/?book=7' });
@@ -774,7 +803,7 @@ describe('PortfolioPage books (#431)', () => {
       const api = mockApi([
         ...extra,
         ['/api/portfolio/symbols', { symbols: [held('INTC'), held('AAPL')], totals: portfolioTotals() }],
-        ['/api/books', { books: [] }],
+        [BOOKS_LIST, { books: [] }],
         ['/api/portfolio/realized', realizedResponse([])],
         ['/api/portfolio/cash', emptyCashLedger()],
         ['/api/portfolio/stops', stops],

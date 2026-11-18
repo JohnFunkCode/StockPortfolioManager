@@ -425,3 +425,131 @@ def max_drawdown(index: Sequence[Tuple[datetime.date, Decimal]]) -> Dict[str, An
         "peak": worst_peak,
         "trough": worst_trough,
     }
+
+
+# The benchmark every book is measured against (#431 step 5.3).
+BENCHMARK_SYMBOL = "SPY"
+
+
+def benchmark_index(
+    sessions: Sequence[datetime.date],
+    bars: Sequence[Tuple[datetime.date, Any]],
+    lookback_days: int = CLOSE_LOOKBACK_DAYS,
+) -> List[Tuple[datetime.date, Optional[Decimal]]]:
+    """The growth of 1 in the benchmark over a book's valued `sessions`.
+
+    `bars` are the benchmark's `(session, close)` closed daily bars. Each
+    session's close is chosen as a holding's is (`close_as_of`), and the index
+    is that close over the first session's. A price return: dividends are in
+    neither the book's return nor this one. Every point is None when the first
+    session has no close to start from; a later session with none is None on
+    its own.
+    """
+    closes = [close_as_of(bars, session, lookback_days) for session in sessions]
+    if not closes or closes[0] is None:
+        return [(session, None) for session in sessions]
+    base = closes[0][0]
+    return [
+        (session, (found[0] / base) if found is not None else None)
+        for session, found in zip(sessions, closes)
+    ]
+
+
+def _restated(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """How many rows were rebuilt after they were first taken, and when the
+    newest of them was: the disclosure GIPS asks for (step 5.2)."""
+    stamps = [r["restated_at"] for r in rows if r.get("restated_at") is not None]
+    return {"restated_count": len(stamps), "last_restated_at": max(stamps) if stamps else None}
+
+
+def _cash_negative(rows: Sequence[Mapping[str, Any]]) -> int:
+    """Sessions whose cash was below zero (plan decision 8)."""
+    return sum(1 for r in rows if r.get("cash") is not None and _dec(r["cash"]) < 0)
+
+
+def _latest(rows: Sequence[Mapping[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The newest row's figures, as the summary strip and the table show them."""
+    if not rows:
+        return None
+    keys = ("session_date", "book_value", "cash", "holdings_value", "unpriced_count",
+            "stale_count", "fx_missing_count")
+    return {key: rows[-1].get(key) for key in keys}
+
+
+def _quantized(value: Optional[Decimal]) -> Optional[Decimal]:
+    return value.quantize(RETURN_QUANTUM) if value is not None else None
+
+
+def _benchmark(
+    sessions: Sequence[datetime.date],
+    bars: Optional[Sequence[Tuple[datetime.date, Any]]],
+) -> Tuple[Dict[datetime.date, Optional[Decimal]], Optional[Decimal]]:
+    """The benchmark's index by session, and its return from the first
+    session to the last (None with fewer than two, or no close to end on)."""
+    if bars is None or not sessions:
+        return {}, None
+    bench = benchmark_index(sessions, bars)
+    last = bench[-1][1]
+    ret = _quantized(last - ONE) if last is not None and len(bench) >= 2 else None
+    return dict(bench), ret
+
+
+def _difference(a: Optional[Decimal], b: Optional[Decimal]) -> Optional[Decimal]:
+    """`a - b`, or None unless both are known."""
+    return a - b if a is not None and b is not None else None
+
+
+def book_performance(
+    points: Sequence[Mapping[str, Any]],
+    benchmark_bars: Optional[Sequence[Tuple[datetime.date, Any]]],
+    *,
+    window_start: Optional[datetime.date] = None,
+) -> Dict[str, Any]:
+    """A book's performance over its snapshot rows, against the benchmark
+    (#431 step 5.3).
+
+    `points` are the stored rows oldest first. When the window has a start,
+    the first of them may be the row before it: the base the window's return
+    is measured from, so the return covers the whole window. Only the rows
+    from `window_start` on are counted for gaps, restatement and negative
+    cash. `benchmark_bars` are the benchmark's closed bars, or None when they
+    could not be read.
+
+    Returns the time-weighted return (`twr`), the benchmark's return over the
+    same sessions (`benchmark_return`), their difference in fractions
+    (`vs_benchmark`, None unless both are known), the drawdown, a `series` of
+    `{session_date, book_value, index, benchmark_index}` for the valued
+    sessions, the `gaps`, the restatement disclosure, `cash_negative_count`
+    (sessions whose cash was below zero: plan decision 8 makes such a return
+    unreliable) and the newest row (`latest`).
+    """
+    rows = sorted(points, key=lambda p: p["session_date"])
+    after = window_start or datetime.date.min
+    in_window = [r for r in rows if r["session_date"] >= after]
+    chain = return_index(rows)
+    index = chain["index"]
+    bench, benchmark_return = _benchmark([day for day, _ in index], benchmark_bars)
+    values = {r["session_date"]: r["book_value"] for r in rows}
+    twr = time_weighted_return(rows)["twr"]
+    drawdown = max_drawdown(index)
+    return {
+        "first_session": index[0][0] if index else None,
+        "last_session": index[-1][0] if index else None,
+        "twr": twr,
+        "benchmark_symbol": BENCHMARK_SYMBOL,
+        "benchmark_available": benchmark_bars is not None,
+        "benchmark_return": benchmark_return,
+        "vs_benchmark": _difference(twr, benchmark_return),
+        "max_drawdown": drawdown["max_drawdown"],
+        "drawdown_peak": drawdown["peak"],
+        "drawdown_trough": drawdown["trough"],
+        "series": [
+            {"session_date": day, "book_value": values.get(day),
+             "index": _quantized(level), "benchmark_index": _quantized(bench.get(day))}
+            for day, level in index
+        ],
+        "gaps": [day for day in chain["gaps"] if day >= after],
+        **_restated(in_window),
+        "cash_negative_count": _cash_negative(in_window),
+        "latest": _latest(in_window),
+    }

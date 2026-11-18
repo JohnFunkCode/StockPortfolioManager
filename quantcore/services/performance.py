@@ -3,7 +3,8 @@ series (#431 phase 3, plan step 5.1).
 
 The daily job asks for every book a snapshot is owed for (`due_snapshots`)
 and takes each (`snapshot_book`). Step 5.3 reads the series back as a
-time-weighted return and a drawdown.
+time-weighted return and a drawdown against SPY (`book_performance`, and
+`compare_books` for every open book side by side).
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -36,7 +37,9 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import fx
 from quantcore.analytics import market_time
+from quantcore.analytics.market_time import rolling_window
 from quantcore.analytics import performance as performance_math
+from quantcore.analytics import portfolio_math
 from quantcore.repositories.book_snapshots_repository import BookSnapshotsRepository
 from quantcore.repositories.books_repository import BookNotFoundError, BooksRepository
 from quantcore.repositories.cash_repository import CashRepository
@@ -81,6 +84,20 @@ def _complete(snapshot: Optional[Dict[str, Any]]) -> bool:
         and snapshot["book_value"] is not None
         and snapshot["stale_count"] == 0
     )
+
+
+# The real book of an owner who has never written anything: a read must not
+# create one (CLAUDE.md, "A read never creates a book"), so it is described
+# rather than looked up, and every read of it passes no book id.
+_REAL_STAND_IN: Dict[str, Any] = {
+    "book_id": None, "name": "Real", "kind": "real", "archived_at": None,
+}
+
+
+def _read_id(book: Dict[str, Any]) -> Optional[int]:
+    """The `book_id` a read of `book` passes: None for the real book, which
+    every repository reads by default."""
+    return None if book["kind"] == "real" else book["book_id"]
 
 
 class PerformanceService:
@@ -377,3 +394,114 @@ class PerformanceService:
         Raises `BookNotFoundError` for a book that isn't the owner's."""
         self._require_book(owner, book_id)
         return self._repo.list_snapshots(owner=owner, start=start, end=end, book_id=book_id)
+
+    # ------------------------------------------------------------------
+    # Performance (step 5.3)
+    # ------------------------------------------------------------------
+    def book_performance(
+        self, *, owner: str, period: str = "year", book_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """One of `owner`'s books' performance over a rolling `period`
+        (`month`, `quarter`, `year` or `all`, the Realized view's windows),
+        against SPY, with realized P/L by source over the same window.
+
+        Reads the stored snapshots only: the row before the window is the
+        base, so the return covers the whole window. The one possible network
+        call is SPY's closed bars, through `PricesService.closed_bars_since`,
+        which fetches only when they are behind; a failure leaves the
+        benchmark out (`benchmark_available` false) and never fails the read.
+        Raises `BookNotFoundError` for a book that isn't the owner's, and
+        `ValueError` for an unknown period.
+        """
+        start, end = rolling_window(period)
+        book = self._book(owner, book_id)
+        rows = self._base_and_rows(owner, start, end, _read_id(book))
+        bars = self._benchmark_bars(rows[0]["session_date"] if rows else None)
+        return self._performance(owner, book, rows, start, end, period, bars)
+
+    def compare_books(self, *, owner: str, period: str = "year") -> Dict[str, Any]:
+        """Every one of `owner`'s books that isn't archived, side by side over
+        the same `period`: what the Compare books view shows (plan decision
+        15). Each book is read on its own, bound to its owner and its id, as
+        `book_performance` reads it; SPY's bars are read once for them all.
+        The real book is first. An owner with no book yet gets the real book's
+        stand-in, with no rows."""
+        start, end = rolling_window(period)
+        books = [b for b in self._books_repo.list_books(owner=owner) if b["archived_at"] is None]
+        if not any(b["kind"] == "real" for b in books):
+            books.insert(0, _REAL_STAND_IN)
+        read = [(b, self._base_and_rows(owner, start, end, _read_id(b))) for b in books]
+        firsts = [rows[0]["session_date"] for _, rows in read if rows]
+        bars = self._benchmark_bars(min(firsts) if firsts else None)
+        return {
+            "period": period,
+            "start_date": start.isoformat() if start else None,
+            "end_date": end.isoformat() if end else None,
+            "books": [self._performance(owner, b, rows, start, end, period, bars)
+                      for b, rows in read],
+        }
+
+    def _book(self, owner: str, book_id: Optional[int]) -> Dict[str, Any]:
+        """The book a read is about. With no `book_id` it is the real book,
+        found in the owner's list so a read never creates one; an owner with
+        no real book yet gets a stand-in with no id."""
+        if book_id is not None:
+            book = self._books_repo.get_book(owner=owner, book_id=book_id)
+            if book is None:
+                raise BookNotFoundError(f"book {book_id} not found")
+            return book
+        for book in self._books_repo.list_books(owner=owner):
+            if book["kind"] == "real":
+                return book
+        return _REAL_STAND_IN
+
+    def _base_and_rows(
+        self, owner: str, start: Optional[datetime.date], end: Optional[datetime.date],
+        book_id: Optional[int],
+    ) -> List[Dict[str, Any]]:
+        """The window's rows, after the row before the window when there is
+        one: the base its return is measured from."""
+        rows = self._repo.list_snapshots(owner=owner, start=start, end=end, book_id=book_id)
+        if start is None:
+            return rows
+        base = self._repo.previous_snapshot(owner=owner, session=start, book_id=book_id)
+        return ([base] if base is not None else []) + rows
+
+    def _benchmark_bars(
+        self, since: Optional[datetime.date]
+    ) -> Optional[List[Tuple[datetime.date, float]]]:
+        """SPY's closed daily bars from the lookback before `since`, as
+        `(session, close)`; an empty list when there is nothing to compare,
+        and None when they could not be read. The error is logged by class
+        only."""
+        if since is None:
+            return []
+        first = since - datetime.timedelta(days=performance_math.CLOSE_LOOKBACK_DAYS)
+        try:
+            bars = self._prices.closed_bars_since(performance_math.BENCHMARK_SYMBOL, first)
+        except Exception as exc:  # noqa: BLE001 — the book's figures don't need it
+            logger.warning("benchmark bars unavailable (%s)", type(exc).__name__)
+            return None
+        return [(bar["session"], bar["close"]) for bar in bars]
+
+    def _performance(
+        self, owner: str, book: Dict[str, Any], rows: List[Dict[str, Any]],
+        start: Optional[datetime.date], end: Optional[datetime.date], period: str,
+        bars: Optional[List[Tuple[datetime.date, float]]],
+    ) -> Dict[str, Any]:
+        """One book's payload from its rows, the benchmark's bars and its
+        sales in the window (one read)."""
+        book_id = _read_id(book)
+        sales = self._lots.list_realized_sales(
+            owner, start_date=start, end_date=end, book_id=book_id
+        )
+        return {
+            "book_id": book["book_id"],
+            "name": book["name"],
+            "kind": book["kind"],
+            "period": period,
+            "start_date": start.isoformat() if start else None,
+            "end_date": end.isoformat() if end else None,
+            **performance_math.book_performance(rows, bars, window_start=start),
+            "attribution": portfolio_math.realized_by_source(sales),
+        }

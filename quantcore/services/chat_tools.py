@@ -55,6 +55,9 @@ BACKEND_COMPONENT_REGISTRY: dict[str, dict[str, object]] = {
     # No props, same rule (#431): the cash ledger of the caller's own real
     # book. Read-only in the chat: the entry forms are the Portfolio page's.
     "cash_ledger": {},
+    # No props, same rule (#431 step 5.3): the caller's own real book against
+    # SPY. The period is the card's own view state.
+    "book_performance": {},
     "symbol_lots": {"ticker": str},
     # No props: the watchlist is one global shared list (issue #83), so unlike
     # the portfolio components there is not even an owner to withhold.
@@ -539,6 +542,17 @@ TOOL_SCHEMAS: list[dict] = [
             "Portfolio page, and it cannot record anything. No tool returns "
             "these figures, so show the card and do not quote a cash balance "
             "of your own (no props, same caller-only rule), "
+            "'book_performance' shows how the caller's own real book has done "
+            "against SPY: its time-weighted return (deposits and withdrawals "
+            "are not gains), the return of SPY over the same days, the largest "
+            "drawdown, a chart of both, and realized profit and loss by what "
+            "prompted each sale, with a period pulldown the user sets "
+            "themselves (it opens on the last 365 days). Use it for 'how am I "
+            "doing?' or 'am I beating the market?'. It is empty until the "
+            "daily job has valued the book, which starts at the opening "
+            "balance the user enters on the Portfolio page. No tool returns "
+            "these figures, so show the card and do not quote a return of "
+            "your own (no props, same caller-only rule), "
             "'symbol_lots' shows the caller's individual lots for one symbol in "
             "their portfolio (requires ticker), "
             "'watchlist_fundamentals' shows the shared watchlist ranked by "

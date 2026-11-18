@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) and 5.2 (history backfill and restatement) are built, and 5.3 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths), 5.2 (history backfill and restatement) and 5.3 (the Performance and Compare views) are built, and 5.4 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. 98 to 105 were made during the 5.3 build and are John's to confirm or change. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -657,6 +657,49 @@ Each is what the 5.2 code does. None was asked first. John confirmed all eight a
     through today, so it takes today's row too. A marked book's reason is `restate` whatever its
     row for today says, and the alarm names it while it stays marked.
 
+### Made on 2026-11-18, during the 5.3 build (Claude; John to confirm or change)
+
+Each is what the 5.3 code does. None was asked first.
+
+98. **The period is the Realized view's rolling window, and the row before it is the base.**
+    `month`, `quarter`, `year` and `all` are `market_time.rolling_window`'s last 30, 90 and 365
+    days, or everything, so the Performance and Realized sections mean the same thing by a word.
+    The stored row just before the window's start is read as the base (`previous_snapshot`), so
+    the return covers the whole window rather than starting a session late. Only the window's own
+    rows are counted for gaps, restatement and negative cash. What it costs: a window that starts
+    before the book's first row starts at that row, and the range shown says so.
+99. **SPY is a price return from its closed daily bars, and a failed read leaves it out.** Each
+    session takes SPY's close the way a holding's is taken (`close_as_of`, seven days back), so
+    neither side counts dividends. The bars come through `PricesService.closed_bars_since`, which
+    fetches only when they are behind; an exception is logged by class and the payload says
+    `benchmark_available: false`, never failing the book's own figures. What it costs: a
+    comparison that leaves out SPY's dividend yield as it leaves out the book's, said on screen.
+100. **"vs SPY" is the simple difference of the two returns**, in fractions of the same window,
+    not an excess return compounded or annualized. What it costs: over a long window it is not
+    the same as the ratio of the two growths, but it reads the way the figures above it read.
+101. **The strip and the Performance section share one request, and nothing is lazy-loaded.** The
+    strip's "Return, last year" and the section's default period are the same `year` read, which
+    TanStack Query caches under one key, so the page makes one performance request, not two. The
+    gotcha in section 7 asked for the series to load only on scroll; the strip needs the figure at
+    the top, so a lazy load would have made a second request anyway. The section still has its
+    own loading and error state and never gates Holdings.
+102. **Compare is its own route, `/books/compare`, reading each book separately.** It is a
+    drill-down (`nav: false`) opened from the Performance section, with its own range control.
+    `compare_books` reads each open book with the same owner- and book-bound statements as
+    `book_performance`, and reads SPY's bars once, from the earliest first row of any of them.
+    There is no total across books. What it costs: one read a book; a few books, so a few reads.
+103. **Attribution is realized P/L by `lot_sales.source`, over the same window.**
+    `portfolio_math.realized_by_source` groups the window's sales; a sale with no source counts
+    as `manual`, as the Realized view shows it. Best first. Unrealized gain is not attributed:
+    it has no source until it is sold.
+104. **The `book_performance` Sidekick card takes no props** (#126 decision 20). It shows the
+    caller's real book over the default year, with its own period control and no Compare link,
+    so the model can never name an owner, a book or a period.
+105. **An owner with no real book yet gets a stand-in, never a new book.** The real book is made
+    by its first write, and a read must not make it, so both routes describe it (`book_id`
+    null, "Real") and read it by default. Its series is empty and the section says how its
+    history starts.
+
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
 
@@ -819,7 +862,7 @@ P/L first (decision 14), and each symbol's sales oldest first. The rules behind 
 | Realized section | `RealizedPnl.tsx` | One request feeds the summary, chart, table and expanded sales. Table columns are symbol, cost basis, proceeds and realized $ (section 4); shares closed and realized % are in the expanded row |
 | Period pulldown | in `RealizedPnl` | Month, Quarter, Year, All; opens on Year. Its own state (decision 13): not shared, not in the URL |
 | Chart | `PortfolioAllocationChart`, `variant="realized"` | Same bars and segments. It keeps the payload's order, best realized first (decision 14) |
-| Summary strip | `BookSummaryStrip.tsx` | Book value, unrealized, realized for the last year, and jump links to Holdings and Realized. Return vs SPY is left out until 5.3 |
+| Summary strip | `BookSummaryStrip.tsx` | Book value, unrealized, realized for the last year, and jump links to Holdings and Realized. Return vs SPY is left out until 5.3, which adds it |
 | Sidekick card | `realized_pnl`, no props | `RealizedPnlCard` in both registries. Always the real book |
 
 Left for later steps, on purpose:
@@ -1455,7 +1498,7 @@ Left, on purpose:
     disagrees with the ledger is one a missed mark left behind.
   Each restating write is a SQL statement on a per-owner table, so it restricts the owner and
   the book like every other (both isolation scans).
-- [ ] **5.3 Performance and Compare views.**
+- [x] **5.3 Performance and Compare views.**
   `GET /api/books/performance`; the Performance section, the return-vs-SPY figure in the summary
   strip, and the Compare books view against SPY; attribution, as realized P/L by `source` for the
   selected book; the
@@ -1533,6 +1576,30 @@ Left, on purpose:
   backfill is the check: watch its unvalued list.
 - **No route or screen shows `restated_at` yet** (5.3).
 - **No split or dividend handling** (#391), as in 5.1.
+
+#### 5.21 The Performance and Compare views as built (5.3)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The maths | `analytics.performance`: `BENCHMARK_SYMBOL`, `benchmark_index`, `book_performance`; `analytics.portfolio_math.realized_by_source` | Pure. `book_performance` returns `twr`, `benchmark_return`, `vs_benchmark`, the drawdown and its peak and trough, the `series` (`session_date`, `book_value`, `index`, `benchmark_index`), the window's `gaps`, `restated_count` and `last_restated_at`, `cash_negative_count` and the newest row (`latest`) |
+| The service | `PerformanceService.book_performance`, `compare_books` (and `_book`, `_base_and_rows`, `_benchmark_bars`, `_performance`) | Reads the stored rows and the window's sales; the one possible network call is SPY's closed bars. Raises `BookNotFoundError` for another owner's book |
+| The routes | `GET /api/books/performance?period=&book_id=`, `GET /api/books/performance/compare?period=` in `api/routers/books.py`; models in `api/schemas/books.py` | 404 for a book that isn't the owner's, 422 for an unknown period. 131 routes |
+| The section | `BookPerformance.tsx`, `PerformanceChart.tsx`, on the Portfolio page between Realized and Cash (`#performance`) | Return, SPY, vs SPY, max drawdown and book value; the growth-of-$1 chart with SPY dashed; one note each for negative cash, restated rows, gaps, an incomplete or stale newest row and a missing benchmark; realized by source; the dividend and split caveat |
+| The strip | `BookSummaryStrip.tsx` | "Book value, <date> close" from the newest snapshot and "Return, last year" with "vs SPY"; "(unreliable)" when cash went below zero |
+| Compare | `CompareBooksPage.tsx` at `/books/compare` (`nav: false`) | Every open book in one chart and a table: value, return, vs SPY, drawdown, realized; paper and unreliable chips; each name links to the Portfolio page with that book selected |
+| The card | `BookPerformanceCard.tsx`, `book_performance` in `BACKEND_COMPONENT_REGISTRY` and `componentRegistry.tsx` | No props (decision 104) |
+| The tests | `tests/test_book_performance.py` (service and routes against the database), `tests/test_performance_analytics.py` (`BenchmarkIndexTest`, `BookPerformanceTest`), `tests/test_realized_pnl.py` (`TestRealizedBySource`), `tests/test_chat_tools.py`; vitest for each new component, the strip, the page, navigation and registry parity | Wrong-owner and wrong-book reads, the base row, a failed SPY read, the stand-in, negative cash, a restated row |
+
+**Nothing for an operator to run.** No migration; the routes read what 5.1 and 5.2 write.
+
+Left, on purpose:
+
+- **No dividends, and no split handling** (#391). Both sides are price returns, and a split
+  reads as a fall. Said under every figure.
+- **No Sidekick tool or MCP tool yet** (5.4). The card shows the section; the model can't read
+  the figures.
+- **Not run against Yahoo.** The tests stub SPY's bars. On test, check that the first read
+  fetches SPY once and the next is served from stored bars.
 
 ## 6. Later phases: what each needs first
 
@@ -1961,6 +2028,13 @@ Known before any code is written. Add to this list as the work finds more.
 - **`test_schema_parity` can fail on its own cleanup when run beside other database suites**
   (5.2): "permission denied to terminate process" from `DROP DATABASE … WITH (FORCE)`, because
   another module's session was still on the scratch database. Run alone it passes.
+- **A `mockApi` string matcher matches by `includes`** (5.3). `PortfolioPage.test.tsx` mocked
+  `'/api/books'` for the book list, which also answered `/api/books/performance`, so the
+  section got a list of books as its payload and the failure looked like a render bug. The
+  list is now matched by a regex (`/\/api\/books(\?|$)/`); a new route under an existing prefix
+  needs the same care.
+- **`npx` fails in the agent sandbox** on root-owned files in the npm cache (EPERM). Run
+  `node_modules/.bin/tsc` and `node_modules/.bin/vitest` directly.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1979,6 +2053,7 @@ Known before any code is written. Add to this list as the work finds more.
   section is its own request, so the page must not gate on all of them: Holdings renders as soon
   as its rows arrive, and each section below shows its own loading and error state. The
   performance series is the heavy one and should load only when its section scrolls into view.
+  (5.3 kept it eager instead, decision 101: the strip needs the same read at the top.)
 - **The summary strip fills in over three milestones.** Book value and unrealized exist at 1.2,
   realized arrives at 2.2 and return vs SPY at 5.3. A figure that isn't built yet is left out,
   never shown as a zero or a dash that reads as a real value.
@@ -2046,3 +2121,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 5.1 second review | #573 | Clippy commented with one suggestion, taken as its documentation option: a lot that cost no cash, typed in late with a date on or before the previous row's session, is in no flow and reads as a gain. The module docstring, `data.md` and the 5.1 gotcha say so, and a test pins it. The docstring now also says that with no previous row only a lot dated on the session counts, which another test pins. The review did not run the suites |
 | 2026-11-17 | Decisions 82 to 89 | #575 | John ruled after a comparison with Alpaca, Interactive Brokers and GIPS: 82, 83, 84, 86, 87 and 89 confirmed as built; 85 and 88 revised to restatement, with a late flow on its real date and the affected rows rebuilt. Step 5.2 now builds that alongside the backfill, and decision 89 points at 5.3 for the route and screen. Docs only |
 | 2026-11-17 | 5.2 History backfill and restatement | #576 | V28: `books.restate_from`, `book_value_snapshots.restated_at`. Every owner write to a book's cash or lots dated on or before its newest row marks it in the write's transaction (`restate_sql.mark_restate`); the daily step rebuilds a marked book from the mark through today under the book's row lock, with each flow on its real date, stamps a changed row `restated_at`, fills a hole and clears the mark. `PortfolioRepository.list_lot_history`, `analytics.performance.rebuild_snapshots`, `PerformanceService.restate_book` and `backfill_book`, `scripts/backfill_book_snapshots.py`. Decisions 90 to 97 were made in the build; John confirmed them as built the same day. Not run against Yahoo. The backfill is still to be run on prod (section 5.20) |
+| 2026-11-18 | 5.3 Performance and Compare views | #PRNUM | `GET /api/books/performance` and `/performance/compare` (131 routes); `analytics.performance.book_performance` and `benchmark_index`, `portfolio_math.realized_by_source`, `PerformanceService.book_performance` and `compare_books`. The Portfolio page's Performance section, the strip's book value and return vs SPY, the Compare books view at `/books/compare`, and the no-props `book_performance` Sidekick card in both registries. Decisions 98 to 105 were made in the build. No migration. Not run against Yahoo |

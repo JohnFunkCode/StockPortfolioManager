@@ -204,7 +204,9 @@ recorded before the ledger existed get their entries from
 The daily job stores what each book is worth at the close. A real book's history before that,
 back to its opening balance, comes from `python scripts/backfill_book_snapshots.py --owner <you>`
 (a dry run that names every day it couldn't value; `--apply` writes). An edit dated in the past
-corrects the stored history itself the same night.
+corrects the stored history itself the same night. The Portfolio page's Performance section reads
+those rows: the return is time-weighted, so a deposit isn't a gain, and both it and SPY's are
+price returns, with no dividends.
 
 A paper book trades through market orders, and QuantCore sets every fill: at the live quote while
 the market is open, at the next session's opening price for an order placed outside it. A buy the
@@ -270,7 +272,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 129 routes, so the table below only groups them.
+authoritative endpoint list.** There are 131 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|
@@ -287,7 +289,7 @@ authoritative endpoint list.** There are 129 routes, so the table below only gro
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
 | `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), the one stop each holding shows (`/holdings`), set a fixed or trailing stop on a holding, cancel an active one. The daily job checks them; no route does |
-| `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one. The portfolio reads take `?book_id=`; without it they read the real book |
+| `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one; a book's time-weighted return and drawdown against SPY with realized P/L by source (`GET /api/books/performance?period=&book_id=`), and every open book side by side (`/performance/compare`). The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |
 
@@ -309,7 +311,7 @@ none ([why it's read at runtime](docs/architecture/quantui.md)).
 
 | Page | Route | Menu | What it shows |
 |------|-------|------|---------------|
-| Portfolio | `/` | My Positions | positions and lots, gain/loss, returns over 1d / 5d / 30d / 60d / YTD / 1y (1d is today's live change, with the pre-market or after-hours move beside it), lot and sale notes, and a chip linking each holding to its harvest plan. Below the holdings, a Realized section: what the closed lots made or lost by symbol over the last month, quarter or year or over everything, in US dollars and gross of fees, with a bar chart and each sale behind a symbol |
+| Portfolio | `/` | My Positions | positions and lots, gain/loss, returns over 1d / 5d / 30d / 60d / YTD / 1y (1d is today's live change, with the pre-market or after-hours move beside it), lot and sale notes, and a chip linking each holding to its harvest plan. Below the holdings, a Realized section: what the closed lots made or lost by symbol over the last month, quarter or year or over everything, in US dollars and gross of fees, with a bar chart and each sale behind a symbol. Then a Performance section: the book's time-weighted return, drawdown and growth of $1 against SPY over a month, quarter, year or everything, with realized P/L by what prompted each sale, and a link to Compare books (`/books/compare`), every open book against SPY |
 | Plans | `/plans` | My Positions | harvest plans with status. A plan can only exist for a symbol you hold |
 | Harvester | `/harvester` | My Positions | ladder roll-ups: active plans, rungs hit, shares harvested |
 | Watchlist | `/watchlist` | Research | the shared watchlist ranked by fundamental score, with returns over the same six windows (a live 1d, refreshed on load and by the Refresh button), USD market caps, staleness, tags and news sentiment. Rows you hold carry a Held chip with your quantity and average price, and a Show filter narrows to them. Also hosts the technical screener, the sentiment dashboard and the options-snapshot refresh. It replaced the Securities page (#224); `/securities` redirects here |

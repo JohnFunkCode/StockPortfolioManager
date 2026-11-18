@@ -753,6 +753,9 @@ Rules to keep:
   dated on or before the previous row's session, but entered after that row was taken, is valued
   in the next row's holdings and counted in no flow: lots have no stored total the way cash has
   `contributed`. The backfill (step 5.2) is what rebuilds those rows.
+- **Both limits above are to go** (plan decisions 85 and 88, revised 2026-11-17). Step 5.2 makes
+  a change dated on or before a book's newest row restate the rows from that date, with each
+  flow on its real date, as GIPS does. Until it lands, the rules above are what the code does.
 - **A real book's value is unreliable while its cash is negative** (plan decision 8): a buy with
   no recorded deposit behind it. The row stores the cash, so Performance can mark those days.
 - **A split looks like a fall** (#391), here as in the stop checker, until splits are handled.

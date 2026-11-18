@@ -85,7 +85,8 @@ def books_overview(
 ) -> QuantCoreJSONResponse:
     """Every one of the owner's open books over a rolling period: its return
     and drawdown against SPY, newest value, realized P/L by source and open
-    holdings, without the daily series. The MCP `get_books` tool's source;
+    holdings, with the growth-of-$1 series against SPY sampled a point a day,
+    week or month by the period. The MCP `get_books` tool's source;
     it names no book, so it lists only the caller's."""
     return QuantCoreJSONResponse(services().performance.books_overview(owner=owner, period=period))
 

@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths), 5.2 (history backfill and restatement), 5.3 (the Performance and Compare views) and 5.4 (read access for Sidekick and MCP) are built, which completes it and closes #431 phases 1 to 3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. 98 to 105 were made during the 5.3 build and 106 to 110 during the 5.4 build; both sets are John's to confirm or change. The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths), 5.2 (history backfill and restatement), 5.3 (the Performance and Compare views) and 5.4 (read access for Sidekick and MCP) are built, which completes it and closes #431 phases 1 to 3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. 98 to 105 were made during the 5.3 build and are John's to confirm or change. 106 to 110 were made during the 5.4 build; John confirmed 106, 108, 109 and 110 and revised 107 to a series sampled by period, which a follow-up to 5.4 builds (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -700,9 +700,10 @@ Each is what the 5.3 code does. None was asked first.
     null, "Real") and read it by default. Its series is empty and the section says how its
     history starts.
 
-### Made on 2026-11-18, during the 5.4 build (Claude; John to confirm or change)
+### Made on 2026-11-18, during the 5.4 build (Claude; John ruled the same day)
 
-Each is what the 5.4 code does. None was asked first.
+Each is what the 5.4 code did as merged in #578. None was asked first. John's rulings, and the
+discussion behind them, follow the list.
 
 106. **The tool lists every open book; it takes no book.** `get_books` (Sidekick and MCP)
     returns the caller's open books, the real book first, as Compare does, with one argument,
@@ -712,7 +713,8 @@ Each is what the 5.4 code does. None was asked first.
 107. **No daily series; the gaps are counted.** A year is about 250 points a book, which would
     crowd a conversation for figures the model can't use. `gap_count` replaces the list of
     dates. What it costs: the model can say what the return and drawdown were, not describe the
-    curve; the `book_performance` card shows it.
+    curve; the `book_performance` card shows it. *Revised by John: a series sampled by period
+    (below).*
 108. **Holdings are at cost, and price nothing.** Each book's open lots, one row a symbol and
     currency (`portfolio_math.book_holdings`: shares, the quantity-weighted purchase price, the lots'
     currency, lot count), from one query a book with no network call. Their value is the newest
@@ -726,6 +728,60 @@ Each is what the 5.4 code does. None was asked first.
 110. **No orders, stops or cash entries in the tool.** Cash is in the newest snapshot; the rest
     stays on the Portfolio page. A question like "which stops are close?" still goes unanswered
     by the AI. What it costs: a second tool later, if that question comes up.
+
+### Made on 2026-11-18 (John), on decisions 106 to 110
+
+- **106 confirmed, after asking whether future AI trading would flip it.** The question: once
+  Sidekick and the MCP server can buy and sell against a book (phase 4, AI trading), does the
+  read tool need a book id to return one book? The answer recorded:
+  - A write has to name its target, so a buy or sell tool **will** take a `book_id`. That is
+    expected, and it is not what makes the write safe. Section 6 already puts arch-v2 section 8
+    write gating in front of any AI write (a user confirmation the model can't give itself, an
+    idempotency key, an audit record) and a per-book switch, and real books stay unwritable by
+    AI. The confirmation shows the book's name and kind, so a wrong id is caught by the owner,
+    not only by the owner-bound SQL.
+  - The read tool already hands the model each book's `book_id`, so a write flow is: read the
+    books, propose an order on one, the owner confirms, the write runs. The read tool needs no
+    change for it.
+  - An optional `book_id` filter on `get_books` stays available as an additive change, worth
+    making if owners come to hold many books. It doesn't break existing callers.
+  - Left for the write-gating design: whether a write names its book by id or by name. Ids are
+    stable; whether book names are unique per owner was not checked.
+- **107 revised: `get_books` returns a series sampled by period.** John asked how other systems
+  handle it. Neither drops the series; both return one and let the caller set its resolution:
+  - **Alpaca**: `GET /v2/account/portfolio/history` takes a `period` and a `timeframe` and
+    returns arrays of `equity`, `profit_loss` and `profit_loss_pct` (against the period's
+    `base_value`, much like our growth index). Intraday timeframes are allowed only for periods
+    under 30 days; longer ones are daily. Alpaca's own MCP server exposes it as
+    `get_portfolio_history`, so its AI tool hands the model the series. A forum thread notes
+    that `profit_loss_pct` is cumulative against the base, not a bar-to-bar return.
+  - **Interactive Brokers**: the Portfolio Analyst performance endpoint returns cumulative
+    returns (`cps`) at a frequency (`freq`, with `dates`), for a period such as 6M, 12M or YTD,
+    with the caller choosing time-weighted or money-weighted return (`pm`).
+
+  So the series is now sampled to the last session of each day for `month`, each week for
+  `quarter` and `year`, and each month for `all` (`analytics.performance.sampled_series`,
+  `SERIES_INTERVALS`), with the first point kept as the index's base and the last as the
+  window's end. That is Alpaca's pairing of a period with a coarser timeframe: about 21, 13 and
+  52 points a book, and one a month of history for `all`. The payload says which
+  (`series_interval`). Sources used for the comparison:
+  - [Alpaca: Get Account Portfolio History](https://docs.alpaca.markets/us/reference/portfolio-history-3)
+  - [Alpaca v1.1 portfolio history reference](https://docs.alpaca.markets/us/v1.1/reference/getaccountportfoliohistory-1) (timeframe limits, the P/L formula)
+  - [Alpaca v1.4.2 portfolio history reference](https://docs.alpaca.markets/us/v1.4.2/reference/portfolio-history-3) (the base value)
+  - [Alpaca forum: portfolio history improvements](https://forum.alpaca.markets/t/request-for-portfolio-history-improvements/3839)
+  - [Alpaca MCP server docs](https://docs.alpaca.markets/us/docs/alpaca-mcp-server) and its
+    [`get_portfolio_history` tool](https://glama.ai/mcp/servers/alpacahq/alpaca-mcp-server/tools/get_portfolio_history)
+  - [IBKR Web API: Account Performance](https://www.interactivebrokers.com/docs/web-api/v1/endpoints/portfolio-analyst/account-performance)
+  - [IBKR Web API: All Periods](https://www.interactivebrokers.com/docs/web-api/v1/endpoints/portfolio-analyst/all-periods)
+
+  The pages were read through search summaries on 2026-11-18, and some Alpaca pages are for the
+  Broker API or older versions. Check the current reference before relying on a detail.
+- **108 confirmed.** The #578 review changed one thing: holdings are one row a symbol *and
+  currency*, so a symbol held in two currencies is never one blended price.
+- **109 confirmed.**
+- **110 confirmed, with its alternative filed** as
+  [#579](https://github.com/JohnFunkCode/StockPortfolioManager/issues/579): a read-only stops
+  tool for Sidekick and MCP, built the way `get_books` was.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1633,7 +1689,7 @@ Left, on purpose:
 | Piece | Where | Notes |
 |---|---|---|
 | The roll-up | `analytics.portfolio_math.book_holdings` | Pure: open lots to one row a symbol and currency, by symbol, through `position_rollup`; a symbol held in two currencies is two rows, never a blended price (from the #578 review) |
-| The service | `PerformanceService.books_overview` | `compare_books` without `series` or `gaps` (counted as `gap_count`), plus each book's holdings from `list_positions(owner, "OPEN", book_id=…)`. One SPY read for all books |
+| The service | `PerformanceService.books_overview` | `compare_books` with `gaps` counted as `gap_count`, plus each book's holdings from `list_positions(owner, "OPEN", book_id=…)`. One SPY read for all books. As merged in #578 it left `series` out; since John's revision of decision 107 it is sampled by period (`analytics.performance.sampled_series`, with `series_interval`) |
 | The route | `GET /api/books/overview?period=` in `api/routers/books.py`; `BooksOverviewResponse` in `api/schemas/books.py` | 422 for an unknown period. 132 routes |
 | Sidekick | `get_books` in `chat_tools.TOOL_SCHEMAS`, `READ_ONLY_TOOLS` and `OWNER_SCOPED_TOOLS`; `ChatService._books`; `performance` injected by the registry | The owner comes from the turn; a model-supplied `owner` is dropped. Decimals and dates are made plain all the way down (`_plain_tree`) |
 | MCP | `get_books(period="year")` on `portfolio-server`, one `GET /api/books/overview` | 64 tools; its contract case in `scripts/mcp_tool_cases.py` |
@@ -1644,7 +1700,7 @@ run covers the new tool with the rest.
 
 Left, on purpose:
 
-- **No orders, stops or cash entries** (decision 110).
+- **No orders, stops or cash entries** (decision 110; the stops tool is #579).
 - **Holdings at cost only** (decision 108).
 - **Not run against Yahoo.** As in 5.3, the tests stub SPY's bars.
 
@@ -2170,3 +2226,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 5.2 History backfill and restatement | #576 | V28: `books.restate_from`, `book_value_snapshots.restated_at`. Every owner write to a book's cash or lots dated on or before its newest row marks it in the write's transaction (`restate_sql.mark_restate`); the daily step rebuilds a marked book from the mark through today under the book's row lock, with each flow on its real date, stamps a changed row `restated_at`, fills a hole and clears the mark. `PortfolioRepository.list_lot_history`, `analytics.performance.rebuild_snapshots`, `PerformanceService.restate_book` and `backfill_book`, `scripts/backfill_book_snapshots.py`. Decisions 90 to 97 were made in the build; John confirmed them as built the same day. Not run against Yahoo. The backfill is still to be run on prod (section 5.20) |
 | 2026-11-18 | 5.3 Performance and Compare views | #577 | `GET /api/books/performance` and `/performance/compare` (131 routes); `analytics.performance.book_performance` and `benchmark_index`, `portfolio_math.realized_by_source`, `PerformanceService.book_performance` and `compare_books`. The Portfolio page's Performance section, the strip's book value and return vs SPY, the Compare books view at `/books/compare`, and the no-props `book_performance` Sidekick card in both registries. Decisions 98 to 105 were made in the build. No migration. Not run against Yahoo |
 | 2026-11-18 | 5.4 Read access for Sidekick and MCP | #578 | `GET /api/books/overview` (132 routes), `PerformanceService.books_overview`, `portfolio_math.book_holdings`; the `get_books` Sidekick tool (read-only, owner-scoped, 14 data tools) and MCP tool on `portfolio-server` (64 tools, with its contract case). Every open book's return against SPY, drawdown, newest snapshot, realized P/L by source and holdings at cost, without the daily series. Decisions 106 to 110. Milestone 5 is done, which closes #431 phases 1 to 3. As built: section 5.22 |
+| 2026-11-18 | Decisions 106 to 110; 107 revised | this PR | John confirmed 106, 108, 109 and 110, and revised 107: `get_books` returns the growth-of-$1 series sampled by period (`analytics.performance.sampled_series`: a day for month, a week for quarter and year, a month for all; `series_interval` says which). Section 3 records the 106 discussion about future write tools and the Alpaca and IBKR comparison behind 107, with its sources. 110's alternative is #579 |

@@ -141,8 +141,10 @@ class BookHolding(BaseModel):
 
 
 class BookOverview(BaseModel):
-    """One book as the overview gives it: the performance figures without the
-    daily series, the window's gaps counted, and the book's open holdings."""
+    """One book as the overview gives it: the performance figures, the series
+    sampled to the last session of each day, week or month by the period
+    (`series_interval`), the window's gaps counted, and the book's open
+    holdings."""
 
     book_id: Optional[int] = None
     name: str
@@ -160,6 +162,9 @@ class BookOverview(BaseModel):
     max_drawdown: Optional[Decimal] = None
     drawdown_peak: Optional[date] = None
     drawdown_trough: Optional[date] = None
+    # "day", "week" or "month".
+    series_interval: str
+    series: List[PerformancePoint]
     gap_count: int
     restated_count: int
     last_restated_at: Optional[datetime] = None

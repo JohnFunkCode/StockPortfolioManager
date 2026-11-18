@@ -255,9 +255,6 @@ class MaxDrawdownTest(unittest.TestCase):
         self.assertEqual(perf.max_drawdown(chain["index"])["max_drawdown"], D("0E-8"))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 def history_lot(symbol="AAA", quantity="10", day=MON, status="OPEN", sold_on=None,
                 acquisition_type="BUY", sale_date=None, currency="USD"):
@@ -493,3 +490,53 @@ class BookPerformanceTest(unittest.TestCase):
         latest = perf.book_performance(rows, self.BARS)["latest"]
         self.assertEqual((latest["session_date"], latest["book_value"], latest["cash"]),
                          (_day(1), D("1100"), D("40")))
+
+
+class SampledSeriesTest(unittest.TestCase):
+    """The read-only book tool's series (#431 step 5.4, decision 107 as
+    revised): the last point of each day, week or month, base kept."""
+
+    @staticmethod
+    def _series(start, days):
+        out, day = [], start
+        while len(out) < days:
+            if day.weekday() < 5:
+                out.append({"session_date": day, "index": D(len(out) + 1)})
+            day += datetime.timedelta(days=1)
+        return out
+
+    def test_a_month_keeps_every_session(self):
+        series = self._series(datetime.date(2026, 10, 1), 21)
+        sample = perf.sampled_series(series, "month")
+        self.assertEqual(sample["interval"], "day")
+        self.assertEqual(sample["points"], series)
+
+    def test_a_year_keeps_the_base_and_each_weeks_last_session(self):
+        # Wed 2026-01-07 to Fri 2026-01-23: the base, then Fri 9th, 16th, 23rd.
+        series = self._series(datetime.date(2026, 1, 7), 13)
+        sample = perf.sampled_series(series, "year")
+        self.assertEqual(sample["interval"], "week")
+        self.assertEqual([p["session_date"] for p in sample["points"]],
+                         [datetime.date(2026, 1, d) for d in (7, 9, 16, 23)])
+
+    def test_all_keeps_each_months_last_session_and_ends_on_the_last_point(self):
+        series = self._series(datetime.date(2026, 1, 28), 30)
+        sample = perf.sampled_series(series, "all")
+        self.assertEqual(sample["interval"], "month")
+        days = [p["session_date"] for p in sample["points"]]
+        self.assertEqual(days[0], datetime.date(2026, 1, 28))
+        self.assertEqual(days[1], datetime.date(2026, 1, 30))
+        self.assertEqual(days[-1], series[-1]["session_date"])
+        self.assertEqual(len(days), 4)
+
+    def test_quarter_is_weekly_and_an_empty_series_is_empty(self):
+        self.assertEqual(perf.sampled_series([], "quarter"),
+                         {"interval": "week", "points": []})
+
+    def test_an_unknown_period_is_refused(self):
+        with self.assertRaises(ValueError):
+            perf.sampled_series([], "decade")
+
+
+if __name__ == "__main__":
+    unittest.main()

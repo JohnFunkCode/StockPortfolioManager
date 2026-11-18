@@ -553,3 +553,44 @@ def book_performance(
         "cash_negative_count": _cash_negative(in_window),
         "latest": _latest(in_window),
     }
+
+
+# How finely the read-only book tool samples each period's series (#431 step
+# 5.4, decision 107 as John revised it): every session for a month, a point a
+# week for a quarter or a year, a point a month for everything: about 21, 13
+# and 52 points a book, and one a month of history for `all`. Alpaca pairs a
+# portfolio history's period with a coarser timeframe the same way.
+SERIES_INTERVALS = {"month": "day", "quarter": "week", "year": "week", "all": "month"}
+
+
+def _bucket(day: datetime.date, interval: str) -> Tuple[int, ...]:
+    if interval == "day":
+        return (day.toordinal(),)
+    if interval == "week":
+        iso = day.isocalendar()
+        return (iso[0], iso[1])
+    return (day.year, day.month)
+
+
+def sampled_series(series: Sequence[Mapping[str, Any]], period: str) -> Dict[str, Any]:
+    """`book_performance`'s `series` thinned for a model to read: the last
+    point of each day, week or month (`SERIES_INTERVALS[period]`), oldest
+    first, with the first point always kept, since it is the base the index
+    starts from. The last point is always kept too, so the sample ends where
+    the return is measured. Points are passed on as they are; nothing is
+    averaged. Raises `ValueError` for an unknown period.
+    """
+    if period not in SERIES_INTERVALS:
+        raise ValueError(f"unknown period {period!r}")
+    interval = SERIES_INTERVALS[period]
+    points: List[Mapping[str, Any]] = []
+    last_key: Optional[Tuple[int, ...]] = None
+    for point in series:
+        key = _bucket(point["session_date"], interval)
+        # Replace the bucket's point so far, unless that point is the base.
+        if len(points) > 1 and key == last_key:
+            points[-1] = point
+        else:
+            points.append(point)
+        last_key = key
+    return {"interval": interval, "points": [dict(p) for p in points]}

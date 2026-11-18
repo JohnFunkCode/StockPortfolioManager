@@ -5,7 +5,7 @@ The daily job asks for every book a snapshot is owed for (`due_snapshots`)
 and takes each (`snapshot_book`). Step 5.3 reads the series back as a
 time-weighted return and a drawdown against SPY (`book_performance`, and
 `compare_books` for every open book side by side). Step 5.4 gives Sidekick
-and MCP the same figures, without the daily series (`books_overview`).
+and MCP the same figures, with the series sampled by period (`books_overview`).
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -448,8 +448,10 @@ class PerformanceService:
         decision 18).
 
         The Compare books payload for `period`, with each book's daily
-        `series` left out and its `gaps` counted rather than listed, so a
-        year of sessions doesn't flood a model's context, and with the book's
+        `series` sampled to a point a day, week or month by the period
+        (`performance_math.sampled_series`, decision 107 as revised) and its
+        `gaps` counted rather than listed, so a year of sessions doesn't
+        flood a model's context, and with the book's
         open holdings (`portfolio_math.book_holdings`, one query a book, no
         network). The real book is first; an owner with no book yet gets the
         real book's stand-in. It takes no book: every open book is listed,
@@ -460,8 +462,11 @@ class PerformanceService:
         for book in compared["books"]:
             summary = {k: v for k, v in book.items() if k not in ("series", "gaps")}
             lots = self._lots.list_positions(owner, "OPEN", book_id=_read_id(book))
+            sample = performance_math.sampled_series(book["series"], period)
             books.append({
                 **summary,
+                "series_interval": sample["interval"],
+                "series": sample["points"],
                 "gap_count": len(book["gaps"]),
                 "holdings": portfolio_math.book_holdings(lots),
             })

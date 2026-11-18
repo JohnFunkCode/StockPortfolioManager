@@ -176,8 +176,12 @@ def get_books(period: str = "year") -> dict:
     return (`twr`), SPY's price return over the same sessions
     (`benchmark_return`) and the difference (`vs_benchmark`), the maximum
     drawdown, the newest daily snapshot (`latest`: value, cash, holdings
-    value), realized P/L by what prompted each sale (`attribution`), and the
-    open holdings (symbol, shares, average purchase price in its currency).
+    value), realized P/L by what prompted each sale (`attribution`), the open
+    holdings (symbol, shares, average purchase price in its currency), and a
+    `series` of growth-of-$1 points for the book (`index`) and SPY
+    (`benchmark_index`), one a `series_interval`: the last session of each
+    day for 'month', each week for 'quarter' and 'year', each month for
+    'all'. Use it to say how the return built up, not to recompute it.
 
     Returns are fractions (0.05 is 5%) and price returns on both sides: no
     dividends, and a split reads as a fall. A book whose cash went below zero

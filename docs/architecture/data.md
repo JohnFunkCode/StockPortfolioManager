@@ -634,6 +634,16 @@ stop a bar reached is shown only when a lot was opened on or before that bar's s
 position bought back later was never under it. The read is two queries, makes no network
 call and creates no book.
 
+**Sidekick and MCP read every open book's stops through one route** (#579,
+`StopsService.stops_overview`, `GET /api/books/stops` in `api/routers/books.py`). It takes no
+book and no owner, as `get_books` takes none (plan decision 106): per open book, the real book
+first, the stop each holding shows (the same `holding_stops` choice), the symbol's last stored
+close and how far it is above the level (`analytics.stored_stops.book_stops`), the daily job's
+approach record, and `unprotected`, the held symbols with no live stop. The closes come from one
+`PricesService.last_closes` query for every held symbol, with no network call, so a figure can
+be a session behind the market. "Near" is what the job last recorded, not a second rule.
+Nothing on either surface sets, moves or cancels a stop.
+
 The Portfolio page reads the holdings route and can take an active stop off through the cancel
 route, in any book (plan step 4.3 and decision 67). The **stop panel** on the Security page's
 Technical Analysis tab (`StopPanel`, step 4.5) sets one through `POST /api/portfolio/stops`, in

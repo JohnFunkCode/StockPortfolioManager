@@ -525,6 +525,36 @@ TOOL_SCHEMAS: list[dict] = [
         },
     },
     {
+        "name": "get_stops",
+        "description": (
+            "The stops the user has set on their holdings, in every open book "
+            "(the real book first, then each paper book): stored decisions to "
+            "get out of a holding at a level, not a recommendation. For where a "
+            "stop could go, use the stop-loss analysis instead. Per book: each "
+            "holding's stop (symbol, `stop_level`, fixed or trailing with its "
+            "`trail_pct` and `high_water_mark`, `at_broker` when it mirrors an "
+            "order placed at an outside broker), the symbol's last stored close "
+            "(`last_close`, `last_close_date`) and how far it sits above the "
+            "level (`distance` in price, `distance_fraction` as a fraction of "
+            "the close: 0.05 is 5%), and `near`: whether the daily job found the "
+            "newest closed bar it tested within its approach threshold, with "
+            "`atr_distance` (how many ATRs above the level that bar closed). "
+            "`unprotected` lists the held symbols with no live stop. Use for "
+            "'which of my stops are close?', 'is NVDA protected in my paper "
+            "book?'.\n\n"
+            "Closes are the newest stored daily bars, not live quotes; say the "
+            "date when you quote one. A stop with `status` 'triggered' was "
+            "reached while the holding was open: in the real book that is an "
+            "alert, nothing was sold, and the holding is unprotected until a "
+            "new stop is set. In a paper book a stop sells the whole position "
+            "by itself.\n\n"
+            "Read-only, and always the signed-in user's own books: there is no "
+            "argument naming a book or an owner, and it cannot set, move or "
+            "cancel a stop."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
         "name": "show_component",
         "description": (
             "Render a live, data-bound UI component inline in the conversation. "

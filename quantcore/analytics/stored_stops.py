@@ -43,6 +43,10 @@ The rules:
   ATR as of that bar, and the number is `STOP_APPROACH_ATR_MULTIPLE`, read
   by the daily job. Too little history to measure an ATR is no answer, not
   a "far".
+- **The read-only stops tool lists what each holding shows** (`book_stops`,
+  #579): the stop the Portfolio page draws, how far the last stored close is
+  above its level, and whether the daily job last found it close. It
+  measures nothing new: "close" is the job's record, not a second rule.
 """
 
 from __future__ import annotations
@@ -589,3 +593,93 @@ def atr_distance(close: Decimal, stop_level: Decimal, atr: Decimal) -> Decimal:
     """How many ATRs `close` was above `stop_level`, to one decimal place:
     what the approach alert tells the owner."""
     return ((close - stop_level) / atr).quantize(_DISTANCE_STEP, rounding=ROUND_HALF_UP)
+
+
+# --------------------------------------------------------------------------
+# A book's stops, as the read-only stops tool gives them (#579)
+# --------------------------------------------------------------------------
+
+_FRACTION_STEP = Decimal("0.0001")
+
+# The stop fields the tool passes through as stored. Everything else on the
+# row (where the level came from, alert bookkeeping, the raw approach close
+# and ATR) is left out: the model can't use it, and the Portfolio page has it.
+_TOOL_FIELDS = (
+    "stop_id", "symbol", "status", "kind", "stop_level", "trail_pct",
+    "high_water_mark", "method", "at_broker", "broker_quantity",
+    "broker_order_type", "brokerage", "created_at", "last_bar_checked",
+    "triggered_session", "trigger_price",
+)
+
+
+def stop_distance(close: Any, stop_level: Decimal) -> dict:
+    """How far a close sits above a stop's level: `distance` in price, to
+    the tick, and `distance_fraction` as a share of the close (0.05 is 5%),
+    to four places. Negative when the close is under the level. Both None
+    with no usable close."""
+    price = _price(close)
+    if price is None:
+        return {"distance": None, "distance_fraction": None}
+    price = fill_price(price)
+    distance = price - stop_level
+    return {
+        "distance": distance,
+        "distance_fraction": (distance / price).quantize(_FRACTION_STEP, rounding=ROUND_HALF_UP),
+    }
+
+
+def _near(stop: Mapping[str, Any]) -> dict:
+    """What the daily job last recorded about a live stop being close
+    (plan step 4.4): whether it is, the session it was judged on, and how
+    many ATRs above the level that session closed."""
+    recorded = stop["status"] == ACTIVE and stop.get("approached_session") is not None
+    atr = stop.get("approach_atr") if recorded else None
+    usable = atr is not None and atr > _ZERO and stop.get("approach_close") is not None
+    return {
+        "near": recorded,
+        "approached_session": stop["approached_session"] if recorded else None,
+        "atr_distance": (
+            atr_distance(stop["approach_close"], stop["stop_level"], atr) if usable else None
+        ),
+    }
+
+
+def tool_stop(stop: Mapping[str, Any], last_close: Mapping[str, Any]) -> dict:
+    """One stop a holding shows, as the stops tool lists it: its terms, the
+    symbol's last stored close (`last_close`, `last_close_date`), how far
+    that close is above the level, and whether the daily job found the
+    newest bar it tested close to the level."""
+    close = last_close.get("close")
+    return {
+        **{field: stop.get(field) for field in _TOOL_FIELDS},
+        "last_close": fill_price(close) if _price(close) is not None else None,
+        "last_close_date": last_close.get("as_of"),
+        **stop_distance(close, stop["stop_level"]),
+        **_near(stop),
+    }
+
+
+def book_stops(
+    stops: Iterable[Mapping[str, Any]],
+    opened_by_symbol: Mapping[str, Iterable[datetime.date]],
+    closes: Mapping[str, Mapping[str, Any]],
+) -> dict:
+    """One book's stops for the read-only stops tool (#579).
+
+    `stops` and `opened_by_symbol` are what `holding_stops` takes: every
+    symbol the book holds is a key of `opened_by_symbol`, even one whose lots
+    have no date. `closes` maps a symbol to its last stored close
+    (`{"close", "as_of"}`); a symbol missing from it has none.
+
+    - `stops`: the stop each holding shows (`holding_stops`), in symbol
+      order, with `tool_stop`'s fields: a live one, or one a bar reached
+      while the holding was open.
+    - `unprotected`: the held symbols with no live stop, in order. A symbol
+      whose stop was reached and is still held is in both lists.
+    """
+    shown = holding_stops(stops, opened_by_symbol)
+    live = {stop["symbol"] for stop in shown if stop["status"] == ACTIVE}
+    return {
+        "stops": [tool_stop(stop, closes.get(stop["symbol"], {})) for stop in shown],
+        "unprotected": sorted(symbol for symbol in opened_by_symbol if symbol not in live),
+    }

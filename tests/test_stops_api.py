@@ -67,6 +67,14 @@ class StubPrices:
         close = self.closes.get(symbol)
         return {"close": close, "as_of": BAR if close is not None else None}
 
+    def last_closes(self, symbols):
+        """`PricesService.last_closes`: one call for every symbol, and a
+        symbol with no close left out."""
+        self.bulk_calls = getattr(self, "bulk_calls", 0) + 1
+        self.asked = set(symbols)
+        return {s: {"close": self.closes[s], "as_of": BAR}
+                for s in symbols if self.closes.get(s) is not None}
+
 
 def _purge():
     purge((OWNER, OTHER), (SYMBOL, UNHELD))
@@ -582,6 +590,124 @@ class StopsRoutesTest(_Base):
         # Neither refusal wrote a stop or took the mirrored one's place.
         self.assertEqual(self.stops(book_id=self.paper)["stops"], [])
         self.assertEqual([s["stop_id"] for s in self.stops()["stops"]], [body["stop_id"]])
+
+
+class StopsOverviewTest(_Base):
+    """`StopsService.stops_overview`, what the `get_stops` tool reads (#579)."""
+
+    def overview(self, owner=OWNER):
+        return self.service.stops_overview(owner=owner)["books"]
+
+    def test_every_open_book_with_its_stops_and_its_unprotected_holdings(self):
+        real = self.set_stop()
+        self.lots.add_position(OWNER, lot(UNHELD))
+        self.prices.closes[UNHELD] = 50.0
+        self.prices.calls = 0  # setting the stop read its close
+
+        real_book, paper = self.overview()
+        self.assertEqual((real_book["kind"], paper["book_id"], paper["name"]),
+                         ("real", self.paper, "Paper"))
+        (stop,) = real_book["stops"]
+        self.assertEqual(
+            {k: stop[k] for k in ("stop_id", "symbol", "status", "stop_level", "last_close",
+                                  "last_close_date", "distance", "distance_fraction", "near")},
+            {"stop_id": real["stop_id"], "symbol": SYMBOL, "status": "active",
+             "stop_level": D("90.00"), "last_close": D("100.00"),
+             "last_close_date": datetime.date(2026, 6, 12), "distance": D("10.00"),
+             "distance_fraction": D("0.1000"), "near": False})
+        self.assertEqual(real_book["unprotected"], [UNHELD])
+        self.assertEqual((paper["stops"], paper["unprotected"]), ([], [SYMBOL]))
+        # One read of the closes for every held symbol, and no per-symbol one.
+        self.assertEqual((self.prices.bulk_calls, self.prices.calls), (1, 0))
+        self.assertEqual(self.prices.asked, {SYMBOL, UNHELD})
+
+    def test_a_stop_the_job_found_close_says_so(self):
+        stop = self.set_stop(book_id=self.paper)
+        self.assertTrue(self.repo.record_check(
+            owner=OWNER, stop_id=stop["stop_id"], book_id=self.paper,
+            last_bar_checked=datetime.date(2026, 6, 16), stop_level=D("90"),
+            high_water_mark=None, approach_known=True,
+            approached_session=datetime.date(2026, 6, 16), approach_close=D("93"),
+            approach_atr=D("4")))
+        (shown,) = self.overview()[1]["stops"]
+        self.assertEqual((shown["near"], shown["approached_session"], shown["atr_distance"]),
+                         (True, datetime.date(2026, 6, 16), D("0.8")))
+
+    def test_a_reached_stop_still_held_is_shown_and_its_symbol_is_unprotected(self):
+        stop = self.set_stop()
+        self.assertTrue(self.repo.trigger_stop(
+            owner=OWNER, stop_id=stop["stop_id"], stop_level=D("90"), high_water_mark=None,
+            triggered_session=datetime.date(2026, 6, 16), trigger_price=D("89"),
+            resolved_at=NOW))
+        real_book = self.overview()[0]
+        (shown,) = real_book["stops"]
+        self.assertEqual((shown["status"], shown["trigger_price"], shown["near"]),
+                         ("triggered", D("89"), False))
+        self.assertEqual(real_book["unprotected"], [SYMBOL])
+
+    def test_a_symbol_with_no_stored_close_has_no_distance(self):
+        self.set_stop()
+        del self.prices.closes[SYMBOL]
+        (stop,) = self.overview()[0]["stops"]
+        self.assertEqual((stop["last_close"], stop["distance"], stop["distance_fraction"]),
+                         (None, None, None))
+
+    def test_an_archived_book_is_left_out(self):
+        self.set_stop(book_id=self.paper)
+        self.books.archive_book(owner=OWNER, book_id=self.paper)
+        self.assertEqual([b["kind"] for b in self.overview()], ["real"])
+
+    def test_another_owners_books_and_stops_are_not_read(self):
+        theirs = self.books.create_paper_book(owner=OTHER, name="Theirs", starting_cash=0)
+        self.lots.add_position(OTHER, lot(SYMBOL), book_id=theirs)
+        self.service.set_stop(owner=OTHER, symbol=SYMBOL, kind="fixed", stop_level="80",
+                              book_id=theirs, now=NOW)
+        self.set_stop()
+        books = self.overview()
+        self.assertEqual([b["name"] for b in books], ["Real", "Paper"])
+        self.assertEqual([s["stop_level"] for b in books for s in b["stops"]], [D("90.00")])
+
+    def test_an_owner_with_no_book_gets_the_stand_in_and_none_is_created(self):
+        self.assertEqual(self.overview(owner=OTHER), [
+            {"book_id": None, "name": "Real", "kind": "real", "stops": [], "unprotected": []}])
+        self.assertEqual(self.books.list_books(owner=OTHER), [])
+
+
+class StopsOverviewRouteTest(_Base):
+    """GET /api/books/stops, the MCP `get_stops` tool's source (#579)."""
+
+    def setUp(self):
+        super().setUp()
+        identities = OwnerIdentityRepository()
+        identities.upsert(identity=IDENTITY, owner=OWNER)
+        identities.upsert(identity=OTHER_IDENTITY, owner=OTHER)
+        self.app = create_app()
+        self.client = TestClient(self.app)
+        services = patch("api.routers.books.services")
+        services.start().return_value.stops = self.service
+        self.addCleanup(services.stop)
+
+    def as_identity(self, identity):
+        principal = Principal(subject=identity, is_local=False)
+        self.app.dependency_overrides[require_principal] = lambda: principal
+
+    def test_lists_the_callers_books_and_takes_no_owner_or_book(self):
+        self.set_stop(book_id=self.paper)
+        self.as_identity(IDENTITY)
+        resp = self.client.get(f"/api/books/stops?owner={OTHER}&book_id=999")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        real_book, paper = resp.json()["books"]
+        self.assertEqual((real_book["stops"], real_book["unprotected"]), ([], [SYMBOL]))
+        self.assertEqual([(s["symbol"], s["stop_level"], s["distance_fraction"])
+                          for s in paper["stops"]], [(SYMBOL, 90.0, 0.1)])
+
+    def test_another_owner_sees_only_their_own(self):
+        self.set_stop(book_id=self.paper)
+        self.as_identity(OTHER_IDENTITY)
+        resp = self.client.get("/api/books/stops")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json()["books"], [
+            {"book_id": None, "name": "Real", "kind": "real", "stops": [], "unprotected": []}])
 
 
 if __name__ == "__main__":

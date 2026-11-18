@@ -5,7 +5,7 @@ This document is a comprehensive inventory of every user-facing capability in th
 **Last Updated:** 2026-11-17
 
 **Earlier:** 2026-11-16 (#431 step 4.1: stored stops add three `/api/portfolio/stops` operations (list, set, cancel). No component reaches them until steps 4.3 and 4.5, so they are a new gap: 73 of 128 operations reached, 55 left, 34 gaps; 28 tables. The totals also count `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches and this matrix had left out since it was added, so they now agree with `docs/openapi-surface.txt`)
-**MCP Tools:** 64 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 132 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 3 drill-downs (+ Sidekick chat rail) | **Sidekick:** 14 data tools + 21 components | **CLI Tools:** 1 | **Daily Jobs:** 2
+**MCP Tools:** 65 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 133 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 3 drill-downs (+ Sidekick chat rail) | **Sidekick:** 15 data tools + 21 components | **CLI Tools:** 1 | **Daily Jobs:** 2
 
 > **Refactor status:** Phases 1–3 of [`proposals/architectural-standard-v2.md`](proposals/architectural-standard-v2.md) are **complete**, prod rollout is **complete** (`quantcore-prod-20260606`, promoted by digest via `prod-rollout.yml`), QuantUI is deployed behind IAP in both projects, and **BYOK is live as of 2026-07-18**. **Every MCP tool has a REST equivalent**, so the surface-parity problem this document originally tracked now lives almost entirely in the WebUI layer — see the section immediately below.
 
@@ -75,7 +75,7 @@ Analysis tab (issue #93).
 | **MCP Tool** | Claude Code / AI clients via `.mcp.json` | Model Context Protocol | Prod Cloud Run wrappers (`https://quantcore-<svc>-…run.app/mcp`) or `*-local` compose stack | Thin HTTP gateway wrappers (`mcp_gateway/rest_client.py`) — every tool call becomes one REST request |
 | **REST Endpoint** | HTTP to the FastAPI tier | JSON over HTTP (OpenAPI at `/docs`) | `uvicorn api.main:app --port 5001`; prod `quantcore-api` (JWT-enforced) | The canonical surface — all business logic reachable here; enables WebUI, MCP, and external integrations |
 | **WebUI** | Browser (IAP-gated QuantUI on Cloud Run; `npm run dev` locally) | React SPA | Test/prod `quantui` services; Vite dev proxy locally | Declared once in `frontend/src/navigation.tsx`, grouped into two nav menus: **My Positions** (Portfolio, Plans, Harvester) and **Research** (Watchlist, Fundamentals, Arbitrage), plus a top-level Settings button. Drill-downs: Plan detail (`/plans/:id`) and Security detail (`/securities/:symbol`). The Securities page merged into Watchlist (#224) — `/securities` now redirects to `/watchlist` |
-| **Sidekick Chat** | Chat rail on every WebUI page | SSE via `POST /api/chat` → keyproxy → Anthropic (BYOK) | Same as WebUI | LLM with 14 data tools + `show_component` (renders 19 components inline). Tools dispatch **in-process to the services**, not over MCP |
+| **Sidekick Chat** | Chat rail on every WebUI page | SSE via `POST /api/chat` → keyproxy → Anthropic (BYOK) | Same as WebUI | LLM with 15 data tools + `show_component` (renders 19 components inline). Tools dispatch **in-process to the services**, not over MCP |
 | **CLI Tool** | `python fastMCPTest/options_analysis.py --flags` | argparse | N/A | Hybrid: also runs as the options-analysis MCP server |
 | **Daily Jobs / Scripts** | Cloud Run Jobs; `python script.py` | Direct execution | `main.py` (`quantcore-report`) and `news_job.py` (`quantcore-news`) run daily in prod | Notifications, captures, report generation, operational utilities |
 
@@ -85,18 +85,18 @@ Analysis tab (issue #93).
 
 | Surface | Count | Examples |
 |---|---|---|
-| MCP Tools (7 servers) | 64 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
-| REST Endpoints | 132 operations (78 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
+| MCP Tools (7 servers) | 65 | `get_stock_price`, `price_vertical_spread`, `get_fundamental_score`, `get_news_sentiment`, `get_short_interest`, `analyze_options_watchlist`, `scan_arbitrage`, `get_portfolio` |
+| REST Endpoints | 133 operations (78 reached by the WebUI) | `GET /api/securities/{ticker}/technicals`, `POST /api/plans`, `GET /api/watchlist/mine`, `GET /api/securities/{ticker}/recommendation`, `POST /api/chat` |
 | WebUI Pages | 7 + 3 drill-downs + chat rail | Portfolio, Plans, Harvester, Watchlist (with screener, sentiment dashboard and options-refresh panels), Fundamentals, Arbitrage, Settings (BYOK keys, chat model); drill-downs: Plan Detail, Compare books, Security Detail (Price & MAs · Technical Analysis · Options Chain · Options Performance · Options Analytics · Signals) |
-| Sidekick chat tools | 14 + 21 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`, `get_books`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `book_performance`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
+| Sidekick chat tools | 15 + 21 components | `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`, `get_books`, `get_stops`; renders `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff`, `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `book_performance`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | CLI Tools | 1 | `fastMCPTest/options_analysis.py` (strategy screening; hybrid CLI + MCP server) |
 | Daily Jobs | 2 | `main.py` (report Job: notifications, options capture, GEX, fundamentals warming), `news_job.py` (news Job: collection + FinBERT) |
 
-**MCP tool count by server (verified against source, 2026-11-18):** stock-price 21 · company-fundamentals 12 · options-analysis 11 · portfolio 8 · arbitrage 5 · news-sentiment 4 · market-analysis 3 = **64 tools across 7 servers**. **No tool is dual-registered** — `60e4bcd` ("consolidate options tools onto options-analysis-server") moved every options tool off stock-price. Three of the 64 are the wrapper-local `mcp_health_check` (portfolio, arbitrage, options-analysis), which has no REST twin by design.
+**MCP tool count by server (verified against source, 2026-11-18):** stock-price 21 · company-fundamentals 12 · options-analysis 11 · portfolio 9 · arbitrage 5 · news-sentiment 4 · market-analysis 3 = **65 tools across 7 servers**. **No tool is dual-registered** — `60e4bcd` ("consolidate options tools onto options-analysis-server") moved every options tool off stock-price. Three of the 65 are the wrapper-local `mcp_health_check` (portfolio, arbitrage, options-analysis), which has no REST twin by design.
 
-Count it with the **anchored** grep — `grep -c "^@mcp.tool" fastMCPTest/*.py`. The unanchored form over-counts: `fastMCPTest/options_analysis.py` mentions `@mcp.tool()` inside its module docstring, which reads as a 12th tool that does not exist. Every tool has a contract case in `scripts/mcp_tool_cases.py`, and `tests/test_mcp_tool_contracts.py` pins the 64.
+Count it with the **anchored** grep — `grep -c "^@mcp.tool" fastMCPTest/*.py`. The unanchored form over-counts: `fastMCPTest/options_analysis.py` mentions `@mcp.tool()` inside its module docstring, which reads as a 12th tool that does not exist. Every tool has a contract case in `scripts/mcp_tool_cases.py`, and `tests/test_mcp_tool_contracts.py` pins the 65.
 
-**Changed since the 2026-08-14 refresh:** the Securities page merged into the Watchlist page (#224) — `GET /api/securities` was retired and `GET /api/watchlist/mine` (watchlist rows joined with the caller's holdings) became the merged page's source, keeping the operation count at 111. The nav bar was regrouped into the My Positions / Research menus (#147 Part G2). The portfolio server gained `get_symbol_sales` (issue #266, 2026-10-08), taking the MCP total from 62 to 63. The portfolio server gained `get_books` (#431 step 5.4, 2026-11-18), taking it to 64, and Sidekick gained a tool of the same name.
+**Changed since the 2026-08-14 refresh:** the Securities page merged into the Watchlist page (#224) — `GET /api/securities` was retired and `GET /api/watchlist/mine` (watchlist rows joined with the caller's holdings) became the merged page's source, keeping the operation count at 111. The nav bar was regrouped into the My Positions / Research menus (#147 Part G2). The portfolio server gained `get_symbol_sales` (issue #266, 2026-10-08), taking the MCP total from 62 to 63. The portfolio server gained `get_books` (#431 step 5.4, 2026-11-18), taking it to 64, and Sidekick gained a tool of the same name. It gained `get_stops` (#579, 2026-11-18), taking it to 65, again with a Sidekick twin.
 
 ---
 
@@ -271,7 +271,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 | A book's time-weighted return, drawdown and growth of $1 against SPY over a rolling period, with realized P/L by sale source; every open book side by side (#431 step 5.3), and in brief with its holdings (step 5.4) | `get_books` | `GET /api/books/performance?period=&book_id=`, `GET /api/books/performance/compare?period=`, `GET /api/books/overview?period=` | Portfolio page → Performance section (period pulldown, chart, notes, attribution), the book value and return vs SPY in the summary strip, and the Compare books view (`/books/compare`) | `get_books` (step 5.4: every open book's figures and holdings, the series sampled by period), `book_performance` card | `scripts/backfill_book_snapshots.py` (history before the daily job) |
 | A paper book's orders, each with its status and what became of it; cancel a pending one (#431 step 3.3) | — | `GET /api/portfolio/orders?book_id=`, `POST /api/portfolio/orders/{order_id}/cancel` | Portfolio page → Cash and orders section → Orders (paper books only) | — | — |
 | Buy and sell on paper; copy the real holdings into a new paper book; close an unquotable position at the last price on record (#431 step 3.5) | — | `POST /api/portfolio/orders`, `POST /api/portfolio/orders/seed`, `POST /api/portfolio/orders/manual-close` | Security Detail → Buy on paper; Portfolio page → Sell on a paper symbol row, the New paper book dialog, and an empty paper book | — | Daily job: one `[PAPER]` Discord message with the day's fills |
-| A holding's stored stop: its level, a trailing stop's percentage, whether it is at a broker, and whether a closed bar reached it; set one from the stop card's suggestions or by mirroring a broker order (real book only); take an active stop off (#431 plan steps 4.1 to 4.5, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops/holdings?book_id=`, `POST /api/portfolio/stops`, `POST /api/portfolio/stops/{stop_id}/cancel`; the `stop` field of `POST /api/portfolio/orders` | Portfolio page → Holdings, the Stop column on symbol and lot rows, with its take-off control; Security Detail → Technical Analysis → the stop panel; Security Detail → Buy on paper → Add a stop | — | Daily job: the stop checker, and the real book's breach and approach alerts |
+| A holding's stored stop: its level, a trailing stop's percentage, whether it is at a broker, and whether a closed bar reached it; set one from the stop card's suggestions or by mirroring a broker order (real book only); take an active stop off (#431 plan steps 4.1 to 4.5, #221). A paper buy can ask for a stop, which is set when the buy fills | — | `GET /api/portfolio/stops/holdings?book_id=`, `POST /api/portfolio/stops`, `POST /api/portfolio/stops/{stop_id}/cancel`; the `stop` field of `POST /api/portfolio/orders`; `GET /api/books/stops` (every open book's, for the tools) | Portfolio page → Holdings, the Stop column on symbol and lot rows, with its take-off control; Security Detail → Technical Analysis → the stop panel; Security Detail → Buy on paper → Add a stop | `get_stops` (#579: every open book's stops, read-only) | Daily job: the stop checker, and the real book's breach and approach alerts |
 | **⚠ Listing every stop a book has had** (#431 plan step 4.1, #221) | — | `GET /api/portfolio/stops?book_id=&include_inactive=` | **—** | — | — |
 | Flat position list (Security Detail's "do I hold this?" check, the plan dialog's held-symbol list) | — | `GET /api/portfolio` | Security Detail, Plans → create dialog | — | — |
 | Add / remove position | — | `POST /api/portfolio`, `DELETE /api/portfolio/{ticker}` | AddSecurityDialog / Security Detail remove action | — | — |
@@ -293,7 +293,7 @@ Positions are DB-backed with multi-owner support (`positions` table, `owner` col
 
 | Capability | Surface | Notes |
 |---|---|---|
-| Conversational analysis (streaming, tool-using LLM) | `POST /api/chat` (SSE) → Sidekick rail on every page | **14 data tools:** `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`, `get_books`. They dispatch **in-process to the services** — Sidekick is not an MCP client, so a tool here is a separate design decision from the MCP tool of the same name |
+| Conversational analysis (streaming, tool-using LLM) | `POST /api/chat` (SSE) → Sidekick rail on every page | **15 data tools:** `get_stock_price`, `get_technical_signals`, `get_rsi`, `get_macd`, `get_fundamental_score`, `get_news_sentiment`, `price_vertical_spread`, `list_arbitrage_universe`, `analyze_arbitrage_pair`, `scan_arbitrage`, `discover_arbitrage_pairs`, `get_portfolio_summary`, `get_symbol_lots`, `get_books`, `get_stops`. They dispatch **in-process to the services** — Sidekick is not an MCP client, so a tool here is a separate design decision from the MCP tool of the same name |
 | Inline rendered components in chat | `show_component` directive | **21 components**, registered on both sides (`chat_tools.BACKEND_COMPONENT_REGISTRY` ↔ `frontend/src/chat/componentRegistry.tsx`, strict prop specs, extra props rejected): `signals`, `live_price`, `price_chart`, `stop_loss`, `sentiment_trend`, `spread_payoff` (interactive: strike select/reprice backchannel), `arbitrage_pair`, `arbitrage_spread`, `arbitrage_premium`, `arbitrage_scan`, `arbitrage_universe`, `arbitrage_discovery`, `portfolio_table`, `portfolio_allocation`, `realized_pnl`, `cash_ledger`, `book_performance`, `symbol_lots`, `watchlist_fundamentals`, `fundamentals_top`, `fundamentals_score_changes` |
 | Owner scoping for the portfolio tools | resolved at the route from the signed-in principal | No tool takes an `owner`; a model-supplied one is discarded at dispatch. An unlinked identity degrades to a recoverable per-tool error, **not** a 403 on the whole turn |
 | Per-user chat model (`claude-sonnet-5` default, `claude-opus-4-8`, `claude-fable-5`) | `GET`/`PUT /api/settings` → Settings page + Sidekick header quick-switch | One server-side source of truth (`user_settings`); a retired stored value falls back to the default |
@@ -383,13 +383,13 @@ Full table notes and the `ohlcv` writer rules: [`docs/architecture/data.md`](arc
 ## Summary: Key Insights
 
 ### What Works Well
-- **Backend surface parity is done.** Every MCP tool has a REST twin (132 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
+- **Backend surface parity is done.** Every MCP tool has a REST twin (133 operations); MCP wrappers are one-call-deep HTTP adapters; adapters and services are cleanly layered per architectural-standard-v2.
 - **Harvest ladder, portfolio lots, the merged Watchlist page (screener, sentiment, options refresh), cross-symbol fundamentals, arbitrage, and options analytics (IV rank, max pain, P/C history)** are all surfaced in the WebUI.
 - **Sidekick + BYOK** gives UI users conversational access to a meaningful subset of the analysis stack with zero server-held credentials.
 - **Ops maturity:** CI/CD to test, single-approval digest promotion to prod, CI-run Flyway migrations, IAP-gated UI, per-user JWTs, two daily Jobs with loud alarms.
 
 ### The One Big Gap: WebUI Coverage
-The WebUI reaches 78 of 132 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
+The WebUI reaches 78 of 133 REST operations. It has kept pace with portfolio, watchlist, harvest, and arbitrage workflows but not with the per-ticker analysis synthesis tools. In priority order (full detail in the ⭐ section at top):
 
 1. **Trade recommendation panel** — the most powerful synthesis endpoint, invisible in the UI (its stop-loss sibling shipped in #399).
 2. **A Fundamentals tab on Security Detail** — composite score breakdown, revenue growth, earnings acceleration, score history.
@@ -410,7 +410,7 @@ The WebUI reaches 78 of 132 REST operations. It has kept pace with portfolio, wa
 
 ## Appendix: REST operations with no WebUI consumer
 
-The 54 operations in `docs/openapi-surface.txt` that no production frontend component reaches
+The 55 operations in `docs/openapi-surface.txt` that no production frontend component reaches
 (2026-10-22; `stop-loss` left the list 2026-10-23, `news/trend` 2026-10-24, `arbitrage/universe` 2026-11-13; `portfolio/realized` joined it 2026-11-14 and left it the same day, with the Realized section; `POST portfolio/orders` joined it 2026-11-15 and left it 2026-11-16, with the order dialog; the three `portfolio/stops` operations joined it 2026-11-16; the cancel left it 2026-11-17 with the Portfolio page's take-off control, and `POST portfolio/stops` the same day with the stop panel). To refresh it, list each `apiRequest` path in `frontend/src/api/*.ts` plus
 `chatStream.ts`, keep only the ones whose client method has a non-test caller in `hooks/`,
 `components/` or `chat/`, and diff that set against the surface file. Three client methods look
@@ -430,7 +430,7 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 `options/gamma-wall-history`, `options/oi-change`, `options/gex-profile`, `options/unusual-calls`,
 `options/delta-adjusted-oi`.
 
-**The capability is in the UI, through an aggregate endpoint (19)** — these need no UI of their own:
+**The capability is in the UI, through an aggregate endpoint (20)** — these need no UI of their own:
 
 | Standalone operation(s) | Reached instead through |
 |---|---|
@@ -443,14 +443,17 @@ callers, and nor do `useOHLCV`, `useSales` and `useUpdateSale`.
 | `GET /api/plans/{instance_id}/rungs`, `GET /api/rungs/{rung_id}` | `GET /api/plans/{instance_id}` (rungs included) |
 | `GET /api/watchlist` | `GET /api/watchlist/mine` |
 | `GET /api/books/overview` (the `get_books` tool's source) | `GET /api/books/performance/compare` (with the daily series) and `GET /api/portfolio/lots?book_id=` |
+| `GET /api/books/stops` (the `get_stops` tool's source) | `GET /api/portfolio/stops/holdings?book_id=` (the stop each holding shows, a book at a time) |
 
 **Admin / debug — no UI intended (3):** `GET /api/health` · `GET /api/securities/news/symbols` ·
 `GET /api/symbols`.
 
 ---
 
-**Document Version:** 2.7
-**Last Updated:** 2026-11-18 (#431 step 5.4: `GET /api/books/overview`, the source of the new `get_books` MCP tool and Sidekick tool, which no page needs: the Compare books view and the lots route carry the same figures, so it is listed with the aggregate endpoints. 78 of 132 operations reached, 54 left, 32 gaps; 64 MCP tools; 14 Sidekick data tools)
+**Document Version:** 2.8
+**Last Updated:** 2026-11-18 (#579: `GET /api/books/stops`, the source of the new `get_stops` MCP tool and Sidekick tool, which no page needs: the Portfolio page reads each book's holding stops through `/api/portfolio/stops/holdings`, so it is listed with the aggregate endpoints. 78 of 133 operations reached, 55 left, 32 gaps; 65 MCP tools; 15 Sidekick data tools)
+
+**Earlier:** 2026-11-18 (#431 step 5.4: `GET /api/books/overview`, the source of the new `get_books` MCP tool and Sidekick tool, which no page needs: the Compare books view and the lots route carry the same figures, so it is listed with the aggregate endpoints. 78 of 132 operations reached, 54 left, 32 gaps; 64 MCP tools; 14 Sidekick data tools)
 
 **Earlier:** 2026-11-18 (#431 step 5.3: `GET /api/books/performance` and `/api/books/performance/compare`, both reached by the Portfolio page's Performance section, its summary strip and the new Compare books drill-down, and the Sidekick `book_performance` card. The header's 75 is corrected to the 76 the 4.5 audit counted. 78 of 131 operations reached, 53 left, 32 gaps; 21 Sidekick components; 29 tables)
 

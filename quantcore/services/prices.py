@@ -455,14 +455,21 @@ class PricesService:
         fetch would find nothing, and a forming bar is not a last good price.
         A database error propagates to the caller.
         """
-        rows = self._ohlcv.daily_bars_for_symbols([symbol.upper()], include_open=False)
-        if not rows:
-            return {"close": None, "as_of": None}
-        last = rows[-1]  # ordered by ts ascending
-        return {
-            "close": float(last["close"]),
-            "as_of": datetime.datetime.fromtimestamp(last["ts"], tz=datetime.timezone.utc),
-        }
+        return self.last_closes([symbol]).get(symbol.upper(), {"close": None, "as_of": None})
+
+    def last_closes(self, symbols) -> dict:
+        """``last_close`` for several symbols in one query: upper-cased symbol
+        -> ``{"close", "as_of"}``. A symbol with no closed bar stored is left
+        out. Zero network calls; a database error propagates."""
+        wanted = sorted({s.upper() for s in symbols})
+        closes = {}
+        # Ordered by symbol, then ts ascending, so each symbol's last row wins.
+        for row in self._ohlcv.daily_bars_for_symbols(wanted, include_open=False):
+            closes[row["symbol"]] = {
+                "close": float(row["close"]),
+                "as_of": datetime.datetime.fromtimestamp(row["ts"], tz=datetime.timezone.utc),
+            }
+        return closes
 
     def get_fast_price(self, symbol: str):
         """Lightweight last-trade price via fast_info; None when unavailable.

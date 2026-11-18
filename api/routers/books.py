@@ -1,4 +1,4 @@
-"""Books routes (#431 steps 1.2, 5.3 and 5.4).
+"""Books routes (#431 steps 1.2, 5.3 and 5.4, and #579).
 
   GET   /api/books                     the owner's books, the real book first
   GET   /api/books/performance         one book's return, drawdown and realized
@@ -7,6 +7,10 @@
   GET   /api/books/overview            every open book in brief, with its
                                        holdings: the read-only book tool's
                                        source (step 5.4)
+  GET   /api/books/stops               every open book's stops, how far each
+                                       is from the last close, and the
+                                       holdings with none: the read-only
+                                       stops tool's source (#579)
   POST  /api/books                     create a paper book
   POST  /api/books/{book_id}/archive   archive a paper book
 
@@ -34,6 +38,7 @@ from ..schemas.books import (
     BookResponse,
     BooksOverviewResponse,
     BooksResponse,
+    BookStopsOverviewResponse,
     CompareBooksResponse,
     CreateBookRequest,
 )
@@ -89,6 +94,17 @@ def books_overview(
     week or month by the period. The MCP `get_books` tool's source;
     it names no book, so it lists only the caller's."""
     return QuantCoreJSONResponse(services().performance.books_overview(owner=owner, period=period))
+
+
+@router.get("/stops", response_model=BookStopsOverviewResponse)
+def books_stops(owner: str = Depends(require_owner)) -> QuantCoreJSONResponse:
+    """Every one of the owner's open books, the real book first, with the
+    stop each holding shows: its terms, the last stored close and its
+    distance above the level, and whether the daily job last found it close;
+    and the held symbols with no live stop. No network call. The MCP
+    `get_stops` tool's source; it names no book, so it lists only the
+    caller's."""
+    return QuantCoreJSONResponse(services().stops.stops_overview(owner=owner))
 
 
 @router.post("", response_model=BookResponse, status_code=201)

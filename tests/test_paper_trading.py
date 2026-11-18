@@ -427,6 +427,14 @@ class LastCloseTest(_Base):
         self.assertEqual(self.prices.last_close(FIRST), {"close": None, "as_of": None})
         self.history.fetch_history.assert_not_called()
 
+    def test_last_closes_reads_every_symbol_at_once_and_leaves_out_one_with_none(self):
+        OhlcvRepository().store_bars(
+            FIRST, "1d", daily_bars({datetime.date(2026, 6, 4): 11.0, LAST_BAR: 12.5}))
+        closes = self.prices.last_closes([FIRST.lower(), SECOND])
+        self.assertEqual({s: (c["close"], c["as_of"].date()) for s, c in closes.items()},
+                         {FIRST: (12.5, LAST_BAR)})
+        self.history.fetch_history.assert_not_called()
+
 
 class FillsOnTest(_Base):
     def test_lists_the_days_fills_of_the_owners_paper_books_with_their_book(self):

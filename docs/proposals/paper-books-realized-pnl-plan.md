@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths), 5.2 (history backfill and restatement), 5.3 (the Performance and Compare views) and 5.4 (read access for Sidekick and MCP) are built, which completes it and closes #431 phases 1 to 3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. 98 to 105 were made during the 5.3 build and are John's to confirm or change. 106 to 110 were made during the 5.4 build; John confirmed 106, 108, 109 and 110 and revised 107 to a series sampled by period, which a follow-up to 5.4 builds (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths), 5.2 (history backfill and restatement), 5.3 (the Performance and Compare views) and 5.4 (read access for Sidekick and MCP) are built, which completes it and closes #431 phases 1 to 3. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. 98 to 105 were made during the 5.3 build and are John's to confirm or change. 106 to 110 were made during the 5.4 build; John confirmed 106, 108, 109 and 110 and revised 107 to a series sampled by period, which #580 built (section 3). 110's alternative, a read-only stops tool (#579), is built too; 111 to 116 were made during that build and are John's to confirm or change. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -781,7 +781,41 @@ discussion behind them, follow the list.
 - **109 confirmed.**
 - **110 confirmed, with its alternative filed** as
   [#579](https://github.com/JohnFunkCode/StockPortfolioManager/issues/579): a read-only stops
-  tool for Sidekick and MCP, built the way `get_books` was.
+  tool for Sidekick and MCP, built the way `get_books` was. John asked for it to be built next
+  (2026-11-18); decisions 111 to 116 below, and section 5.23.
+
+### Made on 2026-11-18, during the #579 build (Claude; John to confirm or change)
+
+Each is what the `get_stops` code does. None was asked first.
+
+111. **The stops tool takes no argument and lists every open book** (#579's open question).
+    It follows decision 106 as confirmed: a model never authors a book id, and the answer
+    carries each book's `book_id` for a later write flow to name. What it costs: a question
+    about one book reads them all, which is a few books.
+112. **It lists what the Portfolio page shows, plus what is unprotected.** Per book, the stop
+    each holding shows (`holding_stops`, decision 66: the live one, or one a bar reached while
+    the holding was open), and `unprotected`, the held symbols with no live stop. A symbol whose
+    stop was reached and is still held is in both. What it costs: no stop history (cancelled,
+    replaced or closed stops); `GET /api/portfolio/stops?include_inactive=true` still has it.
+113. **The distance is from the last stored close, with no network call.** One
+    `PricesService.last_closes` query for every held symbol, the same closed bars the checker
+    tests, so the figure and the stop are judged on one price. `distance` is in price and
+    `distance_fraction` a share of the close (0.05 is 5%), negative under the level. What it
+    costs: up to a session behind the market; the close's date is in the payload and the tool
+    descriptions say to quote it.
+114. **"Near" is the daily job's record, not a second rule.** `near` is a live stop with
+    `approached_session` set (step 4.4), with `atr_distance` from the stored close and ATR; the
+    tool doesn't measure an ATR or read `STOP_APPROACH_ATR_MULTIPLE`. What it costs: a stop set
+    today is not near until the job has tested it, and a close since the job ran doesn't move it.
+115. **Its own route, `GET /api/books/stops`, which both tools share** (as decision 109). It
+    sits with the books routes because it spans books; the per-book stop routes stay under
+    `/api/portfolio/stops`. What it costs: one more REST operation (133), which no page needs,
+    listed with the aggregate endpoints in the capabilities matrix.
+116. **Each stop carries its terms and its standing, not its bookkeeping.** Left out: where the
+    level came from (`proposed_level`, `reference_price`, `source`), alert marks, and the raw
+    approach close and ATR (`atr_distance` replaces them). Kept: the level, a trailing stop's
+    percentage and mark, the broker mirror's details, status, when it was set, the last bar
+    checked, and a reached stop's session and price.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1700,9 +1734,30 @@ run covers the new tool with the rest.
 
 Left, on purpose:
 
-- **No orders, stops or cash entries** (decision 110; the stops tool is #579).
+- **No orders, stops or cash entries** (decision 110; the stops tool is #579, since built: section 5.23).
 - **Holdings at cost only** (decision 108).
 - **Not run against Yahoo.** As in 5.3, the tests stub SPY's bars.
+
+#### 5.23 The stops tool as built (#579)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The maths | `analytics.stored_stops.book_stops`, `tool_stop`, `stop_distance` | Pure: `holding_stops` for the rows, the distance from the last close, the job's approach record, and the held symbols with no live stop |
+| The closes | `PricesService.last_closes` | One query for many symbols, closed bars only, no network; `last_close` now reads through it |
+| The service | `StopsService.stops_overview` | Every open book, the real book first, with the real book's stand-in when the owner has none (no book is created). Two queries a book (open lots, stops) and one for the closes. A held symbol whose lots have no date is still listed as unprotected |
+| The route | `GET /api/books/stops` in `api/routers/books.py`; `BookStopsOverviewResponse` in `api/schemas/books.py` | No parameters. 133 routes |
+| Sidekick | `get_stops` in `chat_tools.TOOL_SCHEMAS`, `READ_ONLY_TOOLS` and `OWNER_SCOPED_TOOLS`; `ChatService._stops_overview`; `stops` injected by the registry, which now builds `OrdersService` and `StopsService` before `ChatService` | 15 data tools |
+| MCP | `get_stops()` on `portfolio-server`, one `GET /api/books/stops` | 65 tools; its contract case in `scripts/mcp_tool_cases.py` |
+| The tests | `tests/test_stops_api.py` (`StopsOverviewTest`, `StopsOverviewRouteTest`), `tests/test_stored_stops_analytics.py` (`StopDistanceTest`, `ToolStopTest`, `BookStopsTest`), `tests/test_paper_trading.py` (`LastCloseTest`), `tests/test_chat_service.py` (`TestStopsTool`), `tests/test_chat_protocol.py`, `tests/test_mcp_tool_contracts.py` | Wrong-owner books and stops, the stand-in, an archived book, the job's approach record, a reached stop still held, no close stored, a model-supplied owner dropped |
+
+**Nothing for an operator to run.** No migration, and no new SQL: the tool reads through the
+existing owner- and book-bound statements, so neither isolation scan gains an entry.
+
+Gotcha: `scripts/check_openapi_snapshot.py --update` builds the app, which runs
+`ensure_schema()`, so it needs `PYTHONPATH=.` **and** a reachable database (the proxy on 5433
+by default). Without either it fails before writing anything. The one line for the new route
+was added to `docs/openapi-surface.txt` by hand, in the file's sorted order, and
+`tests/test_mcp_tool_contracts.py` checks the tool's route against it.
 
 ## 6. Later phases: what each needs first
 
@@ -2227,3 +2282,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-18 | 5.3 Performance and Compare views | #577 | `GET /api/books/performance` and `/performance/compare` (131 routes); `analytics.performance.book_performance` and `benchmark_index`, `portfolio_math.realized_by_source`, `PerformanceService.book_performance` and `compare_books`. The Portfolio page's Performance section, the strip's book value and return vs SPY, the Compare books view at `/books/compare`, and the no-props `book_performance` Sidekick card in both registries. Decisions 98 to 105 were made in the build. No migration. Not run against Yahoo |
 | 2026-11-18 | 5.4 Read access for Sidekick and MCP | #578 | `GET /api/books/overview` (132 routes), `PerformanceService.books_overview`, `portfolio_math.book_holdings`; the `get_books` Sidekick tool (read-only, owner-scoped, 14 data tools) and MCP tool on `portfolio-server` (64 tools, with its contract case). Every open book's return against SPY, drawdown, newest snapshot, realized P/L by source and holdings at cost, without the daily series. Decisions 106 to 110. Milestone 5 is done, which closes #431 phases 1 to 3. As built: section 5.22 |
 | 2026-11-18 | Decisions 106 to 110; 107 revised | #580 | John confirmed 106, 108, 109 and 110, and revised 107: `get_books` returns the growth-of-$1 series sampled by period (`analytics.performance.sampled_series`: a day for month, a week for quarter and year, a month for all; `series_interval` says which). Section 3 records the 106 discussion about future write tools and the Alpaca and IBKR comparison behind 107, with its sources. 110's alternative is #579 |
+| 2026-11-18 | #579 The stops tool | #PR | `GET /api/books/stops` (133 routes), `StopsService.stops_overview`, `PricesService.last_closes`, `analytics.stored_stops.book_stops`; the `get_stops` Sidekick tool (read-only, owner-scoped, 15 data tools) and MCP tool on `portfolio-server` (65 tools, with its contract case). Every open book's holding stops with the last stored close's distance and the job's approach record, and the held symbols with no live stop. Decisions 111 to 116 are John's to confirm. No migration. As built: section 5.23 |

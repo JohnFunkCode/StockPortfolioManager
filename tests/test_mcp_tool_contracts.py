@@ -1,6 +1,6 @@
 """Every MCP tool's REST contract, offline (issue #44, parts 1 and 2).
 
-Each of the 64 tools is called through fastmcp's in-memory ``Client`` with the
+Each of the 65 tools is called through fastmcp's in-memory ``Client`` with the
 REST seam (``mcp_gateway.rest_client``) stubbed by an ``httpx.MockTransport``.
 Per tool this pins:
 
@@ -257,7 +257,7 @@ class TestEveryToolHasAContract(unittest.TestCase):
 
     def test_total_matches_the_documented_count(self):
         # CLAUDE.md states the count (anchored `grep -c "^@mcp.tool"`); keep them in step.
-        self.assertEqual(len(CASES), 64)
+        self.assertEqual(len(CASES), 65)
 
 
 if __name__ == "__main__":

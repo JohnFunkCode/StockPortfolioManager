@@ -1,7 +1,7 @@
 """
 Portfolio MCP Server (issue #126 PR 4, Step 4.8; watchlist tools from issue #83)
 
-Provides five read-only tools over the caller's own portfolio:
+Provides six read-only tools over the caller's own portfolio:
 
   get_portfolio         — per-symbol roll-up (value, gain/loss, $/day) + totals
   get_symbol_lots        — the individual lots making up one symbol's position
@@ -9,6 +9,8 @@ Provides five read-only tools over the caller's own portfolio:
   get_portfolio_summary  — just the portfolio-wide totals
   get_books              — every open book (the real one and each paper one),
                            its return against SPY, drawdown and holdings
+  get_stops              — the stops set on every open book's holdings, how far
+                           each is from the last close, and the holdings with none
 
 plus two tools over the shared watchlist:
 
@@ -197,6 +199,32 @@ def get_books(period: str = "year") -> dict:
             or 'all'. Defaults to 'year'.
     """
     return rest_client.get("/api/books/overview", period=period)
+
+
+@mcp.tool()
+def get_stops() -> dict:
+    """Return the stops the caller has set, in every open book, the real book first.
+
+    A stop is a stored decision to get out of a holding at a level, not a
+    recommendation (for where a stop could go, use get_stop_loss_analysis).
+    Per book: each holding's stop (symbol, `stop_level`, fixed or trailing
+    with its `trail_pct` and `high_water_mark`, `at_broker` when it mirrors an
+    order placed at an outside broker), the symbol's last stored close
+    (`last_close`, `last_close_date`) and how far it sits above the level
+    (`distance` in price, `distance_fraction` as a fraction of the close: 0.05
+    is 5%), and `near`: whether the daily job found the newest closed bar it
+    tested within its approach threshold, with `atr_distance` (how many ATRs
+    above the level that bar closed). `unprotected` lists the held symbols
+    with no live stop.
+
+    Closes are the newest stored daily bars, not live quotes. A stop with
+    `status` 'triggered' was reached while the holding was open: in the real
+    book that is an alert and nothing was sold; in a paper book the stop sold
+    the whole position by itself. Always the caller's own books: the owner
+    comes from the authenticated token, there is no argument naming a book or
+    an owner, and no tool here sets, moves or cancels a stop.
+    """
+    return rest_client.get("/api/books/stops")
 
 
 @mcp.tool()

@@ -272,7 +272,7 @@ curl http://127.0.0.1:5001/api/health
 ```
 
 Interactive docs are served at `/docs`, and the spec at `/openapi.json`. **That spec is the
-authoritative endpoint list.** There are 131 routes, so the table below only groups them.
+authoritative endpoint list.** There are 133 routes, so the table below only groups them.
 
 | Router | Prefix | Covers |
 |--------|--------|--------|
@@ -289,7 +289,7 @@ authoritative endpoint list.** There are 131 routes, so the table below only gro
 | `cash.py` | `/api/portfolio/cash*` | a book's cash ledger: the balance and its entries (`?book_id=`, the real book without it), and for the real book the opening balance, deposits and withdrawals |
 | `orders.py` | `/api/portfolio/orders*` | paper orders: a book's orders (`?book_id=`), place a market order in a paper book, cancel a pending one, copy the real holdings into a new paper book (`/seed`), close an unquotable position at the last price on record (`/manual-close`). The system sets every fill; the real book takes none |
 | `stops.py` | `/api/portfolio/stops*` | stored stops: a book's stops (`?book_id=`, the real book without it; `?include_inactive=true` adds the ones that ended), the one stop each holding shows (`/holdings`), set a fixed or trailing stop on a holding, cancel an active one. The daily job checks them; no route does |
-| `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one; a book's time-weighted return and drawdown against SPY with realized P/L by source (`GET /api/books/performance?period=&book_id=`), and every open book side by side (`/performance/compare`). The portfolio reads take `?book_id=`; without it they read the real book |
+| `books.py` | `/api/books` | the caller's books: list, create a paper book, archive one; a book's time-weighted return and drawdown against SPY with realized P/L by source (`GET /api/books/performance?period=&book_id=`), and every open book side by side (`/performance/compare`); every open book in brief for the `get_books` tool (`/overview`) and its stops for the `get_stops` tool (`/stops`). The portfolio reads take `?book_id=`; without it they read the real book |
 | `settings.py` | `/api/settings` | per-user preferences, such as the Sidekick model |
 | `chat.py`, `keyproxy.py` | `/api/chat`, `/api/keyproxy` | Sidekick chat turns and the BYOK public key |
 
@@ -526,7 +526,7 @@ Design: [`docs/architecture/byok.md`](docs/architecture/byok.md).
 
 ## MCP servers
 
-Seven FastMCP servers in `fastMCPTest/` carry **64 tools**. Count them with the anchored
+Seven FastMCP servers in `fastMCPTest/` carry **65 tools**. Count them with the anchored
 `grep -c "^@mcp.tool" fastMCPTest/*.py`; the unanchored form also counts a mention inside a
 docstring.
 
@@ -535,7 +535,7 @@ docstring.
 | `stock-price-server` | 21 | price, news, technicals (RSI, MACD, stochastic, OBV, VWAP, candlesticks, gaps, higher lows), ATR bands, anchored VWAP, volume profile, support confluence, drawdown and stop-loss, VWAP and relative-strength history, `get_trade_recommendation` |
 | `company-fundamentals-server` | 12 | earnings calendar, fundamental score (single and batch), revenue growth, earnings acceleration, full profile, top stocks, upcoming earnings, sector breakdown, score changes, history, cache stats |
 | `options-analysis-server` | 11 | the watchlist screen, a per-symbol analysis, contract lookup, spread pricing, full chain, unusual calls, delta-adjusted OI, gamma-wall history, OI change, GEX profile, health check |
-| `portfolio-server` | 8 | the caller's portfolio, lots and sales (read-only), a summary, every open book (real and paper) against SPY with its holdings (`get_books`, read-only), the shared watchlist (list and add; removal is UI-only), health check |
+| `portfolio-server` | 9 | the caller's portfolio, lots and sales (read-only), a summary, every open book (real and paper) against SPY with its holdings (`get_books`, read-only), the stops on every open book's holdings (`get_stops`, read-only), the shared watchlist (list and add; removal is UI-only), health check |
 | `arbitrage-server` | 5 | universe, pair analysis, scan, cointegration discovery, health check |
 | `news-sentiment-server` | 4 | news collection, sentiment, sentiment trend, covered symbols |
 | `market-analysis-server` | 3 | short interest, dark-pool proxy, bid/ask spread |

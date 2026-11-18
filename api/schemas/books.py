@@ -181,3 +181,64 @@ class BooksOverviewResponse(BaseModel):
     start_date: Optional[str] = None
     end_date: Optional[str] = None
     books: List[BookOverview]
+
+
+# --------------------------------------------------------------------------
+# The read-only stops tool (#579)
+# --------------------------------------------------------------------------
+
+
+class ToolStop(BaseModel):
+    """The stop one holding shows, as the stops tool lists it."""
+
+    stop_id: int
+    symbol: str
+    # active, or triggered when a bar reached it while the holding was open.
+    status: str
+    # fixed (a price) or trailing (a percentage below a high-water mark).
+    kind: str
+    stop_level: Decimal
+    trail_pct: Optional[Decimal] = None
+    high_water_mark: Optional[Decimal] = None
+    method: str
+    # The stop mirrors an order placed at an outside broker (real book only).
+    at_broker: bool = False
+    broker_quantity: Optional[Decimal] = None
+    broker_order_type: Optional[str] = None
+    brokerage: Optional[str] = None
+    created_at: datetime
+    last_bar_checked: Optional[date] = None
+    triggered_session: Optional[date] = None
+    trigger_price: Optional[Decimal] = None
+    # The symbol's newest stored closed daily bar, and how far its close is
+    # above the level: in price and as a fraction of the close (0.05 is 5%).
+    # Negative under the level; None with no close stored.
+    last_close: Optional[Decimal] = None
+    last_close_date: Optional[date] = None
+    distance: Optional[Decimal] = None
+    distance_fraction: Optional[Decimal] = None
+    # What the daily job last recorded: a live stop whose newest tested bar
+    # closed within its approach threshold, that session, and how many ATRs
+    # above the level the close was.
+    near: bool = False
+    approached_session: Optional[date] = None
+    atr_distance: Optional[Decimal] = None
+
+
+class BookStops(BaseModel):
+    """One open book's stops. `book_id` is None for an owner's real book
+    before its first write."""
+
+    book_id: Optional[int] = None
+    name: str
+    kind: str
+    # One a held symbol at most, in symbol order.
+    stops: List[ToolStop]
+    # Held symbols with no live stop, in order.
+    unprotected: List[str]
+
+
+class BookStopsOverviewResponse(BaseModel):
+    """GET /api/books/stops: every open book, the real book first."""
+
+    books: List[BookStops]

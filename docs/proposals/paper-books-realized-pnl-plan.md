@@ -1764,19 +1764,22 @@ was added to `docs/openapi-surface.txt` by hand, in the file's sorted order, and
 
 ## 6. Later phases: what each needs first
 
-- **Phase 4, Harvester on paper books:** fractional rungs (the whole-share columns in section 2)
+Each item has a backlog issue (filed 2026-11-18 where none existed); the issue holds the scope,
+and this section what each needs first.
+
+- **Phase 4, Harvester on paper books ([#589](https://github.com/JohnFunkCode/StockPortfolioManager/issues/589)):** fractional rungs (the whole-share columns in section 2)
   and a `book_id` on `plan_instances`.
-- **Phase 4, system triggers:** #227 (scheduled evaluator) and #245 (conditional watches) built.
-- **Phase 4, AI trading:** arch-v2 section 8 write gating (confirmation, idempotency key, audit
+- **Phase 4, system triggers ([#227](https://github.com/JohnFunkCode/StockPortfolioManager/issues/227), [#245](https://github.com/JohnFunkCode/StockPortfolioManager/issues/245)):** both built.
+- **Phase 4, AI trading ([#590](https://github.com/JohnFunkCode/StockPortfolioManager/issues/590)):** arch-v2 section 8 write gating (confirmation, idempotency key, audit
   record) and a per-book switch. Real books stay unwritable by AI.
-- **Phase 5, Alpaca:** #222.
-- **Intraday checker (explore; decision 6):** worth taking up if after-close breach alerts on the
+- **Phase 5, Alpaca ([#222](https://github.com/JohnFunkCode/StockPortfolioManager/issues/222)).**
+- **Intraday checker (explore; decision 6; [#591](https://github.com/JohnFunkCode/StockPortfolioManager/issues/591)):** worth taking up if after-close breach alerts on the
   real book prove too late. It would be its own Cloud Scheduler job during market hours, giving
   in-session alerts and queued orders that show minutes after the open. Its costs to weigh then:
   a new Job to deploy and monitor, intraday Yahoo calls for every symbol with a stop (the daily
   job has drawn 429s before), and its own dedup. The stop-level fill rule doesn't change.
-- **Trustworthy long-run returns:** #391 (splits), then dividends into the cash ledger.
-- **Broker import into a real book (proposed 2026-11-18, John; not yet an issue).** The owner
+- **Trustworthy long-run returns ([#588](https://github.com/JohnFunkCode/StockPortfolioManager/issues/588)):** [#391](https://github.com/JohnFunkCode/StockPortfolioManager/issues/391) (splits), then dividends into the cash ledger.
+- **Broker import into a real book (proposed 2026-11-18, John; [#587](https://github.com/JohnFunkCode/StockPortfolioManager/issues/587)).** The owner
   updates one brokerage account (`positions.account`) of their real book from a broker's CSV,
   in one of two modes they choose. Both are additive and never delete a lot, run as a preview
   that writes nothing until the owner confirms, and go through the existing lot and sale write
@@ -2354,3 +2357,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-18 | #579 review; decisions 111 to 116 | #582 | Two reviews, no findings. Clippy made two suggestions: the capabilities matrix header still read 2026-11-17 (fixed in the PR); and `ChatService.__init__` is at cyclomatic 11, in the warning band, from one more optional-service guard (left as it is, both branches tested; a table of handlers is the refactor if it grows again). It marked "whether the newest closed bar was within the approach threshold" partly met, which is decision 114. Guppy's draft was not published by its pipeline and listed only evidence gaps from truncated inputs; a PR comment answered each, with the full suite at the head (3593 OK, 6 skipped). John confirmed decisions 111 to 116 as built and merged #582, which closes #579 |
 | 2026-11-18 | Prod backfill, john's real book | none (operator run) | `backfill_cash_entries.py --owner john --apply` wrote 28 buy and 19 sell rows that lots from before V16 lacked (the 3.1 step had not been run on prod). John set the real book's opening balance ($100,000.00 on 2026-06-15, the day of its first trade); the ledger ends at $80,315.00 and never goes below zero. `backfill_book_snapshots.py --owner john --apply` wrote 110 rows, 2026-06-15 to 2026-11-18, none unvalued; today's was priced from the earlier close, for tonight's job to rewrite. Read back: since 2026-06-15 the book returned −5.06% against SPY's −2.47% (−2.59 points), with a maximum drawdown of −7.33% from 2026-08-17 to 2026-11-05. `dabrown` and `sager` have no opening balance and were not run. Gotchas in section 7 |
 | 2026-11-18 | Broker import proposed | #586 | Docs only. Section 6 gains a broker import into a real book, in two modes the owner picks: positions (quick; sales estimated unless corrected) and transactions (complete; replaces estimated rows in the dates it covers). It records that the current `import_csv` full replace erases realized history and must be retired or restricted first. Not yet an issue; brokers and lot detail are open |
+| 2026-11-18 | Later-phase issues | #PR | Docs only. Every section 6 item now links its backlog issue. Filed where none existed: #587 (broker import), #588 (splits and dividends), #589 (Harvester on paper books), #590 (AI paper trading), #591 (intraday checker, explore). #227, #245, #222 and #391 already existed. #413 (a UI for the full-replace import) is cross-linked to #587 |

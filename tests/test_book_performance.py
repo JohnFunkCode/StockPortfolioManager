@@ -241,13 +241,17 @@ class BooksOverviewTest(_Base):
         self.assertEqual([(h["quantity"], h["lot_count"]) for h in real["holdings"]],
                          [(D("3.000000"), 1)])
 
-    def test_the_daily_series_is_left_out_and_the_gaps_counted(self):
+    def test_the_series_is_sampled_by_period_and_the_gaps_counted(self):
         self.rows()
         unvalued = {**snap(ago(15), "1000.00"), "book_value": None,
                     "holdings_value": None, "unpriced_count": 1}
         self.snapshots.upsert_snapshot(owner=OWNER, snapshot=unvalued)
         book = self.service.books_overview(owner=OWNER, period="year")["books"][0]
-        self.assertNotIn("series", book)
+        self.assertEqual(book["series_interval"], "week")
+        # The three valued rows fall in three different weeks: all kept.
+        self.assertEqual([p["session_date"] for p in book["series"]],
+                         [ago(40), ago(20), ago(10)])
+        self.assertEqual(book["series"][-1]["index"], D("1.21000000"))
         self.assertNotIn("gaps", book)
         self.assertEqual(book["gap_count"], 1)
         self.assertEqual(len(self.prices.asked), 1)
@@ -315,7 +319,7 @@ class PerformanceRoutesTest(_Base):
         self.assertEqual(body["period"], "all")
         self.assertEqual([b["name"] for b in body["books"]], ["Real", "Momentum"])
         self.assertAlmostEqual(body["books"][1]["twr"], 0.21)
-        self.assertNotIn("series", body["books"][1])
+        self.assertEqual(body["books"][1]["series_interval"], "month")
         self.assertEqual(self.client.get("/api/books/overview?period=ytd").status_code, 422)
 
     def test_compare(self):

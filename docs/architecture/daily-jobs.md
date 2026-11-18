@@ -11,7 +11,7 @@ spelling; the work did not). It loads John's positions and the shared watchlist 
 fetches prices/metrics, and then runs **in this order, which is a deliberate isolation property**
 — the cheap, high-value side effects land before anything that can run long: notifications →
 queued paper fills → stop checks → options capture → gamma/GEX (from the snapshot) → capture
-health check → news staleness → fundamentals warming → OHLCV close-out. The steps that carry the
+health check → news staleness → fundamentals warming → OHLCV close-out → book snapshots. The steps that carry the
 weight (queued paper fills and the stop checks, which run in that order between 1 and 2, have
 their own sections below):
 
@@ -51,6 +51,7 @@ their own sections below):
    | `OPTIONS_CAPTURE_BUDGET_SECONDS` | `600` | wall-clock budget for the options-chain capture; also clamped to the task deadline |
    | `GEX_RECORD_BUDGET_SECONDS` | `300` | wall-clock budget for the gamma-wall/GEX recording step |
    | `STOP_CHECK_BUDGET_SECONDS` | `120` | wall-clock budget for the stop checks; also clamped to the task deadline |
+   | `BOOK_SNAPSHOT_BUDGET_SECONDS` | `120` | wall-clock budget for the book-value snapshots; also clamped to the task deadline |
    | `STOP_APPROACH_ATR_MULTIPLE` | `1` | a real-book holding that closes within this many ATRs (14-session) above its stop is announced once; zero or negative falls back too |
    | `OPTIONS_CAPTURE_COVERAGE_FLOOR` | `0.90` | alarm when fewer than this fraction of the *optionable* universe's chains landed today (symbols with no listed options are excluded) |
    | `OPTIONS_CAPTURE_FAILURE_CEILING` | `0.50` | alarm when more than this fraction of a step's attempts failed, or of the capture's attempts were captured only partially |
@@ -176,7 +177,7 @@ their own sections below):
    deduplicates before enforcing that limit, and rejects blank or oversized batches with HTTP 422
    before provider/database work begins. Larger universes must be split across requests.
 
-4. **OHLCV close-out** (last, #518) — `run_ohlcv_closeout(capture_symbols, …)` re-fetches recent
+4. **OHLCV close-out** (#518) — `run_ohlcv_closeout(capture_symbols, …)` re-fetches recent
    daily bars so the day's forming `OPEN` bars are stored `CLOSED`. Closed-only readers (the
    options screen, rankings, volume tools) leave `OPEN` bars out, so without it they would miss
    the day until something else re-fetched each symbol.
@@ -207,6 +208,38 @@ their own sections below):
      so on a night every step spends its whole budget the close-out gets one second and one
      symbol.
    - Like the other tail steps it never raises, and it does nothing on an NYSE-closed day.
+
+5. **Book snapshots** (last, #431 plan step 5.1) — `run_book_snapshots(get_services().performance, …)`
+   stores what every book is worth at today's close, one `book_value_snapshots` row a book
+   ([data.md](data.md#book-value-snapshots) has what a row holds). Performance (step 5.3) reads the
+   rows back as a time-weighted return and a drawdown.
+
+   - **Which books** (`PerformanceService.due_snapshots`): every owner's books that are not
+     archived and whose cash ledger has an opening balance on or before today, and whose row for
+     today is missing, has no value, or priced a holding from an earlier session. A real book with
+     no opening balance owes nothing: its history starts at that date (plan decision 9).
+   - **The prices** (`PricesService.close_on`): each held symbol's newest **closed** daily bar on
+     or up to 7 days before today. It reads through `get_history(include_open=False)`, so a symbol
+     the close-out has just closed costs no Yahoo call, and one it didn't (a symbol held only in a
+     paper book and on no one's watchlist) costs one history download. A non-USD holding costs one
+     FX download a currency (`fx_daily_closes`), at the prior-close rule.
+   - **Why after the close-out.** The close-out has just stored the captured symbols' closes, so
+     most holdings cost nothing. And a snapshot has to come after the day's queued fills and stop
+     sales, because those change what a book holds at the close. What it costs: on a night the
+     earlier steps spend the whole deadline, this step gets one second, and a book with no row
+     that night has a hole in its series. The return chain carries over a hole (the next row's
+     flow counts everything since the last row), so a hole lengthens one period; it doesn't
+     break the return.
+   - **Budget:** `BOOK_SNAPSHOT_BUDGET_SECONDS` (default `120`), clamped to what is left of the
+     task deadline and falling back to the default on an unparseable value.
+   - **Alarm:** after the walk, `alert_if_snapshots_owed` asks the database for the owed books
+     again. If any is still owed one it sends one Discord alarm (`send_snapshots_owed_alert`)
+     counting the books by reason: no snapshot, a holding with no close or no FX rate, or a
+     holding priced from an earlier session. It names no book or owner. A book holding a symbol
+     that has stopped trading alarms every night until the holding is closed.
+   - It never raises: the walk and the alarm each have their own guard. One bad book degrades
+     one row, and the log names the exception's class only. It does nothing on an NYSE-closed
+     day.
 
 The job exits immediately on NYSE-closed days (`is_trading_day`), notifications included.
 

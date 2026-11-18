@@ -80,6 +80,11 @@ CLOSEOUT_MIN_DAYS = 10
 # fills at (#431 step 3.4): enough to see a later bar across a long weekend.
 SESSION_OPEN_PAD_DAYS = 10
 
+# How far back a book's snapshot may reach for a holding's close (#431 step
+# 5.1). A week covers a holiday weekend. Past that the symbol has stopped
+# trading, and the holding is unpriced rather than valued at an old close.
+CLOSE_ON_LOOKBACK_DAYS = 7
+
 
 def _utc_date(ts: int) -> datetime.date:
     """The UTC date of a bar's ``ts``, the date every bar check here uses."""
@@ -416,6 +421,26 @@ class PricesService:
             for stamp, row in bars.iterrows()
             if stamp.date() >= since
         ]
+
+    def close_on(self, symbol: str, session: datetime.date) -> dict:
+        """The close of ``symbol``'s newest closed daily bar dated ``session``
+        or up to ``CLOSE_ON_LOOKBACK_DAYS`` before it.
+
+        Returns ``{"close": float | None, "session": date | None}``, both None
+        when no closed bar lies in that window. ``session`` is the bar's own
+        session, which is earlier than the one asked for when that day's bar
+        is missing: the caller decides what an earlier close means. What a
+        book's nightly snapshot values a holding at (#431 step 5.1).
+
+        Closed bars only, read through ``closed_bars_since``, so it fetches
+        only when the symbol is cold or its newest closed bar is behind. A
+        fetch error propagates to the caller.
+        """
+        start = session - datetime.timedelta(days=CLOSE_ON_LOOKBACK_DAYS)
+        bars = [bar for bar in self.closed_bars_since(symbol, start) if bar["session"] <= session]
+        if not bars:
+            return {"close": None, "session": None}
+        return {"close": bars[-1]["close"], "session": bars[-1]["session"]}
 
     def last_close(self, symbol: str) -> dict:
         """The close of ``symbol``'s newest stored closed daily bar.

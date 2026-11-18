@@ -619,6 +619,37 @@ class Notifier:
         }
         self.send_notifications(embed)
 
+    def send_snapshots_owed_alert(self, book_count: int, reasons: dict) -> None:
+        """Alarm that books are still owed a complete value snapshot for today
+        after the nightly step (#431 step 5.1). ``reasons`` counts them by
+        why: ``missing`` (no row), ``incomplete`` (a holding with no close or
+        no FX rate) or ``stale`` (a holding priced from an earlier session).
+        Names no book or owner: books are private and the channel is shared."""
+        words = {
+            "missing": "have no snapshot",
+            "incomplete": "could not be valued: a holding has no close or no FX rate",
+            "stale": "priced a holding from an earlier session's close",
+        }
+        lines = [
+            f"- {count} book(s) {words.get(reason, reason)}."
+            for reason, count in sorted(reasons.items())
+        ]
+        embed = {
+            "content": f"Book Snapshot Alert: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            "embeds": [
+                {
+                    "title": "Book value snapshots incomplete",
+                    "description": (
+                        f"{book_count} book(s) have no complete value for today's close.\n"
+                        + "\n".join(lines)
+                        + "\n- Performance has a hole on this day until it is filled."
+                    ),
+                    "color": 16776960,
+                }
+            ]
+        }
+        self.send_notifications(embed)
+
     def send_queued_orders_alert(
         self, order_count: int, symbols: list, symbol_count: int, oldest_session: str
     ) -> None:

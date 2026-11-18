@@ -380,6 +380,8 @@ it runs these steps, in order:
 7. raise an alarm if the news is stale
 8. warm the fundamentals cache, then raise an alarm if coverage is stale
 9. close out the day's daily price bars, then raise an alarm if any earlier day's bar is still open
+10. store what every book is worth at today's close, then raise an alarm if any book has no
+    complete value for the day
 
 The cheap, high-value side effects land first. Every later stage is wrapped so it cannot fail a run
 whose alerts already went out, and each one is backed by an alarm that re-reads what actually
@@ -401,6 +403,7 @@ unparseable tuning value falls back to its default, so a typo cannot silently di
 | `STOP_CHECK_BUDGET_SECONDS` | 120 |
 | `STOP_APPROACH_ATR_MULTIPLE` | 1 (ATRs above the stop that count as close to it) |
 | `OHLCV_CLOSEOUT_BUDGET_SECONDS` | 300 |
+| `BOOK_SNAPSHOT_BUDGET_SECONDS` | 120 |
 | `NEWS_STALE_MAX_AGE_HOURS` | 120 |
 
 **The news Job** (`news_job.py`) collects headlines for every tracked symbol and scores them with

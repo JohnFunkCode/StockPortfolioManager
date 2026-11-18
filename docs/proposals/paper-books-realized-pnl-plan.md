@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Next is milestone 5, starting with 5.1. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) is built, and 5.2 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build and are John's to confirm. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1; 4.2, 4.3 and decision 63 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1, 29 after 5.1; 4.2, 4.3 and decision 63 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -544,6 +544,49 @@ the PR was open, 76 (a mirror is never synced) and 80 (the panel is its own form
     needs a holding". Knowing beforehand would mean a holdings read per paper book on the
     Security page. What it costs: a paper book that doesn't hold the symbol is offered, and
     its save is refused with that reason.
+
+### Made on 2026-11-17, during the 5.1 build (Claude; John to confirm or change)
+
+Each is what the code does now. None was asked first, so each is open to being overturned in
+review; the cost of changing it later is noted where it is more than a small edit.
+
+82. **The return is time-weighted, with a flow invested from the start of its session.** A
+    session's return is `value / (previous value + flow) - 1`, and the sessions chain. The other
+    convention (a flow at the end of the day) divides by the previous value alone, and gives no
+    return at all on a book's first day. For a deposit sitting in cash the two agree. What it
+    costs: a deposit made late in the day is treated as if it had been invested all day.
+83. **A book's first row is the base and has no return of its own.** A paper book's first day
+    therefore doesn't count the move from an in-hours fill to that day's close. Counting it
+    would need the opening value at the fill prices, which the snapshot (a value at the close)
+    doesn't hold. It satisfies the gotcha in section 7: seeded holdings are in the opening
+    value, so the first day shows no false gain.
+84. **A lot that arrives without cash is a flow worth its value at the session's close**, not
+    its entry price. That covers a seeded paper lot and a lot transferred into the real book,
+    whose `purchase_price` is a cost basis, not a value on the day. One rule for both, using the
+    same close the row uses. What it costs: a seed's move from its fill price to that day's close
+    is not in the return.
+85. **The cash flow is the change in what was contributed since the previous row** (the
+    `contributed` column), not the entries dated since it. A deposit typed in after a row was
+    taken, but dated before it, would otherwise show in the next row's cash with no flow, and
+    read as a gain. The first draft of this step did exactly that; the test that pinned it is
+    what showed it was wrong. What it costs: such a deposit counts on the day it was typed in,
+    not the day it is dated, because a stored row is never rewritten (decision 88).
+86. **A holding is valued at the newest closed bar up to seven days before the session.** An
+    earlier close than the session's is valued and counted as stale; no close in the week is
+    unpriced, and the book's value is then NULL. The window matches the FX prior-close rule. What
+    it costs: a symbol that has stopped trading leaves its book with no value, and an alarm,
+    every night until the holding is closed.
+87. **The step runs last, after the OHLCV close-out**, and it alarms on any book owed a complete
+    row: missing, incomplete or stale. After the close-out, most holdings' closes are stored, so
+    the step costs few downloads; the earlier steps would otherwise pay its Yahoo calls. What it
+    costs: on a night the earlier steps spend the deadline, it gets one second and the books
+    have a hole that night. The chain carries over a hole (decision 85's flow covers the gap).
+88. **A row is written once, for the session that has just closed, and never rewritten by a
+    later edit.** Editing a lot or a cash entry changes no stored row; a re-run on the same
+    session replaces that session's row. Rebuilding past rows is step 5.2's script.
+89. **No route and no screen yet.** The strip's one book value counting cash and holdings
+    (decision 24) arrives with 5.3, which reads these rows. 5.1 adds no route, so the OpenAPI
+    surface and the capabilities matrix's operation counts are unchanged.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1319,7 +1362,7 @@ Left, on purpose:
 
 ### Milestone 5: performance (#431 phase 3)
 
-- [ ] **5.1 Snapshots and the maths.**
+- [x] **5.1 Snapshots and the maths.**
   `book_value_snapshots` table; a daily-job step writing cash plus positions at the close for
   every book that isn't archived; `time_weighted_return` and `max_drawdown` in
   `quantcore/analytics`.
@@ -1334,6 +1377,38 @@ Left, on purpose:
 - [ ] **5.4 Read access for Sidekick and MCP.**
   A read-only book tool in `READ_ONLY_TOOLS`; an MCP tool with its contract case and the tool
   count moved from 63. Closes #431 phases 1 to 3.
+
+#### 5.19 Snapshots and the maths as built (5.1)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The table | `V27__book_value_snapshots.sql`, `_SCHEMA`, the snapshot | `book_value_snapshots`: `owner`, `book_id`, `session_date`, `cash`, `holdings_value`, `book_value`, `flow`, `contributed`, `holding_count`, `unpriced_count`, `stale_count`, `fx_missing_count`, `taken_at`. One row a book and session (`book_value_snapshots_one_a_session`); `book_value_snapshots_value_rule` holds the value to cash plus holdings, with `holdings_value IS NOT NULL` in front of the sum (the 4.3 gotcha). Plain `CREATE`, so CI applies it. 29 tables |
+| The maths | `quantcore/analytics/performance.py` | `book_value` (one row from the cash rows, open lots, closes and rates), `return_index`, `time_weighted_return`, `max_drawdown`. Pure, Decimal throughout; returns to eight places |
+| The rows | `BookSnapshotsRepository` (`upsert_snapshot`, `list_snapshots`, `previous_snapshot`) | The upsert picks its book through `INSERT … SELECT FROM books` with the real-by-default subquery, so another owner's book writes nothing and a write never creates a book. No `ALLOWED` entry in either scan |
+| The service | `PerformanceService` (`due_snapshots`, `snapshot_book`, `list_snapshots`), in the registry as `performance` | Gathers the inputs: cash rows and open lots (no network), `PricesService.close_on` per held symbol, `fx_daily_closes` once a non-USD currency |
+| A holding's close | `PricesService.close_on`, `CLOSE_ON_LOOKBACK_DAYS = 7` | Through `closed_bars_since`, so it fetches only a symbol whose closed bars are behind |
+| The step | `main.py`: `take_book_snapshots`, `alert_if_snapshots_owed`, `run_book_snapshots`, last, after the close-out | `BOOK_SNAPSHOT_BUDGET_SECONDS`, default 120, clamped to the deadline and falling back on an unparseable value. Never raises; skips an NYSE-closed day |
+| The alarm | `Notifier.send_snapshots_owed_alert` | Books counted by reason (no snapshot, no close or rate, an earlier close). Names no book or owner |
+| The tests | `tests/test_performance_analytics.py`, `tests/test_book_snapshots_repository.py`, `tests/test_performance_service.py`, `tests/test_book_snapshots_step.py`; the owner and book coverage maps | Owner and book isolation, the value rule's bad shapes, a late-typed deposit, a failed FX lookup, an archived book, the step's order in `main.py` |
+
+The rules are in [`data.md`](../architecture/data.md#book-value-snapshots) and the step in
+[`daily-jobs.md`](../architecture/daily-jobs.md).
+
+**Nothing for an operator to run.** V27 is applied by CI. The first rows are written the first
+trading-day night after the roll-out: from then on for every paper book, and for a real book
+only once its owner has entered an opening balance.
+
+Left, on purpose:
+
+- **No past rows.** The real book's history before the roll-out is step 5.2's backfill. A paper
+  book has no history before its first night either; one made before the roll-out starts its
+  series then.
+- **No route, page, Sidekick or MCP access** (5.3, 5.4). The strip still shows cash beside the
+  holdings value, not one book value (decision 24).
+- **No split or dividend handling** (#391). A split reads as a fall in the return, as in the stop
+  checker.
+- **Not run against Yahoo.** Every test stubs the closes and rates. Watch the first night's log
+  line (`Book snapshots: … valued, … incomplete`) and alarm on test.
 
 ## 6. Later phases: what each needs first
 
@@ -1724,6 +1799,21 @@ Known before any code is written. Add to this list as the work finds more.
 - **A test pins the exact shape of a realized sale** (4.3).
   `test_a_sale_carries_its_lots_basis` compares the whole dict, so a new field on
   `list_realized_sales` is added there too.
+- **A flow counted by date misses what is typed in late** (5.1). The first draft summed the
+  deposits dated since the previous row. A deposit typed in after a row was taken, but dated
+  before it, then showed in the next row's cash and in no flow: a false gain. A test written to
+  pin the behaviour was what exposed it. Each row now stores what the ledger counted as
+  contributed, and the flow is the change (decision 85). Any later reader that rebuilds flows
+  from the ledger (5.2's backfill) must use the same rule.
+- **`CREATE TABLE IF NOT EXISTS` skips a table that exists, with its old columns** (5.1). After
+  `contributed` was added, the local unit-test database still had the first draft and every
+  snapshot test failed with "column does not exist". The draft table was dropped there by hand
+  so startup made it again. Like the 4.3 case, it had only ever run locally.
+- **A test purge that deletes `books` must delete `book_value_snapshots` first** (5.1). The
+  foreign key has no cascade, like `orders` and `stops`. `tests/test_orders_repository.purge`,
+  which the other book suites call, does it.
+- **`due_snapshots` walks every owner in the database, test owners included** (5.1), as the stop
+  checker's walk does (4.2). The service tests filter it to their own owner.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1804,3 +1894,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 4.4 review fixes | #569 | The two fixes above never reached #568: the branch had no upstream, so their push failed, and #568 merged without them. #569 carries the same two commits. Its review approved, with one suggestion, taken: no test showed the stops a long list left out being named on the next run. Each long-list test now has a second run, against a fake whose owed list shrinks as stops are marked, which names the rest; a third run sends nothing. See the gotcha in section 7 |
 | 2026-11-17 | 4.5 The stop panel | #570 | V26: `stops.at_broker`, `broker_quantity`, `broker_order_type`, `brokerage`. `analytics.stored_stops.broker_order`; the share count checked under the book's lock; `StopsService.set_stop` and `POST /api/portfolio/stops` take the four; a mirrored stop's alerts say where it was placed and that its order should have filled. `StopPanel` on the Security page's Technical Analysis tab sets a stop from the stop card's candidates, with their reasoning, or by mirroring a broker order (real book only). Closes #221 and milestone 4. Decisions 74 to 81 were made in the build; John confirmed them as built the same day. Not tried in a browser. Nothing for an operator to run (section 5.18) |
 | 2026-11-17 | 4.5 review | #570 | Two reviews. Clippy requested changes for one warning: `test_a_broker_mirror_over_the_route` sat after `unittest.main()` under the `__main__` block, so no runner collected it. It is now a `StopsRoutesTest` method, passes, and also checks that the two refusals wrote nothing. Two suggestions, both taken: `broker_order` (cyclomatic 14) checks each detail in its own helper, and switching book in the stop panel clears the broker draft. Guppy reported no findings; its gaps were a truncated diff, a Python run in its sandbox whose failure it could not name, and #221's intraday checker and Add Lot field, which decisions 4 and 6 and section 5.18 cover. Neither review ran the suites here; the stop suites and the front end pass locally |
+| 2026-11-17 | 5.1 Snapshots and the maths | #PR | V27: `book_value_snapshots`, one row a book and session with cash, holdings at the newest closed bar in USD, the book value, the flow since the previous row and what was contributed. `analytics.performance` (`book_value`, `return_index`, `time_weighted_return`, `max_drawdown`); `BookSnapshotsRepository`; `PerformanceService`; `PricesService.close_on`; the job's `run_book_snapshots`, last, after the close-out, with an alarm for any book still owed a complete row. Decisions 82 to 89 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.19) |

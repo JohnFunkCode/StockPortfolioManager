@@ -38,6 +38,7 @@ def purge(owners, symbols):
             conn.execute("DELETE FROM positions WHERE owner = %s", (owner,))
             conn.execute("DELETE FROM cash_entries WHERE owner = %s", (owner,))
             conn.execute("DELETE FROM orders WHERE owner = %s", (owner,))
+            conn.execute("DELETE FROM book_value_snapshots WHERE owner = %s", (owner,))
             conn.execute("DELETE FROM books WHERE owner = %s", (owner,))
         for symbol in symbols:
             conn.execute("DELETE FROM symbols WHERE ticker = %s", (symbol,))

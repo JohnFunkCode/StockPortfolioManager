@@ -114,23 +114,25 @@ This is a Python stock portfolio tracker that fetches live prices from Yahoo Fin
 shared watchlist from the database (never from `portfolio.csv` or `watchlist.yaml`) and runs, **in
 this order** — notifications → queued paper fills → stop checks, then the day's `[PAPER]` fills message and the real book's stop and approach alerts (#431, #221) → options capture → gamma/GEX (from the
 persisted snapshot, no Yahoo calls) → capture health check → news staleness → fundamentals
-warming → OHLCV close-out (#518). The order is a deliberate isolation property: the cheap, high-value side
+warming → OHLCV close-out (#518) → book-value snapshots (#431 step 5.1). The order is a deliberate isolation property: the cheap, high-value side
 effects land before anything that can run long. Rules to keep:
 
-- The warming pass, the capture tail, the queued paper fills, the stop checks and the OHLCV close-out are each
-  wrapped in an outer `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
+- The warming pass, the capture tail, the queued paper fills, the stop checks, the OHLCV close-out and the book
+  snapshots are each wrapped in an outer `try/except` that **never raises**, so a late failure cannot fail a run whose notifications already went out — and each is
   made loud by a Discord alarm that re-reads what actually **landed in the database**. Keep both
   halves.
 - **The GEX step reads the snapshot the capture just persisted** (`record_gex_from_snapshot`) —
   don't put a live Yahoo fetch back there; that doubled the run's Yahoo calls and drew 429s
   (#373). Warming stays after the capture because a missed end-of-day chain can't be
-  re-captured, and the close-out stays last because a daily bar can be re-fetched any night.
+  re-captured, and the close-out comes late because a daily bar can be re-fetched any night.
+  **The book snapshots run after the close-out** so most holdings' closes are already stored,
+  and after the fills and stop sales, which change what a book holds at the close.
 - Every step budget is clamped to what is left of the task deadline (`_remaining_budget`), so
   budgets can't add up past the timeout.
 - Tuning env vars (`REPORT_TASK_TIMEOUT_SECONDS`, `FUNDAMENTALS_*`, `OPTIONS_CAPTURE_*`,
   `GEX_RECORD_BUDGET_SECONDS`, `QUEUED_FILLS_BUDGET_SECONDS`, `STOP_CHECK_BUDGET_SECONDS`,
   `STOP_APPROACH_ATR_MULTIPLE`,
-  `OHLCV_CLOSEOUT_BUDGET_SECONDS`,
+  `OHLCV_CLOSEOUT_BUDGET_SECONDS`, `BOOK_SNAPSHOT_BUDGET_SECONDS`,
   `NEWS_*`) fall back to the default on an unparseable value — a typo
   must not silently disarm an alarm.
 - The job exits 0 on NYSE-closed days (`is_trading_day`), notifications included.
@@ -207,7 +209,7 @@ Full narrative (status vocabulary, the backstop flag, the Plan chip):
 
 ### Unified Database (`quantcore/`)
 
-All persistence is a single **QuantCore** PostgreSQL database (28 tables, DDL in `_SCHEMA` in
+All persistence is a single **QuantCore** PostgreSQL database (29 tables, DDL in `_SCHEMA` in
 `quantcore/db.py`), reached through `quantcore.db.get_connection()` (`QUANTCORE_DB_DSN`) by every
 repository and the REST API. `ohlcv` has three writers: the price refresh and the harvester, which
 disagree about `adj_close`, and the live quote writer (#518). Rules to keep:
@@ -238,7 +240,7 @@ The options tables never store NaN (`OptionsStore` writes NULL), and `QuantCoreJ
 non-finite float rather than a 500. A NaN once 500'd `/options/iv-rank` for 65% of prod calls.
 
 **Every per-owner table is isolated in SQL** (#460, OWASP A01). A per-owner table is one with an
-`owner` column or a foreign key into one (today `books`, `positions`/`lot_sales`, `cash_entries`, `orders`, `stops`, `plan_instances`/
+`owner` column or a foreign key into one (today `books`, `positions`/`lot_sales`, `cash_entries`, `orders`, `stops`, `book_value_snapshots`, `plan_instances`/
 `plan_rungs`/`alerts`, `user_settings`, `options_positions`). Rules to keep:
 
 - **Every statement binds the owner** in its `WHERE` or `JOIN … ON`, private helpers included; an
@@ -265,7 +267,7 @@ owned container: one `real` book per owner (a unique partial index) and any numb
 books. `positions.book_id` says which book a lot is in; `lot_sales` reaches its book through its
 lot. Rules to keep:
 
-- **Every statement on `positions`, `lot_sales`, `cash_entries`, `orders` or `stops` restricts the book in SQL**, beside the owner,
+- **Every statement on `positions`, `lot_sales`, `cash_entries`, `orders`, `stops` or `book_value_snapshots` restricts the book in SQL**, beside the owner,
   with the same literal subquery `PortfolioRepository` uses. It picks the owner's real book when
   `book_id` is NULL, so a book id that isn't this owner's matches no rows.
 - **`book_id` is keyword-only and defaults to `None`, which means the real book.** A caller that
@@ -344,6 +346,15 @@ lot. Rules to keep:
   told once per approach** (`stops.approached_session`, `approach_alerted_at`, step 4.4); a
   close further away clears both, and too little history to measure the ATR leaves them as
   they were, never as "far". Why: [`data.md`](docs/architecture/data.md#the-stop-checker).
+- **A book's value is a daily snapshot the job writes, and an incomplete one is NULL, never a
+  guess** (`book_value_snapshots`, step 5.1). One row a book and session: cash plus the open
+  lots at the newest closed bar, in USD. A holding with no close in the last week, or no FX
+  rate, leaves the value NULL and is counted; one priced from an earlier close is counted
+  stale. A real book has no row before its opening balance. A flow (opening balance, deposit,
+  withdrawal, a lot that cost no cash) is stored beside it, and the return is time-weighted on
+  those flows (`analytics.performance`), so a deposit is never a gain and a drawdown is
+  measured on the return index, never on the value. Only the daily job writes a row. Why:
+  [`data.md`](docs/architecture/data.md#book-value-snapshots).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.
 - `tests/test_book_isolation_coverage.py` enforces the first two the way the owner test does
@@ -373,9 +384,9 @@ Table list, why the writers disagree, and the SQLite migration script:
 Per [`docs/proposals/architectural-standard-v2.md`](docs/proposals/architectural-standard-v2.md), all business logic lives in an object-oriented services layer; the MCP tool bodies (`fastMCPTest/*_server.py`, `options_analysis.py`) and FastAPI routes (`api/routers/*`, app assembled in `api/main.py`) are thin adapters that are **exactly one service call deep**.
 
 - **`quantcore/gateways/`** — external-IO wrappers: `YFinanceGateway` (yfinance), `PolygonGateway` (Polygon HTTP/pagination), `AnthropicGateway` + `KeyproxyGateway` (the Sidekick/BYOK hops, with `keyproxy_fake.py` for tests). These are the *only* place outside `portfolio/` (the legacy domain layer, retained for `main.py`'s report path) and the standalone `experiments/` monitors that imports `yfinance`. **Live quotes come from `YFinanceGateway.batch_quotes`** (Yahoo's v7 batch endpoint, 100 symbols per request; #518): `yf.download` with many tickers is one request *per ticker*, so don't route quotes back through it. `batch_quotes` uses `yfinance.data.YfData`, the one yfinance internal in use, imported at module level so a release that moves it fails CI rather than prod; `tests/test_yfinance_batch_quotes.py` pins its signature. Details: [`docs/architecture/data.md`](docs/architecture/data.md#live-quotes).
-- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `BooksRepository`, `CashRepository` (with `cash_entry_sql.py`, the rows a lot or sale writes), `OrdersRepository`, `StopsRepository` (with `stop_sql.py`, the stop statements a trade's transaction runs), `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
-- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups, allocation-bar segments, realized P/L on recorded sales), `returns.py` (close-to-close trailing/YTD/1-year returns and market-cap currency normalization — the single correct copy; the five columns in `portfolio/metrics.py` are the legacy report script's and disagree, deliberately), `market_time.py` (session and trading-day arithmetic, the Realized view's rolling windows), `cash.py` (which cash entries count, and the running balance), `orders.py` (whether a paper order fills, queues or is rejected, and a fill's price and share count), `stored_stops.py` (the terms of a stop the owner sets: a fixed level, or a trailing level from its percentage and high-water mark, and what a run of closed bars does to one; not to be confused with `stops.py`, which *places* a stop), `fx.py` (which daily close rates a trade date: the prior-close rule), `levels.py` (support-confluence clustering, method weights, zone scoring and stop-zone marking), `stops.py` (technical/trailing/confluence stop placement, short-interest calibration, drawdown replay, P&L at stop — the services only *gather* their inputs, so one gather can feed several computations; #399, [`stop-loss-card-plan.md`](docs/proposals/stop-loss-card-plan.md)).
-- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsContractsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `BooksService`, `CashService`, `OrdersService`, `StopsService`, `WatchlistService`, `SettingsService`, `IdentityService`, `ChatService` (+ `chat_tools.py`, `chat_fake.py`), `ArbitrageService`, `RecommendationsService` (composes the other services).
+- **`quantcore/repositories/`** — SQL-only persistence, no analytics: `OhlcvRepository`, `OptionsStore`, `OptionsPositionStore`, `NewsStore`, `SentimentStore`, `FundamentalsRepository`, `HarvesterPlanDB`, `PortfolioRepository`, `BooksRepository`, `CashRepository` (with `cash_entry_sql.py`, the rows a lot or sale writes), `OrdersRepository`, `StopsRepository` (with `stop_sql.py`, the stop statements a trade's transaction runs), `BookSnapshotsRepository`, `WatchlistRepository`, `OwnerIdentityRepository`, `UserSettingsRepository`, `ArbitrageRepository` (also loads the curated `arb_universe.yaml`).
+- **`quantcore/analytics/`** — pure functions (DataFrame/dict in, value out), no I/O: `indicators.py` (RSI/MACD, Wilder ATR, anchored VWAP, swing detection), `volume_profile.py` (volume-at-price histogram: POC, value area, HVN/LVN nodes), `options_math.py` (Black–Scholes delta/gamma/vega/vanna/charm, max-pain, expected-move — single home, deduped), `pairs.py` (hedge ratio + stability, ADF with AIC lag selection, Engle–Granger cointegration, OU half-life, spread z-score/trend — implemented on numpy so `statsmodels`/`scipy` stay out of the lean image), `nav.py` (net-of-senior-claims NAV per share, premium/discount, carry drag, exposure ratio), `portfolio_math.py` (lot/position roll-ups, allocation-bar segments, realized P/L on recorded sales), `returns.py` (close-to-close trailing/YTD/1-year returns and market-cap currency normalization — the single correct copy; the five columns in `portfolio/metrics.py` are the legacy report script's and disagree, deliberately), `market_time.py` (session and trading-day arithmetic, the Realized view's rolling windows), `cash.py` (which cash entries count, and the running balance), `orders.py` (whether a paper order fills, queues or is rejected, and a fill's price and share count), `stored_stops.py` (the terms of a stop the owner sets: a fixed level, or a trailing level from its percentage and high-water mark, and what a run of closed bars does to one; not to be confused with `stops.py`, which *places* a stop), `fx.py` (which daily close rates a trade date: the prior-close rule), `performance.py` (a book's value at a close, its time-weighted return and its drawdown), `levels.py` (support-confluence clustering, method weights, zone scoring and stop-zone marking), `stops.py` (technical/trailing/confluence stop placement, short-interest calibration, drawdown replay, P&L at stop — the services only *gather* their inputs, so one gather can feed several computations; #399, [`stop-loss-card-plan.md`](docs/proposals/stop-loss-card-plan.md)).
+- **`quantcore/services/`** — the business logic: `PricesService`, `OptionsService`, `OptionsContractsService`, `OptionsScreeningService`, `FundamentalsService`, `SentimentService`, `MicrostructureService`, `HarvesterService`, `PortfolioService`, `BooksService`, `CashService`, `OrdersService`, `StopsService`, `PerformanceService`, `WatchlistService`, `SettingsService`, `IdentityService`, `ChatService` (+ `chat_tools.py`, `chat_fake.py`), `ArbitrageService`, `RecommendationsService` (composes the other services).
 - **Every Sidekick model call is admitted by the daily token budget** (G2, #461;
   `quantcore/services/chat_budget.py`). Reserve the call's worst case *before* it — an atomic
   conditional upsert on `chat_usage`, never a read-then-check — and settle it after; release a
@@ -696,7 +707,7 @@ hatch is one `gcloud run services update --update-env-vars` away:
 
 | Mode | Behaviour |
 |---|---|
-| `create` | Run the 28-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
+| `create` | Run the 29-table DDL. Historic behaviour. As the DML-only app role it degrades to `warn` (#308). |
 | `warn` | Introspect, diff against `db/schema_snapshot.json`, log differences, run **no DDL**. |
 | `verify` | As `warn`, but raise `SchemaDriftError` on any `MISSING`/`MISMATCH` (`EXTRA` never raises). |
 | `auto` *(default)* | `create` where there is no `flyway_schema_history` (local, CI, compose, a new instance), otherwise `verify`. |
@@ -705,7 +716,7 @@ That is the fix for the two-owners problem: on a database Flyway already manages
 creating schema and only checks it. An unrecognized value falls back to `create` and logs an error
 — a typo is most likely made by an operator reaching for the escape hatch mid-incident, and failing
 closed there would deny them exactly what they were reaching for. The check emits one greppable
-line (`schema check: mode=verify resolved=verify tables=28 missing=0 mismatch=0 extra=0`) plus one
+line (`schema check: mode=verify resolved=verify tables=29 missing=0 mismatch=0 extra=0`) plus one
 line per difference, and never logs the DSN. The test suite pins `create` in `tests/__init__.py`, so
 a developer's Flyway-managed test database and CI's bare Postgres behave identically.
 

@@ -7,8 +7,8 @@
 
 All persistence is consolidated into a single **QuantCore** PostgreSQL database, accessed via `psycopg2`:
 
-- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 28 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
-- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/orders/stops/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
+- **`quantcore/db.py`** — Shared connection factory (`get_connection()`) backed by `psycopg2`, connecting via the `QUANTCORE_DB_DSN` environment variable. Centralized schema DDL for all 29 tables (`init_schema()`), using `SERIAL` primary keys and `ON CONFLICT` upserts. Imported as `from quantcore.db import get_connection`.
+- **Schema** includes: symbols, OHLCV (merged from daily + intraday intervals), fetch_log, books/positions/lot_sales/cash_entries/orders/stops/book_value_snapshots/owner_identities, watchlist (the global shared list, #83), plan_templates/instances/rungs/alerts (Harvester), options_snapshots/expirations/contracts/options_capture_claims/gamma_wall_history/gex_history/options_positions (per-owner since V12, #460), news_articles, sentiment_snapshots, fundamentals_history, user_settings (per-owner UI preferences: the Sidekick chat model and daily token cap), chat_usage (per-owner, per-ET-day Sidekick token use and outstanding reservations, G2 #461), arb_nav_snapshots (curated holdings/capital-structure history for the arbitrage scanner's NAV vehicles).
 
 All repositories under `quantcore/repositories/` and the REST API (`api/main.py`) use the shared factory instead of managing individual database connections.
 
@@ -711,6 +711,47 @@ outcome. Four columns from V20 hold what it finds: `last_bar_checked`, `triggere
 - **An archived book's stops are not checked.** They stay `active` and nothing reads them.
 - **A split looks like a fall** (#391). Nothing adjusts a stop for one, so a 2-for-1 split
   triggers every stop on the symbol.
+
+### Book value snapshots
+
+What each book was worth at a session's close, kept as a daily series for Performance (#431
+phase 3). `book_value_snapshots` (V27, plan step 5.1) holds one row a book and session, written
+by the daily job's last step ([daily-jobs.md](daily-jobs.md)). It carries `owner` and `book_id`,
+like every per-owner table, so every statement binds both. What a row holds is worked out in
+`analytics.performance.book_value`; `PerformanceService` only gathers the inputs.
+
+| Column | Holds |
+|---|---|
+| `cash` | the ledger's balance at the close: every entry dated on or before the session, from the opening balance on |
+| `holdings_value` | the open lots at the newest closed daily bar on or up to 7 days before the session, in USD. NULL when a holding had no such bar (`unpriced_count`) or no FX rate (`fx_missing_count`) |
+| `book_value` | `cash + holdings_value`. NULL when either is incomplete. A `CHECK` holds it to the sum |
+| `flow` | value that came in or went out without being earned, since the book's previous row: the opening balance, deposits, withdrawals, and lots that arrived without cash. NULL when one of those lots couldn't be valued |
+| `stale_count` | holdings priced from an earlier session's close (a day the symbol didn't trade, or a bar that hadn't arrived) |
+
+Rules to keep:
+
+- **A book has no value before its opening balance.** A real book with none writes no row (plan
+  decision 9); a paper book has one from the day it is made.
+- **An incomplete value is NULL, never a guess.** A holding with no close in the window, or a
+  non-USD one with no FX rate, leaves the value NULL and is counted. A missing rate is never
+  1.0. A holding priced from an earlier close is valued and counted as stale.
+- **A flow is what the book didn't earn.** A buy or a sale only moves value between cash and
+  holdings, so it is not one. A lot that arrived without cash (any `acquisition_type` other than
+  `BUY`: a seeded paper lot, a transfer into the real book) is one, valued at the session's
+  close. So seeded holdings count in a paper book's opening value and its first day shows no
+  false gain.
+- **The return is time-weighted, with a flow invested from the start of its session**
+  (`analytics.performance.return_index`): a session's return is `value / (previous value +
+  flow) - 1`. The first valued row is the base. A row with no value carries its flow to the next;
+  an unknown flow, or nothing invested, is a gap where the chain rebases. **The drawdown is
+  measured on that index, not on the value**, so a withdrawal is not a drawdown.
+- **Only the daily job writes a row**, for the session that just closed, after the day's fills
+  and stop sales. A second run on the same session replaces that session's row. A row is not
+  rewritten when a lot or cash entry is edited later; the history backfill (step 5.2) is what
+  rebuilds past rows.
+- **A real book's value is unreliable while its cash is negative** (plan decision 8): a buy with
+  no recorded deposit behind it. The row stores the cash, so Performance can mark those days.
+- **A split looks like a fall** (#391), here as in the stop checker, until splits are handled.
 
 ### Realized P/L
 

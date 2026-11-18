@@ -346,9 +346,10 @@ class TestToolSchemas(unittest.TestCase):
         "get_portfolio_summary",
         "get_symbol_lots",
         "get_books",
+        "get_stops",
         "show_component",
     }
-    OWNER_SCOPED_TOOLS = {"get_portfolio_summary", "get_symbol_lots", "get_books"}
+    OWNER_SCOPED_TOOLS = {"get_portfolio_summary", "get_symbol_lots", "get_books", "get_stops"}
 
     def test_expected_tool_names_present(self):
         names = {t["name"] for t in TOOL_SCHEMAS}
@@ -455,6 +456,7 @@ class TestReadOnlyTools(unittest.TestCase):
             arbitrage=Mock(),
             portfolio=Mock(),
             performance=Mock(),
+            stops=Mock(),
             client_factory=lambda context: Mock(),
         )
         self.assertEqual(set(service._handlers), READ_ONLY_TOOLS, self.WHY)

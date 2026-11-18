@@ -199,3 +199,100 @@ class HoldingStopsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _stop(**overrides):
+    stop = {
+        "stop_id": 1, "symbol": "AAA", "status": stops_math.ACTIVE, "kind": "fixed",
+        "stop_level": D("90.00"), "trail_pct": None, "high_water_mark": None,
+        "method": "manual", "at_broker": False, "broker_quantity": None,
+        "broker_order_type": None, "brokerage": None,
+        "created_at": datetime.datetime(2026, 6, 1, tzinfo=datetime.timezone.utc),
+        "last_bar_checked": None, "triggered_session": None, "trigger_price": None,
+        "approached_session": None, "approach_close": None, "approach_atr": None,
+        # Fields the tool leaves out.
+        "source": "manual", "reference_price": D("100.00"), "approach_alerted_at": None,
+    }
+    stop.update(overrides)
+    return stop
+
+
+class StopDistanceTest(unittest.TestCase):
+    """#579: how far the last close sits above a stop."""
+
+    def test_in_price_to_the_tick_and_as_a_fraction_of_the_close(self):
+        self.assertEqual(stops_math.stop_distance(100.004, D("90.00")),
+                         {"distance": D("10.00"), "distance_fraction": D("0.1000")})
+        self.assertEqual(stops_math.stop_distance(0.5, D("0.4500")),
+                         {"distance": D("0.0500"), "distance_fraction": D("0.1000")})
+
+    def test_a_close_under_the_level_is_negative(self):
+        self.assertEqual(stops_math.stop_distance(88, D("90.00"))["distance"], D("-2.00"))
+
+    def test_no_usable_close_is_no_distance(self):
+        for close in (None, 0, -1, float("nan")):
+            with self.subTest(close=close):
+                self.assertEqual(stops_math.stop_distance(close, D("90")),
+                                 {"distance": None, "distance_fraction": None})
+
+
+class ToolStopTest(unittest.TestCase):
+    CLOSE = {"close": 100.0, "as_of": datetime.date(2026, 6, 12)}
+
+    def test_passes_the_terms_and_leaves_out_the_bookkeeping(self):
+        row = stops_math.tool_stop(_stop(), self.CLOSE)
+        self.assertEqual((row["last_close"], row["last_close_date"]),
+                         (D("100.00"), datetime.date(2026, 6, 12)))
+        for left_out in ("source", "reference_price", "approach_close", "approach_atr",
+                         "approach_alerted_at"):
+            self.assertNotIn(left_out, row)
+        self.assertEqual((row["near"], row["approached_session"], row["atr_distance"]),
+                         (False, None, None))
+
+    def test_near_is_the_jobs_record_with_its_atr_distance(self):
+        row = stops_math.tool_stop(_stop(
+            approached_session=datetime.date(2026, 6, 12), approach_close=D("93.00"),
+            approach_atr=D("4")), self.CLOSE)
+        self.assertEqual((row["near"], row["atr_distance"]), (True, D("0.8")))
+
+    def test_a_stop_that_is_no_longer_live_is_never_near(self):
+        row = stops_math.tool_stop(_stop(
+            status=stops_math.TRIGGERED, approached_session=datetime.date(2026, 6, 12),
+            approach_close=D("93.00"), approach_atr=D("4")), self.CLOSE)
+        self.assertEqual((row["near"], row["approached_session"]), (False, None))
+
+    def test_a_zero_atr_is_near_with_no_distance(self):
+        row = stops_math.tool_stop(_stop(
+            approached_session=datetime.date(2026, 6, 12), approach_close=D("90.00"),
+            approach_atr=D("0")), self.CLOSE)
+        self.assertEqual((row["near"], row["atr_distance"]), (True, None))
+
+    def test_no_close_on_record(self):
+        row = stops_math.tool_stop(_stop(), {})
+        self.assertEqual((row["last_close"], row["last_close_date"], row["distance"]),
+                         (None, None, None))
+
+
+class BookStopsTest(unittest.TestCase):
+    OPENED = datetime.date(2026, 1, 2)
+
+    def test_stops_in_symbol_order_and_the_held_symbols_with_none(self):
+        stops = [_stop(stop_id=2, symbol="BBB"), _stop(stop_id=1, symbol="AAA")]
+        # CCC's lots have no date on record: it is still held, and unprotected.
+        opened = {"AAA": [self.OPENED], "BBB": [self.OPENED], "CCC": []}
+        result = stops_math.book_stops(stops, opened, {"AAA": {"close": 95.0, "as_of": None}})
+        self.assertEqual([s["symbol"] for s in result["stops"]], ["AAA", "BBB"])
+        self.assertEqual(result["stops"][0]["distance"], D("5.00"))
+        self.assertIsNone(result["stops"][1]["last_close"])
+        self.assertEqual(result["unprotected"], ["CCC"])
+
+    def test_a_reached_stop_on_a_held_symbol_is_shown_and_unprotected(self):
+        stops = [_stop(status=stops_math.TRIGGERED,
+                       triggered_session=datetime.date(2026, 6, 16), trigger_price=D("89"))]
+        result = stops_math.book_stops(stops, {"AAA": [self.OPENED]}, {})
+        self.assertEqual([s["status"] for s in result["stops"]], [stops_math.TRIGGERED])
+        self.assertEqual(result["unprotected"], ["AAA"])
+
+    def test_a_stop_on_a_symbol_no_longer_held_is_not_listed(self):
+        self.assertEqual(stops_math.book_stops([_stop()], {}, {}),
+                         {"stops": [], "unprotected": []})

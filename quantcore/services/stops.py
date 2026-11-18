@@ -45,6 +45,9 @@ tests every active stop against the closed daily bars it has not seen
   brokerage when the owner gives them. It is recorded, never placed or read
   back: the checker treats it like any other stop, and its breach alert says
   the broker's order should have filled. A paper book has no broker.
+- **Sidekick and MCP read every open book's stops, and change none**
+  (`stops_overview`, #579): the stop each holding shows, how far the last
+  stored close is above it, and the held symbols with no live stop.
 
 Rules kept here (CLAUDE.md, "Unified Database"):
 
@@ -161,6 +164,33 @@ def _opened_on(lot: Dict[str, Any]) -> Optional[datetime.date]:
         return None
 
 
+# The real book of an owner who has none yet: a read must not create it
+# (CLAUDE.md, "Unified Database"), so the stops tool describes it instead.
+_REAL_STAND_IN: Dict[str, Any] = {"book_id": None, "name": "Real", "kind": REAL}
+
+
+def _close_dates(closes: Dict[str, Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """`PricesService.last_closes` with each `as_of` as its session date. A
+    daily bar's timestamp is midnight UTC of its session date."""
+    return {
+        symbol: {"close": last["close"], "as_of": last["as_of"].date()}
+        for symbol, last in closes.items()
+    }
+
+
+def _opened_by_symbol(lots: List[Dict[str, Any]]) -> Dict[str, List[datetime.date]]:
+    """Every symbol `lots` hold, with the dates its lots were opened. A
+    symbol whose lots have no date on record is still a key, with no dates:
+    it is held, though no reached stop can be shown on it."""
+    opened: Dict[str, List[datetime.date]] = {}
+    for lot in lots:
+        days = opened.setdefault(lot["symbol"], [])
+        day = _opened_on(lot)
+        if day is not None:
+            days.append(day)
+    return opened
+
+
 class StopsService:
     def __init__(
         self,
@@ -234,6 +264,40 @@ class StopsService:
                 self._repo.list_stops(owner=owner, book_id=book_id), opened
             ),
         }
+
+    def stops_overview(self, *, owner: str) -> Dict[str, Any]:
+        """Every one of `owner`'s open books with the stop each holding shows:
+        what the read-only stops tool hands Sidekick and MCP (#579).
+
+        Per book, the real book first: its stops (`analytics.stored_stops.
+        book_stops`: the terms, the last stored close and how far it is above
+        the level, and whether the daily job last found it close), and the
+        held symbols with no live stop. An archived book is left out: its
+        stops are not checked. An owner with no real book yet gets its
+        stand-in, with nothing in it, and no book is created.
+
+        Two queries a book and one for every held symbol's last close, with
+        no network call. It takes no book: every open book is listed, and
+        only `owner`'s (plan decision 106).
+        """
+        books = [b for b in self._books_repo.list_books(owner=owner) if b["archived_at"] is None]
+        if not any(b["kind"] == REAL for b in books):
+            books.insert(0, _REAL_STAND_IN)
+        read = []
+        for book in books:
+            book_id = None if book["kind"] == REAL else book["book_id"]
+            opened = _opened_by_symbol(self._repo.open_lots(owner=owner, book_id=book_id))
+            read.append((book, self._repo.list_stops(owner=owner, book_id=book_id), opened))
+        closes = self._prices.last_closes({s for _, _, opened in read for s in opened})
+        return {"books": [
+            {
+                "book_id": book["book_id"],
+                "name": book["name"],
+                "kind": book["kind"],
+                **stops_math.book_stops(stops, opened, _close_dates(closes)),
+            }
+            for book, stops, opened in read
+        ]}
 
     # ------------------------------------------------------------------
     # Writes

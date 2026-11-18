@@ -77,9 +77,10 @@ class ChatServiceTestBase(unittest.TestCase):
         self.arbitrage = Mock()
         self.portfolio = Mock()
         self.performance = Mock()
+        self.stops = Mock()
 
     def make_service(self, client, max_iterations=8, arbitrage=_UNSET, portfolio=_UNSET,
-                     performance=_UNSET):
+                     performance=_UNSET, stops=_UNSET):
         return ChatService(
             prices=self.prices,
             fundamentals=self.fundamentals,
@@ -88,6 +89,7 @@ class ChatServiceTestBase(unittest.TestCase):
             arbitrage=self.arbitrage if arbitrage is _UNSET else arbitrage,
             portfolio=self.portfolio if portfolio is _UNSET else portfolio,
             performance=self.performance if performance is _UNSET else performance,
+            stops=self.stops if stops is _UNSET else stops,
             max_iterations=max_iterations,
             client_factory=lambda context: client,
         )
@@ -1345,6 +1347,60 @@ class TestBooksTool(ChatServiceTestBase):
 
     def test_without_the_service_the_tool_degrades_to_a_recoverable_error(self):
         _, client = self.tool_turn("get_books", {}, context=self.OWNED, performance=None)
+        self.assertIn(
+            "Unknown tool", client.calls[1]["messages"][-1]["content"][0]["content"]
+        )
+
+
+class TestStopsTool(ChatServiceTestBase):
+    """get_stops (#579): the stops on every open book, read for the turn's
+    owner, never one the model names."""
+
+    OWNED = TurnContext(owner="john")
+
+    def setUp(self):
+        super().setUp()
+        self.stops.stops_overview.return_value = {"books": [{
+            "book_id": 3,
+            "name": "Momentum",
+            "kind": "paper",
+            "stops": [{
+                "stop_id": 9, "symbol": "NVDA", "status": "active", "kind": "fixed",
+                "stop_level": Decimal("120.00"), "last_close": Decimal("126.00"),
+                "last_close_date": date(2026, 11, 17), "distance": Decimal("6.00"),
+                "distance_fraction": Decimal("0.0476"), "near": True,
+                "approached_session": date(2026, 11, 17), "atr_distance": Decimal("0.8"),
+            }],
+            "unprotected": ["AAPL"],
+        }]}
+
+    def _payload(self, client):
+        return json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+
+    def test_reads_the_resolved_owner(self):
+        self.tool_turn("get_stops", {}, context=self.OWNED)
+        self.stops.stops_overview.assert_called_once_with(owner="john")
+
+    def test_decimals_and_dates_are_serialized_all_the_way_down(self):
+        _, client = self.tool_turn("get_stops", {}, context=self.OWNED)
+        book = self._payload(client)["books"][0]
+        stop = book["stops"][0]
+        self.assertEqual((stop["stop_level"], stop["distance_fraction"]), (120.0, 0.0476))
+        self.assertEqual(stop["last_close_date"], "2026-11-17")
+        self.assertTrue(stop["near"])
+        self.assertEqual(book["unprotected"], ["AAPL"])
+
+    def test_a_model_supplied_owner_or_book_is_discarded_not_forwarded(self):
+        self.tool_turn("get_stops", {"owner": "thomas"}, context=self.OWNED)
+        self.stops.stops_overview.assert_called_once_with(owner="john")
+
+    def test_unresolved_owner_degrades_without_touching_the_service(self):
+        _, client = self.tool_turn("get_stops", {}, context=TurnContext(owner=None))
+        self.assertEqual(self.stops.mock_calls, [])
+        self.assertTrue(client.calls[1]["messages"][-1]["content"][0]["is_error"])
+
+    def test_without_the_service_the_tool_degrades_to_a_recoverable_error(self):
+        _, client = self.tool_turn("get_stops", {}, context=self.OWNED, stops=None)
         self.assertIn(
             "Unknown tool", client.calls[1]["messages"][-1]["content"][0]["content"]
         )

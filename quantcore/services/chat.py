@@ -59,8 +59,9 @@ QuantUI portfolio dashboard. Your data tools span prices and technical signals
 vertical option spread pricing (price_vertical_spread — real contracts, real
 bid/ask), arbitrage (the curated pair universe, a scan across it, a workup on
 one pair, and a statistical sweep for undeclared links), and the signed-in
-user's own portfolio (totals, the lots behind a single symbol, and every
-open book, real and paper, against SPY). Each tool's own description — not
+user's own portfolio (totals, the lots behind a single symbol, every
+open book, real and paper, against SPY, and the stops set on each book's
+holdings). Each tool's own description — not
 this prompt — is the authority on what it takes, what it returns, and what it
 deliberately leaves out; read it before reaching for the tool.
 
@@ -261,7 +262,9 @@ CHAT_NOT_CONFIGURED_MESSAGE = (
 # TurnContext.owner into these and only these — none of them declares an
 # `owner` parameter in its schema, so the model can neither choose nor
 # influence whose data it sees (the same rule show_component's props follow).
-OWNER_SCOPED_TOOLS = frozenset({"get_portfolio_summary", "get_symbol_lots", "get_books"})
+OWNER_SCOPED_TOOLS = frozenset(
+    {"get_portfolio_summary", "get_symbol_lots", "get_books", "get_stops"}
+)
 
 # Every data tool the model can call, and all of them only read — so an
 # instruction injected into a tool result (a crafted news headline, #463) can at
@@ -287,6 +290,7 @@ READ_ONLY_TOOLS = frozenset({
     "get_portfolio_summary",
     "get_symbol_lots",
     "get_books",
+    "get_stops",
 })
 
 # Mirrors quantcore/services/arbitrage.py's caps of the same name. They are
@@ -496,6 +500,7 @@ class ChatService:
         arbitrage=None,
         portfolio=None,
         performance=None,
+        stops=None,
         model: str = "claude-sonnet-5",
         effort: str = "medium",
         max_iterations: int = 8,
@@ -511,6 +516,7 @@ class ChatService:
         self._arbitrage = arbitrage
         self._portfolio = portfolio
         self._performance = performance
+        self._stops = stops
         self._model = model
         self._effort = effort
         self._max_iterations = max_iterations
@@ -580,6 +586,8 @@ class ChatService:
             })
         if performance is not None:
             self._handlers["get_books"] = self._books
+        if stops is not None:
+            self._handlers["get_stops"] = self._stops_overview
 
     # ------------------------------------------------------------------
     # Tool handlers that need more than a lambda (issue #208)
@@ -700,6 +708,12 @@ class ChatService:
         never disagree. An unknown period is the service's ValueError, which
         reaches the model as a tool error it can correct."""
         return _plain_tree(self._performance.books_overview(owner=owner, period=period))
+
+    def _stops_overview(self, owner: str):
+        """The stops on the caller's open books (#579): the same
+        `stops_overview` the MCP `get_stops` tool reads over REST, so the two
+        never disagree."""
+        return _plain_tree(self._stops.stops_overview(owner=owner))
 
     def _resolve_model(self, context: TurnContext) -> str:
         """Requested model wins if allow-listed; else fall back to the

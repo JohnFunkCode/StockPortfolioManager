@@ -275,6 +275,10 @@ def get_services() -> Services:
         prices,
         fx_gateway=yfinance_gateway,
     )
+    # Hoisted for the same reason: the sidekick's get_stops tool reads this
+    # instance (#579), and it needs the orders service.
+    orders = OrdersService(orders_repository, books_repository, yfinance_gateway, prices)
+    stops = StopsService(stops_repository, books_repository, prices, orders)
     chat = ChatService(
         prices=prices,
         fundamentals=fundamentals,
@@ -283,6 +287,7 @@ def get_services() -> Services:
         arbitrage=arbitrage,
         portfolio=portfolio,
         performance=performance,
+        stops=stops,
         model=chat_model,
         effort=chat_effort,
         max_iterations=int(os.environ.get("CHAT_MAX_TOOL_ITERATIONS", "8")),
@@ -299,7 +304,6 @@ def get_services() -> Services:
         keyproxy = KeyProxyService(gateway=FakeKeyProxyGateway())
     else:
         keyproxy = KeyProxyService()
-    orders = OrdersService(orders_repository, books_repository, yfinance_gateway, prices)
     return Services(
         yfinance_gateway=yfinance_gateway,
         polygon_gateway=polygon_gateway,
@@ -338,7 +342,7 @@ def get_services() -> Services:
         books=BooksService(books_repository),
         cash=CashService(cash_repository, books_repository),
         orders=orders,
-        stops=StopsService(stops_repository, books_repository, prices, orders),
+        stops=stops,
         performance=performance,
         watchlist=watchlist,
         recommendations=RecommendationsService(

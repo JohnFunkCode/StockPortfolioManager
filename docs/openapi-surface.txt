@@ -13,6 +13,7 @@ GET    /api/books  ->  list_books_api_books_get
 GET    /api/books/overview  ->  books_overview_api_books_overview_get
 GET    /api/books/performance  ->  get_book_performance_api_books_performance_get
 GET    /api/books/performance/compare  ->  compare_books_api_books_performance_compare_get
+GET    /api/books/stops  ->  books_stops_api_books_stops_get
 GET    /api/dashboard/stats  ->  dashboard_stats_api_dashboard_stats_get
 GET    /api/health  ->  health_api_health_get
 GET    /api/keyproxy/publickey  ->  publickey_api_keyproxy_publickey_get

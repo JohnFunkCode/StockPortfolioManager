@@ -188,7 +188,7 @@ CASES = {
     (MA, "get_bid_ask_spread"): [({"symbol": "BRK-B"}, G(
         f"{SEC}/bid-ask-spread", lookback="20"))],
 
-    # ---- portfolio (8) ---------------------------------------------------
+    # ---- portfolio (9) ---------------------------------------------------
     (PF, "mcp_health_check"): [({}, None)],
     (PF, "get_portfolio"): [({}, G("/api/portfolio/symbols"))],
     (PF, "get_symbol_lots"): [({"ticker": " brk-b "}, G("/api/portfolio/lots"))],
@@ -198,6 +198,7 @@ CASES = {
         ({}, G("/api/books/overview", period="year")),
         ({"period": "all"}, G("/api/books/overview", period="all")),
     ],
+    (PF, "get_stops"): [({}, G("/api/books/stops"))],
     (PF, "list_watchlist"): [({}, G("/api/watchlist"))],
     (PF, "add_to_watchlist"): [
         ({"symbol": "BRK-B"}, call("POST", "/api/watchlist",

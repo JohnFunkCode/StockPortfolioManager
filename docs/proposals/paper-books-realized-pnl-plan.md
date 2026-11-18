@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) is built, and 5.2 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build and are John's to confirm. The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) is built, and 5.2 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -545,10 +545,21 @@ the PR was open, 76 (a mirror is never synced) and 80 (the panel is its own form
     Security page. What it costs: a paper book that doesn't hold the symbol is offered, and
     its save is refused with that reason.
 
-### Made on 2026-11-17, during the 5.1 build (Claude; John to confirm or change)
+### Made on 2026-11-17, during the 5.1 build (Claude; John ruled the same day)
 
-Each is what the code does now. None was asked first, so each is open to being overturned in
-review; the cost of changing it later is noted where it is more than a small edit.
+Each is what the 5.1 code does. None was asked first. After comparing them with Alpaca's
+portfolio history, Interactive Brokers' TWR method and GIPS, John confirmed 82, 83, 84, 86, 87
+and 89 as built and revised 85 and 88: GIPS corrects history and restates the returns, with a
+flow on its real date, so QuantCore will too. Step 5.2 builds the revision; until it lands, the
+code does what 85 and 88 first said.
+
+What the comparison found, in brief: 82 matches IBKR's daily linked sub-period return and GIPS's
+requirement for a time-weighted return (Alpaca reports a simple return from a base value
+instead). 83 matches GIPS, which starts measuring after the first contribution, and Alpaca, which
+skips a zero first point. 84 matches GIPS's valuing of an in-kind contribution at market value on
+the day. Using the last available price (86) is accepted by GIPS when it is the best estimate;
+leaving a holding unvalued after seven days has no outside match, and John kept it. 87 and 89 are
+internal choices with no outside analogue.
 
 82. **The return is time-weighted, with a flow invested from the start of its session.** A
     session's return is `value / (previous value + flow) - 1`, and the sessions chain. The other
@@ -571,6 +582,12 @@ review; the cost of changing it later is noted where it is more than a small edi
     read as a gain. The first draft of this step did exactly that; the test that pinned it is
     what showed it was wrong. What it costs: such a deposit counts on the day it was typed in,
     not the day it is dated, because a stored row is never rewritten (decision 88).
+
+    **Revised by John, 2026-11-17: a late flow is placed on its real date, and the rows from that
+    date are restated** (the GIPS practice of correcting history). A deposit or withdrawal, and
+    a lot that arrived without cash, count against the session they are dated on, however late
+    they are typed in. That also removes the limit the #573 review found, where a transfer typed
+    in late read as a gain, because lots have no stored total like `contributed`. Built in 5.2.
 86. **A holding is valued at the newest closed bar up to seven days before the session.** An
     earlier close than the session's is valued and counted as stale; no close in the week is
     unpriced, and the book's value is then NULL. The window matches the FX prior-close rule. What
@@ -584,9 +601,19 @@ review; the cost of changing it later is noted where it is more than a small edi
 88. **A row is written once, for the session that has just closed, and never rewritten by a
     later edit.** Editing a lot or a cash entry changes no stored row; a re-run on the same
     session replaces that session's row. Rebuilding past rows is step 5.2's script.
+
+    **Revised by John, 2026-11-17: a change to history restates the rows it affects** (GIPS).
+    A write that changes a book's cash or lots with a date on or before its newest row marks the
+    book to be restated from that date, and the daily job rebuilds those rows before it takes
+    the session's own. A rebuilt row says when it was rebuilt, so a correction is visible, as
+    GIPS requires it to be disclosed. Built in 5.2; the design is in that step.
 89. **No route and no screen yet.** The strip's one book value counting cash and holdings
     (decision 24) arrives with 5.3, which reads these rows. 5.1 adds no route, so the OpenAPI
     surface and the capabilities matrix's operation counts are unchanged.
+
+    **John, 2026-11-17: confirmed, and the route and screen must be planned.** They are step 5.3:
+    `GET /api/books/performance`, the Performance section, the strip's return against SPY and
+    the Compare view. 5.4 adds Sidekick and MCP read access.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1366,9 +1393,26 @@ Left, on purpose:
   `book_value_snapshots` table; a daily-job step writing cash plus positions at the close for
   every book that isn't archived; `time_weighted_return` and `max_drawdown` in
   `quantcore/analytics`.
-- [ ] **5.2 Real-book history backfill.**
-  A script that rebuilds past snapshots from lots, sales, cash entries and closed `ohlcv` bars, and
-  reports every day it could not value.
+- [ ] **5.2 History backfill and restatement** (decisions 85 and 88 as revised).
+  One rebuild, in `PerformanceService`, that recomputes a book's snapshots for a range of sessions
+  from its lots, sales, cash entries and closed `ohlcv` bars, with each flow on its real date. Two
+  callers:
+  - **The backfill script** rebuilds a real book's history from its opening balance, and reports
+    every day it could not value.
+  - **Restatement.** A `books.restate_from` date (a migration, `_SCHEMA` and the snapshot) is set
+    to the earlier of itself and the change's date by every write dated on or before the book's
+    newest row: a cash entry, lot or sale added, edited or deleted, a CSV import, and an FX rate
+    filled in later. An order's fill is dated today and never sets it. The daily job's snapshot
+    step rebuilds each marked book from that date before it takes the session's row, inside its
+    budget, and clears the mark only if no write moved it meanwhile (`UPDATE … WHERE
+    restate_from = <the date it read>`). A book it doesn't finish stays marked for the next
+    night, and the owed-books alarm names the reason.
+  - **A rebuilt row says so** (`restated_at` beside `taken_at`), so a correction can be shown,
+    as GIPS asks for it to be disclosed.
+  - With flows on their real dates, `contributed` stays as a check: a row whose stored total
+    disagrees with the ledger is one a missed mark left behind.
+  Each restating write is a SQL statement on a per-owner table, so it restricts the owner and
+  the book like every other (both isolation scans).
 - [ ] **5.3 Performance and Compare views.**
   `GET /api/books/performance`; the Performance section, the return-vs-SPY figure in the summary
   strip, and the Compare books view against SPY; attribution, as realized P/L by `source` for the
@@ -1807,7 +1851,9 @@ Known before any code is written. Add to this list as the work finds more.
   from the ledger (5.2's backfill) must use the same rule. Lots have no such total, so a transfer or seed typed in
   late, dated on or before the previous row, still reads as a gain (#573's second review). It is
   documented and pinned by a test rather than fixed: counting a lot when it first appears needs the
-  previous row's lots, which a row doesn't store. 5.2's backfill rebuilds those rows.
+  previous row's lots, which a row doesn't store. 5.2's backfill rebuilds those rows. John has
+  since revised decisions 85 and 88 (2026-11-17): 5.2 restates the rows from a late change's
+  date instead, which removes both cases.
 - **`CREATE TABLE IF NOT EXISTS` skips a table that exists, with its old columns** (5.1). After
   `contributed` was added, the local unit-test database still had the first draft and every
   snapshot test failed with "column does not exist". The draft table was dropped there by hand
@@ -1900,3 +1946,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 5.1 Snapshots and the maths | #573 | V27: `book_value_snapshots`, one row a book and session with cash, holdings at the newest closed bar in USD, the book value, the flow since the previous row and what was contributed. `analytics.performance` (`book_value`, `return_index`, `time_weighted_return`, `max_drawdown`); `BookSnapshotsRepository`; `PerformanceService`; `PricesService.close_on`; the job's `run_book_snapshots`, last, after the close-out, with an alarm for any book still owed a complete row. Decisions 82 to 89 were made in the build and are John's to confirm. Not run against Yahoo. Nothing for an operator to run (section 5.19) |
 | 2026-11-17 | 5.1 review | #573 | Clippy commented with two suggestions, both taken. `PricesService.close_on` had no direct test: `CloseOnTest` now covers the session's own close, an earlier one, a later bar never used, nothing in the window and a fetch error. `book_value` returned a `cash_negative` flag that nothing stored or read; it is gone, and decision 8's days are read from the stored `cash`. The review did not run the suites, and complexipy could not measure `performance.py`, `prices.py` or `notifier.py` |
 | 2026-11-17 | 5.1 second review | #573 | Clippy commented with one suggestion, taken as its documentation option: a lot that cost no cash, typed in late with a date on or before the previous row's session, is in no flow and reads as a gain. The module docstring, `data.md` and the 5.1 gotcha say so, and a test pins it. The docstring now also says that with no previous row only a lot dated on the session counts, which another test pins. The review did not run the suites |
+| 2026-11-17 | Decisions 82 to 89 | (this PR) | John ruled after a comparison with Alpaca, Interactive Brokers and GIPS: 82, 83, 84, 86, 87 and 89 confirmed as built; 85 and 88 revised to restatement, with a late flow on its real date and the affected rows rebuilt. Step 5.2 now builds that alongside the backfill, and decision 89 points at 5.3 for the route and screen. Docs only |

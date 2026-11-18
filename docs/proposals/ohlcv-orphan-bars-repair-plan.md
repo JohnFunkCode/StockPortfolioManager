@@ -1,7 +1,7 @@
 # Cross-written OHLCV bars left behind by the 2026-07 repair
 
-**Status (2026-11-06): root cause found, repair written, not run on prod.** Running it needs John's
-approval. The steps are under [Repair](#repair).
+**Status (2026-11-18): repaired on prod.** The 83 rows were removed with John's approval, after #513
+merged. The steps and the run are under [Repair](#repair).
 
 ## What was reported
 
@@ -102,6 +102,12 @@ python scripts/repair_ohlcv_orphan_bars.py --apply --confirm-target <the target 
 A second run should report `gone=83`. Indicators are computed from `ohlcv` when read, so they
 correct themselves once the rows are gone.
 
+*Prod, 2026-11-18:* the dry run found all 83 rows `match`, 40 ingested on 2026-06-30 and 43 on
+2026-07-02. `--apply` removed them in one transaction, and the follow-up dry run reported
+`gone=83`. It also listed 460 identical bars outside the manifest, all DOMO and HUCK from
+2024-11-18 to 2026-09-21, which were left alone (see Gotchas). Harvester plans built while the rows
+existed are still not checked.
+
 ## Gotchas
 
 - **The scan understated this.** It found 2 of 93 symbols because it only looked at market holidays
@@ -124,3 +130,10 @@ correct themselves once the rows are gone.
 - **The proxy can't run inside the Claude sandbox.** It starts and reports ready, then every
   connection dies with "server closed the connection" because it can't reach the Cloud SQL Admin API.
   The real error is only in `cloud-sql-proxy.log`.
+- **A ticker change looks like a cross-write.** The 2026-11-18 dry run listed 460 identical bars
+  outside the manifest, where the 2026-11-06 run listed none: DOMO and HUCK, every session from
+  2024-11-18 to 2026-09-21. Domo now trades as HUCK. DOMO's bars end on 2026-10-01, HUCK's
+  continue from 2026-10-02, and from 09-22 to 10-01 the two differ only in volume. Every HUCK row was
+  ingested on 2026-11-16 or 11-17, long after the incident. So a new duplicate group in this report
+  is not by itself a cross-write. Check where the two series end and start, and when the rows were
+  ingested.

@@ -687,7 +687,11 @@ outcome. Four columns from V20 hold what it finds: `last_bar_checked`, `triggere
 - **`triggered` is final.** A real-book stop that was reached is done even if the owner keeps
   the holding. A new stop is a new row.
 - **The breach alert is owed until Discord takes it** (`alerted_at`), is sent once, and covers
-  the job owner's real book only.
+  the job owner's real book only. "Once" rests on the mark alone: the stop alerts skip
+  `notification.log`'s dedupe (#581), whose titles (a count and a day) can't tell two batches
+  apart. So a mark that fails after a send leaves the stops owed, and the next run sends the
+  same message again. That repeat is accepted: the alternative is a stop never announced. The
+  approach alert below works the same way.
 - **A stop that held is checked for being close** (plan step 4.4, V25). When the newest bar
   tested closed no more than `STOP_APPROACH_ATR_MULTIPLE` (default 1) ATRs above the level, its
   session, close and ATR are recorded (`approached_session`, `approach_close`,

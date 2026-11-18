@@ -10,6 +10,7 @@ setting in `main.py`; and the Discord message.
 
 import datetime
 import os
+import tempfile
 import unittest
 from contextlib import closing
 from decimal import Decimal
@@ -416,7 +417,7 @@ class ApproachMessageTest(unittest.TestCase):
         self.sent = []
         self.answer = True
         self.notifier.send_notifications = (
-            lambda embed, webhook_url=None: self.sent.append(embed) or self.answer)
+            lambda embed, webhook_url=None, dedupe=True: self.sent.append(embed) or self.answer)
 
     def test_a_line_names_the_close_the_distance_and_the_stop(self):
         self.assertEqual(
@@ -446,10 +447,51 @@ class ApproachMessageTest(unittest.TestCase):
         self.answer = False
         self.assertFalse(self.notifier.send_stop_approach_alert(
             [approached()], 1, "2026-06-16", D("1")))
-        for answer in (True, None):  # None: a duplicate that went out earlier
+        for answer in (True, None):  # None: only a skipped duplicate, never sent here
             self.answer = answer
             self.assertTrue(self.notifier.send_stop_approach_alert(
                 [approached()], 1, "2026-06-16", D("1")))
+
+
+class ApproachAlertsThroughTheRealNotifierTest(unittest.TestCase):
+    """The 22-then-2 case of the #569 review, through the real Notifier and its
+    notification.log: "2 holding(s) ..." is inside "22 holding(s) ...", and
+    the log's dedupe once swallowed it while its stops were marked."""
+
+    def setUp(self):
+        cwd = os.getcwd()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        os.chdir(tmp.name)  # notification.log is written to the cwd
+        self.addCleanup(os.chdir, cwd)
+        post = mock.patch("notifier.requests.post")
+        self.post = post.start()
+        self.addCleanup(post.stop)
+        self.post.return_value.status_code = 204
+        self.notifier = Notifier.__new__(Notifier)
+        self.notifier.discord_webhook_url = "https://discord.invalid/hook"
+
+    def test_the_second_batch_is_posted_and_names_the_stops_it_marks(self):
+        many = [approached(stop_id=i + 1, symbol=f"S{i}")
+                for i in range(main.STOP_ALERT_MESSAGE_LINES + 2)]
+        marked = set()
+        stops = mock.Mock()
+        stops.unalerted_approaches.side_effect = (
+            lambda owner: [s for s in many if s["stop_id"] not in marked])
+        stops.mark_approach_alerted.side_effect = (
+            lambda owner, stop_ids: marked.update(stop_ids) or len(stop_ids))
+
+        main.report_approaching_stops(stops, self.notifier, "john", today=TUESDAY)
+        self.assertEqual(
+            main.report_approaching_stops(stops, self.notifier, "john", today=TUESDAY), 2)
+
+        self.assertEqual(self.post.call_count, 2)
+        second = self.post.call_args_list[1].kwargs["json"]["embeds"][0]
+        self.assertEqual(
+            second["title"], "2 holding(s) closed near their stop, reported 2026-06-16")
+        for stop in many[main.STOP_ALERT_MESSAGE_LINES:]:
+            self.assertIn(f"- {stop['symbol']}: ", second["description"])
+        self.assertEqual(marked, {s["stop_id"] for s in many})
 
 
 if __name__ == "__main__":

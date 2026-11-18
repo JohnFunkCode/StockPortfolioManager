@@ -24,7 +24,7 @@ assert_not_production()
 import main  # noqa: E402
 from notifier import Notifier, _paper_fill_line, _stop_alert_line  # noqa: E402
 from quantcore.analytics import stored_stops as sm  # noqa: E402
-from quantcore.analytics.market_time import ET  # noqa: E402
+from quantcore.analytics.market_time import ET, market_date  # noqa: E402
 from quantcore.db import get_connection  # noqa: E402
 from quantcore.repositories.books_repository import BooksRepository  # noqa: E402
 from quantcore.repositories.cash_repository import CashRepository  # noqa: E402
@@ -1138,7 +1138,10 @@ class StepOnRealServicesTest(_Base):
             ("triggered", "triggered"))
         self.assertEqual(self.open_lots(self.paper), [])
         self.assertEqual(len(self.open_lots()), 1)
-        fills = self.orders.fills_on(owner=OWNER, day=datetime.date.today())
+        # The fill is stamped now, and fills_on reads a market (New York) date.
+        # date.today() is the runner's UTC date, a day ahead from 19:00 to
+        # midnight New York time, so the test failed every evening.
+        fills = self.orders.fills_on(owner=OWNER, day=market_date())
         self.assertEqual([(f["source"], f["fill_price"]) for f in fills],
                          [("stop", D("90.000000"))])
 

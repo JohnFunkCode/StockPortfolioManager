@@ -1,6 +1,7 @@
-"""A book's performance against SPY, and the Compare books view (#431 plan
-step 5.3): `PerformanceService.book_performance` and `compare_books` against
-the real database, and the two routes through TestClient. No network: SPY's
+"""A book's performance against SPY, the Compare books view (#431 plan step
+5.3) and the read-only book tool's overview (step 5.4):
+`PerformanceService.book_performance`, `compare_books` and `books_overview`
+against the real database, and their routes through TestClient. No network: SPY's
 bars come from a stub, and `tests/__init__.py` blocks Yahoo.
 
 The windows are rolling and end today, so every date here is counted back
@@ -213,6 +214,63 @@ class CompareBooksTest(_Base):
         self.assertEqual(self.books.list_books(owner=OTHER), [])
 
 
+class BooksOverviewTest(_Base):
+    """`books_overview`, what the `get_books` tool reads (step 5.4)."""
+
+    def _lot(self, quantity, price, book_id=None, owner=OWNER):
+        return self.lots.add_position(owner, {
+            "name": "Perf Co", "symbol": SYMBOL, "purchase_price": price,
+            "quantity": quantity, "purchase_date": ago(60).isoformat(),
+            "trade_date": ago(60).isoformat(), "currency": "USD"}, book_id=book_id)
+
+    def test_each_open_book_in_brief_with_its_own_holdings(self):
+        self.rows()
+        self.rows(book_id=self.paper)
+        self._lot(1.5, 10.0, book_id=self.paper)
+        self._lot(0.5, 14.0, book_id=self.paper)
+        self._lot(3, 20.0)
+        result = self.service.books_overview(owner=OWNER, period="year")
+        self.assertEqual(result["period"], "year")
+        real, paper = result["books"]
+        self.assertEqual((real["kind"], paper["name"]), ("real", "Momentum"))
+        self.assertEqual(paper["twr"], D("0.21000000"))
+        self.assertEqual(paper["latest"]["book_value"], D("1210.00"))
+        self.assertEqual(paper["holdings"], [{
+            "symbol": SYMBOL, "currency": "USD", "quantity": D("2.000000"),
+            "avg_price": D("11.00"), "lot_count": 2}])
+        self.assertEqual([(h["quantity"], h["lot_count"]) for h in real["holdings"]],
+                         [(D("3.000000"), 1)])
+
+    def test_the_daily_series_is_left_out_and_the_gaps_counted(self):
+        self.rows()
+        unvalued = {**snap(ago(15), "1000.00"), "book_value": None,
+                    "holdings_value": None, "unpriced_count": 1}
+        self.snapshots.upsert_snapshot(owner=OWNER, snapshot=unvalued)
+        book = self.service.books_overview(owner=OWNER, period="year")["books"][0]
+        self.assertNotIn("series", book)
+        self.assertNotIn("gaps", book)
+        self.assertEqual(book["gap_count"], 1)
+        self.assertEqual(len(self.prices.asked), 1)
+
+    def test_another_owners_books_and_lots_are_not_read(self):
+        theirs = self.books.create_paper_book(owner=OTHER, name="Theirs", starting_cash=5)
+        self._lot(7, 5.0, owner=OTHER)
+        self._lot(9, 5.0, book_id=theirs, owner=OTHER)
+        books = self.service.books_overview(owner=OWNER)["books"]
+        self.assertEqual([b["name"] for b in books], ["Real", "Momentum"])
+        self.assertEqual([b["holdings"] for b in books], [[], []])
+
+    def test_an_owner_with_no_book_gets_the_stand_in_and_none_is_created(self):
+        books = self.service.books_overview(owner=OTHER)["books"]
+        self.assertEqual([(b["kind"], b["book_id"], b["holdings"]) for b in books],
+                         [("real", None, [])])
+        self.assertEqual(self.books.list_books(owner=OTHER), [])
+
+    def test_an_unknown_period_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.service.books_overview(owner=OWNER, period="ytd")
+
+
 class PerformanceRoutesTest(_Base):
     @classmethod
     def setUpClass(cls):
@@ -248,6 +306,17 @@ class PerformanceRoutesTest(_Base):
         self.assertEqual(self.client.get("/api/books/performance?period=ytd").status_code, 422)
         self.assertEqual(
             self.client.get("/api/books/performance/compare?period=ytd").status_code, 422)
+
+    def test_overview(self):
+        self.rows(book_id=self.paper)
+        resp = self.client.get("/api/books/overview?period=all")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        self.assertEqual(body["period"], "all")
+        self.assertEqual([b["name"] for b in body["books"]], ["Real", "Momentum"])
+        self.assertAlmostEqual(body["books"][1]["twr"], 0.21)
+        self.assertNotIn("series", body["books"][1])
+        self.assertEqual(self.client.get("/api/books/overview?period=ytd").status_code, 422)
 
     def test_compare(self):
         resp = self.client.get("/api/books/performance/compare")

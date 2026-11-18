@@ -76,8 +76,10 @@ class ChatServiceTestBase(unittest.TestCase):
         self.options = Mock()
         self.arbitrage = Mock()
         self.portfolio = Mock()
+        self.performance = Mock()
 
-    def make_service(self, client, max_iterations=8, arbitrage=_UNSET, portfolio=_UNSET):
+    def make_service(self, client, max_iterations=8, arbitrage=_UNSET, portfolio=_UNSET,
+                     performance=_UNSET):
         return ChatService(
             prices=self.prices,
             fundamentals=self.fundamentals,
@@ -85,6 +87,7 @@ class ChatServiceTestBase(unittest.TestCase):
             options=self.options,
             arbitrage=self.arbitrage if arbitrage is _UNSET else arbitrage,
             portfolio=self.portfolio if portfolio is _UNSET else portfolio,
+            performance=self.performance if performance is _UNSET else performance,
             max_iterations=max_iterations,
             client_factory=lambda context: client,
         )
@@ -1276,6 +1279,72 @@ class TestPortfolioTools(ChatServiceTestBase):
         )
         statuses = [e for e in events if isinstance(e, ToolStatus)]
         self.assertEqual([s.state for s in statuses], ["running", "error"])
+        self.assertIn(
+            "Unknown tool", client.calls[1]["messages"][-1]["content"][0]["content"]
+        )
+
+
+class TestBooksTool(ChatServiceTestBase):
+    """get_books (#431 step 5.4): every open book in brief, read for the
+    turn's owner, never one the model names."""
+
+    OWNED = TurnContext(owner="john")
+
+    def setUp(self):
+        super().setUp()
+        self.performance.books_overview.return_value = {
+            "period": "year",
+            "start_date": "2025-11-18",
+            "end_date": None,
+            "books": [{
+                "book_id": 3,
+                "name": "Momentum",
+                "kind": "paper",
+                "twr": Decimal("0.0512"),
+                "last_session": date(2026, 11, 17),
+                "latest": {"session_date": date(2026, 11, 17), "book_value": Decimal("10512.40")},
+                "holdings": [{"symbol": "AAPL", "quantity": Decimal("2.5"),
+                              "avg_price": Decimal("190.00"), "lot_count": 1}],
+            }],
+        }
+
+    def _payload(self, client):
+        return json.loads(client.calls[1]["messages"][-1]["content"][0]["content"])
+
+    def test_reads_the_resolved_owner_with_the_default_period(self):
+        self.tool_turn("get_books", {}, context=self.OWNED)
+        self.performance.books_overview.assert_called_once_with(owner="john", period="year")
+
+    def test_passes_the_period_the_model_asked_for(self):
+        self.tool_turn("get_books", {"period": "quarter"}, context=self.OWNED)
+        self.performance.books_overview.assert_called_once_with(owner="john", period="quarter")
+
+    def test_decimals_and_dates_are_serialized_all_the_way_down(self):
+        _, client = self.tool_turn("get_books", {}, context=self.OWNED)
+        book = self._payload(client)["books"][0]
+        self.assertEqual(book["twr"], 0.0512)
+        self.assertEqual(book["last_session"], "2026-11-17")
+        self.assertEqual(book["latest"]["book_value"], 10512.4)
+        self.assertEqual(book["holdings"][0]["quantity"], 2.5)
+
+    def test_a_model_supplied_owner_is_discarded_not_forwarded(self):
+        self.tool_turn("get_books", {"owner": "thomas"}, context=self.OWNED)
+        self.performance.books_overview.assert_called_once_with(owner="john", period="year")
+
+    def test_unresolved_owner_degrades_without_touching_the_service(self):
+        _, client = self.tool_turn("get_books", {}, context=TurnContext(owner=None))
+        self.assertEqual(self.performance.mock_calls, [])
+        self.assertTrue(client.calls[1]["messages"][-1]["content"][0]["is_error"])
+
+    def test_an_unknown_period_is_a_recoverable_tool_error(self):
+        self.performance.books_overview.side_effect = ValueError("unknown period 'decade'")
+        _, client = self.tool_turn("get_books", {"period": "decade"}, context=self.OWNED)
+        block = client.calls[1]["messages"][-1]["content"][0]
+        self.assertTrue(block["is_error"])
+        self.assertIn("unknown period", block["content"])
+
+    def test_without_the_service_the_tool_degrades_to_a_recoverable_error(self):
+        _, client = self.tool_turn("get_books", {}, context=self.OWNED, performance=None)
         self.assertIn(
             "Unknown tool", client.calls[1]["messages"][-1]["content"][0]["content"]
         )

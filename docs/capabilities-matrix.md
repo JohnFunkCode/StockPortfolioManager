@@ -2,7 +2,7 @@
 
 This document is a comprehensive inventory of every user-facing capability in the StockPortfolioManager project, mapped to the surface(s) through which it can be accessed.
 
-**Last Updated:** 2026-11-17
+**Last Updated:** 2026-11-18 (the version block at the end of this document says what changed; #579 is the latest)
 
 **Earlier:** 2026-11-16 (#431 step 4.1: stored stops add three `/api/portfolio/stops` operations (list, set, cancel). No component reaches them until steps 4.3 and 4.5, so they are a new gap: 73 of 128 operations reached, 55 left, 34 gaps; 28 tables. The totals also count `GET /api/watchlist/quotes` (#518), which the Watchlist page reaches and this matrix had left out since it was added, so they now agree with `docs/openapi-surface.txt`)
 **MCP Tools:** 65 across 7 servers (no tool is dual-registered) | **REST Endpoints:** 133 operations (see `docs/openapi-surface.txt`) | **WebUI Pages:** 7 nav pages + 3 drill-downs (+ Sidekick chat rail) | **Sidekick:** 15 data tools + 21 components | **CLI Tools:** 1 | **Daily Jobs:** 2

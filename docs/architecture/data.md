@@ -727,6 +727,10 @@ like every per-owner table, so every statement binds both. What a row holds is w
 | `book_value` | `cash + holdings_value`. NULL when either is incomplete. A `CHECK` holds it to the sum |
 | `flow` | value that came in or went out without being earned, since the book's previous row: the opening balance, deposits, withdrawals, and lots that arrived without cash. NULL when one of those lots couldn't be valued |
 | `stale_count` | holdings priced from an earlier session's close (a day the symbol didn't trade, or a bar that hadn't arrived) |
+| `restated_at` | when a rebuild changed the row after it was first taken (V28, step 5.2). NULL for a row nothing has corrected |
+
+`books.restate_from` (V28) is the earliest session whose row a later write has made wrong, or
+NULL. It is what the daily job restates a book from.
 
 Rules to keep:
 
@@ -745,17 +749,43 @@ Rules to keep:
   flow) - 1`. The first valued row is the base. A row with no value carries its flow to the next;
   an unknown flow, or nothing invested, is a gap where the chain rebases. **The drawdown is
   measured on that index, not on the value**, so a withdrawal is not a drawdown.
-- **Only the daily job writes a row**, for the session that just closed, after the day's fills
-  and stop sales. A second run on the same session replaces that session's row. A row is not
-  rewritten when a lot or cash entry is edited later; the history backfill (step 5.2) is what
-  rebuilds past rows.
-- **A lot that cost no cash, typed in late, reads as a gain** (a known limit). A transfer or seed
-  dated on or before the previous row's session, but entered after that row was taken, is valued
-  in the next row's holdings and counted in no flow: lots have no stored total the way cash has
-  `contributed`. The backfill (step 5.2) is what rebuilds those rows.
-- **Both limits above are to go** (plan decisions 85 and 88, revised 2026-11-17). Step 5.2 makes
-  a change dated on or before a book's newest row restate the rows from that date, with each
-  flow on its real date, as GIPS does. Until it lands, the rules above are what the code does.
+- **Only the daily job and the history backfill write a row.** The job writes the session that
+  just closed, after the day's fills and stop sales; a second run on the same session replaces
+  that session's row.
+- **A change to history restates the rows it affects** (step 5.2, plan decisions 85 and 88 as
+  revised 2026-11-17, the GIPS practice). Every write the owner makes to a book's cash or lots
+  (a cash entry added, deleted or its opening balance moved; a lot added, edited or deleted; a
+  symbol removed; a sale; a CSV import; an FX rate filled in later) calls
+  `restate_sql.mark_restate` in its own transaction with the dates it touched. When the earliest
+  is on or before the book's newest row, `books.restate_from` becomes the earlier of itself and
+  that date. An order's fill never marks: it is dated today, after every row.
+- **A marked book is rebuilt from its mark the same night** (`PerformanceService.restate_book`),
+  before today's row is taken, and the rebuild takes today's row too. Each session is valued
+  from the book's whole history: the lots held at its close (a lot from its trade date until its
+  sale, `PortfolioRepository.list_lot_history`), the ledger as dated, each symbol's close as of
+  the session. Each row's flow is measured from the rebuilt row before it, so a deposit, or a lot
+  that cost no cash, counts on the session it is dated on however late it was typed in. A row
+  that comes out different is replaced and stamped `restated_at`, keeping its `taken_at`; one
+  that comes out the same isn't touched; a missing session in the range is filled; a session
+  the book now has no value for (its opening balance moved later) loses its row.
+- **A restatement never reaches back past the book's first row.** It starts at the later of the
+  mark and that row; a change dated earlier only changes the first row, which is the base
+  and has no return of its own. Extending the series further back is the backfill's job.
+- **The rebuild holds the book's row lock** (`BookSnapshotsRepository.restating`), and the mark is
+  an update of that row in the writer's transaction. So a write either committed before the
+  rebuild read anything, or waits for it to commit and marks the book again; clearing the mark
+  can't lose a change. The clear also requires the mark it started from (`WHERE restate_from =`).
+- **A failed price or FX fetch writes nothing and leaves the mark**, unlike the nightly row,
+  which counts a missing rate: a rebuild that cleared the mark with rows left wrong would never
+  be retried. The step's alarm names a book still marked (`restate`).
+- **`scripts/backfill_book_snapshots.py`** rebuilds a book's history from its opening balance
+  (or `--from`) through the latest completed session, with the same rebuild. Dry run by default;
+  `--apply` writes; it names every session it couldn't value and every one priced from an
+  earlier close, and refuses prod without `--allow-prod`. An applied run that covers the mark
+  clears it.
+- **`contributed` stays a check.** With flows on their real dates the ledger and the stored
+  total agree; a row where they don't is one a missed mark left behind, and the backfill
+  restates it.
 - **A real book's value is unreliable while its cash is negative** (plan decision 8): a buy with
   no recorded deposit behind it. The row stores the cash, so Performance can mark those days.
 - **A split looks like a fall** (#391), here as in the stop checker, until splits are handled.

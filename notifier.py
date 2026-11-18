@@ -623,12 +623,15 @@ class Notifier:
         """Alarm that books are still owed a complete value snapshot for today
         after the nightly step (#431 step 5.1). ``reasons`` counts them by
         why: ``missing`` (no row), ``incomplete`` (a holding with no close or
-        no FX rate) or ``stale`` (a holding priced from an earlier session).
+        no FX rate), ``stale`` (a holding priced from an earlier session) or
+        ``restate`` (a later change to its history is still to be rebuilt,
+        #431 step 5.2).
         Names no book or owner: books are private and the channel is shared."""
         words = {
             "missing": "have no snapshot",
             "incomplete": "could not be valued: a holding has no close or no FX rate",
             "stale": "priced a holding from an earlier session's close",
+            "restate": "have a change to their history still to restate; the next run retries it",
         }
         lines = [
             f"- {count} book(s) {words.get(reason, reason)}."

@@ -31,11 +31,17 @@ The rules:
   row's session, so one dated on a weekend lands on the Monday. With no
   previous row only a lot dated on the session counts, which is harmless:
   the first row is the base and its flow is never used.
-- **A lot that arrived without cash, typed in late with a date on or before
-  the previous row's session, is not a flow** (a known limit, #573 review).
-  Lots have no stored total the way cash has `contributed`, so its value
-  shows in the next row's holdings and reads as a gain. The history backfill
-  (step 5.2) rebuilds such rows.
+- **A late change is placed on its real date by restating the rows from
+  it** (step 5.2, decisions 85 and 88 as revised). A write dated on or before
+  the book's newest row marks the book, and `rebuild_snapshots` recomputes
+  each session from the book's whole history: the lots held at that
+  session's close (`held_lots`), the ledger as dated, and each held symbol's
+  close as of that session (`close_as_of`). Rebuilt in order, each row's
+  flow is measured from the rebuilt row before it, so a deposit or a lot that
+  arrived without cash counts on the session it is dated on, however late it
+  was typed in. Until the rebuild has run, the row after a late lot that cost
+  no cash still reads it as a gain: its value is in that row's holdings and
+  in no flow.
 - **The return is time-weighted, with a flow invested from the start of its
   session**: a session's return is `value / (previous value + flow) - 1`, and
   the sessions chain. Deposits and withdrawals then don't read as gains or
@@ -51,13 +57,18 @@ from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from quantcore.analytics import cash as cash_math
-from quantcore.analytics.fx import as_date, needs_rate, normalize_currency
+from quantcore.analytics.fx import as_date, needs_rate, normalize_currency, prior_close_rate
 
 BUY = "BUY"
 ZERO = Decimal("0")
 ONE = Decimal("1")
 # Returns and drawdowns are reported to this many places of a fraction.
 RETURN_QUANTUM = Decimal("0.00000001")
+
+# How far back a holding's close may come from (#431 step 5.1). A week
+# covers a holiday weekend. Past that the symbol has stopped trading, and the
+# holding is unpriced rather than valued at an old close.
+CLOSE_LOOKBACK_DAYS = 7
 
 # Ledger kinds that are flows: value in or out that the book didn't earn.
 FLOW_KINDS = (cash_math.OPENING_BALANCE, cash_math.DEPOSIT, cash_math.WITHDRAWAL)
@@ -226,6 +237,108 @@ def book_value(
         "stale_count": holdings["stale"],
         "fx_missing_count": holdings["fx_missing"] + ledger["fx_missing_count"],
     }
+
+
+def _left_on(lot: Mapping[str, Any]) -> Optional[datetime.date]:
+    """The session a closed lot left the book: the date of its sale (a
+    closed lot holds exactly the shares its one sale sold), else the legacy
+    `sale_date`. None for an open lot, and for a closed lot with no date."""
+    if lot.get("sold_on") is not None:
+        return as_date(lot["sold_on"])
+    if (lot.get("status") or "OPEN").upper() == "OPEN":
+        return None
+    return as_date(lot.get("sale_date"))
+
+
+def undated_lots(lots: Sequence[Mapping[str, Any]]) -> List[Mapping[str, Any]]:
+    """The lots a rebuild can't place in time: one with no trade or purchase
+    date, or a closed one with no sale date. They are left out of every
+    session, and reported."""
+    return [
+        lot for lot in lots
+        if _lot_day(lot) is None
+        or ((lot.get("status") or "OPEN").upper() != "OPEN" and _left_on(lot) is None)
+    ]
+
+
+def held_lots(lots: Sequence[Mapping[str, Any]], session: datetime.date
+              ) -> List[Mapping[str, Any]]:
+    """The lots a book held at the close of `session`, from its whole history
+    (`PortfolioRepository.list_lot_history`): entered on or before it, and
+    not sold by then. A lot sold on the session itself is gone at its close.
+
+    A partial sale splits a lot: the closed half holds the shares sold and
+    the open half the rest, both with the original trade date, so before the
+    sale the two add up to the lot as bought."""
+    undated = {id(lot) for lot in undated_lots(lots)}
+    held = []
+    for lot in lots:
+        if id(lot) in undated or _lot_day(lot) > session:
+            continue
+        left = _left_on(lot)
+        if left is None or left > session:
+            held.append(lot)
+    return held
+
+
+def close_as_of(
+    bars: Sequence[Tuple[datetime.date, Any]],
+    session: datetime.date,
+    lookback_days: int,
+) -> Optional[Tuple[Decimal, datetime.date]]:
+    """The close of the newest bar on or before `session` and no more than
+    `lookback_days` before it, as `(close, bar session)`; None when there is
+    none. `bars` are `(session, close)` in any order. The same choice
+    `PricesService.close_on` makes for the nightly row."""
+    earliest = session - datetime.timedelta(days=lookback_days)
+    best: Optional[Tuple[datetime.date, Any]] = None
+    for day, close in bars:
+        if earliest <= day <= session and (best is None or day > best[0]):
+            best = (day, close)
+    return (_dec(best[1]), best[0]) if best is not None else None
+
+
+def rebuild_snapshots(
+    *,
+    sessions: Sequence[datetime.date],
+    entries: Sequence[Mapping[str, Any]],
+    lots: Sequence[Mapping[str, Any]],
+    bars: Mapping[str, Sequence[Tuple[datetime.date, Any]]],
+    fx_closes: Mapping[str, Mapping[datetime.date, Any]],
+    previous: Optional[Mapping[str, Any]],
+    lookback_days: int,
+) -> List[Tuple[datetime.date, Optional[Dict[str, Any]]]]:
+    """A book's snapshot rows for `sessions`, rebuilt from its whole history
+    (plan step 5.2).
+
+    `entries` is the whole cash ledger, `lots` every lot open or closed
+    (`held_lots`), `bars` `{symbol: [(session, close), ...]}` of closed daily
+    bars, `fx_closes` `{currency: {date: USD per unit}}`, and `previous` the
+    stored row before the first session (or None). Each session is valued
+    with `book_value`, its flow measured from the row rebuilt before it.
+
+    Returns `(session, row)` in session order. `row` is None for a session
+    the book had no opening balance by: it has no row.
+    """
+    rebuilt: List[Tuple[datetime.date, Optional[Dict[str, Any]]]] = []
+    for session in sorted(sessions):
+        held = held_lots(lots, session)
+        closes = {}
+        for symbol in {lot["symbol"] for lot in held}:
+            found = close_as_of(bars.get(symbol, ()), session, lookback_days)
+            if found is not None:
+                closes[symbol] = found
+        rates = {}
+        for currency, daily in fx_closes.items():
+            rate = prior_close_rate(daily, session)
+            if rate is not None:
+                rates[currency] = rate
+        row = book_value(session=session, entries=entries, lots=held, closes=closes,
+                         rates=rates, previous=previous)
+        rebuilt.append((session, row))
+        if row is not None:
+            previous = row
+    return rebuilt
 
 
 def return_index(points: Iterable[Mapping[str, Any]]) -> Dict[str, Any]:

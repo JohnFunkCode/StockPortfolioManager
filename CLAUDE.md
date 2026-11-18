@@ -353,8 +353,13 @@ lot. Rules to keep:
   stale. A real book has no row before its opening balance. A flow (opening balance, deposit,
   withdrawal, a lot that cost no cash) is stored beside it, and the return is time-weighted on
   those flows (`analytics.performance`), so a deposit is never a gain and a drawdown is
-  measured on the return index, never on the value. Only the daily job writes a row. Why:
-  [`data.md`](docs/architecture/data.md#book-value-snapshots).
+  measured on the return index, never on the value. Only the daily job and
+  `scripts/backfill_book_snapshots.py` write a row. **A change to history restates the rows it
+  affects** (step 5.2, GIPS): every owner write to a book's cash or lots dated on or before its
+  newest row marks it (`restate_sql.mark_restate`, in the write's transaction); a new write path
+  does the same. The job rebuilds a marked book from the mark, under the book's row lock, with
+  each flow on its real date, and a failed fetch leaves the mark. An order's fill never marks.
+  Why: [`data.md`](docs/architecture/data.md#book-value-snapshots).
 - **A book is not an account.** `positions.account` is the brokerage account *within* a book.
   Never use one word for the other, in code, the UI or the docs.
 - `tests/test_book_isolation_coverage.py` enforces the first two the way the owner test does

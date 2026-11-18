@@ -227,7 +227,8 @@ class DueSnapshotsTest(_Base):
         paper = self.paper_book()
         self.lots.add_position(OWNER, lot(), book_id=paper)
         self.assertEqual(self.owned(), [
-            {"owner": OWNER, "book_id": paper, "kind": "paper", "reason": "missing"},
+            {"owner": OWNER, "book_id": paper, "kind": "paper", "reason": "missing",
+             "restate_from": None},
         ])
         self.service.snapshot_book(owner=OWNER, book_id=paper, session=TUE)
         self.assertEqual(self.owned(), [])

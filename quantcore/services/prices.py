@@ -32,6 +32,7 @@ from quantcore.analytics.indicators import (
     safe_float,
 )
 from quantcore.analytics import returns
+from quantcore.analytics.performance import CLOSE_LOOKBACK_DAYS
 from quantcore.analytics.market_time import (
     is_earlier_session,
     latest_completed_session,
@@ -81,9 +82,9 @@ CLOSEOUT_MIN_DAYS = 10
 SESSION_OPEN_PAD_DAYS = 10
 
 # How far back a book's snapshot may reach for a holding's close (#431 step
-# 5.1). A week covers a holiday weekend. Past that the symbol has stopped
-# trading, and the holding is unpriced rather than valued at an old close.
-CLOSE_ON_LOOKBACK_DAYS = 7
+# 5.1). Defined with the snapshot maths, which a rebuild (step 5.2) applies to
+# a whole range at once, so the nightly row and a rebuilt one agree.
+CLOSE_ON_LOOKBACK_DAYS = CLOSE_LOOKBACK_DAYS
 
 
 def _utc_date(ts: int) -> datetime.date:

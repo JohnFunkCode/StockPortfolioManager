@@ -11,7 +11,14 @@ Rules kept here (CLAUDE.md, "Unified Database"):
   book. `book_id` is keyword-only and defaults to None, the real book.
 - A snapshot never creates a book, and a read never writes.
 - **Only the daily job writes a snapshot**, for the session that has just
-  closed. What a row holds is `analytics.performance.book_value`.
+  closed, and the history backfill script rebuilds past ones. What a row
+  holds is `analytics.performance.book_value`.
+- **A change to history restates the rows it affects** (step 5.2, decisions
+  85 and 88 as John revised them). A write dated on or before a book's newest
+  row marks it (`restate_sql`); `restate_book` rebuilds the rows from that
+  date, under the book's row lock, and clears the mark in the same
+  transaction. It restates only from the book's first stored row: extending
+  history further back is the backfill's job.
 
 The service only gathers: the book's cash rows and open lots (zero network),
 each held symbol's close (`PricesService.close_on`, which fetches only a
@@ -28,12 +35,43 @@ from decimal import Decimal
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from quantcore.analytics import fx
+from quantcore.analytics import market_time
 from quantcore.analytics import performance as performance_math
 from quantcore.repositories.book_snapshots_repository import BookSnapshotsRepository
 from quantcore.repositories.books_repository import BookNotFoundError, BooksRepository
 from quantcore.repositories.cash_repository import CashRepository
 
 logger = logging.getLogger(__name__)
+
+
+def _trading_sessions(start: datetime.date, end: datetime.date) -> List[datetime.date]:
+    """The NYSE sessions from `start` to `end` inclusive, oldest first."""
+    sessions = []
+    day = start
+    while day <= end:
+        if market_time.is_trading_day(day):
+            sessions.append(day)
+        day += datetime.timedelta(days=1)
+    return sessions
+
+
+def _summary(
+    rebuilt: Sequence[Tuple[datetime.date, Optional[Dict[str, Any]]]],
+    counts: Dict[str, int],
+    deleted: int,
+    lots: Sequence[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """What a rebuild did, as `PerformanceService._rebuild_in` reports it."""
+    rows = [row for _, row in rebuilt if row is not None]
+    return {
+        "sessions": len(rebuilt),
+        **counts,
+        "deleted": deleted,
+        "unvalued": [r["session_date"] for r in rows if r["book_value"] is None],
+        "stale": [r["session_date"] for r in rows
+                  if r["book_value"] is not None and r["stale_count"]],
+        "undated_lots": len(performance_math.undated_lots(lots)),
+    }
 
 
 def _complete(snapshot: Optional[Dict[str, Any]]) -> bool:
@@ -91,11 +129,14 @@ class PerformanceService:
         daily job has to take, and what its alarm counts.
 
         A book is owed one when it isn't archived, its ledger has an opening
-        balance on or before `today`, and its row for `today` is missing, has
-        no value, or priced a holding from an earlier session. A real book
-        with no opening balance yet owes nothing (plan decision 9). Each is
-        `owner`, `book_id`, `kind` and `reason` (`missing`, `incomplete` or
-        `stale`). Zero network calls.
+        balance on or before `today`, and it is marked for restatement, or its
+        row for `today` is missing, has no value, or priced a holding from an
+        earlier session. A real book with no opening balance yet owes nothing
+        (plan decision 9). Each is `owner`, `book_id`, `kind`, `reason`
+        (`restate`, `missing`, `incomplete` or `stale`) and `restate_from`
+        (the mark, or None). A marked book's reason is `restate` whatever its
+        row for today says, because the rebuild takes that row too. Zero
+        network calls.
         """
         iso = today.isoformat()
         due: List[Dict[str, Any]] = []
@@ -104,15 +145,19 @@ class PerformanceService:
             entries = self._cash_repo.list_entries(owner=owner, book_id=book_id)
             if not any(e["kind"] == "opening_balance" and e["entry_date"] <= iso for e in entries):
                 continue
+            mark = self._repo.restate_mark(owner=owner, book_id=book_id)
             rows = self._repo.list_snapshots(owner=owner, start=today, end=today, book_id=book_id)
             row = rows[0] if rows else None
-            if _complete(row):
+            if mark is not None:
+                reason = "restate"
+            elif _complete(row):
                 continue
-            if row is None:
+            elif row is None:
                 reason = "missing"
             else:
                 reason = "incomplete" if row["book_value"] is None else "stale"
-            due.append({"owner": owner, "book_id": book_id, "kind": book["kind"], "reason": reason})
+            due.append({"owner": owner, "book_id": book_id, "kind": book["kind"],
+                        "reason": reason, "restate_from": mark})
         return due
 
     def snapshot_book(
@@ -145,6 +190,144 @@ class PerformanceService:
         if snapshot_id is None:
             return None
         return {**snapshot, "snapshot_id": snapshot_id}
+
+    # ------------------------------------------------------------------
+    # Restatement and the history backfill (step 5.2)
+    # ------------------------------------------------------------------
+    def restate_book(
+        self, *, owner: str, through: datetime.date, book_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Rebuild a marked book's snapshots from its mark through `through`
+        and clear the mark, in one transaction under the book's row lock.
+
+        The rebuild starts at the later of the mark and the book's first
+        stored row, so it corrects the series the book has and fills any hole
+        in it, but never starts one earlier. Every trading session in the
+        range is rebuilt, `through` included, so the daily job's own row for
+        the session comes out of it too.
+
+        Returns the summary `_rebuild_in` gives, with `restated_from` (the
+        mark, or None when the book wasn't marked: nothing is done). Raises
+        `BookNotFoundError` for a book that isn't the owner's. An error from a
+        price or FX fetch propagates, nothing is written, and the book stays
+        marked for the next run.
+        """
+        self._require_book(owner, book_id)
+        with self._repo.restating(owner=owner, book_id=book_id) as tx:
+            if tx.mark is None:
+                return {"restated_from": None, "sessions": 0}
+            stored = self._repo.list_snapshots(owner=owner, book_id=book_id)
+            start = max([tx.mark, *(r["session_date"] for r in stored[:1])])
+            summary = self._rebuild_in(tx, owner=owner, book_id=book_id,
+                                       start=start, end=through)
+            summary["cleared"] = tx.clear_mark()
+        return {"restated_from": tx.mark, **summary}
+
+    def backfill_book(
+        self,
+        *,
+        owner: str,
+        through: datetime.date,
+        start: Optional[datetime.date] = None,
+        book_id: Optional[int] = None,
+        apply: bool = False,
+    ) -> Dict[str, Any]:
+        """Rebuild a book's snapshots from `start` (by default its opening
+        balance) through `through`: the history backfill script.
+
+        Without `apply` the same writes run and are rolled back, so a dry run
+        reports exactly what an applied one would do. An applied run that
+        covers the book's mark, from on or before it through its newest row,
+        also clears it. Returns `_rebuild_in`'s summary with `start` and
+        `cleared`; `start` is None, and nothing is done, when the book has no
+        opening balance. Raises `BookNotFoundError` for a book that isn't the
+        owner's.
+        """
+        self._require_book(owner, book_id)
+        if start is None:
+            start = self._opening_date(owner, book_id)
+            if start is None:
+                return {"start": None, "sessions": 0}
+        with self._repo.restating(owner=owner, book_id=book_id, apply=apply) as tx:
+            stored = self._repo.list_snapshots(owner=owner, book_id=book_id)
+            summary = self._rebuild_in(tx, owner=owner, book_id=book_id, start=start,
+                                       end=through)
+            newest = stored[-1]["session_date"] if stored else None
+            covers = (tx.mark is not None and start <= tx.mark
+                      and (newest is None or through >= newest))
+            summary["cleared"] = tx.clear_mark() if covers else False
+        return {"start": start, **summary}
+
+    def _opening_date(self, owner: str, book_id: Optional[int]) -> Optional[datetime.date]:
+        entries = self._cash_repo.list_entries(owner=owner, book_id=book_id)
+        dates = [e["entry_date"] for e in entries if e["kind"] == "opening_balance"]
+        return fx.as_date(dates[0]) if dates else None
+
+    def _rebuild_in(
+        self, tx, *, owner: str, book_id: Optional[int],
+        start: datetime.date, end: datetime.date,
+    ) -> Dict[str, Any]:
+        """Rebuild every trading session from `start` to `end` on `tx`.
+
+        Gathers the book's whole cash ledger and lot history, each symbol it
+        held in the range's closed bars (one read a symbol) and each non-USD
+        currency's daily rates (one fetch a currency), then writes what
+        `analytics.performance.rebuild_snapshots` gives. A session with no
+        value any more loses its row.
+
+        Returns `sessions` (how many were rebuilt), the write counts
+        (`inserted`, `restated`, `unchanged`), `deleted`, `unvalued` and
+        `stale` (the sessions with no book value, or a holding priced from an
+        earlier close) and `undated_lots` (lots that couldn't be placed in
+        time, left out of every session).
+        """
+        sessions = _trading_sessions(start, end)
+        if not sessions:
+            return _summary([], {"inserted": 0, "restated": 0, "unchanged": 0}, 0, [])
+        entries = self._cash_repo.list_entries(owner=owner, book_id=book_id)
+        lots = self._lots.list_lot_history(owner, book_id=book_id)
+        held = {lot["symbol"] for s in sessions for lot in performance_math.held_lots(lots, s)}
+        rebuilt = performance_math.rebuild_snapshots(
+            sessions=sessions,
+            entries=entries,
+            lots=lots,
+            bars=self._bars(held, sessions[0]),
+            fx_closes=self._fx_closes(lots, sessions),
+            previous=self._repo.previous_snapshot(owner=owner, session=sessions[0],
+                                                  book_id=book_id),
+            lookback_days=performance_math.CLOSE_LOOKBACK_DAYS,
+        )
+        counts = tx.write([row for _, row in rebuilt if row is not None])
+        deleted = tx.delete([session for session, row in rebuilt if row is None])
+        return _summary(rebuilt, counts, deleted, lots)
+
+    def _bars(
+        self, symbols: Sequence[str], first: datetime.date
+    ) -> Dict[str, List[Tuple[datetime.date, float]]]:
+        """`{symbol: [(session, close), ...]}` of each symbol's closed daily
+        bars from the lookback window before `first` on. One read a symbol,
+        which fetches only a symbol whose closed bars are behind. A fetch
+        error propagates: a rebuild must not write a hole a retry would fill."""
+        since = first - datetime.timedelta(days=performance_math.CLOSE_LOOKBACK_DAYS)
+        return {
+            symbol: [(bar["session"], bar["close"])
+                     for bar in self._prices.closed_bars_since(symbol, since)]
+            for symbol in sorted(symbols)
+        }
+
+    def _fx_closes(
+        self, lots: Sequence[Dict[str, Any]], sessions: Sequence[datetime.date]
+    ) -> Dict[str, Dict[datetime.date, Any]]:
+        """`{currency: {date: USD per unit}}` over the sessions, for every
+        non-USD currency the book has held. One fetch a currency. Unlike the
+        nightly row, a failed fetch propagates: a rebuild that wrote rows with
+        no rate would clear the mark and leave them wrong."""
+        currencies = {fx.normalize_currency(lot["currency"]) for lot in lots
+                      if fx.needs_rate(lot["currency"])}
+        if not currencies or self._fx_gateway is None:
+            return {}
+        start, end = fx.fetch_window(sessions)
+        return {c: self._fx_gateway.fx_daily_closes(c, start, end) for c in sorted(currencies)}
 
     def _closes(
         self, symbols: Sequence[str], session: datetime.date

@@ -201,6 +201,11 @@ real book's opening balance, deposits and withdrawals on the Portfolio page. Lot
 recorded before the ledger existed get their entries from
 `python scripts/backfill_cash_entries.py` (a dry run; `--apply` writes).
 
+The daily job stores what each book is worth at the close. A real book's history before that,
+back to its opening balance, comes from `python scripts/backfill_book_snapshots.py --owner <you>`
+(a dry run that names every day it couldn't value; `--apply` writes). An edit dated in the past
+corrects the stored history itself the same night.
+
 A paper book trades through market orders, and QuantCore sets every fill: at the live quote while
 the market is open, at the next session's opening price for an order placed outside it. A buy the
 book's cash can't cover, a stale quote and a non-USD symbol are rejected, with the reason shown.

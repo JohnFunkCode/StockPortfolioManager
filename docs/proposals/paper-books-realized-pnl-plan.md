@@ -1,6 +1,6 @@
 # Books, paper trading and realized P/L: build plan
 
-**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) is built, and 5.2 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). The checkpoint log in section 8 says what has landed.**
+**Status: plan agreed 2026-11-14. Milestones 1 and 2 are built, which closes #235. Milestone 3 (cash, orders and paper buys) has started: 3.1 (the cash ledger), 3.2 (the prior-art review), 3.3 (orders and fills), 3.4 (queued fills in the daily job) and 3.5 (buy and sell on paper) are built, which completes it. Milestone 4 (stops) is built: 4.1 (the stops table, service and routes), 4.2 (the bar-close checker), 4.3 (stops in the UI), 4.4 (approach alerts) and 4.5 (the stop panel, with broker mirroring), which closes #221. Milestone 5 (performance) has started: 5.1 (the snapshots and the maths) and 5.2 (history backfill and restatement) are built, and 5.3 is next. Decisions 19 to 24 were made during the 3.1 build, 31 to 34 during the 3.4 build, 35 to 41 during the 3.5 build, 42 to 47 during the 4.1 build, 48 to 55 during the 4.2 build and 56 to 62 during the 4.3 build, 63 after comparing those with other systems (section 5.15), and John made 64 to 67 on the questions that comparison left open; those made in a build up to 4.3 are John's to confirm or change. 68 to 73 were made during the 4.4 build and 74 to 81 during the 4.5 build, and John confirmed both sets as built (section 3). 82 to 89 were made during the 5.1 build; John confirmed 82 to 84, 86, 87 and 89 as built and revised 85 and 88 to the GIPS practice of restating history, which step 5.2 builds (section 3). 90 to 97 were made during the 5.2 build, and John confirmed them as built. The checkpoint log in section 8 says what has landed.**
 Issues: [#431](https://github.com/JohnFunkCode/StockPortfolioManager/issues/431) (books and paper
 trading) and [#235](https://github.com/JohnFunkCode/StockPortfolioManager/issues/235) (realized
 P/L). This plan also takes in all of
@@ -55,7 +55,7 @@ Checked on `main` at `945319e`.
   for this plan in section 3.
 - **Splits are unhandled** (#391 is open). Long-run performance numbers can't be trusted until it
   lands; the Performance view says so on screen.
-- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1, 29 after 5.1; 4.2, 4.3 and decision 63 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
+- **The schema had 24 tables** (27 after step 3.3, 28 after 4.1, 29 after 5.1; 4.2, 4.3, decision 63 and 5.2 add columns only). This plan adds five (`books`, `cash_entries`, `orders`, `stops`,
   `book_value_snapshots`). The count is stated in `CLAUDE.md`, `data.md` and the schema-check log
   line, so each PR that adds a table updates them.
 
@@ -614,6 +614,48 @@ internal choices with no outside analogue.
     **John, 2026-11-17: confirmed, and the route and screen must be planned.** They are step 5.3:
     `GET /api/books/performance`, the Performance section, the strip's return against SPY and
     the Compare view. 5.4 adds Sidekick and MCP read access.
+
+### Made on 2026-11-17, during the 5.2 build (Claude; confirmed by John the same day)
+
+Each is what the 5.2 code does. None was asked first. John confirmed all eight as built on
+2026-11-17.
+
+90. **A restatement never reaches back past the book's first stored row.** It starts at the
+    later of the mark and that row. A change dated earlier only changes the first row, which is
+    the base and has no return of its own (decision 83). Extending the series further back is the
+    backfill script's job, run on purpose. What it costs: after a late edit dated before the
+    first row, the history still starts where it did until someone runs the backfill.
+91. **A rebuild fills a missing session in its range.** A night the job missed becomes a row,
+    written as new (no `restated_at`), since it corrects nothing that was reported. What it
+    costs: a hole's value is reconstructed from stored bars rather than taken on the night.
+92. **`restated_at` is set only on a row whose values changed.** One that comes out the same is
+    left alone, `taken_at` and all, so a correction shows only where there was one. A replaced
+    row keeps its `taken_at`.
+93. **The rebuild holds the book's row lock.** The plan's conditional clear (`WHERE restate_from
+    = <the date it read>`) alone misses a write made during the rebuild and dated on or after the
+    mark: `LEAST` leaves the mark where it is, so the clear succeeds and that write's change is
+    lost. The mark is an update of the book's row in the writer's transaction, so under the lock
+    a write either committed before the rebuild read anything or waits and marks again. The
+    conditional clear is kept as well. What it costs: the price and FX fetches happen while the
+    lock is held, and an owner's write to that book (or a paper order on it) waits for the
+    rebuild, at night, for seconds.
+94. **A rebuild whose price or FX fetch fails writes nothing and leaves the mark.** The nightly
+    row counts a failed FX lookup as missing and moves on, but a rebuild that did the same would
+    clear the mark with rows left wrong, and nothing would retry it. What it costs: a currency
+    whose lookup keeps failing keeps its book marked, and the alarm names it every night.
+95. **What a write marks from.** A lot write: the lot's trade date (else its purchase date),
+    before and after an edit, so a date moved later restates from the earlier. A sale: its
+    date. A filled FX rate: its lot's trade date, also for a sale's rate (earlier than it needs
+    to be, which only costs a longer rebuild). A removed symbol and a CSV import: the earliest
+    lot either side. The cash backfill script: the book's earliest ledger row, since its
+    statements don't return what they wrote. A paper order's fill and seeding go through the
+    `_on` methods, which never mark.
+96. **A lot a rebuild can't place in time is left out of every session, and counted** (no trade
+    or purchase date, or closed with no sale date). A closed lot is held until its `lot_sales`
+    date, else the legacy `sale_date`.
+97. **The daily step restates a marked book instead of snapshotting it.** The rebuild runs
+    through today, so it takes today's row too. A marked book's reason is `restate` whatever its
+    row for today says, and the alarm names it while it stays marked.
 
 No other proposals are open. A new question that comes up during the build is added here as a numbered
 decision with its date, not settled silently in a PR.
@@ -1393,7 +1435,7 @@ Left, on purpose:
   `book_value_snapshots` table; a daily-job step writing cash plus positions at the close for
   every book that isn't archived; `time_weighted_return` and `max_drawdown` in
   `quantcore/analytics`.
-- [ ] **5.2 History backfill and restatement** (decisions 85 and 88 as revised).
+- [x] **5.2 History backfill and restatement** (decisions 85 and 88 as revised).
   One rebuild, in `PerformanceService`, that recomputes a book's snapshots for a range of sessions
   from its lots, sales, cash entries and closed `ohlcv` bars, with each flow on its real date. Two
   callers:
@@ -1453,6 +1495,44 @@ Left, on purpose:
   checker.
 - **Not run against Yahoo.** Every test stubs the closes and rates. Watch the first night's log
   line (`Book snapshots: … valued, … incomplete`) and alarm on test.
+
+#### 5.20 History backfill and restatement as built (5.2)
+
+| Piece | Where | Notes |
+|---|---|---|
+| The columns | `V28__book_restatement.sql`, `_SCHEMA`, the snapshot | `books.restate_from` (DATE) and `book_value_snapshots.restated_at` (TIMESTAMPTZ), both nullable. Plain `ADD COLUMN`, so CI applies it. Still 29 tables |
+| The mark | `quantcore/repositories/restate_sql.py` (`mark_restate`, `SQL_MARK_RESTATE`) | One `UPDATE books` that sets `restate_from` to the earlier of itself and the date, only when the date is on or before the book's newest row. Called in the write's own transaction by `PortfolioRepository` (`replace_owner_positions`, `add_position`, `remove_position`, `update_lot`, `delete_lot`, `insert_sale`, `close_lots`, both FX fills) and `CashRepository` (`set_opening_balance`, `add_entry`, `delete_entry`, `backfill_entries`). Not by `add_lot_on` or `close_lots_on`, which a fill uses |
+| The history read | `PortfolioRepository.list_lot_history` | Every lot of a book, open and closed, with `sold_on` (its sale's date) from a join through the restricted lot |
+| The maths | `analytics.performance`: `held_lots`, `undated_lots`, `close_as_of`, `rebuild_snapshots`; `CLOSE_LOOKBACK_DAYS` moved here from `prices.py` | Pure. Each session through `book_value`, its flow measured from the row rebuilt before it |
+| The writes | `BookSnapshotsRepository.restating` (a `RestateTransaction`: `write`, `delete`, `clear_mark`), `restate_mark` | The book's row is locked `FOR UPDATE` for the whole rebuild. `SQL_WRITE_RESTATED` inserts a new session with no `restated_at` and replaces a stored row only when a value differs (`IS DISTINCT FROM` on the `DO UPDATE`) |
+| The service | `PerformanceService.restate_book`, `backfill_book`, `_rebuild_in`; `due_snapshots` gains reason `restate` and `restate_from` | One read a held symbol's closed bars over the range, one FX fetch a currency |
+| The step | `main.take_book_snapshots` and `_restate_one` | A marked book is restated through today instead of snapshotted; `restated` in the summary line. Same budget |
+| The script | `scripts/backfill_book_snapshots.py` | Dry run by default, `--apply`, `--owner`, `--book-id`, `--from`, `--through`, `--allow-prod`. Names every session with no value and every one priced from an earlier close |
+| The tests | `tests/test_book_restatement.py` (marking, the rebuild, the backfill, against the database), `tests/test_performance_analytics.py` (`HeldLotsTest`, `CloseAsOfTest`, `RebuildSnapshotsTest`), `tests/test_book_snapshots_step.py`, `tests/test_backfill_book_snapshots_script.py` | Wrong-owner and wrong-book marks, a failed fetch keeping the mark, an unchanged row left alone, a hole filled, a session losing its row |
+
+The rules are in [`data.md`](../architecture/data.md#book-value-snapshots) and the step in
+[`daily-jobs.md`](../architecture/daily-jobs.md).
+
+**For an operator, once it has rolled out:** V28 is applied by CI. To give a real book its
+history before 5.1's roll-out, run the backfill against prod, dry run first:
+
+```bash
+python scripts/backfill_book_snapshots.py --owner john --allow-prod
+```
+
+then again with `--apply` once its list of unvalued days looks right. A book needs its opening
+balance entered first; the script skips one without.
+
+Left, on purpose:
+
+- **A lot that cost no cash and is sold on the session it arrived is in no flow.** It is held at
+  no close, so its value is never counted coming in, but its sale's cash is: a false gain that
+  day. Only a seed followed by a same-day manual close, or a transfer recorded as sold the same
+  day, can do it.
+- **Not run against Yahoo or prod.** Every test stubs the closes and rates. The first real
+  backfill is the check: watch its unvalued list.
+- **No route or screen shows `restated_at` yet** (5.3).
+- **No split or dividend handling** (#391), as in 5.1.
 
 ## 6. Later phases: what each needs first
 
@@ -1863,6 +1943,24 @@ Known before any code is written. Add to this list as the work finds more.
   which the other book suites call, does it.
 - **`due_snapshots` walks every owner in the database, test owners included** (5.1), as the stop
   checker's walk does (4.2). The service tests filter it to their own owner.
+- **The plan's conditional clear alone loses a change** (5.2). Clearing with `WHERE
+  restate_from = <the date it read>` only notices a write that moves the mark earlier. One dated
+  on or after the mark, made while the rebuild runs, leaves the mark as it was, so the clear
+  succeeds and the write is never restated. The rebuild holds the book's row lock instead
+  (decision 93).
+- **A deposit dated before the opening balance isn't in the ledger** (5.2). The first draft of a
+  rebuild test dated a deposit on the Saturday before a Monday opening balance and expected it
+  as a flow; `cash_ledger` starts at the opening balance, so it counted nothing. Not a bug: the
+  fixture was wrong.
+- **A change dated before a book's first row only changes the base** (5.2). A test expected a
+  Monday deposit to be Tuesday's flow when Tuesday was the first row. The first row is the base
+  (decision 83), so the deposit is in its value and its flow is never used. Also not a bug.
+- **radon and complexipy can't be installed in an agent sandbox** (5.2): `uvx` isn't on the
+  path and pip can't reach the index. The new units' complexity was counted by hand, and the
+  rebuild's summary split out (`_summary`) to keep `_rebuild_in` small.
+- **`test_schema_parity` can fail on its own cleanup when run beside other database suites**
+  (5.2): "permission denied to terminate process" from `DROP DATABASE … WITH (FORCE)`, because
+  another module's session was still on the scratch database. Run alone it passes.
 - **`SET NOT NULL` on `book_id` comes after the backfill, in the same migration.** Check the
   migration against the entrypoint's refusal list (`DROP`, `RENAME`, `ALTER … TYPE`) before
   relying on CI to apply it.
@@ -1947,3 +2045,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-17 | 5.1 review | #573 | Clippy commented with two suggestions, both taken. `PricesService.close_on` had no direct test: `CloseOnTest` now covers the session's own close, an earlier one, a later bar never used, nothing in the window and a fetch error. `book_value` returned a `cash_negative` flag that nothing stored or read; it is gone, and decision 8's days are read from the stored `cash`. The review did not run the suites, and complexipy could not measure `performance.py`, `prices.py` or `notifier.py` |
 | 2026-11-17 | 5.1 second review | #573 | Clippy commented with one suggestion, taken as its documentation option: a lot that cost no cash, typed in late with a date on or before the previous row's session, is in no flow and reads as a gain. The module docstring, `data.md` and the 5.1 gotcha say so, and a test pins it. The docstring now also says that with no previous row only a lot dated on the session counts, which another test pins. The review did not run the suites |
 | 2026-11-17 | Decisions 82 to 89 | #575 | John ruled after a comparison with Alpaca, Interactive Brokers and GIPS: 82, 83, 84, 86, 87 and 89 confirmed as built; 85 and 88 revised to restatement, with a late flow on its real date and the affected rows rebuilt. Step 5.2 now builds that alongside the backfill, and decision 89 points at 5.3 for the route and screen. Docs only |
+| 2026-11-17 | 5.2 History backfill and restatement | #576 | V28: `books.restate_from`, `book_value_snapshots.restated_at`. Every owner write to a book's cash or lots dated on or before its newest row marks it in the write's transaction (`restate_sql.mark_restate`); the daily step rebuilds a marked book from the mark through today under the book's row lock, with each flow on its real date, stamps a changed row `restated_at`, fills a hole and clears the mark. `PortfolioRepository.list_lot_history`, `analytics.performance.rebuild_snapshots`, `PerformanceService.restate_book` and `backfill_book`, `scripts/backfill_book_snapshots.py`. Decisions 90 to 97 were made in the build; John confirmed them as built the same day. Not run against Yahoo. The backfill is still to be run on prod (section 5.20) |

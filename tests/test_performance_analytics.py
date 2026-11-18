@@ -257,3 +257,121 @@ class MaxDrawdownTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def history_lot(symbol="AAA", quantity="10", day=MON, status="OPEN", sold_on=None,
+                acquisition_type="BUY", sale_date=None, currency="USD"):
+    """A lot as `PortfolioRepository.list_lot_history` gives it (step 5.2)."""
+    return {**lot(symbol, quantity, currency, acquisition_type, day),
+            "status": status, "sold_on": sold_on, "sale_date": sale_date}
+
+
+class HeldLotsTest(unittest.TestCase):
+    """Which lots a book held at a past close (#431 step 5.2)."""
+
+    def test_a_lot_is_held_from_its_trade_date_until_the_day_it_is_sold(self):
+        sold = history_lot(status="CLOSED", sold_on=WED)
+        self.assertEqual(perf.held_lots([sold], SAT), [])
+        self.assertEqual(perf.held_lots([sold], MON), [sold])
+        self.assertEqual(perf.held_lots([sold], TUE), [sold])
+        self.assertEqual(perf.held_lots([sold], WED), [], "sold on the session: gone at its close")
+
+    def test_a_split_lot_adds_up_to_the_lot_as_bought_before_its_sale(self):
+        # Ten bought Monday, four sold Wednesday: the closed half holds the
+        # four, the open remainder six, both dated Monday.
+        closed = history_lot(quantity="4", status="CLOSED", sold_on=WED)
+        remainder = history_lot(quantity="6")
+        before = perf.held_lots([closed, remainder], TUE)
+        self.assertEqual(sum(l["quantity"] for l in before), D("10"))
+        self.assertEqual(perf.held_lots([closed, remainder], WED), [remainder])
+
+    def test_a_legacy_close_uses_its_sale_date(self):
+        legacy = history_lot(status="CLOSED", sale_date=TUE.isoformat())
+        self.assertEqual(perf.held_lots([legacy], MON), [legacy])
+        self.assertEqual(perf.held_lots([legacy], TUE), [])
+
+    def test_a_lot_that_cant_be_placed_is_left_out_and_reported(self):
+        no_day = {**history_lot(), "trade_date": None, "purchase_date": None}
+        no_sale = history_lot(status="CLOSED")
+        lots = [no_day, no_sale, history_lot(symbol="BBB")]
+        self.assertEqual([l["symbol"] for l in perf.held_lots(lots, WED)], ["BBB"])
+        self.assertEqual(perf.undated_lots(lots), [no_day, no_sale])
+
+
+class CloseAsOfTest(unittest.TestCase):
+    BARS = [(MON, 10), (WED, 12), (THU, 13)]
+
+    def test_the_newest_close_on_or_before_the_session(self):
+        self.assertEqual(perf.close_as_of(self.BARS, WED, 7), (D("12"), WED))
+        self.assertEqual(perf.close_as_of(self.BARS, TUE, 7), (D("10"), MON))
+
+    def test_never_a_later_close_or_one_past_the_lookback(self):
+        self.assertIsNone(perf.close_as_of(self.BARS, SAT, 7))
+        self.assertIsNone(perf.close_as_of(self.BARS, MON + datetime.timedelta(days=9), 1))
+        self.assertIsNone(perf.close_as_of([], WED, 7))
+
+
+class RebuildSnapshotsTest(unittest.TestCase):
+    """Each flow on its real date, however late it was typed in (decisions
+    85 and 88 as John revised them, step 5.2)."""
+
+    BARS = {"AAA": [(MON, 50), (TUE, 50), (WED, 55)]}
+
+    def rebuild(self, entries, lots, previous=None, fx_closes=None, bars=None):
+        return perf.rebuild_snapshots(
+            sessions=[MON, TUE, WED], entries=entries, lots=lots,
+            bars=self.BARS if bars is None else bars, fx_closes=fx_closes or {},
+            previous=previous, lookback_days=7)
+
+    def test_a_late_deposit_is_a_flow_on_its_own_date(self):
+        rows = dict(self.rebuild(OPENING + [entry("deposit", TUE, "500.00", 2)], []))
+        self.assertEqual([rows[d]["flow"] for d in (MON, TUE, WED)],
+                         [D("1000.00"), D("500.00"), D("0.00")])
+        chain = perf.time_weighted_return([rows[d] for d in (MON, TUE, WED)])
+        self.assertEqual(chain["twr"], D("0E-8"), "a deposit is never a gain")
+
+    def test_a_lot_that_cost_no_cash_is_a_flow_on_its_trade_date(self):
+        transfer = history_lot(acquisition_type="TRANSFER", day=TUE)
+        rows = dict(self.rebuild(OPENING, [transfer]))
+        self.assertEqual(rows[MON]["holdings_value"], D("0.00"))
+        self.assertEqual(rows[TUE]["flow"], D("500.00"))
+        self.assertEqual(rows[WED]["flow"], D("0.00"))
+        twr = perf.time_weighted_return([rows[d] for d in (MON, TUE, WED)])["twr"]
+        # Only Wednesday's move from 50 to 55 on the ten shares is earned.
+        self.assertEqual(twr, (D("1550") / D("1500") - 1).quantize(perf.RETURN_QUANTUM))
+
+    def test_a_sale_moves_value_to_cash_and_is_not_a_flow(self):
+        sold = history_lot(status="CLOSED", sold_on=WED)
+        entries = OPENING + [entry("buy", MON, "-500.00", 2), entry("sell", WED, "550.00", 3)]
+        rows = dict(self.rebuild(entries, [sold]))
+        self.assertEqual((rows[TUE]["cash"], rows[TUE]["holdings_value"]),
+                         (D("500.00"), D("500.00")))
+        self.assertEqual((rows[WED]["cash"], rows[WED]["holdings_value"], rows[WED]["flow"]),
+                         (D("1050.00"), D("0.00"), D("0.00")))
+
+    def test_flows_are_measured_from_the_stored_row_before_the_range(self):
+        # Friday's stored row came before a deposit dated Saturday was typed
+        # in. Rebuilt from Monday, the deposit is Monday's flow.
+        fri = SAT - datetime.timedelta(days=1)
+        opening = [entry("opening_balance", fri, "1000.00")]
+        previous = {"session_date": fri, "contributed": D("1000.00")}
+        rows = dict(self.rebuild(opening + [entry("deposit", SAT, "100.00", 2)], [],
+                                 previous=previous))
+        self.assertEqual(rows[MON]["flow"], D("100.00"))
+
+    def test_a_session_before_the_opening_balance_has_no_row(self):
+        late = [entry("opening_balance", TUE, "1000.00")]
+        rows = self.rebuild(late, [])
+        self.assertEqual([(d, r is None) for d, r in rows],
+                         [(MON, True), (TUE, False), (WED, False)])
+        self.assertEqual(dict(rows)[TUE]["flow"], D("1000.00"))
+
+    def test_a_missing_close_or_rate_leaves_the_session_unvalued(self):
+        rows = dict(self.rebuild(OPENING, [history_lot()], bars={"AAA": [(WED, 55)]}))
+        self.assertIsNone(rows[MON]["book_value"])
+        self.assertEqual(rows[WED]["book_value"], D("1550.00"))
+        gbp = history_lot(symbol="AAA", currency="GBP")
+        rows = dict(self.rebuild(OPENING, [gbp], fx_closes={"GBP": {TUE: D("1.25")}}))
+        self.assertIsNone(rows[MON]["book_value"], "never 1.0")
+        self.assertEqual(rows[TUE]["holdings_value"], D("625.00"))
+        self.assertEqual(rows[WED]["holdings_value"], D("687.50"), "Tuesday's rate carries")

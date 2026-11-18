@@ -461,18 +461,19 @@ def total_quantity(lots: Iterable[Dict[str, Any]]) -> Decimal:
 
 
 def book_holdings(lots: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """One book's open lots rolled up to one row a symbol, by symbol: what
-    the read-only book tool lists (#431 step 5.4).
+    """One book's open lots rolled up to one row a symbol and currency, by
+    symbol: what the read-only book tool lists (#431 step 5.4).
 
-    Each row is `position_rollup` over that symbol's lots (share count,
-    quantity-weighted average purchase price and lot count) with the lots'
-    currency, in which `avg_price` is quoted. Prices nothing: a holding's
-    value at the close is the book's snapshot, not this.
+    Each row is `position_rollup` over those lots (share count,
+    quantity-weighted average purchase price and lot count), and `avg_price`
+    is quoted in the row's currency. A symbol held in two currencies is two
+    rows, never one price averaged across currencies. Prices nothing: a
+    holding's value at the close is the book's snapshot, not this.
     """
-    by_symbol: Dict[str, List[Dict[str, Any]]] = {}
+    groups: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
     for lot in lots:
-        by_symbol.setdefault(lot["symbol"], []).append(lot)
+        groups.setdefault((lot["symbol"], lot.get("currency") or ""), []).append(lot)
     return [
-        {"symbol": symbol, "currency": group[0].get("currency"), **position_rollup(group)}
-        for symbol, group in sorted(by_symbol.items())
+        {"symbol": symbol, "currency": currency or None, **position_rollup(group)}
+        for (symbol, currency), group in sorted(groups.items())
     ]

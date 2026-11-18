@@ -713,8 +713,8 @@ Each is what the 5.4 code does. None was asked first.
     crowd a conversation for figures the model can't use. `gap_count` replaces the list of
     dates. What it costs: the model can say what the return and drawdown were, not describe the
     curve; the `book_performance` card shows it.
-108. **Holdings are at cost, and price nothing.** Each book's open lots, one row a symbol
-    (`portfolio_math.book_holdings`: shares, the quantity-weighted purchase price, the lots'
+108. **Holdings are at cost, and price nothing.** Each book's open lots, one row a symbol and
+    currency (`portfolio_math.book_holdings`: shares, the quantity-weighted purchase price, the lots'
     currency, lot count), from one query a book with no network call. Their value is the newest
     snapshot's `holdings_value`. What it costs: no gain per holding; for the real book,
     `get_portfolio_summary` has it.
@@ -1632,7 +1632,7 @@ Left, on purpose:
 
 | Piece | Where | Notes |
 |---|---|---|
-| The roll-up | `analytics.portfolio_math.book_holdings` | Pure: open lots to one row a symbol, by symbol, through `position_rollup` |
+| The roll-up | `analytics.portfolio_math.book_holdings` | Pure: open lots to one row a symbol and currency, by symbol, through `position_rollup`; a symbol held in two currencies is two rows, never a blended price (from the #578 review) |
 | The service | `PerformanceService.books_overview` | `compare_books` without `series` or `gaps` (counted as `gap_count`), plus each book's holdings from `list_positions(owner, "OPEN", book_id=…)`. One SPY read for all books |
 | The route | `GET /api/books/overview?period=` in `api/routers/books.py`; `BooksOverviewResponse` in `api/schemas/books.py` | 422 for an unknown period. 132 routes |
 | Sidekick | `get_books` in `chat_tools.TOOL_SCHEMAS`, `READ_ONLY_TOOLS` and `OWNER_SCOPED_TOOLS`; `ChatService._books`; `performance` injected by the registry | The owner comes from the turn; a model-supplied `owner` is dropped. Decimals and dates are made plain all the way down (`_plain_tree`) |

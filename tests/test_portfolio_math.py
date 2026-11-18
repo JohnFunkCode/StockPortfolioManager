@@ -317,5 +317,16 @@ class TestBookHoldings(unittest.TestCase):
              "avg_price": Decimal("100.00"), "lot_count": 1},
         ])
 
+    def test_one_symbol_in_two_currencies_is_two_rows_never_a_blended_price(self):
+        lots = [
+            {"symbol": "SHOP", "currency": "USD", "quantity": Decimal("1"),
+             "purchase_price": Decimal("70")},
+            {"symbol": "SHOP", "currency": "CAD", "quantity": Decimal("3"),
+             "purchase_price": Decimal("100")},
+        ]
+        self.assertEqual(
+            [(r["currency"], r["quantity"], r["avg_price"]) for r in book_holdings(lots)],
+            [("CAD", Decimal("3"), Decimal("100.00")), ("USD", Decimal("1"), Decimal("70.00"))])
+
     def test_no_lots_is_no_rows(self):
         self.assertEqual(book_holdings([]), [])

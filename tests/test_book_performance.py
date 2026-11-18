@@ -243,10 +243,13 @@ class BooksOverviewTest(_Base):
 
     def test_the_daily_series_is_left_out_and_the_gaps_counted(self):
         self.rows()
+        unvalued = {**snap(ago(15), "1000.00"), "book_value": None,
+                    "holdings_value": None, "unpriced_count": 1}
+        self.snapshots.upsert_snapshot(owner=OWNER, snapshot=unvalued)
         book = self.service.books_overview(owner=OWNER, period="year")["books"][0]
         self.assertNotIn("series", book)
         self.assertNotIn("gaps", book)
-        self.assertIsInstance(book["gap_count"], int)
+        self.assertEqual(book["gap_count"], 1)
         self.assertEqual(len(self.prices.asked), 1)
 
     def test_another_owners_books_and_lots_are_not_read(self):

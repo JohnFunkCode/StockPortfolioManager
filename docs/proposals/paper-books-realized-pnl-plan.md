@@ -1129,6 +1129,9 @@ with `--allow-prod`. Until then lots and sales from before V16 have no cash rows
 book made before V16 has no opening balance. Then John enters the real book's opening balance on
 the Portfolio page: until he does, the real book shows no cash balance.
 
+*Prod, 2026-11-18:* run for `john` only, with the 5.2 backfill (checkpoint log). It wrote 28 buy
+and 19 sell rows. `dabrown` and `sager` have no opening balance yet, and their books were not run.
+
 Left for later steps, on purpose:
 
 - **Orders are not in the section yet** (3.3), though it is already titled "Cash and orders".
@@ -2223,6 +2226,24 @@ Known before any code is written. Add to this list as the work finds more.
   table's entry was taken from the regenerated file, without its `*_not_null` constraints, and
   the rest was left as committed. `tests/test_schema_parity.py` passed against the same server,
   since both sides of it come from PG18.
+- **The prod backfill (2026-11-18) found three things a runbook should say.**
+  - **The cash-entries backfill was a prerequisite nobody had run on prod.** The ledger had only
+    the opening balance, with no rows for any lot or sale, and the snapshot dry run still reported
+    a clean 503 sessions: a buy with no cash row reads as value arriving from nowhere, and nothing
+    flags it. Before a snapshot backfill, check the ledger's `bought` and `sold` totals are not
+    zero for a book with lots.
+  - **A snapshot dry run is not read-only for prices.** Its rebuild fetches any symbol whose
+    stored bars are behind, and the price cache commits on its own connection, outside the
+    rolled-back transaction. The first prod run replaced 873 GLW and KLAC daily bars with
+    Yahoo's corrected closes (`CORRECTED bar detected`). That is the same refresh the daily job
+    does, so nothing was harmed, but the script's "a dry run writes nothing" is true of the
+    snapshot rows only.
+  - **The opening date decides the history, and it is easy to get wrong.** It should be the day
+    of the book's first recorded trade, with the cash held that morning. A date 19 months early
+    added hundreds of all-cash sessions that make "vs SPY" read worse; a date picked as 11-06
+    for 06-15 left 46 of 48 cash rows before the opening, uncounted, and every earlier lot
+    counted as already held. Read `opening_date`, `earlier_entry_count` and the ledger's ending
+    balance before applying.
 - **The owner-isolation coverage test derives per-owner tables from the snapshot.** Each new table
   with an `owner` column or a foreign key into one needs mapped wrong-owner tests in the same PR,
   or that test fails.
@@ -2284,3 +2305,4 @@ Known before any code is written. Add to this list as the work finds more.
 | 2026-11-18 | Decisions 106 to 110; 107 revised | #580 | John confirmed 106, 108, 109 and 110, and revised 107: `get_books` returns the growth-of-$1 series sampled by period (`analytics.performance.sampled_series`: a day for month, a week for quarter and year, a month for all; `series_interval` says which). Section 3 records the 106 discussion about future write tools and the Alpaca and IBKR comparison behind 107, with its sources. 110's alternative is #579 |
 | 2026-11-18 | #579 The stops tool | #582 | `GET /api/books/stops` (133 routes), `StopsService.stops_overview`, `PricesService.last_closes`, `analytics.stored_stops.book_stops`; the `get_stops` Sidekick tool (read-only, owner-scoped, 15 data tools) and MCP tool on `portfolio-server` (65 tools, with its contract case). Every open book's holding stops with the last stored close's distance and the job's approach record, and the held symbols with no live stop. Decisions 111 to 116 are John's to confirm. No migration. As built: section 5.23 |
 | 2026-11-18 | #579 review; decisions 111 to 116 | #582 | Two reviews, no findings. Clippy made two suggestions: the capabilities matrix header still read 2026-11-17 (fixed in the PR); and `ChatService.__init__` is at cyclomatic 11, in the warning band, from one more optional-service guard (left as it is, both branches tested; a table of handlers is the refactor if it grows again). It marked "whether the newest closed bar was within the approach threshold" partly met, which is decision 114. Guppy's draft was not published by its pipeline and listed only evidence gaps from truncated inputs; a PR comment answered each, with the full suite at the head (3593 OK, 6 skipped). John confirmed decisions 111 to 116 as built and merged #582, which closes #579 |
+| 2026-11-18 | Prod backfill, john's real book | none (operator run) | `backfill_cash_entries.py --owner john --apply` wrote 28 buy and 19 sell rows that lots from before V16 lacked (the 3.1 step had not been run on prod). John set the real book's opening balance ($100,000.00 on 2026-06-15, the day of its first trade); the ledger ends at $80,315.00 and never goes below zero. `backfill_book_snapshots.py --owner john --apply` wrote 110 rows, 2026-06-15 to 2026-11-18, none unvalued; today's was priced from the earlier close, for tonight's job to rewrite. Read back: since 2026-06-15 the book returned −5.06% against SPY's −2.47% (−2.59 points), with a maximum drawdown of −7.33% from 2026-08-17 to 2026-11-05. `dabrown` and `sager` have no opening balance and were not run. Gotchas in section 7 |

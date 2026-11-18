@@ -158,7 +158,7 @@ Defaults table, every alarm, the news Job, the FinBERT load path, and the report
 
 ### Notifications (`notifier.py`)
 
-Sends Discord webhook alerts for: moving average violations (30/50/100/200-day), price below purchase price, and Harvester plan rung hits. Uses `notification.log` file to deduplicate alerts within a run.
+Sends Discord webhook alerts for: moving average violations (30/50/100/200-day), price below purchase price, and Harvester plan rung hits. Uses `notification.log` to deduplicate alerts: `send_notifications()` skips a title already logged (an exact match on the whole title, not a substring). The stop breach and approach alerts pass `dedupe=False`: their titles are a count and a day, which can repeat for different stops, so the database's alerted marks decide what was announced, not the log (the #569 review).
 
 ### Options watchlist screen
 

@@ -116,6 +116,11 @@ def _stop_approach_line(stop: dict) -> str:
     )
 
 
+def _logged_title(line: str) -> str:
+    """The title in a ``notification.log`` line ("<timestamp> - <title>")."""
+    return line.rstrip("\n").partition(" - ")[2]
+
+
 class Notifier:
     def __init__(
         self,
@@ -736,7 +741,9 @@ class Notifier:
                 }
             ]
         }
-        return self.send_notifications(embed) is not False
+        # The database records which stops were announced, so the title must
+        # not decide whether this goes out (see send_notifications).
+        return self.send_notifications(embed, dedupe=False) is not False
 
     def send_stop_approach_alert(
         self, stops: list, stop_count: int, day: str, multiple
@@ -767,7 +774,8 @@ class Notifier:
                 }
             ]
         }
-        return self.send_notifications(embed) is not False
+        # As for send_stop_alert: the database decides, not the title.
+        return self.send_notifications(embed, dedupe=False) is not False
 
     def send_paper_fills(self, fills: list, fill_count: int, day: str) -> None:
         """Report the day's paper fills (#431), marked ``[PAPER]``.
@@ -820,15 +828,30 @@ class Notifier:
         }
         self.send_notifications(embed)
 
-    def send_notifications(self, embed, webhook_url=None):
+    def send_notifications(self, embed, webhook_url=None, dedupe=True):
+        """Send ``embed`` to Discord, at most once per title.
+
+        A title already in ``notification.log`` is skipped and returns None;
+        otherwise returns True when Discord took the message and False when it
+        did not go out. The match is on the whole title, not a substring of
+        one: "3 stop(s) reached" is not "23 stop(s) reached" (the #569 review).
+
+        ``dedupe=False`` sends even when the title was logged before. A caller
+        that records delivery itself (the stop alerts, in the database) passes
+        it: a title such as "5 stop(s) reached, reported <day>" can name
+        different stops on different runs, and skipping it would mark stops as
+        announced that no message named.
+        """
         notification_log_msg = f"{embed['embeds'][0]['title']}"
 
         log_path = 'notification.log'
 
         already_logged = False
-        if os.path.exists(log_path):
+        if dedupe and os.path.exists(log_path):
             with open(log_path, 'r', encoding='utf-8') as log_file:
-                already_logged = notification_log_msg in log_file.read()
+                already_logged = any(
+                    _logged_title(line) == notification_log_msg for line in log_file
+                )
 
         if already_logged:
             print(f'{datetime.now():%Y-%m-%d %H:%M:%S} Skipping duplicate notification.')

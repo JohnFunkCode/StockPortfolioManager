@@ -10,6 +10,8 @@ Discord messages; and one run of the whole step on real services.
 """
 
 import datetime
+import os
+import tempfile
 import unittest
 from contextlib import closing
 from decimal import Decimal
@@ -987,7 +989,7 @@ class NotifierStopMessagesTest(unittest.TestCase):
         self.sent = []
         self.answer = None
         self.notifier.send_notifications = (
-            lambda embed, webhook_url=None: self.sent.append(embed) or self.answer)
+            lambda embed, webhook_url=None, dedupe=True: self.sent.append(embed) or self.answer)
 
     def test_a_stop_reached_at_its_level_reads_as_such(self):
         self.assertEqual(
@@ -1028,7 +1030,7 @@ class NotifierStopMessagesTest(unittest.TestCase):
     def test_breach_alert_is_unsent_only_when_the_send_says_so(self):
         self.answer = False
         self.assertFalse(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
-        for sent in (True, None):  # None: a duplicate that went out earlier
+        for sent in (True, None):  # None: only a skipped duplicate, never sent here
             self.answer = sent
             self.assertTrue(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
 
@@ -1082,8 +1084,16 @@ class SendNotificationsAnswerTest(unittest.TestCase):
         self.posts.assert_not_called()
 
     def test_none_only_for_a_duplicate_that_already_went_out(self):
-        self.assertIsNone(self.send(204, logged="zz stop check answer 204"))
+        self.assertIsNone(self.send(
+            204, logged="2026-06-16 18:00:00 - zz stop check answer 204\n"))
         self.posts.assert_not_called()
+
+    def test_a_title_inside_a_longer_logged_title_is_not_a_duplicate(self):
+        # The #569 review: "3 stop(s) ..." is a substring of "23 stop(s) ...",
+        # and was skipped as one.
+        self.assertIs(self.send(
+            204, logged="2026-06-16 18:00:00 - zzz stop check answer 204 later\n"), True)
+        self.posts.assert_called_once()
 
     def test_a_breach_alert_with_no_webhook_is_not_counted_as_sent(self):
         notifier = Notifier.__new__(Notifier)
@@ -1091,6 +1101,55 @@ class SendNotificationsAnswerTest(unittest.TestCase):
         with mock.patch("notifier.os.path.exists", return_value=False), \
                 mock.patch("builtins.open", mock.mock_open()):
             self.assertFalse(notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
+
+
+class StopAlertsThroughTheRealNotifierTest(unittest.TestCase):
+    """Both batches of a long list reach Discord through the real Notifier and
+    its notification.log (the #569 review): the fakes above stand in for it,
+    and the log's title dedupe once swallowed the second batch while
+    report_triggered_stops marked its stops as announced."""
+
+    def setUp(self):
+        cwd = os.getcwd()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        os.chdir(tmp.name)  # notification.log is written to the cwd
+        self.addCleanup(os.chdir, cwd)
+        post = mock.patch("notifier.requests.post")
+        self.post = post.start()
+        self.addCleanup(post.stop)
+        self.post.return_value.status_code = 204
+        self.notifier = Notifier.__new__(Notifier)
+        self.notifier.discord_webhook_url = "https://discord.invalid/hook"
+
+    def test_the_second_batch_is_posted_and_names_the_stops_it_marks(self):
+        # 23 owed -> "23 stop(s) reached" then "3 stop(s) reached" the same day.
+        many = [reached_stop(stop_id=i + 1, symbol=f"S{i}")
+                for i in range(main.STOP_ALERT_MESSAGE_LINES + 3)]
+        marked = set()
+        stops = mock.Mock()
+        stops.unalerted_triggers.side_effect = (
+            lambda owner: [s for s in many if s["stop_id"] not in marked])
+        stops.mark_alerted.side_effect = (
+            lambda owner, stop_ids: marked.update(stop_ids) or len(stop_ids))
+
+        main.report_triggered_stops(stops, self.notifier, "john", today=TUESDAY)
+        self.assertEqual(
+            main.report_triggered_stops(stops, self.notifier, "john", today=TUESDAY), 3)
+
+        self.assertEqual(self.post.call_count, 2)
+        second = self.post.call_args_list[1].kwargs["json"]["embeds"][0]
+        self.assertEqual(second["title"], "3 stop(s) reached, reported 2026-06-16")
+        for stop in many[main.STOP_ALERT_MESSAGE_LINES:]:
+            self.assertIn(f"- {stop['symbol']}: ", second["description"])
+        self.assertEqual(marked, {s["stop_id"] for s in many})
+
+    def test_a_same_title_on_a_later_run_is_still_sent(self):
+        # The title is a count and a day, so it can repeat for other stops;
+        # the database, not the log, says what was announced.
+        for _ in range(2):
+            self.assertTrue(self.notifier.send_stop_alert([reached_stop()], 1, "2026-06-16"))
+        self.assertEqual(self.post.call_count, 2)
 
 
 # --------------------------------------------------------------------------
